@@ -1,3 +1,4 @@
+import re
 import copy
 import logging
 from collections.abc import Callable, Iterator
@@ -65,6 +66,81 @@ _JSON_START_BYTES = frozenset(b'{["-tfn0123456789')
 def _looks_like_json(content: bytes) -> bool:
     stripped = content.lstrip()
     return bool(stripped) and stripped[0] in _JSON_START_BYTES
+
+
+# Keys an API conventionally uses for the machine-readable identity of an error, and for the docs
+# link explaining it. The human-readable siblings — `message`, `detail`, `reason`, `title` — are
+# deliberately absent: that's where an API puts the account, billing, or record detail that has no
+# business in a persisted, logged error message.
+_ERROR_CODE_KEYS = ("code", "error_code", "errorCode", "error", "type")
+_ERROR_LINK_KEYS = ("more_info", "documentation_url", "doc_url", "type")
+# Wrappers the error object commonly sits inside, e.g. {"errors": [{"code": ...}]}.
+_ERROR_WRAPPER_KEYS = ("error", "errors", "meta")
+# An identifier: digits, a slug, a dotted or namespaced token. Anything with a space is prose.
+_ERROR_CODE_PATTERN = re.compile(r"^[A-Za-z0-9_.:/-]{1,64}$")
+_ERROR_LINK_LIMIT = 200
+
+
+def _error_code_value(value: Any) -> Optional[str]:
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, int | float):
+        return str(value)
+    if isinstance(value, str) and _ERROR_CODE_PATTERN.match(value):
+        return value
+    return None
+
+
+def _error_link_value(value: Any) -> Optional[str]:
+    if not isinstance(value, str) or len(value) > _ERROR_LINK_LIMIT:
+        return None
+    parts = urlsplit(value)
+    # A docs link is a bare https URL. A query string or userinfo would be carrying state, which is
+    # exactly what must not reach the error message.
+    if parts.scheme != "https" or parts.query or parts.fragment or "@" in parts.netloc:
+        return None
+    return value
+
+
+def _error_identity(response: Response) -> str:
+    """The machine-readable identity of an API error: its code, and the docs link explaining it.
+
+    `requests` builds its HTTPError message from the status, reason, and URL alone, so the part of
+    the response that names the cause never reaches `latest_error` and a 4xx can only be diagnosed
+    by its status code. This reads back the code and the docs link, and nothing else — no free
+    text, so no customer data, whatever the API chose to put in its error body.
+    """
+    try:
+        body = response.json()
+    except Exception:
+        return ""
+
+    candidates: list[dict[str, Any]] = []
+    if isinstance(body, dict):
+        candidates.append(body)
+        for key in _ERROR_WRAPPER_KEYS:
+            nested = body.get(key)
+            if isinstance(nested, list):
+                nested = nested[0] if nested else None
+            if isinstance(nested, dict):
+                candidates.append(nested)
+
+    parts: list[str] = []
+    for candidate in candidates:
+        for key in _ERROR_CODE_KEYS:
+            code = _error_code_value(candidate.get(key))
+            if code is not None:
+                parts.append(f"code={code}")
+                break
+        for key in _ERROR_LINK_KEYS:
+            link = _error_link_value(candidate.get(key))
+            if link is not None:
+                parts.append(link)
+                break
+        if parts:
+            break
+
+    return " ".join(parts)
 
 
 def _safe_url(url: str) -> str:
@@ -459,7 +535,13 @@ class RESTClient:
             try:
                 response.raise_for_status()
             except HTTPError as e:
-                raise HTTPError(self._redact(str(e)), response=e.response, request=e.request) from None
+                message = str(e)
+                # Appended after the stock message, so non-retryable-error patterns — which match
+                # the message as a substring — keep matching.
+                identity = _error_identity(response)
+                if identity:
+                    message = f"{message} | api error: {identity}"
+                raise HTTPError(self._redact(message), response=e.response, request=e.request) from None
 
         # Parse inside the retry so a truncated/partial body is reissued like a 429/5xx
         # instead of bubbling up uncaught and failing the import.

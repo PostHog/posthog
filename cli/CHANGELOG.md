@@ -1,5 +1,11 @@
 # posthog-cli
 
+## 0.11.1 — 2026-08-13
+
+### Patch changes
+
+- [c75bed06227](https://github.com/PostHog/posthog/commit/c75bed062278959c10907d1245c39a0d8ef20d11) Retry transient GitHub release download failures with exponential backoff when installing `@posthog/cli` from npm. — Thanks @marandaneto!
+
 ## 0.11.0 — 2026-08-12
 
 ### Minor changes

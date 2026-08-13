@@ -3,6 +3,7 @@ import { actionToUrl } from 'kea-router'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { buildTeamScopedPersistenceConfig } from 'lib/logic/persistence'
 import { getDefaultInterval, isValidRelativeOrAbsoluteDate, updateDatesWithInterval } from 'lib/utils/dateFilters'
 import { uuid } from 'lib/utils/dom'
 import { teamLogic } from 'scenes/teamLogic'
@@ -205,9 +206,6 @@ export interface DateFilterState extends DateRange {
     interval: IntervalType
 }
 
-const teamId = window.POSTHOG_APP_CONTEXT?.current_team?.id
-const persistConfig = { persist: true, prefix: `${teamId}__` }
-
 const INITIAL_DATE_FROM = '-7d' as string | null
 const INITIAL_DATE_TO = null as string | null
 const INITIAL_INTERVAL = getDefaultInterval(INITIAL_DATE_FROM, INITIAL_DATE_TO)
@@ -300,10 +298,12 @@ export interface marketingAnalyticsLogicActions {
         args_0?:
             | {
                   force?: boolean
+                  shallow?: boolean
               }
             | undefined
     ) => {
         force?: boolean
+        shallow?: boolean
     } // sourceManagementLogic
     loadSources: () => {
         value: true
@@ -623,161 +623,169 @@ export const marketingAnalyticsLogic = kea<marketingAnalyticsLogicType>([
         setDrillDownLevel: (level: MarketingAnalyticsDrillDownLevel) => ({ level }),
         setInitialized: true,
     }),
-    reducers({
-        activeTab: [
-            MarketingAnalyticsTab.DASHBOARD as MarketingAnalyticsTab,
-            {
-                setActiveTab: (_, { tab }) => tab,
-            },
-        ],
-        initialized: [
-            false,
-            {
-                setInitialized: () => true,
-            },
-        ],
-        draftConversionGoal: [
-            null as ConversionGoalFilter | null,
-            {
-                setDraftConversionGoal: (_, { goal }) => goal,
-            },
-        ],
-        conversionGoalInput: [
-            {
-                ...defaultConversionGoalFilter,
-                conversion_goal_id: uuid(),
-                conversion_goal_name: '',
-            } as ConversionGoalFilter,
-            {
-                setConversionGoalInput: (_, { goal }) => goal,
-            },
-        ],
-        compareFilter: [
-            { compare: true } as CompareFilter,
-            persistConfig,
-            {
-                setCompareFilter: (_, { compareFilter }) => compareFilter,
-                syncFromUrl: (state, { params }) => {
-                    if (params.compare === undefined && params.compare_to === undefined) {
-                        return state
-                    }
-                    return {
-                        ...state,
-                        ...(params.compare !== undefined ? { compare: params.compare } : {}),
-                        ...(params.compare_to !== undefined ? { compare_to: params.compare_to } : {}),
-                    }
+    reducers(() => {
+        const persistConfig = buildTeamScopedPersistenceConfig()
+
+        return {
+            activeTab: [
+                MarketingAnalyticsTab.DASHBOARD as MarketingAnalyticsTab,
+                {
+                    setActiveTab: (_, { tab }) => tab,
                 },
-            },
-        ],
-        integrationFilter: [
-            { integrationSourceIds: [] } as IntegrationFilter,
-            persistConfig,
-            {
-                setIntegrationFilter: (_, { integrationFilter }) => integrationFilter,
-                syncFromUrl: (state, { params }) =>
-                    params.integrationSourceIds ? { integrationSourceIds: params.integrationSourceIds } : state,
-            },
-        ],
-        dateFilter: [
-            {
-                dateFrom: INITIAL_DATE_FROM,
-                dateTo: INITIAL_DATE_TO,
-                interval: INITIAL_INTERVAL,
-            },
-            persistConfig,
-            {
-                setDates: (_, { dateFrom, dateTo }) => {
-                    if (dateTo && !isValidRelativeOrAbsoluteDate(dateTo)) {
-                        dateTo = INITIAL_DATE_TO
-                    }
-                    if (dateFrom && !isValidRelativeOrAbsoluteDate(dateFrom)) {
-                        dateFrom = INITIAL_DATE_FROM
-                    }
-                    return {
-                        dateFrom,
-                        dateTo,
-                        interval: getDefaultInterval(dateFrom, dateTo),
-                    }
+            ],
+            initialized: [
+                false,
+                {
+                    setInitialized: () => true,
                 },
-                setDateInterval: (state, { interval }) => {
-                    const { dateFrom, dateTo } = updateDatesWithInterval(interval, state.dateFrom, state.dateTo)
-                    return {
-                        dateFrom,
-                        dateTo,
-                        interval,
-                    }
+            ],
+            draftConversionGoal: [
+                null as ConversionGoalFilter | null,
+                {
+                    setDraftConversionGoal: (_, { goal }) => goal,
                 },
-                setDatesAndInterval: (_, { dateFrom, dateTo, interval }) => {
-                    if (!dateFrom && !dateTo) {
-                        dateFrom = INITIAL_DATE_FROM
-                        dateTo = INITIAL_DATE_TO
-                    }
-                    if (dateTo && !isValidRelativeOrAbsoluteDate(dateTo)) {
-                        dateTo = INITIAL_DATE_TO
-                    }
-                    if (dateFrom && !isValidRelativeOrAbsoluteDate(dateFrom)) {
-                        dateFrom = INITIAL_DATE_FROM
-                    }
-                    return {
-                        dateFrom,
-                        dateTo,
-                        interval: interval || getDefaultInterval(dateFrom, dateTo),
-                    }
+            ],
+            conversionGoalInput: [
+                {
+                    ...defaultConversionGoalFilter,
+                    conversion_goal_id: uuid(),
+                    conversion_goal_name: '',
+                } as ConversionGoalFilter,
+                {
+                    setConversionGoalInput: (_, { goal }) => goal,
                 },
-                syncFromUrl: (state, { params }) => {
-                    if (params.dateFrom === undefined && params.dateTo === undefined && params.interval === undefined) {
-                        return state
-                    }
-                    const dateFrom = params.dateFrom ?? state.dateFrom
-                    const dateTo = params.dateTo ?? state.dateTo
-                    const interval = params.interval ?? state.interval
-                    return { dateFrom, dateTo, interval }
+            ],
+            compareFilter: [
+                { compare: true } as CompareFilter,
+                persistConfig,
+                {
+                    setCompareFilter: (_, { compareFilter }) => compareFilter,
+                    syncFromUrl: (state, { params }) => {
+                        if (params.compare === undefined && params.compare_to === undefined) {
+                            return state
+                        }
+                        return {
+                            ...state,
+                            ...(params.compare !== undefined ? { compare: params.compare } : {}),
+                            ...(params.compare_to !== undefined ? { compare_to: params.compare_to } : {}),
+                        }
+                    },
                 },
-            },
-        ],
-        columnConfigModalVisible: [
-            false,
-            {
-                showColumnConfigModal: () => true,
-                hideColumnConfigModal: () => false,
-            },
-        ],
-        conversionGoalModalVisible: [
-            false,
-            {
-                showConversionGoalModal: () => true,
-                hideConversionGoalModal: () => false,
-            },
-        ],
-        chartDisplayType: [
-            ChartDisplayType.ActionsAreaGraph as ChartDisplayType,
-            persistConfig,
-            {
-                setChartDisplayType: (_, { chartDisplayType }) => chartDisplayType,
-                syncFromUrl: (state, { params }) =>
-                    params.chartDisplayType !== undefined ? params.chartDisplayType : state,
-            },
-        ],
-        tileColumnSelection: [
-            MarketingAnalyticsColumnsSchemaNames.Cost as validColumnsForTiles,
-            persistConfig,
-            {
-                setTileColumnSelection: (_, { column }) => column,
-                syncFromUrl: (state, { params }) =>
-                    params.tileColumnSelection !== undefined
-                        ? (params.tileColumnSelection as validColumnsForTiles)
-                        : state,
-            },
-        ],
-        _drillDownLevel: [
-            MarketingAnalyticsDrillDownLevel.Campaign as MarketingAnalyticsDrillDownLevel,
-            persistConfig,
-            {
-                setDrillDownLevel: (_, { level }) => level,
-                syncFromUrl: (state, { params }) =>
-                    params.drillDownLevel !== undefined ? params.drillDownLevel : state,
-            },
-        ],
+            ],
+            integrationFilter: [
+                { integrationSourceIds: [] } as IntegrationFilter,
+                persistConfig,
+                {
+                    setIntegrationFilter: (_, { integrationFilter }) => integrationFilter,
+                    syncFromUrl: (state, { params }) =>
+                        params.integrationSourceIds ? { integrationSourceIds: params.integrationSourceIds } : state,
+                },
+            ],
+            dateFilter: [
+                {
+                    dateFrom: INITIAL_DATE_FROM,
+                    dateTo: INITIAL_DATE_TO,
+                    interval: INITIAL_INTERVAL,
+                },
+                persistConfig,
+                {
+                    setDates: (_, { dateFrom, dateTo }) => {
+                        if (dateTo && !isValidRelativeOrAbsoluteDate(dateTo)) {
+                            dateTo = INITIAL_DATE_TO
+                        }
+                        if (dateFrom && !isValidRelativeOrAbsoluteDate(dateFrom)) {
+                            dateFrom = INITIAL_DATE_FROM
+                        }
+                        return {
+                            dateFrom,
+                            dateTo,
+                            interval: getDefaultInterval(dateFrom, dateTo),
+                        }
+                    },
+                    setDateInterval: (state, { interval }) => {
+                        const { dateFrom, dateTo } = updateDatesWithInterval(interval, state.dateFrom, state.dateTo)
+                        return {
+                            dateFrom,
+                            dateTo,
+                            interval,
+                        }
+                    },
+                    setDatesAndInterval: (_, { dateFrom, dateTo, interval }) => {
+                        if (!dateFrom && !dateTo) {
+                            dateFrom = INITIAL_DATE_FROM
+                            dateTo = INITIAL_DATE_TO
+                        }
+                        if (dateTo && !isValidRelativeOrAbsoluteDate(dateTo)) {
+                            dateTo = INITIAL_DATE_TO
+                        }
+                        if (dateFrom && !isValidRelativeOrAbsoluteDate(dateFrom)) {
+                            dateFrom = INITIAL_DATE_FROM
+                        }
+                        return {
+                            dateFrom,
+                            dateTo,
+                            interval: interval || getDefaultInterval(dateFrom, dateTo),
+                        }
+                    },
+                    syncFromUrl: (state, { params }) => {
+                        if (
+                            params.dateFrom === undefined &&
+                            params.dateTo === undefined &&
+                            params.interval === undefined
+                        ) {
+                            return state
+                        }
+                        const dateFrom = params.dateFrom ?? state.dateFrom
+                        const dateTo = params.dateTo ?? state.dateTo
+                        const interval = params.interval ?? state.interval
+                        return { dateFrom, dateTo, interval }
+                    },
+                },
+            ],
+            columnConfigModalVisible: [
+                false,
+                {
+                    showColumnConfigModal: () => true,
+                    hideColumnConfigModal: () => false,
+                },
+            ],
+            conversionGoalModalVisible: [
+                false,
+                {
+                    showConversionGoalModal: () => true,
+                    hideConversionGoalModal: () => false,
+                },
+            ],
+            chartDisplayType: [
+                ChartDisplayType.ActionsAreaGraph as ChartDisplayType,
+                persistConfig,
+                {
+                    setChartDisplayType: (_, { chartDisplayType }) => chartDisplayType,
+                    syncFromUrl: (state, { params }) =>
+                        params.chartDisplayType !== undefined ? params.chartDisplayType : state,
+                },
+            ],
+            tileColumnSelection: [
+                MarketingAnalyticsColumnsSchemaNames.Cost as validColumnsForTiles,
+                persistConfig,
+                {
+                    setTileColumnSelection: (_, { column }) => column,
+                    syncFromUrl: (state, { params }) =>
+                        params.tileColumnSelection !== undefined
+                            ? (params.tileColumnSelection as validColumnsForTiles)
+                            : state,
+                },
+            ],
+            _drillDownLevel: [
+                MarketingAnalyticsDrillDownLevel.Campaign as MarketingAnalyticsDrillDownLevel,
+                persistConfig,
+                {
+                    setDrillDownLevel: (_, { level }) => level,
+                    syncFromUrl: (state, { params }) =>
+                        params.drillDownLevel !== undefined ? params.drillDownLevel : state,
+                },
+            ],
+        }
     }),
     selectors({
         drillDownLevel: [
