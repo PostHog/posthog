@@ -2574,7 +2574,7 @@ def update_task_run(
             logger.warning("task_run.pr_progress_emit_failed", extra={"run_id": str(run.id)}, exc_info=True)
 
     new_commit_head = _commit_push_head_sha(run.output)
-    if new_commit_head and new_commit_head != old_commit_head:
+    if isinstance(run.output, dict) and new_commit_head and new_commit_head != old_commit_head:
         post_commits_pushed_thread_update(run, run.output["commit_push"])
 
     return _task_run_detail_to_dto(run)
@@ -7056,6 +7056,8 @@ def post_commits_pushed_thread_update(run: TaskRun, push: dict) -> None:
         if task is None or not _agent_thread_updates_enabled(task.created_by):
             return
         raw_commits = push.get("commits")
+        if not isinstance(raw_commits, list):
+            return
         commits = [
             {
                 "sha": str(commit.get("sha") or "")[:64],
@@ -7218,7 +7220,7 @@ def post_artifact_thread_update(run: TaskRun, artifact: dict, *, revised: bool) 
         if not artifact_id or not name:
             return
         raw_version = artifact.get("current_version")
-        version = raw_version if isinstance(raw_version, int) and not isinstance(raw_version, bool) else 1
+        version = raw_version if isinstance(raw_version, int) else 1
         task = Task.objects.select_related("created_by").filter(id=run.task_id, team_id=run.team_id).first()
         if task is None or not _agent_thread_updates_enabled(task.created_by):
             return
