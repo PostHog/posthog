@@ -13,7 +13,7 @@ over-count there.
 """
 
 import os
-from typing import Any, Optional
+from typing import Any, Optional, cast
 
 import pyarrow as pa
 import pyarrow.compute as pc
@@ -39,6 +39,21 @@ def _pod_name() -> Optional[str]:
     return os.environ.get("HOSTNAME")
 
 
+def _is_list_like(col_type: pa.DataType) -> bool:
+    """True for any type whose payload lives in a child values array reachable via `list_flatten`."""
+    return (
+        pa.types.is_list(col_type)
+        or pa.types.is_large_list(col_type)
+        or pa.types.is_fixed_size_list(col_type)
+        or pa.types.is_map(col_type)
+    )
+
+
+def _list_offset_width(col_type: pa.DataType) -> int:
+    """Bytes per offset entry: large lists carry 64-bit offsets, everything else 32-bit."""
+    return 8 if pa.types.is_large_list(col_type) else 4
+
+
 def _column_payload_bytes(col: pa.ChunkedArray) -> int:
     """Slice-accurate in-memory payload bytes: value bytes + offset buffer (string/binary/list)
     or col_length * byte_width (fixed-width); nested/other types return 0. Avoids `.nbytes` (wrong for slices)."""
@@ -50,9 +65,23 @@ def _column_payload_bytes(col: pa.ChunkedArray) -> int:
     if pa.types.is_large_string(col_type) or pa.types.is_large_binary(col_type):
         payload = int(pc.sum(pc.binary_length(col)).as_py() or 0)
         return payload + col_length * 8
-    if pa.types.is_list(col_type):
-        elements = int(pc.sum(pc.list_value_length(col)).as_py() or 0)
-        return elements + col_length * 4
+    if _is_list_like(col_type):
+        # Recurse into the child values. `list_value_length` counts elements, not their size, so a
+        # `list<string>` of JSON blobs measured a few bytes per row instead of kilobytes — sources
+        # that map repeated fields to lists (Google Ads serializes repeated protobuf messages to
+        # JSON strings) undercounted by orders of magnitude, which silently defeats the byte-based
+        # chunk flush in `Batcher` and the recursive split in `_split_table`.
+        offsets = 0 if pa.types.is_fixed_size_list(col_type) else col_length * _list_offset_width(col_type)
+        try:
+            # `list_flatten` has no map kernel, so a map is viewed as its equivalent list of
+            # key/value structs first — a zero-copy cast, since that is the layout already.
+            if pa.types.is_map(col_type):
+                col = col.cast(pa.list_(pa.struct([("key", col_type.key_type), ("value", col_type.item_type)])))
+            # `list_flatten` preserves chunking, so a column in yields a column out; the stubs
+            # describe the bare-`Array` overload only.
+            return _column_payload_bytes(cast(pa.ChunkedArray, pc.list_flatten(col))) + offsets
+        except Exception:
+            return offsets
     if pa.types.is_struct(col_type):
         # Recurse into child fields so a nested struct (e.g. a Mongo document under `data`) is counted
         # instead of undercounting to 0. A flatten failure degrades to 0 rather than breaking accounting.

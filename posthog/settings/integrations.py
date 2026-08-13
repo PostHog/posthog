@@ -1,5 +1,11 @@
 from posthog.settings.utils import get_from_env, get_list, str_to_bool
 
+# Integration service. Both unset (the default) means credential reads fall back to the
+# local environment; see posthog/integration_secrets/client.py for the contract.
+INTEGRATION_SERVICE_URL = get_from_env("INTEGRATION_SERVICE_URL", "")
+# Comma-separated `new,old`, newest first. Per deployment, not fleet-wide.
+INTEGRATION_SERVICE_JWT_SECRET = get_from_env("INTEGRATION_SERVICE_JWT_SECRET", "")
+
 HUBSPOT_APP_CLIENT_ID = get_from_env("HUBSPOT_APP_CLIENT_ID", "")
 HUBSPOT_APP_CLIENT_SECRET = get_from_env("HUBSPOT_APP_CLIENT_SECRET", "")
 

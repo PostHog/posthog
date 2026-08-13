@@ -14,6 +14,7 @@ from opentelemetry import trace
 from rest_framework.authentication import SessionAuthentication
 
 from posthog.clickhouse.query_tagging import get_query_tag_value
+from posthog.constants import POSTHOG_INTERNAL_EMAIL_SUFFIX
 from posthog.models import Organization, User
 from posthog.models.activity_logging.model_activity import is_impersonated_session
 from posthog.models.team import Team
@@ -71,6 +72,9 @@ def report_user_signed_up(
         properties=props,
         groups=groups(user.organization, user.team),
     )
+
+    if is_organization_first_user and user.organization is not None:
+        exclude_internal_organization_from_crm(user.organization, user)
 
 
 def report_user_verified_email(current_user: User) -> None:
@@ -610,3 +614,18 @@ def report_organization_action(
 
     if group_properties:
         posthoganalytics.group_identify("organization", str(organization.id), properties=group_properties)
+
+
+def exclude_internal_organization_from_crm(organization: Organization, creator: Optional[User]) -> None:
+    """
+    Organizations created by PostHog staff are internal demo or test workspaces, which must never
+    be synced to customer-facing CRM tooling. The `exclude_from_crm` organization group property
+    gates the CDP destinations that push organizations and their members to those tools.
+    """
+    if creator is None or not creator.email or not creator.email.endswith(POSTHOG_INTERNAL_EMAIL_SUFFIX):
+        return
+    posthoganalytics.group_identify(
+        "organization",
+        str(organization.id),
+        properties={"exclude_from_crm": True},
+    )

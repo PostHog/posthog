@@ -282,6 +282,45 @@ class AccountTableSort:
     definition_id: UUID | None = None
 
 
+class AccountTableAggregation(str, Enum):
+    SUM = "sum"
+    AVERAGE = "avg"
+    MINIMUM = "min"
+    MAXIMUM = "max"
+    MEDIAN = "median"
+
+
+class AccountTableThresholdOperator(str, Enum):
+    GREATER_THAN = "gt"
+    GREATER_THAN_OR_EQUAL = "gte"
+    LESS_THAN = "lt"
+    LESS_THAN_OR_EQUAL = "lte"
+    EQUAL = "exact"
+    NOT_EQUAL = "is_not"
+
+
+@dataclass(frozen=True, kw_only=True)
+class AccountTableCountMetric:
+    pass
+
+
+@dataclass(frozen=True, kw_only=True)
+class AccountTableAggregateMetric:
+    aggregation: AccountTableAggregation
+    definition_id: UUID
+    scale: float | None = None
+
+
+@dataclass(frozen=True, kw_only=True)
+class AccountTableCountThresholdMetric:
+    definition_id: UUID
+    operator: AccountTableThresholdOperator
+    value: float
+
+
+AccountTableMetric = AccountTableCountMetric | AccountTableAggregateMetric | AccountTableCountThresholdMetric
+
+
 @dataclass(frozen=True, kw_only=True)
 class AccountTableCustomPropertyHistoryPoint:
     timestamp: datetime
@@ -498,6 +537,51 @@ class CustomerJourneyView:
     created_at: datetime | None = None
     created_by: int | None = None
     updated_at: datetime | None = None
+
+
+@stdlib_dataclass(frozen=True)
+class FeatureRequestProductAreaView:
+    id: UUID | None = None
+    name: str = ""
+    display_order: int = 0
+    is_active: bool = True
+    created_at: datetime | None = None
+    updated_at: datetime | None = None
+
+
+@stdlib_dataclass(frozen=True)
+class FeatureRequestAccountView:
+    id: UUID | None = None
+    name: str = ""
+
+
+@stdlib_dataclass(frozen=True)
+class FeatureRequestView:
+    id: UUID | None = None
+    title: str = ""
+    description: str = ""
+    request_status: str = "requested"
+    account: FeatureRequestAccountView | None = None
+    product_areas: list[FeatureRequestProductAreaView] = field(default_factory=list)
+    created_by: int | None = None
+    updated_by: int | None = None
+    created_at: datetime | None = None
+    updated_at: datetime | None = None
+
+
+@dataclass(frozen=True)
+class CreateFeatureRequestInput:
+    title: str
+    description: str
+    account_id: UUID
+    product_area_ids: tuple[UUID, ...]
+    idempotency_key: UUID
+
+
+@dataclass(frozen=True)
+class FeatureRequestCreateOutcome:
+    request: FeatureRequestView
+    created: bool
 
 
 @stdlib_dataclass(frozen=True)

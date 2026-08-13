@@ -281,6 +281,30 @@
             "required": ["kind", "accountId"],
             "type": "object"
         },
+        "AccountsTableAggregateMetric": {
+            "additionalProperties": false,
+            "properties": {
+                "aggregation": {
+                    "$ref": "#/definitions/AccountsTableAggregation"
+                },
+                "column": {
+                    "$ref": "#/definitions/AccountsTableCustomPropertyColumn"
+                },
+                "kind": {
+                    "const": "aggregate",
+                    "type": "string"
+                },
+                "scale": {
+                    "type": "number"
+                }
+            },
+            "required": ["kind", "aggregation", "column"],
+            "type": "object"
+        },
+        "AccountsTableAggregation": {
+            "enum": ["sum", "avg", "min", "max", "median"],
+            "type": "string"
+        },
         "AccountsTableAssignedToFilter": {
             "additionalProperties": false,
             "properties": {
@@ -325,6 +349,37 @@
                 }
             ],
             "required": ["kind"],
+            "type": "object"
+        },
+        "AccountsTableCountMetric": {
+            "additionalProperties": false,
+            "properties": {
+                "kind": {
+                    "const": "count",
+                    "type": "string"
+                }
+            },
+            "required": ["kind"],
+            "type": "object"
+        },
+        "AccountsTableCountThresholdMetric": {
+            "additionalProperties": false,
+            "properties": {
+                "column": {
+                    "$ref": "#/definitions/AccountsTableCustomPropertyColumn"
+                },
+                "kind": {
+                    "const": "count_threshold",
+                    "type": "string"
+                },
+                "operator": {
+                    "$ref": "#/definitions/AccountsTableThresholdOperator"
+                },
+                "value": {
+                    "type": "number"
+                }
+            },
+            "required": ["kind", "column", "operator", "value"],
             "type": "object"
         },
         "AccountsTableCustomPropertyColumn": {
@@ -451,6 +506,25 @@
             "required": ["kind"],
             "type": "object"
         },
+        "AccountsTableMetric": {
+            "description": "A typed aggregate evaluated against the filtered account set.",
+            "discriminator": {
+                "propertyName": "kind"
+            },
+            "oneOf": [
+                {
+                    "$ref": "#/definitions/AccountsTableCountMetric"
+                },
+                {
+                    "$ref": "#/definitions/AccountsTableAggregateMetric"
+                },
+                {
+                    "$ref": "#/definitions/AccountsTableCountThresholdMetric"
+                }
+            ],
+            "required": ["kind"],
+            "type": "object"
+        },
         "AccountsTableNoteCountColumn": {
             "additionalProperties": false,
             "properties": {
@@ -485,6 +559,13 @@
                 },
                 "limit": {
                     "$ref": "#/definitions/positive_integer"
+                },
+                "metrics": {
+                    "description": "Aggregates to evaluate against the filtered account set. A metrics query skips row loading.",
+                    "items": {
+                        "$ref": "#/definitions/AccountsTableMetric"
+                    },
+                    "type": "array"
                 },
                 "modifiers": {
                     "$ref": "#/definitions/HogQLQueryModifiers",
@@ -530,6 +611,13 @@
                 },
                 "limit": {
                     "$ref": "#/definitions/integer"
+                },
+                "metricsResults": {
+                    "description": "Aggregated values in the same order as the requested metrics.",
+                    "items": {
+                        "type": ["number", "null"]
+                    },
+                    "type": "array"
                 },
                 "modifiers": {
                     "$ref": "#/definitions/HogQLQueryModifiers",
@@ -748,6 +836,10 @@
             },
             "required": ["kind", "tagNames"],
             "type": "object"
+        },
+        "AccountsTableThresholdOperator": {
+            "enum": ["gt", "gte", "lt", "lte", "exact", "is_not"],
+            "type": "string"
         },
         "AccountsTableUnassignedFilter": {
             "additionalProperties": false,
@@ -5703,14 +5795,6 @@
             "enum": ["bing", "microsoft", "msads", "bing_video"],
             "type": "string"
         },
-        "BingAdsTableExclusions": {
-            "enum": ["performance"],
-            "type": "string"
-        },
-        "BingAdsTableKeywords": {
-            "enum": ["campaigns"],
-            "type": "string"
-        },
         "BoxPlotDatum": {
             "additionalProperties": false,
             "properties": {
@@ -6164,6 +6248,13 @@
                 },
                 "limit": {
                     "$ref": "#/definitions/integer"
+                },
+                "metricsResults": {
+                    "description": "Aggregated values in the same order as the requested metrics.",
+                    "items": {
+                        "type": ["number", "null"]
+                    },
+                    "type": "array"
                 },
                 "modifiers": {
                     "$ref": "#/definitions/HogQLQueryModifiers",
@@ -18210,6 +18301,13 @@
                                 "limit": {
                                     "$ref": "#/definitions/integer"
                                 },
+                                "metricsResults": {
+                                    "description": "Aggregated values in the same order as the requested metrics.",
+                                    "items": {
+                                        "type": ["number", "null"]
+                                    },
+                                    "type": "array"
+                                },
                                 "modifiers": {
                                     "$ref": "#/definitions/HogQLQueryModifiers",
                                     "description": "Modifiers used when performing the query"
@@ -19081,6 +19179,10 @@
                     "description": "Optional direct external data source id for schema introspection",
                     "type": "string"
                 },
+                "includeFields": {
+                    "description": "When false, skip serializing each table's fields (`fields` comes back empty). Defaults to true.",
+                    "type": "boolean"
+                },
                 "kind": {
                     "const": "DatabaseSchemaQuery",
                     "type": "string"
@@ -19091,6 +19193,13 @@
                 },
                 "response": {
                     "$ref": "#/definitions/DatabaseSchemaQueryResponse"
+                },
+                "tables": {
+                    "description": "Only serialize these tables (keys as returned in the response, e.g. `events` or `zendesk.groups`). Omit for all tables.",
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": "array"
                 },
                 "tags": {
                     "$ref": "#/definitions/QueryLogTags"
@@ -25549,7 +25658,17 @@
                 "Wix",
                 "Sevalla",
                 "Motion",
-                "Framer"
+                "Framer",
+                "Cloudinary",
+                "Uploadcare",
+                "WHMCS",
+                "MSG91",
+                "Depot",
+                "Schematic",
+                "Dokploy",
+                "RakutenAdvertising",
+                "Zitadel",
+                "DeelFlows"
             ],
             "type": "string"
         },
@@ -27141,16 +27260,8 @@
             ],
             "type": "string"
         },
-        "GoogleAdsTableExclusions": {
-            "enum": ["stats"],
-            "type": "string"
-        },
-        "GoogleAdsTableKeywords": {
-            "enum": ["campaign"],
-            "type": "string"
-        },
         "GroupMathType": {
-            "const": "unique_group",
+            "enum": ["unique_group", "first_time_for_group", "first_matching_event_for_group"],
             "type": "string"
         },
         "GroupNode": {
@@ -29868,14 +29979,6 @@
         },
         "LinkedinAdsDefaultSources": {
             "enum": ["linkedin", "li"],
-            "type": "string"
-        },
-        "LinkedinAdsTableExclusions": {
-            "enum": ["stats"],
-            "type": "string"
-        },
-        "LinkedinAdsTableKeywords": {
-            "enum": ["campaign_groups"],
             "type": "string"
         },
         "LoadingBlock": {
@@ -33636,24 +33739,6 @@
                         "statsTableName": {
                             "const": "campaign_overview_stats",
                             "type": "string"
-                        },
-                        "tableExclusions": {
-                            "items": {
-                                "const": "stats",
-                                "type": "string"
-                            },
-                            "maxItems": 1,
-                            "minItems": 1,
-                            "type": "array"
-                        },
-                        "tableKeywords": {
-                            "items": {
-                                "const": "campaign",
-                                "type": "string"
-                            },
-                            "maxItems": 1,
-                            "minItems": 1,
-                            "type": "array"
                         }
                     },
                     "required": [
@@ -33662,8 +33747,6 @@
                         "idField",
                         "campaignTableName",
                         "statsTableName",
-                        "tableKeywords",
-                        "tableExclusions",
                         "defaultSources",
                         "primarySource",
                         "adsetTableName",
@@ -33730,24 +33813,6 @@
                         "statsTableName": {
                             "const": "campaign_group_stats",
                             "type": "string"
-                        },
-                        "tableExclusions": {
-                            "items": {
-                                "const": "stats",
-                                "type": "string"
-                            },
-                            "maxItems": 1,
-                            "minItems": 1,
-                            "type": "array"
-                        },
-                        "tableKeywords": {
-                            "items": {
-                                "const": "campaign_groups",
-                                "type": "string"
-                            },
-                            "maxItems": 1,
-                            "minItems": 1,
-                            "type": "array"
                         }
                     },
                     "required": [
@@ -33756,8 +33821,6 @@
                         "idField",
                         "campaignTableName",
                         "statsTableName",
-                        "tableKeywords",
-                        "tableExclusions",
                         "defaultSources",
                         "primarySource",
                         "adsetTableName",
@@ -33956,24 +34019,6 @@
                         "statsTableName": {
                             "const": "campaign_stats",
                             "type": "string"
-                        },
-                        "tableExclusions": {
-                            "items": {
-                                "const": "stats",
-                                "type": "string"
-                            },
-                            "maxItems": 1,
-                            "minItems": 1,
-                            "type": "array"
-                        },
-                        "tableKeywords": {
-                            "items": {
-                                "const": "campaigns",
-                                "type": "string"
-                            },
-                            "maxItems": 1,
-                            "minItems": 1,
-                            "type": "array"
                         }
                     },
                     "required": [
@@ -33982,8 +34027,6 @@
                         "idField",
                         "campaignTableName",
                         "statsTableName",
-                        "tableKeywords",
-                        "tableExclusions",
                         "defaultSources",
                         "primarySource",
                         "adsetTableName",
@@ -34045,24 +34088,6 @@
                         "statsTableName": {
                             "const": "campaign_report",
                             "type": "string"
-                        },
-                        "tableExclusions": {
-                            "items": {
-                                "const": "report",
-                                "type": "string"
-                            },
-                            "maxItems": 1,
-                            "minItems": 1,
-                            "type": "array"
-                        },
-                        "tableKeywords": {
-                            "items": {
-                                "const": "campaigns",
-                                "type": "string"
-                            },
-                            "maxItems": 1,
-                            "minItems": 1,
-                            "type": "array"
                         }
                     },
                     "required": [
@@ -34071,8 +34096,6 @@
                         "idField",
                         "campaignTableName",
                         "statsTableName",
-                        "tableKeywords",
-                        "tableExclusions",
                         "defaultSources",
                         "primarySource",
                         "adsetTableName",
@@ -34133,24 +34156,6 @@
                         "statsTableName": {
                             "const": "campaign_report",
                             "type": "string"
-                        },
-                        "tableExclusions": {
-                            "items": {
-                                "const": "report",
-                                "type": "string"
-                            },
-                            "maxItems": 1,
-                            "minItems": 1,
-                            "type": "array"
-                        },
-                        "tableKeywords": {
-                            "items": {
-                                "const": "campaigns",
-                                "type": "string"
-                            },
-                            "maxItems": 1,
-                            "minItems": 1,
-                            "type": "array"
                         }
                     },
                     "required": [
@@ -34159,8 +34164,6 @@
                         "idField",
                         "campaignTableName",
                         "statsTableName",
-                        "tableKeywords",
-                        "tableExclusions",
                         "defaultSources",
                         "primarySource",
                         "adsetTableName",
@@ -34235,24 +34238,6 @@
                         "statsTableName": {
                             "const": "campaign_performance_report",
                             "type": "string"
-                        },
-                        "tableExclusions": {
-                            "items": {
-                                "const": "performance",
-                                "type": "string"
-                            },
-                            "maxItems": 1,
-                            "minItems": 1,
-                            "type": "array"
-                        },
-                        "tableKeywords": {
-                            "items": {
-                                "const": "campaigns",
-                                "type": "string"
-                            },
-                            "maxItems": 1,
-                            "minItems": 1,
-                            "type": "array"
                         }
                     },
                     "required": [
@@ -34261,8 +34246,6 @@
                         "idField",
                         "campaignTableName",
                         "statsTableName",
-                        "tableKeywords",
-                        "tableExclusions",
                         "defaultSources",
                         "primarySource",
                         "adsetTableName",
@@ -34361,24 +34344,6 @@
                         "statsTableName": {
                             "const": "campaign_stats_daily",
                             "type": "string"
-                        },
-                        "tableExclusions": {
-                            "items": {
-                                "const": "stats_daily",
-                                "type": "string"
-                            },
-                            "maxItems": 1,
-                            "minItems": 1,
-                            "type": "array"
-                        },
-                        "tableKeywords": {
-                            "items": {
-                                "const": "campaigns",
-                                "type": "string"
-                            },
-                            "maxItems": 1,
-                            "minItems": 1,
-                            "type": "array"
                         }
                     },
                     "required": [
@@ -34387,8 +34352,6 @@
                         "idField",
                         "campaignTableName",
                         "statsTableName",
-                        "tableKeywords",
-                        "tableExclusions",
                         "defaultSources",
                         "primarySource",
                         "adsetTableName",
@@ -34451,24 +34414,6 @@
                         "statsTableName": {
                             "const": "campaign_analytics",
                             "type": "string"
-                        },
-                        "tableExclusions": {
-                            "items": {
-                                "const": "analytics",
-                                "type": "string"
-                            },
-                            "maxItems": 1,
-                            "minItems": 1,
-                            "type": "array"
-                        },
-                        "tableKeywords": {
-                            "items": {
-                                "const": "campaigns",
-                                "type": "string"
-                            },
-                            "maxItems": 1,
-                            "minItems": 1,
-                            "type": "array"
                         }
                     },
                     "required": [
@@ -34477,8 +34422,6 @@
                         "idField",
                         "campaignTableName",
                         "statsTableName",
-                        "tableKeywords",
-                        "tableExclusions",
                         "defaultSources",
                         "primarySource",
                         "adsetTableName",
@@ -34516,18 +34459,6 @@
                 },
                 "statsTableName": {
                     "type": "string"
-                },
-                "tableExclusions": {
-                    "items": {
-                        "type": "string"
-                    },
-                    "type": "array"
-                },
-                "tableKeywords": {
-                    "items": {
-                        "type": "string"
-                    },
-                    "type": "array"
                 }
             },
             "required": [
@@ -34536,8 +34467,6 @@
                 "idField",
                 "campaignTableName",
                 "statsTableName",
-                "tableKeywords",
-                "tableExclusions",
                 "defaultSources",
                 "primarySource"
             ],
@@ -35571,14 +35500,6 @@
                 "facebook_marketplace",
                 "threads"
             ],
-            "type": "string"
-        },
-        "MetaAdsTableExclusions": {
-            "enum": ["stats"],
-            "type": "string"
-        },
-        "MetaAdsTableKeywords": {
-            "enum": ["campaigns"],
             "type": "string"
         },
         "MetricPropertyFilter": {
@@ -36633,6 +36554,7 @@
             "additionalProperties": false,
             "properties": {
                 "alias": {
+                    "description": "The replacement for the matched path. Use angle-bracket placeholders (`<id>`, `<uuid>`, `<slug>`) by convention, or reuse a capture group from the regex with ClickHouse `replaceRegexpAll` replacement syntax: `\\1` to `\\9` for a group and `\\0` for the whole match.",
                     "type": "string"
                 },
                 "order": {
@@ -37599,14 +37521,6 @@
         },
         "PinterestAdsDefaultSources": {
             "enum": ["pinterest"],
-            "type": "string"
-        },
-        "PinterestAdsTableExclusions": {
-            "enum": ["analytics"],
-            "type": "string"
-        },
-        "PinterestAdsTableKeywords": {
-            "enum": ["campaigns"],
             "type": "string"
         },
         "PlanningMessage": {
@@ -42815,6 +42729,13 @@
                         "limit": {
                             "$ref": "#/definitions/integer"
                         },
+                        "metricsResults": {
+                            "description": "Aggregated values in the same order as the requested metrics.",
+                            "items": {
+                                "type": ["number", "null"]
+                            },
+                            "type": "array"
+                        },
                         "modifiers": {
                             "$ref": "#/definitions/HogQLQueryModifiers",
                             "description": "Modifiers used when performing the query"
@@ -44823,6 +44744,13 @@
                         },
                         "limit": {
                             "$ref": "#/definitions/integer"
+                        },
+                        "metricsResults": {
+                            "description": "Aggregated values in the same order as the requested metrics.",
+                            "items": {
+                                "type": ["number", "null"]
+                            },
+                            "type": "array"
                         },
                         "modifiers": {
                             "$ref": "#/definitions/HogQLQueryModifiers",
@@ -46876,14 +46804,6 @@
             "enum": ["reddit"],
             "type": "string"
         },
-        "RedditAdsTableExclusions": {
-            "enum": ["report"],
-            "type": "string"
-        },
-        "RedditAdsTableKeywords": {
-            "enum": ["campaigns"],
-            "type": "string"
-        },
         "RefreshType": {
             "enum": [
                 "async",
@@ -48464,25 +48384,6 @@
                 "summary": {
                     "type": "string"
                 },
-                "summary_outcome": {
-                    "anyOf": [
-                        {
-                            "additionalProperties": false,
-                            "properties": {
-                                "description": {
-                                    "type": ["string", "null"]
-                                },
-                                "success": {
-                                    "type": ["boolean", "null"]
-                                }
-                            },
-                            "type": "object"
-                        },
-                        {
-                            "type": "null"
-                        }
-                    ]
-                },
                 "viewed": {
                     "description": "Whether this recording has been viewed by you already.",
                     "type": "boolean"
@@ -49033,14 +48934,6 @@
             "enum": ["snapchat"],
             "type": "string"
         },
-        "SnapchatAdsTableExclusions": {
-            "enum": ["stats_daily"],
-            "type": "string"
-        },
-        "SnapchatAdsTableKeywords": {
-            "enum": ["campaigns"],
-            "type": "string"
-        },
         "SourceConfig": {
             "additionalProperties": false,
             "properties": {
@@ -49343,6 +49236,10 @@
                 },
                 "label": {
                     "type": "string"
+                },
+                "multiple": {
+                    "description": "Allow selecting multiple values; the field's payload value becomes string[].",
+                    "type": "boolean"
                 },
                 "name": {
                     "type": "string"
@@ -51009,14 +50906,6 @@
         },
         "TikTokAdsDefaultSources": {
             "enum": ["tiktok"],
-            "type": "string"
-        },
-        "TikTokAdsTableExclusions": {
-            "enum": ["report"],
-            "type": "string"
-        },
-        "TikTokAdsTableKeywords": {
-            "enum": ["campaigns"],
             "type": "string"
         },
         "TileFilters": {

@@ -21,6 +21,7 @@ from products.tasks.backend.facade.access import compute_quota_limit_response
 from products.tasks.backend.facade.compute_quota import ComputeBillingLimitExceeded
 from products.tasks.backend.presentation.serializers import (
     ChannelContextGenerationSerializer,
+    ChannelDeleteConflictSerializer,
     ChannelFeedMessageSerializer,
     ChannelFeedMessageWriteSerializer,
     ChannelInstructionsSerializer,
@@ -147,13 +148,27 @@ class ChannelViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             raise NotFound()
         return Response(ChannelSerializer(channel).data)
 
-    @extend_schema(responses={204: None}, summary="Delete a public channel")
+    @extend_schema(
+        responses={
+            204: None,
+            409: OpenApiResponse(
+                response=ChannelDeleteConflictSerializer,
+                description="The space still contains tasks or canvases.",
+            ),
+        },
+        summary="Delete a public channel",
+    )
     def destroy(self, request, pk=None, **kwargs):
-        result = tasks_facade.delete_channel(pk, self.team_id)
+        result = tasks_facade.delete_channel(pk, self.team_id, self._user_id())
         if result == "not_found":
             raise NotFound()
         if result == "personal":
-            raise PermissionDenied("Personal channels cannot be deleted")
+            raise PermissionDenied("Your private space cannot be deleted")
+        if result == "not_empty":
+            return Response(
+                {"detail": "Remove this space's tasks and canvases before deleting it."},
+                status=status.HTTP_409_CONFLICT,
+            )
         return Response(status=status.HTTP_204_NO_CONTENT)
 
     @extend_schema(responses={200: ChannelSerializer}, summary="Get a channel")

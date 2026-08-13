@@ -79,6 +79,20 @@ DATA_WAREHOUSE_REPARTITION_OOM_WINDOW_DAYS = get_from_env(
     "DATA_WAREHOUSE_REPARTITION_OOM_WINDOW_DAYS", 7, type_cast=int
 )
 
+# Classification of a suspected OOM (see ExternalDataSchemaOOMEvent). Infrastructure takes
+# down many unrelated schemas at once, so an occurrence sharing a window with at least this many
+# distinct schemas across the fleet is attributed to infrastructure rather than to any one table.
+# The window extends this far on EACH SIDE of the occurrence being judged (total span = 2x).
+DATA_WAREHOUSE_OOM_INFRA_BURST_WINDOW_SECONDS = get_from_env(
+    "DATA_WAREHOUSE_OOM_INFRA_BURST_WINDOW_SECONDS", 1800, type_cast=int
+)
+DATA_WAREHOUSE_OOM_INFRA_BURST_MIN_SCHEMAS = get_from_env(
+    "DATA_WAREHOUSE_OOM_INFRA_BURST_MIN_SCHEMAS", 50, type_cast=int
+)
+# A burst must also span this many distinct teams: one tenant's source outage kills all of that
+# tenant's schemas at once, which is not infrastructure and must not suppress other tenants' counting.
+DATA_WAREHOUSE_OOM_INFRA_BURST_MIN_TEAMS = get_from_env("DATA_WAREHOUSE_OOM_INFRA_BURST_MIN_TEAMS", 10, type_cast=int)
+
 # Pre-write vacuum runs when this many delta commits have accrued since the last vacuum. Decoupled from
 # merge success so tables that OOM their merge still get their tombstones cleared (the compact-after-merge
 # path never runs for them). Vacuum only deletes dead files, so it's memory-safe even on oversized tables.

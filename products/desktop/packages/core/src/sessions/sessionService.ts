@@ -54,6 +54,7 @@ import {
   type Task,
 } from "@posthog/shared/domain-types";
 import type { CommentTarget } from "../comments/anchors";
+import type { AgentSessionNotification } from "../notification/agentSessionNotifications";
 import type { SpeechKind, SpeechSource } from "../speech/identifiers";
 import {
   CONTEXT_WINDOW_OPTION_CATEGORY,
@@ -134,6 +135,24 @@ const MAX_RESPONDED_PERMISSION_REQUEST_IDS = 500;
  * imperceptible for streamed text.
  */
 const SESSION_EVENT_FLUSH_MS = 16;
+/**
+ * Steering an adapter that can't fold a message into a running turn leaves only
+ * one way in: interrupt it. Cancelling the instant the user hits send cuts off
+ * whatever sentence was streaming, so wait for the agent's output to go quiet
+ * this long first. Several flush ticks of silence, not a pause between tokens.
+ */
+const STEER_INTERRUPT_QUIET_MS = 250;
+/**
+ * Ceiling on that wait, so an agent that streams without pausing still gets
+ * interrupted instead of holding the user's message indefinitely.
+ */
+const STEER_INTERRUPT_MAX_WAIT_MS = 1_500;
+
+/** The turn a steer was aimed at, so the interrupt cannot land on a later one. */
+interface SteeredTurn {
+  taskRunId: string;
+  promptId: number | null;
+}
 /**
  * A backgrounded session's transcript is freed this long after it stops being
  * viewed, and reloaded from disk on return. Only disconnected (idle, no live
@@ -348,8 +367,7 @@ export interface SessionServiceDeps {
   };
   track: (event: string, props?: Record<string, unknown>) => void;
   buildPermissionToolMetadata: (...args: any[]) => any;
-  notifyPermissionRequest: (...args: any[]) => any;
-  notifyPromptComplete: (...args: any[]) => any;
+  notifyAgentSession: (notification: AgentSessionNotification) => void;
   enqueueSpeech: (request: {
     text: string;
     taskTitle: string;
@@ -395,6 +413,11 @@ export interface SessionServiceDeps {
 
 type AuthClient = NonNullable<
   Awaited<ReturnType<SessionServiceDeps["getAuthenticatedClient"]>>
+>;
+
+type NotifiableAgentSession = Pick<
+  AgentSession,
+  "taskTitle" | "taskId" | "promptStartedAt" | "isTaskAuthor"
 >;
 
 interface AuthCredentials {
@@ -1281,6 +1304,25 @@ function discardExactHydratedEvents(
     }
   }
   return liveTurn.events.filter((_event, index) => keep[index]);
+}
+
+/**
+ * Whether the event is the agent emitting text — what a user watches arrive
+ * token by token. Tool calls, progress and status updates are not: nothing is
+ * mid-sentence, so there is nothing to wait out before interrupting.
+ */
+function isAgentTextStreamEvent(event: AcpMessage): boolean {
+  const message = event.message;
+  if (!isJsonRpcNotification(message) || message.method !== "session/update") {
+    return false;
+  }
+  const sessionUpdate = (
+    message.params as { update?: { sessionUpdate?: string } } | undefined
+  )?.update?.sessionUpdate;
+  return (
+    sessionUpdate === "agent_message_chunk" ||
+    sessionUpdate === "agent_thought_chunk"
+  );
 }
 
 function agentMessageUpdateKind(
@@ -2586,8 +2628,15 @@ export class SessionService {
    * within a taskRunId is preserved; taskRunIds are independent. */
   private pendingSessionEvents = new Map<string, AcpMessage[]>();
   private sessionEventFlushHandle: ReturnType<typeof setTimeout> | null = null;
+  /** When each run last streamed agent text. Read by the steer fallback so its
+   *  interrupt lands between sentences rather than mid-token. Recorded on
+   *  arrival, not on flush, so the buffering delay doesn't read as silence. */
+  private lastAgentTextAt = new Map<string, number>();
 
   private enqueueSessionEvent(taskRunId: string, acpMsg: AcpMessage): void {
+    if (isAgentTextStreamEvent(acpMsg)) {
+      this.lastAgentTextAt.set(taskRunId, Date.now());
+    }
     const buffered = this.pendingSessionEvents.get(taskRunId);
     if (buffered) {
       buffered.push(acpMsg);
@@ -2787,6 +2836,7 @@ export class SessionService {
     this.subscriptions.delete(taskRunId);
     this.liveTurnContent.delete(taskRunId);
     this.agentSpokeAt.delete(taskRunId);
+    this.lastAgentTextAt.delete(taskRunId);
     // Drop any speak calls still mid-stream for this run (never reached a
     // terminal status, so they were never enqueued or deleted above).
     this.speakCalls.delete(taskRunId);
@@ -2983,15 +3033,12 @@ export class SessionService {
               stopReason === "end_turn" &&
               session.messageQueue.length === 0
             ) {
-              if (session.isTaskAuthor !== false) {
-                this.d.notifyPromptComplete(
-                  session.taskTitle,
-                  stopReason,
-                  session.taskId,
-                  turnStartedAtTs ? acpMsg.ts - turnStartedAtTs : undefined,
-                );
-                this.speakDeterministic(taskRunId, session, "done");
-              }
+              this.notifyTurnCompleted(
+                taskRunId,
+                session,
+                stopReason,
+                turnStartedAtTs ? acpMsg.ts - turnStartedAtTs : undefined,
+              );
             }
             this.d.taskViewedApi.markActivity(session.taskId);
             this.finalizeTurnContent(taskRunId, "turn_complete", acpMsg.ts);
@@ -3070,34 +3117,48 @@ export class SessionService {
     }
   }
 
-  /**
-   * Deterministic backstop for the two moments the user must not miss. Fired
-   * from the turn-complete and permission events (which happen every time),
-   * unless the agent already narrated that same moment this turn via the speak
-   * tool — in which case its expressive line stands. Routes through the same
-   * speech channel (focus + settings gating + serialized queue).
-   */
-  private speakDeterministic(
+  private notifyTurnCompleted(
     taskRunId: string,
-    session: {
-      taskTitle: string;
-      taskId: string;
-      promptStartedAt: number | null;
-    },
-    kind: "done" | "needs_input",
+    session: NotifiableAgentSession,
+    stopReason: string,
+    durationMs?: number,
   ): void {
-    const turnStart = session.promptStartedAt ?? 0;
-    const spokeAt = this.agentSpokeAt.get(taskRunId)?.[kind] ?? 0;
-    if (turnStart > 0 && spokeAt >= turnStart) return; // agent already voiced it
-    // Deterministic backstop stays plain — no "Hey <name>," greeting.
-    this.d.enqueueSpeech({
-      text: kind === "done" ? "finished" : "needs your input",
+    this.d.notifyAgentSession({
+      kind: "turn_completed",
       taskTitle: session.taskTitle,
       taskId: session.taskId,
-      kind,
-      source: "backstop",
-      addressByName: false,
+      stopReason,
+      durationMs,
+      isTaskAuthor: session.isTaskAuthor,
+      agentSpoke: this.agentSpokeSinceTurnStarted(taskRunId, session, "done"),
     });
+  }
+
+  private notifyNeedsInput(
+    taskRunId: string,
+    session: NotifiableAgentSession,
+  ): void {
+    this.d.notifyAgentSession({
+      kind: "needs_input",
+      taskTitle: session.taskTitle,
+      taskId: session.taskId,
+      isTaskAuthor: session.isTaskAuthor,
+      agentSpoke: this.agentSpokeSinceTurnStarted(
+        taskRunId,
+        session,
+        "needs_input",
+      ),
+    });
+  }
+
+  private agentSpokeSinceTurnStarted(
+    taskRunId: string,
+    session: Pick<AgentSession, "promptStartedAt">,
+    kind: "done" | "needs_input",
+  ): boolean {
+    const turnStart = session.promptStartedAt ?? 0;
+    const spokeAt = this.agentSpokeAt.get(taskRunId)?.[kind] ?? 0;
+    return turnStart > 0 && spokeAt >= turnStart;
   }
 
   private handleSessionEvent(taskRunId: string, acpMsg: AcpMessage): void {
@@ -3155,20 +3216,13 @@ export class SessionService {
           : this.drainQueuedMessages(taskRunId, session);
 
       // Only notify when nothing is sendable - queued messages start a new turn
-      if (
-        stopReason &&
-        !hasSendableMessages &&
-        session.isTaskAuthor !== false
-      ) {
-        this.d.notifyPromptComplete(
-          session.taskTitle,
+      if (stopReason && !hasSendableMessages) {
+        this.notifyTurnCompleted(
+          taskRunId,
+          session,
           stopReason,
-          session.taskId,
           turnStartedAtTs ? acpMsg.ts - turnStartedAtTs : undefined,
         );
-        if (stopReason === "end_turn") {
-          this.speakDeterministic(taskRunId, session, "done");
-        }
       }
 
       this.d.taskViewedApi.markActivity(session.taskId);
@@ -3405,10 +3459,7 @@ export class SessionService {
 
     this.d.store.setPendingPermissions(taskRunId, newPermissions);
     this.d.taskViewedApi.markActivity(session.taskId);
-    if (session.isTaskAuthor !== false) {
-      this.d.notifyPermissionRequest(session.taskTitle, session.taskId);
-      this.speakDeterministic(taskRunId, session, "needs_input");
-    }
+    this.notifyNeedsInput(taskRunId, session);
   }
 
   private handleCloudPermissionRequest(
@@ -3465,10 +3516,7 @@ export class SessionService {
 
     this.d.store.setPendingPermissions(taskRunId, newPermissions);
     this.d.taskViewedApi.markActivity(session.taskId);
-    if (session.isTaskAuthor !== false) {
-      this.d.notifyPermissionRequest(session.taskTitle, session.taskId);
-      this.speakDeterministic(taskRunId, session, "needs_input");
-    }
+    this.notifyNeedsInput(taskRunId, session);
   }
 
   private surfacePersistedPendingPermissions(
@@ -3559,23 +3607,43 @@ export class SessionService {
     // Steer: the user sent a message mid-turn and asked to fold it into the
     // running turn rather than queue it. Adapters that negotiated
     // `steering: "native"` (Claude, codex) inject at the next tool boundary;
-    // unknown local adapters cancel and resend. Cloud sessions only enter this
-    // path after the sandbox advertises native steering; compaction still queues.
+    // unknown local adapters cancel and resend. Cloud runs negotiate steering
+    // in the task workflow, so always forward the user's intent and let that
+    // authoritative layer choose the compatible signal. Compaction still queues.
     if (options?.steer && session.isPromptPending && !session.isCompacting) {
+      if (session.isCloud && session.status === "connected") {
+        return this.sendCloudPrompt(session, prompt, {
+          skipQueueGuard: true,
+          steer: true,
+        });
+      }
       if (sessionSupportsNativeSteer(session)) {
-        if (session.isCloud) {
-          if (session.status === "connected") {
-            return this.sendCloudPrompt(session, prompt, {
-              skipQueueGuard: true,
-              steer: true,
-            });
-          }
-        } else {
+        if (!session.isCloud) {
           return this.sendSteerPrompt(session, prompt);
         }
       }
       if (!session.isCloud) {
-        await this.cancelPrompt(taskId);
+        // Nothing folds the message into the running turn here, so the turn has
+        // to end for it to land. Let the output in flight finish first —
+        // cancelling on the keystroke truncates the sentence being read.
+        const steeredTurn: SteeredTurn = {
+          taskRunId: session.taskRunId,
+          promptId: session.currentPromptId ?? null,
+        };
+        await this.waitForAgentTextToSettle(taskId, steeredTurn);
+        // Only the turn the user steered against may be interrupted. If it
+        // ended while we waited, a queued message can already have started the
+        // next one, and cancelling that would cut off a message the user never
+        // steered. Falling through queues this message behind it instead.
+        //
+        // A snapshot is enough even though the cancel is async: it is
+        // dispatched in this same synchronous step, while a replacement turn
+        // can only be dispatched once a later event flush reports this one
+        // ended. Ordered transport then puts `session/cancel` at the agent
+        // first, so a cancel can never overtake the turn that replaces this.
+        if (this.isSteeredTurnStillRunning(taskId, steeredTurn)) {
+          await this.cancelPrompt(taskId);
+        }
         const refreshed = this.d.store.getSessionByTaskId(taskId);
         if (refreshed) {
           session = refreshed;
@@ -3665,6 +3733,52 @@ export class SessionService {
     return this.sendLocalPrompt(session, blocks, promptText, {
       optimisticApplied: true,
     });
+  }
+
+  /**
+   * Whether the turn a steer was aimed at is still the one running. `taskId`
+   * outlives any single turn, so it cannot answer this on its own: a turn that
+   * ends lets a queued message start a new one under the same task, and
+   * `currentPromptId` is what tells the two apart.
+   */
+  private isSteeredTurnStillRunning(
+    taskId: string,
+    turn: SteeredTurn,
+  ): boolean {
+    const session = this.d.store.getSessionByTaskId(taskId);
+    return (
+      session?.isPromptPending === true &&
+      session.taskRunId === turn.taskRunId &&
+      (session.currentPromptId ?? null) === turn.promptId
+    );
+  }
+
+  /**
+   * Resolve once the agent's streamed text has been quiet for
+   * {@link STEER_INTERRUPT_QUIET_MS}, the steered turn has stopped running, or
+   * {@link STEER_INTERRUPT_MAX_WAIT_MS} has elapsed. Returns straight away when
+   * nothing is streaming — the common case, since a steer usually arrives while
+   * the agent is inside a tool call rather than mid-sentence.
+   */
+  private async waitForAgentTextToSettle(
+    taskId: string,
+    turn: SteeredTurn,
+  ): Promise<void> {
+    const deadline = Date.now() + STEER_INTERRUPT_MAX_WAIT_MS;
+    for (;;) {
+      if (!this.isSteeredTurnStillRunning(taskId, turn)) return;
+      // A run that has never streamed text is quiet by definition, whatever the
+      // clock reads.
+      const quietFor =
+        Date.now() -
+        (this.lastAgentTextAt.get(turn.taskRunId) ?? Number.NEGATIVE_INFINITY);
+      const wait = Math.min(
+        STEER_INTERRUPT_QUIET_MS - quietFor,
+        deadline - Date.now(),
+      );
+      if (wait <= 0) return;
+      await new Promise((resolve) => setTimeout(resolve, wait));
+    }
   }
 
   /**

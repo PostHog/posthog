@@ -24,8 +24,10 @@ from django.core.exceptions import ValidationError
 from posthog.models.integration import Integration
 from posthog.models.organization import Organization
 from posthog.models.team.team import Team
+from posthog.models.user import User
+from posthog.models.user_integration import UserIntegration
 
-from products.slack_app.backend.models import SlackSettings, SlackThreadTaskMapping
+from products.slack_app.backend.models import SlackSettings, SlackThreadTaskMapping, SlackUserProfileCache
 from products.slack_app.backend.services import slack_app_home
 from products.slack_app.backend.services.slack_app_home import (
     ACTION_EDIT_PERSONAL,
@@ -45,6 +47,8 @@ from products.slack_app.backend.services.slack_app_home import (
     MODAL_BLOCK_REASONING_EFFORT,
     MODAL_BLOCK_RUNTIME_ADAPTER,
     AccountState,
+    GitHubAccount,
+    GitHubState,
     PreferenceSource,
     ProjectChoice,
     ProjectState,
@@ -112,12 +116,12 @@ def admin_user():
 
 @pytest.fixture(autouse=True)
 def _stub_picker_facade():
-    """Stub `tasks.facade.run_config` and the LLM-gateway model fetch.
+    """Stub the tasks run-config facade and the LLM-gateway model fetch.
 
-    The tasks facade pulls in `tasks.temporal` on import, which the test env
-    can't satisfy. The gateway fetch would hit a real network. Both get
-    replaced with deterministic in-memory fakes covering every model the
-    renderer and handler tests reference.
+    The facade pulls in `tasks.temporal` on import, which the test env can't
+    satisfy. The gateway fetch would hit a real network. Both are replaced with
+    deterministic in-memory fakes covering every model the renderer and handler
+    tests reference.
     """
 
     class _Effort:
@@ -213,26 +217,31 @@ def _stub_picker_facade():
         _GatewayModel(id="gpt-5", owned_by="openai"),
         _GatewayModel(id="gpt-5.5", owned_by="openai"),
     )
-    llm_models_name = "products.slack_app.backend.services.llm_models"
-    fake_llm_models: Any = ModuleType(llm_models_name)
-    fake_llm_models.list_slack_app_models = lambda: gateway_models
-    fake_llm_models.GatewayModel = _GatewayModel
+    # The catalogue reads the run-config internals directly rather than through the facade,
+    # so those lookups are replaced one at a time. Standing the facade stub in for the whole
+    # module would blank every other name on it — the GitHub helpers `facade.api` defers to
+    # among them.
+    utils_name = "products.tasks.backend.temporal.process_task.utils"
+    model_catalogue = importlib.import_module("products.tasks.backend.logic.services.model_catalogue")
 
     saved_facade = sys.modules.get(facade_name)
-    saved_llm = sys.modules.get(llm_models_name)
     sys.modules[facade_name] = fake
-    sys.modules[llm_models_name] = fake_llm_models
+    # The provider → adapter map is cached for the process, so the fake only governs once
+    # the cache is dropped on the way in and back out.
+    model_catalogue._runtime_adapter_by_provider.cache_clear()
     try:
-        yield
+        with (
+            patch(f"{utils_name}.get_supported_reasoning_efforts", fake_get_supported),
+            patch(f"{utils_name}.get_provider_for_runtime_adapter", fake_get_provider),
+            patch.object(model_catalogue, "list_gateway_models", return_value=gateway_models),
+        ):
+            yield
     finally:
+        model_catalogue._runtime_adapter_by_provider.cache_clear()
         if saved_facade is None:
             sys.modules.pop(facade_name, None)
         else:
             sys.modules[facade_name] = saved_facade
-        if saved_llm is None:
-            sys.modules.pop(llm_models_name, None)
-        else:
-            sys.modules[llm_models_name] = saved_llm
 
 
 # ---------------------------------------------------------------------------
@@ -472,6 +481,102 @@ class TestRenderHomeView:
         assert (
             resolve_source(_make_row(runtime_adapter="claude", model="claude-opus-4-7")) == PreferenceSource.personal()
         )
+
+
+class TestLinkedAccountsCard:
+    def _view(self, *, account_state=None, github_state=None) -> dict:
+        return render_home_view(
+            effective=AIPreferences(),
+            user_row=None,
+            is_admin=False,
+            account_state=account_state,
+            github_state=github_state,
+        )
+
+    def _rows(self, view: dict) -> list[tuple[str, dict | None]]:
+        return [
+            (block["text"]["text"], block.get("accessory"))
+            for block in view["blocks"]
+            if block.get("type") == "section" and block["text"]["text"].startswith(("*PostHog*", "*GitHub*"))
+        ]
+
+    def _row(self, view: dict, prefix: str) -> tuple[str, dict | None]:
+        return next(row for row in self._rows(view) if row[0].startswith(prefix))
+
+    @pytest.mark.parametrize(
+        "user_resolved,connected,credentials_usable,expected_button,expected_style",
+        [
+            (True, True, True, "Manage GitHub", None),
+            # A row whose tokens went stale is what the task flow refuses to run on,
+            # so the card has to ask for a reconnect rather than read as connected.
+            (True, True, False, "Reconnect GitHub", "primary"),
+            (True, False, False, "Connect GitHub", "primary"),
+            (False, False, False, None, None),
+        ],
+    )
+    def test_github_button_matches_connection_state(
+        self, user_resolved, connected, credentials_usable, expected_button, expected_style
+    ):
+        accounts = (GitHubAccount(installation_id="1", login="octocat", account_name="octocat"),) if connected else ()
+        view = self._view(
+            github_state=GitHubState(
+                user_resolved=user_resolved,
+                accounts=accounts,
+                credentials_usable=credentials_usable,
+                settings_url="https://app/project/1/settings/user-personal-integrations",
+            )
+        )
+        text, button = self._row(view, "*GitHub*")
+        if expected_button is None:
+            # Without a resolved PostHog user we can't say anything about their
+            # GitHub, so the row points at account linking instead.
+            assert button is None
+            assert "Link your PostHog account first" in _all_text(view)
+            return
+        assert button is not None
+        assert button["text"]["text"] == expected_button
+        assert button["url"] == "https://app/project/1/settings/user-personal-integrations"
+        assert button.get("style") == expected_style
+        if connected:
+            assert ("✅" in text) is credentials_usable
+
+    def test_every_connected_installation_is_listed(self):
+        view = self._view(
+            github_state=GitHubState(
+                user_resolved=True,
+                accounts=(
+                    GitHubAccount(installation_id="1", login="octocat", account_name="octocat"),
+                    GitHubAccount(installation_id="2", login="octocat", account_name="PostHog"),
+                ),
+                credentials_usable=True,
+                settings_url="https://app/settings",
+            )
+        )
+        text, _button = self._row(view, "*GitHub*")
+        assert "`octocat`" in text
+        # Installation on an org the login differs from names both sides.
+        assert "`octocat` on *PostHog*" in text
+
+    def test_each_account_carries_its_own_button(self):
+        view = self._view(
+            account_state=AccountState(enabled=True, linked_email="user@posthog.com"),
+            github_state=GitHubState(user_resolved=True, settings_url="https://app/settings"),
+        )
+        rows = self._rows(view)
+        assert [text.split("\n")[0] for text, _ in rows] == ["*PostHog*", "*GitHub*"]
+        # Disconnect belongs to the PostHog row, Connect GitHub to its own.
+        assert rows[0][1] is not None and rows[0][1]["action_id"] == ACTION_UNLINK_ACCOUNT
+        assert rows[1][1] is not None and rows[1][1]["text"]["text"] == "Connect GitHub"
+
+    def test_github_row_stands_alone_when_account_linking_is_off(self):
+        view = self._view(
+            account_state=AccountState(enabled=False),
+            github_state=GitHubState(user_resolved=True, settings_url="https://app/settings"),
+        )
+        rows = self._rows(view)
+        assert len(rows) == 1
+        assert rows[0][0].startswith("*GitHub*")
+        assert ACTION_UNLINK_ACCOUNT not in _all_text(view)
 
 
 _TASK_TITLES = ("Fix flaky retention test", "Refactor mention dispatcher")
@@ -951,6 +1056,55 @@ class TestHandleAppHomeOpened:
     def test_noop_when_user_missing(self, slack_integration, mock_slack_client, flag_on):
         handle_app_home_opened({}, SLACK_WORKSPACE_ID, integration=slack_integration)
         assert not mock_slack_client.views_publish.called
+
+    def _github_row(self, user: User, login: str) -> UserIntegration:
+        return UserIntegration.objects.create(
+            user=user,
+            kind=UserIntegration.IntegrationKind.GITHUB,
+            integration_id=f"install-{login}",
+            config={"github_user": {"login": login}, "account": {"name": login}},
+            sensitive_config={"user_access_token": "gho_x", "user_refresh_token": "ghr_x"},
+        )
+
+    def test_github_card_lists_only_the_opening_users_installations(
+        self, slack_integration, mock_slack_client, flag_on, admin_user
+    ):
+        organization = slack_integration.team.organization
+        opener = User.objects.create_and_join(organization, "opener@posthog.com", None)
+        colleague = User.objects.create_and_join(organization, "colleague@posthog.com", None)
+        self._github_row(opener, "opener-gh")
+        self._github_row(colleague, "colleague-gh")
+        SlackUserProfileCache.objects.create(
+            integration=slack_integration,
+            slack_user_id="U001",
+            email=opener.email,
+        )
+
+        handle_app_home_opened({"user": "U001"}, SLACK_WORKSPACE_ID, integration=slack_integration)
+
+        text = _all_text(mock_slack_client.views_publish.call_args.kwargs["view"])
+        assert "opener-gh" in text
+        assert "colleague-gh" not in text
+
+    def test_deactivated_user_is_not_resolved_from_their_slack_identity(
+        self, slack_integration, mock_slack_client, flag_on, admin_user
+    ):
+        organization = slack_integration.team.organization
+        offboarded = User.objects.create_and_join(organization, "offboarded@posthog.com", None)
+        self._github_row(offboarded, "offboarded-gh")
+        SlackUserProfileCache.objects.create(
+            integration=slack_integration,
+            slack_user_id="U001",
+            email=offboarded.email,
+        )
+        offboarded.is_active = False
+        offboarded.save(update_fields=["is_active"])
+
+        handle_app_home_opened({"user": "U001"}, SLACK_WORKSPACE_ID, integration=slack_integration)
+
+        text = _all_text(mock_slack_client.views_publish.call_args.kwargs["view"])
+        assert "offboarded-gh" not in text
+        assert "Link your PostHog account first" in text
 
 
 # ---------------------------------------------------------------------------
