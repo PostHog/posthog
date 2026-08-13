@@ -115,6 +115,28 @@ def test_database_host_is_passed_through_to_postgres():
     assert error is None
 
 
+def test_validate_credentials_handles_a_config_without_an_ssh_tunnel_field():
+    # The generated PlanetScale config carries no `ssh_tunnel` field (there is no tunnel to
+    # configure), so the inherited Postgres validation must not assume the attribute exists.
+    planetscale_config = PlanetScalePostgresSourceConfig(
+        host=_DIRECT_HOST,
+        database="postgres",
+        user="postgres.xxxxxxxxxx",
+        password="pscale_pw_xxxxxxxx",
+        port=5432,
+    )
+    assert not hasattr(planetscale_config, "ssh_tunnel")
+
+    with mock.patch.object(PostgresSource, "is_database_host_valid", return_value=(False, "host error")) as host_valid:
+        # The signature annotates PostgresSourceConfig, but the pipeline hands this source its own
+        # generated config at runtime — the exact mismatch that surfaced the missing attribute.
+        success, error = PlanetScalePostgresSource().validate_credentials(planetscale_config, team_id=1)  # type: ignore[arg-type]
+
+    assert success is False
+    assert error == "host error"
+    assert host_valid.call_args.kwargs["using_ssh_tunnel"] is False
+
+
 @pytest.mark.parametrize("port", [6432, "6432"])
 def test_cdc_on_the_psbouncer_port_fails_without_connecting(port):
     # PSBouncer accepts normal connections, so the generic prerequisite checks would pass while
