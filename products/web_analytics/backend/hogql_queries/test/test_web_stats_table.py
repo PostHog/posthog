@@ -1776,6 +1776,29 @@ class TestWebStatsTableQueryRunner(
             "context.columns.cross_sell",
         ] == response.columns
 
+    def test_conversion_goal_viewport_breakdown_surfaces_unattributed_conversions(self):
+        # A conversion event without $viewport_width/$viewport_height must not be silently
+        # dropped — it should surface in a (none) row, same as Browser/OS, instead of vanishing
+        # with 0 conversions and no signal that anything was dropped.
+        s1 = str(uuid7("2023-12-01"))
+        self._create_events(
+            [
+                ("p1", [("2023-12-01", s1, "https://www.example.com/foo")]),
+            ],
+            event="custom_event",
+        )
+        response = self._run_web_stats_table_query(
+            "2023-12-01",
+            "2023-12-03",
+            breakdown_by=WebStatsBreakdown.VIEWPORT,
+            custom_event="custom_event",
+        )
+        assert len(response.results) == 1
+        _, visitors, total_conversions, unique_conversions, *_ = response.results[0]
+        assert visitors == (1, None)
+        assert total_conversions == (1, None)
+        assert unique_conversions == (1, None)
+
     def test_conversion_goal_one_custom_action_conversion(self):
         s1 = str(uuid7("2023-12-01"))
         self._create_events(
