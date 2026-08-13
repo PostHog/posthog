@@ -144,6 +144,55 @@ class FindingOutcomeArtefact(BaseModel):
         return v
 
 
+class ThreadVerdictArtefact(BaseModel):
+    """Content schema for a `thread_verdict` artefact: the resolution stage's ruling on one review thread.
+
+    Latest row per `thread_id` wins. `latest_comment_id` is the per-thread idempotency watermark
+    (CONTEXT.md — "Per-thread watermark"): the newest thread comment known when the verdict landed —
+    updated to the stage's own posted reply once it lands, so the reply doesn't re-open triage. Any
+    newer comment re-opens the thread for a fresh assessment. `reply_posted` / `resolved` record
+    which GitHub side effects were actually delivered, so a crashed run redoes only the writes.
+    """
+
+    thread_id: str = Field(description="The review thread's GraphQL node id (PRRT_…).")
+    outcome: Literal["fixed", "wont_fix", "already_fixed", "obsolete", "escalate"] = Field(
+        description="Terminal outcome of the thread (see CONTEXT.md — 'Thread outcome')."
+    )
+    path: str = Field(default="", description="File the thread is anchored to.")
+    author_login: str = Field(default="", description="Login of the thread's opening commenter.")
+    author_is_bot: bool = Field(
+        default=False, description="Whether the opener is a bot — gates the resolve side effect (etiquette)."
+    )
+    reasoning: str = Field(description="The turn's internal worth/safe assessment, with evidence.")
+    reply: str = Field(description="The reply text posted (or to post) on the thread.")
+    commit_sha: str | None = Field(default=None, description="The fix commit's SHA when outcome is fixed.")
+    commit_verified: bool | None = Field(
+        default=None,
+        description="Server-side check that commit_sha is on the PR head branch; None = not checked yet. "
+        "False withholds the public commit link and the auto-resolve — the model's echo is unproven.",
+    )
+    commit_restricted: bool | None = Field(
+        default=None,
+        description="Server-side hard-floor backstop: the fix commit touches restricted paths "
+        "(.github/, CODEOWNERS, dependency manifests). True withholds the link and the auto-resolve "
+        "and flags the reply for human review; None = not checked (pre-backstop rows).",
+    )
+    verification: str | None = Field(default=None, description="What was run to verify a fix, and the honest result.")
+    latest_comment_id: int | None = Field(
+        default=None, description="Newest thread comment databaseId known at verdict time (the watermark)."
+    )
+    reply_posted: bool = Field(default=False, description="Whether the reply side effect was delivered.")
+    reply_url: str | None = Field(default=None, description="Permalink of the posted reply, when delivered.")
+    resolved: bool = Field(default=False, description="Whether the stage resolved the thread (bot threads only).")
+
+    @field_validator("thread_id", "reasoning", "reply")
+    @classmethod
+    def fields_must_not_be_empty(cls, v: str) -> str:
+        if not v.strip():
+            raise ValueError("must not be empty or whitespace-only")
+        return v
+
+
 class ChunkSetArtefact(BaseModel):
     """Content for a `chunk_set` artefact: the PR's chunking computed for ONE review turn.
 
@@ -209,6 +258,7 @@ ReviewArtefactContent = (
     ReviewIssueFinding
     | ValidationVerdict
     | FindingOutcomeArtefact
+    | ThreadVerdictArtefact
     | ReviewLogArtefactContent
     | ReviewWorkingStateContent
 )
@@ -218,6 +268,7 @@ ARTEFACT_CONTENT_SCHEMAS: Mapping[str, type[BaseModel]] = {
     "issue_finding": ReviewIssueFinding,
     "validation_verdict": ValidationVerdict,
     "finding_outcome": FindingOutcomeArtefact,
+    "thread_verdict": ThreadVerdictArtefact,
     "task_run": TaskRunArtefact,
     "commit": Commit,
     "code_reference": CodeReference,

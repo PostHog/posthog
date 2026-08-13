@@ -1582,10 +1582,10 @@ class TestDuckgresSessionServiceCredential:
         sslmode="require",
     )
 
-    def _credential(self, password: str, *, rotated: bool = True, expires_at: datetime | None = None):
+    def _credential(self, credential_secret: str, *, rotated: bool = True, expires_at: datetime | None = None):
         return ServiceCredential(
-            username="posthog_team_2_rw",
-            password=password,
+            credential_id="svc_test_events_backfill",
+            credential_secret=credential_secret,
             expires_at=expires_at or self._FRESH_EXPIRY,
             rotated=rotated,
             connect=self._CONNECT,
@@ -1626,24 +1626,29 @@ class TestDuckgresSessionServiceCredential:
         assert mock_mint.call_args_list[1].kwargs["force_rotate"] is True
         # ...and the connect uses the ESCALATED credential (the one with a
         # password), not the empty reuse response.
-        assert mock_connect.call_args_list[0].kwargs["service_credential"].password == "escalated"
+        assert mock_connect.call_args_list[0].kwargs["service_credential"].credential_secret == "escalated"
 
-    @patch("posthog.dags.events_backfill_to_duckling.mint_service_credential")
+    @patch("posthog.dags.events_backfill_to_duckling.refresh_service_credential")
     @patch("posthog.dags.events_backfill_to_duckling._connect_duckgres")
-    def test_reconnect_refreshes_expired_credential(self, mock_connect, mock_mint):
+    @patch("posthog.dags.events_backfill_to_duckling.mint_service_credential")
+    def test_reconnect_refreshes_expired_credential(self, mock_mint, mock_connect, mock_refresh):
         # A session whose TTL lapses mid-run (long export, worker drops at
         # t+2h) must NOT present the dead credential on reconnect — the CP
-        # rotates the hash on the first mint touch after lapse.
+        # rotates the SECRET for that credential_id on refresh. The same
+        # identity comes back; with per-credential grants this refresh is
+        # scoped to exactly the credential the session holds.
         stale = self._credential("stale", expires_at=self._STALE_EXPIRY)
         fresh = self._credential("fresh-secret")
-        mock_mint.side_effect = [stale, fresh]
+        mock_mint.return_value = stale
+        mock_refresh.return_value = fresh
         mock_connect.side_effect = [MagicMock(name="c0"), MagicMock(name="c1")]
         target = DucklingTarget(team_id=2, organization_id="org-1", bucket="bkt", bucket_region="r")
 
         session = _DuckgresSession(MagicMock(), target)
         session._reconnect()
 
-        assert mock_mint.call_count == 2
+        assert mock_mint.call_count == 1  # the initial session mint only — NO re-mint
+        mock_refresh.assert_called_once_with("org-1", "svc_test_events_backfill")
         assert mock_connect.call_args_list[1].kwargs["service_credential"] is fresh
 
     @patch("posthog.dags.events_backfill_to_duckling.mint_service_credential")
