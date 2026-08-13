@@ -40,9 +40,7 @@ def materialization_checks_needed(team_id: int, node_ids: Iterable["str | uuid.U
 
 
 def materialization_audit_mode(team_id: int, saved_query_id: "str | uuid.UUID") -> QualityAuditMode:
-    """How a materialization of this view should treat its checks.
-
-    Gating needs an error-severity check as well as the team setting, because a warn-severity
+    """Gating needs an error-severity check as well as the team setting, because a warn-severity
     failure cannot stop a publish and holding one behind an audit would only add latency.
     """
     from ..models import (  # noqa: PLC0415 — the app registry is not ready at import time

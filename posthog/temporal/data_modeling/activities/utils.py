@@ -50,8 +50,7 @@ CONSECUTIVE_FAILURES_TO_SUSPEND = 5
 
 SUSPENSION_ENFORCEMENT_FLAG = "data-modeling-suspend-failing-nodes"
 
-# Shared with quality_block_materialization so the job rows a blocked publish leaves behind stay
-# recognizable to the suspension counter below.
+# Shared with quality_block_materialization so the counter below can recognize its job rows.
 QUALITY_BLOCKED_ERROR_PREFIX = "Not published:"
 
 # The test before adding a marker is "was the query denied the chance to fail on its own merits",

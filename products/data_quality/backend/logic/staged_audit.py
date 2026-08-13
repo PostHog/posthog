@@ -14,10 +14,10 @@ if TYPE_CHECKING:
 
 
 def build_staged_database(team: "Team", saved_query_id: str | UUID, staged_queryable_folder: str) -> Database | None:
-    """A database whose subject table reads the staged folder instead of the published one.
+    """None means there is no materialized table to repoint.
 
-    None means there is no materialized table to repoint. Callers must not fall back to the
-    unmodified database, which reads the live view and so rules on data the publish would not write.
+    Callers must not fall back to the unmodified database, which reads the live view and so rules
+    on data the publish would not write.
     """
     summary = data_modeling_facade.get_saved_query_summary(team.pk, saved_query_id)
     if summary is None:

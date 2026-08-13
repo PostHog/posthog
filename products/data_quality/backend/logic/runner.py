@@ -83,10 +83,7 @@ def record_unrunnable_check(
     team: Team,
     reason: str,
 ) -> CheckOutcome:
-    """Persist an errored run for a check the caller could not execute at all.
-
-    A check with no run row reads, in the health state and the API, exactly like one that passed.
-    """
+    """A check with no run row reads, in the health state and the API, exactly like one that passed."""
     outcome = CheckOutcome(status=CheckRunStatus.ERRORED, error=reason)
     with team_scope(team.id):
         _record_run(check, suite_run, outcome, datetime.now(UTC), duration_ms=0)

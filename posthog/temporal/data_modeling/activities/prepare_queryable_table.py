@@ -62,7 +62,6 @@ class StageQueryableFilesResult:
     staged_folder_path: str
 
 
-# Not frozen because a dataclass cannot be, while the one it extends is not.
 @dataclasses.dataclass(frozen=False)
 class PublishQueryableTableInputs(PrepareQueryableTableInputs):
     staged_folder_path: str
@@ -120,11 +119,7 @@ async def prepare_queryable_table_activity(inputs: PrepareQueryableTableInputs) 
 
 @activity.defn
 async def stage_queryable_files_activity(inputs: PrepareQueryableTableInputs) -> StageQueryableFilesResult:
-    """Copy files into a new queryable folder and publish nothing.
-
-    Queries keep reading the previous folder until publish_queryable_table_activity repoints the
-    table, so a failed audit leaves the old data serving untouched.
-    """
+    """Copy files into a new queryable folder, leaving the table pointed at the previous one."""
     bind_data_modeling_log_context(inputs.team_id, inputs.saved_query_id)
     logger = LOGGER.bind()
 

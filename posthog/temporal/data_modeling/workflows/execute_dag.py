@@ -500,9 +500,6 @@ class ExecuteDAGWorkflow(PostHogWorkflow):
     async def _run_data_quality_checks(self, inputs: ExecuteDAGInputs, node_results: list[NodeResult]) -> None:
         """Fire the check suite for the nodes this run refreshed but did not audit per-node.
 
-        What per-node auditing cannot cover reaches the suite here: ephemeral nodes, which have no
-        table of their own, and any node whose own audit never ran.
-
         Best-effort and fully isolated: started by registered name so data_modeling never imports
         the catalog product, and ABANDON so a check suite can neither delay nor fail the DAG. The
         node ids come from recorded child results, so replay stays deterministic.

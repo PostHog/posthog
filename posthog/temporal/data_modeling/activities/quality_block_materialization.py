@@ -68,13 +68,8 @@ def _block_node_and_job(inputs: QualityBlockMaterializationInputs) -> None:
 
 @activity.defn
 async def quality_block_materialization_activity(inputs: QualityBlockMaterializationInputs) -> None:
-    """Record that a materialization was blocked by failing data quality checks.
-
-    A quality block is a data-content verdict, not an infrastructure failure: the job and node are
-    marked failed so the run history is honest, but none of ``fail_materialization_activity``'s
-    recovery runs -- no schedule pause and no revert, because the fix is upstream data, not this
-    node's query. The failed job it leaves behind carries ``QUALITY_BLOCKED_ERROR_PREFIX``, which
-    keeps it out of the consecutive-failure run that suspends a node.
+    """Deliberately not ``fail_materialization_activity``: bad upstream data must not pause this
+    node's schedule, revert it, or count toward suspending it.
     """
     bind_contextvars(team_id=inputs.team_id)
     logger = LOGGER.bind()

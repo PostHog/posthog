@@ -76,11 +76,7 @@ NON_RETRYABLE_ERRORS = [
 
 
 def _is_cancellation(error: BaseException) -> bool:
-    """Whether a raised error is this workflow being cancelled rather than work failing.
-
-    The SDK never re-delivers a cancel it already surfaced, so any handler that swallows one keeps
-    issuing commands as if nothing happened.
-    """
+    """The SDK never re-delivers a cancel, so a handler that swallows one keeps issuing commands."""
     if isinstance(error, temporalio.exceptions.CancelledError | asyncio.CancelledError):
         return True
     return isinstance(
@@ -444,11 +440,9 @@ class MaterializeViewWorkflow(PostHogWorkflow):
         materialize_result: MaterializeViewResult,
         staged_folder_path: str,
     ) -> int:
-        """Await the subject's checks against the staged folder, blocking the publish behind them.
+        """A suite that errors returns zero, because a broken check pipeline is not a data verdict.
 
-        Fails open, because an operational problem with the checks is not a verdict on the data and
-        the erroring health state is the compensating control. Cancellation is not such a problem,
-        so it propagates: swallowing it would publish data no check ruled on.
+        Cancellation is not such a case, so it propagates rather than publishing unaudited data.
         """
         try:
             result = await temporalio.workflow.execute_child_workflow(
@@ -484,11 +478,7 @@ class MaterializeViewWorkflow(PostHogWorkflow):
         job_id: str,
         materialize_result: MaterializeViewResult,
     ) -> bool:
-        """Start the subject's checks against data this run already published, and do not wait.
-
-        Returns whether a suite is running for this job. False sends the node back to the DAG's
-        post-run sweep, so a child that never started still gets its checks from there.
-        """
+        """False sends the node back to the DAG's sweep, which is where a failed start gets covered."""
         try:
             await temporalio.workflow.start_child_workflow(
                 CHECK_SUITE_WORKFLOW_NAME,
@@ -521,10 +511,7 @@ class MaterializeViewWorkflow(PostHogWorkflow):
     def _audit_mode(
         self, materialize_result: MaterializeViewResult, inputs: MaterializeViewWorkflowInputs
     ) -> QualityAuditMode:
-        """The audit mode to act on, reading a mode this version does not know as ``skip``.
-
-        Publishing ungated is what every run did before the gate existed.
-        """
+        """A mode this version does not know reads as ``skip``, the behavior that predates the gate."""
         mode = materialize_result.quality_audit
         if is_quality_audit_mode(mode):
             return mode
