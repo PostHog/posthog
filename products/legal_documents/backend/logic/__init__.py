@@ -101,6 +101,9 @@ def get_for_organization(document_id: UUID, organization_id: UUID) -> LegalDocum
 
 def get_by_id(document_id: UUID) -> LegalDocument | None:
     try:
+        # Internal background-task lookup by primary key (the archive/reconcile jobs
+        # pass an id we generated) — no request user and no org to scope by.
+        # nosemgrep: idor-lookup-without-org
         return LegalDocument.objects.get(id=document_id)
     except LegalDocument.DoesNotExist:
         return None

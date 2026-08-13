@@ -870,9 +870,7 @@ class TestLegalDocumentReconciliation(APIBaseTest):
         # Abandoned envelopes must not be polled forever — the sweep only looks at
         # rows created inside the lookback window, or it would hammer PandaDoc.
         status_mock.return_value = "document.completed"
-        LegalDocument.objects.filter(id=self.document.id).update(
-            created_at=timezone.now() - timedelta(days=120)
-        )
+        LegalDocument.objects.filter(id=self.document.id).update(created_at=timezone.now() - timedelta(days=120))
 
         result = legal_api.reconcile_pending_signatures()
 

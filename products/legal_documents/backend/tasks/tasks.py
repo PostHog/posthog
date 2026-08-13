@@ -14,7 +14,10 @@ from celery import shared_task
 from ..facade import api
 
 
+# Task names are pinned so the registered identity is independent of the import
+# path — core re-exports these through facade/tasks.py to call `.s()`.
 @shared_task(
+    name="legal_documents.archive_signed_legal_document_pdf",
     ignore_result=True,
     autoretry_for=(api.LegalDocumentPdfArchiveFailed,),
     retry_backoff=30,
@@ -26,6 +29,6 @@ def archive_signed_legal_document_pdf(document_id: str) -> None:
     api.archive_signed_pdf(UUID(document_id))
 
 
-@shared_task(ignore_result=True)
+@shared_task(name="legal_documents.reconcile_pending_legal_documents", ignore_result=True)
 def reconcile_pending_legal_documents() -> None:
     api.reconcile_pending_signatures()

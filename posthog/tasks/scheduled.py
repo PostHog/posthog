@@ -94,7 +94,7 @@ from products.feature_flags.backend.tasks import (
     refresh_expiring_flags_cache_entries,
     sync_cross_region_flags_task,
 )
-from products.legal_documents.backend.tasks.tasks import reconcile_pending_legal_documents
+from products.legal_documents.backend.facade.tasks import reconcile_pending_legal_documents
 from products.logs.backend.facade.tasks import logs_alert_events_cleanup_task
 from products.pulse.backend.tasks import mark_stale_pulse_briefs_failed
 from products.reminders.backend.tasks import process_due_reminders
