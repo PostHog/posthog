@@ -228,7 +228,7 @@ export function createAiIngestionPipeline<
                 sub.concurrently(
                     (blob) =>
                         blob.pipe(createUploadAiBlobStep(aiBlobStore), {
-                            retry: { tries: 8, sleepMs: 100, name: 'offload_ai_blobs', jitter: 1 },
+                            retry: { tries: 5, sleepMs: 100, name: 'offload_ai_blobs' },
                         }),
                     { maxConcurrency: aiBlobOffloadConfig.uploadMaxConcurrency }
                 )

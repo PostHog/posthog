@@ -49,15 +49,8 @@ export function getNextRetryMs(baseMs: number, multiplier: number, attempt: numb
 
 /**
  * Retry a function, respecting `error.isRetriable`.
- *
- * `jitterFactor` of `0` (the default) keeps deterministic backoff, so existing callers are unaffected.
  */
-export async function retryIfRetriable<T>(
-    fn: () => Promise<T>,
-    tries = 3,
-    sleepMs = 100,
-    jitterFactor = 0
-): Promise<T> {
+export async function retryIfRetriable<T>(fn: () => Promise<T>, tries = 3, sleepMs = 100): Promise<T> {
     let currentSleepMs = sleepMs
     for (let i = 0; i < tries; i++) {
         try {
@@ -69,9 +62,7 @@ export async function retryIfRetriable<T>(
             }
 
             // Fall through, `fn` will retry after sleep.
-            const jitteredSleepMs =
-                jitterFactor > 0 ? currentSleepMs * (1 - jitterFactor + Math.random() * jitterFactor) : currentSleepMs
-            await sleep(jitteredSleepMs)
+            await sleep(currentSleepMs)
             currentSleepMs = Math.min(
                 currentSleepMs * defaultRetryConfig.BACKOFF_FACTOR,
                 defaultRetryConfig.MAX_INTERVAL
