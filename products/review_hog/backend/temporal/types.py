@@ -6,6 +6,8 @@ input without importing the workflow code (which pulls in the heavy activity dep
 
 from dataclasses import dataclass
 
+from posthog.dataclasses import frozen
+
 # How a review run was triggered. Gates are trigger-aware: label → `review_labeled_prs`,
 # inbox → `review_inbox_prs`, manual (CLI/eval) and ui (an explicit human ask from the Code review
 # scene) → ungated. Plain strings (not an Enum) so Temporal payloads stay forward/backward-compatible
@@ -79,7 +81,7 @@ class ReviewPRWorkflowInputs:
         }
 
 
-@dataclass
+@frozen
 class ResolvePRWorkflowInputs:
     """Input for one `ResolvePRWorkflow` run (the resolution stage on one PR).
 

@@ -19,7 +19,7 @@ a second reply. Reply-first deliberately fails toward a visible duplicate rather
 """
 
 import logging
-from dataclasses import dataclass, field
+from dataclasses import field
 from datetime import timedelta
 
 import temporalio
@@ -27,6 +27,7 @@ from temporalio import activity, workflow
 from temporalio.common import RetryPolicy
 from temporalio.exceptions import ApplicationError
 
+from posthog.dataclasses import frozen
 from posthog.models.integration import GitHubIntegration, Integration
 from posthog.sync import database_sync_to_async
 from posthog.temporal.common.heartbeat import Heartbeater
@@ -104,7 +105,7 @@ _RETRY = RetryPolicy(maximum_attempts=2)
 _RESOLUTION_RETRY = RetryPolicy(maximum_attempts=RESOLUTION_MAX_ATTEMPTS)
 
 
-@dataclass
+@frozen
 class ResolveThreadsInput:
     team_id: int
     user_id: int
@@ -120,7 +121,7 @@ class ResolveThreadsInput:
     trigger_source: str = TRIGGER_MANUAL
 
 
-@dataclass
+@frozen(frozen=False)
 class ResolutionRunResult:
     """The run's summary — the same counts the persisted `note` artefact records."""
 
@@ -142,7 +143,7 @@ class ResolutionRunResult:
     undelivered: int = 0
 
 
-@dataclass
+@frozen
 class _PreparedRun:
     """In-process fetch/gate output — never crosses the Temporal boundary (threads can be big).
 
