@@ -43,16 +43,14 @@ use common_ingestion_warnings::{
 /// (extractHeatmapDataStep) handles extraction when `skip_heatmap_processing` is unset
 /// in Kafka headers — removing that fallback would break scroll-depth heatmaps for v1.
 ///
-/// When `route_ai_events` is set (the deployment's capture mode routes AI
-/// events, see `CaptureMode::routes_ai_events`), AI events (per
-/// [`is_ai_event`]) are diverted to `Destination::AiEvents`; otherwise they
-/// fall through to `AnalyticsMain`.
-fn destination_for_event_name(name: &str, route_ai_events: bool) -> Destination {
+/// AI events (per [`is_ai_event`]) are diverted to `Destination::AiEvents` on
+/// every deployment.
+fn destination_for_event_name(name: &str) -> Destination {
     match name {
         "$exception" => Destination::ExceptionErrorTracking,
         "$$heatmap" => Destination::HeatmapMain,
         "$$client_ingestion_warning" => Destination::ClientIngestionWarning,
-        _ if route_ai_events && is_ai_event(name) => Destination::AiEvents,
+        _ if is_ai_event(name) => Destination::AiEvents,
         _ => Destination::AnalyticsMain,
     }
 }
@@ -72,9 +70,7 @@ pub async fn process_batch(
     }
     context.set_batch_metadata(&batch);
 
-    // Whether `$ai_*` events divert to the AI lane is a deployment property.
-    let route_ai_events = state.capture_mode.routes_ai_events();
-    let mut events = match validate_events(context, batch, route_ai_events) {
+    let mut events = match validate_events(context, batch) {
         Ok(events) => events,
         Err(err) => {
             emit_batch_abort_warning(state, context, &err, batch_len);
@@ -462,11 +458,7 @@ fn validate_batch(batch: &Batch) -> Result<(), Error> {
     Ok(())
 }
 
-fn validate_events(
-    context: &RequestContext,
-    batch: Batch,
-    route_ai_events: bool,
-) -> Result<Vec<WrappedEvent>, Error> {
+fn validate_events(context: &RequestContext, batch: Batch) -> Result<Vec<WrappedEvent>, Error> {
     let batch_len = batch.batch.len();
     let mut events: Vec<WrappedEvent> = Vec::with_capacity(batch_len);
     let mut seen: HashSet<Uuid> = HashSet::with_capacity(batch_len);
@@ -486,7 +478,7 @@ fn validate_events(
             ));
         }
 
-        let destination = destination_for_event_name(&event.event, route_ai_events);
+        let destination = destination_for_event_name(&event.event);
 
         match validate_event(&event) {
             Ok(raw_ts) => {
@@ -1257,7 +1249,7 @@ mod tests {
         let normal = valid_event();
         let normal_uuid = Uuid::parse_str(&normal.uuid).unwrap();
         let batch = valid_batch(vec![perf, normal]);
-        let events = validate_events(&ctx, batch, false).unwrap();
+        let events = validate_events(&ctx, batch).unwrap();
         assert_eq!(events.len(), 2);
         // Vec preserves input order: perf first, normal second.
         let p = &events[0];
@@ -1281,7 +1273,7 @@ mod tests {
             ..valid_event()
         };
         let batch = valid_batch(vec![p1, p2]);
-        let events = validate_events(&ctx, batch, false).unwrap();
+        let events = validate_events(&ctx, batch).unwrap();
         assert_eq!(events.len(), 2);
         for ev in &events {
             assert_eq!(ev.result, EventResult::Drop);
@@ -1297,7 +1289,7 @@ mod tests {
             illegal_event.distinct_id = id.to_string();
             let legal_event = valid_event();
             let batch = valid_batch(vec![illegal_event, legal_event]);
-            let events = validate_events(&ctx, batch, false).unwrap();
+            let events = validate_events(&ctx, batch).unwrap();
             assert_eq!(events.len(), 2, "id={id:?}");
 
             let flagged = &events[0];
@@ -1322,7 +1314,7 @@ mod tests {
         let ctx = test_utils::test_context();
         let event = deserialized_event(&Uuid::new_v4().to_string(), "  NULL  ");
         let batch = valid_batch(vec![event]);
-        let events = validate_events(&ctx, batch, false).unwrap();
+        let events = validate_events(&ctx, batch).unwrap();
         assert_eq!(events[0].result, EventResult::Ok);
         assert!(events[0].force_disable_person_processing);
         assert_eq!(events[0].details, Some(DETAIL_PERSON_PROCESSING_DISABLED));
@@ -1335,7 +1327,7 @@ mod tests {
             let mut illegal_event = valid_event();
             illegal_event.distinct_id = id.to_string();
             let batch = valid_batch(vec![illegal_event]);
-            let events = validate_events(&ctx, batch, false).unwrap();
+            let events = validate_events(&ctx, batch).unwrap();
             assert_eq!(events.len(), 1, "id={id:?}");
             assert!(events[0].should_publish(), "id={id:?}");
         }
@@ -1362,7 +1354,7 @@ mod tests {
                 },
             ],
         };
-        let err = validate_events(&ctx, batch, false).unwrap_err();
+        let err = validate_events(&ctx, batch).unwrap_err();
         assert!(matches!(err, Error::DuplicateEventUuid(_)));
     }
 
@@ -1378,7 +1370,7 @@ mod tests {
                 ..valid_event()
             }],
         };
-        let err = validate_events(&ctx, batch, false).unwrap_err();
+        let err = validate_events(&ctx, batch).unwrap_err();
         assert!(matches!(err, Error::InvalidEventUuid(_)));
     }
 
@@ -1394,7 +1386,7 @@ mod tests {
                 ..valid_event()
             }],
         };
-        let err = validate_events(&ctx, batch, false).unwrap_err();
+        let err = validate_events(&ctx, batch).unwrap_err();
         assert!(matches!(err, Error::MissingEventUuid));
     }
 
@@ -1426,7 +1418,7 @@ mod tests {
 
         let count = dropped_count("duplicate_event_uuid", "validation_abort", || {
             assert!(matches!(
-                validate_events(&ctx, batch, false).unwrap_err(),
+                validate_events(&ctx, batch).unwrap_err(),
                 Error::DuplicateEventUuid(_)
             ));
         });
@@ -1448,7 +1440,7 @@ mod tests {
 
         let count = dropped_count("invalid_event_uuid", "validation_abort", || {
             assert!(matches!(
-                validate_events(&ctx, batch, false).unwrap_err(),
+                validate_events(&ctx, batch).unwrap_err(),
                 Error::InvalidEventUuid(_)
             ));
         });
@@ -1468,7 +1460,7 @@ mod tests {
 
         let count = dropped_count("missing_event_uuid", "validation_abort", || {
             assert!(matches!(
-                validate_events(&ctx, batch, false).unwrap_err(),
+                validate_events(&ctx, batch).unwrap_err(),
                 Error::MissingEventUuid
             ));
         });
@@ -1516,7 +1508,7 @@ mod tests {
         let event = deserialized_event(&padded_uuid, "user-42");
         assert_eq!(event.uuid, inner_uuid.to_string());
         let batch = valid_batch(vec![event]);
-        let events = validate_events(&ctx, batch, false).unwrap();
+        let events = validate_events(&ctx, batch).unwrap();
         assert_eq!(events.len(), 1);
         assert_eq!(events[0].uuid, inner_uuid);
     }
@@ -1535,7 +1527,7 @@ mod tests {
             capture_internal: None,
             batch: vec![bad_event],
         };
-        let events = validate_events(&ctx, batch, false).unwrap();
+        let events = validate_events(&ctx, batch).unwrap();
         assert_eq!(events.len(), 1);
         let event = &events[0];
         assert_eq!(event.uuid, uuid);
@@ -1561,7 +1553,7 @@ mod tests {
             capture_internal: None,
             batch: vec![good, bad],
         };
-        let events = validate_events(&ctx, batch, false).unwrap();
+        let events = validate_events(&ctx, batch).unwrap();
         assert_eq!(events.len(), 2);
 
         assert_eq!(events[0].result, EventResult::Ok);
@@ -1590,7 +1582,7 @@ mod tests {
             capture_internal: None,
             batch: vec![ev1, ev2],
         };
-        let result = validate_events(&ctx, batch, false);
+        let result = validate_events(&ctx, batch);
         assert!(result.is_ok());
         let events = result.unwrap();
         assert_eq!(events[0].result, EventResult::Drop);
@@ -1612,7 +1604,7 @@ mod tests {
             capture_internal: None,
             batch: vec![ev],
         };
-        let events = validate_events(&ctx, batch, false).unwrap();
+        let events = validate_events(&ctx, batch).unwrap();
         assert_eq!(events[0].result, EventResult::Ok);
         assert_eq!(events[0].options.disable_skew_correction, Some(true));
     }
@@ -1636,7 +1628,7 @@ mod tests {
             capture_internal: None,
             batch: vec![ev],
         };
-        let events = validate_events(&ctx, batch, false).unwrap();
+        let events = validate_events(&ctx, batch).unwrap();
         assert_eq!(events[0].result, EventResult::Drop);
         assert_eq!(events[0].details, Some("missing_event_name"));
     }
@@ -2020,45 +2012,24 @@ mod tests {
     // --- destination_for_event_name ---
 
     #[rstest::rstest]
-    // Non-AI mappings are identical regardless of the AI routing flag.
-    #[case("$exception", false, Destination::ExceptionErrorTracking)]
-    #[case("$exception", true, Destination::ExceptionErrorTracking)]
-    #[case("$$heatmap", false, Destination::HeatmapMain)]
-    #[case("$$heatmap", true, Destination::HeatmapMain)]
-    #[case(
-        "$$client_ingestion_warning",
-        false,
-        Destination::ClientIngestionWarning
-    )]
-    #[case(
-        "$$client_ingestion_warning",
-        true,
-        Destination::ClientIngestionWarning
-    )]
-    #[case("$pageview", false, Destination::AnalyticsMain)]
-    #[case("$pageview", true, Destination::AnalyticsMain)]
-    #[case("custom_event", false, Destination::AnalyticsMain)]
-    #[case("$autocapture", false, Destination::AnalyticsMain)]
-    // Allowlisted AI events divert only when AI routing is enabled; otherwise stay on Main.
-    #[case("$ai_generation", true, Destination::AiEvents)]
-    #[case("$ai_span", true, Destination::AiEvents)]
-    #[case("$ai_trace", true, Destination::AiEvents)]
-    #[case("$ai_generation_summary", true, Destination::AiEvents)]
-    #[case("$ai_generation", false, Destination::AnalyticsMain)]
+    #[case("$exception", Destination::ExceptionErrorTracking)]
+    #[case("$$heatmap", Destination::HeatmapMain)]
+    #[case("$$client_ingestion_warning", Destination::ClientIngestionWarning)]
+    #[case("$pageview", Destination::AnalyticsMain)]
+    #[case("custom_event", Destination::AnalyticsMain)]
+    #[case("$autocapture", Destination::AnalyticsMain)]
+    // Allowlisted AI events divert on every deployment.
+    #[case("$ai_generation", Destination::AiEvents)]
+    #[case("$ai_span", Destination::AiEvents)]
+    #[case("$ai_trace", Destination::AiEvents)]
+    #[case("$ai_generation_summary", Destination::AiEvents)]
     // $ai_ prefixed names absent from the allowlist stay on Main so the
     // ingestion AI pipeline doesn't DLQ them.
-    #[case("$ai_call", true, Destination::AnalyticsMain)]
-    #[case("$ai_generation_enriched", true, Destination::AnalyticsMain)]
-    #[case("$ai_model_failover", true, Destination::AnalyticsMain)]
-    fn destination_for_event_name_mapping(
-        #[case] event_name: &str,
-        #[case] route_ai_events: bool,
-        #[case] expected: Destination,
-    ) {
-        assert_eq!(
-            destination_for_event_name(event_name, route_ai_events),
-            expected
-        );
+    #[case("$ai_call", Destination::AnalyticsMain)]
+    #[case("$ai_generation_enriched", Destination::AnalyticsMain)]
+    #[case("$ai_model_failover", Destination::AnalyticsMain)]
+    fn destination_for_event_name_mapping(#[case] event_name: &str, #[case] expected: Destination) {
+        assert_eq!(destination_for_event_name(event_name), expected);
     }
 
     // --- restrictions bypass pipeline-less events ---
@@ -2905,7 +2876,7 @@ mod tests {
         };
         let batch = valid_batch(vec![normal_a, perf, normal_b, normal_c]);
 
-        let events = validate_events(&ctx, batch, false).unwrap();
+        let events = validate_events(&ctx, batch).unwrap();
 
         assert_eq!(
             distinct_id_sequence(&events),
@@ -2919,7 +2890,7 @@ mod tests {
         let ctx = test_utils::test_context();
         let (first, second) = test_utils::realistic_dup_uuid_pair();
         let batch = valid_batch(vec![first, second]);
-        let err = validate_events(&ctx, batch, false).unwrap_err();
+        let err = validate_events(&ctx, batch).unwrap_err();
         assert!(matches!(err, Error::DuplicateEventUuid(_)));
     }
 
