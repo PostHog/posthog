@@ -178,6 +178,9 @@ tools:
         rename_params:
             name: new_name
         feature_flag: product-data-catalog
+    data-catalog-metrics-approved-names-retrieve:
+        operation: data_catalog_metrics_approved_names_retrieve
+        enabled: false
     data-catalog-metrics-destroy:
         operation: data_catalog_metrics_destroy
         enabled: false
