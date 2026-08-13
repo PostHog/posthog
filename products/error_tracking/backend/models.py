@@ -24,7 +24,7 @@ from posthog.models.utils import UUIDModel, UUIDTModel
 from posthog.storage import object_storage
 
 from products.error_tracking.backend.sql import (
-    INSERT_ERROR_TRACKING_FINGERPRINT_ISSUE_STATE,
+    INSERT_ERROR_TRACKING_FINGERPRINT_ISSUE_STATE_WITH_SEVERITY,
     INSERT_ERROR_TRACKING_ISSUE_FINGERPRINT_OVERRIDES,
 )
 
@@ -725,7 +725,7 @@ def sync_issues_to_clickhouse(*, issue_ids: list, team_id: int) -> None:
         first_seen_raw = fp.first_seen or issue.created_at
         first_seen = format_clickhouse_timestamp(first_seen_raw) if first_seen_raw else None
         producer.produce(
-            sql=INSERT_ERROR_TRACKING_FINGERPRINT_ISSUE_STATE,
+            sql=INSERT_ERROR_TRACKING_FINGERPRINT_ISSUE_STATE_WITH_SEVERITY,
             topic=KAFKA_ERROR_TRACKING_FINGERPRINT_ISSUE_STATE,
             data={
                 "fingerprint": fp.fingerprint,
