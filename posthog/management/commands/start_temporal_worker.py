@@ -142,10 +142,6 @@ from posthog.temporal.session_replay.surfacing_scoring_sweep import (
     SURFACING_SCORING_SWEEP_ACTIVITIES,
     SURFACING_SCORING_SWEEP_WORKFLOWS,
 )
-from posthog.temporal.signup_enrichment import (
-    ACTIVITIES as SIGNUP_ENRICHMENT_ACTIVITIES,
-    WORKFLOWS as SIGNUP_ENRICHMENT_WORKFLOWS,
-)
 from posthog.temporal.sync_events_retention import SYNC_EVENTS_RETENTION_ACTIVITIES, SYNC_EVENTS_RETENTION_WORKFLOWS
 from posthog.temporal.sync_person_distinct_ids import (
     ACTIVITIES as SYNC_PERSON_DISTINCT_IDS_ACTIVITIES,
@@ -205,6 +201,10 @@ from products.experiments.backend.temporal import (
 from products.exports.backend.temporal.subscriptions import (
     ACTIVITIES as SUBSCRIPTION_ACTIVITIES,
     WORKFLOWS as SUBSCRIPTION_WORKFLOWS,
+)
+from products.growth.backend.temporal import (
+    ACTIVITIES as GROWTH_ACTIVITIES,
+    WORKFLOWS as GROWTH_WORKFLOWS,
 )
 from products.logs.backend.facade.temporal import (
     ACTIVITIES as LOGS_ALERTING_ACTIVITIES,
@@ -326,7 +326,7 @@ _task_queue_specs = [
         + JOB_LOGS_WORKFLOWS
         + CI_SIGNALS_WORKFLOWS
         + NOTEBOOKS_WORKFLOWS
-        + SIGNUP_ENRICHMENT_WORKFLOWS
+        + GROWTH_WORKFLOWS
         + LOGS_RETENTION_ENTITLEMENTS_WORKFLOWS,
         PROXY_SERVICE_ACTIVITIES
         + DELETE_PERSONS_ACTIVITIES
@@ -347,7 +347,7 @@ _task_queue_specs = [
         + JOB_LOGS_ACTIVITIES
         + CI_SIGNALS_ACTIVITIES
         + NOTEBOOKS_ACTIVITIES
-        + SIGNUP_ENRICHMENT_ACTIVITIES
+        + GROWTH_ACTIVITIES
         + LOGS_RETENTION_ENTITLEMENTS_ACTIVITIES,
     ),
     # Dedicated landing zone for signup enrichment. Defaults to the general-purpose queue name (so it
@@ -355,8 +355,8 @@ _task_queue_specs = [
     # worker registers these workflows under the dedicated queue, letting dispatch move there with no code change.
     (
         settings.SIGNUP_ENRICHMENT_TASK_QUEUE,
-        SIGNUP_ENRICHMENT_WORKFLOWS,
-        SIGNUP_ENRICHMENT_ACTIVITIES,
+        GROWTH_WORKFLOWS,
+        GROWTH_ACTIVITIES,
     ),
     (
         settings.EXPERIMENTS_RECALCULATION_TASK_QUEUE,
