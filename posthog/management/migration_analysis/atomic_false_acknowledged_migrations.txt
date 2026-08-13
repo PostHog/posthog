@@ -16,3 +16,4 @@ product_analytics.0004_delete_revenue_analytics_insights
 tasks.0079_backfill_task_repositories
 replay_vision.0070_backfill_usage_scanner_id
 tasks.0088_backfill_task_search_documents
+tasks.0091_backfill_task_last_activity_at
