@@ -319,30 +319,16 @@ export type DashboardApiPersistedVariables = { [key: string]: unknown } | null
 
 export type DashboardApiTilesItem = { [key: string]: unknown }
 
-export interface TileLayoutBoxApi {
-    /** Column position in the dashboard grid (0-indexed). */
-    x?: number
-    /** Row position in the dashboard grid (0-indexed). */
-    y?: number
-    /** Width in grid columns. The desktop grid is 12 columns wide. */
-    w?: number
-    /** Height in grid rows. */
-    h?: number
-}
-
-export interface TileLayoutsApi {
-    /** Layout for the standard (desktop) breakpoint. The grid is 12 columns wide. */
-    sm?: TileLayoutBoxApi
-}
-
 export interface DashboardGroupApi {
     readonly id: string
-    readonly name: string
-    /** Grid tile ID for this group row. */
-    readonly tile_id: number
-    /** Grid layout for the group row. */
-    readonly layouts: TileLayoutsApi
-    /** Content tile IDs assigned to this group. */
+    /**
+     * Section name. Null or empty means an anonymous section (bare grid, no header).
+     * @nullable
+     */
+    name: string | null
+    /** 0-indexed order of this section on the dashboard. */
+    position: number
+    /** Content tile IDs assigned to this section. */
     readonly member_tile_ids: readonly number[]
     readonly created_at: string
     /** @nullable */
@@ -420,7 +406,7 @@ export interface DashboardApi {
      * @nullable
      */
     quick_filter_ids?: string[] | null
-    /** Ordered groups configured on this dashboard. */
+    /** Ordered sections on this dashboard. Empty when the dashboard has no groups. */
     readonly groups: readonly DashboardGroupApi[]
     /** @nullable */
     readonly tiles: readonly DashboardApiTilesItem[] | null
@@ -1015,6 +1001,22 @@ export interface CopyDashboardTileRequestApi {
     tileId: number
 }
 
+export interface TileLayoutBoxApi {
+    /** Column position in the dashboard grid (0-indexed). */
+    x?: number
+    /** Row position in the dashboard grid (0-indexed). */
+    y?: number
+    /** Width in grid columns. The desktop grid is 12 columns wide. */
+    w?: number
+    /** Height in grid rows. */
+    h?: number
+}
+
+export interface TileLayoutsApi {
+    /** Layout for the standard (desktop) breakpoint. The grid is 12 columns wide. */
+    sm?: TileLayoutBoxApi
+}
+
 export interface CreateTextTileRequestApi {
     /**
      * Markdown body for the text tile. Supports headings, lists, and inline formatting. Useful as a dashboard section heading, divider, or annotation between insights. Max 4000 characters.
@@ -1022,7 +1024,7 @@ export interface CreateTextTileRequestApi {
      * @maxLength 4000
      */
     body: string
-    /** Optional grid layout per breakpoint. If omitted, the tile is placed at the bottom of the dashboard using the default size. Text tiles typically use a thin full-width banner (e.g. w=12, h=1). */
+    /** Optional grid layout per breakpoint. If omitted, the tile is placed at the bottom of the destination section using the default size. Text tiles typically use a thin full-width banner (e.g. w=12, h=1). */
     layouts?: TileLayoutsApi
     /**
      * Optional accent color name (e.g. 'blue', 'green', 'purple', 'black').
@@ -1030,6 +1032,8 @@ export interface CreateTextTileRequestApi {
      * @nullable
      */
     color?: string | null
+    /** Section to add the tile to. On a grouped dashboard, omit to append to the trailing anonymous section (created if needed). */
+    group_id?: string
 }
 
 export type InsightVizNodeApiKind = (typeof InsightVizNodeApiKind)[keyof typeof InsightVizNodeApiKind]
@@ -8927,7 +8931,10 @@ export interface DashboardTileApi {
     text: TextApi
     button_tile: ButtonTileApi
     widget?: DashboardWidgetApi | null
-    /** @nullable */
+    /**
+     * Section this content tile belongs to. Null on dashboards with no groups.
+     * @nullable
+     */
     readonly parent_group_id: string | null
     layouts?: unknown
     /**
@@ -8949,61 +8956,76 @@ export interface DeleteTileRequestApi {
 
 export interface CreateDashboardGroupRequestApi {
     /**
-     * Name displayed in the dashboard group row.
-     * @minLength 1
+     * Section name. Null or empty creates an anonymous section (a bare grid with no header). Omit to create an anonymous section.
      * @maxLength 400
+     * @nullable
      */
-    name: string
-    /** Optional grid layout for the group row. Group rows always span the desktop grid. */
-    layouts?: TileLayoutsApi
+    name?: string | null
+    /**
+     * 0-indexed section position. Omit to append after existing sections.
+     * @minimum 0
+     */
+    position?: number
 }
 
 /**
  * * `delete_tiles` - delete_tiles
- * * `move_to_ungrouped` - move_to_ungrouped
+ * * `ungroup` - ungroup
  */
 export type MemberHandlingEnumApi = (typeof MemberHandlingEnumApi)[keyof typeof MemberHandlingEnumApi]
 
 export const MemberHandlingEnumApi = {
     DeleteTiles: 'delete_tiles',
-    MoveToUngrouped: 'move_to_ungrouped',
+    Ungroup: 'ungroup',
 } as const
 
 export interface DeleteDashboardGroupRequestApi {
     /** Dashboard group ID to delete. */
     group_id: string
-    /** How to handle content tiles currently assigned to the group.
+    /** How to handle tiles in the section. 'delete_tiles' soft-deletes the tiles and removes the section. 'ungroup' clears the section name in place so it becomes anonymous; tiles stay put.
      *
      * * `delete_tiles` - delete_tiles
-     * * `move_to_ungrouped` - move_to_ungrouped */
+     * * `ungroup` - ungroup */
     member_handling: MemberHandlingEnumApi
-    /** Layout for the small (mobile) breakpoint. The grid is 1 column wide. */
-    xs?: TileLayoutBoxApi
 }
 
 export interface MoveDashboardTileToGroupRequestApi {
     /** Content tile ID to move. */
     tile_id: number
+    /** Destination section ID. Provide this or create_at_position, not both. */
+    group_id?: string
     /**
-     * Destination group ID, or null to move the tile to the ungrouped section.
-     * @nullable
+     * Create an anonymous section at this 0-indexed position and move the tile into it. Provide this or group_id, not both.
+     * @minimum 0
      */
-    group_id?: string | null
-    /** Optional new layout for the moved tile. */
+    create_at_position?: number
+    /** Optional new layout for the moved tile, relative to the destination section. */
     layouts?: TileLayoutsApi
+}
+
+export interface MoveDashboardTileToGroupResponseApi {
+    /** The moved tile, including its new parent_group_id. */
+    tile: DashboardTileApi
+    /** The anonymous section created when create_at_position was used. Null otherwise. */
+    created_group: DashboardGroupApi | null
+    /** Anonymous source sections removed because they had no remaining tiles. */
+    deleted_group_ids: string[]
 }
 
 export interface PatchedUpdateDashboardGroupRequestApi {
     /** Dashboard group ID to update. */
     group_id?: string
     /**
-     * New group name. Omit to keep the existing name.
-     * @minLength 1
+     * New section name. Null converts the section to anonymous. Omit to keep the current name.
      * @maxLength 400
+     * @nullable
      */
-    name?: string
-    /** New grid layout for the group row. Omit to keep its current layout. */
-    layouts?: TileLayoutsApi
+    name?: string | null
+    /**
+     * New 0-indexed section position. Omit to keep the current position.
+     * @minimum 0
+     */
+    position?: number
 }
 
 export interface MoveTileTileApi {
@@ -9044,7 +9066,7 @@ export interface ReorderTilesRequestApi {
      * @minItems 1
      */
     tile_order: number[]
-    /** How to size tiles when reordering. 'preserve' (default) keeps each tile's existing width and height and only repacks positions in the new order. 'two_column' forces a 6-wide × 5-tall grid (two tiles per row). 'full_width' forces each tile to span the full 12-column row at height 5.
+    /** How to size tiles when reordering. 'preserve' (default) keeps each tile's existing width and height and only repacks positions in the new order. 'two_column' forces a 6-wide × 5-tall grid (two tiles per row). 'full_width' forces each tile to span the full 12-column row at height 5. On a grouped dashboard the submitted order is partitioned by section and each section is packed independently, so a tile cannot be reordered into a different section here.
      *
      * * `preserve` - preserve
      * * `two_column` - two_column

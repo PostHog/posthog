@@ -2082,7 +2082,7 @@
         }
     },
     "dashboard-group-create": {
-        "description": "Create a named group at the bottom of a dashboard.",
+        "description": "Create a section on a dashboard. Pass a name for a headed section, or omit name for an anonymous section. Existing ungrouped tiles are wrapped into an anonymous section at position 0 when this is the first group. Pass position to insert; omit to append.",
         "category": "Dashboards",
         "feature": "dashboards",
         "summary": "Create dashboard group",
@@ -2096,7 +2096,7 @@
         }
     },
     "dashboard-group-delete": {
-        "description": "Delete a group and either delete its member tiles or move them to the ungrouped section.",
+        "description": "Delete a section. member_handling delete_tiles soft-deletes the tiles and removes the section. ungroup clears the section name so it becomes anonymous; tiles stay put.",
         "category": "Dashboards",
         "feature": "dashboards",
         "summary": "Delete dashboard group",
@@ -2110,7 +2110,7 @@
         }
     },
     "dashboard-group-move-tile": {
-        "description": "Move a content tile into a group or into the ungrouped section.",
+        "description": "Move a content tile into an existing section (group_id) or into a new anonymous section at create_at_position. Provide exactly one of those. Emptied anonymous source sections are removed.",
         "category": "Dashboards",
         "feature": "dashboards",
         "summary": "Move tile to dashboard group",
@@ -2124,7 +2124,7 @@
         }
     },
     "dashboard-group-update": {
-        "description": "Rename a dashboard group or update its full-width grid position.",
+        "description": "Rename a dashboard section or move it to a new 0-indexed position. Null name converts the section to anonymous. Member tiles stay in the section.",
         "category": "Dashboards",
         "feature": "dashboards",
         "summary": "Update dashboard group",

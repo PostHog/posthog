@@ -120,6 +120,16 @@ from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_group import DashboardGroup
 from products.dashboards.backend.models.dashboard_tile import ButtonTile, DashboardTile, Text
 from products.dashboards.backend.models.dashboard_widget import DashboardWidget
+from products.dashboards.backend.section_ops import (
+    assign_tile_to_section,
+    content_tiles_qs,
+    create_section,
+    lock_dashboard,
+    move_section,
+    normalize_section_name,
+    renumber_section_positions,
+    resolve_default_section,
+)
 from products.dashboards.backend.widget_access import (
     check_widget_tile_product_access,
     get_widget_api_scope_error,
@@ -129,6 +139,7 @@ from products.dashboards.backend.widget_availability import get_widget_feature_e
 from products.dashboards.backend.widget_catalog import get_widget_catalog_entries
 from products.dashboards.backend.widget_create import prepare_widget_tile_create
 from products.dashboards.backend.widget_layouts import (
+    collect_dashboard_sm_layouts,
     collect_dashboard_sm_layouts_for_dashboard,
     stack_widget_layout_at_bottom,
 )
@@ -329,8 +340,20 @@ def _compact_tile_layouts(tiles: list[DashboardTile]) -> set[int]:
     """Vertically compact tile layouts in place, mirroring the dashboard grid's default
     react-grid-layout vertical compaction (gravity up). Each breakpoint is compacted
     independently: tiles keep their x/w/h and are pulled up to the lowest free row.
-    Returns the ids of tiles whose layouts changed.
+    Compaction is per `parent_group_id` so one section's tiles cannot fill another
+    section's holes. Returns the ids of tiles whose layouts changed.
     """
+    buckets: dict[Any, list[DashboardTile]] = {}
+    for tile in tiles:
+        buckets.setdefault(tile.parent_group_id, []).append(tile)
+
+    changed: set[int] = set()
+    for bucket_tiles in buckets.values():
+        changed.update(_compact_tile_layouts_in_section(bucket_tiles))
+    return changed
+
+
+def _compact_tile_layouts_in_section(tiles: list[DashboardTile]) -> set[int]:
     for tile in tiles:
         if isinstance(tile.layouts, str):
             tile.layouts = json.loads(tile.layouts)
@@ -363,6 +386,36 @@ def _compact_tile_layouts(tiles: list[DashboardTile]) -> set[int]:
                 changed.add(tile.id)
 
     return changed
+
+
+def _section_layout_sort_key(
+    tile: DashboardTile,
+    group_positions: dict[Any, int],
+    layout_size: str,
+) -> tuple[int, int, int]:
+    layouts = tile.layouts if isinstance(tile.layouts, dict) else {}
+    box = layouts.get(layout_size) if isinstance(layouts, dict) else None
+    if not isinstance(box, dict):
+        box = {}
+    section_position = group_positions.get(tile.parent_group_id, 10**9)
+    return (section_position, box.get("y", 100), box.get("x", 100))
+
+
+def _sort_tiles_by_section_layout(
+    tiles: list[DashboardTile] | Any,
+    dashboard: Dashboard,
+    layout_size: str = "sm",
+) -> list[DashboardTile]:
+    group_positions = {group.id: group.position for group in dashboard.groups.all()}
+    return sorted(tiles, key=lambda tile: _section_layout_sort_key(tile, group_positions, layout_size))
+
+
+def _resolve_parent_group_for_new_tile(
+    dashboard: Dashboard, user: User | None, group_id: uuid.UUID | None
+) -> DashboardGroup | None:
+    if group_id is not None:
+        return get_object_or_404(dashboard.groups, id=group_id)
+    return resolve_default_section(dashboard, user)
 
 
 def tile_insight_prefetches() -> list[Prefetch]:
@@ -448,7 +501,26 @@ def _apply_reorder_layout(
     layout_mode: ReorderLayout,
 ) -> None:
     """Repack tiles. ``preserve`` keeps each tile's existing w/h and reuses the lowest-segment
-    greedy algorithm from ``frontend/src/scenes/dashboard/tileLayouts.ts``; the other modes overwrite w/h."""
+    greedy algorithm from ``frontend/src/scenes/dashboard/tileLayouts.ts``; the other modes overwrite w/h.
+
+    On a grouped dashboard the submitted order is split by ``parent_group_id`` and each
+    section is packed as its own grid, so y=0 is the top of that section, not the dashboard.
+    """
+    buckets: dict[Any, list[int]] = {}
+    for tile_id in tile_order:
+        buckets.setdefault(tile_map[tile_id].parent_group_id, []).append(tile_id)
+    if len(buckets) > 1:
+        for bucket_order in buckets.values():
+            _apply_reorder_layout_in_section(bucket_order, tile_map, layout_mode)
+        return
+    _apply_reorder_layout_in_section(tile_order, tile_map, layout_mode)
+
+
+def _apply_reorder_layout_in_section(
+    tile_order: list[int],
+    tile_map: dict[int, DashboardTile],
+    layout_mode: ReorderLayout,
+) -> None:
     if layout_mode == ReorderLayout.TWO_COLUMN:
         for index, tile_id in enumerate(tile_order):
             row, col = divmod(index, 2)
@@ -512,7 +584,9 @@ class ReorderTilesRequestSerializer(serializers.Serializer):
         help_text=(
             "How to size tiles when reordering. 'preserve' (default) keeps each tile's existing width and height "
             "and only repacks positions in the new order. 'two_column' forces a 6-wide × 5-tall grid (two tiles per "
-            "row). 'full_width' forces each tile to span the full 12-column row at height 5."
+            "row). 'full_width' forces each tile to span the full 12-column row at height 5. On a grouped dashboard "
+            "the submitted order is partitioned by section and each section is packed independently, so a tile cannot "
+            "be reordered into a different section here."
         ),
     )
 
@@ -540,29 +614,37 @@ class TileLayoutsSerializer(serializers.Serializer):
 
 class CreateDashboardGroupRequestSerializer(serializers.Serializer):
     name = serializers.CharField(
-        min_length=1,
         max_length=400,
         trim_whitespace=True,
-        help_text="Name displayed in the dashboard group row.",
-    )
-    layouts = TileLayoutsSerializer(
         required=False,
-        help_text="Optional grid layout for the group row. Group rows always span the desktop grid.",
+        allow_null=True,
+        allow_blank=True,
+        help_text=(
+            "Section name. Null or empty creates an anonymous section (a bare grid with no header). "
+            "Omit to create an anonymous section."
+        ),
+    )
+    position = serializers.IntegerField(
+        required=False,
+        min_value=0,
+        help_text="0-indexed section position. Omit to append after existing sections.",
     )
 
 
 class UpdateDashboardGroupRequestSerializer(serializers.Serializer):
     group_id = serializers.UUIDField(help_text="Dashboard group ID to update.")
     name = serializers.CharField(
-        min_length=1,
         max_length=400,
         trim_whitespace=True,
         required=False,
-        help_text="New group name. Omit to keep the existing name.",
+        allow_null=True,
+        allow_blank=True,
+        help_text="New section name. Null converts the section to anonymous. Omit to keep the current name.",
     )
-    layouts = TileLayoutsSerializer(
+    position = serializers.IntegerField(
         required=False,
-        help_text="New grid layout for the group row. Omit to keep its current layout.",
+        min_value=0,
+        help_text="New 0-indexed section position. Omit to keep the current position.",
     )
 
 
@@ -570,24 +652,37 @@ class MoveDashboardTileToGroupRequestSerializer(serializers.Serializer):
     tile_id = serializers.IntegerField(help_text="Content tile ID to move.")
     group_id = serializers.UUIDField(
         required=False,
-        allow_null=True,
-        help_text="Destination group ID, or null to move the tile to the ungrouped section.",
+        help_text="Destination section ID. Provide this or create_at_position, not both.",
+    )
+    create_at_position = serializers.IntegerField(
+        required=False,
+        min_value=0,
+        help_text=(
+            "Create an anonymous section at this 0-indexed position and move the tile into it. "
+            "Provide this or group_id, not both."
+        ),
     )
     layouts = TileLayoutsSerializer(
         required=False,
-        help_text="Optional new layout for the moved tile.",
+        help_text="Optional new layout for the moved tile, relative to the destination section.",
     )
+
+    def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
+        has_group_id = "group_id" in attrs
+        has_create_at = "create_at_position" in attrs
+        if has_group_id == has_create_at:
+            raise serializers.ValidationError("Provide exactly one of group_id or create_at_position.")
+        return attrs
 
 
 class DeleteDashboardGroupRequestSerializer(serializers.Serializer):
     group_id = serializers.UUIDField(help_text="Dashboard group ID to delete.")
     member_handling = serializers.ChoiceField(
-        choices=["delete_tiles", "move_to_ungrouped"],
-        help_text="How to handle content tiles currently assigned to the group.",
-    )
-    xs = TileLayoutBoxSerializer(
-        required=False,
-        help_text="Layout for the small (mobile) breakpoint. The grid is 1 column wide.",
+        choices=["delete_tiles", "ungroup"],
+        help_text=(
+            "How to handle tiles in the section. 'delete_tiles' soft-deletes the tiles and removes the section. "
+            "'ungroup' clears the section name in place so it becomes anonymous; tiles stay put."
+        ),
     )
 
 
@@ -609,8 +704,9 @@ class CreateTextTileRequestSerializer(serializers.Serializer):
     layouts = TileLayoutsSerializer(
         required=False,
         help_text=(
-            "Optional grid layout per breakpoint. If omitted, the tile is placed at the bottom of the dashboard "
-            "using the default size. Text tiles typically use a thin full-width banner (e.g. w=12, h=1)."
+            "Optional grid layout per breakpoint. If omitted, the tile is placed at the bottom of the "
+            "destination section using the default size. Text tiles typically use a thin full-width banner "
+            "(e.g. w=12, h=1)."
         ),
     )
     color = serializers.CharField(
@@ -620,6 +716,13 @@ class CreateTextTileRequestSerializer(serializers.Serializer):
         allow_blank=True,
         help_text="Optional accent color name (e.g. 'blue', 'green', 'purple', 'black').",
         error_messages={"max_length": "Color cannot exceed 400 characters"},
+    )
+    group_id = serializers.UUIDField(
+        required=False,
+        help_text=(
+            "Section to add the tile to. On a grouped dashboard, omit to append to the trailing "
+            "anonymous section (created if needed)."
+        ),
     )
 
 
@@ -712,6 +815,13 @@ class AddDashboardWidgetRequestSerializer(DashboardWidgetCoreRequestSerializer):
     show_description = serializers.BooleanField(
         required=False,
         help_text="Whether to show the description on the dashboard tile.",
+    )
+    group_id = serializers.UUIDField(
+        required=False,
+        help_text=(
+            "Section to add the widget to. On a grouped dashboard, omit to append to the trailing "
+            "anonymous section (created if needed)."
+        ),
     )
 
 
@@ -950,17 +1060,18 @@ class SharedDashboardWidgetMetadataSerializer(serializers.ModelSerializer):
 
 
 class DashboardGroupSerializer(serializers.ModelSerializer):
-    tile_id = serializers.IntegerField(source="tile.id", read_only=True, help_text="Grid tile ID for this group row.")
-    layouts = TileLayoutsSerializer(
-        source="tile.layouts",
-        read_only=True,
-        help_text="Grid layout for the group row.",
-    )
     member_tile_ids = serializers.PrimaryKeyRelatedField(
         source="member_tiles",
         many=True,
         read_only=True,
-        help_text="Content tile IDs assigned to this group.",
+        help_text="Content tile IDs assigned to this section.",
+    )
+    name = serializers.CharField(
+        allow_null=True,
+        help_text="Section name. Null or empty means an anonymous section (bare grid, no header).",
+    )
+    position = serializers.IntegerField(
+        help_text="0-indexed order of this section on the dashboard.",
     )
 
     class Meta:
@@ -968,8 +1079,7 @@ class DashboardGroupSerializer(serializers.ModelSerializer):
         fields = [
             "id",
             "name",
-            "tile_id",
-            "layouts",
+            "position",
             "member_tile_ids",
             "created_at",
             "created_by",
@@ -979,13 +1089,22 @@ class DashboardGroupSerializer(serializers.ModelSerializer):
         read_only_fields = fields
 
 
+class SharedDashboardGroupSerializer(DashboardGroupSerializer):
+    class Meta(DashboardGroupSerializer.Meta):
+        fields = ["id", "name", "position", "member_tile_ids"]
+
+
 class DashboardTileSerializer(serializers.ModelSerializer):
     id: serializers.IntegerField = serializers.IntegerField(required=False)
     insight: InsightBasicSerializer = InsightSerializer()
     text = TextSerializer()
     button_tile = ButtonTileSerializer()
     widget = DashboardWidgetSerializer(required=False, allow_null=True)
-    parent_group_id = serializers.UUIDField(read_only=True, allow_null=True)
+    parent_group_id = serializers.UUIDField(
+        read_only=True,
+        allow_null=True,
+        help_text="Section this content tile belongs to. Null on dashboards with no groups.",
+    )
 
     class Meta:
         model = DashboardTile
@@ -1046,6 +1165,18 @@ class DashboardTileErrorSerializer(DashboardTileSerializer):
             _hide_extra_details(self.context, representation["insight"])
 
         return representation
+
+
+class MoveDashboardTileToGroupResponseSerializer(serializers.Serializer):
+    tile = DashboardTileSerializer(help_text="The moved tile, including its new parent_group_id.")
+    created_group = DashboardGroupSerializer(
+        allow_null=True,
+        help_text="The anonymous section created when create_at_position was used. Null otherwise.",
+    )
+    deleted_group_ids = serializers.ListField(
+        child=serializers.UUIDField(),
+        help_text="Anonymous source sections removed because they had no remaining tiles.",
+    )
 
 
 class InsightResultSerializer(InsightSerializer):
@@ -1262,7 +1393,9 @@ class DashboardMetadataSerializer(DashboardBasicSerializer):
     )
     persisted_filters = serializers.SerializerMethodField()
     persisted_variables = serializers.SerializerMethodField()
-    groups = serializers.SerializerMethodField(help_text="Ordered groups configured on this dashboard.")
+    groups = serializers.SerializerMethodField(
+        help_text="Ordered sections on this dashboard. Empty when the dashboard has no groups."
+    )
 
     class Meta:
         model = Dashboard
@@ -1289,10 +1422,13 @@ class DashboardMetadataSerializer(DashboardBasicSerializer):
 
     @extend_schema_field(DashboardGroupSerializer(many=True))
     def get_groups(self, dashboard: Dashboard) -> list[dict[str, Any]]:
-        groups = dashboard.groups.select_related("tile", "created_by", "last_modified_by").prefetch_related(
-            "member_tiles"
+        groups = (
+            dashboard.groups.order_by("position", "created_at")
+            .select_related("created_by", "last_modified_by")
+            .prefetch_related("member_tiles")
         )
-        return DashboardGroupSerializer(groups, many=True, context=self.context).data
+        serializer_class = SharedDashboardGroupSerializer if self.context.get("is_shared") else DashboardGroupSerializer
+        return cast(list[dict[str, Any]], serializer_class(groups, many=True, context=self.context).data)
 
     def to_representation(self, instance: Dashboard) -> ReturnDict:
         ret = super().to_representation(instance)
@@ -1619,19 +1755,14 @@ class DashboardSerializer(DashboardMetadataSerializer):
 
         elif existing_dashboard:
             group_map: dict[uuid.UUID, DashboardGroup] = {}
-            for source_group in existing_dashboard.groups.select_related("tile"):
+            for source_group in existing_dashboard.groups.order_by("position", "created_at"):
                 copied_group = DashboardGroup.all_teams.create(
                     dashboard=dashboard,
                     team=dashboard.team,
                     name=source_group.name,
+                    position=source_group.position,
                     created_by=request.user,
                     last_modified_by=request.user,
-                )
-                DashboardTile.objects.create(
-                    dashboard=dashboard,
-                    team=dashboard.team,
-                    dashboard_group=copied_group,
-                    layouts=source_group.tile.layouts,
                 )
                 group_map[source_group.id] = copied_group
             existing_tiles = (
@@ -1800,6 +1931,7 @@ class DashboardSerializer(DashboardMetadataSerializer):
             filters_overrides=source_tile.filters_overrides,
             show_description=source_tile.show_description,
             transparent_background=source_tile.transparent_background,
+            parent_group=resolve_default_section(destination, user),
         )
 
     @staticmethod
@@ -2016,6 +2148,13 @@ class DashboardSerializer(DashboardMetadataSerializer):
         )
 
     @staticmethod
+    def _new_tile_parent_group(instance: Dashboard, tile_data: dict, user: User) -> dict[str, Any]:
+        if tile_data.get("id") is not None:
+            return {}
+        parent_group = _resolve_parent_group_for_new_tile(instance, user, None)
+        return {"parent_group": parent_group} if parent_group is not None else {}
+
+    @staticmethod
     def _update_existing_tile_display_fields(
         instance: Dashboard, tile_data: dict, user: User
     ) -> tuple[DashboardTile | None, bool]:
@@ -2121,7 +2260,12 @@ class DashboardSerializer(DashboardMetadataSerializer):
                     raise serializers.ValidationError({"text": "Text tile not found in this team."})
             else:
                 text = Text.objects.create(**validated_data)
-            tile, created = DashboardSerializer._upsert_tile(instance, tile_data, text=text)
+            tile, created = DashboardSerializer._upsert_tile(
+                instance,
+                tile_data,
+                text=text,
+                **DashboardSerializer._new_tile_parent_group(instance, tile_data, user),
+            )
             return tile, created
         elif tile_data.get("button_tile", None):
             button_tile_json: dict = tile_data.get("button_tile", {})
@@ -2162,7 +2306,12 @@ class DashboardSerializer(DashboardMetadataSerializer):
                     raise serializers.ValidationError({"button_tile": "Button tile not found in this team."})
             else:
                 button_tile = ButtonTile.objects.create(**validated_data)
-            tile, created = DashboardSerializer._upsert_tile(instance, tile_data, button_tile=button_tile)
+            tile, created = DashboardSerializer._upsert_tile(
+                instance,
+                tile_data,
+                button_tile=button_tile,
+                **DashboardSerializer._new_tile_parent_group(instance, tile_data, user),
+            )
             return tile, created
         elif tile_data.get("widget", None):
             widget_json: dict = tile_data.get("widget", {})
@@ -2212,7 +2361,12 @@ class DashboardSerializer(DashboardMetadataSerializer):
                     created_by=user,
                     last_modified_by=user,
                 )
-            tile, created = DashboardSerializer._upsert_tile(instance, tile_data, widget=widget)
+            tile, created = DashboardSerializer._upsert_tile(
+                instance,
+                tile_data,
+                widget=widget,
+                **DashboardSerializer._new_tile_parent_group(instance, tile_data, user),
+            )
             return tile, created
         elif (
             "deleted" in tile_data
@@ -2338,9 +2492,7 @@ class DashboardSerializer(DashboardMetadataSerializer):
 
         layout_size = "sm"  # default layout size
 
-        # Sort tiles by layout to ensure insights are computed in order of appearance on dashboard
-        # Use the specified layout size to get the correct order for the current viewport
-        sorted_tiles = DashboardTile.sort_tiles_by_layout(tiles, layout_size)
+        sorted_tiles = _sort_tiles_by_section_layout(list(tiles), dashboard, layout_size)
 
         with task_chain_context() if chained_tile_refresh_enabled else nullcontext():
             # Handle case where there are no tiles
@@ -2703,13 +2855,7 @@ class DashboardsViewSet(
 
         layout_size = self._get_layout_size_from_request(request)
 
-        sorted_tiles = sorted(
-            tiles,
-            key=lambda tile: (
-                tile.layouts.get(layout_size, {}).get("y", 100),
-                tile.layouts.get(layout_size, {}).get("x", 100),
-            ),
-        )
+        sorted_tiles = _sort_tiles_by_section_layout(list(tiles), dashboard, layout_size)
 
         # Async generator that handles progressive tile serialization and streaming
         async def async_tile_stream_generator() -> AsyncGenerator[bytes]:
@@ -2973,28 +3119,13 @@ class DashboardsViewSet(
         serializer = CreateDashboardGroupRequestSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
 
-        layouts = serializer.validated_data.get("layouts")
-        if layouts is None:
-            existing_layouts = collect_dashboard_sm_layouts_for_dashboard(dashboard)
-            max_bottom = max((layout["y"] + layout["h"] for layout in existing_layouts), default=0)
-            layouts = {"sm": {"x": 0, "y": max_bottom, "w": DASHBOARD_GRID_COLUMN_COUNT, "h": 1}}
-        elif "sm" in layouts:
-            layouts["sm"] = {**layouts["sm"], "x": 0, "w": DASHBOARD_GRID_COLUMN_COUNT, "h": 1}
-
         user = cast(User, request.user)
         with transaction.atomic():
-            group = DashboardGroup.all_teams.create(
-                dashboard=dashboard,
-                team=dashboard.team,
-                name=serializer.validated_data["name"],
-                created_by=user,
-                last_modified_by=user,
-            )
-            DashboardTile.objects.create(
-                dashboard=dashboard,
-                team=dashboard.team,
-                dashboard_group=group,
-                layouts=layouts,
+            group = create_section(
+                dashboard,
+                user=user,
+                name=serializer.validated_data.get("name"),
+                position=serializer.validated_data.get("position"),
             )
 
         report_user_action(
@@ -3015,22 +3146,21 @@ class DashboardsViewSet(
         dashboard = self.get_object()
         serializer = UpdateDashboardGroupRequestSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
-        group = get_object_or_404(dashboard.groups.select_related("tile"), id=serializer.validated_data["group_id"])
+        group = get_object_or_404(dashboard.groups, id=serializer.validated_data["group_id"])
 
         fields_changed: list[str] = []
-        if "name" in serializer.validated_data:
-            group.name = serializer.validated_data["name"]
-            group.last_modified_by = request.user
-            group.last_modified_at = now()
-            group.save(update_fields=["name", "last_modified_by", "last_modified_at"])
-            fields_changed.append("name")
-        if "layouts" in serializer.validated_data:
-            layouts = serializer.validated_data["layouts"]
-            if "sm" in layouts:
-                layouts["sm"] = {**layouts["sm"], "x": 0, "w": DASHBOARD_GRID_COLUMN_COUNT, "h": 1}
-            group.tile.layouts = layouts
-            group.tile.save(update_fields=["layouts"])
-            fields_changed.append("layouts")
+        with transaction.atomic():
+            lock_dashboard(dashboard)
+            group = dashboard.groups.get(id=group.id)
+            if "name" in serializer.validated_data:
+                group.name = normalize_section_name(serializer.validated_data["name"])
+                group.last_modified_by = request.user
+                group.last_modified_at = now()
+                group.save(update_fields=["name", "last_modified_by", "last_modified_at"])
+                fields_changed.append("name")
+            if "position" in serializer.validated_data:
+                group = move_section(dashboard, group, serializer.validated_data["position"])
+                fields_changed.append("position")
 
         if fields_changed:
             report_user_action(
@@ -3042,7 +3172,10 @@ class DashboardsViewSet(
             )
         return Response(DashboardGroupSerializer(group, context=self.get_serializer_context()).data)
 
-    @extend_schema(request=MoveDashboardTileToGroupRequestSerializer, responses={200: DashboardTileSerializer})
+    @extend_schema(
+        request=MoveDashboardTileToGroupRequestSerializer,
+        responses={200: MoveDashboardTileToGroupResponseSerializer},
+    )
     @action(methods=["POST"], detail=True, url_path="groups/move-tile", required_scopes=["dashboard:write"])
     def move_tile_to_group(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         dashboard = self.get_object()
@@ -3052,30 +3185,55 @@ class DashboardsViewSet(
             DashboardTile.objects.filter(dashboard=dashboard, dashboard_group__isnull=True),
             id=serializer.validated_data["tile_id"],
         )
-        group_id = serializer.validated_data.get("group_id")
-        group = get_object_or_404(dashboard.groups, id=group_id) if group_id is not None else None
+        user = cast(User, request.user)
+        created_group: DashboardGroup | None = None
         source_group_id = tile.parent_group_id
+        deleted_group_ids: list[uuid.UUID] = []
 
-        tile.parent_group = group
-        update_fields = ["parent_group"]
-        if "layouts" in serializer.validated_data:
-            tile.layouts = serializer.validated_data["layouts"]
-            update_fields.append("layouts")
-        tile.save(update_fields=update_fields)
+        with transaction.atomic():
+            lock_dashboard(dashboard)
+            if "create_at_position" in serializer.validated_data:
+                created_group = create_section(
+                    dashboard,
+                    user=user,
+                    name=None,
+                    position=serializer.validated_data["create_at_position"],
+                    wrap_existing=False,
+                )
+                destination = created_group
+            else:
+                destination = get_object_or_404(dashboard.groups, id=serializer.validated_data["group_id"])
+
+            if "layouts" in serializer.validated_data:
+                tile.layouts = serializer.validated_data["layouts"]
+                tile.save(update_fields=["layouts"])
+
+            deleted_id = assign_tile_to_section(tile, destination)
+            if deleted_id is not None:
+                deleted_group_ids.append(deleted_id)
 
         report_user_action(
-            cast(User, request.user),
+            user,
             "dashboard tile moved between groups",
             {
                 "dashboard_id": dashboard.id,
                 "tile_id": tile.id,
                 "source_group_id": str(source_group_id) if source_group_id else None,
-                "destination_group_id": str(group.id) if group else None,
+                "destination_group_id": str(destination.id),
             },
             team=dashboard.team,
             request=request,
         )
-        return Response(DashboardTileSerializer(tile, context=self.get_serializer_context()).data)
+        tile_context = {**self.get_serializer_context(), "dashboard": dashboard}
+        return Response(
+            {
+                "tile": DashboardTileSerializer(tile, context=tile_context).data,
+                "created_group": DashboardGroupSerializer(created_group, context=tile_context).data
+                if created_group
+                else None,
+                "deleted_group_ids": [str(group_id) for group_id in deleted_group_ids],
+            }
+        )
 
     @extend_schema(request=DeleteDashboardGroupRequestSerializer, responses={204: None})
     @action(methods=["POST"], detail=True, url_path="groups/delete", required_scopes=["dashboard:write"])
@@ -3087,15 +3245,20 @@ class DashboardsViewSet(
         member_handling = serializer.validated_data["member_handling"]
 
         with transaction.atomic():
-            members = list(group.member_tiles.select_for_update())
-            for member in members:
-                member.parent_group = None
-                update_fields = ["parent_group"]
-                if member_handling == "delete_tiles":
+            lock_dashboard(dashboard)
+            group = dashboard.groups.get(id=group.id)
+            if member_handling == "ungroup":
+                group.name = None
+                group.last_modified_by = request.user
+                group.last_modified_at = now()
+                group.save(update_fields=["name", "last_modified_by", "last_modified_at"])
+            else:
+                members = list(group.member_tiles.select_for_update())
+                for member in members:
                     member.deleted = True
-                    update_fields.append("deleted")
-                member.save(update_fields=update_fields)
-            group.delete()
+                    member.save(update_fields=["deleted"])
+                group.delete()
+                renumber_section_positions(dashboard)
 
         report_user_action(
             cast(User, request.user),
@@ -3144,7 +3307,8 @@ class DashboardsViewSet(
                 tile_data["layouts"] = validated["layouts"]
             if "color" in validated:
                 tile_data["color"] = validated["color"]
-            tile, _ = DashboardSerializer._upsert_tile(dashboard, tile_data, text=text)
+            parent_group = _resolve_parent_group_for_new_tile(dashboard, user, validated.get("group_id"))
+            tile, _ = DashboardSerializer._upsert_tile(dashboard, tile_data, text=text, parent_group=parent_group)
 
         return Response(
             DashboardTileSerializer(tile, context=self.get_serializer_context()).data,
@@ -3491,11 +3655,19 @@ class DashboardsViewSet(
         tile_context = {**self.get_serializer_context(), "dashboard": dashboard}
 
         with transaction.atomic():
-            existing_sm_layouts = collect_dashboard_sm_layouts_for_dashboard(dashboard)
-            pending_sm_layouts: builtins.list[dict[str, Any]] = []
+            pending_by_section: dict[Any, builtins.list[dict[str, Any]]] = {}
             tiles: builtins.list[DashboardTile] = []
 
             for payload in widget_payloads:
+                parent_group = _resolve_parent_group_for_new_tile(dashboard, user, payload.get("group_id"))
+                section_key = parent_group.id if parent_group else None
+                pending_sm_layouts = pending_by_section.setdefault(section_key, [])
+                if parent_group is not None:
+                    existing_sm_layouts = collect_dashboard_sm_layouts(
+                        list(content_tiles_qs(dashboard).filter(parent_group=parent_group))
+                    )
+                else:
+                    existing_sm_layouts = collect_dashboard_sm_layouts_for_dashboard(dashboard)
                 tile = self._create_widget_tile_from_payload(
                     dashboard=dashboard,
                     user=user,
@@ -3503,6 +3675,7 @@ class DashboardsViewSet(
                     payload=payload,
                     existing_sm_layouts=existing_sm_layouts,
                     pending_sm_layouts=pending_sm_layouts,
+                    parent_group=parent_group,
                 )
                 tiles.append(tile)
                 sm_layout = tile.layouts.get("sm") if isinstance(tile.layouts, dict) else None
@@ -3534,6 +3707,7 @@ class DashboardsViewSet(
         payload: dict[str, Any],
         existing_sm_layouts: builtins.list[dict[str, Any]] | None = None,
         pending_sm_layouts: builtins.list[dict[str, Any]] | None = None,
+        parent_group: DashboardGroup | None = None,
     ) -> DashboardTile:
         widget_type = payload["widget_type"]
         config = payload["config"]
@@ -3571,6 +3745,7 @@ class DashboardsViewSet(
             dashboard=dashboard,
             team_id=dashboard.team_id,
             widget=widget,
+            parent_group=parent_group,
             **tile_defaults,
         )
 

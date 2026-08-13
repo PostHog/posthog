@@ -56,6 +56,7 @@ import type {
     DeleteDashboardGroupRequestApi,
     DeleteTileRequestApi,
     MoveDashboardTileToGroupRequestApi,
+    MoveDashboardTileToGroupResponseApi,
     MoveTileRequestApi,
     PaginatedDashboardBasicListApi,
     PaginatedDashboardTemplateListApi,
@@ -603,7 +604,7 @@ export const getDashboardsGroupsCreateUrl = (projectId: string, id: number, para
 export const dashboardsGroupsCreate = async (
     projectId: string,
     id: number,
-    createDashboardGroupRequestApi: CreateDashboardGroupRequestApi,
+    createDashboardGroupRequestApi?: CreateDashboardGroupRequestApi,
     params?: DashboardsGroupsCreateParams,
     options?: RequestInit
 ): Promise<DashboardGroupApi> => {
@@ -676,13 +677,16 @@ export const dashboardsGroupsMoveTileCreate = async (
     moveDashboardTileToGroupRequestApi: MoveDashboardTileToGroupRequestApi,
     params?: DashboardsGroupsMoveTileCreateParams,
     options?: RequestInit
-): Promise<DashboardTileApi> => {
-    return apiMutator<DashboardTileApi>(getDashboardsGroupsMoveTileCreateUrl(projectId, id, params), {
-        ...options,
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(moveDashboardTileToGroupRequestApi),
-    })
+): Promise<MoveDashboardTileToGroupResponseApi> => {
+    return apiMutator<MoveDashboardTileToGroupResponseApi>(
+        getDashboardsGroupsMoveTileCreateUrl(projectId, id, params),
+        {
+            ...options,
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', ...options?.headers },
+            body: JSON.stringify(moveDashboardTileToGroupRequestApi),
+        }
+    )
 }
 
 export const getDashboardsGroupsUpdatePartialUpdateUrl = (

@@ -150,6 +150,7 @@ from products.dashboards.backend.access import (
 )
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_tile import DashboardTile
+from products.dashboards.backend.section_ops import resolve_default_section
 from products.product_analytics.backend.api.insight_metadata import (
     InsightMetadataTimeoutError,
     generate_insight_metadata,
@@ -811,7 +812,11 @@ class InsightSerializer(InsightBasicSerializer):
 
         for dashboard in target_dashboards:
             DashboardTile.objects.create(
-                insight=insight, dashboard=dashboard, team_id=dashboard.team_id, last_refresh=now()
+                insight=insight,
+                dashboard=dashboard,
+                team_id=dashboard.team_id,
+                last_refresh=now(),
+                parent_group=resolve_default_section(dashboard, request.user),
             )
             report_user_action(
                 self.context["request"].user,
