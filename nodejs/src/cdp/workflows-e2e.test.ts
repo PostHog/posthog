@@ -45,7 +45,7 @@ import { getFirstTeam, resetTestDatabase } from '~/tests/helpers/sql'
 import { Hub, Team } from '../../src/types'
 import { createRedisV2PoolFromConfig } from '../common/redis/redis-v2'
 import { FixtureHogFlowBuilder } from './_tests/builders/hogflow.builder'
-import { HOG_FILTERS_EXAMPLES } from './_tests/examples'
+import { HOG_FILTERS_EXAMPLES, HOG_FLOW_MASK_EXAMPLES } from './_tests/examples'
 import { createHogExecutionGlobals, insertHogFunctionTemplate, insertIntegration } from './_tests/fixtures'
 import { insertHogFlow } from './_tests/fixtures-hogflows'
 import { CdpApi } from './cdp-api'
@@ -57,6 +57,7 @@ import { CdpEventsConsumer } from './consumers/cdp-events.consumer'
 import { CdpHogflowSubscriptionMatcherConsumer } from './consumers/cdp-hogflow-subscription-matcher.consumer'
 import { createCdpOutputsRegistry } from './outputs/registry'
 import {
+    CyclotronV2DequeuedJob,
     CyclotronV2Janitor,
     CyclotronV2Manager,
     CyclotronV2Worker,
@@ -3711,21 +3712,34 @@ describe('Workflows E2E: batch resolver dispatch via cdp-api', () => {
 
     // Fresh worker per test — stop() disconnects the underlying Postgres pool,
     // so a shared instance can't survive past the first test's afterEach.
-    function buildResolverConsumer(): CdpCyclotronWorkerBatchResolve {
+    // `wrapJob` lets a test intercept a dequeued job's methods (e.g. fail a commit once).
+    function buildResolverConsumer(
+        wrapJob?: (job: CyclotronV2DequeuedJob) => CyclotronV2DequeuedJob
+    ): CdpCyclotronWorkerBatchResolve {
         const cyclotronWorker = new CyclotronV2Worker({
             pool: { dbUrl: CYCLOTRON_NODE_DB_URL, maxConnections: 10 },
             queueName: HOGFLOW_BATCH_RESOLVE_QUEUE,
             pollDelayMs: 100,
         })
+        // The consumer only calls connect/disconnect/isHealthy on the worker.
+        const workerForConsumer = wrapJob
+            ? ({
+                  connect: (callback: (jobs: CyclotronV2DequeuedJob[]) => Promise<void>) =>
+                      cyclotronWorker.connect((jobs) => callback(jobs.map(wrapJob))),
+                  disconnect: () => cyclotronWorker.disconnect(),
+                  isHealthy: () => cyclotronWorker.isHealthy(),
+              } as unknown as CyclotronV2Worker)
+            : cyclotronWorker
         const internalFetchService = new InternalFetchService(hub.INTERNAL_API_BASE_URL, hub.INTERNAL_API_SECRET)
         const queryService = new HogFlowBatchPersonQueryService(internalFetchService)
-        return new CdpCyclotronWorkerBatchResolve(hub, deps, cyclotronWorker, queryService, internalFetchService)
+        return new CdpCyclotronWorkerBatchResolve(hub, deps, workerForConsumer, queryService, internalFetchService)
     }
 
-    async function insertActiveBatchFlow(): Promise<HogFlow> {
+    async function insertActiveBatchFlow(triggerMasking?: HogFlow['trigger_masking']): Promise<HogFlow> {
         const flow = new FixtureHogFlowBuilder()
             .withTeamId(team.id)
             .withStatus('active')
+            .withTriggerMasking(triggerMasking)
             .withWorkflow({
                 actions: {
                     trigger: {
@@ -3901,6 +3915,171 @@ describe('Workflows E2E: batch resolver dispatch via cdp-api', () => {
             [parentRunId]
         )
         expect(children.rows).toHaveLength(personIds.length)
+    })
+
+    // Regression test: batch-resolved invocations used to skip trigger_masking entirely
+    // (only the event-triggered pipeline applied it), so a scheduled batch workflow with
+    // a masking TTL re-enrolled the same audience on every run.
+    it('trigger_masking suppresses re-enrolling the same person across two batch runs', async () => {
+        const flow = await insertActiveBatchFlow(HOG_FLOW_MASK_EXAMPLES.oncePerTimePeriod.trigger_masking)
+        const personId = new UUIDT().toString()
+        const statusPuts: Array<{ status: string }> = []
+
+        mockInternalFetch.mockImplementation((url: string, opts: any) => {
+            if (url.includes('/user_blast_radius_persons')) {
+                return Promise.resolve({
+                    status: 200,
+                    headers: {},
+                    json: () => Promise.resolve({}),
+                    text: () =>
+                        Promise.resolve(JSON.stringify({ users_affected: [personId], cursor: null, has_more: false })),
+                    dump: () => Promise.resolve(),
+                })
+            }
+            if (url.includes('/batch_jobs/') && url.endsWith('/status')) {
+                statusPuts.push(parseJSON(opts.body) as { status: string })
+                return Promise.resolve({
+                    status: 200,
+                    headers: {},
+                    json: () => Promise.resolve({}),
+                    text: () => Promise.resolve('{}'),
+                    dump: () => Promise.resolve(),
+                })
+            }
+            return Promise.reject(new Error(`Unexpected internalFetch call to ${url}`))
+        })
+
+        resolverWorker = buildResolverConsumer()
+        await resolverWorker.start()
+
+        // First run: the person hasn't been masked yet, so they get enrolled.
+        const firstRunId = new UUIDT().toString()
+        await supertest(app)
+            .post(`/api/projects/${team.id}/hog_flows/${flow.id}/batch_invocations/${firstRunId}`)
+            .send({ filters: { filter_test_accounts: false }, max_audience_size: 1000 })
+            .expect(200)
+
+        await waitForExpect(() => {
+            expect(statusPuts).toHaveLength(1)
+        }, 20000)
+
+        const firstRunChildren = await cyclotronPool.query(
+            `SELECT id FROM cyclotron_jobs WHERE queue_name = 'hogflow' AND parent_run_id = $1`,
+            [firstRunId]
+        )
+        expect(firstRunChildren.rows).toHaveLength(1)
+
+        // Second run (simulating the next scheduled re-enrollment): the same person is
+        // masked, so no child invocation should be enqueued this time.
+        const secondRunId = new UUIDT().toString()
+        await supertest(app)
+            .post(`/api/projects/${team.id}/hog_flows/${flow.id}/batch_invocations/${secondRunId}`)
+            .send({ filters: { filter_test_accounts: false }, max_audience_size: 1000 })
+            .expect(200)
+
+        await waitForExpect(() => {
+            expect(statusPuts).toHaveLength(2)
+        }, 20000)
+
+        const secondRunChildren = await cyclotronPool.query(
+            `SELECT id FROM cyclotron_jobs WHERE queue_name = 'hogflow' AND parent_run_id = $1`,
+            [secondRunId]
+        )
+        expect(secondRunChildren.rows).toHaveLength(0)
+    })
+
+    // The mask claims land in Redis before the page commits to Postgres. If the commit
+    // fails without releasing them, the stall-recovery replay of the same cursor sees
+    // the whole page as already-masked and silently drops every enrollment in it.
+    it('failed page commit releases mask claims, so the stall-recovery replay still enrolls', async () => {
+        const flow = await insertActiveBatchFlow(HOG_FLOW_MASK_EXAMPLES.oncePerTimePeriod.trigger_masking)
+        const personId = new UUIDT().toString()
+        const statusPuts: Array<{ status: string }> = []
+
+        mockInternalFetch.mockImplementation((url: string, opts: any) => {
+            if (url.includes('/user_blast_radius_persons')) {
+                return Promise.resolve({
+                    status: 200,
+                    headers: {},
+                    json: () => Promise.resolve({}),
+                    text: () =>
+                        Promise.resolve(JSON.stringify({ users_affected: [personId], cursor: null, has_more: false })),
+                    dump: () => Promise.resolve(),
+                })
+            }
+            if (url.includes('/batch_jobs/') && url.endsWith('/status')) {
+                statusPuts.push(parseJSON(opts.body) as { status: string })
+                return Promise.resolve({
+                    status: 200,
+                    headers: {},
+                    json: () => Promise.resolve({}),
+                    text: () => Promise.resolve('{}'),
+                    dump: () => Promise.resolve(),
+                })
+            }
+            return Promise.reject(new Error(`Unexpected internalFetch call to ${url}`))
+        })
+
+        let commitFailuresLeft = 1
+        resolverWorker = buildResolverConsumer((job) => ({
+            ...job,
+            bulkCreateAndCheckIn: (input) => {
+                if (commitFailuresLeft > 0) {
+                    commitFailuresLeft--
+                    return Promise.reject(new Error('injected commit failure'))
+                }
+                return job.bulkCreateAndCheckIn(input)
+            },
+        }))
+        await resolverWorker.start()
+
+        const parentRunId = new UUIDT().toString()
+        await supertest(app)
+            .post(`/api/projects/${team.id}/hog_flows/${flow.id}/batch_invocations/${parentRunId}`)
+            .send({ filters: { filter_test_accounts: false }, max_audience_size: 1000 })
+            .expect(200)
+
+        // The first attempt claims the person's mask slot, then hits the injected commit
+        // failure. Wait until the resolver has released the claim (counter back to 0) —
+        // only then is the job's parked state the same as a real stall.
+        const maskRedis = createRedisV2PoolFromConfig({
+            connection: hub.CDP_REDIS_HOST
+                ? {
+                      url: hub.CDP_REDIS_HOST,
+                      options: { port: hub.CDP_REDIS_PORT, password: hub.CDP_REDIS_PASSWORD },
+                  }
+                : { url: hub.REDIS_URL },
+            poolMinSize: hub.REDIS_POOL_MIN_SIZE,
+            poolMaxSize: hub.REDIS_POOL_MAX_SIZE,
+        })
+        await waitForExpect(async () => {
+            expect(commitFailuresLeft).toBe(0)
+            const maskCounters = await maskRedis.useClient({ name: 'mask-peek' }, async (client) => {
+                const keys = await client.keys(`@posthog-test/hog-masker/mask/${flow.id}/*`)
+                return Promise.all(keys.map((key) => client.get(key)))
+            })
+            expect(maskCounters).toEqual(['0'])
+        }, 20000)
+
+        // What the janitor's stall recovery does to the parked job, without waiting
+        // out the stall timeout.
+        await cyclotronPool.query(
+            `UPDATE cyclotron_jobs SET status = 'available', lock_id = NULL, last_heartbeat = NULL
+             WHERE queue_name = $1 AND parent_run_id = $2`,
+            [HOGFLOW_BATCH_RESOLVE_QUEUE, parentRunId]
+        )
+
+        await waitForExpect(() => {
+            expect(statusPuts).toEqual([{ status: 'completed' }])
+        }, 20000)
+
+        // The replay re-evaluated masking against the released claim and enrolled the
+        // person — without the release it would classify them as masked and enqueue nothing.
+        const children = await cyclotronPool.query(
+            `SELECT id FROM cyclotron_jobs WHERE queue_name = 'hogflow' AND parent_run_id = $1`,
+            [parentRunId]
+        )
+        expect(children.rows).toHaveLength(1)
     })
 
     it('failed lifecycle: workflow deleted before processing → resolver transitions to failed → Django PUT status=failed', async () => {
