@@ -1,3 +1,4 @@
+import { IconRabbit, IconTortoise } from '@posthog/icons'
 import { LemonLabel, LemonSegmentedButton, LemonSegmentedButtonOption } from '@posthog/lemon-ui'
 
 import { DataModelingSyncInterval } from '~/types'
@@ -35,6 +36,12 @@ const CADENCE_SEGMENTS: Record<DataModelingSyncInterval, string> = {
 }
 
 const ORDERED_CADENCES = Object.keys(CADENCE_LABELS) as DataModelingSyncInterval[]
+
+/**
+ * Decorative, so `aria-hidden`: they only restate which way the bar runs, which the segment labels
+ * already say outright. The hairline stroke keeps both silhouettes legible at label size.
+ */
+const PACE_ICON_CLASS = 'text-lg text-secondary shrink-0 stroke-current [stroke-width:0.5]'
 
 /**
  * Why the cadence controls are read-only, for the modes where cadence is not this view's to set.
@@ -92,14 +99,18 @@ export function SyncFrequencySelect({
     return (
         <div className="flex flex-col gap-1 items-start" data-attr={dataAttr}>
             <LemonLabel>Refresh every</LemonLabel>
-            <LemonSegmentedButton<DataModelingSyncInterval>
-                size="small"
-                value={value && value !== 'never' ? value : undefined}
-                onChange={(next) => onChange(next)}
-                options={options}
-                disabledReason={reason}
-            />
-            {explanation && <span className="text-xs text-secondary">{explanation}</span>}
+            <div className="flex items-center gap-2">
+                <IconRabbit className={PACE_ICON_CLASS} aria-hidden />
+                <LemonSegmentedButton<DataModelingSyncInterval>
+                    size="small"
+                    value={value && value !== 'never' ? value : undefined}
+                    onChange={(next) => onChange(next)}
+                    options={options}
+                    disabledReason={reason}
+                />
+                <IconTortoise className={PACE_ICON_CLASS} aria-hidden />
+            </div>
+            {explanation && <span className="text-xs text-secondary max-w-prose">{explanation}</span>}
         </div>
     )
 }
