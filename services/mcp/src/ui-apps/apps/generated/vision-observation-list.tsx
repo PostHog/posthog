@@ -41,7 +41,7 @@ function VisionObservationListContent({
     const handleClick = useCallback(
         async (item: VisionObservationData): Promise<VisionObservationData | null> => {
             if (!app) {
-                fallbackToChat(item.session_id)
+                fallbackToChat(item.id)
                 return null
             }
             try {
@@ -50,12 +50,12 @@ function VisionObservationListContent({
                     arguments: { id: item.id },
                 })
                 if (result.isError || !result.structuredContent) {
-                    fallbackToChat(item.session_id)
+                    fallbackToChat(item.id)
                     return null
                 }
                 return result.structuredContent as unknown as VisionObservationData
             } catch {
-                fallbackToChat(item.session_id)
+                fallbackToChat(item.id)
                 return null
             }
         },

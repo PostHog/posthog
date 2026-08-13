@@ -14,7 +14,7 @@ ui_apps:
     vision-observation-list:
         type: list
         detail_tool: vision-observations-retrieve
-        item_name_field: session_id
+        item_name_field: id
         entity_label: observation
 tools:
     vision-actions-create:
