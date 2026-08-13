@@ -5,13 +5,25 @@ Helpers for extracting and rewriting cohort/action references embedded in
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from typing import Any
 
 from posthog.models.resource_transfer.types import ResourcePayload
 from posthog.models.resource_transfer.visitors.insight import InsightVisitor
 
 
-def collect_cohort_and_action_ids_from_experiment_json(resource: Any) -> tuple[set[int], set[int]]:
+@dataclass(frozen=True)
+class ExperimentReferenceIds:
+    """Cohort and action ids referenced in an experiment's JSON fields.
+
+    Not a tuple so a positional unpack can't silently swap the two `set[int]` values.
+    """
+
+    cohort_ids: set[int]
+    action_ids: set[int]
+
+
+def collect_cohort_and_action_ids_from_experiment_json(resource: Any) -> ExperimentReferenceIds:
     cohort_ids: set[int] = set()
     action_ids: set[int] = set()
 
@@ -25,14 +37,14 @@ def collect_cohort_and_action_ids_from_experiment_json(resource: Any) -> tuple[s
         resource.scheduling_config,
         resource.variants,
     ):
-        c, a = _collect_ids_from_json_blob(blob)
-        cohort_ids.update(c)
-        action_ids.update(a)
+        ids = _collect_ids_from_json_blob(blob)
+        cohort_ids.update(ids.cohort_ids)
+        action_ids.update(ids.action_ids)
 
-    return cohort_ids, action_ids
+    return ExperimentReferenceIds(cohort_ids=cohort_ids, action_ids=action_ids)
 
 
-def _collect_ids_from_json_blob(blob: Any) -> tuple[set[int], set[int]]:
+def _collect_ids_from_json_blob(blob: Any) -> ExperimentReferenceIds:
     cohort_ids: set[int] = set()
     action_ids: set[int] = set()
 
@@ -51,7 +63,7 @@ def _collect_ids_from_json_blob(blob: Any) -> tuple[set[int], set[int]]:
                 walk(item)
 
     walk(blob)
-    return cohort_ids, action_ids
+    return ExperimentReferenceIds(cohort_ids=cohort_ids, action_ids=action_ids)
 
 
 def rewrite_cohort_in_experiment_payload(payload: ResourcePayload, old_pk: Any, new_pk: Any) -> ResourcePayload:

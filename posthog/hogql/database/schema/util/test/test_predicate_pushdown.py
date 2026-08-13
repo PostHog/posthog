@@ -197,7 +197,8 @@ class TestEventsPredicatePushdownExtractor:
         expr = parse_expr(expr_str)
 
         extractor = EventsPredicatePushdownExtractor(joined_aliases)
-        inner_where, outer_where = extractor.get_pushdown_predicates(expr)
+        split = extractor.get_pushdown_predicates(expr)
+        inner_where, outer_where = split.inner, split.outer
 
         assert print_expr(inner_where) == expected_inner
         assert print_expr(outer_where) == expected_outer
@@ -217,7 +218,8 @@ class TestEventsPredicatePushdownExtractor:
         )
 
         extractor = EventsPredicatePushdownExtractor(set())
-        inner_where, outer_where = extractor.get_pushdown_predicates(comparison)
+        split = extractor.get_pushdown_predicates(comparison)
+        inner_where, outer_where = split.inner, split.outer
 
         # Should detect via type system even with empty joined_aliases
         assert inner_where is None
@@ -237,7 +239,8 @@ class TestEventsPredicatePushdownExtractor:
             right=ast.Constant(value=1),
         )
         extractor = EventsPredicatePushdownExtractor(set())
-        inner_where, outer_where = extractor.get_pushdown_predicates(ast.And(exprs=[timestamp, in_cohort]))
+        split = extractor.get_pushdown_predicates(ast.And(exprs=[timestamp, in_cohort]))
+        inner_where, outer_where = split.inner, split.outer
 
         assert isinstance(inner_where, ast.CompareOperation) and inner_where.op == ast.CompareOperationOp.GtEq
         assert isinstance(outer_where, ast.CompareOperation) and outer_where.op == ast.CompareOperationOp.InCohort
@@ -247,7 +250,8 @@ class TestEventsPredicatePushdownExtractor:
         for op in (ast.CompareOperationOp.InCohort, ast.CompareOperationOp.NotInCohort):
             in_cohort = ast.CompareOperation(op=op, left=ast.Field(chain=["person_id"]), right=ast.Constant(value=1))
             extractor = EventsPredicatePushdownExtractor(set())
-            inner_where, outer_where = extractor.get_pushdown_predicates(in_cohort)
+            split = extractor.get_pushdown_predicates(in_cohort)
+            inner_where, outer_where = split.inner, split.outer
 
             assert inner_where is None, f"{op}: should not be pushable"
             assert isinstance(outer_where, ast.CompareOperation) and outer_where.op == op
@@ -257,7 +261,8 @@ class TestEventsPredicatePushdownExtractor:
         a plain events predicate alongside it still pushes."""
         expr = parse_expr("event = 'x' AND person_id IN (SELECT person_id FROM raw_cohortpeople)")
         extractor = EventsPredicatePushdownExtractor(set())
-        inner_where, outer_where = extractor.get_pushdown_predicates(expr)
+        split = extractor.get_pushdown_predicates(expr)
+        inner_where, outer_where = split.inner, split.outer
 
         # the bare `event = 'x'` pushes; the IN (SELECT ...) stays outer
         assert inner_where is not None and not contains_subquery(inner_where)

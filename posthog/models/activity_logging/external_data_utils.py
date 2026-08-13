@@ -1,6 +1,19 @@
+from dataclasses import dataclass
 from typing import Optional
 
 from products.warehouse_sources.backend.facade.models import ExternalDataSource
+
+
+@dataclass(frozen=True)
+class ExternalDataSourceCreatedBy:
+    """The creating user's id, email, and display name (all None when unknown).
+
+    Not a tuple so a positional unpack can't silently reorder these same-typed strings.
+    """
+
+    user_id: Optional[str]
+    user_email: Optional[str]
+    user_name: Optional[str]
 
 
 def get_external_data_source_detail_name(external_data_source: ExternalDataSource) -> str:
@@ -15,7 +28,7 @@ def get_external_data_source_detail_name(external_data_source: ExternalDataSourc
 
 def get_external_data_source_created_by_info(
     external_data_source: ExternalDataSource,
-) -> tuple[Optional[str], Optional[str], Optional[str]]:
+) -> ExternalDataSourceCreatedBy:
     """Get created by user information from ExternalDataSource"""
     created_by_user_id = None
     created_by_user_email = None
@@ -28,4 +41,8 @@ def get_external_data_source_created_by_info(
             f"{external_data_source.created_by.first_name} {external_data_source.created_by.last_name}".strip()
         )
 
-    return created_by_user_id, created_by_user_email, created_by_user_name
+    return ExternalDataSourceCreatedBy(
+        user_id=created_by_user_id,
+        user_email=created_by_user_email,
+        user_name=created_by_user_name,
+    )

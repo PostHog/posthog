@@ -92,18 +92,16 @@ def handle_external_data_source_change(
     if not external_data_source:
         return
 
-    created_by_user_id, created_by_user_email, created_by_user_name = get_external_data_source_created_by_info(
-        external_data_source
-    )
+    created_by = get_external_data_source_created_by_info(external_data_source)
     detail_name = get_external_data_source_detail_name(external_data_source)
 
     context = ExternalDataSourceContext(
         source_type=external_data_source.source_type or "",
         prefix=external_data_source.prefix,
         description=external_data_source.description,
-        created_by_user_id=created_by_user_id,
-        created_by_user_email=created_by_user_email,
-        created_by_user_name=created_by_user_name,
+        created_by_user_id=created_by.user_id,
+        created_by_user_email=created_by.user_email,
+        created_by_user_name=created_by.user_name,
     )
 
     log_activity(
