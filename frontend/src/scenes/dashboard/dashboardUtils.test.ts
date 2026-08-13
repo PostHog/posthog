@@ -69,6 +69,76 @@ describe('dashboardToSaveableTemplate', () => {
             button_tile: { url: '/replay/home', text: 'Watch replays' },
         })
     })
+
+    it('emits named group headers and remaps anonymous tiles by y without a group_key', () => {
+        const named = {
+            id: 'named',
+            name: 'Revenue',
+            position: 0,
+            member_tile_ids: [1],
+            created_at: '2026-01-01T00:00:00Z',
+            created_by: null,
+            last_modified_at: '2026-01-01T00:00:00Z',
+            last_modified_by: null,
+        }
+        const anonymous = {
+            id: 'anon',
+            name: null,
+            position: 1,
+            member_tile_ids: [2],
+            created_at: '2026-01-01T00:00:00Z',
+            created_by: null,
+            last_modified_at: '2026-01-01T00:00:00Z',
+            last_modified_by: null,
+        }
+        const dashboard = {
+            name: 'My dashboard',
+            description: '',
+            filters: {},
+            tags: [],
+            groups: [named, anonymous],
+            tiles: [
+                {
+                    id: 1,
+                    text: { body: 'Named', last_modified_at: '2026-01-01T00:00:00Z' },
+                    layouts: { sm: { x: 0, y: 0, w: 12, h: 1 } },
+                    color: null,
+                    parent_group_id: 'named',
+                },
+                {
+                    id: 2,
+                    text: { body: 'Anon', last_modified_at: '2026-01-01T00:00:00Z' },
+                    layouts: { sm: { x: 0, y: 0, w: 12, h: 2 } },
+                    color: null,
+                    parent_group_id: 'anon',
+                },
+            ],
+        } as unknown as DashboardType<InsightModel>
+
+        const tiles = dashboardToSaveableTemplate(dashboard)?.tiles
+        expect(tiles).toEqual([
+            {
+                type: 'GROUP',
+                group_key: 'named',
+                name: 'Revenue',
+                layouts: { sm: { x: 0, y: 0, w: 12, h: 1 } },
+            },
+            {
+                type: 'TEXT',
+                body: 'Named',
+                layouts: { sm: { x: 0, y: 1, w: 12, h: 1 } },
+                color: null,
+                group_key: 'named',
+            },
+            {
+                type: 'TEXT',
+                body: 'Anon',
+                layouts: { sm: { x: 0, y: 2, w: 12, h: 2 } },
+                color: null,
+                group_key: undefined,
+            },
+        ])
+    })
 })
 
 describe('isWidgetTileVisibleOnPlacement', () => {

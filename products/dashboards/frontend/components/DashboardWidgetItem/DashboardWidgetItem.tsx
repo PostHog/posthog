@@ -76,6 +76,7 @@ type DashboardWidgetItemProps = {
     onRemove?: () => void
     onMoveToDashboard?: (target: Pick<DashboardType, 'id' | 'name'>) => void
     onCopyToDashboard?: (target: Pick<DashboardType, 'id' | 'name'>) => void
+    extraMoreOverlay?: React.ReactNode
     /** Injected by react-grid-layout / react-resizable — must render inside the card root. */
     children?: React.ReactNode
 } & Omit<React.HTMLAttributes<HTMLDivElement>, 'children'>
@@ -154,6 +155,7 @@ function DashboardWidgetItemContent({
     onRemove,
     onMoveToDashboard,
     onCopyToDashboard,
+    extraMoreOverlay,
     copyToDestinations,
     editOpen,
     setEditOpen,
@@ -202,7 +204,7 @@ function DashboardWidgetItemContent({
     const EditModal = definition?.EditModal
 
     const hasDashboardSectionActions =
-        !!(onMoveToDashboard || onCopyToDashboard || onRemove) ||
+        !!(onMoveToDashboard || onCopyToDashboard || onRemove || extraMoreOverlay) ||
         (showEditingControls && toggleShowDescription && !!description) ||
         (showEditingControls && onUpdateWidgetTile && !showDescription && !description)
 
@@ -280,6 +282,7 @@ function DashboardWidgetItemContent({
                                         onCopyToDashboard={onCopyToDashboard}
                                     />
                                 )}
+                                {extraMoreOverlay}
                                 {onRemove && (
                                     <LemonButton status="danger" fullWidth onClick={onRemove}>
                                         Remove from dashboard
@@ -390,6 +393,7 @@ export const DashboardWidgetItem = React.forwardRef<HTMLDivElement, DashboardWid
             onRemove,
             onMoveToDashboard,
             onCopyToDashboard,
+            extraMoreOverlay,
             children,
             className,
             style,
@@ -460,6 +464,7 @@ export const DashboardWidgetItem = React.forwardRef<HTMLDivElement, DashboardWid
                     onRemove={onRemove}
                     onMoveToDashboard={onMoveToDashboard}
                     onCopyToDashboard={onCopyToDashboard}
+                    extraMoreOverlay={extraMoreOverlay}
                     copyToDestinations={copyToDestinations}
                     editOpen={editOpen}
                     setEditOpen={setEditOpen}

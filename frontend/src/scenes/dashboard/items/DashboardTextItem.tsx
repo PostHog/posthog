@@ -20,6 +20,7 @@ interface DashboardTextItemProps extends Omit<BaseTextCardProps, 'textTile' | 'p
     onCopyToDashboard?: (target: Pick<DashboardType, 'id' | 'name'>) => void
     onDuplicate: () => void
     onRemove?: () => void
+    extraMoreOverlay?: React.ReactNode
 }
 
 function DashboardTextItemInternal(
@@ -32,6 +33,7 @@ function DashboardTextItemInternal(
         onCopyToDashboard,
         onDuplicate,
         onRemove,
+        extraMoreOverlay,
         ...textCardProps
     }: DashboardTextItemProps,
     ref: React.ForwardedRef<HTMLDivElement>
@@ -62,6 +64,7 @@ function DashboardTextItemInternal(
                         onMoveToDashboard={onMoveToDashboard}
                         onCopyToDashboard={onCopyToDashboard}
                     />
+                    {extraMoreOverlay}
 
                     <LemonButton onClick={onDuplicate} fullWidth data-attr="duplicate-text-from-dashboard">
                         Duplicate
