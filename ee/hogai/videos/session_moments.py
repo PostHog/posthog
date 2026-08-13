@@ -23,7 +23,7 @@ from posthog.temporal.session_replay.rasterize_recording.types import RasterizeR
 
 from products.exports.backend.models.exported_asset import ExportedAsset
 
-from ee.hogai.session_summaries.constants import (
+from ee.hogai.videos.constants import (
     DEFAULT_VIDEO_UNDERSTANDING_MODEL,
     MOMENT_VIDEO_EXPORT_FORMAT,
     SHORT_VALIDATION_VIDEO_PLAYBACK_SPEED,
