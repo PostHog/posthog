@@ -646,6 +646,7 @@ export const redirects: Record<
         const params = new URLSearchParams(searchParams as Record<string, string>).toString()
         return urls.marketingAnalyticsApp() + (params ? `?${params}` : '')
     },
+    '/web/ai-search': urls.webAnalyticsPagePerformance(),
 
     '/events': urls.activity(),
     '/events/:id/*': ({ id, _ }) => {
@@ -755,6 +756,7 @@ export const routes: Record<string, [Scene | string, string]> = {
     [urls.webAnalytics()]: [Scene.WebAnalytics, 'webAnalytics'],
     [urls.webAnalyticsWebVitals()]: [Scene.WebAnalytics, 'webAnalyticsWebVitals'],
     [urls.webAnalyticsBotAnalytics()]: [Scene.WebAnalytics, 'webAnalyticsBotAnalytics'],
+    [urls.webAnalyticsPagePerformance()]: [Scene.WebAnalytics, 'webAnalyticsPagePerformance'],
     [urls.webAnalyticsHealth()]: [Scene.WebAnalyticsHealth, 'webAnalyticsHealth'],
     [urls.webAnalyticsLive()]: [Scene.WebAnalyticsLive, 'webAnalyticsLive'],
     [urls.webAnalyticsRecap()]: [Scene.WebAnalyticsRecap, 'webAnalyticsRecap'],
