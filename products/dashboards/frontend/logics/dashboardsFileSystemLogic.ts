@@ -7,7 +7,7 @@ import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { withTimeout } from 'lib/utils/async'
 import { dashboardsLogic } from 'scenes/dashboard/dashboards/dashboardsLogic'
 
-import { projectTreeDataLogic } from '~/layout/panel-layout/ProjectTree/projectTreeDataLogic'
+import { MovedItem, projectTreeDataLogic } from '~/layout/panel-layout/ProjectTree/projectTreeDataLogic'
 import { joinPath, splitPath } from '~/layout/panel-layout/ProjectTree/utils'
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { FileSystemEntry } from '~/queries/schema/schema-general'
@@ -102,6 +102,9 @@ export interface dashboardsFileSystemLogicActions {
         item: FileSystemEntry
         newPath: string
         oldPath: string
+    } // projectTreeDataLogic
+    movesSettled: (moved: MovedItem[]) => {
+        moved: MovedItem[]
     } // projectTreeDataLogic
     createFolder: (
         name: string,
@@ -204,7 +207,7 @@ export const dashboardsFileSystemLogic = kea<dashboardsFileSystemLogicType>([
     path(['products', 'dashboards', 'dashboardsFileSystemLogic']),
     connect(() => ({
         values: [dashboardsLogic, ['dashboards']],
-        actions: [projectTreeDataLogic, ['createSavedItem', 'movedItem', 'deleteItem']],
+        actions: [projectTreeDataLogic, ['createSavedItem', 'movedItem', 'movesSettled', 'deleteItem']],
     })),
     actions({
         // Tree arm: select a folder ('' = the dashboards root).
@@ -314,15 +317,17 @@ export const dashboardsFileSystemLogic = kea<dashboardsFileSystemLogicType>([
         [dashboardsModel.actionTypes.duplicateDashboardSuccess]: () => {
             actions.loadDashboardFileSystemEntries()
         },
-        // A move lands as movedItem AFTER the server commit (the table's "Move to" action goes through the
-        // shared move path). A dashboard move changes its own path; a folder move re-parents the dashboards
-        // beneath it (and the folder rows). Other item types (insights, notebooks) don't affect this view,
-        // so skip the refetch for them.
-        [projectTreeDataLogic.actionTypes.movedItem]: ({ item }: { item: FileSystemEntry }) => {
-            if (item.type === 'dashboard' || item.type === 'folder') {
-                actions.loadDashboardFileSystemEntries()
+        // Listening for the settled operation rather than for each `movedItem` is what keeps a bulk move to
+        // one refetch: a real boundary, instead of a window long enough to guess that no more are coming.
+        // A dashboard move changes its own path; a folder move re-parents the dashboards beneath it and the
+        // folder rows. Other item types (insights, notebooks) don't affect this view.
+        [projectTreeDataLogic.actionTypes.movesSettled]: ({ moved }: { moved: MovedItem[] }) => {
+            const movedTypes = new Set(moved.map(({ item }) => item.type))
+            if (!movedTypes.has('dashboard') && !movedTypes.has('folder')) {
+                return
             }
-            if (item.type === 'folder') {
+            actions.loadDashboardFileSystemEntries()
+            if (movedTypes.has('folder')) {
                 actions.loadFolderEntries()
             }
         },
@@ -370,8 +375,11 @@ export const dashboardsFileSystemLogic = kea<dashboardsFileSystemLogicType>([
             }
             try {
                 await api.fileSystem.move(entry.id, newPath)
-                // movedItem syncs the sidebar's store and (via our own listener below) refetches this tree.
+                // Two different things, both needed: the first re-paths this folder's row in the sidebar's
+                // store, the second says the operation is over so the refetch listener below runs. A rename
+                // calls the move API directly rather than going through `moveItems`, so nothing else emits it.
                 actions.movedItem(entry, entry.path, newPath)
+                actions.movesSettled([{ item: entry, oldPath: entry.path, newPath }])
                 // Re-point the scope if we were inside the renamed folder — or a descendant of it, which moves
                 // with it. (deleteSavedItem falls back to root because the folder is gone; rename keeps it.)
                 if (values.currentFolder === entry.path) {
