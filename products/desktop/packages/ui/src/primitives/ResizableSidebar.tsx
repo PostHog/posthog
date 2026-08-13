@@ -13,9 +13,11 @@ const DRAG_REOPEN_AT = DRAG_COLLAPSE_AT + 16;
 // Every moving part of the open/close choreography — the box width, the
 // panel's translateX, and the title bar in __root — must share this exact
 // curve (Tailwind's ease-out) and duration, or the panel's edge drifts ahead
-// of the content edge mid-animation and the layers visibly overlap.
+// of the content edge mid-animation and the layers visibly overlap. Anything
+// a caller animates alongside the slide takes SLIDE_MS.
+export const SLIDE_MS = 200;
 const SLIDE_EASING = "cubic-bezier(0, 0, 0.2, 1)";
-const SLIDE_WIDTH_TRANSITION = `width 0.2s ${SLIDE_EASING}, min-width 0.2s ${SLIDE_EASING}, max-width 0.2s ${SLIDE_EASING}`;
+const SLIDE_WIDTH_TRANSITION = `width ${SLIDE_MS}ms ${SLIDE_EASING}, min-width ${SLIDE_MS}ms ${SLIDE_EASING}, max-width ${SLIDE_MS}ms ${SLIDE_EASING}`;
 
 interface ResizableSidebarProps {
   children: React.ReactNode;

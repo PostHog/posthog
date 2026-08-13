@@ -14,7 +14,6 @@ import { logger } from "../../../shell/logger";
 import { useArchiveTask } from "../../archive/useArchiveTask";
 import { ChannelBreadcrumb } from "../../canvas/components/ChannelBreadcrumb";
 import { CopyThreadLinkButton } from "../../canvas/components/CopyThreadLinkButton";
-import { useChannelsLayout } from "../../canvas/hooks/useChannelsLayout";
 import { useMarkTaskActivityRead } from "../../canvas/hooks/useMarkTaskActivityRead";
 import {
   LazyCloudReviewPage as CloudReviewPage,
@@ -25,6 +24,7 @@ import { useFileSearchStore } from "../../command/fileSearchStore";
 import { SHORTCUTS } from "../../command/keyboard-shortcuts";
 import { useRepoFileWatcher } from "../../file-watcher/useRepoFileWatcher";
 import { clearGitReviewQueries } from "../../git-interaction/gitCacheKeys";
+import { useReviewInRightPanel } from "../../navigation/useReviewInRightPanel";
 import { PanelLayout } from "../../panels/components/PanelLayout";
 import { MIN_CHAT_WIDTH } from "../../sessions/constants";
 import { useArchivingTasksStore } from "../../sidebar/archivingTasksStore";
@@ -266,12 +266,11 @@ export function TaskDetail({
   const isCloud =
     workspace?.mode === "cloud" || task.latest_run?.environment === "cloud";
 
-  // Inside the spaces chrome the review renders in the shared right panel
-  // (WebsiteLayout), so the in-task pane stands down there.
-  const channelsLayout = useChannelsLayout();
-  const inChannelChrome = channelsLayout && Boolean(channelId);
-  const isReviewOpen = !inChannelChrome && reviewMode !== "closed";
-  const isExpanded = !inChannelChrome && reviewMode === "expanded";
+  // Where the shared right panel draws the review, the in-task pane stands
+  // down rather than drawing it a second time.
+  const inRightPanel = useReviewInRightPanel();
+  const isReviewOpen = !inRightPanel && reviewMode !== "closed";
+  const isExpanded = !inRightPanel && reviewMode === "expanded";
 
   // Keyed off the review mode rather than this pane, so a review open in the
   // right panel keeps the diff queries it is drawing from.

@@ -13,6 +13,7 @@ import { useFeatureFlag } from "@posthog/ui/features/feature-flags/useFeatureFla
 import { BranchSelector } from "@posthog/ui/features/git-interaction/components/BranchSelector";
 import { CloudGitInteractionHeader } from "@posthog/ui/features/git-interaction/components/CloudGitInteractionHeader";
 import { TaskActionsMenu } from "@posthog/ui/features/git-interaction/components/TaskActionsMenu";
+import { useReviewInRightPanel } from "@posthog/ui/features/navigation/useReviewInRightPanel";
 import { HandoffConfirmDialog } from "@posthog/ui/features/sessions/components/HandoffConfirmDialog";
 import { StopCloudRunButton } from "@posthog/ui/features/sessions/components/StopCloudRunButton";
 import { useHandoffDialogStore } from "@posthog/ui/features/sessions/handoffDialogStore";
@@ -127,27 +128,20 @@ function TaskDiffStatsBadge({ task }: { task: Task }) {
   );
 }
 
-export function TaskHeaderActions({
-  task,
-  showReviewToggle = true,
-}: {
-  task: Task;
-  /**
-   * The diff badge is this row's way into the review. Where a surface has its
-   * own — the spaces chrome opens it from the right panel's switcher — the row
-   * drops the badge rather than offering the same thing twice.
-   */
-  showReviewToggle?: boolean;
-}) {
+export function TaskHeaderActions({ task }: { task: Task }) {
   const workspace = useWorkspace(task.id);
   const workspaceLoaded = useWorkspaceLoaded();
   const isCloudTask = workspace?.mode === "cloud";
+  // The badge is this row's way into the review, so it comes off where the
+  // right panel's switcher already offers one.
+  const showDiffBadge = !useReviewInRightPanel();
 
   return (
     <Flex
       align="center"
       justify="end"
       gap="1"
+      pr="1"
       pl="1"
       className="h-full max-w-[50%] shrink-0 overflow-hidden"
     >
@@ -163,7 +157,7 @@ export function TaskHeaderActions({
           />
         </div>
       )}
-      {showReviewToggle && <TaskDiffStatsBadge task={task} />}
+      {showDiffBadge && <TaskDiffStatsBadge task={task} />}
 
       {workspaceLoaded && (
         <>

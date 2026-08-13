@@ -390,16 +390,6 @@ export function WebsiteLayout() {
   const showToolbar =
     Boolean(channelId) && (isDashboardsGrid || isDashboardDetail);
 
-  // Under the spaces layout the band ends on the session's own actions, flush
-  // with the right edge — the right panel's switcher rides the panel's header
-  // row a line below instead.
-  // No wrapper: the actions cap themselves at half the bar, and a wrapper that
-  // hugs their content resolves that percentage against itself, clipping them.
-  const rightControls =
-    spacesLayout && channelTask ? (
-      <TaskHeaderActions task={channelTask} showReviewToggle={false} />
-    ) : null;
-
   return (
     <Flex direction="column" height="100%" overflow="hidden">
       {/* Title bar for non-canvas views: every channel scene (task detail,
@@ -421,10 +411,10 @@ export function WebsiteLayout() {
           >
             {headerContent}
           </Flex>
-          {!spacesLayout && channelTask && (
-            <TaskHeaderActions task={channelTask} />
-          )}
-          {rightControls}
+          {/* Rendered without a wrapper: the actions cap themselves at half the
+              bar, and a wrapper that hugs their content resolves that
+              percentage against itself, which clips them. */}
+          {channelTask && <TaskHeaderActions task={channelTask} />}
         </Flex>
       )}
 
@@ -456,12 +446,13 @@ export function WebsiteLayout() {
               trailing={<NewCanvasMenu channelId={channelId} />}
             />
           )}
-          {rightControls}
         </Flex>
       )}
-      {/* Relative: the right panel's switcher pins itself to this row's top
-          right, above whichever of the panel or the content sits under it. */}
-      <div className="relative flex min-h-0 flex-1 overflow-hidden">
+      {/* The right panel's switcher pins itself to this row's top right, so the
+          row is its positioning context. `isolate` keeps the switcher's stacking
+          rank inside the row, where it only has to beat the panel's own layer,
+          rather than reaching the app's dialogs and popovers. */}
+      <div className="relative isolate flex min-h-0 flex-1 overflow-hidden">
         <div className="min-w-0 flex-1 overflow-hidden">
           <MentionAvailabilityProvider disabledReason={mentionsDisabledReason}>
             <Outlet />

@@ -7,15 +7,14 @@ import {
 } from "@phosphor-icons/react";
 import type { ResolvedDiffSource } from "@posthog/core/code-review/resolveDiffSource";
 import { Button } from "@posthog/quill";
-import { useChannelsLayout } from "@posthog/ui/features/canvas/hooks/useChannelsLayout";
 import { useDiffViewerStore } from "@posthog/ui/features/code-editor/diffViewerStore";
 import {
   type ReviewMode,
   useReviewNavigationStore,
 } from "@posthog/ui/features/code-review/reviewNavigationStore";
+import { useReviewInRightPanel } from "@posthog/ui/features/navigation/useReviewInRightPanel";
 import { Tooltip } from "@posthog/ui/primitives/Tooltip";
 import { Flex, Separator, Text } from "@radix-ui/themes";
-import { useParams } from "@tanstack/react-router";
 import { FoldVertical, Maximize, Minimize, UnfoldVertical } from "lucide-react";
 import { memo } from "react";
 import type { CommentFileFilter } from "../commentFileFilter";
@@ -116,12 +115,10 @@ export const ReviewToolbar = memo(function ReviewToolbar({
     setReviewMode(taskId, "closed");
   };
 
-  // On a space's route under the spaces chrome the review is one of the right
-  // panel's sides, and the panel's own switcher opens and closes it. Closing
-  // the review mode alone leaves that panel standing, so the toolbar drops its
-  // close there. The Code scene, which has no such switcher, keeps it.
-  const channelId = useParams({ strict: false }).channelId;
-  const inRightPanel = useChannelsLayout() && Boolean(channelId);
+  // Closing the review mode does not close the right panel that draws it, so
+  // the toolbar leaves that to the panel's own switcher. The Code scene, which
+  // has no switcher, keeps the close.
+  const inRightPanel = useReviewInRightPanel();
 
   const visibleFileSummary = getVisibleFileSummary(
     commentFilter,

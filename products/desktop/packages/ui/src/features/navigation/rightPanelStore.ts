@@ -37,16 +37,14 @@ interface RightPanelStore {
  */
 export function resolveRightPanelSide({
   stored,
-  hasTask,
   isReviewOpen,
 }: {
   stored: RightPanelSide | null | undefined;
-  hasTask: boolean;
   isReviewOpen: boolean;
 }): RightPanelSide | null {
-  if (hasTask && isReviewOpen) return "changes";
+  if (isReviewOpen) return "changes";
   if (stored !== undefined) return stored;
-  return hasTask ? DEFAULT_RIGHT_PANEL_SIDE : null;
+  return DEFAULT_RIGHT_PANEL_SIDE;
 }
 
 export const useRightPanelStore = create<RightPanelStore>()(
