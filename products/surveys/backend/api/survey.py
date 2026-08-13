@@ -3226,6 +3226,11 @@ class SurveyViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.
                     new_survey = Survey(
                         team=team,
                         created_by=user,
+                        # Copied outside the serializer so a duplicate is never stricter than its source:
+                        # these values are already sanitized, and surveys with grandfathered language keys
+                        # (which only validate against an existing instance) would otherwise fail to copy.
+                        base_language=source_survey.base_language,
+                        translations=source_survey.translations,
                         **serializer.validated_data,
                     )
                     surveys_to_create.append(new_survey)

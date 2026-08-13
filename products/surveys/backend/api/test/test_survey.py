@@ -6521,6 +6521,35 @@ class TestSurveyBulkDuplication(APIBaseTest):
         # Generic condition fields SHOULD be copied
         assert duplicated.conditions.get("url") == "https://example.com"
 
+    @parameterized.expand(
+        [
+            ("standard_keys", {"fr": {"name": "Sondage"}, "es-MX": {"name": "Encuesta"}}),
+            ("legacy_key", {"FR": {"name": "Sondage"}}),
+        ]
+    )
+    def test_bulk_duplicate_copies_translations(self, _name: str, translations: dict) -> None:
+        translated_survey = Survey.objects.create(
+            team=self.team,
+            name="Translated Survey",
+            type="popover",
+            questions=[{"type": "open", "question": "What do you think?"}],
+            base_language="en-GB",
+            translations=translations,
+            created_by=self.user,
+        )
+
+        response = self.client.post(
+            f"/api/projects/{self.team.project_id}/surveys/{translated_survey.id}/duplicate_to_projects/",
+            data={"target_team_ids": [self.team2.id]},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_201_CREATED
+
+        duplicated = Survey.objects.get(team=self.team2)
+        assert duplicated.translations == translations
+        assert duplicated.base_language == "en-GB"
+
     def test_bulk_duplicate_transaction_rollback_on_error(self):
         """Test that all duplications are rolled back if one fails"""
         # Create a survey with the same name in team2 to cause a conflict
