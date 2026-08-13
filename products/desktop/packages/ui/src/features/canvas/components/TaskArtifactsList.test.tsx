@@ -1,4 +1,6 @@
+import type { ThreadTimelineRow } from "@posthog/core/canvas/threadTimeline";
 import type { Task, TaskRun, TaskRunArtifact } from "@posthog/shared";
+import type { TaskThreadMessage } from "@posthog/shared/domain-types";
 import {
   fireEvent,
   render,
@@ -6,7 +8,6 @@ import {
   waitFor,
   within,
 } from "@testing-library/react";
-import type { ComponentProps } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
@@ -194,20 +195,26 @@ describe("TaskArtifactsList", () => {
   it("shows how long ago each PR and canvas was produced", () => {
     mocks.runs = [];
     const now = Date.now();
-    const timeline = [
+    const message = (id: string): TaskThreadMessage => ({
+      id,
+      task: "task-1",
+      content: "",
+      created_at: "",
+    });
+    const timeline: ThreadTimelineRow<TaskThreadMessage>[] = [
       {
         kind: "artifact",
         timestamp: now - 2 * 86_400_000,
-        message: { id: "m1", created_at: "" },
+        message: message("m1"),
         artifact: { kind: "canvas", name: "Dashboard", url: null },
       },
       {
         kind: "artifact",
         timestamp: now - 43 * 60_000,
-        message: { id: "m2", created_at: "" },
+        message: message("m2"),
         artifact: { kind: "pr", url: "https://github.com/acme/repo/pull/7" },
       },
-    ] as unknown as ComponentProps<typeof TaskArtifactsList>["timeline"];
+    ];
 
     render(<TaskArtifactsList task={task} timeline={timeline} />);
 
