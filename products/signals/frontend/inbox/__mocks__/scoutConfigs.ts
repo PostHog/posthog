@@ -23,6 +23,7 @@ function makeMockScout(overrides: MockScoutOverrides): SignalScoutConfigApi {
         tags: [],
         created_at: '2026-06-11T09:00:00Z',
         ...overrides,
+        display_name: overrides.display_name ?? overrides.skill_name,
     }
 }
 
