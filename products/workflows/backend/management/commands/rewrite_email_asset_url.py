@@ -27,7 +27,7 @@ TARGETS: Final[dict[str, tuple[type[models.Model], dict[str, str]]]] = {
 }
 
 
-@dataclass
+@dataclass(frozen=False)
 class RewriteCounts:
     rows_scanned: int = 0
     rows_changed: int = 0
