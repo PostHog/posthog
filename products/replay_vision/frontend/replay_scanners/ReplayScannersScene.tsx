@@ -91,6 +91,7 @@ function CreateScannerButton({
             ignoreDismissal
             hideTrainingDisclaimer
             hidden={!consentRequested}
+            pendingRedirectUrl={urls.replayVisionTemplates()}
             onApprove={() => {
                 setConsentRequested(false)
                 goToCreate()
