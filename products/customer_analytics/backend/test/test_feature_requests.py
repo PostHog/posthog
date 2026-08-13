@@ -9,11 +9,7 @@ from posthog.models import OrganizationMembership, Team, User
 from posthog.models.organization import AvailableFeature
 from posthog.models.scoping import team_scope
 
-from products.customer_analytics.backend.models import (
-    FeatureRequest,
-    FeatureRequestProductArea,
-    FeatureRequestStatusHistory,
-)
+from products.customer_analytics.backend.models import FeatureRequest, FeatureRequestHistory, FeatureRequestProductArea
 from products.customer_analytics.backend.test.factories import create_account
 
 from ee.models.rbac.access_control import AccessControl
@@ -127,11 +123,13 @@ class TestFeatureRequestsAPI(APIBaseTest):
 
         listed = self.client.get(self.requests_url)
         retrieved = self.client.get(f"{self.requests_url}{created['id']}/")
+        history = self.client.get(f"{self.requests_url}{created['id']}/history/")
         response = self.client.post(self.requests_url, payload, format="json")
 
         self.assertEqual(listed.status_code, status.HTTP_200_OK)
         self.assertEqual(listed.json()["count"], 0)
         self.assertEqual(retrieved.status_code, status.HTTP_404_NOT_FOUND)
+        self.assertEqual(history.status_code, status.HTTP_404_NOT_FOUND)
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertNotIn("Export account-level retention data", str(response.json()))
 
@@ -162,9 +160,15 @@ class TestFeatureRequestsAPI(APIBaseTest):
         self.assertEqual(update_attempt.status_code, status.HTTP_403_FORBIDDEN)
         self.assertEqual(archive_attempt.status_code, status.HTTP_403_FORBIDDEN)
 
-    def test_editor_updates_lifecycle_once_and_stale_writes_fail(self) -> None:
+    def test_editor_groups_tracked_changes_once_and_stale_writes_fail(self) -> None:
         created = self.client.post(self.requests_url, self._payload(), format="json").json()
         request_url = f"{self.requests_url}{created['id']}/"
+        other_account = create_account(team_id=self.team.id, name="Globex")
+        area_three = FeatureRequestProductArea.objects.for_team(self.team.id).create(
+            team=self.team,
+            name="Data warehouse",
+            display_order=3,
+        )
 
         updated = self.client.patch(
             request_url,
@@ -173,6 +177,8 @@ class TestFeatureRequestsAPI(APIBaseTest):
                 "title": "Export account retention data",
                 "request_status": "planned",
                 "request_priority": "high",
+                "account_id": str(other_account.id),
+                "product_area_ids": [str(self.area_two.id), str(area_three.id)],
             },
             format="json",
         )
@@ -181,12 +187,18 @@ class TestFeatureRequestsAPI(APIBaseTest):
             {"expected_version": updated.json()["version"], "request_status": "planned"},
             format="json",
         )
+        invalid = self.client.patch(
+            request_url,
+            {"expected_version": updated.json()["version"], "product_area_ids": []},
+            format="json",
+        )
         stale = self.client.patch(
             request_url,
             {"expected_version": created["version"], "request_status": "completed"},
             format="json",
         )
-        history = self.client.get(f"{request_url}status_history/")
+        history = self.client.get(f"{request_url}history/")
+        status_history = self.client.get(f"{request_url}status_history/")
 
         self.assertEqual(updated.status_code, status.HTTP_200_OK)
         self.assertEqual(updated.json()["request_status"], "planned")
@@ -194,12 +206,81 @@ class TestFeatureRequestsAPI(APIBaseTest):
         self.assertEqual(updated.json()["version"], 2)
         self.assertEqual(unchanged.status_code, status.HTTP_200_OK)
         self.assertEqual(unchanged.json()["version"], 2)
+        self.assertEqual(invalid.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(stale.status_code, status.HTTP_409_CONFLICT)
+        self.assertEqual(history.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(history.json()), 2)
         self.assertEqual(
-            [(entry["previous_status"], entry["request_status"]) for entry in history.json()],
+            [change["field"] for change in history.json()[0]["changes"]],
+            [
+                "status",
+                "priority",
+                "account",
+                "product_areas",
+            ],
+        )
+        self.assertEqual(
+            history.json()[0]["changes"],
+            [
+                {"field": "status", "before": "requested", "after": "planned"},
+                {"field": "priority", "before": None, "after": "high"},
+                {
+                    "field": "account",
+                    "before": {"id": str(self.account.id), "name": "Acme"},
+                    "after": {"id": str(other_account.id), "name": "Globex"},
+                },
+                {
+                    "field": "product_areas",
+                    "before": [
+                        {"id": str(self.area_one.id), "name": "Product analytics"},
+                        {"id": str(self.area_two.id), "name": "Session replay"},
+                    ],
+                    "after": [
+                        {"id": str(self.area_two.id), "name": "Session replay"},
+                        {"id": str(area_three.id), "name": "Data warehouse"},
+                    ],
+                },
+            ],
+        )
+        self.assertTrue(history.json()[1]["is_initial"])
+        self.assertEqual(
+            [change["field"] for change in history.json()[1]["changes"]],
+            ["status", "priority", "account", "product_areas"],
+        )
+        self.assertEqual(
+            [(entry["previous_status"], entry["request_status"]) for entry in status_history.json()],
             [("requested", "planned"), (None, "requested")],
         )
-        self.assertEqual(FeatureRequestStatusHistory.objects.for_team(self.team.id).count(), 2)
+        self.assertEqual(FeatureRequestHistory.objects.for_team(self.team.id).count(), 2)
+
+    def test_history_keeps_account_and_product_area_name_snapshots_after_renames(self) -> None:
+        created = self.client.post(self.requests_url, self._payload(), format="json").json()
+        other_account = create_account(team_id=self.team.id, name="Globex")
+        self.client.patch(
+            f"{self.requests_url}{created['id']}/",
+            {
+                "expected_version": created["version"],
+                "account_id": str(other_account.id),
+                "product_area_ids": [str(self.area_two.id)],
+            },
+            format="json",
+        )
+
+        self.account.name = "Acme renamed"
+        self.account.save(update_fields=["name"])
+        other_account.name = "Globex renamed"
+        other_account.save(update_fields=["name"])
+        self.area_one.name = "Product analytics renamed"
+        self.area_one.save(update_fields=["name"])
+        history = self.client.get(f"{self.requests_url}{created['id']}/history/").json()
+
+        changes = {change["field"]: change for change in history[0]["changes"]}
+        self.assertEqual(changes["account"]["before"]["name"], "Acme")
+        self.assertEqual(changes["account"]["after"]["name"], "Globex")
+        self.assertEqual(changes["product_areas"]["before"][0]["name"], "Product analytics")
+        initial_changes = {change["field"]: change for change in history[1]["changes"]}
+        self.assertEqual(initial_changes["account"]["after"]["name"], "Acme")
+        self.assertEqual(initial_changes["product_areas"]["after"][0]["name"], "Product analytics")
 
     def test_list_combines_filters_orders_priorities_and_hides_archived_requests(self) -> None:
         first = self.client.post(self.requests_url, self._payload(), format="json").json()

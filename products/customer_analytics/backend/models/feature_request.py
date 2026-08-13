@@ -19,7 +19,7 @@ class FeatureRequestPriority(models.TextChoices):
     LOW = "low", "Low"
 
 
-class FeatureRequestStatusHistorySource(models.TextChoices):
+class FeatureRequestHistorySource(models.TextChoices):
     MANUAL = "manual", "Manual"
 
 
@@ -79,24 +79,19 @@ class FeatureRequest(TeamScopedRootMixin, UUIDModel):
         ordering = ["-updated_at", "-created_at", "-id"]
 
 
-class FeatureRequestStatusHistory(TeamScopedRootMixin, UUIDModel):
+class FeatureRequestHistory(TeamScopedRootMixin, UUIDModel):
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False)
     feature_request = models.ForeignKey(
         FeatureRequest,
         on_delete=models.CASCADE,
-        related_name="status_history",
+        related_name="history",
     )
-    previous_status = models.CharField(
-        max_length=32,
-        choices=FeatureRequestStatus.choices,
-        null=True,
-        blank=True,
-    )
-    status = models.CharField(max_length=32, choices=FeatureRequestStatus.choices)
+    changes = models.JSONField(default=list)
+    is_initial = models.BooleanField(default=False)
     source = models.CharField(
         max_length=32,
-        choices=FeatureRequestStatusHistorySource.choices,
-        default=FeatureRequestStatusHistorySource.MANUAL,
+        choices=FeatureRequestHistorySource.choices,
+        default=FeatureRequestHistorySource.MANUAL,
     )
     actor_id = models.BigIntegerField(null=True, blank=True)
     changed_at = models.DateTimeField()
@@ -105,8 +100,8 @@ class FeatureRequestStatusHistory(TeamScopedRootMixin, UUIDModel):
         constraints = [
             models.UniqueConstraint(
                 fields=["team", "feature_request"],
-                condition=Q(previous_status__isnull=True),
-                name="unique_feature_request_initial_status_history",
+                condition=Q(is_initial=True),
+                name="unique_feature_request_initial_history",
             ),
         ]
         ordering = ["-changed_at", "-id"]

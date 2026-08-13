@@ -893,6 +893,9 @@ tools:
     feature-requests-create:
         operation: feature_requests_create
         enabled: false
+    feature-requests-history-list:
+        operation: feature_requests_history_list
+        enabled: false
     feature-requests-list:
         operation: feature_requests_list
         enabled: false

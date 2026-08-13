@@ -52,6 +52,7 @@ from products.customer_analytics.backend.facade.contracts import (
     CustomPropertySyncRunView,
     EventStreamView,
     FeatureRequestAccountView,
+    FeatureRequestHistoryView,
     FeatureRequestProductAreaView,
     FeatureRequestStatusHistoryView,
     FeatureRequestView,
@@ -230,6 +231,101 @@ class FeatureRequestSerializer(DataclassSerializer):
             "updated_by",
             "created_at",
             "updated_at",
+        ]
+
+
+_FEATURE_REQUEST_HISTORY_VALUE_SCHEMA = {
+    "nullable": True,
+    "oneOf": [
+        {"type": "string"},
+        {
+            "type": "object",
+            "required": ["id", "name"],
+            "properties": {
+                "id": {"type": "string", "format": "uuid"},
+                "name": {"type": "string"},
+            },
+        },
+        {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "required": ["id", "name"],
+                "properties": {
+                    "id": {"type": "string", "format": "uuid"},
+                    "name": {"type": "string"},
+                },
+            },
+        },
+    ],
+}
+
+
+@extend_schema_field(_FEATURE_REQUEST_HISTORY_VALUE_SCHEMA)
+class FeatureRequestHistoryValueField(serializers.JSONField):
+    pass
+
+
+class FeatureRequestHistoryChangeSerializer(serializers.Serializer):
+    field = serializers.ChoiceField(
+        read_only=True,
+        choices=[
+            ("status", "Status"),
+            ("priority", "Priority"),
+            ("account", "Account"),
+            ("product_areas", "Product areas"),
+        ],
+        help_text="Request field represented by this change.",
+    )
+    before = FeatureRequestHistoryValueField(
+        read_only=True,
+        help_text="Value before the update, including relation snapshots.",
+    )
+    after = FeatureRequestHistoryValueField(
+        read_only=True,
+        help_text="Value after the update, including relation snapshots.",
+    )
+
+
+class FeatureRequestHistorySerializer(DataclassSerializer):
+    id = serializers.UUIDField(read_only=True, help_text="Stable request history entry ID.")
+    changes = FeatureRequestHistoryChangeSerializer(
+        many=True,
+        read_only=True,
+        help_text="Tracked fields changed together in one successful save.",
+    )
+    is_initial = serializers.BooleanField(
+        read_only=True,
+        help_text="Whether this entry records the request's initial values.",
+    )
+    change_source = serializers.ChoiceField(
+        read_only=True,
+        choices=[("manual", "Manual")],
+        help_text="System that recorded the request change.",
+    )
+    actor_id = serializers.IntegerField(
+        read_only=True,
+        allow_null=True,
+        help_text="ID of the user who changed the request, if known.",
+    )
+    actor_name = serializers.CharField(
+        read_only=True,
+        allow_null=True,
+        help_text="Display name of the user who changed the request, if known.",
+    )
+    changed_at = serializers.DateTimeField(read_only=True, help_text="When the request changed.")
+
+    class Meta:
+        dataclass = FeatureRequestHistoryView
+        ref_name = "FeatureRequestHistory"
+        fields = [
+            "id",
+            "changes",
+            "is_initial",
+            "change_source",
+            "actor_id",
+            "actor_name",
+            "changed_at",
         ]
 
 

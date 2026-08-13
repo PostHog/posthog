@@ -52,7 +52,7 @@ describe('featureRequestsLogic', () => {
                 '/api/projects/:team_id/feature_requests/': { count: 0, next: null, previous: null, results: [] },
                 '/api/projects/:team_id/feature_requests/:id/': createdRequest,
                 '/api/projects/:team_id/feature_request_product_areas/': [],
-                '/api/projects/:team_id/feature_requests/:id/status_history/': [],
+                '/api/projects/:team_id/feature_requests/:id/history/': [],
                 '/api/projects/:team_id/accounts/': { count: 0, next: null, previous: null, results: [] },
             },
         })

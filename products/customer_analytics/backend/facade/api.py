@@ -2080,6 +2080,16 @@ def set_feature_request_archived(
     )
 
 
+def list_feature_request_history(
+    *, team_id: int, feature_request_id: UUID, user_access_control: "UserAccessControl"
+) -> list[contracts.FeatureRequestHistoryView] | None:
+    return _feature_requests_logic.list_feature_request_history(
+        team_id=team_id,
+        feature_request_id=feature_request_id,
+        user_access_control=user_access_control,
+    )
+
+
 def list_feature_request_status_history(
     *, team_id: int, feature_request_id: UUID, user_access_control: "UserAccessControl"
 ) -> list[contracts.FeatureRequestStatusHistoryView] | None:

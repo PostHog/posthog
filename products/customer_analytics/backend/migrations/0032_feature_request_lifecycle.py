@@ -6,24 +6,60 @@ from django.db import migrations, models
 import posthog.uuidt
 
 
-def backfill_initial_status_history(apps, schema_editor):
+def backfill_initial_history(apps, schema_editor):
     FeatureRequest = apps.get_model("customer_analytics", "FeatureRequest")
-    FeatureRequestStatusHistory = apps.get_model("customer_analytics", "FeatureRequestStatusHistory")
-    FeatureRequestStatusHistory._base_manager.bulk_create(
-        [
-            FeatureRequestStatusHistory(
+    FeatureRequestAccountLink = apps.get_model("customer_analytics", "FeatureRequestAccountLink")
+    FeatureRequestHistory = apps.get_model("customer_analytics", "FeatureRequestHistory")
+    FeatureRequestProductAreaLink = apps.get_model("customer_analytics", "FeatureRequestProductAreaLink")
+
+    history_batch = []
+    for request in FeatureRequest._base_manager.all().iterator(chunk_size=1000):
+        account = (
+            FeatureRequestAccountLink._base_manager.filter(feature_request_id=request.id)
+            .values("account_id", "account__name")
+            .first()
+        )
+        product_areas = list(
+            FeatureRequestProductAreaLink._base_manager.filter(feature_request_id=request.id)
+            .order_by("product_area__display_order", "product_area__name", "product_area_id")
+            .values("product_area_id", "product_area__name")
+        )
+        history_batch.append(
+            FeatureRequestHistory(
                 team_id=request.team_id,
                 feature_request_id=request.id,
-                previous_status=None,
-                status=request.status,
+                changes=[
+                    {"field": "status", "before": None, "after": request.status},
+                    {"field": "priority", "before": None, "after": request.priority},
+                    {
+                        "field": "account",
+                        "before": None,
+                        "after": (
+                            {"id": str(account["account_id"]), "name": account["account__name"]}
+                            if account is not None
+                            else None
+                        ),
+                    },
+                    {
+                        "field": "product_areas",
+                        "before": [],
+                        "after": [
+                            {"id": str(area["product_area_id"]), "name": area["product_area__name"]}
+                            for area in product_areas
+                        ],
+                    },
+                ],
+                is_initial=True,
                 source="manual",
                 actor_id=request.created_by_id,
                 changed_at=request.created_at,
             )
-            for request in FeatureRequest._base_manager.all().iterator(chunk_size=1000)
-        ],
-        batch_size=1000,
-    )
+        )
+        if len(history_batch) == 1000:
+            FeatureRequestHistory._base_manager.bulk_create(history_batch, batch_size=1000)
+            history_batch = []
+    if history_batch:
+        FeatureRequestHistory._base_manager.bulk_create(history_batch, batch_size=1000)
 
 
 class Migration(migrations.Migration):
@@ -77,7 +113,7 @@ class Migration(migrations.Migration):
             ),
         ),
         migrations.CreateModel(
-            name="FeatureRequestStatusHistory",
+            name="FeatureRequestHistory",
             fields=[
                 (
                     "id",
@@ -88,34 +124,8 @@ class Migration(migrations.Migration):
                         serialize=False,
                     ),
                 ),
-                (
-                    "previous_status",
-                    models.CharField(
-                        blank=True,
-                        choices=[
-                            ("requested", "Requested"),
-                            ("planned", "Planned"),
-                            ("completed", "Completed"),
-                            ("wont_fix", "Won't fix"),
-                            ("duplicate", "Duplicate"),
-                        ],
-                        max_length=32,
-                        null=True,
-                    ),
-                ),
-                (
-                    "status",
-                    models.CharField(
-                        choices=[
-                            ("requested", "Requested"),
-                            ("planned", "Planned"),
-                            ("completed", "Completed"),
-                            ("wont_fix", "Won't fix"),
-                            ("duplicate", "Duplicate"),
-                        ],
-                        max_length=32,
-                    ),
-                ),
+                ("changes", models.JSONField(default=list)),
+                ("is_initial", models.BooleanField(default=False)),
                 (
                     "source",
                     models.CharField(choices=[("manual", "Manual")], default="manual", max_length=32),
@@ -126,7 +136,7 @@ class Migration(migrations.Migration):
                     "feature_request",
                     models.ForeignKey(
                         on_delete=django.db.models.deletion.CASCADE,
-                        related_name="status_history",
+                        related_name="history",
                         to="customer_analytics.featurerequest",
                     ),
                 ),
@@ -143,12 +153,12 @@ class Migration(migrations.Migration):
                 "ordering": ["-changed_at", "-id"],
                 "constraints": [
                     models.UniqueConstraint(
-                        condition=models.Q(("previous_status__isnull", True)),
+                        condition=models.Q(("is_initial", True)),
                         fields=("team", "feature_request"),
-                        name="unique_feature_request_initial_status_history",
+                        name="unique_feature_request_initial_history",
                     )
                 ],
             },
         ),
-        migrations.RunPython(backfill_initial_status_history, migrations.RunPython.noop),
+        migrations.RunPython(backfill_initial_history, migrations.RunPython.noop),
     ]

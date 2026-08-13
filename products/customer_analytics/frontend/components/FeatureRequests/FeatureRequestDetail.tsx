@@ -10,7 +10,7 @@ import {
     IconFolder,
     IconPencil,
 } from '@posthog/icons'
-import { LemonBanner, LemonButton, LemonSkeleton, LemonTag, Link } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonTag, Link } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
@@ -22,14 +22,15 @@ import { AccessControlLevel, AccessControlResourceType } from '~/types'
 import type { FeatureRequestApi } from '../../generated/api.schemas'
 import { FeatureRequestDetailSection } from './FeatureRequestDetailSection'
 import { FeatureRequestEditModal } from './FeatureRequestEditModal'
+import { FeatureRequestHistory } from './FeatureRequestHistory'
 import { FeatureRequestPriorityBadge } from './FeatureRequestPriorityBadge'
 import { featureRequestsLogic } from './featureRequestsLogic'
 import { FeatureRequestStatusBadge } from './FeatureRequestStatusBadge'
 
 export function FeatureRequestDetail({ request }: { request: FeatureRequestApi }): JSX.Element {
-    const { statusHistory, statusHistoryLoading, statusHistoryError, mutatingArchive, listSearchParams } =
+    const { requestHistory, requestHistoryLoading, requestHistoryError, mutatingArchive, listSearchParams } =
         useValues(featureRequestsLogic)
-    const { openEditRequest, archiveActiveRequest, restoreActiveRequest, loadStatusHistory } =
+    const { openEditRequest, archiveActiveRequest, restoreActiveRequest, loadRequestHistory } =
         useActions(featureRequestsLogic)
     const editorDisabledReason = getAccessControlDisabledReason(
         AccessControlResourceType.CustomerAnalytics,
@@ -133,43 +134,13 @@ export function FeatureRequestDetail({ request }: { request: FeatureRequestApi }
                         </div>
                     </FeatureRequestDetailSection>
 
-                    <FeatureRequestDetailSection icon={<IconClock />} title="Status history">
-                        {statusHistoryLoading ? (
-                            <div className="flex flex-col gap-2">
-                                <LemonSkeleton className="h-10 w-full rounded" />
-                                <LemonSkeleton className="h-10 w-full rounded" />
-                            </div>
-                        ) : statusHistoryError ? (
-                            <LemonBanner
-                                type="error"
-                                action={{ children: 'Try again', onClick: () => loadStatusHistory(request.id) }}
-                            >
-                                {statusHistoryError}
-                            </LemonBanner>
-                        ) : (
-                            <div className="flex flex-col divide-y divide-border">
-                                {statusHistory.map((entry) => (
-                                    <div key={entry.id} className="flex flex-col gap-1 py-2 first:pt-0 last:pb-0">
-                                        <div className="flex items-center gap-1.5 flex-wrap">
-                                            {entry.previous_status ? (
-                                                <>
-                                                    <FeatureRequestStatusBadge status={entry.previous_status} />
-                                                    <span className="text-tertiary">to</span>
-                                                </>
-                                            ) : (
-                                                <span className="text-tertiary">Set to</span>
-                                            )}
-                                            <FeatureRequestStatusBadge status={entry.request_status} />
-                                        </div>
-                                        <div className="text-xs text-tertiary">
-                                            {entry.actor_name ?? 'Unknown user'} ·{' '}
-                                            {entry.change_source === 'manual' ? 'Manual update' : entry.change_source} ·{' '}
-                                            <TZLabel time={entry.changed_at} />
-                                        </div>
-                                    </div>
-                                ))}
-                            </div>
-                        )}
+                    <FeatureRequestDetailSection icon={<IconClock />} title="History">
+                        <FeatureRequestHistory
+                            history={requestHistory}
+                            loading={requestHistoryLoading}
+                            error={requestHistoryError}
+                            onRetry={() => loadRequestHistory(request.id)}
+                        />
                     </FeatureRequestDetailSection>
                 </aside>
             </div>

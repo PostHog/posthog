@@ -49,6 +49,7 @@ import type {
     ExternalAccountListPageApi,
     FeatureRequestApi,
     FeatureRequestCreateApi,
+    FeatureRequestHistoryApi,
     FeatureRequestProductAreaApi,
     FeatureRequestProductAreasListParams,
     FeatureRequestStatusHistoryApi,
@@ -1675,6 +1676,21 @@ export const featureRequestsArchiveCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(featureRequestVersionApi),
+    })
+}
+
+export const getFeatureRequestsHistoryListUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/feature_requests/${id}/history/`
+}
+
+export const featureRequestsHistoryList = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<FeatureRequestHistoryApi[]> => {
+    return apiMutator<FeatureRequestHistoryApi[]>(getFeatureRequestsHistoryListUrl(projectId, id), {
+        ...options,
+        method: 'GET',
     })
 }
 

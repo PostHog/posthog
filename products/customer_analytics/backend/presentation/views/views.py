@@ -73,6 +73,7 @@ from products.customer_analytics.backend.presentation.views.serializers import (
     EventStreamSerializer,
     EventStreamTestMessageSerializer,
     FeatureRequestCreateSerializer,
+    FeatureRequestHistorySerializer,
     FeatureRequestListQuerySerializer,
     FeatureRequestProductAreaListQuerySerializer,
     FeatureRequestProductAreaSerializer,
@@ -415,6 +416,18 @@ class FeatureRequestViewSet(
     @action(methods=["POST"], detail=True)
     def restore(self, request: Request, *args, **kwargs) -> Response:
         return self._set_archived(request, archived=False)
+
+    @extend_schema(responses={200: FeatureRequestHistorySerializer(many=True)})
+    @action(methods=["GET"], detail=True, pagination_class=None)
+    def history(self, request: Request, *args, **kwargs) -> Response:
+        history = api.list_feature_request_history(
+            team_id=self.team_id,
+            feature_request_id=self.kwargs["pk"],
+            user_access_control=self.user_access_control,
+        )
+        if history is None:
+            return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
+        return Response(FeatureRequestHistorySerializer(instance=history, many=True).data)
 
     @extend_schema(responses={200: FeatureRequestStatusHistorySerializer(many=True)})
     @action(methods=["GET"], detail=True, pagination_class=None)

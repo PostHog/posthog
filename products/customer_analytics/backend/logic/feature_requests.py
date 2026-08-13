@@ -13,11 +13,11 @@ from products.customer_analytics.backend.models import (
     Account,
     FeatureRequest,
     FeatureRequestAccountLink,
+    FeatureRequestHistory,
+    FeatureRequestHistorySource,
     FeatureRequestPriority,
     FeatureRequestProductArea,
     FeatureRequestProductAreaLink,
-    FeatureRequestStatusHistory,
-    FeatureRequestStatusHistorySource,
 )
 
 if TYPE_CHECKING:
@@ -192,14 +192,52 @@ def _get_valid_product_areas(
     return product_areas
 
 
-def _ensure_initial_status_history(feature_request: FeatureRequest) -> None:
-    FeatureRequestStatusHistory.objects.for_team(feature_request.team_id).get_or_create(
+def _account_snapshot(account: Account) -> dict[str, str]:
+    return {"id": str(account.id), "name": account.name}
+
+
+def _product_area_snapshots(product_areas: list[FeatureRequestProductArea]) -> list[dict[str, str]]:
+    return [
+        {"id": str(area.id), "name": area.name}
+        for area in sorted(product_areas, key=lambda area: (area.display_order, area.name.lower(), str(area.id)))
+    ]
+
+
+def _ensure_initial_history(
+    feature_request: FeatureRequest,
+    *,
+    account: Account | None = None,
+    product_areas: list[FeatureRequestProductArea] | None = None,
+) -> None:
+    if account is None:
+        account = (
+            FeatureRequestAccountLink.objects.for_team(feature_request.team_id)
+            .select_related("account")
+            .get(feature_request=feature_request)
+            .account
+        )
+    if product_areas is None:
+        product_areas = list(
+            FeatureRequestProductArea.objects.for_team(feature_request.team_id).filter(
+                request_links__feature_request=feature_request
+            )
+        )
+    FeatureRequestHistory.objects.for_team(feature_request.team_id).get_or_create(
         team_id=feature_request.team_id,
         feature_request=feature_request,
-        previous_status=None,
+        is_initial=True,
         defaults={
-            "status": feature_request.status,
-            "source": FeatureRequestStatusHistorySource.MANUAL,
+            "changes": [
+                {"field": "status", "before": None, "after": feature_request.status},
+                {"field": "priority", "before": None, "after": feature_request.priority},
+                {"field": "account", "before": None, "after": _account_snapshot(account)},
+                {
+                    "field": "product_areas",
+                    "before": [],
+                    "after": _product_area_snapshots(product_areas),
+                },
+            ],
+            "source": FeatureRequestHistorySource.MANUAL,
             "actor_id": feature_request.created_by_id,
             "changed_at": feature_request.created_at,
         },
@@ -361,7 +399,11 @@ def create_feature_request(
                     for product_area in product_areas
                 ]
             )
-            _ensure_initial_status_history(feature_request)
+            _ensure_initial_history(
+                feature_request,
+                account=accessible_account,
+                product_areas=product_areas,
+            )
 
     return contracts.FeatureRequestCreateOutcome(
         request=_refresh_feature_request(
@@ -393,9 +435,10 @@ def update_feature_request(
             raise FeatureRequestValidationError("feature_request", "Restore this request before editing it.")
         if feature_request.version != input.expected_version:
             raise FeatureRequestConflictError("This request changed since you opened it. Reload it and try again.")
-        _ensure_initial_status_history(feature_request)
+        _ensure_initial_history(feature_request)
 
         update_fields: set[str] = set()
+        history_changes: list[contracts.FeatureRequestHistoryChange] = []
         if input.title is not None:
             title = input.title.strip()
             if not title:
@@ -410,14 +453,16 @@ def update_feature_request(
             if description != feature_request.description:
                 feature_request.description = description
                 update_fields.add("description")
-        if input.request_priority_is_set and input.request_priority != feature_request.priority:
-            feature_request.priority = input.request_priority
-            update_fields.add("priority")
-
-        previous_status = feature_request.status
         if input.request_status is not None and input.request_status != feature_request.status:
+            history_changes.append({"field": "status", "before": feature_request.status, "after": input.request_status})
             feature_request.status = input.request_status
             update_fields.add("status")
+        if input.request_priority_is_set and input.request_priority != feature_request.priority:
+            history_changes.append(
+                {"field": "priority", "before": feature_request.priority, "after": input.request_priority}
+            )
+            feature_request.priority = input.request_priority
+            update_fields.add("priority")
 
         relations_changed = False
         if input.account_id is not None:
@@ -426,8 +471,19 @@ def update_feature_request(
                 account_id=input.account_id,
                 user_access_control=user_access_control,
             )
-            account_link = FeatureRequestAccountLink.objects.for_team(team_id).get(feature_request=feature_request)
+            account_link = (
+                FeatureRequestAccountLink.objects.for_team(team_id)
+                .select_related("account")
+                .get(feature_request=feature_request)
+            )
             if account_link.account_id != account.id:
+                history_changes.append(
+                    {
+                        "field": "account",
+                        "before": _account_snapshot(account_link.account),
+                        "after": _account_snapshot(account),
+                    }
+                )
                 account_link.account = account
                 account_link.save(update_fields=["account"])
                 relations_changed = True
@@ -440,10 +496,19 @@ def update_feature_request(
             )
             requested_ids = {area.id for area in product_areas}
             existing_links = list(
-                FeatureRequestProductAreaLink.objects.for_team(team_id).filter(feature_request=feature_request)
+                FeatureRequestProductAreaLink.objects.for_team(team_id)
+                .filter(feature_request=feature_request)
+                .select_related("product_area")
             )
             existing_ids = {link.product_area_id for link in existing_links}
             if requested_ids != existing_ids:
+                history_changes.append(
+                    {
+                        "field": "product_areas",
+                        "before": _product_area_snapshots([link.product_area for link in existing_links]),
+                        "after": _product_area_snapshots(product_areas),
+                    }
+                )
                 FeatureRequestProductAreaLink.objects.for_team(team_id).filter(
                     feature_request=feature_request,
                     product_area_id__in=existing_ids - requested_ids,
@@ -468,13 +533,12 @@ def update_feature_request(
             feature_request.version += 1
             update_fields.update({"updated_by_id", "updated_at", "version"})
             feature_request.save(update_fields=update_fields)
-            if feature_request.status != previous_status:
-                FeatureRequestStatusHistory.objects.for_team(team_id).create(
+            if history_changes:
+                FeatureRequestHistory.objects.for_team(team_id).create(
                     team_id=team_id,
                     feature_request=feature_request,
-                    previous_status=previous_status,
-                    status=feature_request.status,
-                    source=FeatureRequestStatusHistorySource.MANUAL,
+                    changes=history_changes,
+                    source=FeatureRequestHistorySource.MANUAL,
                     actor_id=actor_id,
                     changed_at=changed_at,
                 )
@@ -524,25 +588,23 @@ def set_feature_request_archived(
     )
 
 
-def list_feature_request_status_history(
+def list_feature_request_history(
     *, team_id: int, feature_request_id: UUID, user_access_control: "UserAccessControl"
-) -> list[contracts.FeatureRequestStatusHistoryView] | None:
+) -> list[contracts.FeatureRequestHistoryView] | None:
     if not _feature_request_queryset(team_id, user_access_control).filter(id=feature_request_id).exists():
         return None
-    feature_request = FeatureRequest.objects.for_team(team_id).get(id=feature_request_id)
-    _ensure_initial_status_history(feature_request)
     history = list(
-        FeatureRequestStatusHistory.objects.for_team(team_id)
+        FeatureRequestHistory.objects.for_team(team_id)
         .filter(feature_request_id=feature_request_id)
         .order_by("-changed_at", "-id")
     )
     actors = User.objects.filter(id__in={entry.actor_id for entry in history if entry.actor_id is not None})
     actor_names = {actor.id: actor.get_full_name().strip() or actor.email for actor in actors}
     return [
-        contracts.FeatureRequestStatusHistoryView(
+        contracts.FeatureRequestHistoryView(
             id=entry.id,
-            previous_status=entry.previous_status,
-            request_status=entry.status,
+            changes=entry.changes,
+            is_initial=entry.is_initial,
             change_source=entry.source,
             actor_id=entry.actor_id,
             actor_name=actor_names.get(entry.actor_id),
@@ -550,3 +612,36 @@ def list_feature_request_status_history(
         )
         for entry in history
     ]
+
+
+def list_feature_request_status_history(
+    *, team_id: int, feature_request_id: UUID, user_access_control: "UserAccessControl"
+) -> list[contracts.FeatureRequestStatusHistoryView] | None:
+    history = list_feature_request_history(
+        team_id=team_id,
+        feature_request_id=feature_request_id,
+        user_access_control=user_access_control,
+    )
+    if history is None:
+        return None
+    status_history: list[contracts.FeatureRequestStatusHistoryView] = []
+    for entry in history:
+        status_change = next((change for change in entry.changes if change.get("field") == "status"), None)
+        if status_change is None:
+            continue
+        request_status = status_change.get("after")
+        if not isinstance(request_status, str):
+            continue
+        previous_status = status_change.get("before")
+        status_history.append(
+            contracts.FeatureRequestStatusHistoryView(
+                id=entry.id,
+                previous_status=previous_status if isinstance(previous_status, str) else None,
+                request_status=request_status,
+                change_source=entry.change_source,
+                actor_id=entry.actor_id,
+                actor_name=entry.actor_name,
+                changed_at=entry.changed_at,
+            )
+        )
+    return status_history

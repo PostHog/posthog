@@ -1603,6 +1603,65 @@ export interface FeatureRequestVersionApi {
 }
 
 /**
+ * * `status` - Status
+ * * `priority` - Priority
+ * * `account` - Account
+ * * `product_areas` - Product areas
+ */
+export type FieldEnumApi = (typeof FieldEnumApi)[keyof typeof FieldEnumApi]
+
+export const FieldEnumApi = {
+    Status: 'status',
+    Priority: 'priority',
+    Account: 'account',
+    ProductAreas: 'product_areas',
+} as const
+
+/**
+ * Value before the update, including relation snapshots.
+ */
+export type FeatureRequestHistoryChangeApiBefore =
+    | string
+    | {
+          id: string
+          name: string
+      }
+    | {
+          id: string
+          name: string
+      }[]
+    | null
+
+/**
+ * Value after the update, including relation snapshots.
+ */
+export type FeatureRequestHistoryChangeApiAfter =
+    | string
+    | {
+          id: string
+          name: string
+      }
+    | {
+          id: string
+          name: string
+      }[]
+    | null
+
+export interface FeatureRequestHistoryChangeApi {
+    /** Request field represented by this change.
+     *
+     * * `status` - Status
+     * * `priority` - Priority
+     * * `account` - Account
+     * * `product_areas` - Product areas */
+    readonly field: FieldEnumApi
+    /** Value before the update, including relation snapshots. */
+    readonly before: FeatureRequestHistoryChangeApiBefore
+    /** Value after the update, including relation snapshots. */
+    readonly after: FeatureRequestHistoryChangeApiAfter
+}
+
+/**
  * * `manual` - Manual
  */
 export type ChangeSourceEnumApi = (typeof ChangeSourceEnumApi)[keyof typeof ChangeSourceEnumApi]
@@ -1610,6 +1669,31 @@ export type ChangeSourceEnumApi = (typeof ChangeSourceEnumApi)[keyof typeof Chan
 export const ChangeSourceEnumApi = {
     Manual: 'manual',
 } as const
+
+export interface FeatureRequestHistoryApi {
+    /** Stable request history entry ID. */
+    readonly id: string
+    /** Tracked fields changed together in one successful save. */
+    readonly changes: readonly FeatureRequestHistoryChangeApi[]
+    /** Whether this entry records the request's initial values. */
+    readonly is_initial: boolean
+    /** System that recorded the request change.
+     *
+     * * `manual` - Manual */
+    readonly change_source: ChangeSourceEnumApi
+    /**
+     * ID of the user who changed the request, if known.
+     * @nullable
+     */
+    readonly actor_id: number | null
+    /**
+     * Display name of the user who changed the request, if known.
+     * @nullable
+     */
+    readonly actor_name: string | null
+    /** When the request changed. */
+    readonly changed_at: string
+}
 
 export interface FeatureRequestStatusHistoryApi {
     /** Stable status history entry ID. */

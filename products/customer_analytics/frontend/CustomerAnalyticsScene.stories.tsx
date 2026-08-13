@@ -102,7 +102,7 @@ const featureRequestStoryItem = {
     id: '018f47de-7e12-7000-8000-000000000001',
     title: 'Export account-level retention data',
     description: 'The customer needs this export for their monthly reporting workflow.',
-    request_status: 'requested',
+    request_status: 'planned',
     request_priority: 'high',
     is_archived: false,
     archived_at: null,
@@ -144,11 +144,44 @@ export const FeatureRequests: Story = {
                     results: [featureRequestStoryItem],
                 },
                 'api/projects/:team_id/feature_requests/:id/': featureRequestStoryItem,
-                'api/projects/:team_id/feature_requests/:id/status_history/': [
+                'api/projects/:team_id/feature_requests/:id/history/': [
+                    {
+                        id: '018f47de-7e12-7000-8000-000000000006',
+                        changes: [
+                            { field: 'status', before: 'requested', after: 'planned' },
+                            { field: 'priority', before: null, after: 'high' },
+                            {
+                                field: 'product_areas',
+                                before: [{ id: '018f47de-7e12-7000-8000-000000000003', name: 'Product analytics' }],
+                                after: [
+                                    { id: '018f47de-7e12-7000-8000-000000000003', name: 'Product analytics' },
+                                    { id: '018f47de-7e12-7000-8000-000000000004', name: 'Data warehouse' },
+                                ],
+                            },
+                        ],
+                        is_initial: false,
+                        change_source: 'manual',
+                        actor_id: 1,
+                        actor_name: 'Alex Morgan',
+                        changed_at: '2024-01-14T10:00:00Z',
+                    },
                     {
                         id: '018f47de-7e12-7000-8000-000000000005',
-                        previous_status: null,
-                        request_status: 'requested',
+                        changes: [
+                            { field: 'status', before: null, after: 'requested' },
+                            { field: 'priority', before: null, after: null },
+                            {
+                                field: 'account',
+                                before: null,
+                                after: { id: '018f47de-7e12-7000-8000-000000000002', name: 'Acme' },
+                            },
+                            {
+                                field: 'product_areas',
+                                before: [],
+                                after: [{ id: '018f47de-7e12-7000-8000-000000000003', name: 'Product analytics' }],
+                            },
+                        ],
+                        is_initial: true,
                         change_source: 'manual',
                         actor_id: 1,
                         actor_name: 'Alex Morgan',

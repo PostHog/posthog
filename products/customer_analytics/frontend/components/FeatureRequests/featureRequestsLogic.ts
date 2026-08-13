@@ -16,18 +16,18 @@ import {
     featureRequestProductAreasPartialUpdate,
     featureRequestsArchiveCreate,
     featureRequestsCreate,
+    featureRequestsHistoryList,
     featureRequestsList,
     featureRequestsRestoreCreate,
-    featureRequestsUpdate,
     featureRequestsRetrieve,
-    featureRequestsStatusHistoryList,
+    featureRequestsUpdate,
 } from '../../generated/api'
 import type {
     AccountApi,
     FeatureRequestApi,
+    FeatureRequestHistoryApi,
     FeatureRequestProductAreaApi,
     FeatureRequestStatusEnumApi,
-    FeatureRequestStatusHistoryApi,
     PaginatedFeatureRequestListApi,
     RequestPriorityEnumApi,
 } from '../../generated/api.schemas'
@@ -200,14 +200,14 @@ export interface featureRequestsLogicValues {
     productAreasError: string | null
     productAreasLoading: boolean
     productAreasOpen: boolean
+    requestHistory: FeatureRequestHistoryApi[]
+    requestHistoryError: string | null
+    requestHistoryLoading: boolean
     requestOrdering: FeatureRequestOrdering
     savingProductArea: boolean
     savingRequestChanges: boolean
     searchQuery: string
     statusFilter: FeatureRequestStatusEnumApi[]
-    statusHistory: FeatureRequestStatusHistoryApi[]
-    statusHistoryError: string | null
-    statusHistoryLoading: boolean
     submitDisabledReason: string | undefined
     submittingRequest: boolean
     title: string
@@ -290,19 +290,19 @@ export interface featureRequestsLogicActions {
         productAreas: FeatureRequestProductAreaApi[]
         payload?: any
     }
-    loadStatusHistory: (requestId: string) => string
-    loadStatusHistoryFailure: (
+    loadRequestHistory: (requestId: string) => string
+    loadRequestHistoryFailure: (
         error: string,
         errorObject?: any
     ) => {
         error: string
         errorObject?: any
     }
-    loadStatusHistorySuccess: (
-        statusHistory: FeatureRequestStatusHistoryApi[],
+    loadRequestHistorySuccess: (
+        requestHistory: FeatureRequestHistoryApi[],
         payload?: string
     ) => {
-        statusHistory: FeatureRequestStatusHistoryApi[]
+        requestHistory: FeatureRequestHistoryApi[]
         payload?: string
     }
     openCreateRequest: () => {
@@ -574,11 +574,11 @@ export const featureRequestsLogic = kea<featureRequestsLogicType>([
                     featureRequestsRetrieve(String(values.currentTeam?.id), requestId),
             },
         ],
-        statusHistory: [
-            [] as FeatureRequestStatusHistoryApi[],
+        requestHistory: [
+            [] as FeatureRequestHistoryApi[],
             {
-                loadStatusHistory: async (requestId: string) =>
-                    featureRequestsStatusHistoryList(String(values.currentTeam?.id), requestId),
+                loadRequestHistory: async (requestId: string) =>
+                    featureRequestsHistoryList(String(values.currentTeam?.id), requestId),
             },
         ],
         accounts: [
@@ -701,12 +701,12 @@ export const featureRequestsLogic = kea<featureRequestsLogicType>([
                 setActiveRequestId: () => null,
             },
         ],
-        statusHistoryError: [
+        requestHistoryError: [
             null as string | null,
             {
-                loadStatusHistory: () => null,
-                loadStatusHistorySuccess: () => null,
-                loadStatusHistoryFailure: () => "Couldn't load status history.",
+                loadRequestHistory: () => null,
+                loadRequestHistorySuccess: () => null,
+                loadRequestHistoryFailure: () => "Couldn't load request history.",
                 setActiveRequestId: () => null,
             },
         ],
@@ -1036,7 +1036,7 @@ export const featureRequestsLogic = kea<featureRequestsLogicType>([
         setActiveRequestId: ({ requestId }) => {
             if (requestId) {
                 actions.loadActiveRequest(requestId)
-                actions.loadStatusHistory(requestId)
+                actions.loadRequestHistory(requestId)
             }
         },
         submitRequest: async () => {
@@ -1114,7 +1114,7 @@ export const featureRequestsLogic = kea<featureRequestsLogicType>([
                     request_priority: values.editPriority,
                 })
                 actions.loadActiveRequestSuccess(updated)
-                actions.loadStatusHistory(values.activeRequestId)
+                actions.loadRequestHistory(values.activeRequestId)
                 actions.loadFeatureRequests()
                 actions.closeEditRequest()
                 lemonToast.success('Feature request updated')

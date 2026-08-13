@@ -16,7 +16,7 @@ from dataclasses import (
 )
 from datetime import datetime
 from enum import Enum
-from typing import Any
+from typing import Any, TypedDict
 from uuid import UUID
 
 from pydantic.dataclasses import dataclass
@@ -572,6 +572,23 @@ class FeatureRequestView:
     updated_by: int | None = None
     created_at: datetime | None = None
     updated_at: datetime | None = None
+
+
+class FeatureRequestHistoryChange(TypedDict):
+    field: str
+    before: object
+    after: object
+
+
+@dataclass(frozen=True)
+class FeatureRequestHistoryView:
+    id: UUID
+    changes: list[FeatureRequestHistoryChange]
+    is_initial: bool
+    change_source: str
+    actor_id: int | None
+    actor_name: str | None
+    changed_at: datetime
 
 
 @dataclass(frozen=True)
