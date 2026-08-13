@@ -69,10 +69,14 @@ export function StepDelayConfiguration({
                 <>
                     <div className="flex flex-wrap items-center gap-2">
                         {offset.direction !== 'on' ? (
-                            <HogFlowDuration
-                                value={offset.duration}
-                                onChange={(duration) => setDelayOffset(action.id, { ...offset, duration })}
-                            />
+                            // Narrower than the duration mode's own input: this one is part of a sentence
+                            // that has to fit next to the direction and the property.
+                            <div className="w-44">
+                                <HogFlowDuration
+                                    value={offset.duration}
+                                    onChange={(duration) => setDelayOffset(action.id, { ...offset, duration })}
+                                />
+                            </div>
                         ) : null}
                         <LemonSelect
                             size="small"
