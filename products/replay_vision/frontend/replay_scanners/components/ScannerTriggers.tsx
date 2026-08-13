@@ -10,6 +10,7 @@ import UniversalFilters from 'lib/components/UniversalFilters/UniversalFilters'
 import { universalFiltersLogic } from 'lib/components/UniversalFilters/universalFiltersLogic'
 import { isUniversalGroupFilterLike } from 'lib/components/UniversalFilters/utils'
 import { FEATURE_FLAGS } from 'lib/constants'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonLabel } from 'lib/lemon-ui/LemonLabel'
 import { LemonSlider } from 'lib/lemon-ui/LemonSlider'
@@ -69,6 +70,7 @@ export function groupHasNoFilters(group: UniversalFiltersGroup): boolean {
 function ScannerFilterGroup(): JSX.Element {
     const { filterGroup } = useValues(universalFiltersLogic)
     const { replaceGroupValue, removeGroupValue } = useActions(universalFiltersLogic)
+    const allowEntityNegation = useFeatureFlag('REPLAY_NEGATIVE_EVENT_FILTERS')
 
     return (
         <div className="flex flex-wrap items-center gap-2">
@@ -84,6 +86,7 @@ function ScannerFilterGroup(): JSX.Element {
                         filter={filterOrGroup}
                         onRemove={() => removeGroupValue(index)}
                         onChange={(value) => replaceGroupValue(index, value)}
+                        allowEntityNegation={allowEntityNegation}
                     />
                 )
             )}

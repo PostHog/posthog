@@ -62,17 +62,16 @@ class TestMetricUpsert(BaseTest):
         assert refined.created_source == CreatedSource.AI_GENERATED
         assert refined.ai_model == "claude"
 
-    def test_upsert_resurrects_soft_deleted_as_proposed(self) -> None:
-        metric = self._upsert("mrr")
-        Metric.objects.for_team(self.team.id).filter(pk=metric.pk).update(status=MetricStatus.APPROVED)
-        metric.refresh_from_db()
+    def test_upsert_after_delete_creates_fresh_metric(self) -> None:
+        metric = self._upsert("mrr", definition=_HOGQL_A)
         soft_delete_metric(metric)
 
-        resurrected = self._upsert("mrr", description="back")
-        assert resurrected.id == metric.id
-        assert resurrected.deleted is False
-        assert resurrected.status == MetricStatus.PROPOSED
-        assert resurrected.description == "back"
+        fresh = self._upsert("mrr", description="fresh")
+        assert fresh.id != metric.id
+        assert fresh.status == MetricStatus.PROPOSED
+        assert fresh.definition is None
+        metric.refresh_from_db()
+        assert metric.deleted is True
 
     @parameterized.expand([("bad name",), ("1leading_digit",), ("has-dash",), ("",)])
     def test_rejects_invalid_names(self, name: str) -> None:
@@ -108,10 +107,39 @@ class TestMetricUpdate(BaseTest):
         assert updated.description == "v2"
         assert updated.unit == "usd"
 
-    def test_update_rejects_name_change(self) -> None:
+    def test_rename_resets_approval(self) -> None:
+        # Agents pick a metric by matching its name, so moving an approved definition under a new
+        # name needs a fresh review. Catalog write access alone must not rebind an approved handle.
+        metric = upsert_metric(team=self.team, user=self.user, name="mrr", description="v1")
+        metric = approve_metric(metric, self.user)
+
+        renamed = update_metric(metric, team=self.team, user=self.user, name="arr")
+        assert renamed.name == "arr"
+        assert renamed.status == MetricStatus.PROPOSED
+        assert renamed.approved_by_id is None
+        assert renamed.approved_at is None
+
+    @parameterized.expand([("bad name",), ("1leading_digit",), ("has-dash",), ("",)])
+    def test_rename_rejects_invalid_names(self, name: str) -> None:
         metric = upsert_metric(team=self.team, user=self.user, name="mrr", description="v1")
         with self.assertRaises(ValidationError):
+            update_metric(metric, team=self.team, user=self.user, name=name)
+
+    def test_rename_rejects_live_taken_name(self) -> None:
+        upsert_metric(team=self.team, user=self.user, name="arr", description="taken")
+        metric = upsert_metric(team=self.team, user=self.user, name="mrr", description="v1")
+        with self.assertRaises(ValidationError) as ctx:
             update_metric(metric, team=self.team, user=self.user, name="arr")
+        assert "name" in ctx.exception.detail
+
+    def test_rename_to_soft_deleted_name_succeeds(self) -> None:
+        tombstone = upsert_metric(team=self.team, user=self.user, name="arr", description="old")
+        soft_delete_metric(tombstone)
+        metric = upsert_metric(team=self.team, user=self.user, name="mrr", description="v1")
+
+        renamed = update_metric(metric, team=self.team, user=self.user, name="arr")
+        assert renamed.name == "arr"
+        assert renamed.id == metric.id
 
     def test_update_rejects_overlong_description(self) -> None:
         metric = upsert_metric(team=self.team, user=self.user, name="mrr", description="v1")

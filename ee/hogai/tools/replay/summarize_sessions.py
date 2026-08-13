@@ -1,6 +1,5 @@
 import json
 import asyncio
-from dataclasses import dataclass
 from textwrap import dedent
 from typing import Any, Literal, cast
 
@@ -10,6 +9,7 @@ from pydantic import BaseModel, Field
 from posthog.schema import MaxRecordingUniversalFilters, RecordingsQuery
 
 from posthog.clickhouse.query_tagging import Feature, Product, tags_context
+from posthog.dataclasses import frozen
 from posthog.sync import database_sync_to_async
 from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.session_replay.count_playlist_items import convert_filters_to_recordings_query
@@ -68,7 +68,7 @@ class SummarizeSessionsToolArgs(BaseModel):
     )
 
 
-@dataclass(frozen=True, kw_only=True, slots=True)
+@frozen
 class SessionsSummaryResult:
     summary_text: str
     summary_id: str | None
