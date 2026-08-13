@@ -1457,6 +1457,27 @@ class TestRefreshInstallationToken(BaseTest):
         # EncryptedJSONField stringifies scalars, so every reader of the flag tests truthiness.
         assert installation.sensitive_configuration["needs_reauth"]
 
+    def test_rejection_of_a_token_a_concurrent_refresh_replaced_leaves_the_connection_alone(self) -> None:
+        # Providers that rotate refresh tokens reject every loser of a concurrent refresh,
+        # because the winner already consumed the token they all sent. Acting on that would
+        # flag a working connection and write the consumed credentials over the fresh ones.
+        installation = self._make_installation()
+
+        def _win_the_race_then_reject(*args, **kwargs):
+            winner = MCPServerInstallation.objects.get(pk=installation.pk)
+            winner.sensitive_configuration = {"access_token": "fresh", "refresh_token": "rotated"}
+            winner.save(update_fields=["sensitive_configuration", "updated_at"])
+            raise TokenRefreshRejectedError("Token refresh rejected by the provider")
+
+        with patch("products.mcp_store.backend.oauth.refresh_oauth_token", side_effect=_win_the_race_then_reject):
+            with self.assertRaises(TokenRefreshRejectedError):
+                refresh_installation_token(installation)
+
+        installation.refresh_from_db()
+        assert "needs_reauth" not in installation.sensitive_configuration
+        assert installation.sensitive_configuration["access_token"] == "fresh"
+        assert installation.sensitive_configuration["refresh_token"] == "rotated"
+
     @parameterized.expand([("server_error", 500), ("bad_gateway", 502), ("gateway_timeout", 504)])
     def test_provider_outage_leaves_the_connection_alone(self, _name: str, status_code: int) -> None:
         # Reauth is manual work for the user, so a provider having a bad hour must not demand it.

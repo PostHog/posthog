@@ -181,8 +181,10 @@ def validate_installation_auth(
         try:
             ensure_valid_token(installation)
         except TokenRefreshRejectedError:
-            # refresh_installation_token already flagged the installation; say so rather than
-            # leaving the caller to read a permanent failure as a retryable one.
+            # refresh_installation_token has flagged the installation, unless a concurrent
+            # request had already replaced the credential the provider turned down. Say the
+            # refresh was rejected either way rather than leaving the caller to read a
+            # permanent failure as a retryable one.
             logger.warning("OAuth token refresh rejected", installation_id=str(installation.id))
             return False, HttpResponse(
                 '{"error": "Installation needs re-authentication"}',

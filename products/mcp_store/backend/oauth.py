@@ -7,6 +7,8 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from urllib.parse import urlparse
 
+from django.db import transaction
+
 import requests
 import structlog
 import tldextract
@@ -559,19 +561,39 @@ def refresh_oauth_token(
     return token_data
 
 
-def _flag_needs_reauth(installation: MCPServerInstallation) -> None:
+def _flag_needs_reauth(installation: MCPServerInstallation, *, rejected_refresh_token: str | None) -> None:
     """Record that only a new authorization can revive this credential.
 
     Everything that mounts or proxies an installation reads this flag, so it takes the
-    connection out of agent runs and surfaces a reconnect prompt instead of leaving
-    every call to 401 behind a UI that still reads as connected.
+    connection out of agent runs and surfaces a reconnect prompt instead of leaving every
+    call to 401 behind a UI that still reads as connected.
+
+    ``rejected_refresh_token`` is the credential the provider turned down, and the row is
+    only flagged while it is still the stored one. Nothing serializes refreshes, and
+    ``is_token_expiring`` goes true for the whole second half of a token's life, so
+    concurrent calls on one installation refresh together. A provider that rotates refresh
+    tokens answers every loser of that race with a 4xx for a token the winner has already
+    replaced. Flagging on that would take a working connection out of service, and writing
+    this request's credentials back would destroy the ones the winner just stored.
+
+    The re-read holds a row lock so the check cannot straddle a concurrent write.
     """
-    sensitive = dict(installation.sensitive_configuration or {})
-    if sensitive.get("needs_reauth"):
-        return
-    sensitive["needs_reauth"] = True
+    with transaction.atomic():
+        locked = MCPServerInstallation.objects.select_for_update().get(pk=installation.pk)
+        sensitive = dict(locked.sensitive_configuration or {})
+        if sensitive.get("needs_reauth"):
+            return
+        if sensitive.get("refresh_token") != rejected_refresh_token:
+            logger.info(
+                "Skipped reauth flag for an MCP installation refreshed by a concurrent request",
+                installation_id=str(installation.id),
+            )
+            return
+        sensitive["needs_reauth"] = True
+        locked.sensitive_configuration = sensitive
+        locked.save(update_fields=["sensitive_configuration", "updated_at"])
+
     installation.sensitive_configuration = sensitive
-    installation.save(update_fields=["sensitive_configuration", "updated_at"])
     logger.warning("Flagged MCP installation as needing reauthorization", installation_id=str(installation.id))
 
 
@@ -580,7 +602,7 @@ def refresh_installation_token(installation: MCPServerInstallation) -> dict:
     refresh_token_value = sensitive.get("refresh_token")
     if not refresh_token_value:
         logger.warning("No refresh token available for installation", installation_id=str(installation.id))
-        _flag_needs_reauth(installation)
+        _flag_needs_reauth(installation, rejected_refresh_token=None)
         raise TokenRefreshRejectedError("No refresh token available")
 
     try:
@@ -602,7 +624,7 @@ def refresh_installation_token(installation: MCPServerInstallation) -> dict:
             resource=oauth_resource(ctx.metadata),
         )
     except TokenRefreshRejectedError:
-        _flag_needs_reauth(installation)
+        _flag_needs_reauth(installation, rejected_refresh_token=refresh_token_value)
         raise
 
     # Preserve non-token keys (dcr_client_id, dcr_client_secret, etc.) across refresh. A
