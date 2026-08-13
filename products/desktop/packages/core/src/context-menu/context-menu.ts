@@ -1,4 +1,8 @@
 import {
+  formatBulkArchiveWarning,
+  sessionsLabel,
+} from "@posthog/core/sidebar/selection";
+import {
   CONTEXT_MENU_SERVICE,
   type ContextMenuItem,
   type IContextMenu,
@@ -130,7 +134,9 @@ export class ContextMenuService {
               type: "submenu",
               label: "File to…",
               items: channels.map((c) => ({
-                label: c.name,
+                // Channel names are stored bare; every surface that shows one
+                // adds the hash.
+                label: `#${c.name}`,
                 action: {
                   type: "file-to-channel" as const,
                   channelId: c.id,
@@ -183,7 +189,7 @@ export class ContextMenuService {
                   title: "Archive Prior Tasks",
                   message: "Archive all tasks older than this one?",
                   detail:
-                    "This will archive every task created before this one. You can unarchive them later.",
+                    "This will archive every task last active before this one. You can unarchive them later.",
                   confirmLabel: "Archive",
                 },
               },
@@ -196,17 +202,54 @@ export class ContextMenuService {
   async showBulkTaskContextMenu(
     input: BulkTaskContextMenuInput,
   ): Promise<{ action: BulkTaskAction | null }> {
-    const { taskCount } = input;
-    const label = `Archive ${taskCount} tasks`;
+    const {
+      taskCount,
+      allPinned,
+      runningCount = 0,
+      stopsCloudSandbox = false,
+      channels,
+    } = input;
+    const sessions = sessionsLabel(taskCount);
+
+    // Only archive confirms — pinning, tiling, and filing are all one click to undo.
     return this.showMenu<BulkTaskAction>([
+      this.item(allPinned ? `Unpin ${sessions}` : `Pin ${sessions}`, {
+        type: "pin",
+      }),
+      this.separator(),
+      this.item(`Add ${sessions} to Command Center`, {
+        type: "add-to-command-center",
+      }),
+      ...(channels && channels.length > 0
+        ? [
+            this.separator(),
+            {
+              type: "submenu" as const,
+              label: "File to…",
+              items: channels.map((c) => ({
+                // Channel names are stored bare; every surface that shows one
+                // adds the hash.
+                label: `#${c.name}`,
+                action: {
+                  type: "file-to-channel" as const,
+                  channelId: c.id,
+                },
+              })),
+            },
+          ]
+        : []),
+      this.separator(),
       this.item(
-        label,
+        `Archive ${sessions}`,
         { type: "archive" },
         {
           confirm: {
-            title: "Archive Tasks",
-            message: `Archive ${taskCount} tasks?`,
-            detail: "You can unarchive them later.",
+            title: "Archive sessions",
+            message: `Archive ${sessions}?`,
+            detail: formatBulkArchiveWarning({
+              running: runningCount,
+              stopsCloudSandbox,
+            }),
             confirmLabel: "Archive",
           },
         },
