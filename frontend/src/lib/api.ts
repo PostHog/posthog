@@ -397,6 +397,13 @@ function apiErrorFallback(response: Response, method: string, url: string): stri
 async function getJSONFromSuccessResponse(response: Response, method: string, url: string): Promise<any> {
     const requestContext = (): string =>
         `[${method} ${new URL(url, location.origin).pathname}] (status ${response.status})`
+    // 204/205 and a null body carry no content to read, so a read failure here isn't a
+    // truncated body — it's an interrupted read of a response that was always going to resolve
+    // to null. WebKit in particular rejects `.text()` on a headerless empty body (its
+    // "TypeError: Load failed", which carries no AbortError name), so decide on status first.
+    if (response.status === 204 || response.status === 205 || response.body === null) {
+        return null
+    }
     let text: string
     try {
         text = await response.text()
