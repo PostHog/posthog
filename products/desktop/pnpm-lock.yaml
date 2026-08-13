@@ -1453,6 +1453,9 @@ importers:
       inversify:
         specifier: 'catalog:'
         version: 7.11.0(reflect-metadata@0.2.2)
+      lru-cache:
+        specifier: ^11.1.0
+        version: 11.2.5
       lucide-react:
         specifier: ^1.7.0
         version: 1.7.0(react@19.2.6)
