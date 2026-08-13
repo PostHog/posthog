@@ -81,7 +81,10 @@ import type {
 import { QueryContext } from '~/queries/types'
 
 import { AlertType } from 'products/alerts/frontend/types'
-import type { DataWarehouseSavedQueryApiSuspended } from 'products/data_warehouse/frontend/generated/api.schemas'
+import type {
+    DataWarehouseSavedQueryApiSuspended,
+    SyncFrequencyBoundsApi,
+} from 'products/data_warehouse/frontend/generated/api.schemas'
 import type { ExperimentFeatureFlagInputApi } from 'products/experiments/frontend/generated/api.schemas'
 import type { CommentSlackThreadRefApi } from 'products/platform_features/frontend/generated/api.schemas'
 import type { InsightFilterOverrideContextApi } from 'products/product_analytics/frontend/generated/api.schemas'
@@ -6192,6 +6195,8 @@ export interface DataWarehouseSavedQuery {
     sync_frequency?: string
     /** True when the DAG's single schedule owns the cadence, so `sync_frequency` is not editable per view */
     sync_frequency_managed_by_dag?: boolean
+    /** Which cadences this view's lineage allows, and what withholds the rest. Single fetches only */
+    sync_frequency_bounds?: SyncFrequencyBoundsApi
     status?: string
     managed_viewset_kind: DataWarehouseManagedViewsetKind | null
     folder_id?: string | null
