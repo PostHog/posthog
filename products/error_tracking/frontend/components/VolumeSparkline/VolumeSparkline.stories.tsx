@@ -1,5 +1,5 @@
 import { Meta, StoryObj } from '@storybook/react'
-import * as d3 from 'd3'
+import { randomLcg } from 'd3'
 
 import { dayjs } from 'lib/dayjs'
 
@@ -13,6 +13,8 @@ const meta: Meta<VolumeSparklineProps> = {
     parameters: {
         layout: 'centered',
         viewMode: 'story',
+        // Bars paint asynchronously (ResizeObserver → rAF); chromium alone keeps the snapshot stable.
+        testOptions: { snapshotBrowsers: ['chromium'] },
     },
     component: VolumeSparkline,
     args: {
@@ -74,6 +76,15 @@ export const EventsBeforeDataRange: Story = {
     },
 }
 
+export const DetailedWithSpikes: Story = {
+    args: {
+        data: withSpikes(buildData(), [20, 45]),
+        layout: 'detailed',
+        xAxis: 'full',
+        className: 'w-[800px] h-[200px]',
+    },
+}
+
 export const CompactIssuesList: Story = {
     args: {
         data: buildData(),
@@ -89,7 +100,7 @@ function buildData(
     minDate: string = '2022-01-01',
     maxDate: string = '2022-02-01'
 ): SparklineData {
-    const generator = d3.randomLcg(42)
+    const generator = randomLcg(42)
     const dayJsStart = dayjs(minDate)
     const dayJsEnd = dayjs(maxDate)
     const binSize = dayJsEnd.diff(dayJsStart, 'seconds') / resolution
@@ -99,6 +110,13 @@ function buildData(
             date: dayJsStart.add(index * binSize, 'seconds').toDate(),
         }
     })
+}
+
+function withSpikes(data: SparklineData, indexes: number[]): SparklineData {
+    const spikes = new Set(indexes)
+    return data.map((datum, index) =>
+        spikes.has(index) ? { ...datum, isSpike: true, color: 'var(--brand-yellow)' } : datum
+    )
 }
 
 function buildEvents(firstDate: string, lastDate: string): SparklineEvent<string>[] {
