@@ -12,8 +12,8 @@ use std::sync::RwLock;
 use neon::prelude::*;
 use neon::types::buffer::TypedArray;
 use posthog_replay_anonymizer::{
-    is_public_host, politeness_key, snapshot, AllowLists, FailKind, ImageCollection, ImagePolicy, PhaseTimings,
-    UrlCollection,
+    is_public_host, politeness_key, snapshot, AllowLists, FailKind, ImageCollection, ImagePolicy,
+    PhaseTimings, UrlCollection,
 };
 use serde::Deserialize;
 
