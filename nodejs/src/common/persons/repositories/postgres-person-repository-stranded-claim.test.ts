@@ -89,14 +89,19 @@ describe('PostgresPersonRepository stranded-row claim', () => {
     async function seedStrandedPerson(
         teamId: number,
         uuid: string,
-        overrides: { version?: number; properties?: Record<string, any>; isIdentified?: boolean } = {}
+        overrides: {
+            version?: number
+            properties?: Record<string, any>
+            isIdentified?: boolean
+            isDeleted?: boolean
+        } = {}
     ): Promise<number> {
         const { rows } = await postgres.query(
             PostgresUse.PERSONS_WRITE,
             `INSERT INTO posthog_person (
                 created_at, properties, properties_last_updated_at, properties_last_operation,
-                team_id, is_user_id, is_identified, uuid, version
-            ) VALUES ($1, $2, '{}', '{}', $3, NULL, $4, $5, $6) RETURNING id`,
+                team_id, is_user_id, is_identified, uuid, version, is_deleted
+            ) VALUES ($1, $2, '{}', '{}', $3, NULL, $4, $5, $6, $7) RETURNING id`,
             [
                 DateTime.fromISO('2023-06-01T00:00:00.000Z').toISO(),
                 JSON.stringify(overrides.properties ?? { stale: 'value' }),
@@ -104,6 +109,7 @@ describe('PostgresPersonRepository stranded-row claim', () => {
                 overrides.isIdentified ?? false,
                 uuid,
                 overrides.version ?? 3,
+                overrides.isDeleted ?? false,
             ],
             'seedStrandedPerson'
         )
@@ -257,6 +263,64 @@ describe('PostgresPersonRepository stranded-row claim', () => {
         }
 
         expect(Number(result.person.id)).toBe(strandedId)
+        expect(await getCounterValue('claimed')).toBe(1)
+    })
+
+    it('never claims a tombstoned (is_deleted) row: falls through to a fresh insert', async () => {
+        const uuid = new UUIDT().toString()
+        const tombstonedId = await seedStrandedPerson(team.id, uuid, { version: 6, isDeleted: true })
+
+        const result = await createPerson(uuid, 'returning-user')
+        expect(result.success).toBe(true)
+        if (!result.success) {
+            return
+        }
+
+        // The tombstoned row is not revived; the create behaves as if it were absent.
+        expect(Number(result.person.id)).not.toBe(tombstonedId)
+        expect(result.person.version).toBe(0)
+        expect(await fetchPersonRows(team.id, uuid)).toEqual([
+            { id: tombstonedId, version: 6 },
+            { id: Number(result.person.id), version: 0 },
+        ])
+        expect(await getCounterValue('claimed')).toBe(0)
+        expect(await getCounterValue('inserted')).toBe(1)
+    })
+
+    it('claims with extra distinct IDs: every mapping lands on the claimed row', async () => {
+        const uuid = new UUIDT().toString()
+        const strandedId = await seedStrandedPerson(team.id, uuid)
+
+        const result = await repository.createPerson(
+            TEST_TIMESTAMP,
+            {},
+            {},
+            {},
+            team.id,
+            null,
+            true,
+            uuid,
+            { distinctId: 'primary-id' },
+            [{ distinctId: 'extra-id', version: 2 }]
+        )
+        expect(result.success).toBe(true)
+        if (!result.success) {
+            return
+        }
+
+        expect(Number(result.person.id)).toBe(strandedId)
+        expect((await fetchDistinctIdValues(postgres, result.person)).sort()).toEqual(['extra-id', 'primary-id'])
+
+        const didPayloads = result.messages
+            .filter((m) => m.output === PERSON_DISTINCT_IDS_OUTPUT)
+            .map((m) => parseJSON(m.value!.toString()))
+        expect(didPayloads).toEqual(
+            expect.arrayContaining([
+                expect.objectContaining({ distinct_id: 'primary-id', version: 0, person_id: uuid }),
+                expect.objectContaining({ distinct_id: 'extra-id', version: 2, person_id: uuid }),
+            ])
+        )
+        expect(didPayloads).toHaveLength(2)
         expect(await getCounterValue('claimed')).toBe(1)
     })
 

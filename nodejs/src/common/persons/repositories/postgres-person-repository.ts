@@ -886,8 +886,13 @@ export class PostgresPersonRepository
                     WHERE p.team_id = $5 AND p.uuid = $8 AND p.is_deleted = false
                 ),
                 claimable AS (
+                    -- is_deleted is re-verified here (not only in holders) because under READ
+                    -- COMMITTED, FOR UPDATE follows a concurrent update to the row's new version
+                    -- and rechecks only this WHERE; without it, a row tombstoned between snapshot
+                    -- and lock would be claimed without clearing its is_deleted flag.
                     SELECT p.id FROM posthog_person p
                     WHERE p.team_id = $5
+                      AND p.is_deleted = false
                       AND p.id IN (SELECT h.id FROM holders h WHERE NOT h.reachable)
                     ORDER BY p.id
                     LIMIT 1
@@ -901,7 +906,7 @@ export class PostgresPersonRepository
                         properties_last_operation = $4,
                         is_user_id = $6,
                         is_identified = $7,
-                        version = COALESCE(p.version, 0)::numeric + 1,
+                        version = COALESCE(p.version, 0) + 1,
                         last_seen_at = $10
                     FROM claimable c
                     WHERE p.team_id = $5 AND p.id = c.id
