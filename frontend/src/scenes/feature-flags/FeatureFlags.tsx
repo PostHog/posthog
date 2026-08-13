@@ -1,6 +1,5 @@
 import { useActions, useValues } from 'kea'
 import { combineUrl, router } from 'kea-router'
-import posthog, { DisplaySurveyType } from 'posthog-js'
 import { useEffect, useRef, useState } from 'react'
 
 import { IconArchive, IconLock, IconPlusSmall, IconTrash } from '@posthog/icons'
@@ -10,6 +9,7 @@ import api from 'lib/api'
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
 import { BulkUpdateTagsButton } from 'lib/components/BulkActions/BulkUpdateTagsButton'
+import { FeedbackSurveyButton } from 'lib/components/FeedbackSurveyButton/FeedbackSurveyButton'
 import { FeatureFlagHog } from 'lib/components/hedgehogs'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
@@ -785,22 +785,10 @@ export function FeatureFlags(): JSX.Element {
                 }}
                 actions={
                     <>
-                        <LemonButton
-                            size="small"
+                        <FeedbackSurveyButton
+                            surveyId={FEATURE_FLAGS_NPS_SURVEY_ID}
                             data-attr="feature-flags-feedback-button"
-                            tooltip="Have any questions or feedback?"
-                            onClick={() =>
-                                // A deliberate click should always bring up the survey — bypass the
-                                // popover's URL/cohort/already-dismissed targeting.
-                                posthog.displaySurvey(FEATURE_FLAGS_NPS_SURVEY_ID, {
-                                    displayType: DisplaySurveyType.Popover,
-                                    ignoreConditions: true,
-                                    ignoreDelay: true,
-                                })
-                            }
-                        >
-                            Feedback
-                        </LemonButton>
+                        />
                         <AccessControlAction
                             resourceType={AccessControlResourceType.FeatureFlag}
                             minAccessLevel={AccessControlLevel.Editor}

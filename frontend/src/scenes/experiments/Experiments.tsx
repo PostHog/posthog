@@ -1,7 +1,6 @@
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
-import posthog, { DisplaySurveyType } from 'posthog-js'
 import { useState } from 'react'
 
 import * as experimentPng from '@posthog/brand/hoggies/png/experiment'
@@ -10,6 +9,7 @@ import { LemonInput, LemonSelect, LemonTag, Tooltip, lemonToast } from '@posthog
 import { pngHoggie } from 'lib/brand/hoggies'
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
+import { FeedbackSurveyButton } from 'lib/components/FeedbackSurveyButton/FeedbackSurveyButton'
 import { MemberMultiSelect } from 'lib/components/MemberMultiSelect'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
 import { Shortcut } from 'lib/components/Shortcuts/Shortcut'
@@ -591,22 +591,10 @@ export function Experiments(): JSX.Element {
                 }}
                 actions={
                     <>
-                        <LemonButton
-                            size="small"
+                        <FeedbackSurveyButton
+                            surveyId={EXPERIMENTS_NPS_SURVEY_ID}
                             data-attr="experiments-feedback-button"
-                            tooltip="Have any questions or feedback?"
-                            onClick={() =>
-                                // A deliberate click should always bring up the survey — bypass the
-                                // popover's URL/cohort/already-dismissed targeting.
-                                posthog.displaySurvey(EXPERIMENTS_NPS_SURVEY_ID, {
-                                    displayType: DisplaySurveyType.Popover,
-                                    ignoreConditions: true,
-                                    ignoreDelay: true,
-                                })
-                            }
-                        >
-                            Feedback
-                        </LemonButton>
+                        />
                         {tab !== ExperimentsTabs.SharedMetrics && tab !== ExperimentsTabs.Holdouts ? (
                             <AccessControlAction
                                 resourceType={AccessControlResourceType.Experiment}
