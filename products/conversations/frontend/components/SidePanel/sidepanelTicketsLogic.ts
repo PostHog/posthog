@@ -482,13 +482,13 @@ export const sidepanelTicketsLogic = kea<sidepanelTicketsLogicType>([
                         reason: 'extension_missing',
                         can_create_ticket: values.canCreateTicket,
                     })
-                    // Only warn people who could act on it. A free plan has no email fallback, and the
-                    // panel already shows them the community and upgrade options, so a toast offering
-                    // to email us would promise a channel they don't get. Warn while entitlement is
-                    // still unresolved, matching how the composer opens rather than drop a message.
-                    if (values.canCreateTicket || !values.isBillingResolved) {
-                        warnSupportWidgetUnavailable()
-                    }
+                    // Recorded but not surfaced. This logic mounts for the whole session and loads
+                    // once at app boot, so nobody has asked about support at this point: a toast here
+                    // lands on whatever page the user is on and, being autoClose:false, sits over the
+                    // bottom-right of the viewport until it is clicked away. TicketsList already tells
+                    // anyone who opens the panel that support is unavailable, and sendMessage still
+                    // warns when a typed message can't leave the browser, which is the case where
+                    // staying quiet would lose something.
                 }
                 return
             }

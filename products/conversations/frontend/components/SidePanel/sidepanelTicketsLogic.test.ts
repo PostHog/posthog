@@ -391,12 +391,13 @@ describe('sidepanelTicketsLogic', () => {
         expect(logic.values.view).toBe('list')
     })
 
-    // The panel already shows free plans the community and upgrade options, and they have no email
-    // channel, so warning them the chat failed would offer support they don't actually get.
+    // This load runs once at app boot for the whole session, so a toast here interrupts a user who
+    // never asked about support and, being autoClose:false, covers the bottom-right of whatever page
+    // they are on. TicketsList carries the message for anyone who opens the panel instead.
     it.each([
-        ['warns an entitled plan', 'paid', true],
-        ['stays quiet on a free plan', 'free', false],
-    ])('when the widget never loads, %s', async (_case, subscriptionLevel, expectWarning) => {
+        ['an entitled plan', 'paid', true],
+        ['a free plan', 'free', false],
+    ])('records but never surfaces a widget that never loads, on %s', async (_case, subscriptionLevel, canCreate) => {
         const errorToast = jest.spyOn(lemonToast, 'error').mockReturnValue('' as never)
         logic = sidepanelTicketsLogic.build()
         logic.mount()
@@ -420,13 +421,13 @@ describe('sidepanelTicketsLogic', () => {
             logic.actions.loadTickets()
         }).toFinishAllListeners()
 
-        // Recorded either way, so the failure rate stays visible even where we don't interrupt
+        // Recorded either way, so the failure rate stays visible even though we never interrupt
         const loadFailures = (posthog.capture as jest.Mock).mock.calls.filter(
             ([event]) => event === 'support widget load failed'
         )
         expect(loadFailures).toHaveLength(1)
-        expect(loadFailures[0][1]).toMatchObject({ can_create_ticket: expectWarning })
-        expect(errorToast).toHaveBeenCalledTimes(expectWarning ? 1 : 0)
+        expect(loadFailures[0][1]).toMatchObject({ can_create_ticket: canCreate })
+        expect(errorToast).not.toHaveBeenCalled()
         errorToast.mockRestore()
     })
 
