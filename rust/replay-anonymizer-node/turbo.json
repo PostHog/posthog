@@ -1,0 +1,34 @@
+{
+    "$schema": "https://turbo.build/schema.json",
+    "extends": ["//"],
+    "tasks": {
+        // The scrub logic lives in the sibling `posthog-replay-anonymizer` crate, which turbo
+        // cannot see: it is a cargo path dependency, not a workspace package, so `^build` does
+        // not reach it and the root task's package-relative `src` covers only the Neon shim.
+        // Without these globs the addon's hash is unchanged by a core-crate edit and turbo
+        // replays a stale `index.node`.
+        "build": {
+            "inputs": [
+                "src",
+                "Cargo.toml",
+                "$TURBO_ROOT$/rust/replay-anonymizer/src/**",
+                "$TURBO_ROOT$/rust/replay-anonymizer/Cargo.toml",
+                "$TURBO_ROOT$/rust/Cargo.toml",
+                "$TURBO_ROOT$/rust/Cargo.lock"
+            ]
+        },
+        // `pnpm test` here runs `cargo test` over both crates, so the core crate's own tests and
+        // shared fixtures are inputs too.
+        "test": {
+            "inputs": [
+                "src",
+                "Cargo.toml",
+                "$TURBO_ROOT$/rust/replay-anonymizer/src/**",
+                "$TURBO_ROOT$/rust/replay-anonymizer/tests/**",
+                "$TURBO_ROOT$/rust/replay-anonymizer/Cargo.toml",
+                "$TURBO_ROOT$/rust/Cargo.toml",
+                "$TURBO_ROOT$/rust/Cargo.lock"
+            ]
+        }
+    }
+}
