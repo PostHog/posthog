@@ -440,7 +440,7 @@ def test_view_resolves_every_accepted_ref_form(runner: CliRunner, ref_of: str) -
     result = _invoke(runner, ["view", ref, "--format", "text"], _Recorder())
     assert result.exit_code == 0
     assert row["test_id"] in result.output
-    assert "breaking_master — failing on the default branch" in result.output
+    assert "breaking_master: failing on the default branch" in result.output
 
 
 def test_view_lists_candidates_when_a_ref_is_ambiguous(runner: CliRunner) -> None:
