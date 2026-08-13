@@ -22,6 +22,7 @@ import {
     DashboardLayoutSize,
     DashboardPlacement,
     DashboardTemplateEditorType,
+    DashboardTemplateStoredTile,
     DashboardTile,
     DashboardType,
     DashboardWidgetType,
@@ -31,6 +32,7 @@ import {
 } from '~/types'
 
 import { SHARED_DASHBOARD_AUTO_FORCE_IF_STALE_MINUTES } from './dashboardConstants'
+import { partitionDashboardSections } from './dashboardSections'
 
 export function getInsightQueryError(insight: QueryBasedInsightModel): ApiError | null {
     const queryStatus = insight.query_status
@@ -46,6 +48,58 @@ export function getInsightQueryError(insight: QueryBasedInsightModel): ApiError 
     })
 }
 
+function serializeDashboardTileForTemplate(
+    tile: DashboardTile<InsightModel>,
+    layouts: DashboardTile['layouts'],
+    groupKey: string | undefined
+): DashboardTemplateStoredTile {
+    if (tile.text) {
+        return {
+            type: 'TEXT',
+            body: tile.text.body,
+            layouts,
+            color: tile.color,
+            group_key: groupKey,
+        }
+    }
+    if (tile.insight) {
+        return {
+            type: 'INSIGHT',
+            name: tile.insight.name,
+            description: tile.insight.description || '',
+            query: tile.insight.query,
+            layouts,
+            color: tile.color,
+            group_key: groupKey,
+        }
+    }
+    if (tile.button_tile) {
+        return {
+            type: 'BUTTON',
+            button_tile: {
+                url: tile.button_tile.url,
+                text: tile.button_tile.text,
+                placement: tile.button_tile.placement,
+                style: tile.button_tile.style,
+            },
+            layouts,
+            color: tile.color,
+            group_key: groupKey,
+        }
+    }
+    if (tile.widget) {
+        return {
+            type: 'WIDGET',
+            widget_type: tile.widget.widget_type,
+            config: tile.widget.config,
+            layouts,
+            color: tile.color,
+            group_key: groupKey,
+        }
+    }
+    throw new Error('Unknown tile type')
+}
+
 /** Shape used for staff JSON export, customer save-as-template, and API `create_from_template_json`. */
 export function dashboardToSaveableTemplate(
     dashboard: DashboardType<InsightModel> | null | undefined
@@ -53,77 +107,46 @@ export function dashboardToSaveableTemplate(
     if (!dashboard) {
         return undefined
     }
+
+    const sections = partitionDashboardSections(
+        dashboard.tiles.filter((tile) => !tile.error),
+        dashboard.groups
+    )
+    const tiles: DashboardTemplateStoredTile[] = []
+    let globalY = 0
+
+    for (const section of sections) {
+        const namedGroup = section.isNamed ? section.group : null
+        if (namedGroup?.name) {
+            tiles.push({
+                type: 'GROUP',
+                group_key: namedGroup.id,
+                name: namedGroup.name,
+                layouts: {
+                    sm: { x: 0, y: globalY, w: BREAKPOINT_COLUMN_COUNTS.sm, h: 1 },
+                },
+            })
+            globalY += 1
+        }
+
+        let sectionHeight = 0
+        for (const tile of section.tiles) {
+            const sm = tile.layouts?.sm
+            const localY = sm?.y ?? 0
+            const height = sm?.h ?? 1
+            sectionHeight = Math.max(sectionHeight, localY + height)
+            const layouts = sm ? { ...tile.layouts, sm: { ...sm, y: localY + globalY } } : tile.layouts
+            tiles.push(serializeDashboardTileForTemplate(tile, layouts, namedGroup ? namedGroup.id : undefined))
+        }
+        globalY += sectionHeight
+    }
+
     return {
         template_name: dashboard.name,
         dashboard_description: dashboard.description,
         dashboard_filters: dashboard.filters,
         tags: dashboard.tags || [],
-        tiles: [
-            ...(dashboard.groups ?? []).map((group) => ({
-                type: 'GROUP' as const,
-                group_key: group.id,
-                name: group.name,
-                layouts: group.layouts.sm
-                    ? {
-                          sm: {
-                              x: group.layouts.sm.x ?? 0,
-                              y: group.layouts.sm.y ?? 0,
-                              w: group.layouts.sm.w ?? BREAKPOINT_COLUMN_COUNTS.sm,
-                              h: group.layouts.sm.h ?? 1,
-                          },
-                      }
-                    : {},
-            })),
-            ...dashboard.tiles
-                .filter((tile) => !tile.error)
-                .map((tile) => {
-                    if (tile.text) {
-                        return {
-                            type: 'TEXT' as const,
-                            body: tile.text.body,
-                            layouts: tile.layouts,
-                            color: tile.color,
-                            group_key: tile.parent_group_id ?? undefined,
-                        }
-                    }
-                    if (tile.insight) {
-                        return {
-                            type: 'INSIGHT' as const,
-                            name: tile.insight.name,
-                            description: tile.insight.description || '',
-                            query: tile.insight.query,
-                            layouts: tile.layouts,
-                            color: tile.color,
-                            group_key: tile.parent_group_id ?? undefined,
-                        }
-                    }
-                    if (tile.button_tile) {
-                        return {
-                            type: 'BUTTON' as const,
-                            button_tile: {
-                                url: tile.button_tile.url,
-                                text: tile.button_tile.text,
-                                placement: tile.button_tile.placement,
-                                style: tile.button_tile.style,
-                            },
-                            layouts: tile.layouts,
-                            color: tile.color,
-                            group_key: tile.parent_group_id ?? undefined,
-                        }
-                    }
-                    if (tile.widget) {
-                        return {
-                            type: 'WIDGET' as const,
-                            widget_type: tile.widget.widget_type,
-                            config: tile.widget.config,
-                            layouts: tile.layouts,
-                            color: tile.color,
-                            group_key: tile.parent_group_id ?? undefined,
-                        }
-                    }
-                    throw new Error('Unknown tile type')
-                }),
-        ],
+        tiles,
         variables: [],
     }
 }

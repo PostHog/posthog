@@ -393,6 +393,26 @@ describe('dashboardLogic', () => {
             )
         })
 
+        it('updateLayouts for a subset of tiles leaves other tiles layouts alone', async () => {
+            await expectLogic(logic).toFinishAllListeners()
+
+            const tiles = logic.values.dashboard!.tiles
+            expect(tiles.length).toBeGreaterThan(1)
+            const firstTile = tiles[0]
+            const secondTile = tiles[1]
+            const secondLayouts = secondTile.layouts
+
+            await expectLogic(logic, () => {
+                logic.actions.updateLayouts({
+                    sm: [{ i: String(firstTile.id), x: 3, y: 0, w: 6, h: 5 }],
+                })
+            }).toFinishAllListeners()
+
+            const updatedTiles = logic.values.dashboard!.tiles
+            expect(updatedTiles.find((tile) => tile.id === firstTile.id)?.layouts.sm).toMatchObject({ x: 3, y: 0 })
+            expect(updatedTiles.find((tile) => tile.id === secondTile.id)?.layouts).toEqual(secondLayouts)
+        })
+
         it('saving after filter change calls api', async () => {
             await expectLogic(logic).toFinishAllListeners()
 

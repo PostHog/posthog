@@ -22,6 +22,7 @@ interface DashboardButtonTileItemProps extends Omit<
     onMoveToDashboard?: (target: Pick<DashboardType, 'id' | 'name'>) => void
     onDuplicate: () => void
     onRemove?: () => void
+    extraMoreOverlay?: React.ReactNode
 }
 
 function DashboardButtonTileItemInternal(
@@ -33,6 +34,7 @@ function DashboardButtonTileItemInternal(
         onMoveToDashboard,
         onDuplicate,
         onRemove,
+        extraMoreOverlay,
         ...buttonTileCardProps
     }: DashboardButtonTileItemProps,
     ref: React.ForwardedRef<HTMLDivElement>
@@ -62,6 +64,7 @@ function DashboardButtonTileItemInternal(
                         placementDestinations={copyToDestinations}
                         onMoveToDashboard={onMoveToDashboard}
                     />
+                    {extraMoreOverlay}
 
                     <LemonButton onClick={onDuplicate} fullWidth data-attr="duplicate-button-tile-from-dashboard">
                         Duplicate

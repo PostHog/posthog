@@ -131,6 +131,28 @@ export function DashboardAddTileButton(): JSX.Element | null {
     )
 }
 
+export function DashboardAddSectionButton(): JSX.Element | null {
+    const { dashboard, canEditDashboard, createDashboardGroupLoading } = useValues(dashboardLogic)
+    const { createDashboardGroup } = useActions(dashboardLogic)
+
+    if (!dashboard || !canEditDashboard) {
+        return null
+    }
+
+    return (
+        <LemonButton
+            type="secondary"
+            size="small"
+            data-attr="dashboard-add-section"
+            loading={createDashboardGroupLoading}
+            disabledReason={createDashboardGroupLoading ? 'Adding section' : undefined}
+            onClick={() => createDashboardGroup('New section')}
+        >
+            Add section
+        </LemonButton>
+    )
+}
+
 export function DashboardEditSaveCancelButtons({
     withShortcuts = true,
     applyFiltersButton,
@@ -217,6 +239,7 @@ export function EditModeActions(): JSX.Element {
         <>
             <DashboardSubscribeButton />
             {layoutEditMode && <DashboardEditSaveCancelButtons />}
+            <DashboardAddSectionButton />
             <DashboardAddTileButton />
         </>
     )
@@ -292,6 +315,7 @@ export function ViewModeActions(): JSX.Element {
                     </LemonButton>
                 </Shortcut>
             )}
+            <DashboardAddSectionButton />
             <DashboardAddTileButton />
         </>
     )
