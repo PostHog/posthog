@@ -11,6 +11,7 @@ import { urls } from 'scenes/urls'
 
 import { DateMappingOption } from '~/types'
 
+import { VisionDocsLink } from '../../components/DocsLink'
 import { FilterPill } from '../../components/FilterPill'
 import { ObservationResultSummary, ObservationStatusTag } from '../../components/ObservationCard'
 import { ObservationRetryButton } from '../../components/ObservationRetryButton'
@@ -405,6 +406,9 @@ export function ScannerObservationsTable({ scannerId }: { scannerId: string }): 
                             >
                                 Scan a recording now
                             </LemonButton>
+                            <VisionDocsLink page="observations" dataAttr="vision-empty-docs-link-observations">
+                                Learn how observations work
+                            </VisionDocsLink>
                         </div>
                     )
                 }

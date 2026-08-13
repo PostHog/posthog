@@ -29,6 +29,7 @@ import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { ProductKey } from '~/queries/schema/schema-general'
 
+import { VISION_DOCS_URL, VisionDocsLink } from '../components/DocsLink'
 import { FilterPill } from '../components/FilterPill'
 import { IngestionLimitBanner } from '../components/IngestionLimitBanner'
 import { ReplayVisionFeedbackButton } from '../components/ReplayVisionFeedbackButton'
@@ -291,6 +292,7 @@ export function ReplayScannersScene(): JSX.Element {
                 secondaryDescription="Start from a template or build a fully custom scanner."
                 customHog={HedgehogXRay}
                 action={() => push(urls.replayVisionTemplates())}
+                docsURL={VISION_DOCS_URL}
             />
 
             <LemonTabs
@@ -387,6 +389,12 @@ export function ReplayScannersScene(): JSX.Element {
                                             dataAttr="vision-scanner-create-empty"
                                             size="medium"
                                         />
+                                        <VisionDocsLink
+                                            page="creating-scanners"
+                                            dataAttr="vision-empty-docs-link-scanners"
+                                        >
+                                            Learn how scanners work
+                                        </VisionDocsLink>
                                     </div>
                                 ) : (
                                     <span className="text-muted">No scanners match your filters.</span>

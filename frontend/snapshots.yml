@@ -7258,6 +7258,10 @@ snapshots:
         hash: v1.k794b7964.f9c477e7ddedd2ca3df057155f8f56dc809a14f0adab09703bd958601e1e1ff1.lbVZQ47_DW-autefB6q_TIgLo4p8LbYBnjZ3qDKlQUs
     scenes-app-replay-vision--scanners-list--light:
         hash: v1.k794b7964.ac26fc8b85f1f707838130407da7076e12f9846b8d52e2484ebda388e7e110a3.6NW_AV9o8JxLcpcP3ZTEA5ZszMdE7irC6foNFd1nMNo
+    scenes-app-replay-vision--scanners-list-empty--dark:
+        hash: v1.k794b7964.bea52622f0463d2acb04c21a316475721843570eb50257a179f94ef95a4ba1ca.oiQ1o8x44wdDXkhS7Udmua4omOQOAnWx4g6p1v5sHT4
+    scenes-app-replay-vision--scanners-list-empty--light:
+        hash: v1.k794b7964.096a34f782e4728d4c46f8f8c3070554b7db75901bad96f11c4b2c16d8d28527.L4H8HybedmjuD6mKQ0pVhjT7NrxXDeFaZYY479KR9BE
     scenes-app-replay-vision--startup-program-cap--dark:
         hash: v1.k794b7964.effc94d34b3b062b11dd0af0fb2204517034a323abf124db8844b662152fe73e.xmLf-KT-SJN7hqokhDgae9VzRgoON1oTn6KERsnaw-Y
     scenes-app-replay-vision--startup-program-cap--light:
