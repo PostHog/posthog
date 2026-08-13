@@ -5,6 +5,7 @@ from itertools import zip_longest
 from unittest import TestCase
 
 from hypothesis import (
+    assume,
     given,
     settings,
     strategies as st,
@@ -12,6 +13,7 @@ from hypothesis import (
 from parameterized import parameterized
 
 from products.logs.backend.log_patterns import (
+    _HOST_SUFFIXES,
     _MASKING_INSTRUCTIONS,
     _PLACEHOLDER_PATTERNS,
     LogSample,
@@ -58,6 +60,22 @@ class TestMinePatterns(TestCase):
         [
             ("numbers", ["Request 123 took 5 ms", "Request 456 took 9 ms"], "<num>", "123"),
             ("ipv4", ["GET from 10.0.0.1", "GET from 192.168.1.1"], "<ip>", "10.0.0.1"),
+            # the version guard keys on the character before the address, so a URL host,
+            # which is the one place an address does follow a "/", must still mask
+            (
+                "ipv4_in_url",
+                ["fetched http://10.0.0.1/health ok", "fetched http://192.168.1.1/health ok"],
+                "<ip>",
+                "10.0.0.1",
+            ),
+            # only a "." that carries on a dotted run rules the address out, so an address
+            # that ends a sentence still masks
+            (
+                "ipv4_at_end_of_sentence",
+                ["closed connection to 10.0.0.1.", "closed connection to 192.168.1.1."],
+                "<ip>",
+                "10.0.0.1",
+            ),
             (
                 "uuid",
                 [
@@ -86,6 +104,18 @@ class TestMinePatterns(TestCase):
                 "397557",
             ),
             (
+                "version_after_product",
+                ["agent Chrome/139.0.0.0 connected", "agent Chrome/140.0.7.1 connected"],
+                "<version>",
+                "139",
+            ),
+            (
+                "protocol_version",
+                ["served HTTP/1.1 request", "served HTTP/2.0 request"],
+                "<version>",
+                "1.1",
+            ),
+            (
                 "timestamp_utc_offset",
                 [
                     "job 2026-08-12T08:10:43+00:00 retried",
@@ -93,6 +123,18 @@ class TestMinePatterns(TestCase):
                 ],
                 "<timestamp>",
                 "12T08",
+            ),
+            (
+                "hostname",
+                ["upstream ingest.example.com refused", "upstream ingest.example.net refused"],
+                "<host>",
+                "example",
+            ),
+            (
+                "subdomains",
+                ["proxied to eu.i.example.com ok", "proxied to us.i.example.com ok"],
+                "<host>",
+                "example",
             ),
         ]
     )
@@ -105,6 +147,68 @@ class TestMinePatterns(TestCase):
         assert patterns[0].count == 2
         assert expected_token in patterns[0].pattern
         assert raw_token not in patterns[0].pattern
+
+    @parameterized.expand(
+        [
+            ("chrome_version", "agent Chrome/139.0.0.0 connected"),
+            ("four_part_release", "rolled out build/2.14.0.3 to canary"),
+            ("longer_dotted_run", "schema version 1.2.3.4.5 loaded"),
+        ]
+    )
+    def test_version_strings_are_not_masked_as_ips(self, _name: str, line: str) -> None:
+        # A dotted quad in a version is indistinguishable from an address by octet range, so
+        # the mask keys on the surrounding characters. Reading "Chrome/<ip>" in a template
+        # sends the reader looking for a network problem that is not there.
+        patterns = mine_patterns([_sample(line)])
+
+        assert "<ip>" not in patterns[0].pattern
+
+    @parameterized.expand(
+        [
+            ("decimal_metric", "request took duration=1.5 seconds"),
+            ("numeric_path_segment", "POST /api/projects/2/query/ returned 200"),
+            ("module_version", "loaded python3.13 runtime"),
+        ]
+    )
+    def test_plain_decimals_are_not_masked_as_versions(self, _name: str, line: str) -> None:
+        # The "/" requirement is what separates a version from a measurement. Masking a
+        # latency or a ratio as <version> hides the number a reader came for.
+        patterns = mine_patterns([_sample(line)])
+
+        assert "<version>" not in patterns[0].pattern
+
+    @parameterized.expand(
+        [
+            ("module_path", "handler resolved in products.logs.backend module"),
+            ("logger_name", "logger django_structlog.celery.receivers ready"),
+            ("source_file", "raised from MergeFromLogEntryTask.cpp while merging"),
+        ]
+    )
+    def test_dotted_code_paths_are_not_masked_as_hosts(self, _name: str, line: str) -> None:
+        # A hostname mask keyed on "any trailing alphabetic label" swallows module paths,
+        # logger names, and source files, which is the literal content the template is for.
+        patterns = mine_patterns([_sample(line)])
+
+        assert "<host>" not in patterns[0].pattern
+
+    def test_a_name_that_starts_with_an_address_masks_the_address_first(self) -> None:
+        # Wildcard-DNS names carry an address in their leading labels ("10.0.0.1.nip.io"), and
+        # ip runs before host by design, so the address masks and the domain masks after it.
+        # Both halves are variable and both are covered; the order is what this pins, because
+        # letting host win would bury the address a reader opened the pattern for.
+        patterns = mine_patterns([_sample("upstream 10.0.0.1.nip.io refused")])
+
+        assert patterns[0].pattern == "upstream <ip>.<host> refused"
+
+    def test_a_dotted_run_longer_than_any_hostname_keeps_its_head_literal(self) -> None:
+        # The label repeat is capped because an uncapped one retries the suffix alternation at
+        # every boundary of a long dotted run, at a cost that grows with the square of its
+        # length. Masking only the tail is the visible price of that cap, so a crafted run of
+        # single-character labels must leave its head in the template.
+        patterns = mine_patterns([_sample("upstream " + "a." * 40 + "example.com refused")])
+
+        assert "<host>" in patterns[0].pattern
+        assert "a.a.a." in patterns[0].pattern
 
     def test_error_count_includes_only_error_and_fatal(self) -> None:
         samples = [
@@ -221,7 +325,9 @@ class TestCompileMatchRegex(TestCase):
             ("took <num> ms", "took 12345 ms"),
             ("request <uuid> failed", "request 93fce79d-6926-4b08-8fa5-00ffd8e65f4e failed"),
             ("peer <ip> disconnected", "peer 10.32.243.94 disconnected"),
+            ("upstream <host> refused", "upstream eu.i.example.com refused"),
             ("token <hex> rejected", "token 0xdeadbeef rejected"),
+            ("agent Chrome/<version> connected", "agent Chrome/139.0.0.0 connected"),
             ("path /api/v1/users?id=<num> hit", "path /api/v1/users?id=42 hit"),
             ("job <timestamp> finished", "job 2026-08-12T08:10:43.397557Z finished"),
         ]
@@ -302,7 +408,56 @@ def _timestamp_st(draw: st.DrawFn) -> str:
     return text + draw(st.sampled_from(["", "Z", "+00:00", "-05:30", "+0230", "-1145"]))
 
 
-_variable_token_st = st.one_of(_uuid_st, _hex_0x_st, _hex_bare_st, _num_st, _timestamp_st())
+_ipv4_st = st.tuples(*[st.integers(min_value=0, max_value=255)] * 4).map(lambda octets: ".".join(map(str, octets)))
+# Characters an address really follows in a log body. "/" is deliberately absent: that is
+# the one the guard rejects, and the URL case below covers "//" separately.
+_delimiter_st = st.sampled_from([" ", "=", ":", '"', ",", "[", "(", "|"])
+_product_st = st.text("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ", min_size=1, max_size=14)
+_scheme_st = st.sampled_from(["http", "https"])
+
+
+# Up to six parts, past the four a browser build uses: a bounded mask consumes the first four
+# of a longer release and leaves the rest as <num>, which is a template of its own again.
+_version_st = st.lists(st.integers(min_value=0, max_value=9999), min_size=2, max_size=6).map(
+    lambda parts: ".".join(map(str, parts))
+)
+_decimal_context_st = st.sampled_from(["duration_ms=", "ratio=", "load ", "p95="])
+_label_st = st.text("abcdefghijklmnopqrstuvwxyz0123456789", min_size=1, max_size=12)
+# A label that is itself a host suffix would make a "code path" strategy generate a real
+# hostname, so it is excluded from both strategies below.
+_non_suffix_label_st = _label_st.filter(lambda label: label not in _HOST_SUFFIXES)
+
+
+# A name whose first four labels are a dotted quad ("0.0.0.0.ai", "10.0.0.1.nip.io") is an
+# address with a domain after it, and ip runs before host by design, so it masks as "<ip>.<host>"
+# rather than a single placeholder. That precedence has its own case above; excluding the shape
+# here keeps this strategy to names the host mask alone owns.
+# The trailing guards mirror the ip mask's own: a fifth label that starts with a digit makes the
+# leading quad the head of a longer dotted run, which the mask leaves alone.
+_LEADING_ADDRESS_RE = re.compile(r"^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}(?!\d)(?!\.\d)")
+
+
+# Up to five labels before the suffix, past the deepest names that show up in real logs
+# ("pod.ns.svc.cluster.local", "a.b.c.example.co.uk"). The mask caps how many labels it will
+# consume, and this range is deliberately not derived from that cap: tightening the cap below
+# what real hostnames need has to fail the collapse property, not narrow the strategy with it.
+@st.composite
+def _fqdn_st(draw: st.DrawFn) -> str:
+    labels = draw(st.lists(_non_suffix_label_st, min_size=1, max_size=5))
+    name = ".".join([*labels, draw(st.sampled_from(_HOST_SUFFIXES))])
+    assume(not _LEADING_ADDRESS_RE.match(name))
+    return name
+
+
+@st.composite
+def _dotted_code_path_st(draw: st.DrawFn) -> str:
+    return ".".join(draw(st.lists(_non_suffix_label_st, min_size=2, max_size=4)))
+
+
+_slash_version_st = st.tuples(_product_st, _version_st).map(lambda t: f"{t[0]}/{t[1]}")
+_variable_token_st = st.one_of(
+    _uuid_st, _hex_0x_st, _hex_bare_st, _num_st, _timestamp_st(), _ipv4_st, _slash_version_st, _fqdn_st()
+)
 
 
 class TestMaskingProperties(TestCase):
@@ -378,6 +533,13 @@ _truncated_uuid_st = st.uuids().map(lambda u: str(u)[:23])
 
 # Tokens the masker deliberately leaves (fully or partly) literal. A pivot regex mined
 # from a masked body must not match a sibling holding one of these in the same slot.
+_five_octet_st = st.tuples(*[st.integers(min_value=0, max_value=255)] * 5).map(
+    lambda octets: ".".join(map(str, octets))
+)
+_versioned_quad_st = st.tuples(_product_st, _ipv4_st).map(lambda t: f"{t[0]}/{t[1]}")
+_plain_decimal_st = st.tuples(st.integers(min_value=0, max_value=9999), st.integers(min_value=0, max_value=999)).map(
+    lambda t: f"{t[0]}.{t[1]}"
+)
 # One row per (masked kind, confusable neighbor). Both halves of the row matter: the mask
 # has to tell the pair apart, and so does the pivot regex the mask produces. A single
 # union-of-everything property dilutes each pair to a fraction of the example budget, so
@@ -389,6 +551,10 @@ _CONFUSABLE_PAIRS = [
     ("timestamp_vs_minute_precision", _timestamp_st(), _minute_timestamp_st),
     ("uuid_vs_truncated_uuid", _uuid_st, _truncated_uuid_st),
     ("hex_vs_letter_only_hex", st.one_of(_hex_0x_st, _hex_bare_st), _letter_hex_st),
+    ("ip_vs_five_octets", _ipv4_st, _five_octet_st),
+    ("ip_vs_versioned_quad", _ipv4_st, _versioned_quad_st),
+    ("version_vs_plain_decimal", _slash_version_st, _plain_decimal_st),
+    ("host_vs_dotted_code_path", _fqdn_st(), _dotted_code_path_st()),
 ]
 
 
@@ -412,3 +578,129 @@ class TestPivotSoundness(TestCase):
         # the "view matching logs" pivot.
         assert mined.match_regex is not None
         assert not re.search(mined.match_regex, impostor_body)
+
+
+class TestIpMaskProperties(TestCase):
+    """The cases above pin specific addresses; these hold the guard over every octet value.
+
+    The guard reads the characters around the address, so the property that matters is which
+    contexts still mask and which no longer do, across the whole address space.
+    """
+
+    @given(address=_ipv4_st, delimiter=_delimiter_st)
+    @settings(max_examples=400, deadline=None)
+    def test_any_address_after_a_plain_delimiter_masks(self, address: str, delimiter: str) -> None:
+        patterns = mine_patterns([_sample(f"peer{delimiter}{address} closed")])
+
+        assert "<ip>" in patterns[0].pattern
+        assert address not in patterns[0].pattern
+
+    @given(address=_ipv4_st, product=_product_st)
+    @settings(max_examples=400, deadline=None)
+    def test_no_address_is_read_out_of_a_version_after_a_product_name(self, address: str, product: str) -> None:
+        # Every dotted quad is a valid version string too, so this has to hold for all of
+        # them, not only for the browser builds the example cases use.
+        patterns = mine_patterns([_sample(f"agent {product}/{address} connected")])
+
+        assert "<ip>" not in patterns[0].pattern
+
+    @given(address=_ipv4_st)
+    @settings(max_examples=400, deadline=None)
+    def test_any_address_that_ends_a_sentence_masks(self, address: str) -> None:
+        # The trailing guard exists to keep the mask off a longer dotted run, so it has to
+        # let a "." that ends the line through, whatever the last octet is.
+        patterns = mine_patterns([_sample(f"closed connection to {address}.")])
+
+        assert "<ip>" in patterns[0].pattern
+        assert address not in patterns[0].pattern
+
+    @given(run=_five_octet_st)
+    @settings(max_examples=400, deadline=None)
+    def test_no_address_is_read_out_of_a_longer_dotted_run(self, run: str) -> None:
+        # The trailing guard turns on whether the next "." carries on the run, so the octet
+        # values are what decide it, and neither the head nor the tail of the run may mask.
+        patterns = mine_patterns([_sample(f"schema version {run} loaded")])
+
+        assert "<ip>" not in patterns[0].pattern
+
+    @given(address=_ipv4_st, scheme=_scheme_st)
+    @settings(max_examples=400, deadline=None)
+    def test_any_address_in_a_url_still_masks(self, address: str, scheme: str) -> None:
+        # A URL host is the one place an address does follow a "/". An earlier version of the
+        # guard blocked every "/" and silently stopped masking these.
+        patterns = mine_patterns([_sample(f"GET {scheme}://{address}/health ok")])
+
+        assert "<ip>" in patterns[0].pattern
+        assert address not in patterns[0].pattern
+
+
+class TestVersionMaskProperties(TestCase):
+    """The cases above pin browser and protocol versions; these hold the rule over all parts.
+
+    The mask trades on one character. Everything after a slash is a version, everything else
+    keeps its number, so both properties test that line rather than a handful of versions.
+    """
+
+    @given(product=_product_st, version=_version_st)
+    @settings(max_examples=400, deadline=None)
+    def test_any_version_after_a_product_name_collapses_to_one_placeholder(self, product: str, version: str) -> None:
+        patterns = mine_patterns([_sample(f"agent {product}/{version} connected")])
+
+        # exact template: however many parts, one placeholder, not one <num> per part
+        assert patterns[0].pattern == f"agent {product}/<version> connected"
+
+    @given(context=_decimal_context_st, whole=st.integers(min_value=0, max_value=9999), frac=st.integers(0, 999))
+    @settings(max_examples=400, deadline=None)
+    def test_decimals_outside_a_path_keep_their_number(self, context: str, whole: int, frac: int) -> None:
+        # Latencies, ratios, and load averages are decimals too. Reading one as a version
+        # would hide the measurement the person opened the pattern for.
+        patterns = mine_patterns([_sample(f"request {context}{whole}.{frac} done")])
+
+        assert "<version>" not in patterns[0].pattern
+
+    @given(product=_product_st, version_a=_version_st, version_b=_version_st)
+    @settings(max_examples=300, deadline=None)
+    def test_lines_differing_only_by_version_share_a_fingerprint(
+        self, product: str, version_a: str, version_b: str
+    ) -> None:
+        # This is what the mask is for: one template per client, not one per release.
+        line = f"agent {product}/{{}} connected"
+        first = mine_patterns([_sample(line.format(version_a))])
+        second = mine_patterns([_sample(line.format(version_b))])
+
+        assert pattern_fingerprint(first[0].pattern) == pattern_fingerprint(second[0].pattern)
+
+
+class TestHostMaskProperties(TestCase):
+    """The cases above pin specific hostnames; these hold the rule over every shape of name.
+
+    The host mask is a trade: it has to catch any real domain while leaving dotted code
+    paths alone, and only the whole input space shows whether the suffix list draws that
+    line in the right place.
+    """
+
+    @given(fqdn=_fqdn_st())
+    @settings(max_examples=300, deadline=None)
+    def test_any_hostname_collapses_to_one_placeholder(self, fqdn: str) -> None:
+        patterns = mine_patterns([_sample(f"upstream {fqdn} refused")])
+
+        # exact template: the whole name is consumed, not partly masked and partly literal
+        assert patterns[0].pattern == "upstream <host> refused"
+
+    @given(path=_dotted_code_path_st())
+    @settings(max_examples=300, deadline=None)
+    def test_dotted_paths_without_a_host_suffix_stay_literal(self, path: str) -> None:
+        patterns = mine_patterns([_sample(f"handler in {path} module")])
+
+        assert "<host>" not in patterns[0].pattern
+
+    @given(host_a=_fqdn_st(), host_b=_fqdn_st())
+    @settings(max_examples=300, deadline=None)
+    def test_lines_differing_only_by_hostname_share_a_fingerprint(self, host_a: str, host_b: str) -> None:
+        # This is what the mask is for. The patterns diff and the pattern list both key on
+        # the fingerprint, so two hostnames that fingerprint apart show up as two templates.
+        line = '{{"authority":"{}","upstream_cluster":"capture"}}'
+        a = mine_patterns([_sample(line.format(host_a))])
+        b = mine_patterns([_sample(line.format(host_b))])
+
+        assert pattern_fingerprint(a[0].pattern) == pattern_fingerprint(b[0].pattern)

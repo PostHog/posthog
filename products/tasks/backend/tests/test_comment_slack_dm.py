@@ -24,7 +24,6 @@ class TestCommentSlackDm(CommentActivityTestCase):
             team=self.team, kind="slack", integration_id=SLACK_WORKSPACE_ID, config={"scope": "chat:write"}
         )
         self._link_slack(self.author, "U-author")
-        self._opt_in(self.author)
 
         flag_patch = patch(
             "products.tasks.backend.logic.services.comment_slack_dm.is_slack_app_oauth_enabled", return_value=True
@@ -60,7 +59,7 @@ class TestCommentSlackDm(CommentActivityTestCase):
     def _dm_channels(self) -> list[str]:
         return [call.kwargs["channel"] for call in self.slack_client.chat_postMessage.call_args_list]
 
-    def test_mention_dms_the_mentioned_user(self):
+    def test_mention_dms_the_mentioned_user_by_default(self):
         comment = self._comment()
 
         self._record_activity(comment, [self.author.id])
@@ -208,6 +207,16 @@ class TestCommentSlackDm(CommentActivityTestCase):
         self._record_activity(comment, [self.author.id])
 
         assert self._dm_channels() == ["U-author"]
+        assert (
+            f"/code/task/{self.task.id}?comment={comment.id}&scope=desktop_canvas&item={canvas.id}" in self._dm_text()
+        )
+
+    def test_dm_links_to_the_desktop_task_bridge_anchored_on_the_comment(self):
+        comment = self._comment()
+
+        self._record_activity(comment, [self.author.id])
+
+        assert f"/code/task/{self.task.id}?comment={comment.id}" in self._dm_text()
 
     def test_canvas_comment_does_not_dm_a_recipient_without_canvas_access(self):
         personal_channel = Channel.objects.unscoped().create(

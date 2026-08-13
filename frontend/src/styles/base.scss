@@ -1388,6 +1388,7 @@
         margin-bottom: 0.5rem !important;
         font-family: var(--font-sans);
         font-size: 1rem;
+        pointer-events: auto;
         cursor: unset;
         border: 1px solid var(--secondary-3000-button-border);
         border-radius: var(--radius);
@@ -1397,6 +1398,7 @@
 
     .Toastify__toast-container {
         padding: 0;
+        pointer-events: none;
     }
 
     .Toastify__toast-body {

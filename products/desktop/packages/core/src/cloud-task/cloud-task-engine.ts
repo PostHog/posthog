@@ -317,7 +317,7 @@ function createStreamStatusError(status: number): CloudTaskStreamError {
           title: "Cloud authentication expired",
           message: "Please reauthenticate and retry the cloud run stream.",
           retryable: true,
-          autoRetry: false,
+          autoRetry: true,
         },
         status,
       );
@@ -1550,7 +1550,7 @@ export class CloudTaskEngine extends TypedEventEmitter<CloudTaskEvents> {
       }
 
       // Proxy-leg 401: the read token expired or its signing key rotated. Re-resolve to mint a
-      // fresh token (or route back to Django) instead of failing. Django-leg 401 stays fatal below.
+      // fresh token (or route back to Django) instead of failing.
       const unauthorizedWatcher = this.watchers.get(key);
       if (
         error instanceof CloudTaskStreamError &&

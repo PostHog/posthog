@@ -353,10 +353,6 @@ def _blank_inactive_filters(flags_data: list[dict[str, Any]]) -> None:
 
     Order-independent: dependency and cohort extraction guard on ``_is_unevaluable``
     themselves.
-
-    Not folded into ``serialize_feature_flags``, which
-    ``set_feature_flags_for_team_in_cache`` also uses to populate the separate
-    legacy ``team_feature_flags_{project_id}`` cache.
     """
     for flag in flags_data:
         if _is_unevaluable(flag):
