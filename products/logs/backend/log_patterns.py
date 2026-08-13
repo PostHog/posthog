@@ -167,6 +167,9 @@ class _Accumulator:
     first_seen: dt.datetime
     last_seen: dt.datetime
     count: int = 0
+    # Cluster-level, because `examples` is deduped and capped: a truncated sample can be
+    # dropped before it lands there, and the end anchor must still come off.
+    truncated: bool = False
     examples: list[LogSample] = field(default_factory=list)
     services: list[str] = field(default_factory=list)
     bucket_counts: list[int] = field(default_factory=list)
@@ -242,15 +245,18 @@ def pattern_fingerprint(template: str) -> str:
     return "\x00".join(literals) if literals else template
 
 
-def compile_match_regex(template: str, examples: list[LogSample]) -> str | None:
+def compile_match_regex(template: str, examples: list[LogSample], *, truncated: bool | None = None) -> str | None:
     """Compile a mined template into an RE2-safe regex over raw log bodies, self-validated
     against the pattern's own examples.
 
     Returns None rather than an unvalidated predicate: Drain refines templates as rows merge,
     so an early-stored example can diverge from the final template — and a filter that
     silently matches the wrong logs is worse than no filter. Anchored at the start (leading
-    whitespace was stripped before mining); the end anchor is dropped when any example was
-    truncated, since the template then only covers a prefix of the raw line.
+    whitespace was stripped before mining); the end anchor is dropped when the cluster held a
+    truncated body, since the template then only covers a prefix of the raw line.
+
+    Pass `truncated` from the cluster. Falling back to the retained examples under-reports it,
+    because dedup and the example cap can both drop the truncated body.
     """
     if not examples:
         return None
@@ -266,7 +272,8 @@ def compile_match_regex(template: str, examples: list[LogSample]) -> str | None:
         pos = match.end()
     parts.append(_escape_literal(template[pos:]))
 
-    truncated = any(example.truncated for example in examples)
+    if truncated is None:
+        truncated = any(example.truncated for example in examples)
     candidate = r"^\s*" + "".join(parts) + ("" if truncated else r"\s*$")
 
     try:
@@ -347,6 +354,7 @@ def mine_patterns(
                 acc.last_seen = sample.timestamp
 
         acc.count += 1
+        acc.truncated = acc.truncated or prepared.truncated
         severity = sample.severity_text.lower()
         acc.severity_counts[severity] = acc.severity_counts.get(severity, 0) + 1
         if len(acc.examples) < max_examples and all(e.body != prepared.text for e in acc.examples):
@@ -379,7 +387,7 @@ def mine_patterns(
             services=acc.services,
             bucket_counts=acc.bucket_counts,
             severity_counts=acc.severity_counts,
-            match_regex=compile_match_regex(acc.template, acc.examples),
+            match_regex=compile_match_regex(acc.template, acc.examples, truncated=acc.truncated),
             match_literal=extract_match_literal(acc.template),
         )
         for acc in accumulators.values()

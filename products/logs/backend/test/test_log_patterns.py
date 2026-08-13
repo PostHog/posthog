@@ -36,7 +36,6 @@ _gap_st = st.sampled_from([" ", "  ", "\t", "\n", "\r\n", " \n  "])
 
 @st.composite
 def _log_body_st(draw: st.DrawFn) -> str:
-    """A whitespace-separated body of any length."""
     tokens = draw(st.lists(_token_st, min_size=1, max_size=150))
     body = tokens[0]
     for token in tokens[1:]:
@@ -65,7 +64,6 @@ _maskable_st = st.one_of(
 
 @st.composite
 def _log_line_st(draw: st.DrawFn) -> str:
-    """A log-shaped line: literal words and key prefixes mixed with maskable values."""
     parts = draw(
         st.lists(
             st.one_of(_word_st, _maskable_st, st.tuples(_key_st, _maskable_st).map("".join)),
@@ -347,6 +345,22 @@ class TestMinePatterns(TestCase):
         example = patterns[0].examples[0]
         assert len(example.body) <= 512
         assert set(example.body.split(" ")) == {"prefix", "Macintosh"}
+
+    def test_regex_matches_a_long_body_whose_truncated_example_was_dropped(self) -> None:
+        # Truncation is a property of the cluster, not of the examples that survive into it.
+        # The dedup check compares text only, so a long body that prepares to the same text
+        # as a short one leaves no truncated example behind. Deriving the end anchor from the
+        # retained examples then builds a filter that excludes the long line it was mined
+        # from. The example cap drops a truncated example the same way.
+        short = " ".join(f"tok{i}" for i in range(80))
+        long_body = f"{short} {'X' * 60}"
+        assert len(short) < 512 < len(long_body)
+
+        patterns = mine_patterns([_sample(short), _sample(long_body)])
+
+        assert len(patterns) == 1
+        assert patterns[0].match_regex is not None
+        assert re.search(patterns[0].match_regex, long_body)
 
     def test_word_boundary_truncation_still_drops_the_end_anchor(self) -> None:
         # Cutting back to a boundary puts the prepared body under the cap, so a length check
