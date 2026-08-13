@@ -302,7 +302,12 @@ function NotificationsWidget(): JSX.Element {
  */
 function GithubSetupBody(): JSX.Element {
     const { location, searchParams } = useValues(router)
-    return <GithubIntegration next={combineUrl(location.pathname, { ...searchParams, setup: 'github' }).url} />
+    return (
+        <GithubIntegration
+            next={combineUrl(location.pathname, { ...searchParams, setup: 'github' }).url}
+            connectSurface="signals_agent_setup"
+        />
+    )
 }
 
 const SETUP_MODALS: Record<

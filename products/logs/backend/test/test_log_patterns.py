@@ -1,11 +1,19 @@
 import re
 import datetime as dt
+from itertools import zip_longest
 
 from unittest import TestCase
 
+from hypothesis import (
+    given,
+    settings,
+    strategies as st,
+)
 from parameterized import parameterized
 
 from products.logs.backend.log_patterns import (
+    _MASKING_INSTRUCTIONS,
+    _PLACEHOLDER_PATTERNS,
     LogSample,
     compile_match_regex,
     extract_match_literal,
@@ -50,6 +58,22 @@ class TestMinePatterns(TestCase):
         [
             ("numbers", ["Request 123 took 5 ms", "Request 456 took 9 ms"], "<num>", "123"),
             ("ipv4", ["GET from 10.0.0.1", "GET from 192.168.1.1"], "<ip>", "10.0.0.1"),
+            # the version guard keys on the character before the address, so a URL host,
+            # which is the one place an address does follow a "/", must still mask
+            (
+                "ipv4_in_url",
+                ["fetched http://10.0.0.1/health ok", "fetched http://192.168.1.1/health ok"],
+                "<ip>",
+                "10.0.0.1",
+            ),
+            # only a "." that carries on a dotted run rules the address out, so an address
+            # that ends a sentence still masks
+            (
+                "ipv4_at_end_of_sentence",
+                ["closed connection to 10.0.0.1.", "closed connection to 192.168.1.1."],
+                "<ip>",
+                "10.0.0.1",
+            ),
             (
                 "uuid",
                 [
@@ -97,6 +121,21 @@ class TestMinePatterns(TestCase):
         assert patterns[0].count == 2
         assert expected_token in patterns[0].pattern
         assert raw_token not in patterns[0].pattern
+
+    @parameterized.expand(
+        [
+            ("chrome_version", "agent Chrome/139.0.0.0 connected"),
+            ("four_part_release", "rolled out build/2.14.0.3 to canary"),
+            ("longer_dotted_run", "schema version 1.2.3.4.5 loaded"),
+        ]
+    )
+    def test_version_strings_are_not_masked_as_ips(self, _name: str, line: str) -> None:
+        # A dotted quad in a version is indistinguishable from an address by octet range, so
+        # the mask keys on the surrounding characters. Reading "Chrome/<ip>" in a template
+        # sends the reader looking for a network problem that is not there.
+        patterns = mine_patterns([_sample(line)])
+
+        assert "<ip>" not in patterns[0].pattern
 
     def test_error_count_includes_only_error_and_fatal(self) -> None:
         samples = [
@@ -274,3 +313,201 @@ class TestCompileMatchRegex(TestCase):
     )
     def test_extract_match_literal(self, _name: str, template: str, expected: str | None) -> None:
         assert extract_match_literal(template) == expected
+
+
+_uuid_st = st.tuples(st.uuids(), st.booleans()).map(lambda t: str(t[0]).upper() if t[1] else str(t[0]))
+_hex_0x_st = st.text("0123456789abcdefABCDEF", min_size=1, max_size=32).map(lambda s: f"0x{s}")
+_hex_bare_st = st.text("0123456789abcdefABCDEF", min_size=16, max_size=40)
+_num_st = st.integers(min_value=0, max_value=10**12).map(str)
+_word_st = st.text("abcdefghijklmnopqrstuvwxyz", min_size=3, max_size=10)
+
+
+@st.composite
+def _timestamp_st(draw: st.DrawFn) -> str:
+    instant = draw(st.datetimes(min_value=dt.datetime(1000, 1, 1), max_value=dt.datetime(9999, 12, 31, 23, 59, 59)))
+    separator = draw(st.sampled_from(["T", " "]))
+    text = instant.strftime(f"%Y-%m-%d{separator}%H:%M:%S")
+    fraction = draw(st.one_of(st.none(), st.integers(min_value=0, max_value=999_999_999)))
+    if fraction is not None:
+        text += f"{draw(st.sampled_from(['.', ',']))}{fraction}"
+    return text + draw(st.sampled_from(["", "Z", "+00:00", "-05:30", "+0230", "-1145"]))
+
+
+_ipv4_st = st.tuples(*[st.integers(min_value=0, max_value=255)] * 4).map(lambda octets: ".".join(map(str, octets)))
+# Characters an address really follows in a log body. "/" is deliberately absent: that is
+# the one the guard rejects, and the URL case below covers "//" separately.
+_delimiter_st = st.sampled_from([" ", "=", ":", '"', ",", "[", "(", "|"])
+_product_st = st.text("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ", min_size=1, max_size=14)
+_scheme_st = st.sampled_from(["http", "https"])
+
+
+_variable_token_st = st.one_of(_uuid_st, _hex_0x_st, _hex_bare_st, _num_st, _timestamp_st(), _ipv4_st)
+
+
+class TestMaskingProperties(TestCase):
+    def test_every_mask_name_has_a_registered_placeholder(self) -> None:
+        # A masking rule without a placeholder entry produces templates whose match_regex
+        # can never validate, silently degrading the "view matching logs" pivot.
+        for instruction in _MASKING_INSTRUCTIONS:
+            assert f"<{instruction.mask_with}>" in _PLACEHOLDER_PATTERNS
+
+    @given(value=_uuid_st)
+    @settings(deadline=None)
+    def test_any_uuid_masks_to_placeholder(self, value: str) -> None:
+        patterns = mine_patterns([_sample(f"trace {value} start")])
+
+        assert patterns[0].pattern == "trace <uuid> start"
+
+    @given(value=st.one_of(_hex_0x_st, _hex_bare_st))
+    @settings(deadline=None)
+    def test_any_hex_token_masks_to_placeholder(self, value: str) -> None:
+        patterns = mine_patterns([_sample(f"token {value} rejected")])
+
+        assert patterns[0].pattern == "token <hex> rejected"
+
+    @given(value=_num_st)
+    @settings(deadline=None)
+    def test_any_integer_token_masks_to_num(self, value: str) -> None:
+        patterns = mine_patterns([_sample(f"took {value} ms")])
+
+        assert patterns[0].pattern == "took <num> ms"
+
+    @given(value=_timestamp_st())
+    @settings(deadline=None)
+    def test_any_iso_timestamp_masks_to_placeholder(self, value: str) -> None:
+        patterns = mine_patterns([_sample(f"job {value} done")])
+
+        assert patterns[0].pattern == "job <timestamp> done"
+
+    @given(first_instant=_timestamp_st(), second_instant=_timestamp_st())
+    @settings(deadline=None)
+    def test_same_statement_at_two_instants_shares_fingerprint(self, first_instant: str, second_instant: str) -> None:
+        first = mine_patterns([_sample(f"{first_instant} task_retrying attempt=3")])
+        second = mine_patterns([_sample(f"{second_instant} task_retrying attempt=7")])
+
+        assert pattern_fingerprint(first[0].pattern) == pattern_fingerprint(second[0].pattern)
+
+    @given(
+        words=st.lists(_word_st, min_size=1, max_size=6),
+        values=st.lists(_variable_token_st, min_size=1, max_size=4),
+    )
+    @settings(deadline=None)
+    def test_match_regex_round_trips_any_masked_body(self, words: list[str], values: list[str]) -> None:
+        # compile_match_regex validates against the sampled body, so a placeholder pattern
+        # that matches less than its masking rule consumed surfaces here as a None regex.
+        interleaved = [token for pair in zip_longest(words, values) for token in pair if token is not None]
+        body = f"event {' '.join(interleaved)} done"
+        patterns = mine_patterns([_sample(body)])
+
+        assert len(patterns) == 1
+        assert patterns[0].match_regex is not None
+        assert re.search(patterns[0].match_regex, body)
+
+
+_letter_st = st.text("ABCDEFGHIJKLMNOPQRSTUVWXYZ", min_size=1, max_size=2)
+_digit_letter_run_st = st.tuples(st.integers(0, 99), _letter_st, st.integers(0, 999999)).map(
+    lambda t: f"{t[0]}{t[1]}{t[2]}"
+)
+_date_only_st = st.dates(min_value=dt.date(1000, 1, 1)).map(str)
+_minute_timestamp_st = st.datetimes(min_value=dt.datetime(1000, 1, 1)).map(
+    lambda instant: instant.strftime("%Y-%m-%dT%H:%M")
+)
+_letter_hex_st = st.text("abcdef", min_size=4, max_size=12)
+_truncated_uuid_st = st.uuids().map(lambda u: str(u)[:23])
+
+# Tokens the masker deliberately leaves (fully or partly) literal. A pivot regex mined
+# from a masked body must not match a sibling holding one of these in the same slot.
+_five_octet_st = st.tuples(*[st.integers(min_value=0, max_value=255)] * 5).map(
+    lambda octets: ".".join(map(str, octets))
+)
+_versioned_quad_st = st.tuples(_product_st, _ipv4_st).map(lambda t: f"{t[0]}/{t[1]}")
+# One row per (masked kind, confusable neighbor). Both halves of the row matter: the mask
+# has to tell the pair apart, and so does the pivot regex the mask produces. A single
+# union-of-everything property dilutes each pair to a fraction of the example budget, so
+# every pair draws its own.
+_CONFUSABLE_PAIRS = [
+    ("num_vs_digit_letter_run", _num_st, _digit_letter_run_st),
+    ("timestamp_vs_digit_letter_run", _timestamp_st(), _digit_letter_run_st),
+    ("timestamp_vs_date_only", _timestamp_st(), _date_only_st),
+    ("timestamp_vs_minute_precision", _timestamp_st(), _minute_timestamp_st),
+    ("uuid_vs_truncated_uuid", _uuid_st, _truncated_uuid_st),
+    ("hex_vs_letter_only_hex", st.one_of(_hex_0x_st, _hex_bare_st), _letter_hex_st),
+    ("ip_vs_five_octets", _ipv4_st, _five_octet_st),
+    ("ip_vs_versioned_quad", _ipv4_st, _versioned_quad_st),
+]
+
+
+class TestPivotSoundness(TestCase):
+    @parameterized.expand([(name,) for name, _, _ in _CONFUSABLE_PAIRS])
+    @given(data=st.data())
+    @settings(deadline=None)
+    def test_confusable_neighbor_stays_distinguishable(self, name: str, data: st.DataObject) -> None:
+        value_st, impostor_st = next((v, i) for n, v, i in _CONFUSABLE_PAIRS if n == name)
+        value_body = f"event {data.draw(value_st)} done"
+        impostor_body = f"event {data.draw(impostor_st)} done"
+
+        mined = mine_patterns([_sample(value_body)])[0]
+        impostor_template = mine_patterns([_sample(impostor_body)])[0].pattern
+
+        # A masking rule that also swallows its neighbor erases the literal content the
+        # template exists to show. Asserted first, and unconditionally: guarding the pivot
+        # check on "the templates differ" makes an over-broad mask pass by doing nothing.
+        assert impostor_template != mined.pattern
+        # A placeholder broader than the rule that produced it pulls unrelated lines into
+        # the "view matching logs" pivot.
+        assert mined.match_regex is not None
+        assert not re.search(mined.match_regex, impostor_body)
+
+
+class TestIpMaskProperties(TestCase):
+    """The cases above pin specific addresses; these hold the guard over every octet value.
+
+    The guard reads the characters around the address, so the property that matters is which
+    contexts still mask and which no longer do, across the whole address space.
+    """
+
+    @given(address=_ipv4_st, delimiter=_delimiter_st)
+    @settings(max_examples=400, deadline=None)
+    def test_any_address_after_a_plain_delimiter_masks(self, address: str, delimiter: str) -> None:
+        patterns = mine_patterns([_sample(f"peer{delimiter}{address} closed")])
+
+        assert "<ip>" in patterns[0].pattern
+        assert address not in patterns[0].pattern
+
+    @given(address=_ipv4_st, product=_product_st)
+    @settings(max_examples=400, deadline=None)
+    def test_no_address_is_read_out_of_a_version_after_a_product_name(self, address: str, product: str) -> None:
+        # Every dotted quad is a valid version string too, so this has to hold for all of
+        # them, not only for the browser builds the example cases use.
+        patterns = mine_patterns([_sample(f"agent {product}/{address} connected")])
+
+        assert "<ip>" not in patterns[0].pattern
+
+    @given(address=_ipv4_st)
+    @settings(max_examples=400, deadline=None)
+    def test_any_address_that_ends_a_sentence_masks(self, address: str) -> None:
+        # The trailing guard exists to keep the mask off a longer dotted run, so it has to
+        # let a "." that ends the line through, whatever the last octet is.
+        patterns = mine_patterns([_sample(f"closed connection to {address}.")])
+
+        assert "<ip>" in patterns[0].pattern
+        assert address not in patterns[0].pattern
+
+    @given(run=_five_octet_st)
+    @settings(max_examples=400, deadline=None)
+    def test_no_address_is_read_out_of_a_longer_dotted_run(self, run: str) -> None:
+        # The trailing guard turns on whether the next "." carries on the run, so the octet
+        # values are what decide it, and neither the head nor the tail of the run may mask.
+        patterns = mine_patterns([_sample(f"schema version {run} loaded")])
+
+        assert "<ip>" not in patterns[0].pattern
+
+    @given(address=_ipv4_st, scheme=_scheme_st)
+    @settings(max_examples=400, deadline=None)
+    def test_any_address_in_a_url_still_masks(self, address: str, scheme: str) -> None:
+        # A URL host is the one place an address does follow a "/". An earlier version of the
+        # guard blocked every "/" and silently stopped masking these.
+        patterns = mine_patterns([_sample(f"GET {scheme}://{address}/health ok")])
+
+        assert "<ip>" in patterns[0].pattern
+        assert address not in patterns[0].pattern

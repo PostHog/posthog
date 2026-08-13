@@ -345,29 +345,33 @@ export function LogsServices(): JSX.Element {
                     />
                 </div>
             </div>
-            {/* Pagination and sorting are controlled by the logic (which passes in the
-                pre-sorted page slice) so it knows which rows are visible and can lazy-load
-                their sparklines; the backend only sparklines the top rows per request. */}
-            <LemonTable
-                columns={columns}
-                dataSource={pageRows}
-                loading={servicesDataLoading}
-                sorting={sorting}
-                onSort={(newSorting) => setSorting(newSorting)}
-                useURLForSorting={false}
-                pagination={{
-                    controlled: true,
-                    pageSize: SERVICES_PAGE_SIZE,
-                    currentPage: page,
-                    entryCount: services.length,
-                    onForward: () => setPage(page + 1),
-                    onBackward: () => setPage(page - 1),
-                    useUrl: false,
-                }}
-                emptyState={searchTerm ? 'No services match your search' : 'No services found in this time range'}
-                rowKey="service_name"
-                size="small"
-            />
+            {/* The scene container is a fixed height, so this region scrolls. Without it the
+                table is squeezed and clips its own last rows and the pagination control. */}
+            <div className="flex-1 min-h-0 overflow-y-auto">
+                {/* Pagination and sorting are controlled by the logic (which passes in the
+                    pre-sorted page slice) so it knows which rows are visible and can lazy-load
+                    their sparklines; the backend only sparklines the top rows per request. */}
+                <LemonTable
+                    columns={columns}
+                    dataSource={pageRows}
+                    loading={servicesDataLoading}
+                    sorting={sorting}
+                    onSort={(newSorting) => setSorting(newSorting)}
+                    useURLForSorting={false}
+                    pagination={{
+                        controlled: true,
+                        pageSize: SERVICES_PAGE_SIZE,
+                        currentPage: page,
+                        entryCount: services.length,
+                        onForward: () => setPage(page + 1),
+                        onBackward: () => setPage(page - 1),
+                        useUrl: false,
+                    }}
+                    emptyState={searchTerm ? 'No services match your search' : 'No services found in this time range'}
+                    rowKey="service_name"
+                    size="small"
+                />
+            </div>
         </div>
     )
 }
