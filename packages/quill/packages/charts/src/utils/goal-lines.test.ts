@@ -1,5 +1,10 @@
 import type { Series } from '../core/types'
-import { buildGoalLineReferenceLines, computeSeriesNonZeroMax, type GoalLineConfig } from './goal-lines'
+import {
+    buildGoalLineReferenceLines,
+    computeSeriesNonZeroMax,
+    mergeValueDomains,
+    type GoalLineConfig,
+} from './goal-lines'
 
 const makeSeries = (data: number[], overrides: Partial<Series> = {}): Series => ({
     key: 'a',
@@ -79,6 +84,16 @@ describe('goal-lines', () => {
                 { label: 'Explicit', value: 5, displayIfCrossed: true },
             ]
             expect(buildGoalLineReferenceLines(lines, series)).toHaveLength(2)
+        })
+    })
+
+    describe('mergeValueDomains', () => {
+        it.each([
+            ['returns the defined side when the other is undefined', undefined, { include: [5] }, { include: [5] }],
+            ['a fixed domain wins over an include set', [0, 10] as const, { include: [50] }, [0, 10]],
+            ['two include sets merge', { include: [5] }, { include: [50] }, { include: [5, 50] }],
+        ] as const)('%s', (_, a, b, expected) => {
+            expect(mergeValueDomains(a, b)).toEqual(expected)
         })
     })
 })

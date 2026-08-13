@@ -4,6 +4,8 @@ import {
   Copy,
   FileText,
   Scroll,
+  ThumbsDown,
+  ThumbsUp,
 } from "@phosphor-icons/react";
 import { WorkerPoolContextProvider } from "@pierre/diffs/react";
 import { useService } from "@posthog/di/react";
@@ -36,8 +38,12 @@ import {
   useChatMessageScrollerScrollable,
   useChatMessageScrollerVisibility,
 } from "@posthog/quill";
-import type { AcpMessage, AgentConversationEvent } from "@posthog/shared";
-import { PROJECT_BLUEBIRD_FLAG } from "@posthog/shared";
+import type {
+  AcpMessage,
+  AgentConversationEvent,
+  AgentTurnFeedbackSentiment,
+} from "@posthog/shared";
+import { ANALYTICS_EVENTS, PROJECT_BLUEBIRD_FLAG } from "@posthog/shared";
 import type { Task } from "@posthog/shared/domain-types";
 import { SHORTCUTS } from "@posthog/ui/features/command/keyboard-shortcuts";
 import { useSmoothedText } from "@posthog/ui/features/editor/components/useSmoothedText";
@@ -47,7 +53,6 @@ import type {
   BuildResult,
   ConversationItem,
 } from "@posthog/ui/features/sessions/components/buildConversationItems";
-import { CloudArtifactDownloads } from "@posthog/ui/features/sessions/components/CloudArtifactDownloads";
 import {
   ChatMarkdown,
   ChatStreamingMarkdown,
@@ -83,7 +88,10 @@ import {
 import { buildTurnCopyText } from "@posthog/ui/features/sessions/components/chat-thread/turnCopyText";
 import { usePromptRecallSource } from "@posthog/ui/features/sessions/components/chat-thread/usePromptRecallSource";
 import { VirtualThreadScrollBody } from "@posthog/ui/features/sessions/components/chat-thread/VirtualThreadScrollBody";
-import { copyFromContextMenu } from "@posthog/ui/features/sessions/components/copyContextTarget";
+import {
+  copyFromContextMenu,
+  getSelectionWithin,
+} from "@posthog/ui/features/sessions/components/copyContextTarget";
 import { GitActionMessage } from "@posthog/ui/features/sessions/components/GitActionMessage";
 import { GitActionResult } from "@posthog/ui/features/sessions/components/GitActionResult";
 import { isUserInitiatedConversationItem } from "@posthog/ui/features/sessions/components/isUserInitiatedConversationItem";
@@ -114,6 +122,7 @@ import {
 import {
   useSessionViewActions,
   useShowRawLogs,
+  useTurnFeedback,
 } from "@posthog/ui/features/sessions/sessionViewStore";
 import { useThreadScrollRequest } from "@posthog/ui/features/sessions/threadNavigationStore";
 import type { UserMessageAttachment } from "@posthog/ui/features/sessions/userMessageTypes";
@@ -125,6 +134,7 @@ import { useSettingsStore } from "@posthog/ui/features/settings/settingsStore";
 import { SkillButtonActionMessage } from "@posthog/ui/features/skill-buttons/components/SkillButtonActionMessage";
 import { toast } from "@posthog/ui/primitives/toast";
 import { useCopy } from "@posthog/ui/primitives/useCopy";
+import { track } from "@posthog/ui/shell/analytics";
 import {
   DIFF_WORKER_FACTORY,
   type DiffWorkerFactory,
@@ -318,56 +328,143 @@ function formatTimestamp(ts: number): string {
 }
 
 /**
- * Hover-revealed footer under a completed agent turn: the turn's timestamp plus a button copying
- * the agent response. Rendered right-aligned under agent-side content — the end-aligned user bubble
- * keeps its own footer — inside a `group` container, so it fades in only while that turn is
- * hovered. Once per turn rather than per row, which was too noisy.
+ * Hover-revealed footer under a completed agent turn: the turn's timestamp, a button copying the
+ * agent response, and thumbs to rate it. Rendered right-aligned under agent-side content — the
+ * end-aligned user bubble keeps its own footer — inside a `group` container, so it fades in only
+ * while that turn is hovered. Once per turn rather than per row, which was too noisy.
+ *
+ * A rated turn keeps its footer on screen, so the reader can see which thumb they picked without
+ * hovering to find out.
  */
 function TurnFooter({
+  turnId,
   timestamp,
   copyText,
 }: {
+  turnId: string;
   timestamp?: number;
   copyText?: string;
 }) {
+  const sentiment = useTurnFeedback(turnId);
   if (timestamp == null) return null;
   return (
-    <ChatMessageFooter className="mt-2 items-center justify-end gap-1 pl-0 opacity-0 transition-opacity group-hover:opacity-100">
+    <ChatMessageFooter
+      className={cn(
+        "mt-2 items-center justify-end gap-1 pl-0 transition-opacity",
+        sentiment ? "opacity-100" : "opacity-0 group-hover:opacity-100",
+      )}
+    >
       <span className="text-muted-foreground">
         {formatTimestamp(timestamp)}
       </span>
       {copyText && <CopyButton value={copyText} label="Copy turn" />}
+      <TurnFeedback turnId={turnId} sentiment={sentiment} />
     </ChatMessageFooter>
   );
 }
 
 /**
- * Shared copy affordance for the message and turn footers. Stays muted whether idle or just-copied —
- * the icon swap is the confirmation, so the row never lights up in a colour the thread doesn't use
- * elsewhere.
+ * Thumbs on a completed agent turn, next to the copy button rather than behind the right-click
+ * menu — rating a reply is a thing you do to the message, not to the text you happen to have
+ * highlighted.
+ *
+ * The rating submits on the first click and is analytics-only: it never changes the session, so
+ * there is nothing to confirm. Re-clicking the lit thumb is a no-op rather than a second identical
+ * event; switching thumbs records the new sentiment.
  */
-function CopyButton({ value, label }: { value: string; label: string }) {
-  const { copied, copy } = useCopy();
-  const [hovered, setHovered] = useState(false);
+function TurnFeedback({
+  turnId,
+  sentiment,
+}: {
+  turnId: string;
+  sentiment: AgentTurnFeedbackSentiment | null;
+}) {
+  const taskId = useSessionTaskId();
+  const { setTurnFeedback } = useSessionViewActions();
+
+  const rate = (next: AgentTurnFeedbackSentiment) => {
+    if (sentiment === next) return;
+    setTurnFeedback(turnId, next);
+    track(ANALYTICS_EVENTS.AGENT_TURN_FEEDBACK, {
+      task_id: taskId,
+      turn_id: turnId,
+      sentiment: next,
+    });
+  };
+
   return (
-    // Held open for the life of the `copied` window so the confirmation lands even when the click
-    // moves the pointer off the button; hover drives it the rest of the time.
-    <Tooltip open={copied || hovered} onOpenChange={setHovered}>
+    <>
+      <FooterIconButton label="Good response" onClick={() => rate("positive")}>
+        <ThumbsUp
+          size={12}
+          weight={sentiment === "positive" ? "fill" : undefined}
+        />
+      </FooterIconButton>
+      <FooterIconButton label="Bad response" onClick={() => rate("negative")}>
+        <ThumbsDown
+          size={12}
+          weight={sentiment === "negative" ? "fill" : undefined}
+        />
+      </FooterIconButton>
+    </>
+  );
+}
+
+/**
+ * Shared icon affordance for the message and turn footers. Stays muted whether idle or active — the
+ * icon carries the state, so the row never lights up in a colour the thread doesn't use elsewhere.
+ */
+function FooterIconButton({
+  label,
+  tooltip,
+  open,
+  onOpenChange,
+  onClick,
+  children,
+}: {
+  label: string;
+  /** Defaults to `label`; pass it separately when the tooltip has to say more than the button is. */
+  tooltip?: string;
+  open?: boolean;
+  onOpenChange?: (open: boolean) => void;
+  onClick: () => void;
+  children: ReactNode;
+}) {
+  return (
+    <Tooltip open={open} onOpenChange={onOpenChange}>
       <TooltipTrigger
         render={
           <Button
             variant="default"
             size="icon-xs"
             aria-label={label}
-            onClick={() => copy(value)}
+            onClick={onClick}
             className="text-muted-foreground hover:text-foreground"
           >
-            {copied ? <Check size={12} /> : <Copy size={12} />}
+            {children}
           </Button>
         }
       />
-      <TooltipContent>{copied ? "Copied!" : label}</TooltipContent>
+      <TooltipContent>{tooltip ?? label}</TooltipContent>
     </Tooltip>
+  );
+}
+
+function CopyButton({ value, label }: { value: string; label: string }) {
+  const { copied, copy } = useCopy();
+  const [hovered, setHovered] = useState(false);
+  return (
+    // Held open for the life of the `copied` window so the confirmation lands even when the click
+    // moves the pointer off the button; hover drives it the rest of the time.
+    <FooterIconButton
+      label={label}
+      tooltip={copied ? "Copied!" : label}
+      open={copied || hovered}
+      onOpenChange={setHovered}
+      onClick={() => copy(value)}
+    >
+      {copied ? <Check size={12} /> : <Copy size={12} />}
+    </FooterIconButton>
   );
 }
 
@@ -562,6 +659,10 @@ function UserBubble({
  * carries that menu's raw-logs toggle; without it, right-clicking a message would be the one spot
  * in the session where the toggle went missing.
  *
+ * Highlighted text wins over the message: right-clicking a selection copies just that, as it does
+ * outside the app. The whole message is the fallback for a right-click with nothing selected, and
+ * stays reachable without the menu through the footer's copy button.
+ *
  * The write goes through {@link copyFromContextMenu}: a synchronous write from a closing menu
  * rejects while focus is still being restored, and both outcomes surface as toasts — a silent
  * failure would leave the clipboard's previous contents where the user believes the message is.
@@ -575,20 +676,27 @@ function MessageContextMenu({
 }) {
   const showRawLogs = useShowRawLogs();
   const { setShowRawLogs } = useSessionViewActions();
+  const [selection, setSelection] = useState<string | null>(null);
   return (
     <ContextMenu>
-      <ContextMenuTrigger className="select-text" render={children} />
+      <ContextMenuTrigger
+        className="select-text"
+        onContextMenu={(event) =>
+          setSelection(getSelectionWithin(event.currentTarget))
+        }
+        render={children}
+      />
       <ContextMenuContent>
         <ContextMenuItem
           onClick={() =>
-            copyFromContextMenu(value, {
+            copyFromContextMenu(selection ?? value, {
               onSuccess: () => toast.success("Copied"),
               onError: () => toast.error("Couldn't copy"),
             })
           }
         >
           <Copy size={14} />
-          Copy message
+          {selection ? "Copy selection" : "Copy message"}
         </ContextMenuItem>
         <ContextMenuSeparator />
         <ContextMenuItem onClick={() => setShowRawLogs(!showRawLogs)}>
@@ -719,6 +827,7 @@ const ThreadRow = memo(function ThreadRow({
           ))}
         </div>
         <TurnFooter
+          turnId={item.id}
           timestamp={completedTurnTimestamp(item)}
           copyText={buildTurnCopyText(item.items) ?? undefined}
         />
@@ -1088,8 +1197,9 @@ const FlatRowView = memo(
           isTrailing={row.isTrailingInTurn}
           keyboardFocused={keyboardFocused}
         />
-        {row.turnTimestamp != null && (
+        {row.turnId != null && row.turnTimestamp != null && (
           <TurnFooter
+            turnId={row.turnId}
             timestamp={row.turnTimestamp}
             copyText={row.turnCopyText}
           />
@@ -1327,7 +1437,6 @@ function ChatThreadRenderer({
 
   const footer = (
     <>
-      <CloudArtifactDownloads taskId={taskId} task={task} />
       <ChatThreadFooter
         events={footerEvents}
         isPromptPending={isPromptPending}
