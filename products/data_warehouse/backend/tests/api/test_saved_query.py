@@ -2335,6 +2335,39 @@ class TestSavedQueryRunV2Aware(APIBaseTest):
         self.assertEqual(response.status_code, 400, response.content)
         mock_sync_connect.assert_not_called()
 
+    @patch("products.data_warehouse.backend.presentation.views.saved_query.sync_connect")
+    def test_cancel_attempts_every_running_workflow_when_one_fails(self, mock_sync_connect):
+        saved_query, _dag, _node = self._make_saved_query_with_node("partial_cancel_view")
+        for workflow_id in ("materialize-view-1-unreachable", "materialize-view-2-healthy"):
+            DataModelingJob.objects.create(
+                team=self.team,
+                saved_query=saved_query,
+                status=DataModelingJob.Status.RUNNING,
+                workflow_id=workflow_id,
+                workflow_run_id="run-id-1",
+            )
+
+        healthy_handle = AsyncMock()
+
+        def handle_for(workflow_id, run_id=None):
+            if workflow_id == "materialize-view-1-unreachable":
+                raise RuntimeError("temporal refused the handle")
+            return healthy_handle
+
+        mock_client = mock.MagicMock()
+        mock_client.get_workflow_handle.side_effect = handle_for
+        mock_sync_connect.return_value = mock_client
+
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/warehouse_saved_queries/{saved_query.id}/cancel/",
+        )
+
+        self.assertEqual(response.status_code, 500, response.content)
+        self.assertEqual(mock_client.get_workflow_handle.call_count, 2)
+        healthy_handle.cancel.assert_awaited_once()
+        saved_query.refresh_from_db()
+        self.assertNotEqual(saved_query.status, DataWarehouseSavedQuery.Status.CANCELLED)
+
 
 class TestSavedQueryDescription(APIBaseTest):
     def _base(self) -> str:

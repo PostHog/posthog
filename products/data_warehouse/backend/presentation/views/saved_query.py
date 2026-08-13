@@ -1,4 +1,5 @@
 import uuid
+from dataclasses import dataclass
 from datetime import datetime, timedelta
 from typing import Any, cast
 
@@ -75,6 +76,13 @@ from products.warehouse_sources.backend.facade.models import (
 )
 
 logger = structlog.get_logger(__name__)
+
+
+@dataclass(frozen=True, kw_only=True)
+class _CancelTarget:
+    workflow_id: str
+    workflow_run_id: str | None
+
 
 # A DataWarehouseSavedQuery's activity log also records materialization syncs and status
 # transitions (activity="sync_triggered", status changes) that advance the log without the query
@@ -1453,8 +1461,8 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, AccessControlViewSe
         """Cancel a running saved query workflow."""
         saved_query = self.get_object()
 
-        running_workflows = {
-            (job.workflow_id, job.workflow_run_id)
+        targets = {
+            _CancelTarget(workflow_id=job.workflow_id, workflow_run_id=job.workflow_run_id)
             for job in DataModelingJob.objects.filter(
                 team_id=self.team_id,
                 saved_query=saved_query,
@@ -1463,25 +1471,34 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, AccessControlViewSe
             if job.workflow_id
         }
 
-        if not running_workflows:
+        if not targets:
             return response.Response(
                 {"error": "Cannot cancel a query that is not running"}, status=status.HTTP_400_BAD_REQUEST
             )
 
         temporal = sync_connect()
+        failed = False
 
-        try:
-            for workflow_id, workflow_run_id in running_workflows:
-                workflow_handle = temporal.get_workflow_handle(workflow_id, run_id=workflow_run_id)
+        for target in sorted(targets, key=lambda target: target.workflow_id):
+            try:
+                workflow_handle = temporal.get_workflow_handle(target.workflow_id, run_id=target.workflow_run_id)
                 async_to_sync(workflow_handle.cancel)()
+            except Exception as e:
+                failed = True
+                logger.exception(
+                    "Failed to cancel workflow",
+                    saved_query_id=str(saved_query.id),
+                    workflow_id=target.workflow_id,
+                    error=str(e),
+                )
 
-            saved_query.status = DataWarehouseSavedQuery.Status.CANCELLED
-            saved_query.save()
-        except Exception as e:
-            logger.exception("Failed to cancel workflow", saved_query_id=str(saved_query.id), error=str(e))
+        if failed:
             return response.Response(
                 {"error": "Failed to cancel workflow"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR
             )
+
+        saved_query.status = DataWarehouseSavedQuery.Status.CANCELLED
+        saved_query.save()
 
         log_activity(
             organization_id=self.team.organization_id,
