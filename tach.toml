@@ -543,6 +543,7 @@ path = "products.notebooks"
 depends_on = [
     "ee",
     "posthog",
+    "products.canvas",
     "products.product_analytics",
     "products.tasks",
 ]
@@ -823,6 +824,7 @@ layer = "modules"
 # the Celery registrations posthog/tasks/scheduled.py imports.
 [[interfaces]]
 expose = [
+    "backend\\.facade.*",
     "backend\\.routes.*",
 ]
 from = [

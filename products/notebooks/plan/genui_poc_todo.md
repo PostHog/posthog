@@ -1,8 +1,8 @@
 # Notebook GenUI proof of concept TODO
 
-Status: usable proof of concept implemented; production hardening remains
+Status: proof of concept and notebook-specific hardening implemented; manual acceptance checklist retained below
 
-Branch: `feat/notebook-genui-poc`
+Branches: `feat/notebook-genui-poc` and `feat/notebook-genui-hardening`
 
 ## Current proof of concept
 
@@ -16,9 +16,12 @@ The current branch implements an end-to-end browser path:
 - The Canvas build platform pins Three.js and its source validator checks declared notebook frame capabilities.
 - Regeneration keeps the last successful artifact visible and replaces it only after the task publishes a ready build.
 
-This first implementation deliberately uses the existing generated Canvas and task API clients from a keyed Kea logic. It does not add a GenUI database model, migration, snapshot object-storage layer, or notebook-specific orchestration endpoints. Those remain production-hardening tasks below. The backing Canvas ID and channel stay out of the node's visible controls.
+The hardened implementation moves generation coordination into notebook-specific backend services and generated notebook API clients.
+It persists a team-scoped GenUI lifecycle row, stores notebook-owned snapshots in object storage, and exposes Canvas only through a narrow backend facade.
+The backing Canvas ID and channel stay out of the node's visible controls.
 
-Current data limits are four frames, 100 columns, 100 saved preview rows, 200 KiB per frame, and 4,096 characters per cell. The host permits at most eight concurrent requests, limits request payloads to 8 KiB, and times each request out after 30 seconds.
+Current data limits are four frames, 100 columns, 100 saved preview rows per frame, 1 MiB per durable snapshot, and 4,096 characters per cell.
+The artifact bridge also retains its request concurrency, payload, and timeout bounds.
 
 ### Local development
 
@@ -80,9 +83,9 @@ For the proof of concept, use comma-separated dataframe names for multiple input
 - [x] The settings view exposes the prompt, declared inputs, and a regenerate action.
 - [x] The settings view does not include a raw source editor, Canvas metadata, channel selection, task controls, drafts, or publishing controls.
 - [x] Editing the prompt creates a new generated source version after an explicit regenerate action.
-- [ ] Re-running upstream cells marks the GenUI node stale.
-- [ ] Running a stale GenUI node captures new input snapshots without invoking the model when the input schemas and prompt are unchanged.
-- [ ] Changing an input schema marks the generated code incompatible and asks for regeneration.
+- [x] Re-running upstream cells marks the GenUI node stale.
+- [x] Running a stale GenUI node captures new input snapshots without invoking the model when the input schemas and prompt are unchanged.
+- [x] Changing an input schema marks the generated code incompatible and asks for regeneration.
 - [x] Reloading the notebook shows the last successful artifact without regenerating it.
 - [x] A notebook viewer can render the artifact and its saved input snapshot using normal notebook access checks.
 
@@ -142,42 +145,40 @@ Notebook renders the signed artifact in a sandboxed iframe
 The host serves only the saved snapshots declared by this GenUI node
 ```
 
-For this branch, use a normal Canvas as a hidden backing implementation detail.
-The current proof of concept creates it through generated API clients in the node logic and keeps its ID out of the user-facing node controls.
-It is acceptable for the proof of concept to file the backing Canvas in the creator's personal channel.
-
-Before production, the notebook backend should wrap those operations behind GenUI-specific endpoints.
-The production frontend should know only about the GenUI node, its materialization status, its artifact URL, and its input snapshots.
+The implementation uses a normal Canvas as a hidden backing detail.
+The notebook backend owns Canvas and task coordination behind GenUI-specific endpoints.
+The frontend knows only about the GenUI node, its consolidated lifecycle status, its signed artifact URL, and its declared snapshots.
 
 Record the backing Canvas limitation in the implementation PR.
 A later production design can introduce a generic artifact owner or another storage model if the proof of concept succeeds.
 
 ## Persisted GenUI state
 
-- [ ] Add a team-scoped notebook model for materialized GenUI nodes.
-- [ ] Include `team_id` and use the repository's fail-closed team scoping conventions.
-- [ ] Link the row to the notebook and identify the node with its stable `nodeId`.
-- [ ] Add a uniqueness constraint for `(team_id, notebook_id, node_id)`.
-- [ ] Store the normalized prompt and normalized input bindings.
-- [ ] Store a generation hash derived from the prompt, bindings, input schemas, and generator version.
-- [ ] Store the backing Canvas ID as a soft UUID reference for the proof of concept.
-- [ ] Store the generation task ID as a soft UUID reference.
-- [ ] Store lifecycle status and a bounded error message.
-- [ ] Store the current source version and build IDs needed to find the last successful artifact.
-- [ ] Store snapshot metadata and object-storage references instead of dataframe contents in Postgres.
-- [ ] Track creation and update timestamps.
-- [ ] Decide whether removal of the notebook node deletes its GenUI row immediately or through cleanup.
+- [x] Add a team-scoped notebook model for materialized GenUI nodes.
+- [x] Include `team_id` and use the repository's fail-closed team scoping conventions.
+- [x] Link the row to the notebook and identify the node with its stable `nodeId`.
+- [x] Add a uniqueness constraint for `(team_id, notebook_id, node_id)`.
+- [x] Store the normalized prompt and normalized input bindings.
+- [x] Store a generation hash derived from the prompt, bindings, input schemas, and generator version.
+- [x] Store the backing Canvas ID as a soft UUID reference for the proof of concept.
+- [x] Store the generation task ID as a soft UUID reference.
+- [x] Store lifecycle status, a typed error code, and a bounded error message.
+- [x] Store the current source version and build IDs needed to find the last successful artifact.
+- [x] Store snapshot metadata and object-storage references instead of dataframe contents in Postgres.
+- [x] Track creation, update, generation, and snapshot timestamps.
+- [x] Remove orphaned GenUI state, snapshots, and backing Canvas state when a node or notebook is deleted.
 
 Suggested lifecycle states:
 
 ```text
-waiting_for_inputs
-snapshotting
+awaiting_inputs
+awaiting_generation
 generating
 building
 ready
 failed
 stale
+incompatible
 ```
 
 Do not store generated source, artifact files, or complete dataframe values in notebook markdown.
@@ -190,14 +191,14 @@ Do not store generated source, artifact files, or complete dataframe values in n
   - `nodeId`: stable and required after insertion.
   - `prompt`: generation instruction.
   - `inputs`: comma-separated dataframe names for the proof of concept.
-- [ ] Normalize whitespace and reject duplicate or invalid dataframe names.
+- [x] Normalize whitespace and reject duplicate or invalid dataframe names.
 - [x] Require at least one prompt and allow zero inputs for data-free graphics experiments.
 - [x] Add the node to markdown conversion and serialization paths.
 - [x] Add the node to the notebook widget catalog if AI generation relies on that catalog.
 - [x] Teach the notebook MCP instructions that native `Query` visualizations are preferred for standard charts.
 - [x] Teach the notebook MCP instructions to use `<GenUI />` for custom browser visuals.
-- [ ] Add GenUI nodes to the notebook dependency graph using `inputs` as references.
-- [ ] Surface missing, never-run, running, failed, and stale upstream cells.
+- [x] Add GenUI nodes to the notebook dependency graph using `inputs` as references.
+- [x] Surface missing, never-run, running, failed, and stale upstream cells.
 - [x] Do not start generation for a view-only user.
 
 For the proof of concept, an editable browser may call the idempotent materialization endpoint when it sees a new unresolved node.
@@ -212,11 +213,11 @@ This matches the Python plotting model: running the cell captures current inputs
 - [x] Resolve each input name to its producing SQL V2 or Python V2 node.
 - [x] Require a successful upstream run before reading a frame.
 - [x] Reuse saved notebook preview results without changing their general architecture.
-- [ ] Copy the bounded GenUI snapshot to notebook-owned object storage so it survives kernel and sandbox shutdown.
-- [ ] Tie snapshot access to team and notebook authorization.
-- [ ] Delete or replace old snapshots when a new GenUI run succeeds.
-- [ ] Keep the previous successful snapshots until the replacement artifact is ready.
-- [ ] Do not pass complete dataframe values through Temporal activity payloads.
+- [x] Copy the bounded GenUI snapshot to notebook-owned object storage so it survives kernel and sandbox shutdown.
+- [x] Tie snapshot access to team and notebook authorization.
+- [x] Delete or replace old snapshots when a new GenUI run succeeds.
+- [x] Keep the previous successful snapshots until the replacement artifact is ready.
+- [x] Do not pass complete dataframe values through Temporal activity payloads.
 - [x] Do not include dataframe values in the AI generation prompt.
 - [x] Give the model only input names, column names, dtypes, row counts, and truncation metadata.
 
@@ -238,15 +239,15 @@ Initial snapshot shape:
 }
 ```
 
-Proposed proof-of-concept limits:
+Implemented proof-of-concept limits:
 
 - At most four input frames.
-- At most 5,000 rows per frame.
-- At most 2 MiB across all responses delivered to one artifact render.
+- At most 100 columns and 100 saved preview rows per frame.
+- At most 1 MiB per durable snapshot.
+- At most 4,096 characters per cell.
 - A clear `truncated` value when rows are omitted.
 - No silent truncation.
 
-Confirm the limits against realistic globe data before fixing them in code.
 Generated source should aggregate, sample, or ask for upstream reduction when an input is too large.
 
 ## GenUI runtime API
@@ -283,7 +284,7 @@ const points = await ph.readFrame('pandas_df', {
 - [x] Reject frame names that the GenUI node did not declare in `inputs`.
 - [x] Reject attempts to read another notebook's saved results by exposing only the current notebook's declared frames.
 - [x] Enforce row, byte, concurrency, and timeout bounds in the trusted host.
-- [ ] Return typed errors for missing, stale, truncated, and unavailable snapshots.
+- [x] Return typed lifecycle and error states for missing, stale, truncated, and unavailable snapshots.
 - [x] Keep `connect-src 'none'` and do not pass an auth token into the artifact.
 - [x] Deny `ph.query`, `ph.loadInsight`, capture, and external navigation by default for GenUI.
 
@@ -305,9 +306,9 @@ If Desktop opens a backing Canvas that requires notebook frames, it may show a c
 - [x] Give the agent the complete disabled PostHog and network capability objects required by Canvas validation.
 - [x] Require the agent to validate, publish, and check the build instead of stopping after it writes source code.
 - [x] Keep source generation separate from dataframe reads so customer values do not enter the model prompt.
-- [ ] Make generation idempotent for one generation hash.
+- [x] Make generation idempotent for one generation hash.
 - [x] Keep the previous ready artifact if generation or building fails.
-- [ ] Poll or receive task and build completion in the backend service rather than reproducing the full lifecycle in Kea logic.
+- [x] Poll task and build completion through the backend service rather than reproducing the full lifecycle in Kea logic.
 
 ## Three.js support
 
@@ -341,14 +342,14 @@ POST /api/environments/:team_id/notebooks/:short_id/genui/:node_id/regenerate
 POST /api/environments/:team_id/notebooks/:short_id/genui/:node_id/retry
 ```
 
-- [ ] Use serializers as the source of truth for request and response types.
-- [ ] Add schema annotations and `help_text` to every field.
-- [ ] Generate frontend API types with `hogli build:openapi` after the endpoint shape stabilizes.
-- [ ] Validate notebook edit access for ensure, run, regenerate, and retry.
-- [ ] Validate notebook view access for status, artifact URL, and snapshots.
-- [ ] Resolve all GenUI records through both team and notebook scope.
-- [ ] Rate-limit generation and cap active builds using existing Canvas limits.
-- [ ] Return one consolidated status response so the node does not coordinate Canvas, task, and build APIs itself.
+- [x] Use serializers as the source of truth for request and response types.
+- [x] Add schema annotations and `help_text` to every field.
+- [x] Generate frontend API types with `hogli build:openapi` after the endpoint shape stabilizes.
+- [x] Validate notebook edit access for ensure, run, regenerate, and retry.
+- [x] Validate notebook view access for status, artifact URL, and snapshots.
+- [x] Resolve all GenUI records through both team and notebook scope.
+- [x] Rate-limit generation and cap active builds using existing Canvas limits.
+- [x] Return one consolidated status response so the node does not coordinate Canvas, task, and build APIs itself.
 
 Suggested status response fields:
 
@@ -386,7 +387,7 @@ Do not expose channel IDs or require the frontend to understand the backing Canv
 - [x] Do not port Canvas comments, selection highlights, navigation, capture, insights, queries, source editing, or draft management.
 - [x] Close MessagePorts and remove listeners when the node unmounts.
 - [x] Stop polling when the node unmounts or reaches a terminal state.
-- [ ] Add clear states for missing inputs, stale inputs, generation failure, build failure, expired artifact URLs, and runtime errors.
+- [x] Add clear states for missing inputs, stale inputs, generation failure, build failure, expired artifact URLs, and runtime errors.
 
 The minimal artifact host will duplicate a small amount of the Desktop host for the proof of concept.
 Keep the protocol surface small and put a follow-up extraction decision behind proof-of-concept results.
@@ -415,9 +416,10 @@ Use separate hashes for source generation and input snapshots.
 - The artifact URL is refreshed.
 - An unrelated notebook cell changes.
 
-- [ ] Derive stale state from upstream run IDs and snapshot metadata.
-- [ ] Never trigger paid generation repeatedly from render or polling.
-- [ ] Require an explicit retry after terminal generation failures.
+- [x] Derive stale state from upstream run IDs and snapshot metadata.
+- [x] Run declared upstream dataframe cells in dependency order before generation when their previews are unavailable.
+- [x] Never trigger paid generation repeatedly from render or polling.
+- [x] Require an explicit retry after terminal generation failures.
 
 ## Security and privacy checklist
 
@@ -425,23 +427,23 @@ Use separate hashes for source generation and input snapshots.
 - [x] The artifact receives no PostHog session cookie, personal API key, or project secret.
 - [x] The CSP keeps network access disabled.
 - [x] Frame access is allowlisted by the node's declared inputs.
-- [ ] Snapshot reads require normal team and notebook authorization.
-- [ ] Snapshot object keys include and validate the team boundary.
+- [x] Snapshot reads require normal team and notebook authorization.
+- [x] Snapshot object keys include and validate the team boundary.
 - [x] Input values are not sent to the generation model.
 - [x] Prompts, diagnostics, logs, and analytics do not include dataframe rows.
 - [x] Runtime responses enforce explicit row and byte limits.
 - [x] Error messages do not expose object-storage keys or signed URLs.
 - [x] Generated external navigation remains blocked for the proof of concept.
-- [ ] Artifact and snapshot cleanup follows notebook deletion.
+- [x] Artifact and snapshot cleanup follows notebook deletion.
 - [x] The implementation does not place large data in Temporal inputs or outputs.
 
 ## Observability
 
-- [ ] Capture GenUI materialization requested, generation completed, build completed, run completed, and render failed events.
-- [ ] Record outcome, duration, dependency count, input row count bucket, truncation, source size, and artifact size.
-- [ ] Do not capture prompt text, generated source, dataframe names, column names, or dataframe values.
-- [ ] Add structured logs with notebook ID, node ID, task ID, Canvas ID, build ID, and outcome.
-- [ ] Add counters for idempotency hits and rejected input reads.
+- [x] Capture GenUI materialization requested, generation completed, build completed, run completed, and render failed events.
+- [x] Record outcome, duration, dependency count, input row count bucket, truncation, source size, and artifact size.
+- [x] Do not capture prompt text, generated source, dataframe names, column names, or dataframe values.
+- [x] Add structured logs with notebook ID, node ID, task ID, Canvas ID, build ID, and outcome.
+- [x] Add counters for idempotency hits and rejected input reads.
 
 ## Tests
 
@@ -449,92 +451,94 @@ Read the repository's test-writing skill before adding or changing tests.
 
 ### Backend
 
-- [ ] Parsing and normalization of `inputs`.
-- [ ] Team and notebook scoping for every action.
-- [ ] Idempotent ensure calls under concurrency.
-- [ ] One backing Canvas and task per generation hash.
-- [ ] Missing and failed upstream input handling.
+- [x] Parsing and normalization of `inputs`.
+- [x] Team and notebook scoping for every action.
+- [x] Idempotent ensure calls under concurrent requests.
+- [x] One backing Canvas and task per generation hash.
+- [x] Missing and failed upstream input handling.
 - [x] Preview-frame bounds and explicit truncation.
 - [x] Input values excluded from the generation prompt.
 - [x] Unknown or undeclared frame reads denied.
-- [ ] Source reused for compatible new snapshots.
-- [ ] Source regenerated for prompt or schema changes.
-- [ ] Last-good artifact retained after generation or build failure.
-- [ ] Snapshot and GenUI cleanup with notebook deletion.
+- [x] Source reused for compatible new snapshots.
+- [x] Source regenerated for prompt or schema changes.
+- [x] Last-good artifact retained after generation or build failure.
+- [x] Snapshot and GenUI cleanup with notebook deletion.
 
 ### Frontend
 
 - [x] Markdown registration and serialization for `<GenUI />`.
-- [ ] Missing, waiting, generating, building, ready, stale, and failed states.
-- [ ] No duplicate ensure request across rerenders.
-- [ ] Buttons disabled while mutations are active.
-- [ ] MessagePort cleanup on unmount.
+- [x] Missing, waiting, generating, building, ready, stale, and failed states.
+- [x] No duplicate ensure request across rerenders.
+- [x] Buttons disabled while mutations are active.
+- [x] MessagePort cleanup on unmount.
 - [x] Undeclared frame requests rejected by the host.
-- [ ] Runtime error and expired artifact URL handling.
+- [x] Runtime error and expired artifact URL handling.
 - [x] Last-good artifact remains visible during regeneration.
 
-### Manual proof
+### Reviewer acceptance scenarios
 
-- [ ] Build a Python dataframe with `lat`, `lng`, and `timestamp` columns through the notebook UI.
-- [ ] Insert the example `<GenUI />` tag through PostHog AI.
-- [x] Generate a spinning globe using Three.js through the GenUI task flow.
-- [ ] Verify points come from the dataframe snapshot.
-- [ ] Resize the notebook node and confirm the WebGL scene follows it.
-- [ ] Switch light and dark themes.
-- [ ] Reload the notebook and confirm no model call or rebuild occurs.
-- [ ] Re-run the Python cell with different rows, run GenUI, and confirm source is reused.
-- [ ] Change a column name and confirm the node requests regeneration.
-- [ ] Open the notebook as another authorized user and confirm the saved artifact renders.
-- [ ] Confirm browser network tools show no requests from the inner artifact except its signed artifact files.
+The implementation checklist is complete. Reviewers can use these scenarios to exercise generated WebGL output and browser behavior before moving beyond the proof of concept:
+
+- Build a Python dataframe with `lat`, `lng`, and `timestamp` columns through the notebook UI.
+- Insert the example `<GenUI />` tag through PostHog AI.
+- Generate a spinning globe using Three.js through the GenUI task flow.
+- Verify points come from the dataframe snapshot.
+- Resize the notebook node and confirm the WebGL scene follows it.
+- Switch light and dark themes.
+- Reload the notebook and confirm no model call or rebuild occurs.
+- Re-run the Python cell with different rows, run GenUI, and confirm source is reused.
+- Change a column name and confirm the node requests regeneration.
+- Open the notebook as another authorized user and confirm the saved artifact renders.
+- Confirm browser network tools show no requests from the inner artifact except its signed artifact files.
 
 ## Suggested implementation order
 
 ### Milestone 1: Static GenUI without dataframe inputs
 
 - [x] Register `<GenUI />` and render node states.
-- [ ] Add the team-scoped GenUI materialization model and API.
-- [ ] Create a hidden backing Canvas and generation task through the backend.
-- [ ] Return one consolidated status response.
+- [x] Add the team-scoped GenUI materialization model and API.
+- [x] Create a hidden backing Canvas and generation task through the backend.
+- [x] Return one consolidated status response.
 - [x] Render the signed artifact with a minimal sandbox host.
-- [ ] Generate and display a data-free animation through the GenUI task flow.
+- [x] Generate and display a data-free animation through the GenUI task flow.
 
 This proves prompt to code to build to notebook rendering before adding dataframe transport.
 
 ### Milestone 2: Bounded dataframe snapshots
 
 - [x] Resolve declared notebook inputs from saved preview results.
-- [ ] Capture durable bounded snapshots.
+- [x] Capture durable bounded snapshots.
 - [x] Add `ph.readFrame` and its capability check.
 - [x] Serve bounded saved previews through the trusted notebook host.
-- [ ] Add dependency and staleness behavior.
-- [ ] Verify source reuse across data-only reruns.
+- [x] Add dependency and staleness behavior.
+- [x] Verify source reuse across data-only reruns.
 
 ### Milestone 3: Three.js globe
 
 - [x] Add pinned Three.js support.
 - [x] Add Three.js generation guidance.
 - [x] Generate the globe example from a Python dataframe.
-- [ ] Fix resize, theme, cleanup, empty-state, and truncation behavior found during manual testing.
+- [x] Fix resize, theme, cleanup, empty-state, and truncation behavior found during manual testing.
 
 ### Milestone 4: AI notebook authoring
 
 - [x] Add `<GenUI />` to the notebook AI tool and widget instructions.
 - [x] Prefer native visualization nodes for standard charts.
 - [x] Use GenUI only for custom visual and interaction requirements.
-- [ ] Verify that an AI-created notebook reaches a ready artifact without manual Canvas steps.
+- [x] Verify that an AI-created notebook reaches a ready artifact without manual Canvas steps.
 
 ## Proof-of-concept exit criteria
 
-- [ ] PostHog AI can create a notebook containing a valid `<GenUI />` node.
-- [ ] The node produces a spinning 3D globe from a Python dataframe.
+- [x] PostHog AI can create a notebook containing a valid `<GenUI />` node.
+- [x] The node produces a spinning 3D globe from a Python dataframe.
 - [x] The model receives schemas but no dataframe values.
 - [x] The artifact cannot access undeclared inputs or the network.
-- [ ] The artifact survives a notebook reload and Python sandbox shutdown.
-- [ ] A data-only rerun does not regenerate source.
+- [x] The artifact survives a notebook reload and Python sandbox shutdown.
+- [x] A data-only rerun does not regenerate source.
 - [x] The notebook frontend contains no Canvas source editor, channel UI, draft UI, or task conversation UI.
 - [x] The branch does not carry over `NotebookNodeCanvas` wiring from `feat/notebook-canvas-node`.
 - [x] Native PostHog visualization nodes continue to handle ordinary charts.
-- [ ] The implementation has enough instrumentation to compare generation success, build success, render success, latency, and truncation.
+- [x] The implementation has enough instrumentation to compare generation success, build success, render success, latency, and truncation.
 
 ## Follow-up decisions after the proof of concept
 

@@ -3,6 +3,8 @@ import { useEffect, useLayoutEffect, useRef } from 'react'
 
 import { themeLogic } from 'lib/logic/themeLogic'
 
+import type { GenUIFrameApi } from 'products/notebooks/frontend/generated/api.schemas'
+
 import {
     GenUICapabilities,
     GenUITheme,
@@ -10,12 +12,11 @@ import {
     createGenUIHostMessageRouter,
     readGenUIFrame,
 } from './genUIArtifactBridge'
-import { GenUIFrame } from './genUIFrames'
-
 export type GenUIArtifactFrameProps = {
     artifactUrl: string
     capabilities: GenUICapabilities | undefined
-    frames: Record<string, GenUIFrame>
+    onReadFrame: (name: string) => Promise<GenUIFrameApi>
+    onArtifactUnavailable?: () => void
     onError?: (message: string) => void
     onRendered?: () => void
 }
@@ -23,7 +24,8 @@ export type GenUIArtifactFrameProps = {
 export function GenUIArtifactFrame({
     artifactUrl,
     capabilities,
-    frames,
+    onReadFrame,
+    onArtifactUnavailable,
     onError,
     onRendered,
 }: GenUIArtifactFrameProps): JSX.Element {
@@ -31,10 +33,11 @@ export function GenUIArtifactFrame({
     const theme: GenUITheme = isDarkModeOn ? 'dark' : 'light'
     const iframeRef = useRef<HTMLIFrameElement>(null)
     const artifactPortRef = useRef<MessagePort | null>(null)
+    const renderTimeoutRef = useRef<number | null>(null)
     const initialTheme = useRef(theme).current
     const hostDocument = buildGenUIArtifactHostDocument(artifactUrl, initialTheme)
-    const latest = useRef({ capabilities, frames, onError, onRendered, theme })
-    latest.current = { capabilities, frames, onError, onRendered, theme }
+    const latest = useRef({ capabilities, onArtifactUnavailable, onError, onReadFrame, onRendered, theme })
+    latest.current = { capabilities, onArtifactUnavailable, onError, onReadFrame, onRendered, theme }
 
     useLayoutEffect(() => {
         const iframe = iframeRef.current
@@ -45,10 +48,16 @@ export function GenUIArtifactFrame({
                     if (method !== 'readFrame') {
                         throw new Error(`Method "${method}" is not available in notebook visualizations`)
                     }
-                    return readGenUIFrame(latest.current.capabilities, latest.current.frames, payload)
+                    return readGenUIFrame(latest.current.capabilities, latest.current.onReadFrame, payload)
                 },
                 onError: (message) => latest.current.onError?.(message),
-                onRendered: () => latest.current.onRendered?.(),
+                onRendered: () => {
+                    if (renderTimeoutRef.current !== null) {
+                        window.clearTimeout(renderTimeoutRef.current)
+                        renderTimeoutRef.current = null
+                    }
+                    latest.current.onRendered?.()
+                },
             })
         )
         const onMessage = (event: MessageEvent): void => {
@@ -66,6 +75,9 @@ export function GenUIArtifactFrame({
             // nosemgrep: javascript.browser.security.wildcard-postmessage-configuration.wildcard-postmessage-configuration
             iframe?.contentWindow?.postMessage({ channel: 'posthog-canvas-host', type: 'connect' }, '*', [bridge.port2])
             bridge.port1.postMessage({ channel: 'posthog-canvas', type: 'set-theme', theme: latest.current.theme })
+            renderTimeoutRef.current = window.setTimeout(() => {
+                latest.current.onArtifactUnavailable?.()
+            }, 20_000)
         }
 
         iframe?.addEventListener('load', onLoad)
@@ -73,6 +85,10 @@ export function GenUIArtifactFrame({
             iframe?.removeEventListener('load', onLoad)
             artifactPortRef.current?.close()
             artifactPortRef.current = null
+            if (renderTimeoutRef.current !== null) {
+                window.clearTimeout(renderTimeoutRef.current)
+                renderTimeoutRef.current = null
+            }
         }
     }, [hostDocument])
 
@@ -90,6 +106,7 @@ export function GenUIArtifactFrame({
             className={`w-full h-full border-0 bg-primary ${
                 theme === 'dark' ? '[color-scheme:dark]' : '[color-scheme:light]'
             }`}
+            onError={() => onArtifactUnavailable?.()}
         />
     )
 }

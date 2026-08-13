@@ -3,19 +3,19 @@ import type { ReactNode } from 'react'
 
 import { LemonBanner, LemonButton } from '@posthog/lemon-ui'
 
-import { NotFound } from 'lib/components/NotFound'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { Spinner } from 'lib/lemon-ui/Spinner'
 import { createPostHogWidgetNode } from 'scenes/notebooks/Nodes/NodeWrapper'
+import { notebookNodeStalenessLogic } from 'scenes/notebooks/Notebook/notebookNodeStalenessLogic'
 import { urls } from 'scenes/urls'
 
 import { NotebookNodeProps, NotebookNodeType } from '../../types'
 import { notebookNodeLogic } from '../notebookNodeLogic'
+import { GenUICapabilities } from './genUIArtifactBridge'
 import { GenUIArtifactFrame } from './GenUIArtifactFrame'
-import { buildGenUIFrames, getGenUIFrameSchemas } from './genUIFrames'
-import { getGenUIGenerationProgressView } from './genUIGenerationProgress'
-import { getGenUIName } from './genUIGenerationPrompt'
-import { notebookNodeGenUILogic } from './notebookNodeGenUILogic'
+import { validateGenUIInputs } from './genUIInputs'
+import { getGenUIName } from './genUIName'
+import { loadGenUIFrame, notebookNodeGenUILogic } from './notebookNodeGenUILogic'
 import { NotebookNodeGenUISettings } from './NotebookNodeGenUISettings'
 
 export type NotebookNodeGenUIAttributes = {
@@ -33,67 +33,50 @@ function EmptyState({ children }: { children: ReactNode }): JSX.Element {
     )
 }
 
-function Component({
-    attributes,
-    updateAttributes,
-}: NotebookNodeProps<NotebookNodeGenUIAttributes>): JSX.Element | null {
+function Component({ attributes }: NotebookNodeProps<NotebookNodeGenUIAttributes>): JSX.Element | null {
     const nodeLogic = useMountedLogic(notebookNodeLogic)
     const { expanded, isEditable, notebookLogic } = useValues(nodeLogic)
-    const { content } = useValues(notebookLogic)
-    const inputs = attributes.inputs ?? ''
-    const frames = buildGenUIFrames(content, inputs)
-    const { schemas, missing } = getGenUIFrameSchemas(content, inputs)
+    const notebookShortId = notebookLogic.props.shortId
+    const inputValidation = validateGenUIInputs(attributes.inputs ?? '')
     const logic = notebookNodeGenUILogic({
-        id: attributes.id ?? '',
+        notebookShortId,
         nodeId: attributes.nodeId,
-        channelId: attributes.channelId,
+        legacyCanvasId: attributes.id,
         prompt: attributes.prompt ?? '',
-        frames: schemas,
-        missingFrames: missing,
+        inputs: inputValidation.names,
+        inputValidationError: inputValidation.error,
         isEditable,
-        updateAttributes,
+        getContent: () => notebookLogic.values.content,
     })
+    const stalenessLogic = useMountedLogic(notebookNodeStalenessLogic({ shortId: notebookShortId }))
+    const { staleNodeIds } = useValues(stalenessLogic)
     const {
-        artifactUrl,
-        buildsLoading,
-        canvas,
-        canvasCreationError,
-        canvasLoading,
-        canvasMissing,
-        capabilities,
-        creatingCanvas,
-        generationError,
-        generationProgress,
-        generationWatch,
+        currentTeamId,
+        error,
         isGenerating,
+        isRefreshingInputs,
+        mutationInFlight,
         runtimeError,
+        status,
+        statusLoading,
     } = useValues(logic)
-    const { createFromPrompt, setRuntimeError } = useActions(logic)
-    const generationProgressView = generationWatch
-        ? getGenUIGenerationProgressView(generationProgress, generationWatch.observedAtMs, Date.now())
-        : null
-
-    const generationStatus = generationProgressView ? (
-        <div className="flex min-w-0 flex-1 items-center gap-2" role="status" aria-live="polite">
-            <div className="min-w-0 flex-1">
-                <div className="flex items-center gap-2 font-semibold text-primary">
-                    <Spinner className="shrink-0 text-sm" />
-                    <span>{generationProgressView.label}</span>
-                </div>
-                <div className="text-muted">{generationProgressView.detail}</div>
-            </div>
-            {generationWatch ? (
-                <LemonButton size="xsmall" to={urls.taskDetail(generationWatch.taskId)}>
-                    View task
-                </LemonButton>
-            ) : null}
-        </div>
-    ) : null
+    const {
+        ensureVisualization,
+        loadStatus,
+        regenerateVisualization,
+        reportRenderFailure,
+        reportRenderSuccess,
+        retryVisualization,
+        runVisualization,
+        setRuntimeError,
+    } = useActions(logic)
 
     if (!expanded) {
         return null
     }
-    if ((canvasLoading || buildsLoading) && !artifactUrl) {
+    const isWorking = mutationInFlight || isRefreshingInputs
+
+    if ((statusLoading || isWorking) && !status) {
         return (
             <div className="flex h-full flex-col gap-3 p-3">
                 <LemonSkeleton className="h-6 w-1/3" />
@@ -101,18 +84,92 @@ function Component({
             </div>
         )
     }
-    if (canvasMissing) {
-        return <NotFound object="visualization" />
-    }
-    if (artifactUrl) {
+
+    const lifecycleStatus =
+        staleNodeIds[attributes.nodeId] && status?.lifecycle_status === 'ready' ? 'stale' : status?.lifecycle_status
+    const capabilities: GenUICapabilities | undefined = status
+        ? { notebook: { frames: status.frame_names } }
+        : undefined
+    const generationStatus =
+        isRefreshingInputs || isGenerating ? (
+            <div className="flex min-w-0 flex-1 items-start gap-2" role="status" aria-live="polite">
+                <Spinner className="mt-0.5 shrink-0 text-sm" />
+                <div className="min-w-0 flex-1">
+                    <div className="font-semibold text-primary">
+                        {isRefreshingInputs
+                            ? 'Running required dataframe cells'
+                            : lifecycleStatus === 'building'
+                              ? 'Building visualization'
+                              : 'Agent is building the visualization'}
+                    </div>
+                    <div className="text-muted">
+                        {error ||
+                            (isRefreshingInputs
+                                ? 'The visualization will continue automatically when the cells finish.'
+                                : 'This can take a few minutes.')}
+                    </div>
+                </div>
+                {!isRefreshingInputs && status?.task_id ? (
+                    <LemonButton size="xsmall" to={urls.taskDetail(status.task_id)}>
+                        View task
+                    </LemonButton>
+                ) : null}
+            </div>
+        ) : null
+    const staleBanner =
+        lifecycleStatus === 'stale' ? (
+            <LemonBanner type="warning" className="m-2">
+                <div className="flex items-center justify-between gap-2">
+                    <span>
+                        Upstream dataframe results changed. Run the visualization to use the latest saved previews.
+                    </span>
+                    {isEditable ? (
+                        <LemonButton size="small" onClick={() => runVisualization()} loading={isWorking}>
+                            Run visualization
+                        </LemonButton>
+                    ) : null}
+                </div>
+            </LemonBanner>
+        ) : null
+    const incompatibleBanner =
+        lifecycleStatus === 'incompatible' ? (
+            <LemonBanner type="warning" className="m-2">
+                <div className="flex items-center justify-between gap-2">
+                    <span>The prompt or dataframe schema changed. Regenerate to update the visualization code.</span>
+                    {isEditable ? (
+                        <LemonButton size="small" onClick={() => regenerateVisualization()} loading={isWorking}>
+                            Regenerate visualization
+                        </LemonButton>
+                    ) : null}
+                </div>
+            </LemonBanner>
+        ) : null
+    const failureBanner =
+        lifecycleStatus === 'failed' ? (
+            <LemonBanner type="error" className="m-2">
+                <div className="flex items-center justify-between gap-2">
+                    <span>{status?.error_detail || error || "Couldn't generate this visualization. Try again."}</span>
+                    {isEditable ? (
+                        <LemonButton size="small" onClick={() => retryVisualization()} loading={isWorking}>
+                            Try again
+                        </LemonButton>
+                    ) : null}
+                </div>
+            </LemonBanner>
+        ) : null
+
+    if (status?.artifact_url && currentTeamId) {
         return (
             <div className="flex h-full min-h-0 w-full flex-col">
-                {isGenerating ? (
+                {generationStatus ? (
                     <div className="flex shrink-0 border-b border-primary px-3 py-2 text-xs">{generationStatus}</div>
                 ) : null}
-                {generationError ? (
+                {staleBanner}
+                {incompatibleBanner}
+                {failureBanner}
+                {error && lifecycleStatus !== 'failed' ? (
                     <LemonBanner type="error" className="m-2">
-                        {generationError}
+                        {error}
                     </LemonBanner>
                 ) : null}
                 {runtimeError ? (
@@ -122,44 +179,73 @@ function Component({
                 ) : null}
                 <div className="min-h-0 flex-1">
                     <GenUIArtifactFrame
-                        artifactUrl={artifactUrl}
+                        artifactUrl={status.artifact_url}
                         capabilities={capabilities}
-                        frames={frames}
-                        onError={setRuntimeError}
-                        onRendered={() => setRuntimeError(null)}
+                        onReadFrame={(name) =>
+                            loadGenUIFrame(String(currentTeamId), notebookShortId, attributes.nodeId, name)
+                        }
+                        onArtifactUnavailable={() => {
+                            reportRenderFailure('artifact_unavailable')
+                            setRuntimeError('The visualization link expired. Refreshing it now.')
+                            loadStatus()
+                        }}
+                        onError={(message) => {
+                            reportRenderFailure('runtime_error')
+                            setRuntimeError(message)
+                        }}
+                        onRendered={() => {
+                            reportRenderSuccess()
+                            setRuntimeError(null)
+                        }}
                     />
                 </div>
             </div>
         )
     }
 
-    const error = canvasCreationError || generationError
-    if (error) {
+    if ((!generationStatus && error) || lifecycleStatus === 'failed') {
+        const retryAction =
+            lifecycleStatus === 'failed'
+                ? retryVisualization
+                : lifecycleStatus === 'incompatible'
+                  ? regenerateVisualization
+                  : lifecycleStatus === 'stale'
+                    ? runVisualization
+                    : ensureVisualization
         return (
             <EmptyState>
                 <div className="flex flex-col items-center gap-3">
-                    <div>{error}</div>
+                    <div>{status?.error_detail || error}</div>
                     {isEditable ? (
-                        <LemonButton type="primary" onClick={() => createFromPrompt()} loading={creatingCanvas}>
+                        <LemonButton type="primary" onClick={() => retryAction()} loading={isWorking}>
                             Try again
                         </LemonButton>
                     ) : null}
-                    {canvas?.generation_task_id ? (
-                        <LemonButton to={urls.taskDetail(canvas.generation_task_id)}>View generation task</LemonButton>
-                    ) : null}
+                    {status?.task_id ? <LemonButton to={urls.taskDetail(status.task_id)}>View task</LemonButton> : null}
                 </div>
             </EmptyState>
         )
     }
-    if (creatingCanvas || isGenerating) {
+    if (generationStatus) {
         return (
             <EmptyState>
-                <div className="flex w-full max-w-lg flex-col items-center gap-3">
-                    {generationStatus ?? (
-                        <div className="flex items-center gap-2" role="status">
-                            <Spinner /> Starting visualization generation
+                <div className="flex w-full max-w-lg flex-col items-center gap-3">{generationStatus}</div>
+            </EmptyState>
+        )
+    }
+    if (lifecycleStatus === 'awaiting_inputs') {
+        const unreadyInputs = status?.input_states.filter((input) => input.input_status !== 'ready') ?? []
+        return (
+            <EmptyState>
+                <div className="flex flex-col items-center gap-2">
+                    <div>The required dataframe cells must finish before this visualization can be generated.</div>
+                    {unreadyInputs.length ? (
+                        <div className="text-xs text-muted">
+                            {unreadyInputs
+                                .map((input) => `${input.name}: ${input.input_status.replace('_', ' ')}`)
+                                .join(', ')}
                         </div>
-                    )}
+                    ) : null}
                 </div>
             </EmptyState>
         )
@@ -172,7 +258,7 @@ function Component({
             <div className="flex flex-col items-center gap-3">
                 <div>This visualization has not been generated yet.</div>
                 {isEditable ? (
-                    <LemonButton type="primary" onClick={() => createFromPrompt()} loading={creatingCanvas}>
+                    <LemonButton type="primary" onClick={() => ensureVisualization()} loading={isWorking}>
                         Generate visualization
                     </LemonButton>
                 ) : null}

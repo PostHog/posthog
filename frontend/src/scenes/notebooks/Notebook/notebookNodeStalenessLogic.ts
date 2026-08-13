@@ -11,20 +11,22 @@ import {
 import { NotebookNodeType } from '../types'
 
 export type NotebookNodeRunTerminalStatus = 'done' | 'failed' | 'interrupted'
+export type NotebookDependencyChainStatus = 'done' | 'failed'
 
 export interface NotebookNodeStalenessLogicProps {
     shortId: string
 }
 
 const V2_NODE_TYPES: string[] = [NotebookNodeType.SQLV2, NotebookNodeType.PythonV2]
+const STALE_NODE_TYPES: string[] = [...V2_NODE_TYPES, NotebookNodeType.GenUI]
 
 const staleDownstreamNodeIds = (graph: NotebookDependencyGraph, nodeId: string): string[] => {
     const downstream = collectDependencyNodeIds(graph, nodeId, 'downstream')
     downstream.delete(nodeId)
-    // Only V2 cells participate: legacy cells have their own freshness system, and the
-    // chain runner only knows how to dispatch V2 runs.
+    // GenUI nodes become stale with their dataframe dependencies, but the chain runner only
+    // dispatches executable V2 cells.
     return graph.nodes
-        .filter((node) => downstream.has(node.nodeId) && V2_NODE_TYPES.includes(node.nodeType))
+        .filter((node) => downstream.has(node.nodeId) && STALE_NODE_TYPES.includes(node.nodeType))
         .map((node) => node.nodeId)
 }
 
@@ -46,6 +48,7 @@ const runnableStaleNodeIds = (
 export interface notebookNodeStalenessLogicValues {
     chainQueue: string[]
     chainRootNodeId: string | null
+    dependencyChainTargetNodeId: string | null
     isChainRunning: boolean
     lastRunDownstreamNodeIds: string[]
     lastRunNodeId: string | null
@@ -63,6 +66,13 @@ export interface notebookNodeStalenessLogicActions {
     }
     clearNodeStale: (nodeId: string) => {
         nodeId: string
+    }
+    dependencyChainFinished: (
+        targetNodeId: string,
+        status: NotebookDependencyChainStatus
+    ) => {
+        status: NotebookDependencyChainStatus
+        targetNodeId: string
     }
     dispatchChainRun: (nodeId: string) => {
         nodeId: string
@@ -82,6 +92,13 @@ export interface notebookNodeStalenessLogicActions {
     registerChainNode: (nodeId: string) => {
         nodeId: string
     }
+    runDependencyChain: (
+        content: JSONContent | null,
+        targetNodeId: string
+    ) => {
+        content: JSONContent | null
+        targetNodeId: string
+    }
     runStaleChain: (
         content: JSONContent | null,
         rootNodeId?: string | null
@@ -93,6 +110,9 @@ export interface notebookNodeStalenessLogicActions {
         nodeIds: string[]
     }
     setChainRoot: (nodeId: string | null) => {
+        nodeId: string | null
+    }
+    setDependencyChainTarget: (nodeId: string | null) => {
         nodeId: string | null
     }
     setLastRun: (
@@ -128,13 +148,14 @@ export type notebookNodeStalenessLogicType = MakeLogicType<
 >
 
 /**
- * Journey 10: UI-only staleness for revamped (SQLV2/PythonV2) cells, plus the chain runner.
+ * Journey 10: UI-only staleness for revamped (SQLV2/PythonV2) cells, plus serialized cell runs.
  *
  * When a cell's run lands, every transitive dependent is marked stale (its result now derives
  * from outdated data). "Run stale cells" re-runs the stale set in document order — which IS
  * dependency order, because a cell can only reference exports of earlier cells. Runs go
  * through each cell's own notebookNodeSQLV2Logic (the node logics listen for
  * `dispatchChainRun`), so operation serialization, polling, and interrupt all apply per link.
+ * GenUI also uses this path to refresh its transitive dataframe dependencies before generation.
  * Flags are session-local by design (walkthrough decision: UI-only, no backend call).
  */
 export const notebookNodeStalenessLogic = kea<notebookNodeStalenessLogicType>([
@@ -156,10 +177,16 @@ export const notebookNodeStalenessLogic = kea<notebookNodeStalenessLogicType>([
         // "run downstream cells" button on the cell that just ran); without one it runs
         // every stale cell in the notebook.
         runStaleChain: (content: JSONContent | null, rootNodeId: string | null = null) => ({ content, rootNodeId }),
+        runDependencyChain: (content: JSONContent | null, targetNodeId: string) => ({ content, targetNodeId }),
         // Consumed by the matching notebookNodeSQLV2Logic, which builds refs and runs itself.
         dispatchChainRun: (nodeId: string) => ({ nodeId }),
+        dependencyChainFinished: (targetNodeId: string, status: NotebookDependencyChainStatus) => ({
+            targetNodeId,
+            status,
+        }),
         setChainQueue: (nodeIds: string[]) => ({ nodeIds }),
         setChainRoot: (nodeId: string | null) => ({ nodeId }),
+        setDependencyChainTarget: (nodeId: string | null) => ({ nodeId }),
         setLastRun: (nodeId: string, downstreamNodeIds: string[]) => ({ nodeId, downstreamNodeIds }),
         abortChain: (reason: string | null) => ({ reason }),
         // Called by every V2 node logic on mount/unmount so the chain only ever dispatches
@@ -205,6 +232,13 @@ export const notebookNodeStalenessLogic = kea<notebookNodeStalenessLogicType>([
             null as string | null,
             {
                 setChainRoot: (_, { nodeId }) => nodeId,
+                abortChain: () => null,
+            },
+        ],
+        dependencyChainTargetNodeId: [
+            null as string | null,
+            {
+                setDependencyChainTarget: (_, { nodeId }) => nodeId,
                 abortChain: () => null,
             },
         ],
@@ -272,7 +306,11 @@ export const notebookNodeStalenessLogic = kea<notebookNodeStalenessLogicType>([
                 return
             }
             if (status !== 'done') {
+                const dependencyTargetNodeId = values.dependencyChainTargetNodeId
                 actions.abortChain(nodeId)
+                if (dependencyTargetNodeId) {
+                    actions.dependencyChainFinished(dependencyTargetNodeId, 'failed')
+                }
                 return
             }
             // Rebuild the queue from the live stale set instead of shifting the snapshot:
@@ -282,7 +320,10 @@ export const notebookNodeStalenessLogic = kea<notebookNodeStalenessLogicType>([
             // so unrelated stale cells are never run by it.
             const graph = content ? buildNotebookDependencyGraph(content) : null
             let queue = graph ? runnableStaleNodeIds(graph, values.staleNodeIds, values.mountedNodeIds) : []
-            if (graph && values.chainRootNodeId) {
+            if (graph && values.dependencyChainTargetNodeId) {
+                const scope = collectDependencyNodeIds(graph, values.dependencyChainTargetNodeId, 'upstream')
+                queue = queue.filter((queuedNodeId) => scope.has(queuedNodeId))
+            } else if (graph && values.chainRootNodeId) {
                 const scope = collectDependencyNodeIds(graph, values.chainRootNodeId, 'downstream')
                 queue = queue.filter((queuedNodeId) => scope.has(queuedNodeId))
             }
@@ -290,8 +331,14 @@ export const notebookNodeStalenessLogic = kea<notebookNodeStalenessLogicType>([
             if (queue.length) {
                 actions.dispatchChainRun(queue[0])
             } else {
+                const dependencyTargetNodeId = values.dependencyChainTargetNodeId
                 actions.setChainRoot(null)
-                lemonToast.success('Stale cells re-run.')
+                actions.setDependencyChainTarget(null)
+                if (dependencyTargetNodeId) {
+                    actions.dependencyChainFinished(dependencyTargetNodeId, 'done')
+                } else {
+                    lemonToast.success('Stale cells re-run.')
+                }
             }
         },
         runStaleChain: ({ content, rootNodeId }) => {
@@ -313,12 +360,35 @@ export const notebookNodeStalenessLogic = kea<notebookNodeStalenessLogicType>([
                 return
             }
             actions.setChainRoot(rootNodeId)
+            actions.setDependencyChainTarget(null)
+            actions.setChainQueue(queue)
+            actions.dispatchChainRun(queue[0])
+        },
+        runDependencyChain: ({ content, targetNodeId }) => {
+            if (values.isChainRunning || !content) {
+                actions.dependencyChainFinished(targetNodeId, 'failed')
+                return
+            }
+            const graph = buildNotebookDependencyGraph(content)
+            const scope = collectDependencyNodeIds(graph, targetNodeId, 'upstream')
+            scope.delete(targetNodeId)
+            const dependencyNodes = graph.nodes.filter(
+                (node) => scope.has(node.nodeId) && V2_NODE_TYPES.includes(node.nodeType)
+            )
+            if (!dependencyNodes.length || dependencyNodes.some((node) => !values.mountedNodeIds[node.nodeId])) {
+                actions.dependencyChainFinished(targetNodeId, 'failed')
+                return
+            }
+            const queue = dependencyNodes.map((node) => node.nodeId)
+            actions.markStaleNodeIds(queue)
+            actions.setChainRoot(null)
+            actions.setDependencyChainTarget(targetNodeId)
             actions.setChainQueue(queue)
             actions.dispatchChainRun(queue[0])
         },
         abortChain: ({ reason }) => {
             if (reason) {
-                lemonToast.warning('Stopped re-running stale cells: a cell did not finish successfully.')
+                lemonToast.warning('Stopped running notebook cells because a cell did not finish successfully.')
             }
         },
     })),

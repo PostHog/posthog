@@ -9,12 +9,21 @@ Presentation imports it from here rather than reaching the internal ``access`` /
 ``logic.services.code_usage_gate`` modules directly.
 """
 
+from posthog.models import User
+
 from products.tasks.backend.access import has_loops_access, has_tasks_access
 from products.tasks.backend.logic.services.code_usage_gate import compute_quota_limit_response, usage_limit_response
+
+
+def usage_limit_reached(*, user_id: int, team_id: int) -> bool:
+    user = User.objects.filter(id=user_id).first()
+    return user is None or usage_limit_response(user, team_id) is not None
+
 
 __all__ = [
     "compute_quota_limit_response",
     "has_loops_access",
     "has_tasks_access",
+    "usage_limit_reached",
     "usage_limit_response",
 ]

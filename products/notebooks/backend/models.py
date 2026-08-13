@@ -256,3 +256,54 @@ class NotebookNodeRun(TeamScopedRootMixin, UUIDModel):
         indexes = [
             models.Index(fields=["team", "notebook", "node_id"]),
         ]
+
+
+class NotebookGenUI(TeamScopedRootMixin, UUIDModel):
+    class LifecycleStatus(models.TextChoices):
+        AWAITING_INPUTS = "awaiting_inputs", "awaiting_inputs"
+        AWAITING_GENERATION = "awaiting_generation", "awaiting_generation"
+        GENERATING = "generating", "generating"
+        BUILDING = "building", "building"
+        READY = "ready", "ready"
+        STALE = "stale", "stale"
+        INCOMPATIBLE = "incompatible", "incompatible"
+        FAILED = "failed", "failed"
+
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False)
+    notebook = models.ForeignKey("notebooks.Notebook", on_delete=models.CASCADE, related_name="genui_nodes")
+    node_id = models.CharField(max_length=128)
+    prompt = models.TextField(blank=True, default="")
+    inputs: JSONField = JSONField(default=list)
+    generator_version = models.CharField(max_length=32)
+    generation_hash = models.CharField(max_length=64)
+    generated_hash = models.CharField(max_length=64, blank=True, default="")
+    generated_schema_hash = models.CharField(max_length=64, blank=True, default="")
+    pending_generation_hash = models.CharField(max_length=64, blank=True, default="")
+    pending_schema_hash = models.CharField(max_length=64, blank=True, default="")
+    lifecycle_status = models.CharField(choices=LifecycleStatus, default=LifecycleStatus.AWAITING_INPUTS, max_length=32)
+    last_error_code = models.CharField(max_length=64, null=True, blank=True)
+    last_error = models.TextField(null=True, blank=True)
+    canvas_id = models.UUIDField(null=True, blank=True)
+    generation_task_id = models.UUIDField(null=True, blank=True)
+    source_version_id = models.UUIDField(null=True, blank=True)
+    build_id = models.UUIDField(null=True, blank=True)
+    snapshot_object_key = models.TextField(null=True, blank=True)
+    snapshot_hash = models.CharField(max_length=64, blank=True, default="")
+    snapshot_metadata: JSONField = JSONField(default=dict)
+    pending_snapshot_object_key = models.TextField(null=True, blank=True)
+    pending_snapshot_hash = models.CharField(max_length=64, blank=True, default="")
+    pending_snapshot_metadata: JSONField = JSONField(default=dict)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    generation_started_at = models.DateTimeField(null=True, blank=True)
+    generated_at = models.DateTimeField(null=True, blank=True)
+    snapshot_updated_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        db_table = "posthog_notebookgenui"
+        constraints = [
+            models.UniqueConstraint(fields=["team", "notebook", "node_id"], name="notebook_genui_node_unique"),
+        ]
+        indexes = [
+            models.Index(fields=["team", "notebook", "lifecycle_status"], name="notebook_genui_lifecycle"),
+        ]

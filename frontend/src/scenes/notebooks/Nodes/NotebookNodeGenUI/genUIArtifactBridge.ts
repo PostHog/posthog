@@ -1,4 +1,4 @@
-import { GenUIFrame } from './genUIFrames'
+import type { GenUIFrameApi } from 'products/notebooks/frontend/generated/api.schemas'
 
 export type GenUITheme = 'light' | 'dark'
 
@@ -29,11 +29,11 @@ export function parseGenUICapabilities(raw: unknown): GenUICapabilities | undefi
     }
 }
 
-export function readGenUIFrame(
+export async function readGenUIFrame(
     capabilities: GenUICapabilities | undefined,
-    frames: Record<string, GenUIFrame>,
+    loadFrame: (name: string) => Promise<GenUIFrameApi>,
     payload: unknown
-): GenUIFrame {
+): Promise<GenUIFrameApi> {
     const name =
         typeof payload === 'object' && payload !== null && typeof (payload as { name?: unknown }).name === 'string'
             ? (payload as { name: string }).name
@@ -44,11 +44,7 @@ export function readGenUIFrame(
     if (!capabilities?.notebook.frames.includes(name)) {
         throw new Error(`Dataframe "${name}" is not allowed by this visualization`)
     }
-    const frame = frames[name]
-    if (!frame) {
-        throw new Error(`Dataframe "${name}" is unavailable. Run its notebook cell and try again.`)
-    }
-    return frame
+    return await loadFrame(name)
 }
 
 export function buildGenUIArtifactHostDocument(artifactUrl: string, theme: GenUITheme): string {
@@ -188,7 +184,7 @@ export function createGenUIHostMessageRouter(
             if (timeoutId !== undefined) {
                 clearTimeout(timeoutId)
             }
-            await request.catch(() => undefined)
+            void request.catch(() => undefined)
             activeRequests -= 1
         }
     }

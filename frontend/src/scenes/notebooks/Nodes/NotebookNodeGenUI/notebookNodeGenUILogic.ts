@@ -13,107 +13,86 @@ import {
     reducers,
     selectors,
 } from 'kea'
-import { loaders } from 'kea-loaders'
 import posthog from 'posthog-js'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
 import { ApiError } from 'lib/api'
+import { JSONContent } from 'lib/components/RichContentEditor/types'
+import {
+    NotebookDependencyChainStatus,
+    notebookNodeStalenessLogic,
+} from 'scenes/notebooks/Notebook/notebookNodeStalenessLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
 import {
-    canvasesBuildsRetrieve,
-    canvasesCreate,
-    canvasesPartialUpdate,
-    canvasesRetrieve,
-} from 'products/canvas/frontend/generated/api'
-import {
-    BuildStatusEnumApi,
-    type CanvasApi,
-    type CanvasBuildApi,
-    type CanvasBuildsResponseApi,
-} from 'products/canvas/frontend/generated/api.schemas'
-import { taskChannelsList, tasksCreate, tasksRetrieve, tasksRunCreate } from 'products/tasks/frontend/generated/api'
-import { TaskExecutionModeEnumApi } from 'products/tasks/frontend/generated/api.schemas'
+    notebooksGenuiEnsure,
+    notebooksGenuiFrame,
+    notebooksGenuiRegenerate,
+    notebooksGenuiRetry,
+    notebooksGenuiRun,
+    notebooksGenuiStatus,
+} from 'products/notebooks/frontend/generated/api'
+import type { GenUIFrameApi, GenUIStatusApi } from 'products/notebooks/frontend/generated/api.schemas'
 
-import { GenUICapabilities, parseGenUICapabilities } from './genUIArtifactBridge'
-import { GenUIFrameSchema } from './genUIFrames'
-import { GenUIGenerationProgress } from './genUIGenerationProgress'
-import { buildGenUIGenerationPrompt, getGenUIName } from './genUIGenerationPrompt'
+const STATUS_POLL_INTERVAL_MS = 3000
+const STATUS_POLL_MAX_ATTEMPTS = 600
 
-const GENERATION_POLL_INTERVAL_MS = 5000
-const GENERATION_POLL_MAX_ATTEMPTS = 180
-
-type GenerationWatch = {
-    canvasId: string
-    taskId: string
-    initialVersionId: string | null
-    attempts: number
-    observedAtMs: number
-}
+type GenUIRefreshIntent = 'ensure' | 'regenerate' | 'retry' | 'run'
 
 export type NotebookNodeGenUILogicProps = {
-    id: string
+    notebookShortId: string
     nodeId: string
-    channelId?: string
+    legacyCanvasId?: string
     prompt: string
-    frames: GenUIFrameSchema[]
-    missingFrames: string[]
+    inputs: string[]
+    inputValidationError: string | null
     isEditable: boolean
-    updateAttributes: (attributes: { id?: string; channelId?: string }) => void
+    getContent: () => JSONContent | null
 }
 
 export interface notebookNodeGenUILogicValues {
     currentTeamId: number | null
-    artifactUrl: string | null
-    builds: CanvasBuildsResponseApi | null
-    buildsLoading: boolean
-    canvas: CanvasApi | null
-    canvasCreationError: string | null
-    canvasLoading: boolean
-    canvasMissing: boolean
-    capabilities: GenUICapabilities | undefined
-    creatingCanvas: boolean
-    generationError: string | null
-    generationProgress: GenUIGenerationProgress | null
-    generationWatch: GenerationWatch | null
+    error: string | null
     isGenerating: boolean
-    publishedBuild: CanvasBuildApi | null
+    isRefreshingInputs: boolean
+    mutationInFlight: boolean
+    pollAttempts: number
     runtimeError: string | null
+    status: GenUIStatusApi | null
+    statusLoading: boolean
 }
 
 export interface notebookNodeGenUILogicActions {
-    createFromPrompt: () => { value: true }
-    createFromPromptFailure: (error: string) => { error: string }
-    createFromPromptSuccess: (canvasId: string) => { canvasId: string }
-    generationFailed: (error: string) => { error: string }
-    generationProgressUpdated: (progress: GenUIGenerationProgress) => { progress: GenUIGenerationProgress }
-    loadBuilds: () => any
-    loadBuildsFailure: (error: string, errorObject?: any) => { error: string; errorObject?: any }
-    loadBuildsSuccess: (
-        builds: CanvasBuildsResponseApi,
-        payload?: any
-    ) => { builds: CanvasBuildsResponseApi; payload?: any }
-    loadCanvas: () => any
-    loadCanvasFailure: (error: string, errorObject?: any) => { error: string; errorObject?: any }
-    loadCanvasSuccess: (canvas: CanvasApi, payload?: any) => { canvas: CanvasApi; payload?: any }
-    pollGeneration: () => { value: true }
+    clearNodeStale: (nodeId: string) => { nodeId: string }
+    dependencyChainFinished: (
+        targetNodeId: string,
+        status: NotebookDependencyChainStatus
+    ) => { targetNodeId: string; status: NotebookDependencyChainStatus }
+    ensureVisualization: () => { value: true }
+    inputRefreshFinished: () => { value: true }
+    inputRefreshStarted: () => { value: true }
+    loadStatus: () => { value: true }
+    mutationFailed: (error: string) => { error: string }
+    mutationStarted: () => { value: true }
+    reportRenderFailure: (reason: string) => { reason: string }
+    reportRenderSuccess: () => { value: true }
+    regenerateVisualization: () => { value: true }
+    retryVisualization: () => { value: true }
+    runDependencyChain: (
+        content: JSONContent | null,
+        targetNodeId: string
+    ) => { content: JSONContent | null; targetNodeId: string }
+    runVisualization: () => { value: true }
     setRuntimeError: (error: string | null) => { error: string | null }
-    startWatching: (
-        canvasId: string,
-        taskId: string,
-        initialVersionId: string | null
-    ) => { canvasId: string; taskId: string; initialVersionId: string | null }
-    stopWatching: () => { value: true }
+    statusFailed: (error: string) => { error: string }
+    statusReceived: (status: GenUIStatusApi) => { status: GenUIStatusApi }
 }
 
 export interface notebookNodeGenUILogicMeta {
     key: string
     __keaTypeGenInternalSelectorTypes: {
-        artifactUrl: (publishedBuild: CanvasBuildApi | null) => string | null
-        capabilities: (publishedBuild: CanvasBuildApi | null) => GenUICapabilities | undefined
-        isGenerating: (generationWatch: GenerationWatch | null) => boolean
-        publishedBuild: (builds: CanvasBuildsResponseApi | null) => CanvasBuildApi | null
+        isGenerating: (status: GenUIStatusApi | null) => boolean
     }
 }
 
@@ -124,72 +103,94 @@ export type notebookNodeGenUILogicType = MakeLogicType<
     notebookNodeGenUILogicMeta
 >
 
+function errorMessage(error: unknown): string {
+    if (error instanceof ApiError) {
+        const response = error.data as { detail?: unknown } | undefined
+        if (typeof response?.detail === 'string') {
+            return response.detail
+        }
+    }
+    return error instanceof Error ? error.message : String(error)
+}
+
+function shouldPoll(status: GenUIStatusApi | null): boolean {
+    return status?.lifecycle_status === 'generating' || status?.lifecycle_status === 'building'
+}
+
+export async function loadGenUIFrame(
+    projectId: string,
+    notebookShortId: string,
+    nodeId: string,
+    frameName: string
+): Promise<GenUIFrameApi> {
+    return await notebooksGenuiFrame(projectId, notebookShortId, nodeId, frameName)
+}
+
 export const notebookNodeGenUILogic: LogicWrapper<notebookNodeGenUILogicType> = kea<notebookNodeGenUILogicType>([
     props({} as NotebookNodeGenUILogicProps),
-    key((props) => props.nodeId),
+    key((props) => `${props.notebookShortId}-${props.nodeId}`),
     path((key) => ['scenes', 'notebooks', 'Nodes', 'notebookNodeGenUILogic', key]),
-    connect(() => ({ values: [teamLogic, ['currentTeamId']] })),
-    actions({
-        createFromPrompt: true,
-        createFromPromptSuccess: (canvasId: string) => ({ canvasId }),
-        createFromPromptFailure: (error: string) => ({ error }),
-        generationFailed: (error: string) => ({ error }),
-        generationProgressUpdated: (progress: GenUIGenerationProgress) => ({ progress }),
-        pollGeneration: true,
-        setRuntimeError: (error: string | null) => ({ error }),
-        startWatching: (canvasId: string, taskId: string, initialVersionId: string | null) => ({
-            canvasId,
-            taskId,
-            initialVersionId,
-        }),
-        stopWatching: true,
-    }),
-    loaders(({ props, values }) => ({
-        canvas: [
-            null as CanvasApi | null,
-            {
-                loadCanvas: async () => await canvasesRetrieve(String(values.currentTeamId), props.id),
-            },
-        ],
-        builds: [
-            null as CanvasBuildsResponseApi | null,
-            {
-                loadBuilds: async () => await canvasesBuildsRetrieve(String(values.currentTeamId), props.id),
-            },
+    connect((props: NotebookNodeGenUILogicProps) => ({
+        values: [teamLogic, ['currentTeamId']],
+        actions: [
+            notebookNodeStalenessLogic({ shortId: props.notebookShortId }),
+            ['clearNodeStale', 'dependencyChainFinished', 'runDependencyChain'],
         ],
     })),
+    actions({
+        ensureVisualization: true,
+        inputRefreshFinished: true,
+        inputRefreshStarted: true,
+        loadStatus: true,
+        mutationFailed: (error: string) => ({ error }),
+        mutationStarted: true,
+        reportRenderFailure: (reason: string) => ({ reason }),
+        reportRenderSuccess: true,
+        regenerateVisualization: true,
+        retryVisualization: true,
+        runVisualization: true,
+        setRuntimeError: (error: string | null) => ({ error }),
+        statusFailed: (error: string) => ({ error }),
+        statusReceived: (status: GenUIStatusApi) => ({ status }),
+    }),
     reducers({
-        creatingCanvas: [
+        status: [
+            null as GenUIStatusApi | null,
+            {
+                statusReceived: (_, { status }) => status,
+            },
+        ],
+        statusLoading: [
             false,
             {
-                createFromPrompt: () => true,
-                createFromPromptSuccess: () => false,
-                createFromPromptFailure: () => false,
+                loadStatus: () => true,
+                statusReceived: () => false,
+                statusFailed: () => false,
             },
         ],
-        canvasCreationError: [
-            null as string | null,
-            {
-                createFromPrompt: () => null,
-                createFromPromptSuccess: () => null,
-                createFromPromptFailure: (_, { error }) => error,
-            },
-        ],
-        generationError: [
-            null as string | null,
-            {
-                createFromPrompt: () => null,
-                generationFailed: (_, { error }) => error,
-                startWatching: () => null,
-            },
-        ],
-        canvasMissing: [
+        mutationInFlight: [
             false,
             {
-                loadCanvas: () => false,
-                loadCanvasFailure: (_, { errorObject }: { errorObject?: unknown }) =>
-                    errorObject instanceof ApiError && errorObject.status === 404,
-                loadCanvasSuccess: () => false,
+                mutationStarted: () => true,
+                statusReceived: () => false,
+                mutationFailed: () => false,
+            },
+        ],
+        isRefreshingInputs: [
+            false,
+            {
+                inputRefreshStarted: () => true,
+                inputRefreshFinished: () => false,
+                mutationFailed: () => false,
+            },
+        ],
+        error: [
+            null as string | null,
+            {
+                mutationStarted: () => null,
+                statusReceived: () => null,
+                mutationFailed: (_, { error }) => error,
+                statusFailed: (_, { error }) => error,
             },
         ],
         runtimeError: [
@@ -198,229 +199,228 @@ export const notebookNodeGenUILogic: LogicWrapper<notebookNodeGenUILogicType> = 
                 setRuntimeError: (_, { error }) => error,
             },
         ],
-        generationWatch: [
-            null as GenerationWatch | null,
+        pollAttempts: [
+            0,
             {
-                startWatching: (_, { canvasId, taskId, initialVersionId }) => ({
-                    canvasId,
-                    taskId,
-                    initialVersionId,
-                    attempts: 0,
-                    observedAtMs: Date.now(),
-                }),
-                pollGeneration: (state) => (state ? { ...state, attempts: state.attempts + 1 } : null),
-                stopWatching: () => null,
-                generationFailed: () => null,
-            },
-        ],
-        generationProgress: [
-            null as GenUIGenerationProgress | null,
-            {
-                startWatching: () => null,
-                generationProgressUpdated: (_, { progress }) => progress,
-                generationFailed: () => null,
-                stopWatching: () => null,
+                statusReceived: (attempts, { status }) => (shouldPoll(status) ? attempts + 1 : 0),
+                statusFailed: (attempts) => attempts + 1,
+                mutationStarted: () => 0,
             },
         ],
     }),
     selectors({
-        publishedBuild: [
-            (s) => [s.builds],
-            (builds: CanvasBuildsResponseApi | null): CanvasBuildApi | null =>
-                builds?.builds.find((build) => build.id === builds.published_build_id) ?? null,
-        ],
-        artifactUrl: [
-            (s) => [s.publishedBuild],
-            (publishedBuild: CanvasBuildApi | null): string | null => publishedBuild?.artifact_url ?? null,
-        ],
-        capabilities: [
-            (s) => [s.publishedBuild],
-            (publishedBuild: CanvasBuildApi | null): GenUICapabilities | undefined =>
-                parseGenUICapabilities(publishedBuild?.manifest?.capabilities),
-        ],
-        isGenerating: [
-            (s) => [s.generationWatch],
-            (generationWatch: GenerationWatch | null): boolean => generationWatch !== null,
-        ],
+        isGenerating: [(s) => [s.status], (status: GenUIStatusApi | null): boolean => shouldPoll(status)],
     }),
-    listeners(({ actions, values, props, cache }) => ({
-        createFromPrompt: async () => {
-            if (!props.isEditable) {
-                actions.createFromPromptFailure('You need edit access to generate this visualization.')
-                return
-            }
-            if (cache.creatingFromPrompt) {
-                return
-            }
-            const instruction = props.prompt.trim()
-            if (!instruction) {
-                actions.createFromPromptFailure('Add a prompt before generating the visualization.')
-                return
-            }
+    listeners(({ actions, values, props, cache }) => {
+        const requestBody = (): { prompt: string; inputs: string[]; legacy_canvas_id?: string } => ({
+            prompt: props.prompt,
+            inputs: props.inputs,
+            ...(props.legacyCanvasId ? { legacy_canvas_id: props.legacyCanvasId } : {}),
+        })
+        const requireRequest = (): { projectId: string } | null => {
             if (!values.currentTeamId) {
-                actions.createFromPromptFailure('The current project is unavailable. Refresh and try again.')
-                return
+                actions.mutationFailed('The current project is unavailable. Refresh and try again.')
+                return null
             }
-
-            cache.creatingFromPrompt = true
+            if (props.inputValidationError) {
+                actions.mutationFailed(props.inputValidationError)
+                return null
+            }
+            if (!props.prompt.trim()) {
+                actions.mutationFailed('Add a prompt before generating the visualization.')
+                return null
+            }
+            return { projectId: String(values.currentTeamId) }
+        }
+        const completeMutation = async (request: () => Promise<GenUIStatusApi>): Promise<GenUIStatusApi | null> => {
+            if (cache.mutationInFlight) {
+                return null
+            }
+            cache.mutationInFlight = true
+            actions.mutationStarted()
             try {
-                let canvas: CanvasApi
-                if (props.id) {
-                    canvas = await canvasesRetrieve(String(values.currentTeamId), props.id)
-                } else {
-                    let channelId = props.channelId
-                    if (!channelId) {
-                        const channels = await taskChannelsList(String(values.currentTeamId))
-                        channelId = channels.find((channel) => channel.channel_type === 'personal')?.id
-                    }
-                    if (!channelId) {
-                        throw new Error("Couldn't find your personal task channel. Refresh and try again.")
-                    }
-                    canvas = await canvasesCreate(String(values.currentTeamId), {
-                        name: getGenUIName(instruction),
-                        channel_id: channelId,
-                    })
-                    props.updateAttributes({ id: canvas.id, channelId: canvas.channel })
-                }
-
-                const generationPrompt = buildGenUIGenerationPrompt({
-                    canvasId: canvas.id,
-                    name: canvas.name,
-                    instruction,
-                    frames: props.frames,
-                    missingFrames: props.missingFrames,
-                    isEdit: Boolean(canvas.current_version_id),
-                })
-                const task = await tasksCreate(String(values.currentTeamId), {
-                    title: `${canvas.current_version_id ? 'Update' : 'Build'} notebook visualization "${canvas.name}"`,
-                    description: instruction,
-                    channel: canvas.channel,
-                })
-                const updatedCanvas = await canvasesPartialUpdate(String(values.currentTeamId), canvas.id, {
-                    context: instruction,
-                    generation_task_id: task.id,
-                })
-                await tasksRunCreate(String(values.currentTeamId), task.id, {
-                    mode: TaskExecutionModeEnumApi.Background,
-                    pending_user_message: generationPrompt,
-                })
-                actions.loadCanvasSuccess(updatedCanvas)
-                actions.createFromPromptSuccess(canvas.id)
-                actions.startWatching(canvas.id, task.id, canvas.current_version_id)
-                lemonToast.success('Visualization generation started')
+                const status = await request()
+                actions.statusReceived(status)
+                return status
             } catch (error) {
-                const resolvedError = error instanceof Error ? error : new Error(String(error))
-                posthog.captureException(resolvedError, { action: 'generate notebook visualization' })
-                actions.createFromPromptFailure(resolvedError.message)
-            } finally {
-                cache.creatingFromPrompt = false
-            }
-        },
-        startWatching: () => {
-            cache.disposables.dispose('generationPoll')
-            actions.pollGeneration()
-        },
-        stopWatching: () => {
-            cache.disposables.dispose('generationPoll')
-        },
-        generationFailed: () => {
-            cache.disposables.dispose('generationPoll')
-        },
-        pollGeneration: async () => {
-            const watch = values.generationWatch
-            if (!watch) {
-                return
-            }
-            if (watch.attempts >= GENERATION_POLL_MAX_ATTEMPTS) {
-                actions.generationFailed(
-                    'Generation is taking longer than expected. Open the task to check its progress.'
-                )
-                return
-            }
-
-            try {
-                const [builds, task] = await Promise.all([
-                    canvasesBuildsRetrieve(String(values.currentTeamId), watch.canvasId),
-                    tasksRetrieve(String(values.currentTeamId), watch.taskId),
-                ])
-                actions.loadBuildsSuccess(builds)
-                const publishedBuild = builds.builds.find((build) => build.id === builds.published_build_id)
-                const latestIsLive =
-                    Boolean(builds.current_version_id) &&
-                    publishedBuild?.source_version_id === builds.current_version_id
-                const versionChanged = builds.current_version_id !== watch.initialVersionId
-                const taskCompleted = task.latest_run?.status === 'completed'
-                const currentBuild = builds.builds.find(
-                    (build) => build.source_version_id === builds.current_version_id
-                )
-                actions.generationProgressUpdated({
-                    buildStatus: versionChanged ? (currentBuild?.build_status ?? null) : null,
-                    runCreatedAt: task.latest_run?.created_at ?? null,
-                    runStage: task.latest_run?.stage ?? null,
-                    runStatus: task.latest_run?.status ?? null,
-                    runUpdatedAt: task.latest_run?.updated_at ?? null,
+                const message = errorMessage(error)
+                posthog.captureException(error instanceof Error ? error : new Error(message), {
+                    action: 'update notebook visualization',
                 })
-
-                if (latestIsLive && (versionChanged || taskCompleted)) {
-                    actions.stopWatching()
-                    actions.loadCanvas()
-                    lemonToast.success('Visualization ready')
-                    return
-                }
-                if (currentBuild?.build_status === BuildStatusEnumApi.Failed) {
-                    actions.generationFailed(
-                        currentBuild.diagnostics.find((diagnostic) => diagnostic.severity === 'error')?.message ||
-                            "Couldn't build this visualization. Try again."
-                    )
-                    return
-                }
-                if (task.latest_run?.status === 'failed' || task.latest_run?.status === 'cancelled') {
-                    actions.generationFailed(
-                        task.latest_run.error_message?.trim() || "Couldn't generate this visualization. Try again."
-                    )
-                    return
-                }
-                if (taskCompleted && !builds.current_version_id) {
-                    actions.generationFailed(
-                        'The generation task finished without publishing a visualization. Try again.'
-                    )
-                    return
-                }
-                if (taskCompleted && !versionChanged) {
-                    actions.generationFailed(
-                        'The generation task finished without publishing a new visualization. Try again.'
-                    )
-                    return
-                }
-            } catch {
-                if (!values.generationWatch) {
-                    return
-                }
+                actions.mutationFailed(message)
+                return null
+            } finally {
+                cache.mutationInFlight = false
+            }
+        }
+        const startInputRefresh = (intent: GenUIRefreshIntent): void => {
+            if (cache.inputRefreshIntent) {
+                return
+            }
+            const content = props.getContent()
+            if (!content) {
+                actions.mutationFailed('The notebook content is unavailable. Refresh and try again.')
+                return
+            }
+            cache.inputRefreshIntent = intent
+            actions.inputRefreshStarted()
+            actions.runDependencyChain(content, props.nodeId)
+        }
+        const performIntent = async (intent: GenUIRefreshIntent, allowInputRefresh = true): Promise<void> => {
+            if (allowInputRefresh && values.status?.input_states.some((input) => input.input_status !== 'ready')) {
+                startInputRefresh(intent)
+                return
             }
 
+            let response: GenUIStatusApi | null = null
+            if (intent === 'ensure' || intent === 'regenerate') {
+                const request = requireRequest()
+                if (!request) {
+                    return
+                }
+                response = await completeMutation(() =>
+                    intent === 'ensure'
+                        ? notebooksGenuiEnsure(request.projectId, props.notebookShortId, props.nodeId, requestBody())
+                        : notebooksGenuiRegenerate(
+                              request.projectId,
+                              props.notebookShortId,
+                              props.nodeId,
+                              requestBody()
+                          )
+                )
+            } else if (values.currentTeamId) {
+                response = await completeMutation(() =>
+                    intent === 'retry'
+                        ? notebooksGenuiRetry(String(values.currentTeamId), props.notebookShortId, props.nodeId)
+                        : notebooksGenuiRun(String(values.currentTeamId), props.notebookShortId, props.nodeId)
+                )
+            }
+
+            if (response?.lifecycle_status === 'awaiting_inputs') {
+                if (allowInputRefresh) {
+                    startInputRefresh(intent)
+                } else {
+                    actions.mutationFailed(
+                        'The dataframe cells finished, but their saved previews are not ready yet. Try again.'
+                    )
+                }
+                return
+            }
+            if (response && intent === 'regenerate') {
+                lemonToast.success('Visualization regeneration started')
+            } else if (response && intent === 'run') {
+                lemonToast.success('Visualization data refreshed')
+            }
+        }
+        const scheduleStatusPoll = (): void => {
+            cache.disposables.dispose('statusPoll')
+            if (values.pollAttempts >= STATUS_POLL_MAX_ATTEMPTS) {
+                if (!values.error) {
+                    actions.statusFailed('Generation is taking longer than expected. Open the task to check progress.')
+                }
+                return
+            }
             cache.disposables.add(() => {
-                const timeoutId = setTimeout(() => actions.pollGeneration(), GENERATION_POLL_INTERVAL_MS)
-                return () => clearTimeout(timeoutId)
-            }, 'generationPoll')
-        },
-        loadCanvasSuccess: ({ canvas }) => {
-            if (canvas.generation_task_id && !values.generationWatch) {
-                actions.startWatching(canvas.id, canvas.generation_task_id, canvas.current_version_id)
-            }
-        },
-    })),
-    afterMount(({ actions, props }) => {
-        if (props.id) {
-            actions.loadCanvas()
-            actions.loadBuilds()
-        } else if (props.isEditable && props.prompt.trim()) {
-            actions.createFromPrompt()
+                const timeoutId = window.setTimeout(() => actions.loadStatus(), STATUS_POLL_INTERVAL_MS)
+                return () => window.clearTimeout(timeoutId)
+            }, 'statusPoll')
+        }
+
+        return {
+            ensureVisualization: async () => {
+                if (!props.isEditable) {
+                    return
+                }
+                await performIntent('ensure')
+            },
+            regenerateVisualization: async () => {
+                if (!props.isEditable) {
+                    return
+                }
+                await performIntent('regenerate')
+            },
+            retryVisualization: async () => {
+                if (!props.isEditable || !values.currentTeamId) {
+                    return
+                }
+                await performIntent('retry')
+            },
+            runVisualization: async () => {
+                if (!props.isEditable || !values.currentTeamId) {
+                    return
+                }
+                await performIntent('run')
+            },
+            dependencyChainFinished: async ({ targetNodeId, status }) => {
+                if (targetNodeId !== props.nodeId || !cache.inputRefreshIntent) {
+                    return
+                }
+                const intent = cache.inputRefreshIntent as GenUIRefreshIntent
+                cache.inputRefreshIntent = null
+                actions.inputRefreshFinished()
+                if (status !== 'done') {
+                    actions.mutationFailed(
+                        'Could not refresh the required dataframe cells. Check their errors and try again.'
+                    )
+                    return
+                }
+                await performIntent(intent, false)
+            },
+            loadStatus: async () => {
+                if (!values.currentTeamId) {
+                    return
+                }
+                try {
+                    actions.statusReceived(
+                        await notebooksGenuiStatus(String(values.currentTeamId), props.notebookShortId, props.nodeId)
+                    )
+                } catch (error) {
+                    actions.statusFailed(errorMessage(error))
+                }
+            },
+            reportRenderFailure: ({ reason }) => {
+                posthog.capture('notebook genui render failed', {
+                    reason,
+                    lifecycle_status: values.status?.lifecycle_status,
+                    dependency_count: values.status?.input_states.length ?? 0,
+                    truncated: values.status?.input_states.some((input) => input.truncated === true) ?? false,
+                })
+            },
+            reportRenderSuccess: () => {
+                posthog.capture('notebook genui rendered', {
+                    lifecycle_status: values.status?.lifecycle_status,
+                    dependency_count: values.status?.input_states.length ?? 0,
+                    truncated: values.status?.input_states.some((input) => input.truncated === true) ?? false,
+                })
+            },
+            statusReceived: ({ status }) => {
+                if (status.lifecycle_status === 'ready') {
+                    actions.clearNodeStale(props.nodeId)
+                }
+                cache.disposables.dispose('statusPoll')
+                if (shouldPoll(status)) {
+                    scheduleStatusPoll()
+                }
+            },
+            statusFailed: () => {
+                if (shouldPoll(values.status)) {
+                    scheduleStatusPoll()
+                }
+            },
         }
     }),
-    propsChanged(({ actions, props }, oldProps) => {
-        if (props.id && props.id !== oldProps.id) {
-            actions.loadCanvas()
-            actions.loadBuilds()
+    afterMount(({ actions, props }) => {
+        if (!props.isEditable) {
+            actions.loadStatus()
+        } else if (props.prompt.trim() && !props.inputValidationError) {
+            actions.ensureVisualization()
+        }
+    }),
+    propsChanged(({ actions, props, values }, oldProps) => {
+        const definitionChanged =
+            props.prompt !== oldProps.prompt || props.inputs.join('\0') !== oldProps.inputs.join('\0')
+        if (definitionChanged && values.status && props.prompt.trim() && !props.inputValidationError) {
+            actions.ensureVisualization()
         }
     }),
 ])

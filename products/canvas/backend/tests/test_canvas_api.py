@@ -17,6 +17,7 @@ from posthog.models.user import User
 from posthog.temporal.oauth import ARRAY_APP_CLIENT_ID_DEV
 
 from products.canvas.backend import activity_visibility, build_service
+from products.canvas.backend.facade import get_owned_canvas_generation_state
 from products.canvas.backend.models import Canvas, CanvasBuild, CanvasSourceVersion
 from products.canvas.backend.source import synthetic_source_project
 from products.tasks.backend.models import Channel, Task
@@ -107,6 +108,18 @@ class CanvasAPIBaseTest(APIBaseTest):
 
 
 class TestCanvasCrud(CanvasAPIBaseTest):
+    def test_notebook_adoption_only_resolves_canvases_owned_by_the_user(self):
+        canvas_id = UUID(self._create_canvas())
+        other_user = self._create_user("other-notebook-author@example.com")
+
+        assert (
+            get_owned_canvas_generation_state(team_id=self.team.id, canvas_id=canvas_id, user_id=self.user.id)
+            is not None
+        )
+        assert (
+            get_owned_canvas_generation_state(team_id=self.team.id, canvas_id=canvas_id, user_id=other_user.id) is None
+        )
+
     def test_missing_user_only_sees_public_channels(self):
         with team_scope(self.team.id):
             public = Channel.objects.create(team=self.team, name="public")

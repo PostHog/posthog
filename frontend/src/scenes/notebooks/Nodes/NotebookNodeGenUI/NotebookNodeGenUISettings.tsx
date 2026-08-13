@@ -7,7 +7,7 @@ import { LemonLabel } from 'lib/lemon-ui/LemonLabel'
 
 import { NotebookNodeAttributeProperties } from '../../types'
 import { notebookNodeLogic } from '../notebookNodeLogic'
-import { getGenUIFrameSchemas } from './genUIFrames'
+import { validateGenUIInputs } from './genUIInputs'
 import type { NotebookNodeGenUIAttributes } from './NotebookNodeGenUI'
 import { notebookNodeGenUILogic } from './notebookNodeGenUILogic'
 
@@ -17,21 +17,22 @@ export function NotebookNodeGenUISettings({
 }: NotebookNodeAttributeProperties<NotebookNodeGenUIAttributes>): JSX.Element {
     const nodeLogic = useMountedLogic(notebookNodeLogic)
     const { isEditable, notebookLogic } = useValues(nodeLogic)
-    const { content } = useValues(notebookLogic)
-    const { schemas, missing } = getGenUIFrameSchemas(content, attributes.inputs ?? '')
+    const notebookShortId = notebookLogic.props.shortId
+    const inputValidation = validateGenUIInputs(attributes.inputs ?? '')
     const logic = notebookNodeGenUILogic({
-        id: attributes.id ?? '',
+        notebookShortId,
         nodeId: attributes.nodeId,
-        channelId: attributes.channelId,
+        legacyCanvasId: attributes.id,
         prompt: attributes.prompt ?? '',
-        frames: schemas,
-        missingFrames: missing,
+        inputs: inputValidation.names,
+        inputValidationError: inputValidation.error,
         isEditable,
-        updateAttributes,
+        getContent: () => notebookLogic.values.content,
     })
-    const { creatingCanvas, isGenerating } = useValues(logic)
-    const { createFromPrompt } = useActions(logic)
-    const mutationInFlight = creatingCanvas || isGenerating
+    const { error, isGenerating, isRefreshingInputs, mutationInFlight, status } = useValues(logic)
+    const { ensureVisualization, regenerateVisualization } = useActions(logic)
+    const unavailableInputs = status?.input_states.filter((input) => input.input_status !== 'ready') ?? []
+    const isWorking = mutationInFlight || isRefreshingInputs
 
     return (
         <div className="flex flex-col gap-3 p-3">
@@ -61,22 +62,30 @@ export function NotebookNodeGenUISettings({
             </div>
             <LemonButton
                 type="primary"
-                onClick={() => createFromPrompt()}
-                loading={mutationInFlight}
+                onClick={() => (status ? regenerateVisualization() : ensureVisualization())}
+                loading={isWorking}
                 disabledReason={
-                    mutationInFlight
+                    isWorking
                         ? 'Visualization generation is already running'
                         : !(attributes.prompt ?? '').trim()
                           ? 'Add a prompt first'
-                          : undefined
+                          : inputValidation.error || undefined
                 }
             >
-                {attributes.id ? 'Regenerate visualization' : 'Generate visualization'}
+                {status || attributes.id ? 'Regenerate visualization' : 'Generate visualization'}
             </LemonButton>
-            {missing.length > 0 ? (
-                <div className="text-xs text-warning-dark">
-                    Run these dataframes before testing the visualization: {missing.join(', ')}
+            {inputValidation.error ? <div className="text-xs text-danger">{inputValidation.error}</div> : null}
+            {unavailableInputs.length > 0 ? (
+                <div className="text-xs text-muted">
+                    The visualization will run these dataframes first:{' '}
+                    {unavailableInputs.map((input) => input.name).join(', ')}
                 </div>
+            ) : null}
+            {error ? <div className="text-xs text-danger">{error}</div> : null}
+            {isRefreshingInputs ? (
+                <div className="text-xs text-muted">Required dataframe cells are running.</div>
+            ) : isGenerating ? (
+                <div className="text-xs text-muted">Generation is running in the background.</div>
             ) : null}
         </div>
     )
