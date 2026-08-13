@@ -1,0 +1,393 @@
+{
+  "$schema": "https://biomejs.dev/schemas/2.2.4/schema.json",
+  "vcs": {
+    "enabled": true,
+    "clientKind": "git",
+    "useIgnoreFile": true
+  },
+  "files": {
+    "ignoreUnknown": false
+  },
+  "formatter": {
+    "enabled": true,
+    "indentStyle": "space",
+    "indentWidth": 2
+  },
+  "linter": {
+    "enabled": true,
+    "rules": {
+      "recommended": true,
+      "nursery": {
+        "useSortedClasses": "error"
+      },
+      "suspicious": {
+        "noExplicitAny": "warn"
+      },
+      "style": {
+        "noRestrictedImports": {
+          "options": {
+            "patterns": [
+              {
+                "group": ["./*", "../*"],
+                "message": "Relative imports are forbidden. Use path aliases instead (@api/*, @main/*, @shared/*)."
+              },
+              {
+                "group": [
+                  "**/*.js",
+                  "!fuse.js",
+                  "!tippy.js",
+                  "!@radix-ui/**/*.js"
+                ],
+                "message": "Do not use .js extension in imports. TypeScript resolves extensions automatically."
+              }
+            ]
+          }
+        }
+      }
+    },
+    "domains": {
+      "react": "recommended"
+    }
+  },
+  "javascript": {
+    "formatter": {
+      "quoteStyle": "double"
+    },
+    "parser": {
+      // Required for InversifyJS @inject() parameter decorators
+      "unsafeParameterDecoratorsEnabled": true
+    }
+  },
+  "assist": {
+    "enabled": true,
+    "actions": {
+      "source": {
+        "organizeImports": "on"
+      }
+    }
+  },
+  "overrides": [
+    {
+      // Main-process code must not import from "electron" directly. Every Electron
+      // API goes through a port in @posthog/platform, implemented by an adapter in
+      // apps/code/src/main/platform-adapters/. The only files allowed to import
+      // electron are the adapters and the Electron host files below.
+      "includes": [
+        "apps/code/src/main/**/*.ts",
+        "!apps/code/src/main/platform-adapters/**",
+        "!apps/code/src/main/bootstrap.ts",
+        "!apps/code/src/main/index.ts",
+        "!apps/code/src/main/window.ts",
+        "!apps/code/src/main/external-links.ts",
+        "!apps/code/src/main/menu.ts",
+        "!apps/code/src/main/preload.ts",
+        "!apps/code/src/main/deep-links.ts",
+        "!apps/code/src/main/protocols/**"
+      ],
+      "linter": {
+        "rules": {
+          "style": {
+            "noRestrictedImports": {
+              "level": "error",
+              "options": {
+                "paths": {
+                  "electron": "Use a port from @posthog/platform via DI. Define new ports in packages/platform/src/ and adapters in apps/code/src/main/platform-adapters/."
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      // Files using unknownAtRules
+      "includes": [
+        "packages/ui/src/styles/globals.css",
+        "apps/mobile/global.css"
+      ],
+      "linter": {
+        "enabled": false
+      }
+    },
+    {
+      // API client generates a lot of Any and uses codegen-specific formatting
+      "includes": [
+        "apps/code/src/renderer/api/generated.ts",
+        "packages/api-client/src/generated.ts"
+      ],
+      "linter": {
+        "enabled": false
+      },
+      "formatter": {
+        "enabled": false
+      }
+    },
+    {
+      // TanStack Router generated route tree — uses `as any` and its own
+      // formatting; the file header explicitly says not to lint/format it.
+      "includes": ["packages/ui/src/router/routeTree.gen.ts"],
+      "linter": {
+        "enabled": false
+      },
+      "formatter": {
+        "enabled": false
+      },
+      "assist": {
+        "enabled": false
+      }
+    },
+    {
+      // Disallow console.* in Code and agent source code - use logger instead
+      "includes": [
+        "apps/code/src/**/*.ts",
+        "apps/code/src/**/*.tsx",
+        "packages/agent/src/**/*.ts"
+      ],
+      "linter": {
+        "rules": {
+          "suspicious": {
+            "noConsole": "error"
+          }
+        }
+      }
+    },
+    {
+      // Logger implementations intentionally wrap console
+      "includes": [
+        "packages/agent/src/utils/logger.ts",
+        "apps/code/src/main/lib/logger.ts",
+        "apps/code/src/renderer/lib/logger.ts"
+      ],
+      "linter": {
+        "rules": {
+          "suspicious": {
+            "noConsole": "off"
+          }
+        }
+      }
+    },
+    {
+      // Test files can use console for setup/debugging
+      "includes": [
+        "apps/code/src/test/**/*.ts",
+        "apps/code/src/shared/test/**/*.ts"
+      ],
+      "linter": {
+        "rules": {
+          "suspicious": {
+            "noConsole": "off"
+          }
+        }
+      }
+    },
+    {
+      "includes": ["packages/core/src/**/*.ts", "packages/core/src/**/*.tsx"],
+      "linter": {
+        "rules": {
+          "style": {
+            "noRestrictedImports": {
+              "level": "error",
+              "options": {
+                "patterns": [
+                  {
+                    "group": [
+                      "electron",
+                      "react",
+                      "react-dom",
+                      "node:*",
+                      "@posthog/*",
+                      "!@posthog/shared",
+                      "!@posthog/platform",
+                      "!@posthog/workspace-client",
+                      "!@posthog/api-client"
+                    ],
+                    "message": "core is a pure layer. Allowed @posthog deps: shared, platform, workspace-client, api-client. Never ui/* or workspace-server/*."
+                  }
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "includes": [
+        "packages/api-client/src/**/*.ts",
+        "packages/api-client/src/**/*.tsx"
+      ],
+      "linter": {
+        "rules": {
+          "style": {
+            "noRestrictedImports": {
+              "level": "error",
+              "options": {
+                "patterns": [
+                  {
+                    "group": [
+                      "electron",
+                      "node:*",
+                      "@posthog/*",
+                      "!@posthog/shared",
+                      "!@posthog/shared/*"
+                    ],
+                    "message": "api-client must run in any JS environment."
+                  }
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "includes": [
+        "packages/workspace-client/src/**/*.ts",
+        "packages/workspace-client/src/**/*.tsx"
+      ],
+      "linter": {
+        "rules": {
+          "style": {
+            "noRestrictedImports": {
+              "level": "error",
+              "options": {
+                "patterns": [
+                  {
+                    "group": [
+                      "electron",
+                      "node:*",
+                      "@posthog/*",
+                      "!@posthog/api-client",
+                      "!@posthog/workspace-server"
+                    ],
+                    "message": "workspace-client must run in any JS environment."
+                  }
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "includes": [
+        "packages/platform/src/**/*.ts",
+        "packages/platform/src/**/*.tsx"
+      ],
+      "linter": {
+        "rules": {
+          "style": {
+            "noRestrictedImports": {
+              "level": "error",
+              "options": {
+                "patterns": [
+                  {
+                    "group": ["electron", "node:*", "@posthog/*"],
+                    "message": "platform is interface-only."
+                  }
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "includes": [
+        "packages/workspace-server/src/**/*.ts",
+        "packages/workspace-server/src/**/*.tsx"
+      ],
+      "linter": {
+        "rules": {
+          "style": {
+            "noRestrictedImports": {
+              "level": "error",
+              "options": {
+                "paths": {
+                  "electron": "workspace-server must be host-agnostic."
+                },
+                "patterns": [
+                  {
+                    "group": [
+                      "@posthog/ui",
+                      "@posthog/api-client",
+                      "@posthog/core",
+                      "@posthog/workspace-client",
+                      "@posthog/host-router"
+                    ],
+                    "message": "workspace-server must not depend on UI, the PostHog API, core, workspace-client, or host-router."
+                  }
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "includes": ["packages/ui/src/**/*.ts", "packages/ui/src/**/*.tsx"],
+      "linter": {
+        "rules": {
+          "style": {
+            "noRestrictedImports": {
+              "level": "error",
+              "options": {
+                "patterns": [
+                  {
+                    "group": [
+                      "electron",
+                      "node:*",
+                      "@posthog/*",
+                      "!@posthog/core",
+                      "!@posthog/api-client",
+                      "!@posthog/shared",
+                      "!@posthog/shared/*",
+                      "!@posthog/workspace-client",
+                      "!@posthog/workspace-client/client",
+                      "!@posthog/platform",
+                      "!@posthog/platform/*",
+                      "!@posthog/quill",
+                      "!@posthog/quill-charts"
+                    ],
+                    "message": "ui must run in any JS environment."
+                  }
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      // Renderer code should use path aliases
+      "includes": [
+        "apps/code/src/renderer/**/*.ts",
+        "apps/code/src/renderer/**/*.tsx"
+      ],
+      "linter": {
+        "rules": {
+          "style": {
+            "noRestrictedImports": {
+              "options": {
+                "patterns": [
+                  {
+                    "group": ["./*", "../*"],
+                    "message": "Use path aliases instead: @features/*, @components/*, @stores/*, @hooks/*, @utils/*, @renderer/*, @shared/*, @api/*"
+                  },
+                  {
+                    "group": [
+                      "**/*.js",
+                      "!fuse.js",
+                      "!tippy.js",
+                      "!@radix-ui/**/*.js"
+                    ],
+                    "message": "Do not use .js extension in imports. TypeScript resolves extensions automatically."
+                  }
+                ]
+              }
+            }
+          }
+        }
+      }
+    }
+  ]
+}

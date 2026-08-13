@@ -2,10 +2,12 @@ import csv
 import sys
 import time
 import subprocess
+from collections.abc import Iterable
 from io import StringIO
 from typing import TYPE_CHECKING, Any, NotRequired, Optional, TypedDict, cast
 from uuid import UUID
 
+from django.core.exceptions import ValidationError
 from django.db import models
 from django.db.models import Q
 from django.utils import timezone
@@ -30,7 +32,12 @@ from posthog.hogql.escape_sql import escape_clickhouse_identifier, escape_param_
 
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
-from posthog.errors import CORRUPTED_PARQUET_METADATA_MESSAGE, wrap_clickhouse_query_error
+from posthog.errors import (
+    CORRUPTED_PARQUET_METADATA_MESSAGE,
+    QueryErrorCategory,
+    classify_query_error,
+    wrap_clickhouse_query_error,
+)
 from posthog.exceptions_capture import capture_exception
 from posthog.models.utils import CreatedMetaFields, DeletedMetaFields, UpdatedMetaFields, UUIDTModel, sane_repr
 from posthog.schema_enums import DatabaseSerializedFieldType
@@ -319,6 +326,46 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
 
     class Meta:
         db_table = "posthog_datawarehousetable"
+
+    def save(self, *args: Any, internally_computed_url_pattern: bool = False, **kwargs: Any) -> None:
+        if not internally_computed_url_pattern:
+            self._reject_client_supplied_url_pattern_change(kwargs.get("update_fields"))
+        super().save(*args, **kwargs)
+
+    def clean(self) -> None:
+        # Django admin's changeform validates via full_clean() (form.is_valid() -> clean()) before
+        # ModelAdmin.save_model() ever calls save() - and unlike DRF's perform_update, save_model
+        # doesn't translate a save()-raised ValidationError into a form error, so it would surface
+        # as an unhandled 500. Running the same check here lets admin catch it as a normal field
+        # error. save()'s check stays the enforcement of record for every other caller (DRF, a
+        # management command, a future endpoint), since nothing but ModelForm calls full_clean().
+        super().clean()
+        self._reject_client_supplied_url_pattern_change(update_fields=None)
+
+    def _reject_client_supplied_url_pattern_change(self, update_fields: Iterable[str] | None) -> None:
+        """Block a url_pattern change on a table with no credential, unless the caller declares the
+        new value was computed by PostHog's own code rather than taken from request input.
+
+        A table with no credential is read by ClickHouse under the cluster's own S3 role rather than
+        a key the team supplied, so its url_pattern is only safe because PostHog chose it. Pipeline
+        syncs, saved-query materialization, and the direct-connection upsert helpers all legitimately
+        rewrite this field on such tables using values they compute themselves; those call
+        ``save(internally_computed_url_pattern=True)`` to say so. Every other caller, present or
+        future, is refused by default rather than trusted to have remembered a check elsewhere.
+        """
+        if self._state.adding:
+            return
+        if update_fields is not None and "url_pattern" not in update_fields:
+            return
+        prior = type(self).raw_objects.filter(pk=self.pk).values_list("credential_id", "url_pattern").first()
+        if prior is None:
+            return
+        prior_credential_id, prior_url_pattern = prior
+        if prior_credential_id is None and prior_url_pattern != self.url_pattern:
+            raise ValidationError(
+                "This table has no credential, so its URL is only safe because PostHog set it. "
+                "Add an access key and secret before pointing it at a different location."
+            )
 
     @property
     def name_chain(self) -> list[str]:
@@ -932,6 +979,28 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
         if not hasattr(err, "message"):
             raise err
 
+        # A cancelled query here means our own client timed out reading, not a bad file or bucket.
+        if classify_query_error(err) == QueryErrorCategory.CANCELLED:
+            raise Exception(
+                "Reading the files from your storage bucket took too long and the query was cancelled. "
+                "This is usually temporary - try again, or narrow the URL pattern if the dataset is very large."
+            )
+
+        # ClickHouse's own deltaLake() S3 table function hits the same transient object-store
+        # blips as delta-rs (see TRANSIENT_OBJECT_STORE_ERRORS), just wrapped in a ClickHouse
+        # exception instead of an OSError/DeltaError. Recognize it here too, before the generic
+        # bucket-misconfiguration fallback below, so it's classified as retryable instead of
+        # blamed on the customer's credentials or URL pattern.
+        # Deferred: pipelines.core.delta.errors pulls in posthog.temporal.common.errors ->
+        # temporalio, which must stay off django.setup(), where this model loads in every process.
+        from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.errors import (  # noqa: PLC0415
+            TRANSIENT_OBJECT_STORE_ERRORS,
+            TransientObjectStoreError,
+        )
+
+        if any(needle in raw_message for needle in TRANSIENT_OBJECT_STORE_ERRORS):
+            raise TransientObjectStoreError(raw_message)
+
         for key, value in ExtractErrors.items():
             if key in raw_message:
                 raise Exception(value)
@@ -961,4 +1030,6 @@ def acreate_datawarehousetable(**kwargs):
 
 @database_sync_to_async
 def asave_datawarehousetable(table: DataWarehouseTable) -> None:
-    table.save()
+    # Saved-query materialization is the only caller: it computes url_pattern itself from the
+    # backing DataWarehouseSavedQuery rather than taking it from request input.
+    table.save(internally_computed_url_pattern=True)

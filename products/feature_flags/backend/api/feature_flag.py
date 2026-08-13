@@ -14,6 +14,7 @@ from django.conf import settings
 from django.contrib.postgres.aggregates import ArrayAgg
 from django.db import IntegrityError, transaction
 from django.db.models import Count, Prefetch, Q, QuerySet, deletion
+from django.db.models.functions import JSONObject
 
 import grpc
 import requests
@@ -62,6 +63,7 @@ from posthog.models.person.point_in_time_properties import (
     get_person_and_distinct_ids_for_identifier,
 )
 from posthog.models.property import Property
+from posthog.models.property.property import STRING_PREFIX_SUFFIX_OPERATORS
 from posthog.permissions import TeamSecretTokenPermission, get_authenticator_scopes, is_service_auth
 from posthog.ph_client import feature_enabled_or_false
 from posthog.queries.base import determine_parsed_date_for_property_matching
@@ -130,6 +132,8 @@ EARLY_EXIT_FLAG = "feature-flag-early-exit"
 # period so we can notify affected customers before flipping it on per-org, then
 # to 100%. Remove the gate and make enforcement unconditional once fully rolled out.
 ENFORCE_FEATURE_FLAG_WRITE_SCOPE_FLAG = "enforce-feature-flag-write-scope-cross-resource"
+
+ENCRYPTED_VERSION_HISTORY_UNAVAILABLE = "Version history is not available for flags with encrypted payloads."
 
 
 def parse_created_by_ids(value: Any) -> list[int]:
@@ -383,6 +387,7 @@ FEATURE_FLAG_SUPPORTED_OPERATORS: frozenset[str | None] = frozenset(
         "not_in",
         "flag_evaluates_to",
     }
+    | set(STRING_PREFIX_SUFFIX_OPERATORS)
 )
 
 FEATURE_FLAG_OPERATOR_ALIASES: dict[str, str] = {
@@ -933,7 +938,15 @@ class FeatureFlagSerializer(
     experiment_set_metadata = serializers.SerializerMethodField()
     surveys: serializers.SerializerMethodField = serializers.SerializerMethodField()
     features: serializers.SerializerMethodField = serializers.SerializerMethodField()
-    usage_dashboard: serializers.PrimaryKeyRelatedField = serializers.PrimaryKeyRelatedField(read_only=True)  # ty: ignore[invalid-assignment]
+    usage_dashboard: serializers.PrimaryKeyRelatedField = serializers.PrimaryKeyRelatedField(  # ty: ignore[invalid-assignment]
+        read_only=True,
+        allow_null=True,
+        help_text=(
+            "Dashboard of saved usage insights for this flag, or null if it has none. "
+            "Flags do not get one on creation; create it with "
+            "POST /api/projects/{project_id}/feature_flags/{id}/dashboard/."
+        ),
+    )
     analytics_dashboards = TeamScopedPrimaryKeyRelatedField(
         many=True,
         required=False,
@@ -960,7 +973,6 @@ class FeatureFlagSerializer(
         help_text="Indicates the origin product of the feature flag. Choices: 'feature_flags', 'experiments', 'surveys', 'early_access_features', 'web_experiments', 'product_tours'.",
     )
     _create_in_folder = serializers.CharField(required=False, allow_blank=True, write_only=True)
-    _should_create_usage_dashboard = serializers.BooleanField(required=False, write_only=True, default=True)
 
     class Meta:
         model = FeatureFlag
@@ -997,7 +1009,6 @@ class FeatureFlagSerializer(
             "bucketing_identifier",
             "last_called_at",
             "_create_in_folder",
-            "_should_create_usage_dashboard",
             "is_used_in_replay_settings",
             "is_eligible_for_experiment",
         ]
@@ -1509,12 +1520,16 @@ class FeatureFlagSerializer(
                             code="invalid_date",
                         )
 
-                # make sure regex, icontains, gte, lte, lt, and gt properties have string values
+                # make sure regex, icontains, starts/ends_with, gte, lte, lt, and gt properties have string values
                 if prop.operator in [
                     "regex",
                     "icontains",
                     "not_regex",
                     "not_icontains",
+                    "starts_with",
+                    "not_starts_with",
+                    "ends_with",
+                    "not_ends_with",
                     "gte",
                     "lte",
                     "gt",
@@ -1813,7 +1828,6 @@ class FeatureFlagSerializer(
             "creation_context", "feature_flags"
         )  # default to "feature_flags" if an alternative value is not provided
 
-        should_create_usage_dashboard = validated_data.pop("_should_create_usage_dashboard")
         self._update_filters(validated_data)
 
         # Safety net: validate() already materialized this for gated creates, but keep it here for
@@ -1834,9 +1848,6 @@ class FeatureFlagSerializer(
 
         self._attempt_set_tags(tags, instance)
         self._attempt_set_evaluation_contexts(evaluation_contexts, instance)
-
-        if should_create_usage_dashboard:
-            _create_usage_dashboard(instance, request.user)
 
         if analytics_dashboards is not None:
             for dashboard in analytics_dashboards:
@@ -2253,14 +2264,20 @@ class FeatureFlagSerializer(
         return [{"id": exp.id, "name": exp.name, "is_running": exp.is_running} for exp in experiments]
 
 
+# Migration 0546 backfilled `creation_mode="template"` onto dashboards matching these, so together
+# they identify a generated usage dashboard even after its flag is gone.
+USAGE_DASHBOARD_NAME_PREFIX = "Generated Dashboard: "
+USAGE_DASHBOARD_DESCRIPTION_PREFIX = "This dashboard was generated by the feature flag with key ("
+
+
 def _create_usage_dashboard(feature_flag: FeatureFlag, user):
     from posthog.helpers.dashboard_templates import create_feature_flag_dashboard
 
     from products.dashboards.backend.models.dashboard import Dashboard
 
     usage_dashboard = Dashboard.objects.create(
-        name="Generated Dashboard: " + feature_flag.key + " Usage",
-        description="This dashboard was generated by the feature flag with key (" + feature_flag.key + ")",
+        name=USAGE_DASHBOARD_NAME_PREFIX + feature_flag.key + " Usage",
+        description=USAGE_DASHBOARD_DESCRIPTION_PREFIX + feature_flag.key + ")",
         team=feature_flag.team,
         created_by=user,
         creation_mode="template",
@@ -2890,19 +2907,15 @@ class FeatureFlagViewSet(
             )
         )
 
-        # Annotate with replay settings usage to avoid N+1 queries
-        # This checks if any team in the same project uses this flag for session recording
-        # Extract the 'id' key from the JSONB field and cast to integer for safe comparison
-        from django.db.models import IntegerField
-        from django.db.models.functions import Cast
-
+        # Matches the containment check in FeatureFlagSerializer.get_is_used_in_replay_settings,
+        # so the annotated and unannotated paths agree. Containment never casts, so a
+        # non-integer id in the JSON yields False instead of erroring the query.
         queryset = queryset.annotate(
             is_used_in_replay_settings_annotation=Exists(
                 Team.objects.filter(
                     project_id=OuterRef("team__project_id"),
+                    session_recording_linked_flag__contains=JSONObject(id=OuterRef("id")),
                 )
-                .annotate(json_flag_id=Cast("session_recording_linked_flag__id", IntegerField()))
-                .filter(json_flag_id=OuterRef("id"))
             )
         )
 
@@ -3084,11 +3097,44 @@ class FeatureFlagViewSet(
 
         return response
 
+    @staticmethod
+    def _deleted_flag_rejection(feature_flag: FeatureFlag, restore_hint: str) -> Response | None:
+        """Dashboard-generating actions refuse soft-deleted flags: they would recreate the
+        auto-generated insights that the delete_feature_flag_usage_insights sweep deletes."""
+        if not feature_flag.deleted:
+            return None
+        return Response(
+            {
+                "success": False,
+                "error": f"This feature flag has been deleted. Restore it before {restore_hint}.",
+            },
+            status=400,
+        )
+
+    # No UI surface calls this, since the Usage tab renders its charts inline. It exists for API
+    # users who want a saved usage dashboard.
+    @extend_schema(request=None)
     @action(methods=["POST"], detail=True)
     def dashboard(self, request: request.Request, **kwargs):
+        from products.dashboards.backend.models.dashboard import Dashboard
+
         feature_flag: FeatureFlag = self.get_object()
+        rejection = self._deleted_flag_rejection(feature_flag, "generating a usage dashboard")
+        if rejection is not None:
+            return rejection
         try:
-            usage_dashboard = _create_usage_dashboard(feature_flag, request.user)
+            # The FK on the flag isn't cleared by a dashboard soft-delete, so look the id up
+            # through the manager that excludes deleted rows rather than via the FK accessor,
+            # which would happily return a deleted dashboard and skip regenerating it.
+            usage_dashboard = (
+                Dashboard.objects.filter(
+                    id=feature_flag.usage_dashboard_id, team__project_id=self.team.project_id
+                ).first()
+                if feature_flag.usage_dashboard_id
+                else None
+            )
+            if usage_dashboard is None:
+                usage_dashboard = _create_usage_dashboard(feature_flag, request.user)
 
             if feature_flag.has_enriched_analytics and not feature_flag.usage_dashboard_has_enriched_insights:
                 add_enriched_insights_to_feature_flag_dashboard(feature_flag, usage_dashboard)
@@ -3105,16 +3151,23 @@ class FeatureFlagViewSet(
 
         return Response({"success": True}, status=200)
 
+    @extend_schema(request=None)
     @action(methods=["POST"], detail=True)
     def enrich_usage_dashboard(self, request: request.Request, **kwargs):
         feature_flag: FeatureFlag = self.get_object()
+        rejection = self._deleted_flag_rejection(feature_flag, "enriching its usage dashboard")
+        if rejection is not None:
+            return rejection
         usage_dashboard = feature_flag.usage_dashboard
 
         if not usage_dashboard:
             return Response(
                 {
                     "success": False,
-                    "error": f"Usage dashboard not found",
+                    "error": (
+                        "Usage dashboard not found. Create one first with "
+                        "POST /api/projects/{project_id}/feature_flags/{id}/dashboard/"
+                    ),
                 },
                 status=400,
             )
@@ -3182,7 +3235,7 @@ class FeatureFlagViewSet(
         ],
         responses={
             200: FeatureFlagVersionResponseSerializer,
-            400: OpenApiResponse(description="Version history is not available for remote configuration flags."),
+            400: OpenApiResponse(description=ENCRYPTED_VERSION_HISTORY_UNAVAILABLE),
             404: OpenApiResponse(description="Version not found."),
             422: OpenApiResponse(description="Activity log incomplete; cannot reconstruct this version."),
         },
@@ -3196,9 +3249,11 @@ class FeatureFlagViewSet(
     def versions(self, request: request.Request, version_number: str, **kwargs) -> Response:
         feature_flag: FeatureFlag = self.get_object()
 
-        if feature_flag.is_remote_configuration or feature_flag.has_encrypted_payloads:
+        # Only encrypted payloads are withheld. A plaintext remote configuration payload is already
+        # served to every SDK through normal flag evaluation, so gating it here protects nothing.
+        if feature_flag.has_encrypted_payloads:
             return Response(
-                {"detail": "Version history is not available for remote configuration or encrypted flags."},
+                {"detail": ENCRYPTED_VERSION_HISTORY_UNAVAILABLE},
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
@@ -3219,6 +3274,15 @@ class FeatureFlagViewSet(
             return Response(
                 {"detail": str(e)},
                 status=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            )
+
+        # `has_encrypted_payloads` is mutable: a flag can be downgraded to plaintext, which strips
+        # ciphertext from the live row but not from the activity log the reconstruction reads. Gate
+        # on the reconstructed version's own state so pre-downgrade versions don't return ciphertext.
+        if result["has_encrypted_payloads"]:
+            return Response(
+                {"detail": ENCRYPTED_VERSION_HISTORY_UNAVAILABLE},
+                status=status.HTTP_400_BAD_REQUEST,
             )
 
         return Response(FeatureFlagVersionResponseSerializer(instance=result).data)

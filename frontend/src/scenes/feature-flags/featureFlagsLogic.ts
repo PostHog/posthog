@@ -122,6 +122,10 @@ export enum FeatureFlagsTab {
     TESTING = 'testing',
 }
 
+export function isFeatureFlagsTab(tab: unknown): tab is FeatureFlagsTab {
+    return typeof tab === 'string' && (Object.values(FeatureFlagsTab) as string[]).includes(tab)
+}
+
 export interface FeatureFlagsResult extends CountedPaginatedResponse<FeatureFlagType> {
     /* not in the API response */
     filters?: FeatureFlagsFilters | null
@@ -192,7 +196,6 @@ export interface featureFlagsLogicValues {
     featureFlagsUpdating: Record<number, boolean>
     filters: FeatureFlagsFilters
     filtersChanged: boolean
-    localFlagsCache: FeatureFlagType[]
     pagination: PaginationManual
     paramsFromFilters: {
         active?: string | undefined
@@ -220,7 +223,7 @@ export interface featureFlagsLogicActions {
     deleteFlag: (id: number) => {
         id: number
     }
-    loadFeatureFlags: () => any
+    loadFeatureFlags: (_: void) => void
     loadFeatureFlagsFailure: (
         error: string,
         errorObject?: any
@@ -230,10 +233,10 @@ export interface featureFlagsLogicActions {
     }
     loadFeatureFlagsSuccess: (
         featureFlags: FeatureFlagsResult,
-        payload?: any
+        payload?: void
     ) => {
         featureFlags: FeatureFlagsResult
-        payload?: any
+        payload?: void
     }
     setActiveTab: (tabKey: FeatureFlagsTab) => {
         tabKey: FeatureFlagsTab
@@ -392,13 +395,8 @@ export interface featureFlagsLogicMeta {
             featureFlags: FeatureFlagsResult,
             filters: FeatureFlagsFilters
         ) => boolean
-        pagination: (
-            filters: FeatureFlagsFilters,
-            displayedFlags: FeatureFlagType[],
-            featureFlags: FeatureFlagsResult,
-            filtersChanged: boolean
-        ) => PaginationManual
-        displayedFlags: (localFlagsCache: FeatureFlagType[], filters: FeatureFlagsFilters) => FeatureFlagType[]
+        pagination: (filters: FeatureFlagsFilters, featureFlags: FeatureFlagsResult) => PaginationManual
+        displayedFlags: (featureFlags: FeatureFlagsResult) => FeatureFlagType[]
     }
 }
 
@@ -430,15 +428,23 @@ export const featureFlagsLogic = kea<featureFlagsLogicType>([
         featureFlags: [
             { results: [], count: 0, filters: DEFAULT_FILTERS, offset: 0 } as FeatureFlagsResult,
             {
-                loadFeatureFlags: async () => {
+                loadFeatureFlags: async (_: void, breakpoint) => {
+                    // Read the filters up front: `values` is live, so reading them after the await would
+                    // stamp the response with whatever the user has typed since, and displayedFlags would
+                    // then filter this page against filters it was never requested under.
+                    const params = values.paramsFromFilters
+                    const filters = values.filters
                     const response = await api.get(
-                        `api/projects/${values.currentProjectId}/feature_flags/?${toParams(values.paramsFromFilters)}`
+                        `api/projects/${values.currentProjectId}/feature_flags/?${toParams(params)}`
                     )
+                    // Drop a response that a newer request has already superseded, so slow-then-fast
+                    // responses can't land out of order.
+                    breakpoint()
 
                     return {
                         ...response,
-                        offset: values.paramsFromFilters.offset,
-                        filters: values.filters,
+                        offset: params.offset,
+                        filters,
                     }
                 },
                 updateFeatureFlag: async ({ id, payload }: { id: number; payload: Partial<FeatureFlagType> }) => {
@@ -520,20 +526,6 @@ export const featureFlagsLogic = kea<featureFlagsLogicType>([
                 results: state.results.filter((flag) => flag.id !== id),
             }),
         },
-        localFlagsCache: [
-            [] as FeatureFlagType[],
-            {
-                loadFeatureFlagsSuccess: (_, { featureFlags }) => {
-                    return featureFlags.results
-                },
-                updateFeatureFlagSuccess: (_, { featureFlags }) => featureFlags.results,
-                updateFeatureFlagArchivedSuccess: (_, { featureFlags }) => featureFlags.results,
-                updateFlag: (state, { flag }) => state.map((f) => (f.id === flag.id ? flag : f)),
-                updateFlagFromPartial: (state, { flag }) =>
-                    state.map((f) => (f.id === flag.id ? { ...f, ...flag } : f)),
-                deleteFlag: (state, { id }) => state.filter((f) => f.id !== id),
-            },
-        ],
         activeTab: [
             FeatureFlagsTab.OVERVIEW as FeatureFlagsTab,
             {
@@ -616,18 +608,13 @@ export const featureFlagsLogic = kea<featureFlagsLogicType>([
             },
         ],
         pagination: [
-            (s) => [s.filters, s.displayedFlags, s.featureFlags, s.filtersChanged],
-            (
-                filters: FeatureFlagsFilters,
-                displayedFlags: FeatureFlagType[],
-                featureFlags: FeatureFlagsResult,
-                filtersChanged: boolean
-            ): PaginationManual => {
+            (s) => [s.filters, s.featureFlags],
+            (filters: FeatureFlagsFilters, featureFlags: FeatureFlagsResult): PaginationManual => {
                 return {
                     controlled: true,
                     pageSize: FLAGS_PER_PAGE,
                     currentPage: filters.page || 1,
-                    entryCount: filtersChanged ? displayedFlags.length : featureFlags.count,
+                    entryCount: featureFlags.count,
                 }
             },
         ],
@@ -638,9 +625,14 @@ export const featureFlagsLogic = kea<featureFlagsLogicType>([
             }),
         ],
         displayedFlags: [
-            (s) => [s.localFlagsCache, s.filters],
-            (cache: FeatureFlagType[], filters: FeatureFlagsFilters): FeatureFlagType[] => {
-                return cache.filter((flag) => flagMatchesFilters(flag, filters))
+            (s) => [s.featureFlags],
+            (featureFlags: FeatureFlagsResult): FeatureFlagType[] => {
+                // Re-applies the page's own server-side filters so optimistic row edits that no longer match
+                // (a flag toggled off under active=true, or archived) drop out without a refetch. Filtering
+                // against the live filters instead would empty the list between a filter change and its
+                // refetch, and LemonTable renders skeleton rows over an empty dataSource.
+                const appliedFilters = featureFlags.filters ?? DEFAULT_FILTERS
+                return featureFlags.results.filter((flag) => flagMatchesFilters(flag, appliedFilters))
             },
         ],
     }),

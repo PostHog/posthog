@@ -31,6 +31,8 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arr
     normalize_table_column_names,
     observe_and_project_table,
     observed_schema_metadata_columns,
+    raise_on_nullability_drift,
+    restrict_schema_to_columns,
     source_uses_delta_write_column_selection,
     table_from_py_list,
 )
@@ -317,6 +319,50 @@ def test_table_from_py_list_with_null_filled_binary_column():
             ]
         )
     )
+
+
+@pytest.mark.parametrize(
+    "value, expected_type",
+    [
+        (datetime.datetime(2024, 1, 2, 3, 4, 5), pa.timestamp("us")),
+        (datetime.datetime(2024, 1, 2, 3, 4, 5, tzinfo=datetime.UTC), pa.timestamp("us", tz="UTC")),
+        (datetime.date(2024, 1, 2), pa.date32()),
+        (datetime.time(3, 4, 5), pa.time64("us")),
+    ],
+)
+def test_table_from_py_list_schema_missing_temporal_column(value, expected_type):
+    # A column present in the batch but absent from the provided schema has its Arrow field
+    # inferred by `_python_type_to_pyarrow_type`, which must handle temporal values.
+    schema = pa.schema(cast(Any, [pa.field("id", pa.int64())]))
+    table = table_from_py_list([{"id": 1, "ts": value}], schema)
+
+    assert table.schema.field("ts").type == expected_type
+    assert table.column("ts").to_pylist() == [value]
+
+
+def test_restrict_schema_to_columns_drops_fields_absent_from_the_read():
+    # A SQL source's discovered schema can declare a column the streaming read no longer returns
+    # (dropped at the source, or the table recreated with a narrower shape, between discovery and
+    # the read). `from_pydict` crashes with an opaque KeyError in that case, so the read path first
+    # restricts the schema to the columns it actually got back.
+    schema = pa.schema(
+        cast(Any, [pa.field("id", pa.int64()), pa.field("name", pa.string()), pa.field("dropped", pa.string())])
+    )
+    rows = [{"id": 1, "name": "a"}, {"id": 2, "name": "b"}]
+
+    with pytest.raises(KeyError):
+        table_from_py_list(rows, schema)
+
+    restricted = restrict_schema_to_columns(schema, ["id", "name"])
+    assert restricted.names == ["id", "name"]
+    assert restricted.field("id").type == pa.int64()
+
+    table = table_from_py_list(rows, restricted)
+    assert table.schema.names == ["id", "name"]
+    assert table.column("id").to_pylist() == [1, 2]
+
+    # When every schema field is present the schema is returned unchanged (common case).
+    assert restrict_schema_to_columns(restricted, ["id", "name"]) is restricted
 
 
 @pytest.mark.parametrize(
@@ -851,6 +897,56 @@ def test_evolve_pyarrow_schema_time_columns_reconcile_to_stored_seconds(
 
     assert evolved_table.schema.field("redeem_time").type == pa.float64()
     assert evolved_table.column("redeem_time").to_pylist() == expected_values
+
+
+def test_raise_on_nullability_drift_null_in_non_nullable_column_raises():
+    """A batch with a null in a column the table declares non-nullable raises the reset signal,
+    because neither deltalite nor delta-rs can relax an existing column to nullable in place."""
+    pa_table = pa.table(
+        {
+            "id": pa.array([1, 2], type=pa.int64()),
+            "name": pa.array(["a", None], type=pa.string()),
+        }
+    )
+    delta_fields: list[pa.Field] = [
+        pa.field("id", pa.int64(), nullable=False),
+        pa.field("name", pa.string(), nullable=False),
+    ]
+    delta_schema = deltalake.Schema.from_arrow(pa.schema(delta_fields))
+
+    with pytest.raises(SchemaColumnTypeChangedException, match="now contains nulls"):
+        raise_on_nullability_drift(pa_table, delta_schema)
+
+
+@pytest.mark.parametrize(
+    "delta_fields, batch_columns",
+    [
+        # Null lands in a column the table already marks nullable — the writer accepts it.
+        (
+            [pa.field("id", pa.int64(), nullable=False), pa.field("name", pa.string(), nullable=True)],
+            {"id": pa.array([1, 2], type=pa.int64()), "name": pa.array(["a", None], type=pa.string())},
+        ),
+        # No nulls arrive in the non-nullable column — nothing drifts.
+        (
+            [pa.field("id", pa.int64(), nullable=False), pa.field("name", pa.string(), nullable=False)],
+            {"id": pa.array([1, 2], type=pa.int64()), "name": pa.array(["a", "b"], type=pa.string())},
+        ),
+        # The non-nullable column is absent from the batch — no null to check.
+        (
+            [pa.field("id", pa.int64(), nullable=False), pa.field("name", pa.string(), nullable=False)],
+            {"id": pa.array([1, 2], type=pa.int64())},
+        ),
+    ],
+)
+def test_raise_on_nullability_drift_permits_valid_batches(
+    delta_fields: list[pa.Field], batch_columns: dict[str, pa.Array]
+):
+    """No drift is raised when the null lands in a nullable column, when the non-nullable column
+    carries no nulls, or when it is absent from the batch entirely."""
+    pa_table = pa.table(batch_columns)
+    delta_schema = deltalake.Schema.from_arrow(pa.schema(delta_fields))
+
+    raise_on_nullability_drift(pa_table, delta_schema)
 
 
 def test_evolve_pyarrow_schema_with_struct_containing_datetime_and_decimal():

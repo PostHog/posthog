@@ -114,6 +114,10 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         query = cast(dict[str, Any], insight.query)
         return query["source"]["properties"]["values"][0]["values"][0]["value"]
 
+    def _generate_usage_dashboard(self, flag_id: int) -> None:
+        response = self.client.post(f"/api/projects/{self.team.id}/feature_flags/{flag_id}/dashboard")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
     def test_cant_create_flag_with_duplicate_key(self):
         FeatureFlag.objects.create(team=self.team, created_by=self.user, key="red_button")
         count = FeatureFlag.objects.count()
@@ -2994,6 +2998,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             )
             self.assertEqual(response.status_code, status.HTTP_201_CREATED)
             flag_id = response.json()["id"]
+            self._generate_usage_dashboard(flag_id)
 
             frozen_datetime.tick(delta=timedelta(minutes=10))
 
@@ -3178,6 +3183,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             )
             self.assertEqual(response.status_code, status.HTTP_201_CREATED)
             flag_id = response.json()["id"]
+            self._generate_usage_dashboard(flag_id)
 
             frozen_datetime.tick(delta=timedelta(minutes=10))
 
@@ -3267,6 +3273,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             )
             self.assertEqual(response.status_code, status.HTTP_201_CREATED)
             flag_id = response.json()["id"]
+            self._generate_usage_dashboard(flag_id)
 
             frozen_datetime.tick(delta=timedelta(minutes=10))
 
@@ -3356,6 +3363,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             )
             self.assertEqual(response.status_code, status.HTTP_201_CREATED)
             flag_id = response.json()["id"]
+            self._generate_usage_dashboard(flag_id)
 
             frozen_datetime.tick(delta=timedelta(minutes=10))
 
@@ -4410,7 +4418,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             # (they're survey-specific and filtered out from the main list)
 
     @patch("products.feature_flags.backend.api.feature_flag.report_user_action")
-    def test_create_feature_flag_usage_dashboard(self, mock_report_user_action):
+    def test_generate_usage_dashboard_creates_insights(self, mock_report_user_action):
         response = self.client.post(
             f"/api/projects/{self.team.id}/feature_flags/",
             {
@@ -4422,6 +4430,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         )
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         flag_id = response.json()["id"]
+        self._generate_usage_dashboard(flag_id)
         instance = FeatureFlag.objects.get(id=flag_id)
         self.assertEqual(instance.key, "alpha-feature")
 
@@ -4794,7 +4803,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         ]
     )
     @patch("products.feature_flags.backend.api.feature_flag.report_user_action")
-    def test_create_group_feature_flag_usage_dashboard(
+    def test_generate_group_usage_dashboard_creates_insights(
         self, _name, group_type, expected_singular, expected_plural, mock_report_user_action
     ):
         if group_type is not None:
@@ -4831,7 +4840,9 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             format="json",
         )
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
-        instance = FeatureFlag.objects.get(id=response.json()["id"])
+        flag_id = response.json()["id"]
+        self._generate_usage_dashboard(flag_id)
+        instance = FeatureFlag.objects.get(id=flag_id)
 
         dashboard = instance.usage_dashboard
         assert dashboard is not None
@@ -4893,6 +4904,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         )
         self.assertEqual(create.status_code, status.HTTP_201_CREATED)
         flag_id = create.json()["id"]
+        self._generate_usage_dashboard(flag_id)
 
         response = self.client.patch(
             f"/api/projects/{self.team.id}/feature_flags/{flag_id}",
@@ -4946,6 +4958,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         )
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         flag_id = response.json()["id"]
+        self._generate_usage_dashboard(flag_id)
         instance = FeatureFlag.objects.get(id=flag_id)
         self.assertEqual(instance.key, "alpha-feature")
 
@@ -4985,6 +4998,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         flag_id = response.json()["id"]
         instance = FeatureFlag.objects.get(id=flag_id)
         self.assertEqual(instance.key, "alpha-feature")
+        self._generate_usage_dashboard(flag_id)
 
         response = self.client.post(
             f"/api/projects/{self.team.id}/feature_flags/{flag_id}/enrich_usage_dashboard",
@@ -4998,6 +5012,88 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
                 "success": False,
             },
         )
+
+    @patch("products.feature_flags.backend.api.feature_flag.report_user_action")
+    def test_dashboard_enrichment_fails_if_no_usage_dashboard(self, mock_report_user_action: MagicMock) -> None:
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags/",
+            {
+                "name": "Alpha feature",
+                "key": "alpha-feature",
+                "filters": {"groups": [{"rollout_percentage": 50}]},
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        flag_id = response.json()["id"]
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags/{flag_id}/enrich_usage_dashboard",
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(
+            response.json(),
+            {
+                "error": (
+                    "Usage dashboard not found. Create one first with "
+                    "POST /api/projects/{project_id}/feature_flags/{id}/dashboard/"
+                ),
+                "success": False,
+            },
+        )
+
+    def test_dashboard_endpoint_is_idempotent(self) -> None:
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags/",
+            {"name": "Alpha feature", "key": "alpha-feature", "filters": {"groups": [{"rollout_percentage": 50}]}},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        flag_id = response.json()["id"]
+
+        self._generate_usage_dashboard(flag_id)
+        first_dashboard_id = FeatureFlag.objects.get(id=flag_id).usage_dashboard_id
+        assert first_dashboard_id is not None
+
+        self._generate_usage_dashboard(flag_id)
+        instance = FeatureFlag.objects.get(id=flag_id)
+
+        self.assertEqual(instance.usage_dashboard_id, first_dashboard_id)
+        self.assertTrue(Dashboard.objects.filter(id=first_dashboard_id, deleted=False).exists())
+
+    def test_dashboard_endpoint_regenerates_after_dashboard_is_deleted(self) -> None:
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags/",
+            {"name": "Alpha feature", "key": "alpha-feature", "filters": {"groups": [{"rollout_percentage": 50}]}},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        flag_id = response.json()["id"]
+
+        self._generate_usage_dashboard(flag_id)
+        deleted_dashboard_id = FeatureFlag.objects.get(id=flag_id).usage_dashboard_id
+        assert deleted_dashboard_id is not None
+        Dashboard.objects.filter(id=deleted_dashboard_id).update(deleted=True)
+
+        self._generate_usage_dashboard(flag_id)
+        instance = FeatureFlag.objects.get(id=flag_id)
+
+        new_dashboard_id = instance.usage_dashboard_id
+        assert new_dashboard_id is not None
+        self.assertNotEqual(new_dashboard_id, deleted_dashboard_id)
+        self.assertTrue(Dashboard.objects.filter(id=new_dashboard_id, deleted=False).exists())
+
+    @parameterized.expand(["dashboard", "enrich_usage_dashboard"])
+    def test_dashboard_generating_endpoints_reject_a_deleted_flag(self, endpoint: str) -> None:
+        flag = FeatureFlag.objects.create(team=self.team, created_by=self.user, key="deleted-flag", deleted=True)
+
+        response = self.client.post(f"/api/projects/{self.team.id}/feature_flags/{flag.id}/{endpoint}")
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("has been deleted", response.json()["error"])
+        flag.refresh_from_db()
+        self.assertIsNone(flag.usage_dashboard_id)
 
     @patch("products.feature_flags.backend.flag_analytics.CACHE_BUCKET_SIZE", 10)
     def test_local_evaluation_billing_analytics_for_regular_feature_flag_list(self):
@@ -7784,10 +7880,12 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         assert data["keys"] == {str(flag1.id): "test-flag-1"}
 
     @patch("products.feature_flags.backend.api.feature_flag.report_user_action")
-    def test_create_feature_flag_without_usage_dashboard(self, mock_report_user_action):
+    def test_create_feature_flag_does_not_create_usage_dashboard(self, mock_report_user_action: MagicMock) -> None:
+        dashboard_count_before = Dashboard.objects.filter(team=self.team).count()
+
         response = self.client.post(
             f"/api/projects/{self.team.id}/feature_flags/",
-            {"key": "no-usage-dashboard", "_should_create_usage_dashboard": False},
+            {"key": "no-usage-dashboard"},
             format="json",
         )
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
@@ -7797,6 +7895,11 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         self.assertEqual(instance.key, "no-usage-dashboard")
         self.assertEqual(instance.name, "")
         assert instance.usage_dashboard is None, "Usage dashboard should not be created"
+        self.assertEqual(
+            Dashboard.objects.filter(team=self.team).count(),
+            dashboard_count_before,
+            "Feature flag creation should not create any dashboard",
+        )
 
     def test_feature_flag_detail_actions_respect_access_control(self) -> None:
         self.organization.available_product_features = [
@@ -8292,6 +8395,36 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         body = response.json()
         assert body["updated"] == [{"id": flag.id, "tags": ["foo"]}]
         assert body["skipped"] == []
+
+    def test_bulk_update_tags_with_non_integer_replay_linked_flag_id(self):
+        # Replay usage must be computed by JSONB containment, never by casting the stored id
+        # to integer: a sibling team's non-integer session_recording_linked_flag id would
+        # error every flags queryset in the project, including bulk_update_tags and list.
+        flag = FeatureFlag.objects.create(team=self.team, created_by=self.user, key="replay-cast-test")
+        self.team.session_recording_linked_flag = {"id": flag.id, "key": flag.key}
+        self.team.save()
+        Team.objects.create(
+            organization=self.organization,
+            project=self.team.project,
+            session_recording_linked_flag={"id": "not-an-int", "key": "some-key"},
+        )
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags/bulk_update_tags/",
+            {"ids": [flag.id], "action": "add", "tags": ["foo"]},
+            format="json",
+        )
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        body = response.json()
+        assert body["updated"] == [{"id": flag.id, "tags": ["foo"]}]
+        assert body["skipped"] == []
+
+        # A wrong OuterRef correlation in the annotation would still return 200s, so assert
+        # the linked flag actually reports replay usage through the list endpoint.
+        list_response = self.client.get(f"/api/projects/{self.team.id}/feature_flags/")
+        assert list_response.status_code == status.HTTP_200_OK, list_response.json()
+        listed = next(f for f in list_response.json()["results"] if f["id"] == flag.id)
+        assert listed["is_used_in_replay_settings"] is True
 
     # Lives in the feature-flag test file (instead of test_insight.py) so the
     # full bulk-ops PAT regression story — positive feature-flag cases and the
@@ -9882,6 +10015,10 @@ class TestBlastRadius(ClickhouseTestMixin, APIBaseTest):
             ("regex", "^org-(prod|staging)-\\d+$", "regex", 2, 3),
             ("not_regex", "^org-(prod|staging)-\\d+$", "not_regex", 1, 3),
             ("not_icontains", "ORG", "not_icontains", 1, 3),
+            ("starts_with", "org-", "starts_with", 2, 3),
+            ("not_starts_with", "org-", "not_starts_with", 1, 3),
+            ("ends_with", "001", "ends_with", 1, 3),
+            ("not_ends_with", "001", "not_ends_with", 2, 3),
         ]
     )
     def test_user_blast_radius_with_group_key_operators(
@@ -10283,6 +10420,48 @@ class TestBlastRadius(ClickhouseTestMixin, APIBaseTest):
                                 "beta",
                             ],  # List not supported for icontains
                             "operator": "icontains",
+                            "group_type_index": 0,
+                        }
+                    ],
+                    "rollout_percentage": 100,
+                },
+                "group_type_index": 0,
+            },
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("does not support list values", response.json()["detail"].lower())
+
+    def test_user_blast_radius_with_group_key_starts_with_list_values_raises_error(self):
+        """Test that starts_with/ends_with operators with list values raise a validation error.
+
+        The four operators share a single list-value guard in _build_group_query, so one
+        representative operator is enough to cover it.
+        """
+        create_group_type_mapping(
+            team=self.team,
+            project_id=self.team.project_id,
+            group_type="organization",
+            group_type_index=0,
+        )
+
+        create_group(
+            team_id=self.team.pk,
+            group_type_index=0,
+            group_key="org-alpha",
+            properties={},
+        )
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags/user_blast_radius",
+            {
+                "condition": {
+                    "properties": [
+                        {
+                            "key": "$group_key",
+                            "type": "group",
+                            "value": ["alpha", "beta"],  # List not supported for starts_with
+                            "operator": "starts_with",
                             "group_type_index": 0,
                         }
                     ],
@@ -13151,21 +13330,24 @@ class TestFeatureFlagVersions(APIBaseTest):
         assert response.status_code == status.HTTP_422_UNPROCESSABLE_ENTITY
         assert "incomplete" in response.json()["detail"].lower()
 
-    @parameterized.expand(
-        [
-            ("remote_configuration", {"is_remote_configuration": True}),
-            ("encrypted_payloads", {"has_encrypted_payloads": True}),
-        ]
-    )
-    def test_unsupported_flag_returns_400(self, _name, update_kwargs):
+    def test_encrypted_payloads_flag_returns_400(self):
         flag = self._create_flag_via_api()
         flag_id = flag["id"]
 
-        FeatureFlag.objects.filter(id=flag_id).update(**update_kwargs)
+        FeatureFlag.objects.filter(id=flag_id).update(has_encrypted_payloads=True)
 
         response = self.client.get(f"/api/projects/{self.team.id}/feature_flags/{flag_id}/versions/1/")
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert "not available" in response.json()["detail"].lower()
+
+    def test_plaintext_remote_config_flag_is_reachable(self):
+        flag = self._create_flag_via_api()
+        flag_id = flag["id"]
+
+        FeatureFlag.objects.filter(id=flag_id).update(is_remote_configuration=True)
+
+        response = self.client.get(f"/api/projects/{self.team.id}/feature_flags/{flag_id}/versions/1/")
+        assert response.status_code == status.HTTP_200_OK
 
 
 class TestFeatureFlagTestEvaluation(APIBaseTest, ClickhouseTestMixin):

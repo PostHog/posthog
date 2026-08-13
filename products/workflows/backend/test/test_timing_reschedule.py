@@ -15,7 +15,6 @@ from products.workflows.backend.services.timing_reschedule import (
     get_all_timing_action_ids,
     get_timing_reschedule_action_ids,
     parse_delay_duration_seconds,
-    use_workflows_timing_reschedule,
 )
 from products.workflows.backend.tasks.hog_flows import reschedule_hog_flow_timing
 
@@ -168,20 +167,6 @@ class TestTimingRescheduleDiff(SimpleTestCase):
 
     def test_all_timing_action_ids_over_cap_sweeps_nothing(self):
         assert get_all_timing_action_ids([_delay(f"delay_{i}") for i in range(101)]) == []
-
-
-class TestTimingRescheduleFlag(SimpleTestCase):
-    def _team(self) -> MagicMock:
-        return MagicMock(uuid="team-uuid", organization_id="org-id", id=1)
-
-    @parameterized.expand([("on", True), ("off", False)])
-    def test_flag_value_passthrough(self, _name, enabled):
-        with patch("posthoganalytics.feature_enabled", return_value=enabled):
-            assert use_workflows_timing_reschedule(self._team()) is enabled
-
-    def test_flag_check_failure_defaults_off(self):
-        with patch("posthoganalytics.feature_enabled", side_effect=Exception("flag service down")):
-            assert use_workflows_timing_reschedule(self._team()) is False
 
 
 class TestRescheduleParkedJobsClient(BaseTest):

@@ -41,6 +41,7 @@ from products.customer_analytics.backend.facade.contracts import (
     AccountRelationship,
     AccountRelationshipDefinition,
     AccountView,
+    CalendarSyncStatus,
     CustomerJourneyView,
     CustomerProfileConfigView,
     CustomPropertyDefinitionView,
@@ -49,6 +50,8 @@ from products.customer_analytics.backend.facade.contracts import (
     CustomPropertySourceView,
     CustomPropertySyncRunView,
     EventStreamView,
+    MeetingParticipantView,
+    MeetingView,
 )
 
 # Scope (value, label) pairs, kept in sync with ``CustomerProfileConfig.Scope``. Declared
@@ -63,25 +66,20 @@ _PROFILE_CONFIG_SCOPE_CHOICES = [
     ("group_4", "Group 4"),
 ]
 
-# JSON schema for the account ``properties`` field. Kept verbatim from the pre-isolation
-# serializer so the generated ``AccountApiProperties`` component is unchanged.
-_ACCOUNT_ASSIGNMENT_SCHEMA = {
-    "type": "object",
-    "nullable": True,
-    "properties": {
-        "id": {"type": "integer"},
-        "email": {"type": "string"},
-    },
-    "required": ["id", "email"],
-}
-
 _ACCOUNT_PROPERTIES_SCHEMA = {
     "type": "object",
     "additionalProperties": False,
     "properties": {
-        "csm": _ACCOUNT_ASSIGNMENT_SCHEMA,
-        "account_executive": _ACCOUNT_ASSIGNMENT_SCHEMA,
-        "account_owner": _ACCOUNT_ASSIGNMENT_SCHEMA,
+        "email_domains": {
+            "type": "array",
+            "items": {"type": "string"},
+            "description": "Email domains owned by this account's company, used to match inbound touchpoints to the account.",
+        },
+        "known_emails": {
+            "type": "array",
+            "items": {"type": "string"},
+            "description": "Individual email addresses pinned to this account, matched before the domain fallback.",
+        },
         "stripe_customer_id": {"type": "string", "nullable": True},
         "hubspot_deal_id": {"type": "string", "nullable": True},
         "billing_id": {"type": "string", "nullable": True},
@@ -89,6 +87,7 @@ _ACCOUNT_PROPERTIES_SCHEMA = {
         "zendesk_id": {"type": "string", "nullable": True},
         "slack_channel_id": {"type": "string", "nullable": True},
         "usage_dashboard_link": {"type": "string", "nullable": True},
+        "metabase_link": {"type": "string", "nullable": True},
     },
 }
 
@@ -173,10 +172,12 @@ class AccountSerializer(DataclassSerializer):
         required=False,
         allow_null=True,
         help_text=(
-            "Typed account properties: assignment fields (csm, account_executive, account_owner) "
-            "and external system identifiers (stripe_customer_id, hubspot_deal_id, billing_id, "
-            "sfdc_id, zendesk_id, slack_channel_id, usage_dashboard_link). Defaults to an empty "
-            "object. Unknown keys are rejected."
+            "Typed account properties: external system identifiers (stripe_customer_id, "
+            "hubspot_deal_id, billing_id, sfdc_id, zendesk_id, slack_channel_id, "
+            "usage_dashboard_link, metabase_link) plus touchpoint matching lists: email_domains "
+            "(the company's email domains) and known_emails (individual addresses pinned to the "
+            "account). Defaults to an empty object. Unknown keys are rejected. User assignments "
+            "live on account relationships, not here."
         ),
     )
     tags = serializers.ListField(
@@ -307,6 +308,14 @@ class AccountNoteSerializer(DataclassSerializer):
         fields = ["short_id", "title", "created_at", "last_modified_at", "account_id", "account_name", "created_by"]
 
 
+class ChannelSummaryMessageSerializer(serializers.Serializer):
+    """Metadata for one message a channel summary covered — never the message text."""
+
+    author = serializers.CharField(read_only=True, help_text="Display name of the message author.")
+    sent_at = serializers.DateTimeField(read_only=True, help_text="When the message was sent.")
+    permalink = serializers.CharField(read_only=True, help_text="Slack permalink to the message.")
+
+
 class AccountChannelSummarySerializer(DataclassSerializer):
     """An AI summary of one closed period of the account's bound Slack channel (read-only)."""
 
@@ -327,6 +336,11 @@ class AccountChannelSummarySerializer(DataclassSerializer):
     message_count = serializers.IntegerField(
         read_only=True, help_text="Number of channel messages the summary covered."
     )
+    messages = ChannelSummaryMessageSerializer(
+        many=True,
+        read_only=True,
+        help_text="The messages the summary covered, in transcript order — metadata only, no message text.",
+    )
     generated_at = serializers.DateTimeField(read_only=True, help_text="When the summary was generated.")
 
     class Meta:
@@ -340,6 +354,7 @@ class AccountChannelSummarySerializer(DataclassSerializer):
             "period_end",
             "content",
             "message_count",
+            "messages",
             "generated_at",
         ]
 
@@ -362,6 +377,79 @@ class SupportTicketSerializer(DataclassSerializer):
         dataclass = TicketSummary
         ref_name = "SupportTicket"
         fields = ["id", "ticket_number", "status", "last_message_at", "last_message_text", "deep_link"]
+
+
+class CalendarSyncStatusSerializer(DataclassSerializer):
+    """Sync state of one connected calendar (read-only)."""
+
+    integration_id = serializers.IntegerField(read_only=True, help_text="Id of the google-calendar integration.")
+    last_synced_at = serializers.DateTimeField(
+        read_only=True, allow_null=True, help_text="When the last sync run completed; null before the first sync."
+    )
+    is_syncing = serializers.BooleanField(read_only=True, help_text="Whether a sync run is currently in flight.")
+
+    class Meta:
+        dataclass = CalendarSyncStatus
+        ref_name = "CalendarSyncStatus"
+        fields = ["integration_id", "last_synced_at", "is_syncing"]
+
+
+class CalendarSyncTriggerSerializer(serializers.Serializer):
+    """Request body of the calendar sync-now trigger."""
+
+    integration_id = serializers.IntegerField(help_text="Id of the google-calendar integration to sync.")
+
+
+class CalendarSyncTriggerResponseSerializer(serializers.Serializer):
+    """Response of the calendar sync-now trigger."""
+
+    status = serializers.ChoiceField(
+        choices=[("started", "started"), ("already_running", "already_running")],
+        help_text="'started' (a sync run began) or 'already_running' (a sync for this calendar was already in flight, so this was a no-op).",
+    )
+
+
+class MeetingParticipantSerializer(DataclassSerializer):
+    """One attendee of a synced calendar meeting (read-only)."""
+
+    email = serializers.CharField(read_only=True, help_text="Email address of the attendee.")
+    display_name = serializers.CharField(
+        read_only=True, allow_blank=True, help_text="Display name from the calendar event; may be empty."
+    )
+    response_status = serializers.CharField(
+        read_only=True,
+        help_text="The attendee's RSVP: 'needs_action', 'accepted', 'declined', or 'tentative'.",
+    )
+    is_organizer = serializers.BooleanField(read_only=True, help_text="Whether this attendee organized the meeting.")
+    person_id = serializers.UUIDField(
+        read_only=True, allow_null=True, help_text="UUID of the PostHog person resolved for this attendee, if any."
+    )
+
+    class Meta:
+        dataclass = MeetingParticipantView
+        ref_name = "MeetingParticipant"
+        fields = ["email", "display_name", "response_status", "is_organizer", "person_id"]
+
+
+class MeetingSerializer(DataclassSerializer):
+    """A calendar meeting synced from a connected employee calendar (read-only)."""
+
+    id = serializers.UUIDField(read_only=True, help_text="UUID of the meeting.")
+    title = serializers.CharField(read_only=True, allow_blank=True, help_text="Meeting title; may be empty.")
+    start_time = serializers.DateTimeField(read_only=True, help_text="When the meeting starts.")
+    end_time = serializers.DateTimeField(read_only=True, allow_null=True, help_text="When the meeting ends.")
+    organizer_email = serializers.CharField(
+        read_only=True, allow_blank=True, help_text="Email address of the meeting organizer; may be empty."
+    )
+    status = serializers.CharField(
+        read_only=True, help_text="Meeting status: 'confirmed', 'tentative', or 'cancelled'."
+    )
+    participants = MeetingParticipantSerializer(many=True, read_only=True, help_text="Attendees of the meeting.")
+
+    class Meta:
+        dataclass = MeetingView
+        ref_name = "Meeting"
+        fields = ["id", "title", "start_time", "end_time", "organizer_email", "status", "participants"]
 
 
 class CustomPropertyReferenceSerializer(DataclassSerializer):
@@ -401,7 +489,11 @@ class CustomPropertySyncRunSerializer(DataclassSerializer):
     id = serializers.UUIDField(read_only=True)
     trigger = serializers.CharField(
         read_only=True,
-        help_text="What started the run: 'scheduled' (rode a warehouse sync), 'manual', or 'backfill'.",
+        help_text=(
+            "What started the run: 'scheduled' (rode a warehouse sync), 'sync' (a warehouse sync "
+            "started from the UI), 'manual' (a backfill started from the UI), or 'backfill' (the "
+            "automatic backfill run when a mapping is created or re-enabled)."
+        ),
     )
     status = serializers.CharField(read_only=True, help_text="Run status: 'running', 'completed', or 'failed'.")
     started_at = serializers.DateTimeField(read_only=True, allow_null=True, help_text="When the run began.")
@@ -542,6 +634,22 @@ class CustomPropertySourceSerializer(DataclassSerializer):
         allow_null=True,
         help_text="Person and group sources only: the most recent sync/backfill run, or null if none yet.",
     )
+    external_data_source = serializers.UUIDField(
+        read_only=True,
+        allow_null=True,
+        help_text=(
+            "Person and group sources only: UUID of the warehouse source owning the schema, so the UI "
+            "can link to the table. Null for account sources or when unavailable."
+        ),
+    )
+    table_name = serializers.CharField(
+        read_only=True,
+        allow_null=True,
+        help_text=(
+            "Person and group sources only: the bound warehouse table as it is named in HogQL. Null "
+            "for account sources or when unavailable."
+        ),
+    )
 
     class Meta:
         dataclass = CustomPropertySourceView
@@ -565,6 +673,8 @@ class CustomPropertySourceSerializer(DataclassSerializer):
             "sync_frequency_interval_seconds",
             "next_sync_at",
             "latest_run",
+            "external_data_source",
+            "table_name",
         ]
 
 

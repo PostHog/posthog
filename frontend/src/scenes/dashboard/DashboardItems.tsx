@@ -12,7 +12,7 @@ import { getDashboardWidgetFetchDisplayError } from '@posthog/products-dashboard
 
 import { ApiError } from 'lib/api'
 import { InsightCard } from 'lib/components/Cards/InsightCard'
-import { EditModeEdge } from 'lib/components/Cards/InsightCard/EditModeEdgeOverlay'
+import { EditModeEdge, useResizeHandleScrollbarPassThrough } from 'lib/components/Cards/InsightCard/EditModeEdgeOverlay'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonMenuItem } from 'lib/lemon-ui/LemonMenu'
 import { DashboardEventSource, eventUsageLogic } from 'lib/utils/eventUsageLogic'
@@ -290,6 +290,8 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
         }),
         [layoutEditMode, isMobileView, isLayoutZoomToggled]
     )
+
+    useResizeHandleScrollbarPassThrough(layoutEditMode && !isMobileView)
 
     const onEnterEditModeFromEdge = useMemo(
         () =>

@@ -831,7 +831,9 @@ describe('Tool Filtering - Feature Flags', () => {
         expect(flags).toEqual(
             expect.arrayContaining([
                 'logs-alerting',
+                'logs-anomalies',
                 'logs-patterns-view',
+                'llm-analytics-datasets',
                 'replay-video-based-summarization',
                 'tracing',
                 'visual-review',
@@ -839,7 +841,6 @@ describe('Tool Filtering - Feature Flags', () => {
                 'customer-analytics-csp',
                 'notebooks-collaboration',
                 'revamped-py-notebooks',
-                'replay-vision',
                 'tasks',
                 'dashboard-widgets',
                 'heatmaps-mcp',
@@ -850,16 +851,18 @@ describe('Tool Filtering - Feature Flags', () => {
                 'metrics',
                 'endpoints-ai-materialization-fix',
                 'engineering-analytics',
+                'web-analytics-path-cleaning-suggestions',
                 'stamphog',
                 'product-data-catalog',
                 'loops',
                 'review-hog',
                 'warehouse-person-properties',
-                'review-hog',
                 'streamlit-apps',
+                'posthog-connect',
+                'experiment-behavior-comparison',
             ])
         )
-        expect(flags).toHaveLength(26)
+        expect(flags).toHaveLength(30)
     })
 
     it('every loops tool is gated on the loops flag', () => {

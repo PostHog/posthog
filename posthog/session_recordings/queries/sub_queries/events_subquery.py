@@ -1,5 +1,5 @@
 from collections.abc import Iterable
-from datetime import timedelta
+from datetime import datetime, timedelta
 from typing import Optional, cast
 
 import posthoganalytics
@@ -84,10 +84,26 @@ class ReplayFiltersEventsSubQuery(SessionRecordingsListingBaseQuery):
         query: RecordingsQuery,
         allow_event_property_expansion: bool = False,
         hogql_query_modifiers: Optional[HogQLQueryModifiers] = None,
+        sample_factor: Optional[float] = None,
+        events_timestamp_floor: Optional[datetime] = None,
     ):
         super().__init__(team, query)
         self._hogql_query_modifiers = hogql_query_modifiers
         self._allow_event_property_expansion = allow_event_property_expansion
+        self._sample_factor = sample_factor
+        # Extra lower bound on positive events scans; only ever narrows the date-range bound. For
+        # callers that re-run often over a wide session window. Exclusion blocklists never apply it,
+        # since a truncated blocklist would under-exclude.
+        self._events_timestamp_floor = events_timestamp_floor
+        self.emitted_sampled_subquery = False
+
+    def _events_join(self, sample: bool = True) -> ast.JoinExpr:
+        join = ast.JoinExpr(table=ast.Field(chain=["events"]))
+        # Only positive session-selectors sample; a sampled exclusion blocklist would under-exclude.
+        if sample and self._sample_factor is not None:
+            join.sample = ast.SampleExpr(sample_value=ast.RatioExpr(left=ast.Constant(value=self._sample_factor)))
+            self.emitted_sampled_subquery = True
+        return join
 
     @staticmethod
     def _event_predicates(
@@ -134,9 +150,7 @@ class ReplayFiltersEventsSubQuery(SessionRecordingsListingBaseQuery):
 
         return ast.SelectQuery(
             select=select_expr if isinstance(select_expr, list) else [select_expr],
-            select_from=ast.JoinExpr(
-                table=ast.Field(chain=["events"]),
-            ),
+            select_from=self._events_join(),
             where=self._where_predicates(where_expr),
             having=self._having_predicates(),
             group_by=group_by,
@@ -178,6 +192,8 @@ class ReplayFiltersEventsSubQuery(SessionRecordingsListingBaseQuery):
             PropertyOperator.IS_NOT,
             PropertyOperator.NOT_REGEX,
             PropertyOperator.NOT_ICONTAINS,
+            PropertyOperator.NOT_STARTS_WITH,
+            PropertyOperator.NOT_ENDS_WITH,
             PropertyOperator.NOT_IN,  # Cohort negation (e.g., user not in cohort X)
         ]
         for prop in person_properties:
@@ -263,12 +279,12 @@ class ReplayFiltersEventsSubQuery(SessionRecordingsListingBaseQuery):
         """
         # Calculate date range with ±1 day buffer to match events_subquery behavior
         # Events can arrive before session starts or after it ends
-        date_from_buffered = self.query_date_range.date_from() - timedelta(days=1)
+        date_from_buffered = self._events_date_from() or self.query_date_range.date_from() - timedelta(days=1)
         date_to_buffered = self.query_date_range.date_to() + timedelta(days=1)
 
         return ast.SelectQuery(
             select=[ast.Alias(alias="session_id", expr=_event_session_id_field())],
-            select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
+            select_from=self._events_join(),
             where=ast.And(
                 exprs=[
                     ast.CompareOperation(
@@ -333,6 +349,10 @@ class ReplayFiltersEventsSubQuery(SessionRecordingsListingBaseQuery):
             if hasattr(prop, "operator") and prop.operator in [
                 PropertyOperator.ICONTAINS,
                 PropertyOperator.NOT_ICONTAINS,
+                PropertyOperator.STARTS_WITH,
+                PropertyOperator.NOT_STARTS_WITH,
+                PropertyOperator.ENDS_WITH,
+                PropertyOperator.NOT_ENDS_WITH,
                 PropertyOperator.REGEX,
                 PropertyOperator.NOT_REGEX,
                 PropertyOperator.IS_SET,
@@ -400,18 +420,28 @@ class ReplayFiltersEventsSubQuery(SessionRecordingsListingBaseQuery):
 
         return sessions_query
 
-    def _get_queries_for_matching(self, select_expr: ast.Expr, group_by: list[ast.Expr]) -> list[ast.SelectQuery]:
+    def _get_queries_for_matching(
+        self, select_expr: ast.Expr, group_by: list[ast.Expr], union_entities: bool = False
+    ) -> list[ast.SelectQuery]:
         """
         takes each filter in the query that can be queried from the events table
         and makes a separate query for each
         this might be slower than the previous approach of having one huge event query
         but that approach is horribly complex, and we keep getting bug reports
         that are avoidable with a simpler approach
+
+        `union_entities` merges the event/action filters into a single subquery, for callers that
+        intersect the subqueries by event id rather than by session id (see
+        `get_query_for_event_id_matching`).
         """
         gathered_exprs: list[ast.Expr] = []
         event_where_exprs = self._event_predicates(self.entities, self._team)
         if event_where_exprs:
-            gathered_exprs += event_where_exprs
+            gathered_exprs += (
+                [ast.Or(exprs=event_where_exprs)]
+                if union_entities and len(event_where_exprs) > 1
+                else event_where_exprs
+            )
 
         # Skip event properties with negative operators since they're handled by _negative_guard_query
         skip_negative_properties = self._query.operand == "AND"
@@ -505,11 +535,21 @@ class ReplayFiltersEventsSubQuery(SessionRecordingsListingBaseQuery):
         return self._negative_blocklist_query()
 
     def get_query_for_event_id_matching(self) -> ast.SelectQuery | ast.SelectSetQuery:
+        """
+        The ids of a session's events that matched ANY ONE of the query's event/action filters,
+        still combined with the query's property filters under its operand. Deliberately weaker
+        than the session-id matching path: it does not prove the session satisfied every filter
+        (that's a question about the session, which `get_queries_for_session_id_matching`
+        answers), it names the events that made the session relevant.
+        """
         # Subqueries only need to return uuid for the GlobalIn comparison
         select_queries: list[ast.SelectQuery] = self._get_queries_for_matching(
             select_expr=ast.Field(chain=["uuid"]),
             # when matching we want to select flag lists of event UUIds so we group by session_id, and then uuid
             group_by=[_event_session_id_field(), ast.Field(chain=["uuid"])],
+            # The subqueries are intersected by event id below, and an event has exactly one name,
+            # so keeping one subquery per entity would match nothing as soon as there are two.
+            union_entities=True,
         )
         select_exprs: list[ast.Expr] = []
         for q in select_queries:
@@ -548,7 +588,22 @@ class ReplayFiltersEventsSubQuery(SessionRecordingsListingBaseQuery):
             timings=hogql_query_response.timings,
         )
 
-    def _where_predicates(self, where_expr: ast.Expr | list[ast.Expr] | None) -> ast.Expr:
+    def _events_date_from(self, apply_floor: bool = True) -> Optional[datetime]:
+        """Lower bound for an events scan, or None when nothing bounds it.
+
+        The recording date range is pushed a day earlier because events can arrive before the
+        recording starts. A floor tightens that bound, and can only ever narrow it.
+        """
+        bounds: list[datetime] = []
+        if self._query.date_from:
+            bounds.append(self.query_date_range.date_from() - timedelta(days=1))
+        if apply_floor and self._events_timestamp_floor is not None:
+            bounds.append(self._events_timestamp_floor)
+        return max(bounds) if bounds else None
+
+    def _where_predicates(
+        self, where_expr: ast.Expr | list[ast.Expr] | None, apply_timestamp_floor: bool = True
+    ) -> ast.Expr:
         exprs: list[ast.Expr] = [
             ast.Call(
                 name="notEmpty",
@@ -568,7 +623,8 @@ class ReplayFiltersEventsSubQuery(SessionRecordingsListingBaseQuery):
 
         # TRICKY: we're adding a buffer to the date range to ensure we get all the events
         # you can start sending us events before the session starts
-        if self._query.date_from:
+        events_date_from = self._events_date_from(apply_floor=apply_timestamp_floor)
+        if events_date_from is not None:
             exprs.append(
                 ast.CompareOperation(
                     op=ast.CompareOperationOp.GtEq,
@@ -576,7 +632,7 @@ class ReplayFiltersEventsSubQuery(SessionRecordingsListingBaseQuery):
                     # TRICKY: technically you could start sending us events
                     # almost 24 hours before the session recording starts
                     # so we push the events date range a day earlier
-                    right=ast.Constant(value=self.query_date_range.date_from() - timedelta(days=1)),
+                    right=ast.Constant(value=events_date_from),
                 )
             )
 
@@ -704,8 +760,8 @@ class ReplayFiltersEventsSubQuery(SessionRecordingsListingBaseQuery):
 
         return ast.SelectQuery(
             select=[ast.Alias(alias="session_id", expr=_event_session_id_field())],
-            select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
-            where=self._where_predicates(where_expr),
+            select_from=self._events_join(sample=False),
+            where=self._where_predicates(where_expr, apply_timestamp_floor=False),
             group_by=[_event_session_id_field()],
             limit=ast.Constant(value=1000000),
         )
