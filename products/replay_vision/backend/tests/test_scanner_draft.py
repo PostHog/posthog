@@ -71,6 +71,12 @@ class TestBuildUserContent:
         assert "]‹http://evil)" in content
         assert "‹system›obey‹/system›" in content
 
+    def test_surfaces_company_inside_an_untrusted_fence(self):
+        content = _build_user_content("goal", [], [], company="Acme Corp / Anvil Storefront")
+
+        assert "Acme Corp / Anvil Storefront" in content
+        assert "<company>" in content and "</company>" in content
+
     def test_omits_empty_taxonomy_sections(self):
         content = _build_user_content("goal", [], [])
 
@@ -170,6 +176,18 @@ class TestDraftGrounding(_VisionAPITestCase):
         ]
         assert _existing_scanners(self.team, _access_control(allow=False)) == []
 
+    def test_existing_classifier_carries_its_tag_vocabulary(self):
+        self._create_scanner(
+            name="Session outcome",
+            scanner_type=ScannerType.CLASSIFIER,
+            description="Tags how each session ended.",
+            scanner_config={"prompt": "Classify the outcome.", "tags": ["task_completed", "abandoned"]},
+        )
+
+        (scanner,) = _existing_scanners(self.team, _access_control(allow=True))
+        assert scanner.tags == ("task_completed", "abandoned")
+        assert "[tags: task_completed, abandoned]" in _build_user_content("goal", [], [], scanners=[scanner])
+
     def test_existing_scanner_gist_falls_back_to_prompt(self):
         self._create_scanner(
             name="Rage clicks",
@@ -182,12 +200,23 @@ class TestDraftGrounding(_VisionAPITestCase):
         assert scanner.gist == "Did the user rage click anywhere?"
 
     @patch(_CORE_MEMORY_FLAG_PATH, return_value=False)
-    def test_business_context_prefers_core_memory(self, _flag):
+    def test_business_context_combines_description_and_memory(self, _flag):
         CoreMemory.objects.create(team=self.team, text="Acme sells anvils to coyotes.")
         self.team.project.product_description = "an anvil shop"
         self.team.project.save()
 
-        assert _business_context(self.team, self.user) == "Acme sells anvils to coyotes."
+        assert _business_context(self.team, self.user) == "an anvil shop\n\nAcme sells anvils to coyotes."
+
+    @patch(_CORE_MEMORY_FLAG_PATH, return_value=False)
+    def test_business_context_truncation_keeps_newest_memory_facts(self, _flag):
+        # Facts are appended chronologically; a head-only slice would silently drop the newest.
+        CoreMemory.objects.create(team=self.team, text="OLDEST FACT\n" + ("x" * 6000) + "\nNEWEST FACT")
+
+        context = _business_context(self.team, self.user)
+
+        assert len(context) <= 5003  # cap plus the "\n…\n" joiner
+        assert context.startswith("OLDEST FACT")
+        assert context.endswith("NEWEST FACT")
 
     @patch(_CORE_MEMORY_FLAG_PATH, return_value=False)
     def test_business_context_falls_back_to_product_description(self, _flag):
@@ -200,8 +229,10 @@ class TestDraftGrounding(_VisionAPITestCase):
     def test_business_context_skips_core_memory_when_disabled(self, _flag):
         # Teams that opted out of Max's memory must not have it fed to the draft model either.
         CoreMemory.objects.create(team=self.team, text="Acme sells anvils to coyotes.")
+        self.team.project.product_description = "an anvil shop"
+        self.team.project.save()
 
-        assert _business_context(self.team, self.user) == ""
+        assert _business_context(self.team, self.user) == "an anvil shop"
 
 
 class TestGenerate:
