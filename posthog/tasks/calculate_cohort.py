@@ -25,6 +25,7 @@ from posthog.scoping_audit import skip_team_scope_audit
 from posthog.tasks.utils import CeleryQueue
 
 from products.cohorts.backend.backfill.finalize import finalize_backfill_runs
+from products.cohorts.backend.backfill.observe import publish_backfill_run_gauges
 from products.cohorts.backend.backfill.runs import (
     BackfillRefusalReason,
     attempt_backfill_run_for_cohort,
@@ -1013,6 +1014,17 @@ def trigger_cohort_backfill_run_task(team_id: int, cohort_id: int, trigger_kind:
             error=str(error),
         )
         raise
+
+
+@shared_task(ignore_result=True)
+def publish_cohort_backfill_run_gauges() -> None:
+    """Publish backfill run/chunk state for alerting.
+
+    Ungated on purpose, unlike ``finalize_cohort_backfill_runs``: the seeder's own metrics are not
+    scraped, so these gauges are the only signal that a run stalled or a chunk exhausted its
+    retries, and they have to work while the finalizer is still dark.
+    """
+    publish_backfill_run_gauges()
 
 
 @shared_task(ignore_result=True)
