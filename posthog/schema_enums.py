@@ -2547,6 +2547,9 @@ class ExternalDataSourceType(StrEnum):
     DEPOT = "Depot"
     SCHEMATIC = "Schematic"
     DOKPLOY = "Dokploy"
+    RAKUTEN_ADVERTISING = "RakutenAdvertising"
+    ZITADEL = "Zitadel"
+    DEEL_FLOWS = "DeelFlows"
 
 
 class ExternalQueryErrorCode(StrEnum):

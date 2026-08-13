@@ -3,6 +3,8 @@ import { filterStaffOnlyTools } from '@/lib/staff-only-tools'
 
 // AI observability
 import getLLMCosts from './aiObservability/getLLMCosts'
+import parserRecipeCreate from './aiObservability/parserRecipeCreate'
+import parserRecipeReference from './aiObservability/parserRecipeReference'
 // Debug
 import debugMcpUiApps from './debug/debugMcpUiApps'
 // Experiments (hand-written — CRUD + lifecycle are codegen in generated/experiments.ts)
@@ -99,6 +101,8 @@ export const TOOL_MAP: Record<string, () => ToolBase<ZodObjectAny>> = {
 
     // AI observability
     'get-llm-total-costs-for-project': getLLMCosts,
+    'llma-parser-recipe-create': parserRecipeCreate,
+    'llma-parser-recipe-reference': parserRecipeReference,
 
     // Notebooks
     'notebook-edit': notebookEdit,
