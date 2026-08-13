@@ -14,7 +14,7 @@ from products.replay_vision.backend.models.replay_observation import (
 )
 from products.replay_vision.backend.models.replay_observation_label import ReplayObservationLabel
 from products.replay_vision.backend.models.replay_observation_usage import ReplayObservationUsage
-from products.replay_vision.backend.models.replay_scanner import ScannerModel, ScannerType
+from products.replay_vision.backend.models.replay_scanner import ReplayScanner, ScannerModel, ScannerType
 from products.replay_vision.backend.models.replay_scanner_prompt_suggestion import (
     ReplayScannerPromptSuggestion,
     SuggestionStatus,
@@ -45,6 +45,7 @@ from products.replay_vision.backend.temporal.evaluation_types import (
     RecordEvaluationResultInputs,
     SelectEvaluationSessionsInputs,
 )
+from products.replay_vision.backend.tests.helpers import seed_scanner_spend
 from products.replay_vision.backend.tests.test_api import _VisionAPITestCase
 
 
@@ -672,4 +673,49 @@ class TestPromptEvaluationApi(_VisionAPITestCase):
 
         self.assertEqual(resp.status_code, 200, resp.json())
         self.assertEqual(resp.json()["evaluation"]["status"], "running")
+        client.start_workflow.assert_awaited_once()
+
+    def test_evaluate_is_refused_when_the_scanner_limit_cannot_cover_the_test(self) -> None:
+        for i in range(3):
+            self._create_rated(f"sess-{i}")
+        suggestion = self._create_pending_suggestion()
+        session_credits = observation_credits_for_model(self.scanner.model)
+        # Spend leaves exactly one re-run's worth of credits, but the default plans three.
+        seed_scanner_spend(self.scanner, 2 * session_credits)
+        ReplayScanner.objects.filter(pk=self.scanner.pk).update(credit_limit=3 * session_credits)
+        connect_patch, client = self._mock_temporal()
+        with connect_patch:
+            resp = self.client.post(self._url(suggestion.id))
+
+        self.assertEqual(resp.status_code, 402, resp.json())
+        client.start_workflow.assert_not_awaited()
+        suggestion.refresh_from_db()
+        self.assertIsNone(suggestion.evaluation)
+
+    def test_evaluate_scanner_limit_leaves_org_message_precedence_when_org_is_also_exhausted(self) -> None:
+        # The org check runs first, so an org that is also out of budget must still report the org
+        # message even though the scanner limit would also refuse this test.
+        self._create_rated()
+        suggestion = self._create_pending_suggestion()
+        ReplayScanner.objects.filter(pk=self.scanner.pk).update(credit_limit=1)
+        quota = MagicMock(remaining=0, credit_limit=100, period_end=timezone.now())
+        connect_patch, client = self._mock_temporal()
+        with (
+            connect_patch,
+            patch("products.replay_vision.backend.api.prompt_suggestions.quota_state", return_value=quota),
+        ):
+            resp = self.client.post(self._url(suggestion.id))
+
+        self.assertEqual(resp.status_code, 402)
+        self.assertIn("monthly Replay Vision credit limit", resp.json()["detail"])
+        client.start_workflow.assert_not_awaited()
+
+    def test_evaluate_is_unaffected_when_no_scanner_limit_is_set(self) -> None:
+        self._create_rated()
+        suggestion = self._create_pending_suggestion()
+        connect_patch, client = self._mock_temporal()
+        with connect_patch:
+            resp = self.client.post(self._url(suggestion.id))
+
+        self.assertEqual(resp.status_code, 200, resp.json())
         client.start_workflow.assert_awaited_once()
