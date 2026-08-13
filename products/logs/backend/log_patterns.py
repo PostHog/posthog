@@ -19,10 +19,11 @@ _MASKING_INSTRUCTIONS = [
     # a letter, so "12T08" and "397557Z" in ISO-8601 bodies would survive \b\d+\b intact.
     MaskingInstruction(r"\b\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}:\d{2}(?:[.,]\d+)?(?:Z|[+-]\d{2}:?\d{2})?", "timestamp"),
     MaskingInstruction(r"\b[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}\b", "uuid"),
-    # A dotted quad glued to a "/" is a version, not an address ("Chrome/139.0.0.0"), and a
-    # \b-bounded match claims it as an <ip>. Blocking a leading "." on the same grounds keeps
-    # the mask off the tail of a longer dotted run, and the trailing guard off its head.
-    MaskingInstruction(r"(?<![\w./])\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}(?![\w.])", "ip"),
+    # A dotted quad after "<letter>/" is a version, not an address ("Chrome/139.0.0.0"), and
+    # a \b-bounded match claims it as an <ip>. The guard keys on the letter so an address in
+    # a URL, which follows "//" or ":", still masks. The "." guards keep the mask off the
+    # tail and head of a longer dotted run such as "1.2.3.4.5".
+    MaskingInstruction(r"(?<![A-Za-z]/)(?<![\w.])\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}(?![\w.])", "ip"),
     MaskingInstruction(r"\b0x[0-9a-fA-F]+\b", "hex"),
     MaskingInstruction(r"\b[0-9a-fA-F]{16,}\b", "hex"),
     MaskingInstruction(r"\b\d+\b", "num"),

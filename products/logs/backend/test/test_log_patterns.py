@@ -58,6 +58,14 @@ class TestMinePatterns(TestCase):
         [
             ("numbers", ["Request 123 took 5 ms", "Request 456 took 9 ms"], "<num>", "123"),
             ("ipv4", ["GET from 10.0.0.1", "GET from 192.168.1.1"], "<ip>", "10.0.0.1"),
+            # the version guard keys on the character before the address, so a URL host,
+            # which is the one place an address does follow a "/", must still mask
+            (
+                "ipv4_in_url",
+                ["fetched http://10.0.0.1/health ok", "fetched http://192.168.1.1/health ok"],
+                "<ip>",
+                "10.0.0.1",
+            ),
             (
                 "uuid",
                 [
