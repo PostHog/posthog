@@ -128,18 +128,30 @@ _METRICS_CATALOG_SCOPE = "When a hypothesis rests on a named, reusable measure, 
 
 _METRICS_CATALOG_RULE = f""" {_METRICS_CATALOG_SCOPE} check the governed metrics catalog first – `SELECT name, description, status, is_drifted FROM system.information_schema.metrics` via `execute-sql` – and run an approved, non-drifted match with `data-catalog-metric-run` rather than hand-deriving it, even when your skill body ships its own SQL for that measure: a governed definition outranks a playbook query, and a number derived outside it must be labeled noncanonical. Cache the lookup outcome in your scratchpad (`catalog:<scope>:<measure>`, match or no-match plus date) and reuse a fresh entry instead of re-querying every run; re-verify an entry roughly a day old, and immediately when a canonical run reports drift or a status change. Schema, availability, and freshness checks stay schema-first; no catalog detour for those."""
 
-_METRICS_CATALOG_PREFETCHED = f""" {_METRICS_CATALOG_SCOPE} run it through the governed metrics catalog. This run's catalog lookup is already done – the approved, non-drifted metrics right now are: {{listing}}. Do not re-run the lookup query. When a listed name matches the measure you need, read its definition (`SELECT name, description, unit FROM system.information_schema.metrics WHERE name = '<name>'` via `execute-sql`) and run it with `data-catalog-metric-run` rather than hand-deriving it, even when your skill body ships its own SQL for that measure: a governed definition outranks a playbook query. A measure matching no listed name has no canonical definition today – derive it by hand, label the result noncanonical, and say in that query's stated context that no listed metric matched, so the derivation is auditable from the trace. Schema, availability, and freshness checks stay schema-first; no catalog detour for those."""
+# Shared by both pre-fetched variants, so it has to read correctly with and without a listing above it.
+_METRICS_CATALOG_SUPERSEDES_CACHE = "What this run was handed above is the current catalog state and supersedes any `catalog:<scope>:<measure>` scratchpad entry an earlier run cached under the old probe-and-cache rule: where a cached entry disagrees, that entry is stale, so correct or forget it rather than acting on it."
 
-_METRICS_CATALOG_EMPTY = f""" {_METRICS_CATALOG_SCOPE} note that this run's catalog lookup is already done and the governed metrics catalog holds no approved metrics right now: derive each measure by hand, label the result noncanonical, and do not re-run the lookup query (`system.information_schema.metrics` via `execute-sql`) this run."""
+_METRICS_CATALOG_PREFETCHED = f""" {_METRICS_CATALOG_SCOPE} run it through the governed metrics catalog. This run's catalog lookup is already done – the approved, non-drifted metrics right now are: {{listing}}. Do not re-run the lookup query for a measure a listed name already covers. When a listed name matches the measure you need, read its definition (`SELECT name, description, unit FROM system.information_schema.metrics WHERE name = '<name>'` via `execute-sql`) and run it with `data-catalog-metric-run` rather than hand-deriving it, even when your skill body ships its own SQL for that measure: a governed definition outranks a playbook query. A measure that matches nothing in the catalog has no canonical definition today – derive it by hand, label the result noncanonical, and say in that query's stated context that no catalog metric matched, so the derivation is auditable from the trace. {_METRICS_CATALOG_SUPERSEDES_CACHE} Schema, availability, and freshness checks stay schema-first; no catalog detour for those."""
+
+_METRICS_CATALOG_EMPTY = f""" {_METRICS_CATALOG_SCOPE} note that this run's catalog lookup is already done and the governed metrics catalog holds no approved metrics right now: derive each measure by hand, label the result noncanonical, and do not re-run the lookup query (`system.information_schema.metrics` via `execute-sql`) this run. {_METRICS_CATALOG_SUPERSEDES_CACHE}"""
 
 _GOVERNED_METRIC_LISTING_CAP = 40
 
 
 def _governed_metric_listing(governed_metric_names: Sequence[str]) -> str:
+    """The names, capped, with the truncation stated as the one case that still warrants a lookup.
+
+    The cap keeps the injection to a handful of tokens. Past it the listing is no longer the whole
+    catalog, so the overflow clause has to name the lookup as an exception; otherwise it would
+    contradict the paragraph's rule against re-running the query.
+    """
     listing = ", ".join(f"`{name}`" for name in governed_metric_names[:_GOVERNED_METRIC_LISTING_CAP])
     overflow = len(governed_metric_names) - _GOVERNED_METRIC_LISTING_CAP
     if overflow > 0:
-        listing += f", and {overflow} more (query `system.information_schema.metrics` for the full set)"
+        listing += (
+            f", and {overflow} more this listing omits, so when a measure matches no name above, query "
+            "`system.information_schema.metrics` for it before concluding it has no canonical definition"
+        )
     return listing
 
 
