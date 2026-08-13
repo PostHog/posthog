@@ -1,4 +1,5 @@
 import sys
+from contextvars import Token
 from functools import cached_property, lru_cache
 from typing import TYPE_CHECKING, Any, Literal, Optional, cast
 from uuid import UUID
@@ -128,6 +129,9 @@ class RouterRegistry:
 # IMPORTANT: Almost all viewsets should inherit from this mixin. It should be the first thing it inherits from to ensure
 # that typing works as expected
 class TeamAndOrgViewSetMixin(_GenericViewSet):
+    # Set by `initial()` when it scopes the request to a team, and released in `dispatch()`.
+    _team_scope_token: Optional[Token[Optional[int]]] = None
+
     # This flag disables nested routing handling, reverting to the old request.user.team behavior
     # Allows for a smoother transition from the old flat API structure to the newer nested one
     param_derived_from_user_current_team: Optional[Literal["team_id", "project_id"]] = None
