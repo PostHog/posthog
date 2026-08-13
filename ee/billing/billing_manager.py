@@ -9,6 +9,8 @@ from uuid import UUID
 
 from django.conf import settings
 from django.db.models import F
+from django.utils import timezone
+from django.utils.dateparse import parse_datetime
 
 import jwt
 import requests
@@ -28,7 +30,7 @@ from posthog.models.team.event_retention import (
 from posthog.models.team.logs_retention import reset_revoked_logs_retention
 from posthog.models.user import User
 
-from ee.billing.billing_types import BillingProvider, BillingStatus
+from ee.billing.billing_types import BillingProvider, BillingStatus, CustomerInfo
 from ee.billing.quota_limiting import set_org_usage_summary, update_org_billing_quotas
 from ee.models import License
 from ee.settings import BILLING_SERVICE_URL
@@ -61,6 +63,14 @@ def _has_quota_limiting_markers(usage: dict | None) -> bool:
             return True
 
     return False
+
+
+def _free_trial_active(customer: CustomerInfo) -> bool:
+    free_trial_until = customer.get("free_trial_until")
+    if not free_trial_until:
+        return False
+    expires = parse_datetime(free_trial_until) if isinstance(free_trial_until, str) else free_trial_until
+    return bool(expires and expires > timezone.now())
 
 
 def _get_user_organization_role(user: User, organization: Organization) -> Optional[str]:
@@ -538,6 +548,10 @@ class BillingManager:
         # A missing key (partial or error-path response) must not reset a known value to unknown.
         if "has_active_subscription" in data:
             has_active_subscription = data.get("has_active_subscription")
+            # Trials run without a Stripe subscription, so a trialing org would otherwise read
+            # as free tier and get metered; count an active trial as paid until it expires.
+            if has_active_subscription is False and _free_trial_active(data):
+                has_active_subscription = True
             if has_active_subscription != organization.has_active_subscription:
                 organization.has_active_subscription = has_active_subscription
                 org_modified = True
