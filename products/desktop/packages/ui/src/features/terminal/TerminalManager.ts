@@ -244,6 +244,17 @@ class TerminalManagerImpl {
     });
     instance.cleanups.push(() => disposable.dispose());
 
+    // Instance-lifetime, not component-lifetime: pty output while the tab is unmounted would otherwise be dropped
+    const shellClient = resolveService<ShellClient>(SHELL_CLIENT);
+    const dataSub = shellClient.onData(sessionId, (event) => {
+      this.writeData(event.sessionId, event.data);
+    });
+    const exitSub = shellClient.onExit(sessionId, (event) => {
+      this.handleExit(event.sessionId, event.exitCode ?? undefined);
+    });
+    instance.cleanups.push(() => dataSub.unsubscribe());
+    instance.cleanups.push(() => exitSub.unsubscribe());
+
     // Initialize shell session
     this.initializeSession(sessionId, instance, cwd, taskId, command);
 
@@ -310,7 +321,7 @@ class TerminalManagerImpl {
     }
   }
 
-  writeData(sessionId: string, data: string): void {
+  private writeData(sessionId: string, data: string): void {
     const instance = this.instances.get(sessionId);
     if (!instance) {
       return;
@@ -343,7 +354,7 @@ class TerminalManagerImpl {
     this.scheduleSave(sessionId, instance);
   }
 
-  handleExit(sessionId: string, exitCode?: number): void {
+  private handleExit(sessionId: string, exitCode?: number): void {
     const instance = this.instances.get(sessionId);
     if (instance) {
       // Without this, ResizeObserver keeps firing shell.resize against the dead
