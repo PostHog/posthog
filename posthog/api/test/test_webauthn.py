@@ -1,3 +1,4 @@
+import time
 import uuid
 from importlib import import_module
 
@@ -739,3 +740,72 @@ class TestWebAuthnCredentialManagement(APIBaseTest):
         )
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertIn(expected_error, response.json()["error"])
+
+
+class TestWebAuthnFreshSessionRequirement(APIBaseTest):
+    def setUp(self):
+        super().setUp()
+        self.credential = WebauthnCredential.objects.create(
+            user=self.user,
+            credential_id=b"an-existing-credential",
+            label="My Passkey",
+            public_key=b"public-key",
+            algorithm=-7,
+            counter=0,
+            transports=["internal"],
+            verified=False,
+        )
+
+    def _make_session_stale(self) -> None:
+        stale = time.time() - settings.SESSION_SENSITIVE_ACTIONS_AGE - 100
+        session = self.client.session
+        session[settings.SESSION_COOKIE_CREATED_AT_KEY] = stale
+        session["last_reauth_at"] = stale
+        session.save()
+
+    def _flag_session_for_step_up(self) -> None:
+        session = self.client.session
+        session[settings.SESSION_STEP_UP_REQUIRED_KEY] = True
+        session.save()
+
+    def _enrolment_paths(self) -> list[tuple[str, str]]:
+        return [
+            ("post", "/api/webauthn/register/begin/"),
+            ("post", "/api/webauthn/register/complete/"),
+            ("post", f"/api/webauthn/credentials/{self.credential.pk}/verify/"),
+            ("post", f"/api/webauthn/credentials/{self.credential.pk}/verify_complete/"),
+            ("delete", f"/api/webauthn/credentials/{self.credential.pk}/"),
+        ]
+
+    # A passkey is a login factor that needs no password, so enrolling one from a session that is
+    # not fresh enough for the account-security actions lets that session mint its own way back to
+    # fresh: passkey login restamps the reauth timestamps and clears any pending step-up.
+    def test_stale_session_cannot_reach_the_passkey_enrolment_surface(self):
+        self._make_session_stale()
+
+        for method, path in self._enrolment_paths():
+            response = getattr(self.client, method)(path)
+
+            self.assertEqual(response.status_code, 403, f"{method.upper()} {path} -> {response.status_code}")
+            self.assertEqual(response.json()["code"], "sensitive_action_required_reauth", path)
+
+    def test_step_up_flagged_session_cannot_reach_the_passkey_enrolment_surface(self):
+        self._flag_session_for_step_up()
+
+        for method, path in self._enrolment_paths():
+            response = getattr(self.client, method)(path)
+
+            self.assertEqual(response.status_code, 403, f"{method.upper()} {path} -> {response.status_code}")
+
+    def test_stale_session_can_still_list_passkeys(self):
+        # Reading the list shows no credential material and the settings page needs it to render.
+        self._make_session_stale()
+
+        response = self.client.get("/api/webauthn/credentials/")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
+
+    def test_fresh_session_can_still_begin_enrolment(self):
+        response = self.client.post("/api/webauthn/register/begin/")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)

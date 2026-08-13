@@ -32,6 +32,7 @@ from posthog.passkey import (
     verify_passkey_authentication_response,
     verify_passkey_registration_response,
 )
+from posthog.permissions import TimeSensitiveActionPermission
 from posthog.rate_limit import WebAuthnSignupRegistrationThrottle
 from posthog.session.activity import revoke_other_sessions_for_request
 from posthog.tasks.email import send_passkey_added_email, send_passkey_removed_email
@@ -77,8 +78,14 @@ class WebAuthnRegistrationViewSet(viewsets.ViewSet):
     4. POST /verify_complete - Verify assertion, mark credential as verified
     """
 
-    permission_classes = [permissions.IsAuthenticated]
+    # A passkey logs its holder in without a password, so enrolling one has to be at least as fresh
+    # as the account-security actions it can otherwise be used to reach: passkey login restamps the
+    # reauth timestamps and clears any pending step-up, which would let a session that is too old
+    # for those actions mint its own way back to fresh.
+    permission_classes = [permissions.IsAuthenticated, TimeSensitiveActionPermission]
     authentication_classes = [SessionAuthentication]
+    # Every action here adds a factor, and none of them is a read.
+    time_sensitive_allow_safe_methods = False
 
     @action(detail=False, methods=["POST"], url_path="begin")
     def begin(self, request: Request) -> Response:
@@ -614,8 +621,12 @@ class WebAuthnCredentialViewSet(viewsets.ViewSet):
     Allows users to list, rename, and delete their passkeys.
     """
 
-    permission_classes = [permissions.IsAuthenticated]
+    permission_classes = [permissions.IsAuthenticated, TimeSensitiveActionPermission]
     authentication_classes = [SessionAuthentication]
+    # Verifying turns a stored credential into a usable login factor, and deleting takes the owner's
+    # last one away, so neither may be relaxed by anything this view later allows. `list` stays a
+    # read: it returns no credential material and the settings page needs it to render.
+    time_sensitive_always_require_actions = ["verify", "verify_complete", "destroy"]
 
     def list(self, request: Request) -> Response:
         """List all passkeys for the current user (verified and unverified)."""
