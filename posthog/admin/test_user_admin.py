@@ -99,3 +99,13 @@ class TestUserChangeFormPasswordField(BaseTest):
         self.assertIn("algorithm", rendered)
         self.assertNotIn("salt", rendered)
         self.assertNotIn("hash", rendered)
+
+    def test_password_field_help_text_omits_reset_link(self):
+        # A raw reset link/token in the help text would let a staff member reset the user's
+        # password themselves; the "Reset password" button emails it to the user instead.
+        user = User.objects.create(email=f"test-{uuid.uuid4()}@example.com", distinct_id=str(uuid.uuid4()))
+
+        help_text = UserChangeForm(instance=user).fields["password"].help_text
+
+        self.assertNotIn("/reset/", help_text)
+        self.assertNotIn("href", help_text)

@@ -47,17 +47,6 @@ class UserChangeForm(DjangoUserChangeForm):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.fields["password"].widget = ReadOnlyPasswordHashWidget()
-        # This is a riff on https://github.com/django/django/blob/stable/4.1.x/django/contrib/auth/forms.py#L151-L153.
-        # The difference from the Django default is that instead of a form where the _admin_ sets the new password,
-        # we have a link to the password reset page which the _user_ can use themselves.
-        # This way if some user needs to reset their password and there's a problem with receiving the reset link email,
-        # an admin can provide that reset link manually – much better than sending a new password in plain text.
-        password_reset_token = password_reset_token_generator.make_token(self.instance)
-        self.fields["password"].help_text = (
-            "Raw passwords are not stored, so there is no way to see this user's password, but you can send them "
-            f'<a target="_blank" href="/reset/{self.instance.uuid}/{password_reset_token}">this password reset link</a> '
-            "(it only works when logged out)."
-        )
 
     def clean_is_staff(self):
         is_staff = bool(self.cleaned_data.get("is_staff", False))
