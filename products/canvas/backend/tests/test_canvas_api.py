@@ -220,10 +220,24 @@ class TestCanvasCrud(CanvasAPIBaseTest):
             format="json",
             HTTP_X_POSTHOG_TASK_ID=str(other_task.id),
         )
+        with team_scope(self.team.id):
+            other_channel = Channel.objects.create(team=self.team, name="elsewhere")
+        wrong_channel = client.post(
+            url,
+            {"name": "Elsewhere canvas", "channel_id": str(other_channel.id)},
+            format="json",
+            HTTP_X_POSTHOG_TASK_ID=str(bound_task.id),
+        )
 
         assert allowed.status_code == status.HTTP_201_CREATED
-        assert Canvas.objects.unscoped().get(id=allowed.json()["id"]).generation_task_id == bound_task.id
+        created = allowed.json()
+        assert Canvas.objects.unscoped().get(id=created["id"]).generation_task_id == bound_task.id
+        # The url is what agents hand to users; a guessed link does not resolve.
+        assert created["url"].endswith(f"/code/canvas/{self.channel.id}/{created['id']}")
         assert denied.status_code == status.HTTP_403_FORBIDDEN
+        assert wrong_channel.status_code == status.HTTP_403_FORBIDDEN
+        # The rejection names the task's channel so the agent can recover in one step.
+        assert str(self.channel.id) in wrong_channel.json()["detail"]
 
     def test_task_bound_sandbox_can_read_canvases_created_by_the_authenticated_user(self):
         bound_task = Task.objects.create(
