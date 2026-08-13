@@ -821,9 +821,7 @@ container
   .bind(NOTIFICATION_SETTINGS_PROVIDER)
   .toConstantValue(webNotificationSettings);
 container.bind(ACTIVE_VIEW_PROVIDER).toConstantValue(webActiveView);
-container
-  .bind(SPEECH_NOTIFY_SETTINGS)
-  .toConstantValue(webSpeechNotifySettings);
+container.bind(SPEECH_NOTIFY_SETTINGS).toConstantValue(webSpeechNotifySettings);
 
 // ── Inbox: resolve the default cloud-run model from the LLM gateway ──
 // Host capability consumed by UI hooks (canvas/home/inbox) that create cloud
