@@ -66,6 +66,14 @@ class TestMinePatterns(TestCase):
                 "<ip>",
                 "10.0.0.1",
             ),
+            # only a "." that carries on a dotted run rules the address out, so an address
+            # that ends a sentence still masks
+            (
+                "ipv4_at_end_of_sentence",
+                ["closed connection to 10.0.0.1.", "closed connection to 192.168.1.1."],
+                "<ip>",
+                "10.0.0.1",
+            ),
             (
                 "uuid",
                 [
@@ -454,7 +462,7 @@ class TestPivotSoundness(TestCase):
 class TestIpMaskProperties(TestCase):
     """The cases above pin specific addresses; these hold the guard over every octet value.
 
-    The guard reads the character before the address, so the property that matters is which
+    The guard reads the characters around the address, so the property that matters is which
     contexts still mask and which no longer do, across the whole address space.
     """
 
@@ -472,6 +480,25 @@ class TestIpMaskProperties(TestCase):
         # Every dotted quad is a valid version string too, so this has to hold for all of
         # them, not only for the browser builds the example cases use.
         patterns = mine_patterns([_sample(f"agent {product}/{address} connected")])
+
+        assert "<ip>" not in patterns[0].pattern
+
+    @given(address=_ipv4_st)
+    @settings(max_examples=400, deadline=None)
+    def test_any_address_that_ends_a_sentence_masks(self, address: str) -> None:
+        # The trailing guard exists to keep the mask off a longer dotted run, so it has to
+        # let a "." that ends the line through, whatever the last octet is.
+        patterns = mine_patterns([_sample(f"closed connection to {address}.")])
+
+        assert "<ip>" in patterns[0].pattern
+        assert address not in patterns[0].pattern
+
+    @given(run=_five_octet_st)
+    @settings(max_examples=400, deadline=None)
+    def test_no_address_is_read_out_of_a_longer_dotted_run(self, run: str) -> None:
+        # The trailing guard turns on whether the next "." carries on the run, so the octet
+        # values are what decide it, and neither the head nor the tail of the run may mask.
+        patterns = mine_patterns([_sample(f"schema version {run} loaded")])
 
         assert "<ip>" not in patterns[0].pattern
 
