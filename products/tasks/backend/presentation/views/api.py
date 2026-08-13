@@ -68,6 +68,7 @@ from products.tasks.backend.facade.metrics import (
     observe_stream_length_on_connect,
     observe_stream_resume_gap,
 )
+from products.tasks.backend.facade.model_catalogue import TASK_RUN_GATEWAY_PRODUCT, available_model_choices
 from products.tasks.backend.facade.run_config import TaskArtifactAdapter, TaskArtifactType
 from products.tasks.backend.facade.streams import (
     TASK_RUN_STREAM_WAIT_DELAY_INCREMENT_SECONDS,
@@ -82,6 +83,7 @@ from products.tasks.backend.facade.streams import (
 from products.tasks.backend.presentation.serializers import (
     CodeInviteRedeemRequestSerializer,
     ConnectionTokenResponseSerializer,
+    ModelCatalogueResponseSerializer,
     PinnedTaskIdsResponseSerializer,
     RepositoryReadinessQuerySerializer,
     RepositoryReadinessResponseSerializer,
@@ -222,16 +224,13 @@ def _is_internal_debug_team(team_id: int | None) -> bool:
 
 
 def _can_bypass_visibility(request, team_id: int | None) -> bool:
-    """Whether this request may READ tasks/runs it doesn't own (never write — control stays creator-scoped).
-
-    - Staff users: unconditionally, on any team (support/debugging). No opt-in needed, so staff don't hit
-      the per-creator 404 when opening a task by URL or streaming its run logs — the frontend can't reliably
-      thread a query param through every read (the SSE stream doesn't carry one).
-    - Internal-debug teams: keep the narrower, explicit ``?ph_debug=true`` opt-in (dev/debug workflow).
-    """
-    if bool(getattr(request.user, "is_staff", False)):
-        return True
-    return _is_internal_debug_team(team_id) and request.query_params.get("ph_debug") == "true"
+    """Allow explicit cross-owner reads only in local development."""
+    return (
+        settings.DEBUG
+        and not settings.TEST
+        and _is_internal_debug_team(team_id)
+        and request.query_params.get("ph_debug") == "true"
+    )
 
 
 class _SchemaAwareLimitOffsetPagination(LimitOffsetPagination):
@@ -565,6 +564,21 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             raise NotFound()
         return Response({"task_ids": tasks_facade.list_pinned_task_ids(self.team_id, user_id)})
 
+    @extend_schema(
+        responses={200: ModelCatalogueResponseSerializer},
+        summary="List available models",
+        description=(
+            "Return the models a task run may use, with the reasoning efforts each one supports. "
+            "Derived from the live LLM gateway catalogue, so a newly released model appears without a client change. "
+            "An empty list means the gateway is unreachable — clients should fall back to their own default rather "
+            "than treating it as 'no models exist'."
+        ),
+    )
+    @action(detail=False, methods=["get"], url_path="models", required_scopes=["task:read"])
+    def models(self, request, **kwargs):
+        choices = available_model_choices(TASK_RUN_GATEWAY_PRODUCT)
+        return Response(ModelCatalogueResponseSerializer({"models": choices}).data)
+
     @extend_schema(request=TaskPinRequestSerializer, responses={200: TaskPinResponseSerializer})
     @action(detail=True, methods=["post"], url_path="pin", required_scopes=["task:write"])
     @validated_request(request_serializer=TaskPinRequestSerializer)
@@ -721,7 +735,12 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             )
         channel, thread_ts = parsed
         result = tasks_facade.resolve_slack_thread_context(
-            self.team_id, channel=channel, thread_ts=thread_ts, url=url, build_url=request.build_absolute_uri
+            self.team_id,
+            self._user_id(),
+            channel=channel,
+            thread_ts=thread_ts,
+            url=url,
+            build_url=request.build_absolute_uri,
         )
         if result.outcome == "no_mapping" and (thread := result.no_mapping_thread) is not None:
             return Response(
@@ -1061,6 +1080,18 @@ class TaskAutomationViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
 
 
 @extend_schema(tags=["task-runs", "tasks"])
+def is_sandbox_agent_request(request, task_id: str) -> bool:
+    """True only for the task-bound sandbox OAuth identity, never a human session or key."""
+    authenticator = request.successful_authenticator
+    if not isinstance(authenticator, OAuthAccessTokenAuthentication):
+        return False
+    access_token = authenticator.access_token
+    application = access_token.application
+    if application is None or application.client_id not in SANDBOX_OAUTH_APP_CLIENT_IDS:
+        return False
+    return access_token.sandbox_task_id == UUID(task_id)
+
+
 class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     """
     API for managing task runs. Each run represents an execution of a task.
@@ -1096,16 +1127,7 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         return getattr(self.request.user, "id", None)
 
     def _is_sandbox_agent_request(self, task_id: str) -> bool:
-        authenticator = self.request.successful_authenticator
-        if not isinstance(authenticator, OAuthAccessTokenAuthentication):
-            return False
-        access_token = authenticator.access_token
-        application = access_token.application
-        if application is None or application.client_id not in SANDBOX_OAUTH_APP_CLIENT_IDS:
-            return False
-        return access_token.sandbox_task_id == UUID(task_id) or "internal_run:read" in (
-            get_authenticator_scopes(authenticator) or []
-        )
+        return is_sandbox_agent_request(self.request, task_id)
 
     # Actions that only read run state. Everything else mutates or drives the
     # run, so it requires task control (not just visibility): public-channel
@@ -1125,14 +1147,12 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     )
 
     def _ensure_task_accessible(self) -> str:
-        """Gate access to the parent task, mirroring the old ``safely_get_queryset``.
-
-        Staff users (and internal-debug teams via ``?ph_debug=true``) may read another member's runs
-        through the read-only actions; the bypass never applies to control actions.
-        """
+        """Gate access to the parent task, including exact task-bound sandbox access."""
         task_id = self._task_id()
         is_read_only = self.action in self._READ_ONLY_ACTIONS
-        bypass_visibility = is_read_only and _can_bypass_visibility(self.request, self.team_id)
+        bypass_visibility = self._is_sandbox_agent_request(task_id) or (
+            is_read_only and _can_bypass_visibility(self.request, self.team_id)
+        )
         if not tasks_facade.task_accessible_for_run_view(
             task_id,
             self.team_id,
@@ -1369,7 +1389,12 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         # must not be resurrected to completed/failed by a stale in-flight agent PATCH. A terminal run
         # is done, so a late PATCH is a no-op, not an overwrite.
         run = tasks_facade.update_task_run(
-            pk, task_id, self.team_id, validated_data=dict(request.validated_data), only_if_non_terminal=True
+            pk,
+            task_id,
+            self.team_id,
+            validated_data=dict(request.validated_data),
+            only_if_non_terminal=True,
+            caller_is_agent=self._is_sandbox_agent_request(task_id),
         )
         if run is None:
             raise NotFound()
@@ -1436,6 +1461,43 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         response = Response(TaskRunDetailSerializer(run).data)
         response["Server-Timing"] = timer.to_header_string()
         return response
+
+    @extend_schema(
+        request=None,
+        responses={
+            200: OpenApiResponse(response=TaskRunDetailSerializer, description="Run with the boundary recorded"),
+            404: OpenApiResponse(description="Run not found"),
+            409: OpenApiResponse(
+                response=TaskRunErrorResponseSerializer, description="Run is still active; send /clear to its agent"
+            ),
+        },
+        summary="Clear conversation history",
+        description=(
+            "Record a `/clear` boundary in a finished run's log so the next run in the chain "
+            "starts with an empty conversation. Its checkpoints, artifacts, and visible history "
+            "are unaffected. Only for a finished run: an active one has an agent that owns the "
+            "clear, so send `/clear` to it as an ordinary message instead."
+        ),
+    )
+    @action(
+        detail=True,
+        methods=["post"],
+        url_path="clear_conversation",
+        required_scopes=["task:write"],
+    )
+    def clear_conversation(self, request, pk=None, **kwargs):
+        task_id = self._ensure_task_accessible()
+        outcome, run = tasks_facade.clear_task_run_conversation(pk, task_id, self.team_id)
+        if outcome == "not_found":
+            raise NotFound()
+        if outcome == "not_terminal":
+            return Response(
+                TaskRunErrorResponseSerializer({"error": "Run is still active; send /clear to its agent instead"}).data,
+                status=status.HTTP_409_CONFLICT,
+            )
+        if run is None:
+            raise NotFound()
+        return Response(TaskRunDetailSerializer(run).data)
 
     @extend_schema(
         responses={
@@ -1603,7 +1665,11 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     def artifacts(self, request, pk=None, **kwargs):
         task_id = self._ensure_task_accessible()
         result = tasks_facade.upload_task_run_artifacts(
-            pk, task_id, self.team_id, artifacts=request.validated_data["artifacts"]
+            pk,
+            task_id,
+            self.team_id,
+            artifacts=request.validated_data["artifacts"],
+            uploaded_by="agent" if self._is_sandbox_agent_request(task_id) else "user",
         )
         if result is None:
             raise NotFound()
@@ -2678,7 +2744,11 @@ class TaskRunLivingArtifactViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewS
     def create(self, request, *args, **kwargs):
         task_id = self._ensure_task_accessible()
         artifact, error = tasks_facade.create_task_run_living_artifact(
-            self._run_id(), task_id, self.team_id, artifact=request.validated_data
+            self._run_id(),
+            task_id,
+            self.team_id,
+            artifact=request.validated_data,
+            caller_is_agent=is_sandbox_agent_request(request, task_id),
         )
         if artifact is None and error is None:
             raise NotFound()
@@ -2804,6 +2874,7 @@ class TaskRunLivingArtifactViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewS
             run_id,
             task_id,
             self.team_id,
+            caller_is_agent=is_sandbox_agent_request(request, task_id),
             artifact={
                 "name": self._with_png_extension(name),
                 "artifact_type": TaskArtifactType.FILE,
@@ -2885,6 +2956,7 @@ class TaskRunLivingArtifactViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewS
             self._run_id(),
             task_id,
             self.team_id,
+            caller_is_agent=is_sandbox_agent_request(request, task_id),
             artifact_id=pk,
             content=request.validated_data.get("content"),
             content_bytes=request.validated_data.get("content_bytes"),

@@ -281,6 +281,30 @@
             "required": ["kind", "accountId"],
             "type": "object"
         },
+        "AccountsTableAggregateMetric": {
+            "additionalProperties": false,
+            "properties": {
+                "aggregation": {
+                    "$ref": "#/definitions/AccountsTableAggregation"
+                },
+                "column": {
+                    "$ref": "#/definitions/AccountsTableCustomPropertyColumn"
+                },
+                "kind": {
+                    "const": "aggregate",
+                    "type": "string"
+                },
+                "scale": {
+                    "type": "number"
+                }
+            },
+            "required": ["kind", "aggregation", "column"],
+            "type": "object"
+        },
+        "AccountsTableAggregation": {
+            "enum": ["sum", "avg", "min", "max", "median"],
+            "type": "string"
+        },
         "AccountsTableAssignedToFilter": {
             "additionalProperties": false,
             "properties": {
@@ -325,6 +349,37 @@
                 }
             ],
             "required": ["kind"],
+            "type": "object"
+        },
+        "AccountsTableCountMetric": {
+            "additionalProperties": false,
+            "properties": {
+                "kind": {
+                    "const": "count",
+                    "type": "string"
+                }
+            },
+            "required": ["kind"],
+            "type": "object"
+        },
+        "AccountsTableCountThresholdMetric": {
+            "additionalProperties": false,
+            "properties": {
+                "column": {
+                    "$ref": "#/definitions/AccountsTableCustomPropertyColumn"
+                },
+                "kind": {
+                    "const": "count_threshold",
+                    "type": "string"
+                },
+                "operator": {
+                    "$ref": "#/definitions/AccountsTableThresholdOperator"
+                },
+                "value": {
+                    "type": "number"
+                }
+            },
+            "required": ["kind", "column", "operator", "value"],
             "type": "object"
         },
         "AccountsTableCustomPropertyColumn": {
@@ -451,6 +506,25 @@
             "required": ["kind"],
             "type": "object"
         },
+        "AccountsTableMetric": {
+            "description": "A typed aggregate evaluated against the filtered account set.",
+            "discriminator": {
+                "propertyName": "kind"
+            },
+            "oneOf": [
+                {
+                    "$ref": "#/definitions/AccountsTableCountMetric"
+                },
+                {
+                    "$ref": "#/definitions/AccountsTableAggregateMetric"
+                },
+                {
+                    "$ref": "#/definitions/AccountsTableCountThresholdMetric"
+                }
+            ],
+            "required": ["kind"],
+            "type": "object"
+        },
         "AccountsTableNoteCountColumn": {
             "additionalProperties": false,
             "properties": {
@@ -485,6 +559,13 @@
                 },
                 "limit": {
                     "$ref": "#/definitions/positive_integer"
+                },
+                "metrics": {
+                    "description": "Aggregates to evaluate against the filtered account set. A metrics query skips row loading.",
+                    "items": {
+                        "$ref": "#/definitions/AccountsTableMetric"
+                    },
+                    "type": "array"
                 },
                 "modifiers": {
                     "$ref": "#/definitions/HogQLQueryModifiers",
@@ -530,6 +611,13 @@
                 },
                 "limit": {
                     "$ref": "#/definitions/integer"
+                },
+                "metricsResults": {
+                    "description": "Aggregated values in the same order as the requested metrics.",
+                    "items": {
+                        "type": ["number", "null"]
+                    },
+                    "type": "array"
                 },
                 "modifiers": {
                     "$ref": "#/definitions/HogQLQueryModifiers",
@@ -748,6 +836,10 @@
             },
             "required": ["kind", "tagNames"],
             "type": "object"
+        },
+        "AccountsTableThresholdOperator": {
+            "enum": ["gt", "gte", "lt", "lte", "exact", "is_not"],
+            "type": "string"
         },
         "AccountsTableUnassignedFilter": {
             "additionalProperties": false,
@@ -6156,6 +6248,13 @@
                 },
                 "limit": {
                     "$ref": "#/definitions/integer"
+                },
+                "metricsResults": {
+                    "description": "Aggregated values in the same order as the requested metrics.",
+                    "items": {
+                        "type": ["number", "null"]
+                    },
+                    "type": "array"
                 },
                 "modifiers": {
                     "$ref": "#/definitions/HogQLQueryModifiers",
@@ -18202,6 +18301,13 @@
                                 "limit": {
                                     "$ref": "#/definitions/integer"
                                 },
+                                "metricsResults": {
+                                    "description": "Aggregated values in the same order as the requested metrics.",
+                                    "items": {
+                                        "type": ["number", "null"]
+                                    },
+                                    "type": "array"
+                                },
                                 "modifiers": {
                                     "$ref": "#/definitions/HogQLQueryModifiers",
                                     "description": "Modifiers used when performing the query"
@@ -19073,6 +19179,10 @@
                     "description": "Optional direct external data source id for schema introspection",
                     "type": "string"
                 },
+                "includeFields": {
+                    "description": "When false, skip serializing each table's fields (`fields` comes back empty). Defaults to true.",
+                    "type": "boolean"
+                },
                 "kind": {
                     "const": "DatabaseSchemaQuery",
                     "type": "string"
@@ -19083,6 +19193,13 @@
                 },
                 "response": {
                     "$ref": "#/definitions/DatabaseSchemaQueryResponse"
+                },
+                "tables": {
+                    "description": "Only serialize these tables (keys as returned in the response, e.g. `events` or `zendesk.groups`). Omit for all tables.",
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": "array"
                 },
                 "tags": {
                     "$ref": "#/definitions/QueryLogTags"
@@ -25541,7 +25658,17 @@
                 "Wix",
                 "Sevalla",
                 "Motion",
-                "Framer"
+                "Framer",
+                "Cloudinary",
+                "Uploadcare",
+                "WHMCS",
+                "MSG91",
+                "Depot",
+                "Schematic",
+                "Dokploy",
+                "RakutenAdvertising",
+                "Zitadel",
+                "DeelFlows"
             ],
             "type": "string"
         },
@@ -27134,7 +27261,7 @@
             "type": "string"
         },
         "GroupMathType": {
-            "const": "unique_group",
+            "enum": ["unique_group", "first_time_for_group", "first_matching_event_for_group"],
             "type": "string"
         },
         "GroupNode": {
@@ -42602,6 +42729,13 @@
                         "limit": {
                             "$ref": "#/definitions/integer"
                         },
+                        "metricsResults": {
+                            "description": "Aggregated values in the same order as the requested metrics.",
+                            "items": {
+                                "type": ["number", "null"]
+                            },
+                            "type": "array"
+                        },
                         "modifiers": {
                             "$ref": "#/definitions/HogQLQueryModifiers",
                             "description": "Modifiers used when performing the query"
@@ -44611,6 +44745,13 @@
                         "limit": {
                             "$ref": "#/definitions/integer"
                         },
+                        "metricsResults": {
+                            "description": "Aggregated values in the same order as the requested metrics.",
+                            "items": {
+                                "type": ["number", "null"]
+                            },
+                            "type": "array"
+                        },
                         "modifiers": {
                             "$ref": "#/definitions/HogQLQueryModifiers",
                             "description": "Modifiers used when performing the query"
@@ -46510,6 +46651,10 @@
                     },
                     "type": "array"
                 },
+                "experiment_exposure": {
+                    "$ref": "#/definitions/RecordingsQueryExperimentExposureFilter",
+                    "description": "Only sessions of persons exposed to this experiment, each ending at or after the person's first exposure as the experiment's exposure criteria count it. Resolved server-side from the experiment, so it links sessions even when the exposure events themselves carry no session id (e.g. server-side SDKs). Composes with the query's date range like any other filter, so set date_from to the experiment's start (or earlier) to cover the full run: the default window only reaches back a few days."
+                },
                 "filter_test_accounts": {
                     "type": "boolean"
                 },
@@ -46585,6 +46730,21 @@
                 }
             },
             "required": ["kind"],
+            "type": "object"
+        },
+        "RecordingsQueryExperimentExposureFilter": {
+            "additionalProperties": false,
+            "properties": {
+                "experiment_id": {
+                    "$ref": "#/definitions/integer",
+                    "description": "Experiment whose exposed persons' sessions to show. Must belong to the environment the query runs in."
+                },
+                "variant": {
+                    "description": "Narrow to persons exposed to this variant. Defaults to all of the experiment's variants.",
+                    "type": "string"
+                }
+            },
+            "required": ["experiment_id"],
             "type": "object"
         },
         "RecordingsQueryResponse": {
@@ -48242,25 +48402,6 @@
                 },
                 "summary": {
                     "type": "string"
-                },
-                "summary_outcome": {
-                    "anyOf": [
-                        {
-                            "additionalProperties": false,
-                            "properties": {
-                                "description": {
-                                    "type": ["string", "null"]
-                                },
-                                "success": {
-                                    "type": ["boolean", "null"]
-                                }
-                            },
-                            "type": "object"
-                        },
-                        {
-                            "type": "null"
-                        }
-                    ]
                 },
                 "viewed": {
                     "description": "Whether this recording has been viewed by you already.",

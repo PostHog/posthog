@@ -12,7 +12,6 @@ import { signalSourcesLogic } from '../../signalSourcesLogic'
 import { AgentsRoster } from './AgentsRoster'
 import { ConnectionsSection } from './ConnectionsSection'
 import { DataSourceSetup } from './DataSourceSetup'
-import { McpServersSection } from './McpServersSection'
 import { ScoutsFleetSection } from './scouts/ScoutsFleetSection'
 import { SlackNotificationsSection } from './SlackNotificationsSection'
 
@@ -108,7 +107,7 @@ export function AgentsTab(): JSX.Element {
 
                 <Subsection
                     title="Signal sources"
-                    description="Each source watches for signals and spins up work when something matters."
+                    description="Each source watches for signals, and spins up an agent to look into them."
                 >
                     {agentsBody}
                 </Subsection>
@@ -119,12 +118,6 @@ export function AgentsTab(): JSX.Element {
                         description="Post reports to channels and ping suggested reviewers. Invite PostHog with /invite @PostHog in each channel you use."
                     >
                         <SlackNotificationsSection />
-                    </Subsection>
-                )}
-
-                {featureFlags[FEATURE_FLAGS.MCP_SERVERS] && (
-                    <Subsection title="MCP servers" description="Shared external tools that scheduled Scouts can use.">
-                        <McpServersSection />
                     </Subsection>
                 )}
             </div>

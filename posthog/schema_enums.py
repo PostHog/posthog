@@ -42,6 +42,14 @@ class AccountsTableAccountField(StrEnum):
     ZENDESK_ID = "zendesk_id"
 
 
+class AccountsTableAggregation(StrEnum):
+    SUM = "sum"
+    AVG = "avg"
+    MIN = "min"
+    MAX = "max"
+    MEDIAN = "median"
+
+
 class WindowDays(float, Enum):
     NUMBER_7 = 7
     NUMBER_14 = 14
@@ -70,6 +78,15 @@ class AccountsTableCustomPropertyOperator(StrEnum):
 class AccountsTableSortDirection(StrEnum):
     ASC = "asc"
     DESC = "desc"
+
+
+class AccountsTableThresholdOperator(StrEnum):
+    GT = "gt"
+    GTE = "gte"
+    LT = "lt"
+    LTE = "lte"
+    EXACT = "exact"
+    IS_NOT = "is_not"
 
 
 class MathGroupTypeIndex(float, Enum):
@@ -2523,6 +2540,16 @@ class ExternalDataSourceType(StrEnum):
     SEVALLA = "Sevalla"
     MOTION = "Motion"
     FRAMER = "Framer"
+    CLOUDINARY = "Cloudinary"
+    UPLOADCARE = "Uploadcare"
+    WHMCS = "WHMCS"
+    MSG91 = "MSG91"
+    DEPOT = "Depot"
+    SCHEMATIC = "Schematic"
+    DOKPLOY = "Dokploy"
+    RAKUTEN_ADVERTISING = "RakutenAdvertising"
+    ZITADEL = "Zitadel"
+    DEEL_FLOWS = "DeelFlows"
 
 
 class ExternalQueryErrorCode(StrEnum):
@@ -2701,6 +2728,12 @@ class GoogleAdsDefaultSources(StrEnum):
     GOOGLE_DISCOVER = "google_discover"
     ADMOB = "admob"
     WAZE = "waze"
+
+
+class GroupMathType(StrEnum):
+    UNIQUE_GROUP = "unique_group"
+    FIRST_TIME_FOR_GROUP = "first_time_for_group"
+    FIRST_MATCHING_EVENT_FOR_GROUP = "first_matching_event_for_group"
 
 
 class GradientScaleMode(StrEnum):

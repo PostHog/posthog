@@ -675,6 +675,13 @@ export type RecordingOrder = (typeof VALID_RECORDING_ORDERS)[number]
 
 export type RecordingOrderDirection = 'ASC' | 'DESC'
 
+export interface RecordingsQueryExperimentExposureFilter {
+    /** Experiment whose exposed persons' sessions to show. Must belong to the environment the query runs in. */
+    experiment_id: integer
+    /** Narrow to persons exposed to this variant. Defaults to all of the experiment's variants. */
+    variant?: string
+}
+
 export interface RecordingsQuery extends DataNode<RecordingsQueryResponse> {
     kind: NodeKind.RecordingsQuery
     /**
@@ -700,6 +707,15 @@ export interface RecordingsQuery extends DataNode<RecordingsQueryResponse> {
     session_recording_id?: string
     person_uuid?: string
     distinct_ids?: string[]
+    /**
+     * Only sessions of persons exposed to this experiment, each ending at or after the person's
+     * first exposure as the experiment's exposure criteria count it. Resolved server-side from the
+     * experiment, so it links sessions even when the exposure events themselves carry no session id
+     * (e.g. server-side SDKs). Composes with the query's date range like any other filter, so set
+     * date_from to the experiment's start (or earlier) to cover the full run: the default window
+     * only reaches back a few days.
+     */
+    experiment_exposure?: RecordingsQueryExperimentExposureFilter
     /**
      * @default "start_time"
      * */
@@ -2840,6 +2856,50 @@ export enum AccountsTableSortDirection {
     Descending = 'desc',
 }
 
+export enum AccountsTableAggregation {
+    Sum = 'sum',
+    Average = 'avg',
+    Minimum = 'min',
+    Maximum = 'max',
+    Median = 'median',
+}
+
+export enum AccountsTableThresholdOperator {
+    GreaterThan = 'gt',
+    GreaterThanOrEqual = 'gte',
+    LessThan = 'lt',
+    LessThanOrEqual = 'lte',
+    Equal = 'exact',
+    NotEqual = 'is_not',
+}
+
+export interface AccountsTableCountMetric {
+    kind: 'count'
+}
+
+export interface AccountsTableAggregateMetric {
+    kind: 'aggregate'
+    aggregation: AccountsTableAggregation
+    column: AccountsTableCustomPropertyColumn
+    scale?: number
+}
+
+export interface AccountsTableCountThresholdMetric {
+    kind: 'count_threshold'
+    column: AccountsTableCustomPropertyColumn
+    operator: AccountsTableThresholdOperator
+    value: number
+}
+
+/**
+ * A typed aggregate evaluated against the filtered account set.
+ * @discriminator kind
+ */
+export type AccountsTableMetric =
+    | AccountsTableCountMetric
+    | AccountsTableAggregateMetric
+    | AccountsTableCountThresholdMetric
+
 export interface AccountsTableSort {
     column: AccountsTableSortableColumn
     direction: AccountsTableSortDirection
@@ -2943,6 +3003,8 @@ export interface AccountsTableQueryResponse extends AnalyticsQueryResponseBase {
     hasMore: boolean
     limit: integer
     offset: integer
+    /** Aggregated values in the same order as the requested metrics. */
+    metricsResults?: (number | null)[]
 }
 
 export interface AccountsTableQuery extends DataNode<AccountsTableQueryResponse> {
@@ -2951,6 +3013,8 @@ export interface AccountsTableQuery extends DataNode<AccountsTableQueryResponse>
     columns: AccountsTableColumn[]
     /** Filters are combined with AND. Values within tag and assignment filters use OR. */
     filters?: AccountsTableFilter[]
+    /** Aggregates to evaluate against the filtered account set. A metrics query skips row loading. */
+    metrics?: AccountsTableMetric[]
     sort?: AccountsTableSort
     limit?: positive_integer
     offset?: integer
@@ -5744,6 +5808,10 @@ export interface DatabaseSchemaQuery extends DataNode<DatabaseSchemaQueryRespons
     kind: NodeKind.DatabaseSchemaQuery
     /** Optional direct external data source id for schema introspection */
     connectionId?: string
+    /** Only serialize these tables (keys as returned in the response, e.g. `events` or `zendesk.groups`). Omit for all tables. */
+    tables?: string[]
+    /** When false, skip serializing each table's fields (`fields` comes back empty). Defaults to true. */
+    includeFields?: boolean
 }
 
 export type DatabaseSerializedFieldType =
@@ -8899,6 +8967,16 @@ export const externalDataSources = [
     'Sevalla',
     'Motion',
     'Framer',
+    'Cloudinary',
+    'Uploadcare',
+    'WHMCS',
+    'MSG91',
+    'Depot',
+    'Schematic',
+    'Dokploy',
+    'RakutenAdvertising',
+    'Zitadel',
+    'DeelFlows',
 ] as const
 
 export type ExternalDataSourceType = (typeof externalDataSources)[number]

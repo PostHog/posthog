@@ -14,8 +14,10 @@ from posthog.schema_discriminators import property_filter_discriminator
 from posthog.schema_enums import (
     AccessControlLevel as AccessControlLevel,
     AccountsTableAccountField as AccountsTableAccountField,
+    AccountsTableAggregation as AccountsTableAggregation,
     AccountsTableCustomPropertyOperator as AccountsTableCustomPropertyOperator,
     AccountsTableSortDirection as AccountsTableSortDirection,
+    AccountsTableThresholdOperator as AccountsTableThresholdOperator,
     Action as Action,
     AgentMode as AgentMode,
     AggregationAxisFormat as AggregationAxisFormat,
@@ -121,6 +123,7 @@ from posthog.schema_enums import (
     Goal as Goal,
     GoogleAdsDefaultSources as GoogleAdsDefaultSources,
     GradientScaleMode as GradientScaleMode,
+    GroupMathType as GroupMathType,
     HeatmapSortOrder as HeatmapSortOrder,
     HedgehogActorAccessoryOption as HedgehogActorAccessoryOption,
     HedgehogActorColorOption as HedgehogActorColorOption,
@@ -322,6 +325,13 @@ class AccountsTableAccountIdFilter(BaseModel):
     )
     accountId: str
     kind: Literal["account_id"] = "account_id"
+
+
+class AccountsTableCountMetric(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    kind: Literal["count"] = "count"
 
 
 class AccountsTableCustomPropertyColumn(BaseModel):
@@ -2623,14 +2633,6 @@ class SessionRecordingExternalReference(BaseModel):
     title: str
 
 
-class SummaryOutcome(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    description: str | None = None
-    success: bool | None = None
-
-
 class SessionReplayBlock(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -3054,6 +3056,16 @@ class AccountCustomPropertyFilter(BaseModel):
     value: list[str | float | bool] | str | float | bool | None = None
 
 
+class AccountsTableAggregateMetric(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    aggregation: AccountsTableAggregation
+    column: AccountsTableCustomPropertyColumn
+    kind: Literal["aggregate"] = "aggregate"
+    scale: float | None = None
+
+
 class AccountsTableAssignedToFilter(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -3063,6 +3075,16 @@ class AccountsTableAssignedToFilter(BaseModel):
         ...,
         description=("Match accounts where any listed user actively holds any relationship."),
     )
+
+
+class AccountsTableCountThresholdMetric(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    column: AccountsTableCustomPropertyColumn
+    kind: Literal["count_threshold"] = "count_threshold"
+    operator: AccountsTableThresholdOperator
+    value: float
 
 
 class AccountsTableCustomPropertyFilter(BaseModel):
@@ -6366,6 +6388,22 @@ class QueryStatusResponse(BaseModel):
     query_status: QueryStatus
 
 
+class RecordingsQueryExperimentExposureFilter(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    experiment_id: int = Field(
+        ...,
+        description=(
+            "Experiment whose exposed persons' sessions to show. Must belong to the environment the query runs in."
+        ),
+    )
+    variant: str | None = Field(
+        default=None,
+        description=("Narrow to persons exposed to this variant. Defaults to all of the experiment's variants."),
+    )
+
+
 class ResultCustomization(RootModel[ResultCustomizationByValue | ResultCustomizationByPosition]):
     root: ResultCustomizationByValue | ResultCustomizationByPosition
 
@@ -6780,7 +6818,6 @@ class SessionRecordingType(BaseModel):
     start_time: str = Field(..., description="When the recording starts in ISO format.")
     start_url: str | None = None
     summary: str | None = None
-    summary_outcome: SummaryOutcome | None = None
     viewed: bool = Field(..., description="Whether this recording has been viewed by you already.")
     viewers: list[str] = Field(..., description="user ids of other users who have viewed this recording")
 
@@ -8650,6 +8687,10 @@ class AccountsTableQueryResponse(BaseModel):
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     kind: Literal["AccountsTableQuery"] = "AccountsTableQuery"
     limit: int
+    metricsResults: list[float | None] | None = Field(
+        default=None,
+        description="Aggregated values in the same order as the requested metrics.",
+    )
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     offset: int
     query_status: QueryStatus | None = Field(
@@ -9586,9 +9627,9 @@ class AssistantStickinessActionsNode(BaseModel):
         | FunnelMathType
         | PropertyMathType
         | CountPerActorMathType
+        | GroupMathType
         | ExperimentMetricMathType
         | CalendarHeatmapMathType
-        | Literal["unique_group"]
         | Literal["hogql"]
         | None
     ) = None
@@ -9647,9 +9688,9 @@ class AssistantStickinessEventsNode(BaseModel):
         | FunnelMathType
         | PropertyMathType
         | CountPerActorMathType
+        | GroupMathType
         | ExperimentMetricMathType
         | CalendarHeatmapMathType
-        | Literal["unique_group"]
         | Literal["hogql"]
         | None
     ) = None
@@ -9816,9 +9857,9 @@ class AssistantTrendsActionsNode(BaseModel):
         | FunnelMathType
         | PropertyMathType
         | CountPerActorMathType
+        | GroupMathType
         | ExperimentMetricMathType
         | CalendarHeatmapMathType
-        | Literal["unique_group"]
         | Literal["hogql"]
         | None
     ) = None
@@ -9879,9 +9920,9 @@ class AssistantTrendsEventsNode(BaseModel):
         | FunnelMathType
         | PropertyMathType
         | CountPerActorMathType
+        | GroupMathType
         | ExperimentMetricMathType
         | CalendarHeatmapMathType
-        | Literal["unique_group"]
         | Literal["hogql"]
         | None
     ) = None
@@ -9941,9 +9982,9 @@ class AssistantTrendsGroupNode(BaseModel):
         | FunnelMathType
         | PropertyMathType
         | CountPerActorMathType
+        | GroupMathType
         | ExperimentMetricMathType
         | CalendarHeatmapMathType
-        | Literal["unique_group"]
         | Literal["hogql"]
         | None
     ) = Field(
@@ -10413,6 +10454,10 @@ class CachedAccountsTableQueryResponse(BaseModel):
     kind: Literal["AccountsTableQuery"] = "AccountsTableQuery"
     last_refresh: AwareDatetime
     limit: int
+    metricsResults: list[float | None] | None = Field(
+        default=None,
+        description="Aggregated values in the same order as the requested metrics.",
+    )
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     next_allowed_client_refresh: AwareDatetime
     offset: int
@@ -14727,9 +14772,9 @@ class ConversionGoalFilter1(BaseModel):
         | FunnelMathType
         | PropertyMathType
         | CountPerActorMathType
+        | GroupMathType
         | ExperimentMetricMathType
         | CalendarHeatmapMathType
-        | Literal["unique_group"]
         | Literal["hogql"]
         | None
     ) = None
@@ -14790,9 +14835,9 @@ class ConversionGoalFilter2(BaseModel):
         | FunnelMathType
         | PropertyMathType
         | CountPerActorMathType
+        | GroupMathType
         | ExperimentMetricMathType
         | CalendarHeatmapMathType
-        | Literal["unique_group"]
         | Literal["hogql"]
         | None
     ) = None
@@ -14855,9 +14900,9 @@ class ConversionGoalFilter3(BaseModel):
         | FunnelMathType
         | PropertyMathType
         | CountPerActorMathType
+        | GroupMathType
         | ExperimentMetricMathType
         | CalendarHeatmapMathType
-        | Literal["unique_group"]
         | Literal["hogql"]
         | None
     ) = None
@@ -15808,6 +15853,10 @@ class Response23(BaseModel):
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     kind: Literal["AccountsTableQuery"] = "AccountsTableQuery"
     limit: int
+    metricsResults: list[float | None] | None = Field(
+        default=None,
+        description="Aggregated values in the same order as the requested metrics.",
+    )
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     offset: int
     query_status: QueryStatus | None = Field(
@@ -15864,9 +15913,9 @@ class DataWarehouseNode(BaseModel):
         | FunnelMathType
         | PropertyMathType
         | CountPerActorMathType
+        | GroupMathType
         | ExperimentMetricMathType
         | CalendarHeatmapMathType
-        | Literal["unique_group"]
         | Literal["hogql"]
         | None
     ) = None
@@ -16237,9 +16286,9 @@ class EntityNode(BaseModel):
         | FunnelMathType
         | PropertyMathType
         | CountPerActorMathType
+        | GroupMathType
         | ExperimentMetricMathType
         | CalendarHeatmapMathType
-        | Literal["unique_group"]
         | Literal["hogql"]
         | None
     ) = None
@@ -16538,9 +16587,9 @@ class EventsNode(BaseModel):
         | FunnelMathType
         | PropertyMathType
         | CountPerActorMathType
+        | GroupMathType
         | ExperimentMetricMathType
         | CalendarHeatmapMathType
-        | Literal["unique_group"]
         | Literal["hogql"]
         | None
     ) = None
@@ -16716,9 +16765,9 @@ class ExperimentDataWarehouseNode(BaseModel):
         | FunnelMathType
         | PropertyMathType
         | CountPerActorMathType
+        | GroupMathType
         | ExperimentMetricMathType
         | CalendarHeatmapMathType
-        | Literal["unique_group"]
         | Literal["hogql"]
         | None
     ) = None
@@ -16843,9 +16892,9 @@ class FunnelExclusionActionsNode(BaseModel):
         | FunnelMathType
         | PropertyMathType
         | CountPerActorMathType
+        | GroupMathType
         | ExperimentMetricMathType
         | CalendarHeatmapMathType
-        | Literal["unique_group"]
         | Literal["hogql"]
         | None
     ) = None
@@ -16883,9 +16932,9 @@ class FunnelExclusionEventsNode(BaseModel):
         | FunnelMathType
         | PropertyMathType
         | CountPerActorMathType
+        | GroupMathType
         | ExperimentMetricMathType
         | CalendarHeatmapMathType
-        | Literal["unique_group"]
         | Literal["hogql"]
         | None
     ) = None
@@ -16924,9 +16973,9 @@ class FunnelsDataWarehouseNode(BaseModel):
         | FunnelMathType
         | PropertyMathType
         | CountPerActorMathType
+        | GroupMathType
         | ExperimentMetricMathType
         | CalendarHeatmapMathType
-        | Literal["unique_group"]
         | Literal["hogql"]
         | None
     ) = None
@@ -17292,9 +17341,9 @@ class LifecycleDataWarehouseNode(BaseModel):
         | FunnelMathType
         | PropertyMathType
         | CountPerActorMathType
+        | GroupMathType
         | ExperimentMetricMathType
         | CalendarHeatmapMathType
-        | Literal["unique_group"]
         | Literal["hogql"]
         | None
     ) = None
@@ -21161,6 +21210,10 @@ class QueryResponseAlternative58(BaseModel):
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     kind: Literal["AccountsTableQuery"] = "AccountsTableQuery"
     limit: int
+    metricsResults: list[float | None] | None = Field(
+        default=None,
+        description="Aggregated values in the same order as the requested metrics.",
+    )
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     offset: int
     query_status: QueryStatus | None = Field(
@@ -22354,6 +22407,10 @@ class QueryResponseAlternative88(BaseModel):
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     kind: Literal["AccountsTableQuery"] = "AccountsTableQuery"
     limit: int
+    metricsResults: list[float | None] | None = Field(
+        default=None,
+        description="Aggregated values in the same order as the requested metrics.",
+    )
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     offset: int
     query_status: QueryStatus | None = Field(
@@ -24328,6 +24385,12 @@ class AccountsTableQuery(BaseModel):
     )
     kind: Literal["AccountsTableQuery"] = "AccountsTableQuery"
     limit: conint(ge=1) | None = None
+    metrics: (
+        list[AccountsTableCountMetric | AccountsTableAggregateMetric | AccountsTableCountThresholdMetric] | None
+    ) = Field(
+        default=None,
+        description=("Aggregates to evaluate against the filtered account set. A metrics query skips row loading."),
+    )
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     offset: int | None = None
     response: AccountsTableQueryResponse | None = None
@@ -24352,9 +24415,9 @@ class ActionsNode(BaseModel):
         | FunnelMathType
         | PropertyMathType
         | CountPerActorMathType
+        | GroupMathType
         | ExperimentMetricMathType
         | CalendarHeatmapMathType
-        | Literal["unique_group"]
         | Literal["hogql"]
         | None
     ) = None
@@ -26324,6 +26387,18 @@ class RecordingsQuery(BaseModel):
     date_to: str | None = None
     distinct_ids: list[str] | None = None
     events: list[dict[str, Any]] | None = None
+    experiment_exposure: RecordingsQueryExperimentExposureFilter | None = Field(
+        default=None,
+        description=(
+            "Only sessions of persons exposed to this experiment, each ending at or"
+            " after the person's first exposure as the experiment's exposure criteria"
+            " count it. Resolved server-side from the experiment, so it links sessions"
+            " even when the exposure events themselves carry no session id (e.g."
+            " server-side SDKs). Composes with the query's date range like any other"
+            " filter, so set date_from to the experiment's start (or earlier) to cover"
+            " the full run: the default window only reaches back a few days."
+        ),
+    )
     filter_test_accounts: bool | None = None
     having_predicates: list[AnyPropertyFilterDiscriminated] | None = None
     hide_viewed_recordings: HideViewedRecordings | None = Field(
@@ -27045,9 +27120,9 @@ class GroupNode(BaseModel):
         | FunnelMathType
         | PropertyMathType
         | CountPerActorMathType
+        | GroupMathType
         | ExperimentMetricMathType
         | CalendarHeatmapMathType
-        | Literal["unique_group"]
         | Literal["hogql"]
         | None
     ) = None
@@ -27986,9 +28061,20 @@ class DatabaseSchemaQuery(BaseModel):
         default=None,
         description="Optional direct external data source id for schema introspection",
     )
+    includeFields: bool | None = Field(
+        default=None,
+        description=("When false, skip serializing each table's fields (`fields` comes back empty). Defaults to true."),
+    )
     kind: Literal["DatabaseSchemaQuery"] = "DatabaseSchemaQuery"
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     response: DatabaseSchemaQueryResponse | None = None
+    tables: list[str] | None = Field(
+        default=None,
+        description=(
+            "Only serialize these tables (keys as returned in the response, e.g."
+            " `events` or `zendesk.groups`). Omit for all tables."
+        ),
+    )
     tags: QueryLogTags | None = None
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
 

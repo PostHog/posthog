@@ -20,10 +20,12 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.app_store_
     AppStoreConnectResumeConfig,
     AppStoreConnectTokenProvider,
     AppStoreConnectUrlError,
+    _find_analytics_report,
     _flatten_resource,
     _get,
     _normalize_private_key,
     _normalize_report_column,
+    _Page,
     _parse_report,
     _require_api_url,
     app_store_connect_source,
@@ -859,6 +861,38 @@ class TestAnalyticsReportStreams:
         assert response.partition_keys == ["processing_date"]
         # The walk is date-major across apps, so ascending per-batch checkpoints are safe.
         assert response.sort_mode == "asc"
+
+
+class TestFindAnalyticsReport:
+    def _resolve(self, endpoint: str, apple_name: str) -> str | None:
+        config = APP_STORE_CONNECT_ENDPOINTS[endpoint]
+        page = _Page(
+            resources=[
+                _resource("analyticsReports", "REP1", name=apple_name, category=config.analytics_report_category)
+            ],
+            included=[],
+            next_url=None,
+        )
+        with patch(f"{MODULE}._iter_pages", return_value=iter([page])):
+            return _find_analytics_report(MagicMock(), MagicMock(), MagicMock(), config, "REQ1")
+
+    @parameterized.expand(
+        [
+            ("analytics_app_store_downloads", "App Downloads Standard"),
+            ("analytics_installations_deletions", "App Store Installation and Deletion Standard"),
+            ("analytics_app_store_preorders", "App Store Pre-Orders Standard"),
+        ]
+    )
+    def test_configured_names_resolve_the_report_apple_actually_returns(self, endpoint: str, apple_name: str) -> None:
+        # These three streams asked for names Apple never returns, so the lookup resolved nothing and
+        # the stream synced an empty table without failing. Fixtures elsewhere use "App Sessions
+        # Standard", spelled the same here and at Apple, so they never exercised the mismatch.
+        assert self._resolve(endpoint, apple_name) == "REP1"
+
+    def test_match_tolerates_case_and_hyphen_drift(self) -> None:
+        # Apple's casing of "Pre-Orders" has drifted before; normalization must resolve it without a
+        # config change so a cosmetic rename can't silently blank the stream again.
+        assert self._resolve("analytics_app_store_preorders", "App Store Pre-orders Standard") == "REP1"
 
 
 class TestReportColumnNames:
