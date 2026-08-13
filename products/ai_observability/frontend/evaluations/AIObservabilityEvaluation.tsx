@@ -27,6 +27,7 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 
 import { SceneBreadcrumbBackButton } from '~/layout/scenes/components/SceneBreadcrumbs'
+import { SceneStickyBar } from '~/layout/scenes/components/SceneStickyBar'
 import { InsightVizNode, NodeKind } from '~/queries/schema/schema-general'
 import { urls } from '~/scenes/urls'
 import { AccessControlLevel, AccessControlResourceType, ChartDisplayType, HogQLMathType } from '~/types'
@@ -252,22 +253,6 @@ export function AIObservabilityEvaluation(): JSX.Element {
         push(evaluationBackTarget.path)
     }
 
-    const saveButton = (
-        <AccessControlAction
-            resourceType={AccessControlResourceType.LlmAnalytics}
-            minAccessLevel={AccessControlLevel.Editor}
-        >
-            <LemonButton
-                type="primary"
-                onClick={handleSave}
-                disabledReason={saveButtonDisabledReason}
-                loading={evaluationFormSubmitting}
-            >
-                {isNewEvaluation ? 'Create evaluation' : 'Save changes'}
-            </LemonButton>
-        </AccessControlAction>
-    )
-
     const hogEvaluationMethodOptions: { value: EvaluationType; label: string }[] = [
         {
             value: 'hog',
@@ -289,28 +274,27 @@ export function AIObservabilityEvaluation(): JSX.Element {
     return (
         <div className="space-y-6">
             <SceneBreadcrumbBackButton />
-            {/* Header */}
-            <div className="flex justify-between items-start pb-4 border-b">
-                <div className="space-y-2">
-                    <h1 className="text-2xl font-semibold">{isNewEvaluation ? 'New evaluation' : evaluation.name}</h1>
-                    <div className="flex items-center gap-2">
-                        {isNewEvaluation ? (
-                            <LemonTag type="primary">New</LemonTag>
-                        ) : (
-                            <>
-                                {evaluation.status === 'error' ? (
-                                    <LemonTag type="danger" icon={<IconWarning />}>
-                                        Error
-                                    </LemonTag>
-                                ) : (
-                                    <LemonTag type={evaluation.enabled ? 'success' : 'default'}>
-                                        {evaluation.enabled ? 'Enabled' : 'Disabled'}
-                                    </LemonTag>
-                                )}
-                                {hasUnsavedChanges && <LemonTag type="warning">Unsaved changes</LemonTag>}
-                            </>
-                        )}
-                    </div>
+            {/* Header. The status and actions live in a sticky bar so saving stays one click away
+                while scrolling the long configuration form. */}
+            <h1 className="text-2xl font-semibold">{isNewEvaluation ? 'New evaluation' : evaluation.name}</h1>
+            <SceneStickyBar hasSceneTitleSection={false} className="flex items-center justify-between gap-2 space-y-0">
+                <div className="flex items-center gap-2">
+                    {isNewEvaluation ? (
+                        <LemonTag type="primary">New</LemonTag>
+                    ) : (
+                        <>
+                            {evaluation.status === 'error' ? (
+                                <LemonTag type="danger" icon={<IconWarning />}>
+                                    Error
+                                </LemonTag>
+                            ) : (
+                                <LemonTag type={evaluation.enabled ? 'success' : 'default'}>
+                                    {evaluation.enabled ? 'Enabled' : 'Disabled'}
+                                </LemonTag>
+                            )}
+                            {hasUnsavedChanges && <LemonTag type="warning">Unsaved changes</LemonTag>}
+                        </>
+                    )}
                 </div>
                 <div className="flex gap-2">
                     {trendInsightUrl ? (
@@ -337,9 +321,23 @@ export function AIObservabilityEvaluation(): JSX.Element {
                     <LemonButton type="secondary" icon={<IconArrowLeft />} onClick={handleCancel}>
                         {hasUnsavedChanges ? 'Cancel' : 'Back'}
                     </LemonButton>
-                    {activeTab !== 'runs' && saveButton}
+                    {activeTab !== 'runs' && (
+                        <AccessControlAction
+                            resourceType={AccessControlResourceType.LlmAnalytics}
+                            minAccessLevel={AccessControlLevel.Editor}
+                        >
+                            <LemonButton
+                                type="primary"
+                                onClick={handleSave}
+                                disabledReason={saveButtonDisabledReason}
+                                loading={evaluationFormSubmitting}
+                            >
+                                {isNewEvaluation ? 'Create evaluation' : 'Save changes'}
+                            </LemonButton>
+                        </AccessControlAction>
+                    )}
                 </div>
-            </div>
+            </SceneStickyBar>
 
             {evaluation.status === 'error' && (
                 <LemonBanner type="error">
@@ -750,12 +748,6 @@ export function AIObservabilityEvaluation(): JSX.Element {
                                     {isNewEvaluation && isReportableEvaluation && (
                                         <EvaluationReportConfig evaluationId="new" />
                                     )}
-
-                                    {/* The form is long enough that the header action scrolls out of sight */}
-                                    <div className="flex items-center justify-end gap-2">
-                                        {hasUnsavedChanges && <LemonTag type="warning">Unsaved changes</LemonTag>}
-                                        {saveButton}
-                                    </div>
                                 </Form>
 
                                 {/* Scheduled Reports (for existing evaluations, outside the form) */}
