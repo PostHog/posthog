@@ -97,7 +97,6 @@ describe('dashboardExportNudgeLogic', () => {
         expect(capturesOf('dashboard export nudge shown')).toEqual([
             ['dashboard export nudge shown', { dashboard_id: DASHBOARD_ID }],
         ])
-        expect(storeLogic.values.exportNudgedDashboardIds).toEqual([DASHBOARD_ID])
     })
 
     it('does not nudge in the control variant', async () => {
@@ -107,21 +106,13 @@ describe('dashboardExportNudgeLogic', () => {
         // candidate. Every other check has to run before the flag read reports exposure.
         expect(await resolveExportNudgeEligibility(DASHBOARD_ID)).toMatchObject({ dashboardId: DASHBOARD_ID })
         expect(claimExportNudge(DASHBOARD_ID)).toBe(false)
-        // Not marked either, so a later rollout to this user isn't already burnt.
-        expect(storeLogic.values.exportNudgedDashboardIds).toEqual([])
     })
 
-    it('nudges a dashboard only once, even across repeated exports', async () => {
+    it('nudges the same dashboard again on a later export', async () => {
         expect(await considerNudge()).toBe(true)
-        expect(await considerNudge()).toBe(false)
-    })
+        expect(await considerNudge()).toBe(true)
 
-    it('nudges a dashboard only once when two of its exports run concurrently', async () => {
-        // Exporting the same dashboard as PNG and CSV back to back runs both eligibility checks
-        // before either export claims, so the claim itself has to be what excludes the second.
-        expect(await Promise.all([considerNudge(), considerNudge()])).toEqual([true, false])
-
-        expect(capturesOf('dashboard export nudge shown')).toHaveLength(1)
+        expect(capturesOf('dashboard export nudge shown')).toHaveLength(2)
     })
 
     it('suppresses the dashboard when it already has a subscription', async () => {
