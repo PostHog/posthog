@@ -3853,6 +3853,11 @@ _SIGNALS_CREATE_PR_REFUSALS: dict[str, str] = {
     ),
 }
 _SIGNALS_CREATE_PR_FALLBACK_REFUSAL = "Couldn't start a pull request. Try again from the report in PostHog."
+# Refusals nothing about the report will lift, so the button is spent. One report can sit in several
+# channels, and the run started from one copy leaves every other copy's button standing — clicking it
+# can only refuse. These retire the copy that was clicked; the rest go as they are clicked. Everything
+# else (quota, consent, project access, a transient rejection) can change, so those keep their button.
+_SIGNALS_CREATE_PR_SPENT_REFUSALS = frozenset({"already_started", "already_addressed", "report_closed", "not_found"})
 
 
 def _handle_signals_create_pr(payload: dict) -> HttpResponse:
@@ -3871,15 +3876,15 @@ def _handle_signals_create_pr(payload: dict) -> HttpResponse:
 
     result = start_report_pr_from_slack(click.report_team_id, click.report_id, user_id=click.user.id)
     if result.outcome != "started":
+        refusal = _SIGNALS_CREATE_PR_REFUSALS.get(result.outcome, _SIGNALS_CREATE_PR_FALLBACK_REFUSAL)
+        if result.outcome in _SIGNALS_CREATE_PR_SPENT_REFUSALS:
+            _replace_message_stripping_actions(payload, refusal)
+            return HttpResponse(status=200)
         # Ephemeral, and the message is left alone: the button stays usable for whoever can act on
-        # the reason (raise the quota, pick a repository) and retry.
+        # the reason (raise the quota, approve AI processing) and retry.
         inbox_interactivity.post_response_url(
             payload.get("response_url", ""),
-            {
-                "response_type": "ephemeral",
-                "replace_original": False,
-                "text": _SIGNALS_CREATE_PR_REFUSALS.get(result.outcome, _SIGNALS_CREATE_PR_FALLBACK_REFUSAL),
-            },
+            {"response_type": "ephemeral", "replace_original": False, "text": refusal},
         )
         return HttpResponse(status=200)
 

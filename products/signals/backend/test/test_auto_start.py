@@ -837,16 +837,26 @@ def test_start_implementation_pr_from_slack_refuses_ineligible_clicks(organizati
 
 
 @pytest.mark.django_db
-def test_create_implementation_task_refuses_a_report_closed_under_the_lock(organization, team):
-    # `require_open_report` closes the window between a caller's own status check and this lock: a
-    # dismiss committing in that gap would otherwise get a PR opened against a closed report, after
-    # the receiver that closes PRs on dismissal has already run. Auto-start passes the flag off, and
-    # this pins that difference so the guard can't quietly start applying to it.
+@pytest.mark.parametrize(
+    "status",
+    [
+        # The sharp case: the receiver that closes PRs on dismissal has already run, so a PR started
+        # after it stays open on an archived report.
+        SignalReport.Status.SUPPRESSED,
+        # The quiet one: new signals dropped the report back into research, so the click would pay for
+        # a run off research the report has already moved past.
+        SignalReport.Status.CANDIDATE,
+    ],
+)
+def test_create_implementation_task_rechecks_the_status_under_the_lock(organization, team, status):
+    # `require_pr_eligible_status` closes the window between a caller's own status check and this
+    # lock. Auto-start passes the flag off, and this pins that difference so the guard can't quietly
+    # start applying to it.
     Task = apps.get_model("tasks", "Task")
     TaskRun = apps.get_model("tasks", "TaskRun")
     user = _create_org_member_with_github("locker@example.com", organization, "Locker")
     report = SignalReport.objects.create(
-        team=team, status=SignalReport.Status.SUPPRESSED, title="t", summary="s", signal_count=0, total_weight=0.0
+        team=team, status=status, title="t", summary="s", signal_count=0, total_weight=0.0
     )
 
     def _fake_create_and_run_task(**kwargs):
@@ -870,7 +880,7 @@ def test_create_implementation_task_refuses_a_report_closed_under_the_lock(organ
         "base_branch": None,
     }
     with patch.object(tasks_facade, "create_and_run_task", side_effect=_fake_create_and_run_task) as mock_create:
-        refused = _create_implementation_task_if_absent(**kwargs, require_open_report=True)
+        refused = _create_implementation_task_if_absent(**kwargs, require_pr_eligible_status=True)
         assert refused is None
         assert mock_create.call_count == 0
 

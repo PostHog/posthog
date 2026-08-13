@@ -981,25 +981,45 @@ class TestSignalsCreatePr(TestCase):
         assert response.status_code == 200
         mock_start.assert_not_called()
 
+    @parameterized.expand(
+        [
+            # Nothing about the report will lift these, and one report can sit in several channels, so
+            # the clicked copy retires its button rather than leaving a dead one behind.
+            ("already_started", True, "already in progress"),
+            ("report_closed", True, "This report is closed"),
+            # These can change, so the button has to survive for whoever can act on the reason.
+            ("over_quota", False, "self-driving pull request limit"),
+            ("no_ai_consent", False, "AI data processing"),
+        ]
+    )
     @patch("products.signals.backend.facade.api.start_report_pr_from_slack")
     @patch("products.slack_app.backend.api._is_org_member")
     @patch("products.slack_app.backend.services.inbox_interactivity.requests.post")
     @patch("products.slack_app.backend.api.SlackIntegration.slack_config")
-    def test_create_pr_refusal_explains_itself_and_leaves_the_button(
-        self, mock_config, mock_requests_post, mock_is_org_member, mock_start
+    def test_create_pr_refusal_explains_itself(
+        self,
+        outcome: str,
+        expect_button_retired: bool,
+        expected_text: str,
+        mock_config,
+        mock_requests_post,
+        mock_is_org_member,
+        mock_start,
     ):
-        # Nothing started, so the message must keep its button for whoever can fix the reason.
         mock_config.return_value = {"SLACK_APP_SIGNING_SECRET": self.signing_secret}
         mock_is_org_member.return_value = self.user
-        mock_start.return_value = SimpleNamespace(outcome="already_started", task_url=None)
+        mock_start.return_value = SimpleNamespace(outcome=outcome, task_url=None)
 
         response = self._post_interactivity(self._create_pr_payload("00000000-0000-0000-0000-0000000000ab"))
 
         assert response.status_code == 200
         body = mock_requests_post.call_args.kwargs["json"]
-        assert body["response_type"] == "ephemeral"
-        assert body["replace_original"] is False
-        assert "already in progress" in body["text"]
+        assert expected_text in body["text"]
+        if expect_button_retired:
+            assert body["replace_original"] is True
+        else:
+            assert body["response_type"] == "ephemeral"
+            assert body["replace_original"] is False
 
 
 class TestInsightAlertSnooze(TestCase):

@@ -361,7 +361,7 @@ def _create_implementation_task_if_absent(
     repository: str,
     base_branch: str | None,
     billing_exempt_reason: str | None = None,
-    require_open_report: bool = False,
+    require_pr_eligible_status: bool = False,
 ) -> str | None:
     """Create the implementation task and record it (gate row + work-log artefact), serialized per report.
 
@@ -375,9 +375,11 @@ def _create_implementation_task_if_absent(
     The same lock is where billing exemptions freeze (`_stamp_billing_exemption`): the reason is
     decided and written before the task exists, so it can never race a billable PR run.
 
-    ``require_open_report`` re-reads the report's status under that same lock. A caller that checked
-    the status itself, before the lock, needs it: a dismiss committing in the gap would otherwise get
-    a PR opened against a closed report, and the receiver that closes PRs on dismissal has already run.
+    ``require_pr_eligible_status`` re-reads the report's status under that same lock, against the same
+    allowlist the caller used. A caller that checked the status itself, before the lock, needs it:
+    anything committing in that gap otherwise lands a PR on a report that no longer wants one. A
+    dismiss is the sharp case, because the receiver that closes PRs on dismissal has already run; a
+    report dropping back into research because new signals arrived is the quiet one.
     """
     # Resolved outside the transaction: the flag read does network I/O and must not hold the row lock.
     agent_runtime = resolve_agent_runtime(team_id, STEP_IMPLEMENTATION)
@@ -391,7 +393,12 @@ def _create_implementation_task_if_absent(
         report = SignalReport.objects.select_for_update().filter(id=report_id, team_id=team_id).first()
         if report is None:
             return None
-        if require_open_report and report.status in _CLOSED_REPORT_STATUSES:
+        if require_pr_eligible_status and not _report_status_admits_a_pr(
+            report,
+            _latest_artefact_as_sync(
+                str(report.id), SignalReportArtefact.ArtefactType.ACTIONABILITY_JUDGMENT, ActionabilityAssessment
+            ),
+        ):
             return None
         # The gate reads the unified task↔report view (`associated_task_runs` merges the legacy
         # `SignalReportTask` rows with the `task_run` artefact log). Unifying only *adds* sources,
@@ -1043,7 +1050,7 @@ def start_implementation_pr_from_slack(*, team_id: int, report_id: str, user_id:
             user_id=user_id,
             repository=repository,
             base_branch=team_config.base_branch_for(repository) if team_config else None,
-            require_open_report=True,
+            require_pr_eligible_status=True,
         )
     except QuotaLimitExceeded:
         return _capture_slack_pr_kickoff(PrKickoffResult(outcome="over_quota"), team_id, report_id, user_id)
@@ -1061,6 +1068,8 @@ def start_implementation_pr_from_slack(*, team_id: int, report_id: str, user_id:
             blocked = "not_found"
         elif status in _CLOSED_REPORT_STATUSES:
             blocked = "report_closed"
+        elif status not in (SignalReport.Status.READY, SignalReport.Status.PENDING_INPUT):
+            blocked = "not_ready"
         return _capture_slack_pr_kickoff(PrKickoffResult(outcome=blocked), team_id, report_id, user_id)
 
     task_url = f"{settings.SITE_URL.rstrip('/')}/project/{team_id}/tasks/{task_id}"
