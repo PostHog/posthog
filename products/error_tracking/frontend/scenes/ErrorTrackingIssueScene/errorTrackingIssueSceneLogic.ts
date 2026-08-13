@@ -255,12 +255,12 @@ export interface errorTrackingIssueSceneLogicActions {
         payload?: any
     }
     loadIssueSuccess: (
-        issue: ErrorTrackingRelationalIssue,
+        issue: ErrorTrackingRelationalIssue | null,
         payload?: {
             value: true
         }
     ) => {
-        issue: ErrorTrackingRelationalIssue
+        issue: ErrorTrackingRelationalIssue | null
         payload?: {
             value: true
         }
