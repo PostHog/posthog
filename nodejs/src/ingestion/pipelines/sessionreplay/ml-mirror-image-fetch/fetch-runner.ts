@@ -122,7 +122,7 @@ export class FetchRunner implements FetchPass {
         requirePositive('SESSION_RECORDING_ML_IMAGE_FETCH_MAX_CONCURRENT_PER_DOMAIN', options.maxConcurrentPerDomain)
         requirePositive('SESSION_RECORDING_ML_IMAGE_FETCH_MAX_IN_FLIGHT_REQUESTS', options.maxInFlightRequests)
         this.inFlight = new ConcurrencyController(options.maxInFlightRequests)
-        ImageFetchRequestMetrics.trackBudget(budget)
+        ImageFetchRequestMetrics.trackBudget(budget, this.inFlight)
         requirePositive('SESSION_RECORDING_ML_IMAGE_FETCH_MAX_IMAGE_BYTES', options.maxBytes)
         requirePositive('SESSION_RECORDING_ML_IMAGE_FETCH_REQUEST_TIMEOUT_MS', options.requestTimeoutMs)
         requirePositive('SESSION_RECORDING_ML_IMAGE_FETCH_DEFAULT_RETRY_AFTER_MS', options.defaultRetryAfterMs)

@@ -157,11 +157,16 @@ export class HostBudget {
      *
      * The rate halves on the first signal rather than after a threshold. A cut that comes too early
      * costs one slower domain. A cut that comes too late adds load to a site that asked us to stop.
+     *
+     * The tokens go with it. A domain holds a burst while it is idle, so without this the URLs
+     * already queued behind the failed one would leave at the old rate and the cut would reach only
+     * the URLs after them. Requirement 16.
      */
     public recordBackoff(domain: string, nowMs: number): void {
         const state = this.stateFor(domain, nowMs)
         const floor = this.options.requestsPerSecond / MIN_RATE_DIVISOR
         state.requestsPerSecond = Math.max(floor, state.requestsPerSecond / 2)
+        state.tokens = 0
         this.countTowardBreaker(state, nowMs)
     }
 

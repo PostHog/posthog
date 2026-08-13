@@ -2,6 +2,11 @@ import { Counter, Gauge, Histogram } from 'prom-client'
 
 import type { TeamVolume } from './team-volume'
 
+/** What the in-flight gauge reads. Narrower than `ConcurrencyController`, so the metrics do not depend on the whole of it. */
+export interface InFlightCount {
+    readonly running: number
+}
+
 /** What the budget gauges read. Narrower than `HostBudget`, so the metrics do not depend on the whole of it. */
 export interface BudgetCounts {
     readonly trackedDomains: number
@@ -194,11 +199,27 @@ export class ImageFetchRequestMetrics {
         },
     })
 
-    private static budget: BudgetCounts | undefined
+    /**
+     * Requests holding a socket right now, against the pod limit.
+     *
+     * A request waiting for a politeness token has not reached this yet, so a value at the limit
+     * means the pod is the bottleneck rather than the sites.
+     */
+    private static readonly inFlight = new Gauge({
+        name: 'ml_image_fetch_requests_in_flight',
+        help: "Image requests this pod holds open right now. A URL waiting for its domain's rate limit is not counted, because it holds no socket",
+        collect() {
+            this.set(ImageFetchRequestMetrics.requests?.running ?? 0)
+        },
+    })
 
-    /** The runner owns the budget. Requirement 28. */
-    public static trackBudget(budget: BudgetCounts): void {
+    private static budget: BudgetCounts | undefined
+    private static requests: InFlightCount | undefined
+
+    /** The runner owns both. Requirement 28. */
+    public static trackBudget(budget: BudgetCounts, requests: InFlightCount): void {
         this.budget = budget
+        this.requests = requests
     }
 
     /**

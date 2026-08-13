@@ -39,7 +39,9 @@ Every back queue runs at the same time. This is how the pod reaches its limit ra
 fairness rule: one domain holds at most 6 requests, so about 50 domains must be active together to
 use 300.
 
-A wait costs nothing, so it does not count as in flight. Only a request holding a socket counts.
+Only a request holding a socket counts as in flight. A URL waiting for its domain's rate limit
+holds nothing, so it is not counted. A wait between the hops of one redirect chain is counted,
+because the request is already open.
 
 ## Requirements
 
