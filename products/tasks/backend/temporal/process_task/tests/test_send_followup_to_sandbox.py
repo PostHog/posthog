@@ -56,6 +56,7 @@ def _make_task_run_mock(team_id: int = 7, created_by_id: int | None = 42, state:
     task.origin_product = "user_created"
     task.mcp_builtin_agent_key = None
     task.mcp_credential_owner_id = None
+    task.mcp_gateway_server_allowlist = None
     if created_by_id is not None:
         task.created_by = MagicMock(id=created_by_id, distinct_id=f"user-{created_by_id}")
     else:
@@ -103,6 +104,7 @@ class TestRefreshSandboxMcp:
         task_run.task.origin_product = "support_reply"
         task_run.task.mcp_builtin_agent_key = "support"
         task_run.task.mcp_credential_owner_id = 99
+        task_run.task.mcp_gateway_server_allowlist = ["srv-9"]
         _refresh(task_run, auth_token="jwt")
 
         mock_oauth.assert_called_once_with(task_run.task, task_run.state, scopes="read_only")
@@ -119,6 +121,7 @@ class TestRefreshSandboxMcp:
             origin_product="support_reply",
             task_agent_key="support",
             credential_owner_id=99,
+            allowed_gateway_server_ids=["srv-9"],
         )
         mock_send_refresh.assert_called_once()
         _, kwargs = mock_send_refresh.call_args
