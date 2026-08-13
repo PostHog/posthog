@@ -172,7 +172,7 @@ PANDADOC_COMPLETED_STATUS = "document.completed"
 # are abandoned drafts, not late signatures — polling them forever would hammer
 # PandaDoc's API for no gain.
 _RECONCILE_LOOKBACK = timedelta(days=45)
-_RECONCILE_MAX_PER_RUN = 500
+RECONCILE_MAX_PER_RUN = 500
 
 
 def list_pending_signature_documents() -> QuerySet[LegalDocument]:
@@ -188,7 +188,7 @@ def list_pending_signature_documents() -> QuerySet[LegalDocument]:
             created_at__gte=cutoff,
         )
         .exclude(pandadoc_document_id="")
-        .order_by("created_at")[:_RECONCILE_MAX_PER_RUN]
+        .order_by("created_at")[:RECONCILE_MAX_PER_RUN]
     )
 
 
@@ -208,7 +208,7 @@ def list_signed_documents_missing_pdf(exclude_ids: Iterable[UUID] = ()) -> Query
         )
         .exclude(pandadoc_document_id="")
         .exclude(id__in=list(exclude_ids))
-        .order_by("created_at")[:_RECONCILE_MAX_PER_RUN]
+        .order_by("created_at")[:RECONCILE_MAX_PER_RUN]
     )
 
 

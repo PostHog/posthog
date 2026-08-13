@@ -300,8 +300,10 @@ def reconcile_pending_signatures() -> contracts.LegalDocumentReconcileResult:
     """
     newly_signed = 0
     errors = 0
+    pending_seen = 0
     signed_this_run: set[UUID] = set()
     for document in logic.list_pending_signature_documents():
+        pending_seen += 1
         try:
             if logic.get_pandadoc_document_status(document) == logic.PANDADOC_COMPLETED_STATUS:
                 if _try_mark_signed_and_schedule_archive(document):
@@ -311,6 +313,16 @@ def reconcile_pending_signatures() -> contracts.LegalDocumentReconcileResult:
             errors += 1
             logger.exception("legal_document_reconcile_pending_row_failed", document_id=str(document.id))
             capture_exception(exc, additional_properties={"legal_document_id": str(document.id)})
+
+    # The pending query is oldest-first and capped per run. When it fills the cap,
+    # newer rows fall off this run's tail and wait for a later tick — surface the
+    # binding cap instead of truncating silently, so a real backlog is visible.
+    if pending_seen >= logic.RECONCILE_MAX_PER_RUN:
+        logger.warning(
+            "legal_document_reconcile_pending_cap_reached",
+            processed=pending_seen,
+            cap=logic.RECONCILE_MAX_PER_RUN,
+        )
 
     # Rows this run just signed and already scheduled an archive for above.
     # excluding them here is what keeps the archive from being `.delay()`'d twice.
