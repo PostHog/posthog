@@ -240,3 +240,31 @@ export class ImageFetchRequestMetrics {
         this.evictedWhileBlocked.set(evictedWhileBlocked)
     }
 }
+
+/**
+ * The consumer of one delay topic.
+ *
+ * Lag on these topics is the design working rather than a fault: a record waiting out its period is
+ * lag. Read `ml_image_fetch_retry_wait_seconds` against the period of the topic instead. A wait far
+ * short of the period means records are arriving already ripe, which means the tier below is too
+ * small.
+ */
+export class RetryDelayMetrics {
+    private static readonly released = new Counter({
+        name: 'ml_image_fetch_retry_released_total',
+        help: 'Records this delay consumer finished with, by what happened: "released" back to the frontier, "failed" to publish, or "malformed" and dropped',
+        labelNames: ['outcome'],
+    })
+    private static readonly waitSeconds = new Histogram({
+        name: 'ml_image_fetch_retry_wait_seconds',
+        help: 'Time a record still had to wait when this consumer read it. Compare with the period of the topic: a much shorter wait means the records arrived late, and the consumer is behind',
+        buckets: [1, 10, 60, 300, 600, 1800, 3600],
+    })
+
+    public static incReleased(outcome: 'released' | 'failed' | 'malformed'): void {
+        this.released.labels(outcome).inc()
+    }
+    public static observeWait(waitSeconds: number): void {
+        this.waitSeconds.observe(waitSeconds)
+    }
+}

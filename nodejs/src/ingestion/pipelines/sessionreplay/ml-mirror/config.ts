@@ -139,6 +139,18 @@ export type MlMirrorConfig = {
     SESSION_RECORDING_ML_IMAGE_FETCH_MAX_TRACKED_DOMAINS: number
 
     /**
+     * The delay topic one retry pod drains, and the period every record in it waits.
+     *
+     * One server runs every tier, so three deployments of one image cover 1 minute, 10 minutes, and
+     * one hour. The pod's `max.poll.interval.ms` must exceed the period, or the broker evicts the
+     * consumer while it sleeps.
+     */
+    SESSION_RECORDING_ML_IMAGE_FETCH_RETRY_TOPIC: string
+    SESSION_RECORDING_ML_IMAGE_FETCH_RETRY_DELAY_MS: number
+    /** Small: the pod sleeps for most of a batch, and a large batch delays the offsets behind it. */
+    SESSION_RECORDING_ML_IMAGE_FETCH_RETRY_BATCH_SIZE: number
+
+    /**
      * Capacity of the mirror's produced-URL ref cache, which bounds re-produces onto the fetch
      * topic. Tunable for the same reason as its image-lane twin below: it trades memory for topic
      * volume, so a mirror memory incident must be able to shed it without a code deploy.
@@ -232,6 +244,9 @@ export function getDefaultMlMirrorConfig(): MlMirrorConfig {
         SESSION_RECORDING_ML_IMAGE_FETCH_BREAKER_MAX_COOLDOWN_MS: 2 * 60 * 60 * 1000,
         SESSION_RECORDING_ML_IMAGE_FETCH_DEFAULT_RETRY_AFTER_MS: 60_000,
         SESSION_RECORDING_ML_IMAGE_FETCH_MAX_TRACKED_DOMAINS: 20_000,
+        SESSION_RECORDING_ML_IMAGE_FETCH_RETRY_TOPIC: '',
+        SESSION_RECORDING_ML_IMAGE_FETCH_RETRY_DELAY_MS: 60_000,
+        SESSION_RECORDING_ML_IMAGE_FETCH_RETRY_BATCH_SIZE: 50,
         SESSION_RECORDING_ML_URL_PRODUCED_REF_CACHE_MAX: 500_000,
         SESSION_RECORDING_ML_IMAGE_SCRUB_GROUP_ID: 'session-replay-ml-image-scrub',
         SESSION_RECORDING_ML_IMAGE_SCRUB_PREFIX: 'scrubbed-images',
