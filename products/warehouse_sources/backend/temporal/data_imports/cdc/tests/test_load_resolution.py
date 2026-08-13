@@ -1,3 +1,5 @@
+from typing import Any
+
 import pytest
 from unittest.mock import MagicMock, patch
 
@@ -281,8 +283,7 @@ class TestLoadPosition:
         assert read_load_position(config, "users") == expected
 
     def test_persist_creates_the_key_and_leaves_siblings_alone(self):
-        config = {"cdc_last_log_position": "0/ABC"}
-        captured = dict(config)
+        captured: dict[str, Any] = {"cdc_last_log_position": "0/ABC"}
 
         def fake_update(schema_id, team_id, *, mutate=None, **kwargs):
             mutate(captured)
