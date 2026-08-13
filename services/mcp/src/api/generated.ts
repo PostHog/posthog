@@ -9473,6 +9473,8 @@ export namespace Schemas {
        * * `14` - 14 days
        * * `30` - 30 days */
       window_days?: WindowDaysEnum;
+      /** When true, each example line in the alert message includes the scanner's full reasoning for that observation, not just its verdict/score/tags. Useful when piping the message somewhere else to read or act on. Defaults to false. */
+      include_reasoning?: boolean;
     }
 
     export interface AlertSimulate {
@@ -17085,8 +17087,8 @@ export namespace Schemas {
     export type ConversionGoalPatch = PartialConversionGoalFilter1 | PartialConversionGoalFilter2 | PartialConversionGoalFilter3;
 
     export interface ConversionGoalSummary {
-      /** Unique id of the goal (event name, action id, or DW goal id) */
-      id: string;
+      /** Id of the goal. Pass this to the explain, update and delete endpoints. */
+      conversion_goal_id: string;
       /** Display name of the conversion goal */
       name: string;
       /** Goal type: EventsNode (PostHog event), ActionsNode (PostHog action), or DataWarehouseNode (external table)
@@ -21101,6 +21103,9 @@ export namespace Schemas {
      * * `Uploadcare` - Uploadcare
      * * `WHMCS` - WHMCS
      * * `MSG91` - MSG91
+     * * `Depot` - Depot
+     * * `Schematic` - Schematic
+     * * `Dokploy` - Dokploy
      */
     export type ExternalDataSourceTypeEnum = typeof ExternalDataSourceTypeEnum[keyof typeof ExternalDataSourceTypeEnum];
 
@@ -22395,6 +22400,9 @@ export namespace Schemas {
       Uploadcare: 'Uploadcare',
       Whmcs: 'WHMCS',
       Msg91: 'MSG91',
+      Depot: 'Depot',
+      Schematic: 'Schematic',
+      Dokploy: 'Dokploy',
     } as const;
 
     /**
@@ -23702,7 +23710,10 @@ export namespace Schemas {
        * * `Cloudinary` - Cloudinary
        * * `Uploadcare` - Uploadcare
        * * `WHMCS` - WHMCS
-       * * `MSG91` - MSG91 */
+       * * `MSG91` - MSG91
+       * * `Depot` - Depot
+       * * `Schematic` - Schematic
+       * * `Dokploy` - Dokploy */
       source_type: ExternalDataSourceTypeEnum;
     }
 
@@ -25698,7 +25709,10 @@ export namespace Schemas {
        * * `Cloudinary` - Cloudinary
        * * `Uploadcare` - Uploadcare
        * * `WHMCS` - WHMCS
-       * * `MSG91` - MSG91 */
+       * * `MSG91` - MSG91
+       * * `Depot` - Depot
+       * * `Schematic` - Schematic
+       * * `Dokploy` - Dokploy */
       readonly source_type: ExternalDataSourceTypeEnum;
       /** Human-readable name to show in the picker (falls back to the source type). */
       readonly label: string;
@@ -33420,7 +33434,10 @@ export namespace Schemas {
        * * `Cloudinary` - Cloudinary
        * * `Uploadcare` - Uploadcare
        * * `WHMCS` - WHMCS
-       * * `MSG91` - MSG91 */
+       * * `MSG91` - MSG91
+       * * `Depot` - Depot
+       * * `Schematic` - Schematic
+       * * `Dokploy` - Dokploy */
       readonly source_type: ExternalDataSourceTypeEnum;
       /** 'direct' for pure live-query sources; 'warehouse' for synced sources with direct query enabled.
        *
@@ -34746,7 +34763,10 @@ export namespace Schemas {
        * * `Cloudinary` - Cloudinary
        * * `Uploadcare` - Uploadcare
        * * `WHMCS` - WHMCS
-       * * `MSG91` - MSG91 */
+       * * `MSG91` - MSG91
+       * * `Depot` - Depot
+       * * `Schematic` - Schematic
+       * * `Dokploy` - Dokploy */
       source_type: ExternalDataSourceTypeEnum;
       /** Connection credentials and a 'schemas' array. Keys depend on source_type. */
       payload: ExternalDataSourceCreatePayload;
@@ -36393,8 +36413,8 @@ export namespace Schemas {
     }
 
     export interface GoalExplanation {
-      /** Id of the explained conversion goal */
-      goal_id: string;
+      /** conversion_goal_id of the explained goal */
+      conversion_goal_id: string;
       /** Display name of the conversion goal */
       goal_name: string;
       /** Goal type: EventsNode (PostHog event), ActionsNode (PostHog action), or DataWarehouseNode (external table)
@@ -37523,6 +37543,11 @@ export namespace Schemas {
     export interface HogFlowRevisionRestoreRequest {
       /** Replace the open staged draft with this revision's content. Without it, restoring while a draft is open returns 409. */
       overwrite?: boolean;
+      /**
+         * The draft_updated_at of the staged draft this overwrite was confirmed against. If a draft exists with a different stamp (it was staged or edited since the confirmation was shown), the restore returns 409 instead of overwriting it. Omit to overwrite unconditionally.
+         * @nullable
+         */
+      expected_draft_updated_at?: string | null;
     }
 
     /**
@@ -71426,7 +71451,10 @@ export namespace Schemas {
        * * `Cloudinary` - Cloudinary
        * * `Uploadcare` - Uploadcare
        * * `WHMCS` - WHMCS
-       * * `MSG91` - MSG91 */
+       * * `MSG91` - MSG91
+       * * `Depot` - Depot
+       * * `Schematic` - Schematic
+       * * `Dokploy` - Dokploy */
       source_type: ExternalDataSourceTypeEnum;
       /** Connection details as flat keys for the source_type — the same fields the create flow accepts (host, port, password, API key, …). Checked against a live connection before being stored. */
       payload: SourceCredentialCreatePayload;
@@ -72762,7 +72790,10 @@ export namespace Schemas {
        * * `Cloudinary` - Cloudinary
        * * `Uploadcare` - Uploadcare
        * * `WHMCS` - WHMCS
-       * * `MSG91` - MSG91 */
+       * * `MSG91` - MSG91
+       * * `Depot` - Depot
+       * * `Schematic` - Schematic
+       * * `Dokploy` - Dokploy */
       source_type: ExternalDataSourceTypeEnum;
       /** Source config as flat keys. For source_type 'Custom': 'manifest_json' (a stringified RESTAPIConfig describing client.base_url, auth, and resources) plus the credential for the manifest's declared auth type — 'auth_token' (bearer), 'auth_api_key' (api_key), or 'auth_password' (http_basic). Secrets stay in these auth_* keys, never inline in the manifest. */
       payload?: SourcePreviewRequestPayload;
@@ -74088,7 +74119,10 @@ export namespace Schemas {
        * * `Cloudinary` - Cloudinary
        * * `Uploadcare` - Uploadcare
        * * `WHMCS` - WHMCS
-       * * `MSG91` - MSG91 */
+       * * `MSG91` - MSG91
+       * * `Depot` - Depot
+       * * `Schematic` - Schematic
+       * * `Dokploy` - Dokploy */
       source_type: ExternalDataSourceTypeEnum;
       /** Connection details as flat keys for the source_type (discover required fields with the wizard tool). Prefer references over raw secrets: pass {'credential_id': <id>} referencing the connection details the user stored via the connect-link page (discover ids with the stored_credentials endpoint) — they are merged in server-side and deleted once consumed. An already-connected OAuth integration can be passed via its id key instead (e.g. {'hubspot_integration_id': 123}). For source_type 'Custom' (a user-defined REST API) the keys are 'manifest_json' (a stringified RESTAPIConfig describing client.base_url, auth, and resources) plus the credential for the auth type the manifest declares — 'auth_token' (bearer), 'auth_api_key' (api_key), or 'auth_password' (http_basic); keep secrets in these auth_* keys, never inline in the manifest. A 'schemas' array is NOT required — all discovered tables are enabled automatically with sensible sync defaults. */
       payload?: SourceSetupPayload;
@@ -87108,6 +87142,11 @@ export namespace Schemas {
 
     export type MarketingAnalyticsExplainConversionGoalRetrieveParams = {
     /**
+     * conversion_goal_id of the goal to explain, as returned by the conversion_goals list endpoint.
+     * @minLength 1
+     */
+    conversion_goal_id: string;
+    /**
      * ISO start; defaults to 30 days ago
      * @nullable
      */
@@ -87117,11 +87156,6 @@ export namespace Schemas {
      * @nullable
      */
     date_to?: string | null;
-    /**
-     * Id of the conversion goal to explain (from list_conversion_goals).
-     * @minLength 1
-     */
-    goal_id: string;
     };
 
     export type MarketingAnalyticsSetupPlanRetrieveParams = {
