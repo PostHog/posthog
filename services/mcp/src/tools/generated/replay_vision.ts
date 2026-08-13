@@ -424,6 +424,9 @@ const visionScannersCreate = (): ToolBase<typeof VisionScannersCreateSchema, Sch
         if (params.description !== undefined) {
             body['description'] = params.description
         }
+        if (params.tags !== undefined) {
+            body['tags'] = params.tags
+        }
         if (params.scanner_type !== undefined) {
             body['scanner_type'] = params.scanner_type
         }
@@ -609,6 +612,7 @@ const visionScannersList = (): ToolBase<
                 order_by: params.order_by,
                 scanner_type: params.scanner_type,
                 search: params.search,
+                tags: params.tags,
             },
         })
         return await withPostHogUrl(context, result, '/replay-vision')
@@ -864,6 +868,9 @@ const visionScannersUpdate = (): ToolBase<typeof VisionScannersUpdateSchema, Sch
         }
         if (params.description !== undefined) {
             body['description'] = params.description
+        }
+        if (params.tags !== undefined) {
+            body['tags'] = params.tags
         }
         if (params.scanner_type !== undefined) {
             body['scanner_type'] = params.scanner_type

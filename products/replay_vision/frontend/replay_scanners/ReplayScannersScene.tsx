@@ -16,6 +16,7 @@ import {
 } from '@posthog/lemon-ui'
 
 import { pngHoggie } from 'lib/brand/hoggies'
+import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { LemonTableColumns } from 'lib/lemon-ui/LemonTable'
@@ -124,6 +125,8 @@ export function ReplayScannersScene(): JSX.Element {
         scannerTypeFilter,
         createdByFilter,
         createdByOptions,
+        tagsFilter,
+        tagOptions,
         hasActiveFilters,
         scannerStats,
         scannerStatsLoading,
@@ -178,6 +181,21 @@ export function ReplayScannersScene(): JSX.Element {
             key: 'scanner_type',
             render: (_, scanner) => <ScannerTypeBadge scannerType={scanner.scanner_type} />,
             sorter: true,
+        },
+        {
+            title: 'Tags',
+            key: 'tags',
+            render: (_, scanner) =>
+                scanner.tags.length > 0 ? (
+                    <ObjectTags
+                        tags={scanner.tags}
+                        staticOnly
+                        onTagClick={(tag) => setScannersFilters({ tagsFilter: [tag] })}
+                        data-attr="vision-scanner-row-tags"
+                    />
+                ) : (
+                    <span className="text-muted">—</span>
+                ),
         },
         {
             title: 'Sampling',
@@ -346,6 +364,13 @@ export function ReplayScannersScene(): JSX.Element {
                                     options={createdByOptions}
                                     value={createdByFilter}
                                     onChange={(v) => setScannersFilters({ createdByFilter: v })}
+                                />
+                                <FilterPill<string>
+                                    label="Tags"
+                                    searchable
+                                    options={tagOptions}
+                                    value={tagsFilter}
+                                    onChange={(v) => setScannersFilters({ tagsFilter: v })}
                                 />
                                 {hasActiveFilters && (
                                     <LemonButton type="tertiary" size="small" onClick={() => clearFilters()}>

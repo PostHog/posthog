@@ -403,7 +403,7 @@ export type BaseReplayScanner = Omit<
     ReplayScannerApi,
     'scanner_type' | 'scanner_config' | 'query' | 'created_by' | 'user_access_level'
 > &
-    Required<Pick<ReplayScannerApi, 'sampling_rate' | 'enabled' | 'emits_signals' | 'provider'>> & {
+    Required<Pick<ReplayScannerApi, 'sampling_rate' | 'enabled' | 'emits_signals' | 'provider' | 'tags'>> & {
         query: RecordingsQuery | null
         created_by: ScannerCreatedBy | null
         sampling_mode: SamplingMode
