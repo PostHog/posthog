@@ -740,11 +740,7 @@ async def maybe_autostart_implementation_task(
         return
 
 
-def _latest_artefact_as_sync(report_id: str, artefact_type: str, model_cls: type[_M]) -> _M | None:
-    """Parse the latest artefact of ``artefact_type`` for a report (append-only, latest-wins)."""
-    artefact = (
-        SignalReportArtefact.objects.filter(report_id=report_id, type=artefact_type).order_by("-created_at").first()
-    )
+def _parse_artefact_as(artefact: SignalReportArtefact | None, model_cls: type[_M]) -> _M | None:
     if artefact is None:
         return None
     try:
@@ -753,9 +749,26 @@ def _latest_artefact_as_sync(report_id: str, artefact_type: str, model_cls: type
         return None
 
 
+def _latest_artefact_as_sync(report_id: str, artefact_type: str, model_cls: type[_M]) -> _M | None:
+    """Parse the latest artefact of ``artefact_type`` for a report (append-only, latest-wins)."""
+    return _parse_artefact_as(
+        SignalReportArtefact.objects.filter(report_id=report_id, type=artefact_type).order_by("-created_at").first(),
+        model_cls,
+    )
+
+
 async def _latest_artefact_as(report_id: str, artefact_type: str, model_cls: type[_M]) -> _M | None:
-    return await database_sync_to_async(_latest_artefact_as_sync, thread_sensitive=False)(
-        report_id, artefact_type, model_cls
+    """The async twin of `_latest_artefact_as_sync`.
+
+    It runs the query itself rather than wrapping the sync version in a thread: this is called from
+    on-commit hooks and workflows that read rows their own open transaction wrote, and a
+    `thread_sensitive=False` executor would read them on a different connection that cannot see them.
+    """
+    return _parse_artefact_as(
+        await SignalReportArtefact.objects.filter(report_id=report_id, type=artefact_type)
+        .order_by("-created_at")
+        .afirst(),
+        model_cls,
     )
 
 
