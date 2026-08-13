@@ -20,8 +20,18 @@ Requires a **staff, non-impersonating** credential, and checks that up front:
   with `impersonation_path_blocked`. Log out of impersonation and use your own staff session or key.
 
 Writing to someone's account while they aren't present is a support action, not a routine one -
-have the user's explicit request on record first. Each PATCH is attributed to the acting
-credential, so run it as yourself rather than a shared key.
+have the user's explicit request on record first. Every write therefore needs --reason, which is
+echoed in the plan, the confirmation prompt, and the closing summary, and stored in the --output
+JSON alongside the acting staff email and a UTC timestamp so a run can be attached to the ticket
+that motivated it.
+
+That record is local to this run, not a server-side audit trail, and the distinction matters:
+`partial_notification_settings` sits in `field_exclusions` for the User activity-log scope, so
+`changes_between` yields no changes and `log_activity` drops the "updated" entry entirely. The
+`user updated` analytics event that does fire is attributed to the target user's distinct_id with
+no reference to the operator. Nothing server-side records that staff made this change on someone
+else's behalf, so --reason plus --output is the only durable evidence - write it for the next
+person reading the ticket, and keep the file.
 
 Polarity differs between settings and is the main footgun here: `all_weekly_digest_disabled=True`
 means the digest is OFF, while `error_tracking_weekly_digest=True` means it is ON. --enable and
@@ -44,7 +54,8 @@ Usage:
   python products/support/scripts/toggle_user_notifications.py \\
       a@example.com b@example.com --setting all_weekly_digest_disabled --disable --dry-run
   python products/support/scripts/toggle_user_notifications.py \\
-      --emails-file ./users.txt --setting project_weekly_digest_disabled --scope 4711 --disable
+      --emails-file ./users.txt --setting project_weekly_digest_disabled --scope 4711 --disable \\
+      --reason "customer asked to mute this project's digest, ZD-12345" --output ./run.json
   python products/support/scripts/toggle_user_notifications.py \\
       --emails-file ./users.txt --setting data_pipeline_error_threshold --value 0.25 --dry-run
 
@@ -60,6 +71,7 @@ import re
 import sys
 import json
 import argparse
+import datetime
 from collections import Counter
 from dataclasses import dataclass
 from typing import Any, Optional
@@ -110,6 +122,8 @@ AUTO_SELECT_KEYS = frozenset(
         "web_analytics_weekly_digest_project_enabled",
     }
 )
+
+MIN_REASON_LENGTH = 10
 
 
 # Setting kinds. Booleans are driven by --enable/--disable; numbers take a --value (or fall back
@@ -602,6 +616,12 @@ def parse_args() -> argparse.Namespace:
         help="Value for a number setting (e.g. data_pipeline_error_threshold); defaults to PostHog's default",
     )
     parser.add_argument(
+        "--reason",
+        default=None,
+        help="Why this change is being made, ideally with a ticket link. Required for any run that "
+        "writes; recorded in the plan, the prompt, the summary, and --output",
+    )
+    parser.add_argument(
         "--list-settings", action="store_true", help="Print every available setting and exit; needs no credentials"
     )
     # Env-backed args resolve after parsing so --help never prints API keys from the environment
@@ -643,6 +663,21 @@ def parse_args() -> argparse.Namespace:
         parser.error("--setting is required (use --list-settings to see the options)")
     if args.setting not in SETTINGS_BY_KEY:
         parser.error(f"unknown --setting {args.setting!r}; use --list-settings to see the options")
+
+    args.reason = (args.reason or "").strip()
+    # Only writes need a reason, so exploring a plan with --dry-run stays frictionless. The floor is
+    # low but non-zero: enough to stop a reflexive `--reason x` becoming the ticket's only record.
+    if not args.dry_run:
+        if not args.reason:
+            parser.error(
+                "--reason is required to write (nothing server-side records that staff changed "
+                "these settings, so this run is the only evidence). Include a ticket link."
+            )
+        if len(args.reason) < MIN_REASON_LENGTH:
+            parser.error(
+                f"--reason must be at least {MIN_REASON_LENGTH} characters and say why, e.g. "
+                '"customer asked to stop all digests, ZD-12345"'
+            )
 
     setting = SETTINGS_BY_KEY[args.setting]
     if setting.kind == KIND_NUMBER:
@@ -698,12 +733,15 @@ def main() -> int:
         session.headers["Authorization"] = f"Bearer {args.personal_api_key}"
     else:
         setup_session_auth(session, args.host, args.session_id)
-    verify_staff_credential(session, args.host)
+    acting_email = verify_staff_credential(session, args.host)
+    started_at = datetime.datetime.now(datetime.UTC).isoformat()
 
     scope_desc = f" scope={args.scope}" if args.scope else ""
     log("")
     log(f"Setting:  {setting.key}{scope_desc}")
     log(f"Intent:   {intent}")
+    log(f"Reason:   {printable(args.reason) if args.reason else '(none - dry run)'}")
+    log(f"Operator: {printable(acting_email)} at {started_at}")
     log(f"Writes:   {json.dumps(payload)}")
     log(f"Resolving {len(emails)} email(s) on {args.host}")
 
@@ -747,6 +785,10 @@ def main() -> int:
             json.dump(
                 {
                     "host": args.host,
+                    "reason": args.reason or None,
+                    "operator": acting_email,
+                    "started_at": started_at,
+                    "dry_run": bool(args.dry_run),
                     "setting": setting.key,
                     "scope": args.scope,
                     "intent": intent,
@@ -783,7 +825,8 @@ def main() -> int:
 
     if not args.yes:
         prompt = (
-            f"\nAbout to change {setting.key} for {len(to_change)} user(s) on {args.host}. "
+            f"\nAbout to change {setting.key} for {len(to_change)} user(s) on {args.host}, "
+            f'because: "{printable(args.reason)}". '
             "These are other people's account settings - type 'toggle' to continue: "
         )
         if not confirm(
@@ -808,6 +851,18 @@ def main() -> int:
         log(f"  FAILED: {printable(failure)}")
     if len(failures) > 20:
         log(f"  ... and {len(failures) - 20} more failures")
+
+    # Repeat the record at the end so the terminal transcript is pasteable into the ticket even
+    # when --output wasn't used. Nothing server-side ties this change to the operator.
+    log("")
+    log("For the ticket - this is the only record of the change:")
+    log(f"  operator: {printable(acting_email)}")
+    log(f"  started:  {started_at}")
+    log(f"  setting:  {setting.key}{scope_desc} -> {json.dumps(desired)}")
+    log(f"  reason:   {printable(args.reason)}")
+    if not args.output:
+        log("  (pass --output <file>.json next time to save the full per-user list)")
+
     if failures or unresolved:
         return 1
     return 0
