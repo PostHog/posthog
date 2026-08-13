@@ -34,6 +34,7 @@ from posthog.api import (
 )
 from posthog.api.github_callback.views import github_oauth_callback, github_setup_callback
 from posthog.api.oauth.connected_apps import ConnectedAppsViewSet
+from posthog.api.oauth.hogli_metadata import HOGLI_METADATA_PATH, HogliClientMetadataView
 from posthog.api.oauth.raycast_metadata import RAYCAST_METADATA_PATH, RaycastClientMetadataView
 from posthog.api.oauth.wizard_metadata import WIZARD_METADATA_PATH, WizardClientMetadataView
 from posthog.api.sdk_health import sdk_health
@@ -631,6 +632,11 @@ urlpatterns = [
         RAYCAST_METADATA_PATH,
         RaycastClientMetadataView.as_view(),
         name="raycast-client-metadata",
+    ),
+    path(
+        HOGLI_METADATA_PATH,
+        HogliClientMetadataView.as_view(),
+        name="hogli-client-metadata",
     ),
     re_path(r"^api.+", api_not_found),
     path("authorize_and_redirect/", login_required(authorize_and_redirect)),
