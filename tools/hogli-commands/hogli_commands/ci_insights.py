@@ -330,10 +330,14 @@ def _render_rows(rows: list[dict[str, Any]]) -> None:
 def _render_master(health: dict[str, Any]) -> None:
     failing = health.get("failing_workflows") or 0
     settled = health.get("settled_workflows") or 0
+    label = f"{health.get('default_branch') or 'default branch':<20}"
+    # A read that succeeded with nothing behind it is not a green default branch. Rendering it as
+    # OK claims every workflow passed, when the truth is that none has settled to be counted.
+    if not settled:
+        click.echo(f"{label}{click.style('NO DATA', fg='yellow', bold=True)}    no workflow run has settled yet")
+        return
     verdict = click.style("RED", fg="red", bold=True) if failing else click.style("OK", fg="green", bold=True)
-    click.echo(
-        f"{health.get('default_branch') or 'default branch':<20}{verdict}    {failing} of {settled} workflows failing on their latest run"
-    )
+    click.echo(f"{label}{verdict}    {failing} of {settled} workflows failing on their latest run")
     for name in health.get("failing_workflow_names") or []:
         click.echo(f"{'':<20}  {name}")
 

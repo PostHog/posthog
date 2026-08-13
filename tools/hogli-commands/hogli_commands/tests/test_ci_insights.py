@@ -293,6 +293,18 @@ def test_digest_reports_every_row_state_and_discloses_the_cap(runner: CliRunner)
         assert state in result.output
 
 
+# A read that succeeds with no workflow behind it says nothing about the default branch. Rendering
+# it as OK claims every workflow passed, which is the "CI is fine" misreport this digest exists to
+# avoid, and the skills tell agents to report master health from here.
+def test_digest_does_not_call_the_default_branch_green_without_data(runner: CliRunner) -> None:
+    empty = {"default_branch": "master", "settled_workflows": 0, "failing_workflows": 0}
+    recorder = _Recorder(overrides={"current_branch_health": empty})
+    result = _invoke(runner, ["--format", "text"], recorder)
+    assert result.exit_code == 0
+    assert "NO DATA" in result.output
+    assert "0 of 0 workflows failing" not in result.output
+
+
 # A partial outage is when this read is worth most, so it must not be all-or-nothing.
 def test_digest_degrades_one_section_without_losing_the_rest(runner: CliRunner) -> None:
     result = _invoke(runner, ["--format", "text"], _Recorder(fail="master_failures"))
