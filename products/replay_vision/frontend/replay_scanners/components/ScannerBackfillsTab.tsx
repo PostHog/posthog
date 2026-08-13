@@ -11,7 +11,6 @@ import { dayjs } from 'lib/dayjs'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
-import { dateStringToDayJs } from 'lib/utils/dateFilters'
 import { urls } from 'scenes/urls'
 
 import { DateMappingOption } from '~/types'
@@ -19,6 +18,7 @@ import { DateMappingOption } from '~/types'
 import { VisionDocsLink } from '../../components/DocsLink'
 import type { BackfillStatusEnumApi, ReplayScannerBackfillApi } from '../../generated/api.schemas'
 import { formatCreditCount, formatCredits } from '../../utils/credits'
+import { resolveWindowBound } from '../../utils/dateWindow'
 import { backfillsLogic, isBackfillActive } from '../backfillsLogic'
 import { ReplayScannerTab } from '../replayScannerSceneLogic'
 import type { ScannerCreatedBy } from '../types'
@@ -50,11 +50,6 @@ const WINDOW_TIME_FORMAT = { formatDate: 'MMM D, YYYY', formatTime: 'HH:mm' }
  * and the Backfills table shows the whole id to match against. */
 export function shortBackfillId(id: string): string {
     return id.slice(0, 8)
-}
-
-/** Convert a DateFilter token (`-30d`, an ISO date, or null) into an ISO instant for the API. */
-export function resolveWindowBound(value: string | null, fallback: dayjs.Dayjs): string {
-    return ((value && dateStringToDayJs(value)) || fallback).toISOString()
 }
 
 export function ScannerBackfillsTab({ scannerId }: { scannerId: string }): JSX.Element {

@@ -136,6 +136,8 @@ def _create_run(inputs: CreateVisionActionRunInputs) -> UUID:
             "team_id": inputs.team_id,
             "temporal_workflow_id": inputs.temporal_workflow_id,
             "scheduled_at": inputs.scheduled_at,
+            "window_start": inputs.window_start,
+            "window_end": inputs.window_end,
             "status": VisionActionRunStatus.RUNNING,
         },
     )

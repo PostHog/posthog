@@ -614,6 +614,36 @@ def _check_action_scanner_access(
             raise PermissionDenied("You don't have access to one or more scanners this action targets.")
 
 
+class RunActionRequestSerializer(serializers.Serializer):
+    """Optional explicit observation window for POST /vision/actions/{id}/run/. With no body the run
+    covers everything since the action's last summary (or the last 24h); with a window it becomes a
+    one-off period summary over exactly that range, leaving the recurring schedule and its windows
+    untouched."""
+
+    window_start = serializers.DateTimeField(
+        required=False,
+        help_text=(
+            "Summarize observations recorded from this instant (inclusive) instead of since the last "
+            "summary. ISO 8601 datetime."
+        ),
+    )
+    window_end = serializers.DateTimeField(
+        required=False,
+        help_text=(
+            "End of the explicit window (exclusive). ISO 8601 datetime; requires window_start and defaults to now."
+        ),
+    )
+
+    def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
+        window_start = attrs.get("window_start")
+        window_end = attrs.get("window_end")
+        if window_end is not None and window_start is None:
+            raise serializers.ValidationError({"window_start": "window_end requires window_start."})
+        if window_start is not None and window_end is not None and window_start >= window_end:
+            raise serializers.ValidationError({"window_end": "window_end must be after window_start."})
+        return attrs
+
+
 class RunActionResponseSerializer(serializers.Serializer):
     """Async-accepted response for POST /vision/actions/{id}/run/."""
 
@@ -747,7 +777,7 @@ class VisionActionViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         super().perform_destroy(instance)
 
     @extend_schema(
-        request=None,
+        request=RunActionRequestSerializer,
         responses={
             202: RunActionResponseSerializer,
             503: OpenApiResponse(
@@ -763,8 +793,9 @@ class VisionActionViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     )
     def run(self, request: Request, **kwargs: Any) -> Response:
         """Run this summary now, without waiting for its schedule — synthesizes a group summary over the
-        observations since the last summary (or the last 24h). The recurring schedule is untouched: the
-        engine advances next_run_at only at scheduled claim time, never in the run itself."""
+        observations since the last summary (or the last 24h), or over an explicit window_start/window_end
+        period when one is given in the body. The recurring schedule is untouched: the engine advances
+        next_run_at only at scheduled claim time, never in the run itself."""
         # get_object() runs safely_get_object, which object-checks the bound scanner's access.
         action_obj = self.get_object()
         # The summary reads recording-derived observations and delivers off-platform, so require
@@ -774,9 +805,15 @@ class VisionActionViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         if action_obj.mode != ActionMode.GROUP_SUMMARY:
             # Alerts check continuously on the sweep; there's no meaningful "run now" for them.
             raise ValidationError("Only scheduled summaries can be run on demand.")
+        body = RunActionRequestSerializer(data=request.data)
+        body.is_valid(raise_exception=True)
 
         workflow_id, outcome = start_process_vision_action_workflow(
-            action_obj.id, self.team_id, scheduled_at=timezone.now()
+            action_obj.id,
+            self.team_id,
+            scheduled_at=timezone.now(),
+            window_start=body.validated_data.get("window_start"),
+            window_end=body.validated_data.get("window_end"),
         )
         if outcome is WorkflowStartOutcome.FAILED:
             return Response(
@@ -872,6 +909,19 @@ class VisionActionRunListSerializer(serializers.ModelSerializer):
         allow_null=True,
         help_text="The scheduled fire time this run was claimed for.",
     )
+    window_start = serializers.DateTimeField(
+        read_only=True,
+        allow_null=True,
+        help_text=(
+            "Explicit observation-window start when this run was a one-off period summary; null for "
+            "scheduled and plain run-now runs, whose window derives from the previous run."
+        ),
+    )
+    window_end = serializers.DateTimeField(
+        read_only=True,
+        allow_null=True,
+        help_text="Explicit observation-window end for a one-off period summary; null otherwise.",
+    )
     observation_count = serializers.IntegerField(
         read_only=True,
         help_text="Number of observations that fed this run's summary.",
@@ -892,6 +942,8 @@ class VisionActionRunListSerializer(serializers.ModelSerializer):
             "id",
             "status",
             "scheduled_at",
+            "window_start",
+            "window_end",
             "observation_count",
             "error_reason",
             "is_recovery",

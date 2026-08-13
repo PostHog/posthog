@@ -225,6 +225,19 @@ class VisionActionRun(TeamScopedRootMixin, UUIDModel):
     temporal_workflow_id = models.CharField(max_length=255, null=True, blank=True)
     idempotency_key = models.CharField(max_length=255, unique=True)
     scheduled_at = models.DateTimeField(null=True, blank=True)
+    # Set only on one-off "summarize a period" runs. Cadence runs leave these null and derive their
+    # window from the previous completed cadence run; custom-window runs are excluded from that
+    # anchoring so a period rollup never punches a hole in the recurring digest's tiled windows.
+    window_start = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text="Explicit observation-window start for a one-off period summary; null for cadence runs.",
+    )
+    window_end = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text="Explicit observation-window end; null falls back to the run's scheduled tick.",
+    )
     status = models.CharField(
         max_length=20, choices=VisionActionRunStatus.choices, default=VisionActionRunStatus.RUNNING
     )

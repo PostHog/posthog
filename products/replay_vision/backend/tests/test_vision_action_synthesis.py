@@ -557,6 +557,83 @@ class TestVisionActionSynthesis(BaseTest):
         self.assertEqual(result.status, SynthesisStatus.SYNTHESIZED)
         self.assertEqual(result.observation_count, 1)  # only the in-window one; the post-tick one waits for next run
 
+    def test_explicit_window_overrides_the_derived_window(self) -> None:
+        # A "summarize a period" run covers exactly [window_start, window_end): observations before the
+        # start or after the end stay out, regardless of when the previous run happened.
+        before = self._observation("before the period", session_id="before")
+        ReplayObservation.objects.filter(pk=before.pk).update(created_at=datetime.now(UTC) - timedelta(days=40))
+        inside = self._observation("inside the period", session_id="inside")
+        ReplayObservation.objects.filter(pk=inside.pk).update(created_at=datetime.now(UTC) - timedelta(days=20))
+        self._observation("after the period", session_id="after")  # created now, past window_end
+
+        action = self._action()
+        run = VisionActionRun(
+            vision_action=action,
+            team=self.team,
+            idempotency_key="period",
+            scheduled_at=datetime.now(UTC),
+            window_start=datetime.now(UTC) - timedelta(days=30),
+            window_end=datetime.now(UTC) - timedelta(days=1),
+        )
+        run.save()
+
+        result = self._synthesize(action, run)
+        self.assertEqual(result.status, SynthesisStatus.SYNTHESIZED)
+        run.refresh_from_db()
+        self.assertEqual(run.observation_ids, [str(inside.id)])
+
+    def test_explicit_window_run_does_not_anchor_the_next_derived_window(self) -> None:
+        # A period rollup deliberately overlaps history. If it anchored the next derived window, every
+        # observation between the last cadence run and the rollup's trigger time would never appear in
+        # a cadence digest.
+        action = self._action()
+        cadence = VisionActionRun(
+            vision_action=action,
+            team=self.team,
+            idempotency_key="cadence",
+            status=VisionActionRunStatus.COMPLETED,
+            scheduled_at=datetime.now(UTC) - timedelta(days=2),
+        )
+        cadence.save()
+        rollup = VisionActionRun(
+            vision_action=action,
+            team=self.team,
+            idempotency_key="rollup",
+            status=VisionActionRunStatus.COMPLETED,
+            scheduled_at=datetime.now(UTC) - timedelta(hours=1),
+            window_start=datetime.now(UTC) - timedelta(days=30),
+            window_end=datetime.now(UTC) - timedelta(hours=1),
+        )
+        rollup.save()
+        obs = self._observation("between cadence runs")
+        ReplayObservation.objects.filter(pk=obs.pk).update(created_at=datetime.now(UTC) - timedelta(hours=12))
+
+        run = self._run_for(action)
+        result = self._synthesize(action, run)
+        # Anchored on the cadence run (2d ago), not the rollup (1h ago), so the 12h-old observation
+        # is summarized instead of falling into a gap.
+        self.assertEqual(result.status, SynthesisStatus.SYNTHESIZED)
+        self.assertEqual(result.observation_count, 1)
+
+    def test_header_states_the_full_period_for_explicit_window_runs(self) -> None:
+        # An explicit window is bounded on both sides, so "since X" would misreport it; the header
+        # must state the full period.
+        self._observation("in the period")
+        action = self._action()
+        run = VisionActionRun(
+            vision_action=action,
+            team=self.team,
+            idempotency_key="period",
+            scheduled_at=datetime.now(UTC),
+            window_start=datetime(2026, 6, 1, 9, 0, tzinfo=UTC),
+            window_end=datetime.now(UTC),
+        )
+        run.save()
+
+        self._synthesize(action, run)
+        run.refresh_from_db()
+        self.assertIn("1 recording from Jun 1, 2026 at 9:00 AM UTC to ", run.synthesized_markdown)
+
     def test_prompt_guide_passed_to_llm(self) -> None:
         self._observation("something")
         action = self._action(synthesis_config={"prompt_guide": "focus on rage clicks"})

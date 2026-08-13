@@ -379,6 +379,19 @@ export interface PatchedVisionActionApi {
 }
 
 /**
+ * Optional explicit observation window for POST /vision/actions/{id}/run/. With no body the run
+ * covers everything since the action's last summary (or the last 24h); with a window it becomes a
+ * one-off period summary over exactly that range, leaving the recurring schedule and its windows
+ * untouched.
+ */
+export interface RunActionRequestApi {
+    /** Summarize observations recorded from this instant (inclusive) instead of since the last summary. ISO 8601 datetime. */
+    window_start?: string
+    /** End of the explicit window (exclusive). ISO 8601 datetime; requires window_start and defaults to now. */
+    window_end?: string
+}
+
+/**
  * Async-accepted response for POST /vision/actions/{id}/run/.
  */
 export interface RunActionResponseApi {
@@ -429,6 +442,16 @@ export interface VisionActionRunListApi {
      * @nullable
      */
     readonly scheduled_at: string | null
+    /**
+     * Explicit observation-window start when this run was a one-off period summary; null for scheduled and plain run-now runs, whose window derives from the previous run.
+     * @nullable
+     */
+    readonly window_start: string | null
+    /**
+     * Explicit observation-window end for a one-off period summary; null otherwise.
+     * @nullable
+     */
+    readonly window_end: string | null
     /** Number of observations that fed this run's summary. */
     readonly observation_count: number
     /**
@@ -492,6 +515,16 @@ export interface VisionActionRunApi {
      * @nullable
      */
     readonly scheduled_at: string | null
+    /**
+     * Explicit observation-window start when this run was a one-off period summary; null for scheduled and plain run-now runs, whose window derives from the previous run.
+     * @nullable
+     */
+    readonly window_start: string | null
+    /**
+     * Explicit observation-window end for a one-off period summary; null otherwise.
+     * @nullable
+     */
+    readonly window_end: string | null
     /** Number of observations that fed this run's summary. */
     readonly observation_count: number
     /**
