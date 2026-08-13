@@ -1,13 +1,14 @@
 import time
 import uuid
 import datetime as dt
+import threading
 from typing import Any
 
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from django.conf import settings
-from django.db import IntegrityError
+from django.db import IntegrityError, connections
 from django.utils import timezone
 
 import httpx
@@ -137,7 +138,10 @@ from products.replay_vision.backend.temporal.workflow import (
     _failure_type,
     _root_cause_message,
 )
-from products.replay_vision.backend.tests.helpers import snapshot_for as _snapshot_for
+from products.replay_vision.backend.tests.helpers import (
+    seed_scanner_spend,
+    snapshot_for as _snapshot_for,
+)
 from products.signals.backend.contracts import ReplayVisionScannerFindingSignalInput
 from products.signals.backend.models import SignalSourceConfig
 
@@ -495,6 +499,186 @@ class TestCreateObservationActivity:
             observation_id=None, was_created=False, scanner_type=scanner.scanner_type
         )
         assert not ReplayObservation.objects.filter(scanner=scanner, session_id="sess-no-consent").exists()
+
+    @parameterized.expand(
+        [
+            (None, 0, True),
+            (None, 10_000, True),
+            (100, 0, True),
+            (100, 80, True),
+            (100, 90, False),
+            (100, 100, False),
+            (15, 0, True),
+            (14, 0, False),
+        ]
+    )
+    def test_scanner_credit_limit_gates_observation_creation(
+        self, limit: int | None, already_spent_credits: int, expect_created: bool
+    ) -> None:
+        scanner = _make_scanner(credit_limit=limit)
+        seed_scanner_spend(scanner, already_spent_credits)
+
+        # This test isolates the scanner gate; keep the unsynced-org fallback quota out of the way.
+        with patch("products.replay_vision.backend.quota.MONTHLY_CREDIT_QUOTA", 1_000_000):
+            result = create_observation_activity(
+                CreateObservationInputs(
+                    scanner_id=scanner.id,
+                    team_id=scanner.team_id,
+                    session_id="sess-scanner-limit",
+                    triggered_by=ObservationTrigger.SCHEDULE,
+                    triggered_by_user_id=None,
+                    workflow_id="wf-scanner-limit",
+                )
+            )
+
+        assert result.was_created is expect_created
+        exists = ReplayObservation.objects.filter(scanner=scanner, session_id="sess-scanner-limit").exists()
+        assert exists is expect_created
+
+    def test_concurrent_admissions_cannot_exceed_scanner_credit_limit(self) -> None:
+        # Two applies for different sessions race with a cap that fits exactly one observation. Without the
+        # per-scanner lock both read a used=0 budget, both pass, and both reserve a PENDING row (overshoot).
+        credits = observation_credits_for_model(ScannerModel.GEMINI_3_6_FLASH.value)
+        scanner = _make_scanner(credit_limit=credits)
+        barrier = threading.Barrier(2)
+        created: dict[str, bool] = {}
+
+        def admit(session_id: str) -> None:
+            barrier.wait()
+            try:
+                created[session_id] = create_observation_activity(
+                    CreateObservationInputs(
+                        scanner_id=scanner.id,
+                        team_id=scanner.team_id,
+                        session_id=session_id,
+                        triggered_by=ObservationTrigger.SCHEDULE,
+                        triggered_by_user_id=None,
+                        workflow_id=f"wf-{session_id}",
+                    )
+                ).was_created
+            finally:
+                # Dropping the worker's own connection avoids stranding its lock transaction past teardown.
+                connections.close_all()
+
+        threads = [threading.Thread(target=admit, args=(s,)) for s in ("race-a", "race-b")]
+        for thread in threads:
+            thread.start()
+        for thread in threads:
+            # A lock regression must fail the test, not hang the suite.
+            thread.join(timeout=30)
+        assert not any(thread.is_alive() for thread in threads)
+
+        assert sorted(created.values()) == [False, True]
+        assert ReplayObservation.objects.filter(scanner=scanner, status=ObservationStatus.PENDING).count() == 1
+
+    def test_concurrent_admissions_for_an_uncapped_scanner_both_succeed(self) -> None:
+        # The admission lock is capped-only: two uncapped applies must not serialize or skip.
+        scanner = _make_scanner(credit_limit=None)
+        barrier = threading.Barrier(2)
+        created: dict[str, bool] = {}
+
+        def admit(session_id: str) -> None:
+            barrier.wait()
+            try:
+                created[session_id] = create_observation_activity(
+                    CreateObservationInputs(
+                        scanner_id=scanner.id,
+                        team_id=scanner.team_id,
+                        session_id=session_id,
+                        triggered_by=ObservationTrigger.SCHEDULE,
+                        triggered_by_user_id=None,
+                        workflow_id=f"wf-{session_id}",
+                    )
+                ).was_created
+            finally:
+                connections.close_all()
+
+        threads = [threading.Thread(target=admit, args=(s,)) for s in ("free-a", "free-b")]
+        for thread in threads:
+            thread.start()
+        for thread in threads:
+            thread.join(timeout=30)
+        assert not any(thread.is_alive() for thread in threads)
+
+        assert sorted(created.values()) == [True, True]
+        assert ReplayObservation.objects.filter(scanner=scanner, status=ObservationStatus.PENDING).count() == 2
+
+    def test_concurrent_admissions_for_two_capped_scanners_do_not_serialize_each_other(self) -> None:
+        # The admission lock is per scanner row: two different capped scanners on one team must both
+        # admit their own observation, with no cross-scanner budget bleed or lock coupling.
+        credits = observation_credits_for_model(ScannerModel.GEMINI_3_6_FLASH.value)
+        scanner_a = _make_scanner(credit_limit=credits)
+        scanner_b = ReplayScanner.objects.create(
+            team=scanner_a.team,
+            name="capped-sibling",
+            scanner_type=ScannerType.MONITOR,
+            scanner_config={"prompt": "p"},
+            model=ScannerModel.GEMINI_3_6_FLASH,
+            credit_limit=credits,
+        )
+        barrier = threading.Barrier(2)
+        created: dict[str, bool] = {}
+
+        def admit(scanner: ReplayScanner, session_id: str) -> None:
+            barrier.wait()
+            try:
+                created[session_id] = create_observation_activity(
+                    CreateObservationInputs(
+                        scanner_id=scanner.id,
+                        team_id=scanner.team_id,
+                        session_id=session_id,
+                        triggered_by=ObservationTrigger.SCHEDULE,
+                        triggered_by_user_id=None,
+                        workflow_id=f"wf-{session_id}",
+                    )
+                ).was_created
+            finally:
+                connections.close_all()
+
+        threads = [
+            threading.Thread(target=admit, args=(scanner_a, "sibling-a")),
+            threading.Thread(target=admit, args=(scanner_b, "sibling-b")),
+        ]
+        for thread in threads:
+            thread.start()
+        for thread in threads:
+            thread.join(timeout=30)
+        assert not any(thread.is_alive() for thread in threads)
+
+        assert created == {"sibling-a": True, "sibling-b": True}
+
+    def test_retry_near_the_cap_reclaims_its_own_pending_row(self) -> None:
+        # A Temporal retry whose first attempt committed the insert but lost the result must get its
+        # row back: that row's own reservation fills the budget, so a plain refusal would strand it
+        # PENDING forever while the workflow gives up.
+        credits = observation_credits_for_model(ScannerModel.GEMINI_3_6_FLASH.value)
+        scanner = _make_scanner(credit_limit=credits)
+        first_attempt = create_observation_activity(
+            CreateObservationInputs(
+                scanner_id=scanner.id,
+                team_id=scanner.team_id,
+                session_id="sess-retry",
+                triggered_by=ObservationTrigger.SCHEDULE,
+                triggered_by_user_id=None,
+                workflow_id="wf-retry",
+            )
+        )
+        assert first_attempt.was_created is True
+
+        second_attempt = create_observation_activity(
+            CreateObservationInputs(
+                scanner_id=scanner.id,
+                team_id=scanner.team_id,
+                session_id="sess-retry",
+                triggered_by=ObservationTrigger.SCHEDULE,
+                triggered_by_user_id=None,
+                workflow_id="wf-retry",
+            )
+        )
+
+        assert second_attempt.observation_id == first_attempt.observation_id
+        assert second_attempt.was_created is True
+        assert ReplayObservation.objects.filter(scanner=scanner).count() == 1
 
 
 @pytest.mark.django_db(transaction=True)
