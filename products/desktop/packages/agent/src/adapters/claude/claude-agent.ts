@@ -237,7 +237,6 @@ function declinePendingSteers(turn: Turn): void {
   turn.pendingSteers.clear();
 }
 
-
 function isSdkMcpServer(
   cfg: McpServerConfig,
 ): cfg is McpSdkServerConfigWithInstance {
