@@ -325,6 +325,14 @@ describe('hog-charts scales', () => {
             expect(scale.domain()[1]).toBe(40)
         })
 
+        // The two controls both set the axis floor, and the UI greys out "begin at zero" on the
+        // strength of the bound winning. Reorder the clamp after the bound and that greying lies.
+        it('applies a min over the zero-baseline clamp', () => {
+            const offset = [makeSeries({ key: 's1', data: [50, 60, 70] })]
+            expect(createYScale(offset, dimensions).domain()[0]).toBe(0)
+            expect(createYScale(offset, dimensions, { bounds: { min: 40 } }).domain()[0]).toBe(40)
+        })
+
         // The empty-data domain is linear whatever scale type was asked for, so a non-positive bound
         // is no longer a hazard and must not be dropped as though this were a log scale.
         it('honors a non-positive bound on a log scale with no data', () => {

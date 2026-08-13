@@ -29,6 +29,12 @@ export function YAxisRangeFilter(): JSX.Element {
             : showPercentStackView
               ? 'Not available while showing percentages'
               : undefined
+    // The bound is applied after the zero-baseline clamp, so a minimum wins over this toggle rather
+    // than the other way round. Disabling it keeps the axis matching whichever control looks live.
+    const startAtZeroDisabledReason =
+        rangeDisabledReason ??
+        (typeof trendsFilter?.yAxisMin === 'number' ? 'Overridden by the minimum below' : undefined)
+
     // The chart falls back to its automatic range while the pair is inverted, so say why rather
     // than leaving the controls looking unresponsive.
     const invalidRange =
@@ -54,7 +60,7 @@ export function YAxisRangeFilter(): JSX.Element {
                 tooltip="When off, the axis starts just below your lowest value instead of at zero, so small changes are easier to see."
                 data-attr="trends-y-axis-start-at-zero"
                 checked={trendsFilter?.yAxisStartAtZero !== false}
-                disabledReason={rangeDisabledReason}
+                disabledReason={startAtZeroDisabledReason}
                 onChange={(checked) => updateInsightFilter({ yAxisStartAtZero: checked ? undefined : false })}
             />
             <div className="flex flex-col gap-1">
