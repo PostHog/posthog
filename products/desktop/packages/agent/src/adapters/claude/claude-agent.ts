@@ -527,7 +527,7 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
 
     const isSteer = isSteerMeta(params._meta);
     if (hasInFlightTurns && isSteer) {
-      // Fold into the running turn (promptToClaude tagged it priority:"next");
+      // Fold into the running turn (promptToClaude tagged it priority:"now");
       // the benign end_turn is ignored by clients, which key off _meta.steer.
       const owner =
         this.session.activeTurn ??
