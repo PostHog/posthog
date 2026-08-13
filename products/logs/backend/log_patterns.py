@@ -14,6 +14,48 @@ ERROR_SEVERITIES = {"error", "fatal"}
 # clustering, so templates stay readable ("<ip>", "<num>") instead of fragmenting into
 # one cluster per distinct value. Order matters — Drain applies these in sequence, so
 # more-specific patterns (uuid, ip, hex) run before the catch-all number mask.
+# Suffixes that make a dotted token a hostname. Deliberately a fixed list rather than
+# "any trailing alphabetic label": dotted module paths, logger names, and source files
+# ("products.logs.backend", "django_structlog.celery.receivers", "Handler.cpp") are
+# otherwise indistinguishable from an FQDN, and masking those eats real literal content.
+_HOST_SUFFIXES = (
+    "ai",
+    "app",
+    "bot",
+    "cloud",
+    "co",
+    "com",
+    "de",
+    "dev",
+    "eu",
+    "fr",
+    "gg",
+    "internal",
+    "io",
+    "jp",
+    "local",
+    "me",
+    "net",
+    "nl",
+    "org",
+    "sh",
+    "so",
+    "tv",
+    "uk",
+    "us",
+    "xyz",
+)
+_HOST_LABEL = r"[a-zA-Z0-9](?:[a-zA-Z0-9-]*[a-zA-Z0-9])?"
+# The repeat is bounded to hold down backtracking, not to enforce a DNS limit. Under an
+# unbounded repeat, a dotted run that ends in a non-suffix ("a.a.a.<...>.invalid") makes the
+# engine retry the whole suffix alternation at every label boundary, from every start position
+# the run offers, so the cost grows with the square of the run's length. Every sampled row is
+# masked, and only LOGS_PATTERNS_BODY_TRUNCATE bounds how long a run can get, so a body built
+# out of single-character labels turns into real CPU. A dotted run with more labels than this
+# masks its tail and keeps its head literal, which no real hostname is long enough to reach.
+_HOST_MAX_LABELS_BEFORE_SUFFIX = 8
+_HOST_PATTERN = rf"\b(?:{_HOST_LABEL}\.){{1,{_HOST_MAX_LABELS_BEFORE_SUFFIX}}}(?:{'|'.join(_HOST_SUFFIXES)})\b"
+
 _MASKING_INSTRUCTIONS = [
     # Timestamp must precede the number catch-all: \b never matches between a digit and
     # a letter, so "12T08" and "397557Z" in ISO-8601 bodies would survive \b\d+\b intact.
@@ -32,6 +74,9 @@ _MASKING_INSTRUCTIONS = [
     # whole, instead of leaving a "<version>.<num>" tail on a template of its own.
     # Runs after ip so an address in a URL is already masked and cannot look like a version.
     MaskingInstruction(r"(?<=/)\d+(?:\.\d+)+", "version"),
+    # Host runs after ip (a dotted quad has no alphabetic suffix, so it stays an <ip>) and
+    # before hex, which would otherwise claim a long hex-looking label.
+    MaskingInstruction(_HOST_PATTERN, "host"),
     MaskingInstruction(r"\b0x[0-9a-fA-F]+\b", "hex"),
     MaskingInstruction(r"\b[0-9a-fA-F]{16,}\b", "hex"),
     MaskingInstruction(r"\b\d+\b", "num"),
@@ -50,6 +95,9 @@ _PLACEHOLDER_PATTERNS = {
     "<uuid>": r"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}",
     "<ip>": r"\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}",
     "<version>": r"\d+(?:\.\d+)+",
+    # Reuses the masking pattern so the pivot cannot claim dotted code paths the mask
+    # deliberately left literal. \b is RE2-safe; only lookaround is not.
+    "<host>": _HOST_PATTERN,
     "<hex>": r"(?:0x[0-9a-fA-F]+|[0-9a-fA-F]{16,})",
 }
 _PLACEHOLDER_RE = re.compile("|".join(re.escape(p) for p in _PLACEHOLDER_PATTERNS))
