@@ -196,6 +196,7 @@ export const customerEmailConfigLogic = kea<customerEmailConfigLogicType>([
             } catch (error) {
                 posthog.captureException(error as Error, { scope: 'customerEmailConfigLogic.loadChannels' })
                 actions.loadChannelsFailure()
+                lemonToast.error('Could not refresh your connected emails. Try again.')
             }
         },
         connectEmail: async () => {
