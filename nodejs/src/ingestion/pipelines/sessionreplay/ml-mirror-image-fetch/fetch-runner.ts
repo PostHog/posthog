@@ -2,7 +2,8 @@ import { ConcurrencyController } from '~/common/utils/concurrencyController'
 import { logger } from '~/common/utils/logger'
 import { delay } from '~/common/utils/utils'
 
-import { FetchCandidate } from './collected-urls-record'
+import { FetchCandidate, MAX_HOPS } from './collected-urls-record'
+import { FrontierPublisher } from './frontier-publisher'
 import { HostBudget } from './host-budget'
 import { FetchOutcome, ImageFetchResult, ImageFetcher, RedirectDecision } from './image-fetcher'
 import { ImageFetchRequestMetrics } from './metrics'
@@ -10,11 +11,22 @@ import { ImageFetchRequestMetrics } from './metrics'
 /** Why a URL never reached a request. Shares `rate_limited` with the response of the same name, because both mean the site asked us to wait. */
 export type ShedReason = 'breaker_open' | 'rate_limited' | 'deadline' | 'connection_limit'
 
-export type AttemptOutcome = FetchOutcome | ShedReason
+/** A URL that ran out of moves. It is recorded so it stops coming back. Requirement 12. */
+export const HOPS_EXHAUSTED = 'hops_exhausted'
+
+export type AttemptOutcome = FetchOutcome | ShedReason | typeof HOPS_EXHAUSTED
 
 export interface FetchAttempt {
     candidate: FetchCandidate
     outcome: AttemptOutcome
+    /**
+     * True when the lane is done with this URL and must write it to the crawl history.
+     *
+     * False means the URL is coming back: it was republished to the frontier or to a delay topic,
+     * or the republish failed and the next session that refers to it will offer it again. Writing
+     * the crawl history for one of those would stop it ever being fetched. Requirements 12 and 24.
+     */
+    finished: boolean
 }
 
 export interface FetchRunnerOptions {
@@ -113,7 +125,9 @@ export class FetchRunner implements FetchPass {
     constructor(
         private readonly fetcher: ImageFetcher,
         private readonly budget: HostBudget,
-        private readonly options: FetchRunnerOptions
+        private readonly options: FetchRunnerOptions,
+        /** Absent leaves every transient outcome unrecorded, which is a loss rather than a retry. See the README. */
+        private readonly publisher?: FrontierPublisher
     ) {
         requirePositive('SESSION_RECORDING_ML_IMAGE_FETCH_MAX_CONCURRENT_PER_DOMAIN', options.maxConcurrentPerDomain)
         requirePositive('SESSION_RECORDING_ML_IMAGE_FETCH_MAX_IN_FLIGHT_REQUESTS', options.maxInFlightRequests)
@@ -209,10 +223,11 @@ export class FetchRunner implements FetchPass {
         let next = 0
         // A refusal is a property of the domain, so it applies to every URL still queued for it
         // rather than only to the one that asked.
-        const shedRemaining = (reason: ShedReason): void => {
+        const shedRemaining = async (reason: ShedReason): Promise<void> => {
             while (next < backQueue.length) {
-                attempts.push({ candidate: backQueue[next++], outcome: reason })
+                const candidate = backQueue[next++]
                 ImageFetchRequestMetrics.incOutcome(reason)
+                attempts.push(await this.reschedule(candidate, reason, this.budget.blockedForMs(domain, Date.now())))
             }
         }
 
@@ -220,7 +235,7 @@ export class FetchRunner implements FetchPass {
             while (next < backQueue.length) {
                 const grant = this.budget.take(domain, Date.now(), deadlineMs)
                 if (!grant.granted) {
-                    shedRemaining(grant.reason)
+                    await shedRemaining(grant.reason)
                     return
                 }
                 const candidate = backQueue[next++]
@@ -232,8 +247,10 @@ export class FetchRunner implements FetchPass {
                     const stale = this.staleAfterWait(domain, deadlineMs)
                     if (stale) {
                         this.budget.returnGrant(domain, Date.now())
-                        attempts.push({ candidate, outcome: stale })
                         ImageFetchRequestMetrics.incOutcome(stale)
+                        attempts.push(
+                            await this.reschedule(candidate, stale, this.budget.blockedForMs(domain, Date.now()))
+                        )
                         continue
                     }
                 }
@@ -288,7 +305,7 @@ export class FetchRunner implements FetchPass {
             // Reachable because redirects into this domain take slots the worker pool does not know
             // about. It says the domain is busy now, so nothing is written to the crawl history for it.
             ImageFetchRequestMetrics.incOutcome('connection_limit')
-            return { candidate, outcome: 'connection_limit' }
+            return await this.reschedule(candidate, 'connection_limit', 0)
         }
 
         const startedAt = process.hrtime.bigint()
@@ -304,7 +321,12 @@ export class FetchRunner implements FetchPass {
                         // The earlier of the two clocks. A wait that outlives the request would be
                         // spent and then reported as the site timing out.
                         authorizeRedirect: (url, remainingMs) =>
-                            this.authorizeRedirect(url, Math.min(deadlineMs, Date.now() + remainingMs), acquire),
+                            this.authorizeRedirect(
+                                url,
+                                Math.min(deadlineMs, Date.now() + remainingMs),
+                                acquire,
+                                candidate.domain
+                            ),
                     }),
             })
         } catch (error) {
@@ -318,7 +340,7 @@ export class FetchRunner implements FetchPass {
                 error: error instanceof Error ? error.name : 'unknown',
             })
             ImageFetchRequestMetrics.incOutcome('error')
-            return { candidate, outcome: 'error' }
+            return await this.reschedule(candidate, 'error', 0)
         } finally {
             releaseAll()
         }
@@ -331,7 +353,18 @@ export class FetchRunner implements FetchPass {
         }
         // The bytes stop here. Nothing produces them yet, and holding a batch of them would be the
         // largest memory this lane ever took.
-        return { candidate, outcome: result.outcome }
+        if (result.outcome === 'redirect_offsite' && result.redirectTarget) {
+            return await this.handOff(candidate, result.redirectTarget)
+        }
+        if (isTerminal(result.outcome)) {
+            ImageFetchRequestMetrics.observeHops(MAX_HOPS - candidate.hopsRemaining)
+            return { candidate, outcome: result.outcome, finished: true }
+        }
+        return await this.reschedule(
+            candidate,
+            result.outcome,
+            result.retryAfterMs ?? this.budget.blockedForMs(candidate.domain, Date.now())
+        )
     }
 
     private applyToBudget(domain: string, outcome: FetchOutcome, retryAfterMs: number | undefined): void {
@@ -373,14 +406,67 @@ export class FetchRunner implements FetchPass {
      * a site that redirects every image to a CDN opens its own breaker when that CDN fails. The CDN
      * still gets the rate limit, which is the part that protects it.
      */
+    /**
+     * Put a URL back for another try, or give up on it.
+     *
+     * A URL with no hops left is recorded, so it stops coming back and the lane stops spending
+     * requests on it. Requirement 12. Anything else goes to the delay topic whose period covers the
+     * wait, and is not recorded, because it has not been answered yet. Requirements 13 to 15.
+     *
+     * Without a publisher the URL is simply left unrecorded. The next session that refers to it
+     * offers it again, which the mirror's ref cache delays by however long that ref stays cached.
+     */
+    private async reschedule(
+        candidate: FetchCandidate,
+        outcome: AttemptOutcome,
+        waitMs: number
+    ): Promise<FetchAttempt> {
+        if (candidate.hopsRemaining <= 1) {
+            ImageFetchRequestMetrics.incOutcome(HOPS_EXHAUSTED)
+            ImageFetchRequestMetrics.observeHops(MAX_HOPS)
+            return { candidate, outcome: HOPS_EXHAUSTED, finished: true }
+        }
+        if (!this.publisher) {
+            return { candidate, outcome, finished: false }
+        }
+        const target = { url: candidate.url, host: candidate.host, domain: candidate.domain }
+        await this.publisher.republish(candidate, target, 'retry', waitMs)
+        return { candidate, outcome, finished: false }
+    }
+
+    /**
+     * Send a redirect target to the consumer that owns its domain.
+     *
+     * The hop is not followed here. That domain's rate, breaker, and connection count live in the
+     * pod holding its partition, and following the hop from this pod would spend none of them.
+     * Requirement 7.
+     */
+    private async handOff(candidate: FetchCandidate, target: { url: string; host: string }): Promise<FetchAttempt> {
+        if (candidate.hopsRemaining <= 1) {
+            ImageFetchRequestMetrics.incOutcome(HOPS_EXHAUSTED)
+            return { candidate, outcome: HOPS_EXHAUSTED, finished: true }
+        }
+        if (!this.publisher) {
+            return { candidate, outcome: 'redirect_offsite', finished: false }
+        }
+        const domain = getPolitenessKey()(target.host)
+        await this.publisher.republish(candidate, { ...target, domain }, 'redirect')
+        return { candidate, outcome: 'redirect_offsite', finished: false }
+    }
+
     private async authorizeRedirect(
         url: URL,
         deadlineMs: number,
-        acquire: (domain: string) => boolean
+        acquire: (domain: string) => boolean,
+        sourceDomain: string
     ): Promise<RedirectDecision> {
         // The same function the producer keys the topic with, called through the addon rather than
         // reimplemented here. One public suffix list answers for both, so the two cannot drift.
         const domain = getPolitenessKey()(url.hostname)
+        // Another operator owns this target, so this pod must not fetch it. Requirement 7.
+        if (domain !== sourceDomain) {
+            return 'elsewhere'
+        }
         if (!acquire(domain)) {
             return 'defer'
         }

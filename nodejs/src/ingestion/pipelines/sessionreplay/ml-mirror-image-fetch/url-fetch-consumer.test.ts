@@ -2,7 +2,7 @@ import { Message } from 'node-rdkafka'
 
 import { FetchCandidate } from './collected-urls-record'
 import { CrawlHistoryReadResult, CrawlHistoryStore, crawlHistoryKey } from './crawl-history'
-import { AttemptOutcome, FetchPass } from './fetch-runner'
+import { AttemptOutcome, FetchPass, isTerminal } from './fetch-runner'
 import { UrlFetchConsumer } from './url-fetch-consumer'
 
 const TEAM = '0123456789abcdef0123456789abcdef'
@@ -146,6 +146,27 @@ describe('UrlFetchConsumer', () => {
         expect(crawlHistory.reads).toBe(readsAfterFirst)
     })
 
+    it.each([
+        ['still waiting out its delay', NOW + 60_000, 0],
+        ['past its delay', NOW - 1, 1],
+    ])('handles a retry that is %s (requirement 15)', async (_name, notBeforeMs, expectedWrites) => {
+        // A record can come back before its wait is over, because a wait longer than the longest
+        // delay topic goes round that topic again. Fetching it early would reach a site that asked
+        // to be left alone, and recording it would stop the trip it is still making.
+        const body = {
+            v: 1,
+            pseudoTeam: TEAM,
+            capturedAtMs: NOW,
+            notBeforeMs,
+            urls: [url('a')],
+        }
+        const early = message(Buffer.from(JSON.stringify(body)), 'example.com')
+
+        await consumer.handleBatch([early], NOW)
+
+        expect(crawlHistory.stored.size).toBe(expectedWrites)
+    })
+
     it('drops a URL older than the age limit without recording it', async () => {
         const sevenHoursAgo = NOW - 7 * 60 * 60 * 1000
 
@@ -253,7 +274,13 @@ describe('UrlFetchConsumer', () => {
         }
         const runner: FetchPass = {
             run: (candidates: FetchCandidate[]) =>
-                Promise.resolve(candidates.map((candidate) => ({ candidate, outcome: outcomes[candidate.urlHash] }))),
+                Promise.resolve(
+                    candidates.map((candidate) => ({
+                        candidate,
+                        outcome: outcomes[candidate.urlHash],
+                        finished: isTerminal(outcomes[candidate.urlHash]),
+                    }))
+                ),
         }
         const fetching = new UrlFetchConsumer(
             crawlHistory,

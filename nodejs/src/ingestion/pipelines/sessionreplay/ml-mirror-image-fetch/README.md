@@ -154,15 +154,9 @@ An earlier version of this lane treated an absent crawl history entry as a retry
 The requirements above are the target. These parts of them have no implementation yet, and the
 code is the authority until they do.
 
-**Nothing publishes to the frontier or to a delay topic.** `FrontierPublisher` exists and is
-tested, and the delay consumers exist and are registered, but no caller wires them together. So
-requirements 7 and 11 to 15 are unmet: a cross-domain redirect is followed in place rather than
-republished, a transient failure is dropped rather than retried, and no hop is ever spent.
-Requirement 24 follows: a URL the lane gives up on gets no crawl history entry, which is the loss
-the section above describes.
-
-**`notBeforeMs` is parsed and ignored.** A record that arrives early is fetched anyway. The host
-budget refuses it without sending, so the effect today is a wasted read rather than a rude request.
+**The publisher is built but not reachable in production.** `FetchRunner` republishes a
+cross-domain redirect and retries a transient failure through `FrontierPublisher`, and the server
+builds one. The lane still refuses to leave dry run, so none of it runs yet.
 
 **Requirement 8 is partly met.** A redirect target is checked for scheme, an HTTPS downgrade, and
 userinfo, and every hop re-enters the SSRF checks. It is not checked against the public-host rule

@@ -1,7 +1,8 @@
 import { FetchCandidate, MAX_HOPS } from './collected-urls-record'
 import { FetchRunner, FetchRunnerOptions, isTerminal } from './fetch-runner'
+import { FrontierPublisher } from './frontier-publisher'
 import { HostBudget } from './host-budget'
-import { FetchOutcome, ImageFetchResult, ImageFetcher } from './image-fetcher'
+import { FetchOutcome, ImageFetchResult, ImageFetcher, RedirectDecision } from './image-fetcher'
 
 const OPTIONS: FetchRunnerOptions = {
     maxConcurrentPerDomain: 2,
@@ -46,6 +47,17 @@ class FakeFetcher implements ImageFetcher {
 
 const FAR_FUTURE = 10 ** 12
 
+const defaultBudget = (): HostBudget =>
+    new HostBudget({
+        requestsPerSecond: 1000,
+        burst: 1000,
+        maxConcurrent: 4,
+        breakerFailures: 3,
+        breakerCooldownMs: 60_000,
+        breakerMaxCooldownMs: 600_000,
+        maxTrackedDomains: 100,
+    })
+
 function runner(
     fetcher: ImageFetcher,
     options: Partial<FetchRunnerOptions> = {},
@@ -57,9 +69,10 @@ function runner(
         breakerCooldownMs: 60_000,
         breakerMaxCooldownMs: 600_000,
         maxTrackedDomains: 100,
-    })
+    }),
+    publisher?: FrontierPublisher
 ): FetchRunner {
-    return new FetchRunner(fetcher, budget, { ...OPTIONS, ...options })
+    return new FetchRunner(fetcher, budget, { ...OPTIONS, ...options }, publisher)
 }
 
 describe('FetchRunner', () => {
@@ -151,36 +164,77 @@ describe('FetchRunner', () => {
         expect(attempts).toHaveLength(many.length)
     })
 
-    it('holds a redirect target to its own connection limit', async () => {
-        // Two source domains redirect to one CDN. Without a slot taken for the target, each source
-        // worker opens its own connection and the CDN sees more than its configured maximum.
-        const budget = new HostBudget({
-            requestsPerSecond: 1000,
-            burst: 1000,
-            maxConcurrent: 1,
-            breakerFailures: 100,
-            breakerCooldownMs: 60_000,
-            breakerMaxCooldownMs: 600_000,
-            maxTrackedDomains: 100,
-        })
-        const targets: string[] = []
+    it('hands a redirect off rather than following it to another domain (requirement 7)', async () => {
+        // The target's rate, breaker, and connection count live in the pod holding its partition.
+        // Following the hop here would spend none of them.
+        const published: { domain: string; url: string; reason: string }[] = []
+        const publisher = {
+            republish: (candidate: FetchCandidate, target: { url: string; domain: string }, reason: string) => {
+                published.push({ domain: target.domain, url: target.url, reason })
+                return Promise.resolve(true)
+            },
+        } as unknown as FrontierPublisher
+        let decision: RedirectDecision | undefined
         const fetcher: ImageFetcher = {
-            fetch: async (url, options) => {
-                const decision = await options.authorizeRedirect(new URL('https://img.shared-cdn.net/a.png'), 5000)
-                targets.push(`${url}:${decision}`)
-                // Held open until both source domains have asked, so the two overlap.
-                await new Promise((resolve) => setTimeout(resolve, 20))
+            fetch: async (_url, options) => {
+                decision = await options.authorizeRedirect(new URL('https://img.other-site.net/a.png'), 5000)
+                return {
+                    outcome: 'redirect_offsite',
+                    redirects: 1,
+                    redirectTarget: { url: 'https://img.other-site.net/a.png', host: 'img.other-site.net' },
+                }
+            },
+        }
+
+        const attempts = await runner(fetcher, {}, defaultBudget(), publisher).run([candidate('example.com', 0)])
+
+        expect(decision).toBe('elsewhere')
+        expect(published).toEqual([
+            { domain: 'other-site.net', url: 'https://img.other-site.net/a.png', reason: 'redirect' },
+        ])
+        // Not finished: it is coming back on another partition, so recording it would stop that.
+        expect(attempts[0].finished).toBe(false)
+    })
+
+    it('follows a redirect that stays on the same domain (requirement 6)', async () => {
+        let decision: RedirectDecision | undefined
+        const fetcher: ImageFetcher = {
+            fetch: async (_url, options) => {
+                decision = await options.authorizeRedirect(new URL('https://img2.example.com/a.png'), 5000)
                 return { outcome: 'ok', redirects: 1 }
             },
         }
 
-        await runner(fetcher, { maxConcurrentPerDomain: 1 }, budget).run([
-            candidate('one.com', 0),
-            candidate('two.com', 0),
-        ])
+        await runner(fetcher).run([candidate('example.com', 0)])
 
-        expect(targets.filter((t) => t.endsWith(':allow'))).toHaveLength(1)
-        expect(targets.filter((t) => t.endsWith(':defer'))).toHaveLength(1)
+        expect(decision).toBe('allow')
+    })
+
+    it('publishes a transient failure to a delay topic rather than dropping it (requirement 14)', async () => {
+        const published: { reason: string; waitMs: number }[] = []
+        const publisher = {
+            republish: (_c: FetchCandidate, _t: unknown, reason: string, waitMs: number) => {
+                published.push({ reason, waitMs })
+                return Promise.resolve(true)
+            },
+        } as unknown as FrontierPublisher
+        const fetcher = new FakeFetcher(() => ({ outcome: 'rate_limited', status: 429, retryAfterMs: 30_000 }))
+
+        const attempts = await runner(fetcher, {}, defaultBudget(), publisher).run([candidate('busy.com', 0)])
+
+        expect(published).toEqual([{ reason: 'retry', waitMs: 30_000 }])
+        expect(attempts[0].finished).toBe(false)
+    })
+
+    it('gives up and records a URL with no hops left (requirement 12)', async () => {
+        const publisher = { republish: () => Promise.resolve(true) } as unknown as FrontierPublisher
+        const fetcher = new FakeFetcher(() => ({ outcome: 'timeout' }))
+        const spent = { ...candidate('example.com', 0), hopsRemaining: 1 }
+
+        const attempts = await runner(fetcher, {}, defaultBudget(), publisher).run([spent])
+
+        // Recorded, so it stops coming back and stops costing requests.
+        expect(attempts[0]).toMatchObject({ outcome: 'hops_exhausted', finished: true })
     })
 
     it('runs every domain at once but holds the requests under them to the in-flight limit', async () => {

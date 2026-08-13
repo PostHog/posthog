@@ -21,6 +21,7 @@ export type FetchOutcome =
     | 'too_many_redirects'
     | 'bad_redirect'
     | 'redirect_deferred'
+    | 'redirect_offsite'
     | 'too_large'
     | 'not_image'
     | 'unsupported_encoding'
@@ -36,6 +37,8 @@ export interface ImageFetchResult {
     contentType?: ImageContentType
     /** Set by a 429 or a 503 that named a period. The caller holds the whole domain for it. */
     retryAfterMs?: number
+    /** Where an unfollowed redirect points. The caller republishes this rather than fetching it. */
+    redirectTarget?: { url: string; host: string }
 }
 
 export interface ImageFetchOptions {
@@ -55,8 +58,14 @@ export interface ImageFetchOptions {
     authorizeRedirect: (url: URL, remainingMs: number) => Promise<RedirectDecision>
 }
 
-/** `defer` is a budget that is spent or a breaker that is open. `refuse` is a target this lane will never follow. */
-export type RedirectDecision = 'allow' | 'refuse' | 'defer'
+/**
+ * What to do with a redirect target.
+ *
+ * `allow` follows it here. `elsewhere` means another registrable domain owns it, so it goes back
+ * through the frontier for whichever consumer holds that domain's budget. `defer` is that budget
+ * being spent or its breaker being open. `refuse` is a target this lane will never follow.
+ */
+export type RedirectDecision = 'allow' | 'elsewhere' | 'refuse' | 'defer'
 
 export interface ImageFetcher {
     fetch(url: string, options: ImageFetchOptions): Promise<ImageFetchResult>
@@ -118,6 +127,16 @@ export class HttpImageFetcher implements ImageFetcher {
                 decision = await options.authorizeRedirect(next, deadlineMs - Date.now())
             } catch (error) {
                 return { outcome: classifyError(error), redirects }
+            }
+            if (decision === 'elsewhere') {
+                // Not followed here. The budget, the breaker, and the connection count for that
+                // domain belong to whichever consumer owns its partition.
+                return {
+                    outcome: 'redirect_offsite',
+                    redirects,
+                    status: hop.status,
+                    redirectTarget: { url: next.toString(), host: next.hostname },
+                }
             }
             if (decision !== 'allow') {
                 const outcome = decision === 'defer' ? 'redirect_deferred' : 'bad_redirect'

@@ -5,7 +5,7 @@ import { RefDedupCache } from '~/ingestion/pipelines/sessionreplay/shared/ref-de
 
 import { FetchCandidate, parseCollectedUrlsRecord } from './collected-urls-record'
 import { CRAWL_HISTORY_TTL_SECONDS, CrawlHistoryStore, crawlHistoryKey } from './crawl-history'
-import { FetchPass, isTerminal } from './fetch-runner'
+import { FetchPass } from './fetch-runner'
 import { ImageFetchConsumerMetrics, UrlDropReason } from './metrics'
 
 export interface UrlFetchConsumerOptions {
@@ -81,6 +81,13 @@ export class UrlFetchConsumer {
                     countDrop('stale')
                     continue
                 }
+                if (candidate.notBeforeMs > nowMs) {
+                    // Requirement 15. It arrived before its delay tier's period elapsed, which
+                    // happens when a wait was longer than the longest tier. Left unrecorded, so the
+                    // tier it is still travelling through brings it back.
+                    countDrop('too_early')
+                    continue
+                }
                 if (seenInBatch.has(candidate.ref)) {
                     dedupedInBatch++
                     continue
@@ -133,7 +140,7 @@ export class UrlFetchConsumer {
             })
             return []
         }
-        return attempts.filter((attempt) => isTerminal(attempt.outcome)).map((attempt) => attempt.candidate)
+        return attempts.filter((attempt) => attempt.finished).map((attempt) => attempt.candidate)
     }
 
     /**

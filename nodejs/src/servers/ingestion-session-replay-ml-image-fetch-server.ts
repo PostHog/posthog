@@ -1,10 +1,17 @@
 import { initializePrometheusLabels } from '~/common/api/router'
-import { KAFKA_SESSION_REPLAY_IMAGE_FETCH } from '~/common/config/kafka-topics'
+import {
+    KAFKA_SESSION_REPLAY_IMAGE_FETCH,
+    KAFKA_SESSION_REPLAY_IMAGE_FETCH_RETRY_1H,
+    KAFKA_SESSION_REPLAY_IMAGE_FETCH_RETRY_1M,
+    KAFKA_SESSION_REPLAY_IMAGE_FETCH_RETRY_10M,
+} from '~/common/config/kafka-topics'
 import { KafkaConsumer, KafkaConsumerConfig } from '~/common/kafka/consumer/consumer-v1'
+import { KafkaProducerWrapper } from '~/common/kafka/producer'
 import { createRedisPoolFromConfig } from '~/common/utils/db/redis'
 import { logger } from '~/common/utils/logger'
 import { CrawlHistory } from '~/ingestion/pipelines/sessionreplay/ml-mirror-image-fetch/crawl-history'
 import { FetchRunner } from '~/ingestion/pipelines/sessionreplay/ml-mirror-image-fetch/fetch-runner'
+import { FrontierPublisher } from '~/ingestion/pipelines/sessionreplay/ml-mirror-image-fetch/frontier-publisher'
 import { HostBudget } from '~/ingestion/pipelines/sessionreplay/ml-mirror-image-fetch/host-budget'
 import { HttpImageFetcher } from '~/ingestion/pipelines/sessionreplay/ml-mirror-image-fetch/image-fetcher'
 import { UrlFetchConsumer } from '~/ingestion/pipelines/sessionreplay/ml-mirror-image-fetch/url-fetch-consumer'
@@ -31,7 +38,23 @@ const BATCH_HEARTBEAT_INTERVAL_MS = 10_000
  */
 const STORE_BATCH_BUDGET_MS = 50_000
 
-export function buildFetchRunner(config: IngestionSessionReplayMlMirrorServerConfig): FetchRunner {
+export function buildFrontierPublisher(producer: KafkaProducerWrapper): FrontierPublisher {
+    return new FrontierPublisher(producer, {
+        frontierTopic: KAFKA_SESSION_REPLAY_IMAGE_FETCH,
+        // Shortest first. The publisher takes the first tier that covers the wait, so the order is
+        // part of the contract rather than a presentation choice.
+        delayTiers: [
+            { topic: KAFKA_SESSION_REPLAY_IMAGE_FETCH_RETRY_1M, delayMs: 60_000 },
+            { topic: KAFKA_SESSION_REPLAY_IMAGE_FETCH_RETRY_10M, delayMs: 600_000 },
+            { topic: KAFKA_SESSION_REPLAY_IMAGE_FETCH_RETRY_1H, delayMs: 3_600_000 },
+        ],
+    })
+}
+
+export function buildFetchRunner(
+    config: IngestionSessionReplayMlMirrorServerConfig,
+    publisher?: FrontierPublisher
+): FetchRunner {
     const budget = new HostBudget({
         requestsPerSecond: config.SESSION_RECORDING_ML_IMAGE_FETCH_REQUESTS_PER_SECOND,
         burst: config.SESSION_RECORDING_ML_IMAGE_FETCH_BURST,
@@ -41,15 +64,20 @@ export function buildFetchRunner(config: IngestionSessionReplayMlMirrorServerCon
         breakerMaxCooldownMs: config.SESSION_RECORDING_ML_IMAGE_FETCH_BREAKER_MAX_COOLDOWN_MS,
         maxTrackedDomains: config.SESSION_RECORDING_ML_IMAGE_FETCH_MAX_TRACKED_DOMAINS,
     })
-    return new FetchRunner(new HttpImageFetcher(), budget, {
-        maxConcurrentPerDomain: config.SESSION_RECORDING_ML_IMAGE_FETCH_MAX_CONCURRENT_PER_DOMAIN,
-        maxInFlightRequests: config.SESSION_RECORDING_ML_IMAGE_FETCH_MAX_IN_FLIGHT_REQUESTS,
-        batchBudgetMs: config.SESSION_RECORDING_ML_IMAGE_FETCH_REQUEST_BUDGET_MS,
-        maxBytes: config.SESSION_RECORDING_ML_IMAGE_FETCH_MAX_IMAGE_BYTES,
-        requestTimeoutMs: config.SESSION_RECORDING_ML_IMAGE_FETCH_REQUEST_TIMEOUT_MS,
-        maxRedirects: config.SESSION_RECORDING_ML_IMAGE_FETCH_MAX_REDIRECTS,
-        defaultRetryAfterMs: config.SESSION_RECORDING_ML_IMAGE_FETCH_DEFAULT_RETRY_AFTER_MS,
-    })
+    return new FetchRunner(
+        new HttpImageFetcher(),
+        budget,
+        {
+            maxConcurrentPerDomain: config.SESSION_RECORDING_ML_IMAGE_FETCH_MAX_CONCURRENT_PER_DOMAIN,
+            maxInFlightRequests: config.SESSION_RECORDING_ML_IMAGE_FETCH_MAX_IN_FLIGHT_REQUESTS,
+            batchBudgetMs: config.SESSION_RECORDING_ML_IMAGE_FETCH_REQUEST_BUDGET_MS,
+            maxBytes: config.SESSION_RECORDING_ML_IMAGE_FETCH_MAX_IMAGE_BYTES,
+            requestTimeoutMs: config.SESSION_RECORDING_ML_IMAGE_FETCH_REQUEST_TIMEOUT_MS,
+            maxRedirects: config.SESSION_RECORDING_ML_IMAGE_FETCH_MAX_REDIRECTS,
+            defaultRetryAfterMs: config.SESSION_RECORDING_ML_IMAGE_FETCH_DEFAULT_RETRY_AFTER_MS,
+        },
+        publisher
+    )
 }
 
 export function buildImageFetchConsumerConfig(config: IngestionSessionReplayMlMirrorServerConfig): KafkaConsumerConfig {

@@ -92,6 +92,12 @@ export class HostBudget {
         return state.blockedUntilMs > nowMs ? state.blockedReason : null
     }
 
+    /** How long the domain stays blocked, so a retry can wait that long rather than guess. */
+    public blockedForMs(domain: string, nowMs: number): number {
+        const state = this.stateFor(domain, nowMs)
+        return Math.max(0, state.blockedUntilMs - nowMs)
+    }
+
     /**
      * Give back a token for a request that was never sent.
      *
