@@ -1,11 +1,8 @@
-import {
-  pendingServerArchiveIds,
-  SERVER_ARCHIVE_SYNC_BATCH,
-} from "@posthog/core/archive/serverArchiveSync";
+import { pendingServerArchiveIds } from "@posthog/core/archive/serverArchiveSync";
+import { useServerArchiveSyncStore } from "@posthog/ui/features/archive/serverArchiveSyncStore";
 import { useArchivedTaskIds } from "@posthog/ui/features/archive/useArchivedTaskIds";
 import { useOptionalAuthenticatedClient } from "@posthog/ui/features/auth/authClient";
 import { taskKeys } from "@posthog/ui/features/tasks/taskKeys";
-import { useTasks } from "@posthog/ui/features/tasks/useTasks";
 import { logger } from "@posthog/ui/shell/logger";
 import { useQueryClient } from "@tanstack/react-query";
 import { useEffect, useRef } from "react";
@@ -13,29 +10,20 @@ import { useEffect, useRef } from "react";
 const log = logger.scope("server-archive-sync");
 
 /**
- * Ids already mirrored onto the server, and restores whose clear didn't land.
- *
- * Module state rather than refs on the hook: the hook mounts once, and the
- * restore path has to reach both sets — a restored task has to be forgotten
- * (archiving it again later in the session would otherwise be skipped as
- * already sent), and a failed clear has to leave something behind to retry.
- */
-const syncedTaskIds = new Set<string>();
-const pendingUnarchiveIds = new Set<string>();
-
-/**
  * A restore that couldn't reach the server. Until the clear lands the session
  * is archived server-side, which hides it from every list — including this
- * device's, where it was just restored — so the next pass tries again.
+ * device's, where it was just restored — so the queue is durable and the sync
+ * pass keeps trying.
  */
 export function retryServerUnarchive(taskId: string): void {
-  syncedTaskIds.delete(taskId);
-  pendingUnarchiveIds.add(taskId);
+  const store = useServerArchiveSyncStore.getState();
+  store.forgetSynced(taskId);
+  store.queueUnarchive(taskId);
 }
 
-/** A restored task, which may well be archived again before the app closes. */
+/** A restored task, which may well be archived again before long. */
 export function forgetServerArchive(taskId: string): void {
-  syncedTaskIds.delete(taskId);
+  useServerArchiveSyncStore.getState().forgetSynced(taskId);
 }
 
 /**
@@ -47,62 +35,90 @@ export function forgetServerArchive(taskId: string): void {
  * task archived server-side drops it from the same list every count comes from,
  * and carries the archive to the user's other devices.
  *
- * A reconciler rather than a call in the archive path: it fixes archives made
- * before this shipped, and one made while offline, without any of them needing
- * a queue to sit in. It rides the task poll the app already runs — a synced
- * task leaves the next response, so each pass is handed the next batch, and a
- * failed one is simply picked up again on the pass after.
+ * The work list is the local archive itself, diffed against a durable record of
+ * what this device has already mirrored — not a task-list page. Pages are
+ * capped at the newest hundred rows, and an archive is precisely the sessions
+ * too old to be there: discovery through a page synced whatever happened to be
+ * recent and then starved. The drain runs once per backlog ever (the record
+ * survives relaunch), sequentially, so it never competes with requests the
+ * user is waiting on.
  */
 export function useServerArchiveSync(): void {
   const client = useOptionalAuthenticatedClient();
-  const { data: tasks } = useTasks();
   const archivedTaskIds = useArchivedTaskIds();
   const queryClient = useQueryClient();
+  // Queued restores re-fire the effect. Mirrored-id progress deliberately
+  // doesn't: this hook lives at the root, and subscribing to a record that
+  // grows once per PATCH would re-render the tree hundreds of times per drain.
+  const pendingUnarchive = useServerArchiveSyncStore(
+    (s) => s.pendingUnarchiveTaskIds,
+  );
   const running = useRef(false);
+  // The drain loop re-reads these between passes, so sessions archived while
+  // it runs are picked up by the loop that's already going — the effect that
+  // fires for them lands on the `running` guard and is skipped.
+  const archivedRef = useRef(archivedTaskIds);
+  archivedRef.current = archivedTaskIds;
+  const clientRef = useRef(client);
+  clientRef.current = client;
 
   useEffect(() => {
-    if (!client || !tasks || running.current) return;
-    const unarchive = [...pendingUnarchiveIds];
-    const archive = pendingServerArchiveIds(
-      tasks,
-      archivedTaskIds,
-      syncedTaskIds,
-      SERVER_ARCHIVE_SYNC_BATCH,
-    );
-    if (unarchive.length === 0 && archive.length === 0) return;
+    if (!client || running.current) return;
 
     running.current = true;
     void (async () => {
+      // Ids this run has already tried and the server refused — retried on the
+      // next launch or trigger, but not by the very next pass of this loop.
+      const attempted = new Set<string>();
       let changed = 0;
-      // Restores lead: a session the server still has archived is invisible
-      // everywhere, which is worse than a count that reads high.
-      for (const taskId of unarchive) {
-        try {
-          await client.setTaskArchived(taskId, false);
-          pendingUnarchiveIds.delete(taskId);
-          changed++;
-        } catch (error) {
-          log.warn(`Failed to unarchive task ${taskId} on the server`, error);
+      try {
+        for (;;) {
+          const api = clientRef.current;
+          if (!api) break;
+          const store = useServerArchiveSyncStore.getState();
+          const unarchive = store.pendingUnarchiveTaskIds.filter(
+            (id) => !attempted.has(id),
+          );
+          const archive = pendingServerArchiveIds(
+            archivedRef.current,
+            new Set([...store.syncedTaskIds, ...attempted]),
+          );
+          if (unarchive.length === 0 && archive.length === 0) break;
+
+          // Restores lead: a session the server still has archived is
+          // invisible everywhere, which is worse than a count that reads high.
+          for (const taskId of unarchive) {
+            try {
+              await api.setTaskArchived(taskId, false);
+              store.clearUnarchive(taskId);
+              store.forgetSynced(taskId);
+              changed++;
+            } catch (error) {
+              attempted.add(taskId);
+              log.warn(
+                `Failed to unarchive task ${taskId} on the server`,
+                error,
+              );
+            }
+          }
+          for (const taskId of archive) {
+            try {
+              await api.setTaskArchived(taskId, true);
+              store.markSynced(taskId);
+              changed++;
+            } catch (error) {
+              attempted.add(taskId);
+              log.warn(`Failed to archive task ${taskId} on the server`, error);
+            }
+          }
         }
+      } finally {
+        running.current = false;
       }
-      // Sequential: this is background repair of a backlog that can run to
-      // hundreds, and it must not compete with the requests the user is
-      // waiting on. Only what landed is remembered, so anything the server
-      // refused this pass is tried again on the next poll.
-      for (const taskId of archive) {
-        try {
-          await client.setTaskArchived(taskId, true);
-          syncedTaskIds.add(taskId);
-          changed++;
-        } catch (error) {
-          log.warn(`Failed to archive task ${taskId} on the server`, error);
-        }
-      }
-      running.current = false;
       if (changed === 0) return;
-      // Refetches the list this pass just shortened, which both updates the
-      // counts drawn from it and hands the next pass the next batch.
+      // Refetches the lists the drain just shortened, which is what moves the
+      // space counts drawn from them.
       await queryClient.invalidateQueries({ queryKey: taskKeys.lists() });
     })();
-  }, [client, tasks, archivedTaskIds, queryClient]);
+  }, [client, archivedTaskIds, pendingUnarchive, queryClient]);
 }

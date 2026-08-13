@@ -1,46 +1,35 @@
 import { describe, expect, it } from "vitest";
 import { pendingServerArchiveIds } from "./serverArchiveSync";
 
-const tasks = [{ id: "a" }, { id: "b" }, { id: "c" }, { id: "d" }];
-
 describe("pendingServerArchiveIds", () => {
   it.each([
     {
-      name: "picks the archived tasks the server still lists",
-      archived: ["b", "d"],
-      handled: [],
-      limit: 25,
-      expected: ["b", "d"],
-    },
-    {
-      name: "skips ids a pass has already sent",
-      archived: ["b", "d"],
-      handled: ["b"],
-      limit: 25,
-      expected: ["d"],
-    },
-    {
-      name: "stops at the limit",
+      name: "picks every archived task not yet mirrored",
       archived: ["a", "b", "c"],
-      handled: [],
-      limit: 2,
-      expected: ["a", "b"],
+      skip: [],
+      expected: ["a", "b", "c"],
+    },
+    {
+      name: "skips ids already synced or already tried this run",
+      archived: ["a", "b", "c"],
+      skip: ["a", "c"],
+      expected: ["b"],
+    },
+    {
+      name: "has nothing to do when the archive is fully mirrored",
+      archived: ["a", "b"],
+      skip: ["a", "b"],
+      expected: [],
     },
     {
       name: "has nothing to do when nothing is archived",
       archived: [],
-      handled: [],
-      limit: 25,
+      skip: ["a"],
       expected: [],
     },
-  ])("$name", ({ archived, handled, limit, expected }) => {
-    expect(
-      pendingServerArchiveIds(
-        tasks,
-        new Set(archived),
-        new Set(handled),
-        limit,
-      ),
-    ).toEqual(expected);
+  ])("$name", ({ archived, skip, expected }) => {
+    expect(pendingServerArchiveIds(new Set(archived), new Set(skip))).toEqual(
+      expected,
+    );
   });
 });
