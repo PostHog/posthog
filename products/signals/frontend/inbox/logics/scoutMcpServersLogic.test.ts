@@ -35,11 +35,13 @@ function server(
     id: string,
     name: string,
     connectionState: ConnectionStateEnumApi,
-    sharedBy: UserBasicApi = YOU
+    sharedBy: UserBasicApi = YOU,
+    scope: MCPServiceAccountServerApi['scope'] = 'personal'
 ): MCPServiceAccountServerApi {
     return {
         id,
         shared_by: sharedBy,
+        scope,
         name,
         description: `${name} workspace`,
         icon_key: name.toLowerCase(),
@@ -79,10 +81,11 @@ describe('scoutMcpServersLogic', () => {
         logic?.unmount()
     })
 
-    it('separates your Scout grants from teammate grants and flags the ones needing setup', async () => {
+    it('separates your Scout grants from teammate team shares and flags the ones needing setup', async () => {
         const notion = server('notion-id', 'Notion', 'missing_credential')
         const linear = server('linear-id', 'Linear', 'ready')
-        const teammateGithub = server('github-id', 'GitHub', 'ready', TEAMMATE)
+        const teammateGithub = server('github-id', 'GitHub', 'ready', TEAMMATE, 'team')
+        const teammateSentry = server('sentry-id', 'Sentry', 'ready', TEAMMATE)
         const zendesk = server('zendesk-id', 'Zendesk', 'ready')
         useMocks({
             get: {
@@ -92,7 +95,10 @@ describe('scoutMcpServersLogic', () => {
                         count: 2,
                         next: null,
                         previous: null,
-                        results: [account('support', [zendesk]), account('scout', [notion, linear, teammateGithub])],
+                        results: [
+                            account('support', [zendesk]),
+                            account('scout', [notion, linear, teammateGithub, teammateSentry]),
+                        ],
                     },
                 ],
             },
@@ -102,13 +108,38 @@ describe('scoutMcpServersLogic', () => {
         logic.mount()
         await expectLogic(logic).toFinishAllListeners()
 
-        expect(logic.values.scoutServers).toEqual([notion, linear, teammateGithub])
+        expect(logic.values.scoutServers).toEqual([notion, linear, teammateGithub, teammateSentry])
         expect(logic.values.yourScoutServers).toEqual([notion, linear])
         expect(logic.values.teammateScoutServers).toEqual([teammateGithub])
         expect(logic.values.isScoutMcpAccessEnabled).toBe(true)
-        expect(logic.values.readyScoutServers).toEqual([linear])
-        expect(logic.values.availableScoutServers).toEqual([linear])
+        expect(logic.values.readyScoutServers).toEqual([linear, teammateGithub])
+        expect(logic.values.availableScoutServers).toEqual([linear, teammateGithub])
         expect(logic.values.scoutServersNeedingSetup).toEqual([notion])
+    })
+
+    it('counts a server the viewer already shares once, even when a teammate team-shares it too', async () => {
+        const yourLinear = server('linear-id', 'Linear', 'ready')
+        const teammateLinear = server('linear-id', 'Linear', 'ready', TEAMMATE, 'team')
+        useMocks({
+            get: {
+                '/api/projects/:team_id/mcp_gateway/service_accounts/': () => [
+                    200,
+                    {
+                        count: 1,
+                        next: null,
+                        previous: null,
+                        results: [account('scout', [yourLinear, teammateLinear])],
+                    },
+                ],
+            },
+        })
+
+        logic = scoutMcpServersLogic()
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(logic.values.readyScoutServers).toEqual([yourLinear])
+        expect(logic.values.availableScoutServers).toEqual([yourLinear])
     })
 
     it('attributes no grants while the current user is still loading', async () => {
