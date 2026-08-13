@@ -52,6 +52,16 @@ class TestBlocklistFingerprint:
             is None
         )
 
+    def test_negative_cohort_filter_stays_on_the_in_query_path(self, team) -> None:
+        # Cohort membership changes without emitting events, so an arrival-time delta would never see
+        # someone being added to an excluded cohort and their sessions would be dispatched.
+        from posthog.schema import CohortPropertyFilter
+
+        query = RecordingsQuery(
+            properties=[CohortPropertyFilter(key="id", value=7, operator=PropertyOperator.NOT_IN, type="cohort")]
+        )
+        assert blocklist_fingerprint(team, query) is None
+
     def test_changes_with_negative_filter_value(self, team) -> None:
         assert blocklist_fingerprint(team, _negative_query("a.example.com")) != blocklist_fingerprint(
             team, _negative_query("b.example.com")

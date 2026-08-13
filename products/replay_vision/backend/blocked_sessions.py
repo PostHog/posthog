@@ -13,10 +13,7 @@ it, and any mismatch, gap, or Redis loss triggers one full-width rebuild scan be
 path is trusted again. Failures fall back to the legacy in-query blocklist, which is always correct.
 """
 
-import json
-import hashlib
 import datetime as dt
-from dataclasses import dataclass
 
 from django.conf import settings
 
@@ -25,17 +22,24 @@ import structlog
 
 from posthog.schema import RecordingsQuery
 
+from posthog.dataclasses import frozen
 from posthog.models import Team
 from posthog.redis import get_client
 from posthog.session_recordings.queries.sub_queries.events_subquery import (
     ReplayFiltersEventsSubQuery,
     test_accounts_only_query,
 )
-from posthog.session_recordings.queries.utils import expand_test_account_filters
+from posthog.session_recordings.queries.utils import expand_test_account_filters, is_cohort_property
 
+from products.replay_vision.backend.fingerprint import config_fingerprint
 from products.replay_vision.backend.queries.scanner_candidate_query import _PARTITION_LOOKBACK, _execute_candidate_query
 
 logger = structlog.get_logger(__name__)
+
+
+class BlockedSetUnavailable(RuntimeError):
+    """The stored set no longer matches what was validated, so it cannot be trusted this tick."""
+
 
 # Entries older than the candidate lookback can never block a candidate again.
 _RETENTION = _PARTITION_LOOKBACK + dt.timedelta(hours=1)
@@ -62,7 +66,7 @@ _SESSIONS_KEY = "@posthog/replay-vision/blocked-sessions/{scanner_id}"
 _META_KEY = "@posthog/replay-vision/blocked-sessions/{scanner_id}/meta"
 
 
-@dataclass(frozen=True, kw_only=True)
+@frozen(kw_only=True)
 class _StoreState:
     watermark: dt.datetime | None
     fingerprint: str | None
@@ -88,19 +92,23 @@ def _builders(team: Team, query: RecordingsQuery) -> list[ReplayFiltersEventsSub
 
 
 def blocklist_fingerprint(team: Team, query: RecordingsQuery) -> str | None:
-    """Identity of the scanner's negative-filter set; None when no blocklist is needed.
+    """Identity of the scanner's negative filters, or None when the store must not be used.
 
-    Test-account filters are team config that changes independently of the scanner, so they're part
-    of the identity — an edit to either invalidates the stored set and forces a rebuild.
+    Test-account filters are team config that changes independently of the scanner, so they are part
+    of the identity: editing either invalidates the stored set and forces a rebuild.
+
+    A negative cohort filter returns None, which keeps the scanner on the in-query blocklist. Cohort
+    membership moves on its own, without emitting events, so adding a person to an excluded cohort
+    would never show up in an arrival-time delta and their existing sessions would be dispatched. The
+    in-query form re-evaluates the cohort on every sweep and does not have that gap.
     """
-    negative = [
-        prop.model_dump(exclude_none=True)
-        for builder in _builders(team, query)
-        for prop in builder.negative_properties()
-    ]
+    negative_props = [prop for builder in _builders(team, query) for prop in builder.negative_properties()]
+    if any(is_cohort_property(prop) for prop in negative_props):
+        return None
+    negative = [prop.model_dump(exclude_none=True) for prop in negative_props]
     if not negative:
         return None
-    return hashlib.sha256(json.dumps(negative, sort_keys=True, default=str).encode()).hexdigest()[:16]
+    return config_fingerprint({"negative": negative}, length=16)
 
 
 def refresh_blocked_sessions(
@@ -147,10 +155,21 @@ def refresh_blocked_sessions(
 
 
 def blocked_subset(scanner_id: str, session_ids: list[str]) -> set[str]:
-    """Which of `session_ids` are in the scanner's blocked set."""
+    """Which of `session_ids` are in the scanner's blocked set.
+
+    Re-checks the recorded size in the same round trip. The set is validated before the candidate
+    query runs, but that query takes time, and losing the key in between would turn every blocked
+    session into an unblocked one. Raising leaves the sweep to retry rather than dispatching them.
+    """
     if not session_ids:
         return set()
-    scores = _redis().zmscore(_SESSIONS_KEY.format(scanner_id=scanner_id), session_ids)
+    pipe = _redis().pipeline(transaction=True)
+    pipe.hget(_META_KEY.format(scanner_id=scanner_id), "entry_count")
+    pipe.zcard(_SESSIONS_KEY.format(scanner_id=scanner_id))
+    pipe.zmscore(_SESSIONS_KEY.format(scanner_id=scanner_id), session_ids)
+    recorded, live_count, scores = pipe.execute()
+    if int(live_count) < int(recorded or 0):
+        raise BlockedSetUnavailable(f"blocked set for {scanner_id} shrank below its recorded size")
     return {session_id for session_id, score in zip(session_ids, scores) if score is not None}
 
 
