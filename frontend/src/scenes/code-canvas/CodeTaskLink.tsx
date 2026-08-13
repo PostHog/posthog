@@ -10,26 +10,38 @@ import { DESKTOP_SCHEME } from './desktopScheme'
 
 export interface CodeTaskLinkProps {
     taskId: string
+    commentId?: string
+    commentScope?: string
+    commentItemId?: string
 }
 
 export const scene: SceneExport<CodeTaskLinkProps> = {
     component: CodeTaskLink,
-    paramsToProps: ({ params: { taskId } }) => ({
+    paramsToProps: ({ params: { taskId }, searchParams }) => ({
         taskId: taskId ?? '',
+        commentId: searchParams.comment || undefined,
+        commentScope: searchParams.scope || undefined,
+        commentItemId: searchParams.item || undefined,
     }),
 }
 
-/**
- * Public, unauthenticated bridge for desktop-app "task" share links (`/code/task/<taskId>`),
- * used by notifications sent outside the app (e.g. comment Slack DMs). On mount it deep-links
- * into the desktop app via the `posthog-code(-dev)://` custom scheme; for visitors without the
- * app it shows an explanation, a manual "open" button (in case the browser blocks the
- * auto-redirect), and a download link.
- */
-export function CodeTaskLink({ taskId }: CodeTaskLinkProps): JSX.Element {
-    // Null when the task id is missing (a partial URL or params not yet resolved), since firing
-    // with an empty id would send a malformed `<scheme>://task/`.
-    const deepLink = taskId ? `${DESKTOP_SCHEME}://task/${encodeURIComponent(taskId)}` : null
+function taskDeepLink({ taskId, commentId, commentScope, commentItemId }: CodeTaskLinkProps): string {
+    const params = new URLSearchParams()
+    if (commentId) {
+        params.set('comment', commentId)
+    }
+    if (commentScope) {
+        params.set('scope', commentScope)
+    }
+    if (commentItemId) {
+        params.set('item', commentItemId)
+    }
+    const query = params.toString()
+    return `${DESKTOP_SCHEME}://task/${encodeURIComponent(taskId)}${query ? `?${query}` : ''}`
+}
+
+export function CodeTaskLink(props: CodeTaskLinkProps): JSX.Element {
+    const deepLink = props.taskId ? taskDeepLink(props) : null
 
     useEffect(() => {
         if (deepLink) {
