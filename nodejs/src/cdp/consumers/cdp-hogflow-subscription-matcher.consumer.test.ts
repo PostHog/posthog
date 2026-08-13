@@ -1632,6 +1632,21 @@ describe('CdpHogflowSubscriptionMatcherConsumer', () => {
             expect(rekey!.sql).toContain('w.person_id IS NULL')
             expect(rekey!.params[3]).toEqual([0])
         })
+
+        it('propagates a watcher re-key failure instead of swallowing it', async () => {
+            // The re-key must fail the batch like applyMoves and the read/wake path do, so the Kafka
+            // offset doesn't advance and the pod replays; the UPDATE is idempotent, so replay is safe.
+            // Swallowing the error would strand the batch's watchers on their pre-merge person.
+            const failure = new Error('connection refused')
+            ;(matcher as any).cyclotronPool.query = jest.fn().mockRejectedValue(failure)
+
+            // version 0 → no repoint applyMoves runs before the re-key, so the rejection is the re-key's.
+            await expect(
+                matcher.processMoveBatch([
+                    { teamId: 1, distinctId: 'anon-did', newPersonId: 'survivor-uuid', version: 0 },
+                ])
+            ).rejects.toBe(failure)
+        })
     })
 
     // The full combination matrix lives here (mocked pg, ~ms each) rather than in the E2E suite:

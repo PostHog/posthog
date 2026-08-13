@@ -883,27 +883,24 @@ export class CdpHogflowSubscriptionMatcherConsumer<
             versions.push(survivor.version)
         }
 
-        try {
-            const result = await this.cyclotronPool.query(
-                `UPDATE conversion_watchers w
-                 SET person_id = u.person_id
-                 FROM (
-                     SELECT unnest($1::int[]) AS team_id, unnest($2::text[]) AS distinct_id, unnest($3::text[]) AS person_id, unnest($4::int[]) AS version
-                 ) u
-                 WHERE w.team_id = u.team_id AND w.distinct_id = u.distinct_id AND w.person_id IS DISTINCT FROM u.person_id
-                   -- A first mapping (version 0) only says "this distinct_id now has a person"; it may fill
-                   -- an empty anchor but must not overwrite one a merge already set, mirroring the
-                   -- onlyNullAnchor scope applyMoves uses. Repoints (version > 0) may repoint any anchor.
-                   AND (u.version > 0 OR w.person_id IS NULL)`,
-                [teamIds, distinctIds, personIds, versions]
-            )
-            counterHogflowMatcherWatchersRekeyed.inc(result.rowCount ?? 0)
-        } catch (err) {
-            // Best-effort: a failed re-key costs the conversions of the affected runs, but must not
-            // fail the batch and replay the whole move stream.
-            logger.error('⚠️', 'Failed to re-key conversion watchers after a merge', { err })
-            captureException(err)
-        }
+        // Let a re-key failure propagate, like applyMoves and the read/wake path do: it fails the batch
+        // so the offset doesn't advance and the pod replays. The UPDATE is idempotent — a no-op once
+        // person_id already matches — so replay is safe. Swallowing it here instead would strand every
+        // watcher in the batch on its pre-merge person until it expires, silently under-counting.
+        const result = await this.cyclotronPool.query(
+            `UPDATE conversion_watchers w
+             SET person_id = u.person_id
+             FROM (
+                 SELECT unnest($1::int[]) AS team_id, unnest($2::text[]) AS distinct_id, unnest($3::text[]) AS person_id, unnest($4::int[]) AS version
+             ) u
+             WHERE w.team_id = u.team_id AND w.distinct_id = u.distinct_id AND w.person_id IS DISTINCT FROM u.person_id
+               -- A first mapping (version 0) only says "this distinct_id now has a person"; it may fill
+               -- an empty anchor but must not overwrite one a merge already set, mirroring the
+               -- onlyNullAnchor scope applyMoves uses. Repoints (version > 0) may repoint any anchor.
+               AND (u.version > 0 OR w.person_id IS NULL)`,
+            [teamIds, distinctIds, personIds, versions]
+        )
+        counterHogflowMatcherWatchersRekeyed.inc(result.rowCount ?? 0)
     }
 
     private async applyMoves(moves: PersonDistinctIdMove[], onlyNullAnchor: boolean): Promise<void> {
