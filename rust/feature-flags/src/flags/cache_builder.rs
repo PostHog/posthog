@@ -83,7 +83,8 @@ fn is_evaluable(flag: &FeatureFlag) -> bool {
 fn retain_evaluable_and_referenced_flags(flags: &mut Vec<FeatureFlag>) {
     let referenced_ids: HashSet<FeatureFlagId> = flags
         .iter()
-        .flat_map(extract_direct_flag_dependency_ids)
+        .flat_map(active_flag_properties)
+        .filter_map(|p| p.get_feature_flag_id())
         .collect();
     flags.retain(|flag| is_evaluable(flag) || referenced_ids.contains(&flag.id));
 }
@@ -919,28 +920,18 @@ mod tests {
             "groups": [{"properties": [], "rollout_percentage": 100}],
             "payloads": {"true": "payload"},
         });
+        let disabled_row = |key: &str| FeatureFlagRow {
+            key: key.to_string(),
+            active: false,
+            filters: targeting.clone(),
+            ..base_flag_row(team.id)
+        };
         let referenced = context
-            .insert_flag(
-                team.id,
-                Some(FeatureFlagRow {
-                    key: "referenced-disabled-flag".to_string(),
-                    active: false,
-                    filters: targeting.clone(),
-                    ..base_flag_row(team.id)
-                }),
-            )
+            .insert_flag(team.id, Some(disabled_row("referenced-disabled-flag")))
             .await
             .expect("Failed to insert referenced inactive flag");
         let unreferenced = context
-            .insert_flag(
-                team.id,
-                Some(FeatureFlagRow {
-                    key: "unreferenced-disabled-flag".to_string(),
-                    active: false,
-                    filters: targeting.clone(),
-                    ..base_flag_row(team.id)
-                }),
-            )
+            .insert_flag(team.id, Some(disabled_row("unreferenced-disabled-flag")))
             .await
             .expect("Failed to insert unreferenced inactive flag");
         let dependent = context
