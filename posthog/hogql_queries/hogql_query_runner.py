@@ -83,9 +83,13 @@ class HogQLQueryRunner(AnalyticsQueryRunner[HogQLQueryResponse]):
         with self.timings.measure("filters"):
             if self.query.filters and finder.has_filters:
                 parsed_select = replace_filters(parsed_select, self.query.filters, self.team)
-        if self.query.variables:
+        # Resolve variables whenever the query references {variables.*}, even when the request carries
+        # no values — the runner then falls back to each variable's saved default instead of leaking an
+        # unresolved placeholder to the Hog VM as "Global variable not found: variables".
+        if self.query.variables or finder.has_variables:
             with self.timings.measure("replace_variables"):
-                parsed_select = replace_variables(parsed_select, list(self.query.variables.values()), self.team)
+                variable_values = list(self.query.variables.values()) if self.query.variables else []
+                parsed_select = replace_variables(parsed_select, variable_values, self.team)
         if finder.placeholder_fields or finder.placeholder_expressions:
             with self.timings.measure("replace_placeholders"):
                 var_dict: dict[str, Any] = {}

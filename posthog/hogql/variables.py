@@ -17,62 +17,73 @@ T = TypeVar("T", bound=ast.Expr)
 
 
 def replace_variables(node: T, variables: list[HogQLVariable], team: Team) -> T:
-    return ReplaceVariables(variables, team).visit(node)
+    replacer = ReplaceVariables(variables, team)
+    result = replacer.visit(node)
+    replacer.raise_for_missing_variables()
+    return result
 
 
 class ReplaceVariables(CloningVisitor):
-    insight_variables: list[InsightVariable]
-
     def __init__(self, variables: list[HogQLVariable], team: Team):
         super().__init__()
 
-        insight_vars = InsightVariable.objects.filter(team_id=team.pk, id__in=[v.variableId for v in variables]).all()
-
-        self.insight_variables = list(insight_vars)
         self.variables = variables
         self.team = team
+        self._insight_variables: list[InsightVariable] | None = None
+        self.missing_variables: list[str] = []
+
+    @property
+    def insight_variables(self) -> list[InsightVariable]:
+        # Loaded on the first {variables.*} placeholder so queries without variables run no query.
+        # Keyed by code_name so a placeholder resolves from its default_value even when the request
+        # omits the variable or carries a stale id that no longer points at a saved variable.
+        if self._insight_variables is None:
+            self._insight_variables = list(InsightVariable.objects.filter(team_id=self.team.pk))
+        return self._insight_variables
 
     def visit_placeholder(self, node):
         if node.chain and node.chain[0] == "variables":
             variable_code_name = node.chain[1]
-            if not self.variables:
-                raise self._missing_variable_error(variable_code_name)
 
-            matching_variables = [variable for variable in self.variables if variable.code_name == variable_code_name]
-            if not matching_variables:
-                raise self._missing_variable_error(variable_code_name)
+            matching_variable = next(
+                (variable for variable in self.variables if variable.code_name == variable_code_name), None
+            )
+            variable_definition = next(
+                (variable for variable in self.insight_variables if variable.code_name == variable_code_name), None
+            )
 
-            matching_variable = matching_variables[0]
-
-            matching_insight_variable = [
-                variable for variable in self.insight_variables if variable.code_name == variable_code_name
-            ]
-            if not matching_insight_variable:
-                raise QueryError(f"Variable {variable_code_name} does not exist")
-
-            variable_definition = matching_insight_variable[0]
-            if matching_variable.isNull:
-                if variable_definition.type == InsightVariable.Type.LIST and variable_definition.is_multi:
+            if matching_variable is not None and matching_variable.isNull:
+                if (
+                    variable_definition is not None
+                    and variable_definition.type == InsightVariable.Type.LIST
+                    and variable_definition.is_multi
+                ):
                     return ast.Array(exprs=[])
                 return ast.Constant(value=None)
 
-            value = (
-                matching_variable.value
-                if matching_variable.value is not None
-                else matching_insight_variable[0].default_value
-            )
+            if matching_variable is not None and matching_variable.value is not None:
+                value = matching_variable.value
+            elif variable_definition is not None:
+                # No value on the request, so fall back to the saved default (which may itself be None).
+                value = variable_definition.default_value
+            else:
+                # Neither the request nor a saved variable can supply a value. Record the name and keep
+                # visiting so every unresolved variable is reported in one error, not just the first.
+                self.missing_variables.append(variable_code_name)
+                return ast.Constant(value=None)
 
-            if variable_definition.type == InsightVariable.Type.LIST:
+            if variable_definition is not None and variable_definition.type == InsightVariable.Type.LIST:
                 if variable_definition.is_multi:
                     # Saved insights keep the scalar value from before a variable was
                     # toggled to multi — wrap it so {variables.x} is always an array.
                     items = value if isinstance(value, list) else ([] if value is None else [value])
                     return ast.Array(exprs=[ast.Constant(value=item) for item in items])
-                if not variable_definition.is_multi and isinstance(value, list):
+                if isinstance(value, list):
                     value = value[0] if value else None
 
             if (
-                variable_definition.type == InsightVariable.Type.DATE
+                variable_definition is not None
+                and variable_definition.type == InsightVariable.Type.DATE
                 and isinstance(value, str)
                 and is_relative_date_value(value)
             ):
@@ -82,18 +93,27 @@ class ReplaceVariables(CloningVisitor):
 
         return super().visit_placeholder(node)
 
-    def _missing_variable_error(self, variable_code_name: str) -> QueryError:
-        suggestions = self._get_variable_suggestions(variable_code_name)
-        if suggestions:
-            suggestion_list = ", ".join(suggestions)
-            return QueryError(f"Variable {variable_code_name} is missing from query. Did you mean: {suggestion_list}?")
-        return QueryError(f"Variable {variable_code_name} is missing from query")
+    def raise_for_missing_variables(self) -> None:
+        if not self.missing_variables:
+            return
 
-    def _get_variable_suggestions(self, variable_code_name: str) -> list[str]:
-        available_variables: list[str] = [str(variable.code_name) for variable in self.insight_variables if variable]
+        missing = sorted(set(self.missing_variables))
+        # Keep the variable names in the trailing detail, not the leading sentence, so error tracking
+        # groups every occurrence into one issue instead of one issue per variable name.
+        detail = f"Missing: {', '.join(missing)}"
+        suggestions = self._get_variable_suggestions(missing)
+        if suggestions:
+            detail += f". Did you mean: {', '.join(suggestions)}?"
+        raise QueryError(f"Set a value or a default for each query variable. {detail}")
+
+    def _get_variable_suggestions(self, missing_names: list[str]) -> list[str]:
+        available_variables: list[str] = [str(variable.code_name) for variable in self.insight_variables]
         if not available_variables:
             return []
-        return get_close_matches(variable_code_name, available_variables, n=3, cutoff=0.6)
+        matches = [
+            match for name in missing_names for match in get_close_matches(name, available_variables, cutoff=0.6)
+        ]
+        return list(dict.fromkeys(matches))
 
 
 def is_relative_date_value(value: str) -> bool:

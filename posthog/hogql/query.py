@@ -47,7 +47,7 @@ from posthog.hogql.filters import replace_filters
 from posthog.hogql.hogql import HogQLContext
 from posthog.hogql.modifiers import create_default_modifiers_for_team
 from posthog.hogql.parser import parse_select, sanitize_client_parser_mode
-from posthog.hogql.placeholders import find_placeholders, replace_placeholders
+from posthog.hogql.placeholders import FindPlaceholders, find_placeholders, replace_placeholders
 from posthog.hogql.printer import prepare_ast_for_printing, print_prepared_ast
 from posthog.hogql.printer.access_control import build_access_control_warning
 from posthog.hogql.resolver import Resolver
@@ -154,19 +154,21 @@ class HogQLQueryExecutor:
                 )
 
     @tracer.start_as_current_span("HogQLQueryExecutor._process_variables")
-    def _process_variables(self):
+    def _process_variables(self, finder: FindPlaceholders) -> bool:
         with self.timings.measure("variables"):
-            if self.variables and len(self.variables.keys()) > 0:
-                self.select_query = replace_variables(
-                    node=self.select_query, variables=list(self.variables.values()), team=self.team
-                )
+            # Resolve even when the request carries no values, so {variables.*} falls back to each
+            # variable's saved default instead of leaking to the Hog VM as a missing global.
+            if not finder.has_variables:
+                return False
+            variables = list(self.variables.values()) if self.variables else []
+            self.select_query = replace_variables(node=self.select_query, variables=variables, team=self.team)
+            return True
 
     @tracer.start_as_current_span("HogQLQueryExecutor._process_placeholders")
-    def _process_placeholders(self):
+    def _process_placeholders(self, finder: FindPlaceholders):
         with self.timings.measure("replace_placeholders"):
             if not self.placeholders:
                 self.placeholders = {}
-            finder = find_placeholders(self.select_query)
 
             if finder.has_filters:
                 if "filters" in self.placeholders and self.filters is not None:
@@ -561,8 +563,11 @@ class HogQLQueryExecutor:
 
     def _prepare_execution(self) -> _PreparedExecution:
         self._parse_query()
-        self._process_variables()
-        self._process_placeholders()
+        finder = find_placeholders(self.select_query)
+        if self._process_variables(finder):
+            # replace_variables rewrote the tree, so re-scan for the placeholders that remain.
+            finder = find_placeholders(self.select_query)
+        self._process_placeholders(finder)
         self._apply_limit()
         with self.timings.measure("_generate_hogql"):
             self._generate_hogql()

@@ -215,6 +215,16 @@ class TestHogQLQueryRunner(ClickhouseTestMixin, APIBaseTest):
         result_false = runner_false.calculate()
         self.assertEqual(result_false.results[0][0], 1)
 
+    def test_variable_resolves_from_default_when_query_carries_no_values(self):
+        # Running a saved SQL insight without variable overrides (a dashboard tile, an editor reload)
+        # must fall back to the saved default instead of leaking the placeholder to the Hog VM.
+        InsightVariable.objects.create(team=self.team, name="Days", code_name="days", type="Number", default_value=7)
+
+        runner = self._create_runner(HogQLQuery(query="select {variables.days}"))
+
+        response = runner.calculate()
+        self.assertEqual(response.results[0][0], 7)
+
     def test_invalid_connection_id_raises_exposed_hogql_error(self):
         runner = self._create_runner(
             HogQLQuery(

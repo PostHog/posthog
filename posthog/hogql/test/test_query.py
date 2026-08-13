@@ -1729,7 +1729,46 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
             execute_hogql_query(query, team=self.team, variables=variables)
         self.assertEqual(
             str(e.exception),
-            "Variable variable_two is missing from query. Did you mean: variable_one?",
+            "Set a value or a default for each query variable. Missing: variable_two. Did you mean: variable_one?",
+        )
+
+    @parameterized.expand(
+        [
+            ("no_variables_sent", {}),
+            (
+                "other_variable_sent",
+                {
+                    "lead": HogQLVariable(
+                        code_name="lead",
+                        value="acme",
+                        variableId="00000000-0000-0000-0000-000000000000",
+                    )
+                },
+            ),
+        ]
+    )
+    def test_variable_resolves_from_default_when_request_omits_it(
+        self, _name: str, variables: dict[str, HogQLVariable]
+    ) -> None:
+        InsightVariable.objects.create(
+            team=self.team,
+            name="Days",
+            code_name="days",
+            type=InsightVariable.Type.NUMBER,
+            default_value=7,
+        )
+
+        response = execute_hogql_query("SELECT {variables.days}", team=self.team, variables=variables)
+
+        self.assertEqual(response.results, [(7,)])
+
+    def test_missing_variables_without_defaults_are_reported_together(self) -> None:
+        query = "SELECT {variables.days}, {variables.lead}"
+        with self.assertRaises(QueryError) as e:
+            execute_hogql_query(query, team=self.team)
+        self.assertEqual(
+            str(e.exception),
+            "Set a value or a default for each query variable. Missing: days, lead",
         )
 
     @parameterized.expand(
