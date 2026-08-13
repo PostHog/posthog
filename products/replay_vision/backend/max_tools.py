@@ -43,6 +43,7 @@ from products.replay_vision.backend.models.vision_action import ActionMode, Visi
 from products.replay_vision.backend.observation_formatting import EVENT_ID_CITATION_RE, format_line, read_output
 from products.replay_vision.backend.queries.scanner_volume_estimate import (
     ESTIMATE_STALE_AFTER,
+    PREVIEW_ESTIMATE_BUDGET,
     estimate_scanner_session_volume,
     project_monthly_observations,
 )
@@ -1701,6 +1702,7 @@ class EstimateReplayVisionScannerTool(ReplayVisionGatesMixin, MaxTool):
                     query=scanner.recordings_query(),
                     sampling_mode=scanner.sampling_mode,
                     ch_user=ClickHouseUser.REPLAY_VISION,
+                    budget=PREVIEW_ESTIMATE_BUDGET,
                 )
             except Exception:
                 logger.exception("replay_vision.max_tools.estimate_failed", scanner_id=scanner_id)
