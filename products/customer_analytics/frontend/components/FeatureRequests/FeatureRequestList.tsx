@@ -88,16 +88,22 @@ export function FeatureRequestList(): JSX.Element {
     ]
 
     return (
-        <div className="@container mx-auto w-full max-w-6xl flex flex-col gap-4 px-6 py-4">
+        <div className="@container w-full flex flex-col gap-4 px-6 py-4">
             <div className="flex flex-wrap items-center justify-between gap-2">
                 <FeatureRequestFilters />
             </div>
             <div className="flex items-center justify-end gap-2">
-                <LemonButton type="secondary" onClick={openProductAreas} disabledReason={managerDisabledReason}>
+                <LemonButton
+                    type="secondary"
+                    size="small"
+                    onClick={openProductAreas}
+                    disabledReason={managerDisabledReason}
+                >
                     Manage product areas
                 </LemonButton>
                 <LemonButton
                     type="primary"
+                    size="small"
                     onClick={openCreateRequest}
                     disabledReason={editorDisabledReason}
                     data-attr="new-feature-request"
