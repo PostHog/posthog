@@ -148,6 +148,7 @@ export function InboxUsageWidget(): JSX.Element | null {
         freePrs,
         status,
         quotaLimited,
+        dailyReportLimitReached,
         resetDate,
         spentUsd,
         percentage,
@@ -212,6 +213,11 @@ export function InboxUsageWidget(): JSX.Element | null {
                 {quotaLimited && (
                     <span className="text-xs font-medium text-danger">
                         Agents are paused and won't open new pull requests until the limit is raised or usage resets.
+                    </span>
+                )}
+                {dailyReportLimitReached && (
+                    <span className="text-xs font-medium text-danger">
+                        Daily report limit reached. New reports resume at midnight in your project's timezone.
                     </span>
                 )}
                 {canAccessBilling ? (

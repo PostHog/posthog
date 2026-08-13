@@ -114,6 +114,33 @@ describe('signalTeamConfigLogic', () => {
         expect(lastPostBody?.autostart_base_branches).toEqual({ 'acme/web': 'release', 'acme/api': 'develop' })
     })
 
+    it('saves and clears the daily report limit through the draft', async () => {
+        await mountWith({})
+        logic.actions.setDraftMaxReportsPerDay(5)
+        expect(logic.values.saveMaxReportsPerDayDisabledReason).toBeNull()
+        logic.actions.saveDraftMaxReportsPerDay()
+        await expectLogic(logic).toFinishAllListeners()
+        expect(lastPostBody).toEqual({ max_reports_per_day: 5 })
+        expect(logic.values.maxReportsPerDay).toBe(5)
+
+        logic.actions.setDraftMaxReportsPerDay(null)
+        logic.actions.saveDraftMaxReportsPerDay()
+        await expectLogic(logic).toFinishAllListeners()
+        expect(lastPostBody).toEqual({ max_reports_per_day: null })
+        expect(logic.values.maxReportsPerDay).toBeNull()
+    })
+
+    it('blocks saving an invalid or unchanged daily report limit draft', async () => {
+        await mountWith({})
+        // Loading anchored the draft to the server value, so there is nothing to save yet.
+        expect(logic.values.saveMaxReportsPerDayDisabledReason).toBe('No changes to save')
+        logic.actions.setDraftMaxReportsPerDay(0)
+        expect(logic.values.saveMaxReportsPerDayDisabledReason).toBe('Enter a whole number of at least 1')
+        logic.actions.saveDraftMaxReportsPerDay()
+        await expectLogic(logic).toFinishAllListeners()
+        expect(lastPostBody).toBeNull()
+    })
+
     it('serializes rapid override updates so the latest map is persisted last', async () => {
         const initialConfig: SignalTeamConfig = {
             id: 'cfg-1',

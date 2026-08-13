@@ -28,6 +28,7 @@ from posthog.models.utils import uuid7
 from posthog.sync import database_sync_to_async
 
 from products.signals.backend.agent_runtime import AgentRuntime
+from products.signals.backend.daily_limit import DailyReportLimitGate
 from products.signals.backend.models import SignalScoutConfig, SignalScoutRun
 from products.signals.backend.report_charts import ReportChart
 from products.signals.backend.scout_harness.derived_metadata import DERIVED_METADATA_KEY
@@ -1918,6 +1919,37 @@ async def test_activity_skips_run_when_team_over_signals_quota(ateam):
     assert output.run_id is None
     assert output.status is None
     assert output.skip_reason == "quota_limited"
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db
+async def test_activity_skips_run_when_team_over_daily_report_limit(ateam):
+    fake_arun = AsyncMock()
+    with (
+        patch(
+            "products.signals.backend.temporal.agentic.scout_scheduler.is_team_signals_quota_limited",
+            return_value=False,
+        ),
+        patch(
+            "products.signals.backend.temporal.agentic.scout_scheduler.daily_report_limit_gate",
+            return_value=DailyReportLimitGate(limited=True, limit=2, reports_today=2),
+        ),
+        patch(
+            "products.signals.backend.temporal.agentic.scout_scheduler.capture_signal_report_daily_limit_paused"
+        ) as capture,
+        patch("products.signals.backend.scout_harness.runner.arun_signals_scout", fake_arun),
+    ):
+        env = ActivityEnvironment()
+        output = await env.run(
+            run_signals_scout_activity,
+            RunSignalsScoutInput(team_id=ateam.id, skill_name="signals-scout-errors"),
+        )
+
+    fake_arun.assert_not_called()
+    assert output.run_id is None
+    assert output.status is None
+    assert output.skip_reason == "daily_report_limit"
+    assert capture.call_args.kwargs["stage"] == "scout_run"
 
 
 @pytest.mark.asyncio

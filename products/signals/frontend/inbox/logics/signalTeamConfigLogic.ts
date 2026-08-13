@@ -23,10 +23,15 @@ export interface signalTeamConfigLogicValues {
     addBaseBranchOverrideDisabledReason: string | null
     autostartEnabled: boolean
     baseBranchOverrides: BaseBranchOverride[]
+    dailyReportLimitReached: boolean
     defaultAutostartPriority: SignalReportPriority
     draftBaseBranchBranch: string
     draftBaseBranchIntegrationId: number | null
     draftBaseBranchRepo: string
+    draftMaxReportsPerDay: number | null
+    maxReportsPerDay: number | null
+    reportsGeneratedToday: number
+    saveMaxReportsPerDayDisabledReason: string | null
     teamConfig: SignalTeamConfig | null
     teamConfigLoading: boolean
     teamConfigUpdating: boolean
@@ -85,6 +90,9 @@ export interface signalTeamConfigLogicActions {
     removeBaseBranchOverride: (repo: string) => {
         repo: string
     }
+    saveDraftMaxReportsPerDay: () => {
+        value: true
+    }
     setDraftBaseBranchBranch: (branch: string) => {
         branch: string
     }
@@ -93,6 +101,9 @@ export interface signalTeamConfigLogicActions {
     }
     setDraftBaseBranchRepo: (repo: string) => {
         repo: string
+    }
+    setDraftMaxReportsPerDay: (value: number | null) => {
+        value: number | null
     }
     updateBaseBranchOverride: (
         repo: string,
@@ -109,6 +120,13 @@ export interface signalTeamConfigLogicMeta {
         autostartEnabled: (teamConfig: SignalTeamConfig | null) => boolean
         defaultAutostartPriority: (teamConfig: SignalTeamConfig | null) => SignalReportPriority
         baseBranchOverrides: (teamConfig: SignalTeamConfig | null) => BaseBranchOverride[]
+        maxReportsPerDay: (teamConfig: SignalTeamConfig | null) => number | null
+        reportsGeneratedToday: (teamConfig: SignalTeamConfig | null) => number
+        dailyReportLimitReached: (teamConfig: SignalTeamConfig | null) => boolean
+        saveMaxReportsPerDayDisabledReason: (
+            draftMaxReportsPerDay: number | null,
+            maxReportsPerDay: number | null
+        ) => string | null
         teamConfigUpdating: (teamConfigLoading: boolean, teamConfig: SignalTeamConfig | null) => boolean
         addBaseBranchOverrideDisabledReason: (
             draftBaseBranchRepo: string,
@@ -150,6 +168,8 @@ export const signalTeamConfigLogic = kea<signalTeamConfigLogicType>([
         addBaseBranchOverride: true,
         updateBaseBranchOverride: (repo: string, branch: string) => ({ repo, branch }),
         removeBaseBranchOverride: (repo: string) => ({ repo }),
+        setDraftMaxReportsPerDay: (value: number | null) => ({ value }),
+        saveDraftMaxReportsPerDay: true,
     }),
     loaders(() => {
         // Every patch of `autostart_base_branches` sends the whole map, so two in flight at once let the
@@ -211,6 +231,16 @@ export const signalTeamConfigLogic = kea<signalTeamConfigLogicType>([
                 clearDraftBaseBranch: () => '',
             },
         ],
+        // The daily-limit input's draft, re-anchored to the server value whenever one arrives so
+        // an unsaved edit never survives a reload or another client's save.
+        draftMaxReportsPerDay: [
+            null as number | null,
+            {
+                setDraftMaxReportsPerDay: (_, { value }) => value,
+                loadTeamConfigSuccess: (_, { teamConfig }) => teamConfig?.max_reports_per_day ?? null,
+                patchTeamConfigSuccess: (_, { teamConfig }) => teamConfig?.max_reports_per_day ?? null,
+            },
+        ],
     }),
     selectors({
         // Master switch for autonomous inbox PRs: only an explicit false disables
@@ -231,12 +261,38 @@ export const signalTeamConfigLogic = kea<signalTeamConfigLogicType>([
                     .map(([repo, branch]) => ({ repo, branch }))
                     .sort((a, b) => a.repo.localeCompare(b.repo)),
         ],
+        maxReportsPerDay: [
+            (s) => [s.teamConfig],
+            (teamConfig: SignalTeamConfig | null): number | null => teamConfig?.max_reports_per_day ?? null,
+        ],
+        reportsGeneratedToday: [
+            (s) => [s.teamConfig],
+            (teamConfig: SignalTeamConfig | null): number => teamConfig?.reports_generated_today ?? 0,
+        ],
+        dailyReportLimitReached: [
+            (s) => [s.teamConfig],
+            (teamConfig: SignalTeamConfig | null): boolean => teamConfig?.daily_report_limit_reached === true,
+        ],
         // One loader serves both the initial fetch and every patch, so what separates them is whether
         // there's already a config on screen to be updating.
         teamConfigUpdating: [
             (s) => [s.teamConfigLoading, s.teamConfig],
             (teamConfigLoading: boolean, teamConfig: SignalTeamConfig | null): boolean =>
                 teamConfigLoading && teamConfig !== null,
+        ],
+        // Doubles as the save button's tooltip, same single-statement pattern as
+        // addBaseBranchOverrideDisabledReason below.
+        saveMaxReportsPerDayDisabledReason: [
+            (s) => [s.draftMaxReportsPerDay, s.maxReportsPerDay],
+            (draftMaxReportsPerDay: number | null, maxReportsPerDay: number | null): string | null => {
+                if (
+                    draftMaxReportsPerDay !== null &&
+                    (!Number.isInteger(draftMaxReportsPerDay) || draftMaxReportsPerDay < 1)
+                ) {
+                    return 'Enter a whole number of at least 1'
+                }
+                return draftMaxReportsPerDay === maxReportsPerDay ? 'No changes to save' : null
+            },
         ],
         // Doubles as the add button's tooltip, so what blocks the add is stated once rather than
         // derived separately for the guard and for the copy.
@@ -292,6 +348,12 @@ export const signalTeamConfigLogic = kea<signalTeamConfigLogicType>([
                 const next = { ...values.teamConfig?.autostart_base_branches }
                 delete next[repo]
                 actions.patchTeamConfig({ autostart_base_branches: next })
+            },
+            saveDraftMaxReportsPerDay: () => {
+                if (values.saveMaxReportsPerDayDisabledReason) {
+                    return
+                }
+                actions.patchTeamConfig({ max_reports_per_day: values.draftMaxReportsPerDay })
             },
             patchTeamConfigSuccess: ({ payload }) => {
                 captureSettled(true)

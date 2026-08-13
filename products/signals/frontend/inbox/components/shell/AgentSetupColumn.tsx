@@ -18,6 +18,7 @@ import { scoutMcpServersLogic } from '../../logics/scoutMcpServersLogic'
 import { signalTeamConfigLogic } from '../../logics/signalTeamConfigLogic'
 import { userAutonomyLogic } from '../../logics/userAutonomyLogic'
 import { signalSourcesLogic } from '../../signalSourcesLogic'
+import { DailyReportLimitSection } from '../config/DailyReportLimitSection'
 import { McpServersSection } from '../config/McpServersSection'
 import { ScoutsFleetSection } from '../config/scouts/ScoutsFleetSection'
 import { SelfDrivingSection } from '../config/SelfDrivingSection'
@@ -391,6 +392,7 @@ export function AgentSetupColumn({ layout }: { layout: 'rail' | 'stacked' }): JS
             </SetupSection>
             <SetupSection title="Usage">
                 <InboxUsageWidget />
+                <DailyReportLimitSection />
             </SetupSection>
             <SetupModal />
         </div>
