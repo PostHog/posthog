@@ -13,6 +13,7 @@ from posthog.hogql.database.data_catalog_metrics import CatalogSurface
 from posthog.hogql.errors import ExposedHogQLError, QueryError
 
 from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
+from posthog.clickhouse.query_tagging import Product, get_query_tags
 from posthog.errors import ExposedCHQueryError
 
 from products.data_catalog.backend.logic import relationships
@@ -232,3 +233,17 @@ class TestRelationshipProbeOutcomes(BaseTest):
                 accept_proposal(proposal, self.user)
 
         assert "Illegal types of arguments" in str(cast(dict, ctx.exception.detail)["join"])
+
+    def test_probe_tags_queries_with_the_data_catalog_product(self) -> None:
+        # The probe attributed itself to the warehouse product, so its cost and failures landed under
+        # another product in the generic posthog_query_execution_* series.
+        proposal = self._propose()
+        captured: dict[str, object] = {}
+
+        def capture(*args: object, **kwargs: object) -> None:
+            captured["product"] = get_query_tags().product
+
+        with patch.object(relationships, "execute_hogql_query", side_effect=capture):
+            accept_proposal(proposal, self.user)
+
+        assert captured["product"] == Product.DATA_CATALOG

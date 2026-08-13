@@ -226,7 +226,7 @@ def _execute_probe(
             "source_table_name": parse_expr(proposal.source_table_name),
         },
     )
-    tag_queries(product=Product.WAREHOUSE, feature=Feature.QUERY)
+    tag_queries(product=Product.DATA_CATALOG, feature=Feature.QUERY)
     execute_hogql_query(query=validation_query, team=proposal.team, context=HogQLContext(database=database, user=user))
 
 
