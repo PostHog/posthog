@@ -259,7 +259,5 @@ def _parse_connect(data: dict[str, Any], *, action: str = "mint") -> ServiceCred
     except (TypeError, ValueError):
         port = 0
     if not host or not database or not sslmode or port <= 0:
-        raise ServiceCredentialUnavailable(
-            f"{action} returned incomplete connect block: {_redact_payload(data)!r}"
-        )
+        raise ServiceCredentialUnavailable(f"{action} returned incomplete connect block: {_redact_payload(data)!r}")
     return ServiceCredentialConnect(host=str(host), port=port, database=str(database), sslmode=str(sslmode))

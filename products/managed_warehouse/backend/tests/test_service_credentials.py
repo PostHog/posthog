@@ -236,9 +236,7 @@ class TestRefreshServiceCredential:
         with mock.patch("products.managed_warehouse.backend.presentation.views._request") as mock_request:
             mock_request.return_value = _ok_response(_mint_payload())
 
-            credential = refresh_service_credential(
-                "org-1", "svc_a1b2c3d4e5f60718293a4b5c", ttl_seconds=600
-            )
+            credential = refresh_service_credential("org-1", "svc_a1b2c3d4e5f60718293a4b5c", ttl_seconds=600)
 
         assert credential.credential_id == "svc_a1b2c3d4e5f60718293a4b5c"
         # Refresh ALWAYS rotates: the secret is always present.
