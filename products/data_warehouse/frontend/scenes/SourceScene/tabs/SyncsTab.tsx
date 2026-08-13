@@ -12,7 +12,7 @@ import { LogsViewer } from 'scenes/hog-functions/logs/LogsViewer'
 import { teamLogic } from 'scenes/teamLogic'
 import { userLogic } from 'scenes/userLogic'
 
-import { ExternalDataJob, ExternalDataJobStatus, LogEntryLevel } from '~/types'
+import { ExternalDataJob, ExternalDataJobStatus, ExternalDataSchemaStatus, LogEntryLevel } from '~/types'
 
 import { sourceSettingsLogic } from './sourceSettingsLogic'
 
@@ -78,6 +78,37 @@ export const SyncsTab = ({ id, lockedSchema }: SyncsTabProps): JSX.Element => {
             label: schema.label ?? schema.name,
         }))
 
+    // A schema can be marked Failed with no job row (e.g. the sync failed to trigger, or the
+    // create-job step died before committing), which otherwise leaves this list blank. Surface the
+    // failure so an empty table reads as a diagnosis, not "nothing ever happened".
+    const isFiltered = !!lockedSchema || selectedSchemas.length > 0
+    const relevantSchemas = (source?.schemas ?? []).filter((schema) =>
+        lockedSchema
+            ? schema.name === lockedSchema
+            : selectedSchemas.length > 0
+              ? selectedSchemas.includes(schema.name)
+              : true
+    )
+    const failedSchemas = relevantSchemas.filter(
+        (schema) => schema.status === ExternalDataSchemaStatus.Failed && schema.latest_error
+    )
+
+    const emptyState =
+        failedSchemas.length > 0 ? (
+            <div className="flex flex-col items-center gap-1 text-center">
+                <span className="font-semibold">The last sync failed before a run was recorded.</span>
+                {failedSchemas.map((schema) => (
+                    <span key={schema.name} className="text-danger">
+                        {schema.label ?? schema.name}: {schema.latest_error}
+                    </span>
+                ))}
+            </div>
+        ) : isFiltered ? (
+            'No syncs match this schema filter yet.'
+        ) : (
+            'No syncs have run yet.'
+        )
+
     return (
         <>
             {!lockedSchema && schemaOptions.length > 1 && (
@@ -105,6 +136,7 @@ export const SyncsTab = ({ id, lockedSchema }: SyncsTabProps): JSX.Element => {
                 rowKey="id"
                 loading={jobsLoading}
                 disableTableWhileLoading={false}
+                emptyState={emptyState}
                 columns={[
                     {
                         title: 'Schema',

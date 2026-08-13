@@ -1468,6 +1468,19 @@ class ExternalDataSchemaViewset(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             return self.get_paginated_response(LogEntrySerializer(page, many=True).data)
         return Response(LogEntrySerializer(data, many=True).data)
 
+    @extend_schema(
+        request=None,
+        responses={
+            200: OpenApiResponse(description="A new sync was triggered."),
+            400: OpenApiResponse(
+                response={
+                    "type": "object",
+                    "properties": {"message": {"type": "string"}},
+                },
+                description="A sync is already running, the monthly sync limit was reached, or the trigger failed.",
+            ),
+        },
+    )
     @action(methods=["POST"], detail=True)
     def reload(self, request: Request, *args: Any, **kwargs: Any):
         instance: ExternalDataSchema = self.get_object()
@@ -1478,14 +1491,28 @@ class ExternalDataSchemaViewset(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 data={"message": "Monthly sync limit reached. Please increase your billing limit to resume syncing."},
             )
 
+        # Import schedules use ScheduleOverlapPolicy.SKIP, so Temporal drops the trigger while a run
+        # is active and no new job row is created. Guard first so the caller learns the sync did not
+        # start, instead of getting a 200 with a fabricated Running status.
+        latest_job = (
+            ExternalDataJob.objects.filter(schema_id=instance.pk, team_id=instance.team_id)
+            .order_by("-created_at")
+            .first()
+        )
+        if latest_job and latest_job.status == ExternalDataJob.Status.RUNNING:
+            return Response(
+                status=status.HTTP_400_BAD_REQUEST,
+                data={"message": "A sync is already running for this schema. Wait for it to finish, or cancel it."},
+            )
+
         try:
             trigger_external_data_workflow(instance)
         except temporalio.service.RPCError as e:
             logger.exception(f"Could not trigger external data job for schema {instance.id}", exc_info=e)
-
-        except Exception as e:
-            logger.exception(f"Could not trigger external data job for schema {instance.id}", exc_info=e)
-            raise
+            return Response(
+                status=status.HTTP_400_BAD_REQUEST,
+                data={"message": "Could not start the sync. Please try again."},
+            )
 
         instance.status = ExternalDataSchema.Status.RUNNING
         instance.save()

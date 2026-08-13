@@ -351,9 +351,12 @@ export const schemaSceneLogic = kea<schemaSceneLogicType>([
             try {
                 await api.externalDataSchemas.reload(schema.id)
                 posthog.capture('schema reloaded', { sourceType: values.source?.source_type })
+                lemonToast.success(`Sync started for ${schema.label ?? schema.name}`)
             } catch (e: any) {
-                lemonToast.error(e?.message || 'Cant reload schema at this time')
+                lemonToast.error(e?.data?.message || e?.message || "Couldn't start sync")
             } finally {
+                // The optimistic Running state above is thrown away when the user leaves and returns
+                // (the page does not poll), so refetch to land on the real server status.
                 actions.loadSchema()
             }
         },

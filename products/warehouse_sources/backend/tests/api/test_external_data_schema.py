@@ -3107,6 +3107,80 @@ class TestCancelExternalDataSchema(APIBaseTest):
         mock_cancel.assert_not_called()
 
 
+class TestReloadExternalDataSchema(APIBaseTest):
+    def _create_schema(self, schema_status=ExternalDataSchema.Status.COMPLETED):
+        source = ExternalDataSource.objects.create(
+            team=self.team, source_type=ExternalDataSourceType.STRIPE, job_inputs={"stripe_secret_key": "123"}
+        )
+        schema = ExternalDataSchema.objects.create(
+            name="BalanceTransaction",
+            team=self.team,
+            source=source,
+            should_sync=True,
+            status=schema_status,
+            sync_type=ExternalDataSchema.SyncType.FULL_REFRESH,
+        )
+        return source, schema
+
+    def test_reload_triggers_and_marks_running_when_no_job_is_running(self):
+        _, schema = self._create_schema()
+
+        with mock.patch(
+            "products.warehouse_sources.backend.presentation.views.external_data_schema.trigger_external_data_workflow"
+        ) as mock_trigger:
+            response = self.client.post(
+                f"/api/environments/{self.team.pk}/external_data_schemas/{schema.id}/reload/",
+            )
+
+        assert response.status_code == 200
+        mock_trigger.assert_called_once()
+        schema.refresh_from_db()
+        assert schema.status == ExternalDataSchema.Status.RUNNING
+
+    def test_reload_rejects_when_a_job_is_already_running(self):
+        # Import schedules use ScheduleOverlapPolicy.SKIP, so a trigger fired while a run is active
+        # is silently dropped. The endpoint must refuse instead of returning 200 with a fabricated
+        # Running status and no new job.
+        from products.warehouse_sources.backend.facade.models import ExternalDataJob
+
+        source, schema = self._create_schema(schema_status=ExternalDataSchema.Status.RUNNING)
+        ExternalDataJob.objects.create(
+            team=self.team,
+            pipeline=source,
+            schema=schema,
+            status=ExternalDataJob.Status.RUNNING,
+            workflow_id="test-workflow-id",
+        )
+
+        with mock.patch(
+            "products.warehouse_sources.backend.presentation.views.external_data_schema.trigger_external_data_workflow"
+        ) as mock_trigger:
+            response = self.client.post(
+                f"/api/environments/{self.team.pk}/external_data_schemas/{schema.id}/reload/",
+            )
+
+        assert response.status_code == 400
+        assert "already running" in response.json()["message"]
+        mock_trigger.assert_not_called()
+
+    def test_reload_reports_failure_when_the_trigger_errors(self):
+        from temporalio.service import RPCError, RPCStatusCode
+
+        _, schema = self._create_schema()
+
+        with mock.patch(
+            "products.warehouse_sources.backend.presentation.views.external_data_schema.trigger_external_data_workflow",
+            side_effect=RPCError("temporal unavailable", RPCStatusCode.UNAVAILABLE, b""),
+        ):
+            response = self.client.post(
+                f"/api/environments/{self.team.pk}/external_data_schemas/{schema.id}/reload/",
+            )
+
+        assert response.status_code == 400
+        schema.refresh_from_db()
+        assert schema.status == ExternalDataSchema.Status.COMPLETED
+
+
 class TestExternalDataSchemaAPIKeyScopes(APIBaseTest):
     def _make_api_key(self, scopes: list[str]) -> str:
         value = generate_random_token_personal()
