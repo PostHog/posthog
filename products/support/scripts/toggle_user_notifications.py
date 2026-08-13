@@ -1,77 +1,51 @@
 #!/usr/bin/env python3
-"""Toggle a PostHog email notification setting for a list of users, given their email addresses.
+"""Toggle one email notification setting for a list of users, by email address.
 
-Notification preferences live only on the individual user (`User.partial_notification_settings`),
-so there is no organization-wide switch and no admin UI for changing them on someone's behalf.
-This script is the staff-side equivalent: it resolves each email to a user UUID and PATCHes that
-one setting, one request per user.
+Notification preferences live only on the individual user (`User.partial_notification_settings`): there is no
+organization-wide switch, and no admin UI for changing them on someone's behalf. This is the staff-side equivalent -
+resolve each email to a UUID, then PATCH one setting, one request per user.
 
-Discovery uses `GET /api/users/?email=<email>`, which only returns other users' rows for a staff
-credential (`UserViewSet.get_queryset` filters everyone else down to themselves). Mutation is
-`PATCH /api/users/<uuid>/`, whose `notification_settings` validator merges the payload over the
-user's existing settings - top level for scalars, one level deep for the per-project/per-org maps -
-so a partial body never clobbers unrelated preferences.
+`GET /api/users/?email=` returns another user's row only for a staff credential (`UserViewSet.get_queryset` filters
+everyone else down to themselves). `PATCH /api/users/<uuid>/` merges `notification_settings` over the existing value,
+top level for scalars and one level deep for the per-project and per-org maps, so a partial body never clobbers
+unrelated preferences.
 
-Authentication is a **staff personal API key created with the All access (`*`) preset**, and
-nothing else. Two constraints leave no alternative:
+Auth is a staff personal API key with the **All access (`*`) preset**, and nothing else:
 
-- `user:write` cannot be granted to a key. The scope picker sets `disabledActions: ['write']` on
-  the `user` entry (`frontend/src/lib/scopes.tsx`), because that scope exists for reading your own
-  user object, not for staff writing someone else's. `*` short-circuits the scope check in
-  `APIScopePermission`, so All access is the only key that reaches this endpoint. Revoke it once the
-  run is done - it can do everything in every organization you belong to.
-- A browser session cookie cannot perform this write, which is why this script takes no session
-  argument. Writing notification settings isn't in `time_sensitive_allow_if_only_fields`, so
-  `TimeSensitiveActionPermission` demands a session inside its sensitive-action window. That window
-  is unreachable from a script: session-risk detection compares each request's User-Agent against
-  the baseline the browser established (`posthog/session/risk.py`), so a non-browser client scores
-  `UA_CHANGE` -> `RiskTier.MEDIUM` -> step-up required on its very first request, which nulls the
-  window. Re-authenticating clears the flag but rotates the session key, so any replacement cookie
-  trips the same check on first use. Matching the browser's User-Agent to get past it would be
-  evading the control rather than satisfying it.
+- `user:write` cannot be granted to a key - the scope picker sets `disabledActions: ['write']` on the `user` entry
+  (`frontend/src/lib/scopes.tsx`) - while `*` short-circuits `APIScopePermission`. Revoke the key after the run; it can
+  act on every organization you belong to.
+- A session cookie cannot do this write, so there is no session argument. The write is absent from
+  `time_sensitive_allow_if_only_fields`, so `TimeSensitiveActionPermission` requires an open sensitive-action window,
+  and a script cannot hold one: session risk (`posthog/session/risk.py`) scores each request's User-Agent against the
+  browser's baseline, so a non-browser client hits `UA_CHANGE` -> `RiskTier.MEDIUM` -> step-up on its first request,
+  which nulls the window. Re-authenticating rotates the session key, so a replacement cookie trips the same check.
+  Sending the browser's User-Agent would evade the control rather than satisfy it. The sibling scripts here do accept
+  a session cookie; this one deliberately does not.
 
-The other two preconditions are checked up front, since both surface as indistinguishable 403s at
-PATCH time:
+Two further preconditions are checked before any write, since both return indistinguishable 403s at PATCH time: a
+non-staff credential 403s on any UUID but `@me`, and an impersonated session 403s with `impersonation_path_blocked`
+because `/api/users/` is in `IMPERSONATION_BLOCKED_PATHS`. Log out of impersonation first.
 
-- Non-staff credentials get HTTP 403 on any UUID other than `@me`.
-- Impersonated sessions are blocked even for their own user: `/api/users/` is in
-  `IMPERSONATION_BLOCKED_PATHS`, so every non-idempotent request during impersonation is rejected
-  with `impersonation_path_blocked`. Log out of impersonation before running this.
+`--reason` is required for a write, and appears in the plan, the confirmation prompt, the closing summary, and the
+`--output` JSON with the operator's email and a UTC timestamp. Keep that file, because it is the only record:
+`partial_notification_settings` is in `field_exclusions` for the User activity-log scope, so `changes_between` returns
+nothing and `log_activity` drops the "updated" entry, and the `user updated` analytics event is attributed to the
+target user rather than to the operator.
 
-This is a deliberate departure from the sibling scripts in this directory, which offer a session
-cookie as a second credential. Offering one here would only produce confusing failures.
+Polarity is mixed, and is the main footgun: `all_weekly_digest_disabled=True` means the digest is off, while
+`error_tracking_weekly_digest=True` means it is on. `--enable` and `--disable` always mean "does this user receive it",
+and the script derives the stored boolean. `--list-settings` prints every setting with its polarity and default, and
+`--dry-run` prints the exact request body.
 
-Writing to someone's account while they aren't present is a support action, not a routine one -
-have the user's explicit request on record first. Every write therefore needs --reason, which is
-echoed in the plan, the confirmation prompt, and the closing summary, and stored in the --output
-JSON alongside the acting staff email and a UTC timestamp so a run can be attached to the ticket
-that motivated it.
+Number settings (currently `data_pipeline_error_threshold`) take `--value`, range-checked before any request and
+falling back to PostHog's default when omitted, which is how you undo an earlier change. The plan says which happened.
 
-That record is local to this run, not a server-side audit trail, and the distinction matters:
-`partial_notification_settings` sits in `field_exclusions` for the User activity-log scope, so
-`changes_between` yields no changes and `log_activity` drops the "updated" entry entirely. The
-`user updated` analytics event that does fire is attributed to the target user's distinct_id with
-no reference to the operator. Nothing server-side records that staff made this change on someone
-else's behalf, so --reason plus --output is the only durable evidence - write it for the next
-person reading the ticket, and keep the file.
-
-Polarity differs between settings and is the main footgun here: `all_weekly_digest_disabled=True`
-means the digest is OFF, while `error_tracking_weekly_digest=True` means it is ON. --enable and
---disable are always expressed as "does this user receive the notification", and the script writes
-whichever raw boolean that implies. Use --list-settings to see every setting, its polarity, and its
-default, and --dry-run to see the exact JSON body before anything is written.
-
-Not every setting is a toggle. Number settings (currently `data_pipeline_error_threshold`) take
---value instead of --enable/--disable, and fall back to PostHog's own default when --value is
-omitted, which is the usual way to undo a previous change. The value is range-checked before any
-request runs, and the resolved number is echoed in the plan so a defaulted run is never ambiguous.
-
-Note: unlike the other scripts here, there is no --project-id - users are not project-scoped, and
-POSTHOG_PROJECT_ID is ignored. Some settings are scoped to a project or organization; those take
---scope instead.
+There is no `--project-id` and `POSTHOG_PROJECT_ID` is ignored, because users are not project-scoped. Settings scoped
+to a project, organization or pipeline take `--scope` instead.
 
 Usage:
-  export POSTHOG_PERSONAL_API_KEY=phx_...   # staff key, All access (*) preset - see above
+  export POSTHOG_PERSONAL_API_KEY=phx_...   # All access (*) preset
   python products/support/scripts/toggle_user_notifications.py --list-settings
   python products/support/scripts/toggle_user_notifications.py \\
       a@example.com b@example.com --setting all_weekly_digest_disabled --disable --dry-run
@@ -81,7 +55,7 @@ Usage:
   python products/support/scripts/toggle_user_notifications.py \\
       --emails-file ./users.txt --setting data_pipeline_error_threshold --value 0.25 --dry-run
 
---host accepts a full instance URL or the PostHog Cloud region shorthands us/eu.
+--host takes a full instance URL or the region shorthands us/eu.
 """
 
 import os
@@ -142,6 +116,11 @@ AUTO_SELECT_KEYS = frozenset(
 )
 
 MIN_REASON_LENGTH = 10
+
+# How many planned changes to print before truncating. Deliberately above the ~10 sample the
+# sibling scripts use: a support run is usually one team's worth of people, and an operator
+# checking a plan against a ticket wants the whole list on screen, not a sample plus a count.
+PLAN_SAMPLE_LIMIT = 100
 
 
 # Setting kinds. Booleans are driven by --enable/--disable; numbers take a --value (or fall back
@@ -470,31 +449,57 @@ def verify_staff_credential(session: requests.Session, host: str) -> str:
     return email
 
 
-def resolve_user(session: requests.Session, host: str, email: str) -> dict[str, Any]:
-    """Look up one user by exact email, returning the API row (uuid + notification_settings).
-
-    Raises PostHogScriptError when the email matches no user, so the caller can record it as
-    unresolved and carry on with the rest of the list.
-    """
-    url = f"{host}/api/users/?{urlencode({'email': email})}"
+def query_users_by_email(session: requests.Session, host: str, value: str) -> list[dict[str, Any]]:
+    """Run one `?email=` lookup and return its rows."""
+    url = f"{host}/api/users/?{urlencode({'email': value})}"
     response = request_with_retries(session, "GET", url)
     if response.status_code == 403:
         raise PostHogScriptError(f"forbidden (HTTP 403): {printable(response.text[:200])}")
     if response.status_code != 200:
         raise PostHogScriptError(f"lookup failed (HTTP {response.status_code}): {printable(response.text[:200])}")
-
     results: list[dict[str, Any]] = response.json().get("results") or []
-    # The filter is a server-side exact match, but emails aren't guaranteed lowercase, so
-    # re-check case-insensitively rather than trusting whatever the filter returned.
-    exact = [row for row in results if str(row.get("email", "")).lower() == email.lower()]
-    if not exact:
-        raise PostHogScriptError("no user with that email")
-    if len(exact) > 1:
-        raise PostHogScriptError(f"{len(exact)} users share that email; resolve by UUID manually")
-    row = exact[0]
-    if not row.get("uuid"):
-        raise PostHogScriptError("user row has no uuid")
-    return row
+    return results
+
+
+def resolve_user(session: requests.Session, host: str, email: str) -> dict[str, Any]:
+    """Look up one user by email, returning the API row (uuid + notification_settings).
+
+    `UserViewSet.filterset_fields` declares `email` without a lookup, so DjangoFilterBackend
+    filters on `email__exact` and `User.email` is a plain EmailField - Postgres compares it
+    case-sensitively. Only `UserManager.create_user` lowercases on the way in, so stored addresses
+    are mostly lowercase but not guaranteed to be. Mirror `EmailLookupHandler.get_user_by_email`:
+    try the address as given, then its lowercase form. Without the retry, an operator pasting
+    `Name@example.com` out of a ticket is told "no user with that email", which reads as "this person
+    has no account" when the account exists and only the capitalization differed.
+
+    Raises PostHogScriptError when nothing matches, so the caller can record it as unresolved and
+    carry on with the rest of the list. Nothing is lost quietly: an unresolved address is counted in
+    the resolved/total line, listed under "Unresolved", included in --output, and makes the run exit
+    non-zero.
+    """
+    candidates = [email]
+    lowered = email.lower()
+    if lowered != email:
+        candidates.append(lowered)
+
+    for candidate in candidates:
+        results = query_users_by_email(session, host, candidate)
+        # Verify what came back rather than trusting the filter: a row whose address doesn't match
+        # the one asked for must never be written to.
+        matches = [row for row in results if str(row.get("email", "")).lower() == lowered]
+        if not matches:
+            continue
+        if len(matches) > 1:
+            raise PostHogScriptError(f"{len(matches)} users share that email; resolve by UUID manually")
+        row = matches[0]
+        if not row.get("uuid"):
+            raise PostHogScriptError("user row has no uuid")
+        return row
+
+    raise PostHogScriptError(
+        "no user with that email (the server-side filter is case-sensitive; this tried the address "
+        "as given and lowercased, so check the exact stored spelling)"
+    )
 
 
 def current_value(settings: dict[str, Any], setting: NotificationSetting, scope: Optional[str]) -> Any:
@@ -792,13 +797,13 @@ def main() -> int:
     if to_change:
         log("")
         log("Planned changes:")
-        for change in to_change[:10]:
+        for change in to_change[:PLAN_SAMPLE_LIMIT]:
             log(
                 f"  {printable(change.email)}  {change.uuid}  "
                 f"{format_current(change.current)} -> {json.dumps(change.desired)}"
             )
-        if len(to_change) > 10:
-            log(f"  ... and {len(to_change) - 10} more (use --output to save the full list)")
+        if len(to_change) > PLAN_SAMPLE_LIMIT:
+            log(f"  ... and {len(to_change) - PLAN_SAMPLE_LIMIT} more (use --output to save the full list)")
 
     clearing = [change for change in to_change if change.clears_auto_select]
     if clearing:
