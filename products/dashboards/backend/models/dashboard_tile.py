@@ -85,6 +85,23 @@ class DashboardTile(models.Model):
         null=True,
         db_index=False,
     )
+    dashboard_group = models.OneToOneField(
+        "dashboards.DashboardGroup",
+        on_delete=models.CASCADE,
+        related_name="tile",
+        null=True,
+        db_index=False,
+        db_constraint=False,
+    )
+    parent_group = models.ForeignKey(
+        "dashboards.DashboardGroup",
+        on_delete=models.SET_NULL,
+        related_name="member_tiles",
+        null=True,
+        blank=True,
+        db_index=False,
+        db_constraint=False,
+    )
     # Denormalized from `dashboard.team_id` so this table can be exposed via HogQL,
     # whose printer injects `WHERE team_id = <ctx.team_id>` against every PostgresTable.
     # Auto-populated in save() when omitted. The index is created concurrently
@@ -135,8 +152,14 @@ class DashboardTile(models.Model):
                 condition=Q(("widget__isnull", False)),
             ),
             models.CheckConstraint(
-                condition=build_unique_relationship_check(("insight", "text", "button_tile", "widget")),
+                condition=build_unique_relationship_check(
+                    ("insight", "text", "button_tile", "widget", "dashboard_group")
+                ),
                 name="dash_tile_exactly_one_related_object",
+            ),
+            models.CheckConstraint(
+                condition=~Q(dashboard_group__isnull=False, parent_group__isnull=False),
+                name="dash_tile_group_header_not_member",
             ),
         ]
         db_table = "posthog_dashboardtile"
@@ -174,10 +197,18 @@ class DashboardTile(models.Model):
         super().clean()
 
         related_fields = sum(
-            map(bool, [getattr(self, o_field) for o_field in ("insight", "text", "button_tile", "widget")])
+            map(
+                bool,
+                [getattr(self, o_field) for o_field in ("insight", "text", "button_tile", "widget", "dashboard_group")],
+            )
         )
         if related_fields != 1:
-            raise ValidationError("Can only set exactly one of insight, text, button_tile, or widget for this tile")
+            raise ValidationError(
+                "Can only set exactly one of insight, text, button_tile, widget, or dashboard_group for this tile"
+            )
+
+        if self.dashboard_group is not None and self.parent_group is not None:
+            raise ValidationError("Group header tiles cannot belong to another group")
 
         if self.insight is None and (
             self.filters_hash is not None
@@ -209,6 +240,8 @@ class DashboardTile(models.Model):
             qs = DashboardTile.objects_including_soft_deleted.filter(
                 dashboard_id=to_dashboard_id, widget=self.widget
             ).exclude(pk=self.pk)
+        elif self.dashboard_group is not None:
+            raise ValidationError("Group header tiles cannot be moved between dashboards.")
         else:
             return
         for stale in qs:
@@ -236,8 +269,10 @@ class DashboardTile(models.Model):
             ).first()
         elif self.widget is not None:
             raise ValidationError("Widget tiles must be deep-cloned when copying between dashboards.")
+        elif self.dashboard_group is not None:
+            raise ValidationError("Group header tiles must be cloned with their group when copying between dashboards.")
         else:
-            raise ValidationError("Cannot copy tile without insight, text, button_tile, or widget.")
+            raise ValidationError("Cannot copy tile without insight, text, button_tile, widget, or dashboard_group.")
 
         if existing:
             if existing.deleted is not True:
@@ -294,6 +329,7 @@ class DashboardTile(models.Model):
             )
             .prefetch_related("text__dashboard_tiles", "button_tile__dashboard_tiles", "widget__dashboard_tiles")
             .exclude(dashboard__deleted=True, deleted=True)
+            .filter(dashboard_group__isnull=True)
             .filter(Q(insight__deleted=False) | Q(insight__isnull=True))
             .order_by("insight__order")
         )
