@@ -106,9 +106,6 @@ _SLOT_TTL_SECONDS = 15 * 60
 # raised to HOGQL_INCREASED_MAX_EXECUTION_TIME by the NOTEBOOK_MATERIALIZE limit context.
 # The scan budget matches the kill switch's most severe ceiling, so a frame is never held to a
 # standing limit tighter than the one ClickHouse imposes on everything else during an incident.
-# This was 50GB, the logs-queries number — sized for the logs table over a time window. On
-# `events` it rejected aggregates whose result was a handful of rows, while the interactive lane
-# serving the very same cell caps nothing at all.
 _MAX_BYTES_TO_READ = 1_000_000_000_000  # 1TB
 _MAX_THREADS = 16  # below interactive traffic (the API query-service cap is 60)
 # Output-side cap (applied as a query setting on the HTTP request): row/scan caps don't
