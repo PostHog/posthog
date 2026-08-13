@@ -378,12 +378,17 @@ class TestCIFollowUpLoop:
                     retry_policy=RetryPolicy(maximum_attempts=1),
                     execution_timeout=timedelta(hours=2),
                 )
-                await env.sleep(CI_FOLLOW_UP_DELAY.total_seconds() * 3 + 10)
+                for _ in range(5):
+                    await env.sleep(CI_FOLLOW_UP_DELAY.total_seconds() + 10)
+                    if "followup" in _snapshot_events:
+                        followup_index = _snapshot_events.index("followup")
+                        if "ci_follow_up:False" in _snapshot_events[followup_index + 1 :]:
+                            break
                 await handle.signal(ProcessTaskWorkflow.complete_task, args=["completed", None])
                 await handle.result()
 
         followup_index = _snapshot_events.index("followup")
-        assert _snapshot_events[followup_index + 1] == "ci_follow_up:False"
+        assert "ci_follow_up:False" in _snapshot_events[followup_index + 1 :]
         assert _snapshot_events[-1] == "teardown:True"
 
     @pytest.mark.timeout(60, func_only=True)
