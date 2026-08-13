@@ -232,6 +232,18 @@ class SessionRecordingListFromQuery(SessionRecordingsListingBaseQuery):
                 ),
             )
 
+        # After the results are in, check whether the exclusion blocklist hit its row cap,
+        # because past the cap the query silently under-excludes. No-op without negated entities, and
+        # nothing to probe when the caller excluded against its own rows instead, where the scoped
+        # query is bounded by the ids it was given rather than by the cap.
+        if not self._skip_negative_blocklists:
+            ReplayFiltersEventsSubQuery(
+                self._team,
+                self._query,
+                self._allow_event_property_expansion,
+                hogql_query_modifiers=self._hogql_query_modifiers,
+            ).check_negative_blocklist_truncation()
+
         with tracer.start_as_current_span("SessionRecordingListFromQuery._data_to_return"):
             next_cursor = None
             if isinstance(self._paginator, HogQLCursorPaginator):
