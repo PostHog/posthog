@@ -134,6 +134,39 @@ describe("CloudArtifactService", () => {
     fetchMock.mockRestore();
   });
 
+  it("rejects an incomplete finalization response", async () => {
+    const fetchMock = vi
+      .spyOn(globalThis, "fetch")
+      .mockResolvedValue({ ok: true } as Response);
+    const service = new CloudArtifactService(
+      vi.fn().mockResolvedValue(btoa("hello")),
+      bundleLocalSkill,
+      passthroughDeps,
+    );
+    const client = makeClient();
+    (
+      client.prepareTaskRunArtifactUploads as ReturnType<typeof vi.fn>
+    ).mockResolvedValue([
+      {
+        id: "prep-1",
+        name: "a.txt",
+        type: "user_attachment",
+        size: 5,
+        presigned_post: { url: "https://s3/upload", fields: { key: "k" } },
+      },
+    ]);
+    (
+      client.finalizeTaskRunArtifactUploads as ReturnType<typeof vi.fn>
+    ).mockResolvedValue([]);
+
+    await expect(
+      service.uploadRunAttachments(client, "task-1", "run-1", ["/tmp/a.txt"]),
+    ).rejects.toThrow(
+      "Finalized uploads do not match the selected attachments",
+    );
+    fetchMock.mockRestore();
+  });
+
   it("appends edited text as an output artifact with the same name and content type", async () => {
     const fetchMock = vi
       .spyOn(globalThis, "fetch")

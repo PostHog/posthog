@@ -10,7 +10,7 @@ logged and dropped rather than retried — which also means a retry can't double
 a per-recipient sent marker to store.
 """
 
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from uuid import UUID
 
 from django.conf import settings
@@ -40,6 +40,16 @@ SLACK_DM_SETTING = "task_comments_slack_dm"
 # Slack allows 3000 characters per section; a DM that long is unreadable, and the link to the full
 # thread is right there in the heading.
 _BODY_LIMIT = 800
+_MAX_MENTION_LOOKUPS_PER_SLACK_WORKSPACE = 20
+
+# Slack resolves its own palette keyword per client, where a hex would be a fixed choice that
+# can't follow the reader's theme.
+_ACCENT = "good"
+
+_LOCATIONS: Mapping[str, str] = {
+    "desktop_canvas": "On a canvas",
+    "task_artifact": "On an artifact",
+}
 
 _HEADINGS: Mapping[str, str] = {
     TaskCommentActivity.Kind.MENTION: "{author} mentioned you on {link}",
@@ -92,6 +102,10 @@ def send_comment_slack_dms(*, team_id: int, comment_id: UUID, task_id: UUID, rec
     users = User.objects.in_bulk(list(wanted))
     integration_by_workspace = {integration.integration_id: integration for integration in integrations}
     slack_clients: dict[int, SlackIntegration] = {}
+    mention_cache: dict[tuple[int, str], str | None] = {}
+    mention_lookup_allowances = {
+        integration.id: _MAX_MENTION_LOOKUPS_PER_SLACK_WORKSPACE for integration in integrations
+    }
     for user_id, kind in wanted.items():
         recipient = users.get(user_id)
         if recipient is None:
@@ -134,8 +148,25 @@ def send_comment_slack_dms(*, team_id: int, comment_id: UUID, task_id: UUID, rec
             if not slack_user_id:
                 _skip(comment_id, "recipient_not_found_in_slack", user_id=user_id)
                 continue
-            fallback, blocks = _message(kind=kind, comment=comment, task=task, organization_id=team.organization_id)
-            slack.client.chat_postMessage(channel=slack_user_id, text=fallback, blocks=blocks, unfurl_links=False)
+            fallback, blocks = _message(
+                kind=kind,
+                comment=comment,
+                task=task,
+                organization_id=team.organization_id,
+                slack_user_id_by_email=_mention_resolver(
+                    organization_id=team.organization_id,
+                    integration=integration,
+                    slack=slack,
+                    cache=mention_cache,
+                    lookup_allowances=mention_lookup_allowances,
+                ),
+            )
+            slack.client.chat_postMessage(
+                channel=slack_user_id,
+                text=fallback,
+                attachments=[{"color": _ACCENT, "blocks": blocks}],
+                unfurl_links=False,
+            )
         except Exception as exc:
             logger.warning("comment_slack_dm_failed", comment_id=str(comment_id), user_id=user_id, error=str(exc))
 
@@ -252,6 +283,53 @@ def _slack_user_id_by_email(*, email: str, integration: Integration, slack: Slac
     return slack_user_id
 
 
+def _mention_resolver(
+    *,
+    organization_id: str | UUID,
+    integration: Integration,
+    slack: SlackIntegration,
+    cache: dict[tuple[int, str], str | None],
+    lookup_allowances: dict[int, int],
+) -> Callable[[str], str | None]:
+    """Map a mentioned teammate's email to a Slack member of this workspace.
+
+    Comment content is author-controlled, so only current organization members can reach Slack's
+    email lookup. Unresolvable or untrusted addresses stay as plain display names.
+    """
+
+    def resolve(email: str) -> str | None:
+        normalized_email = email.strip().lower()
+        key = (integration.id, normalized_email)
+        if key in cache:
+            return cache[key]
+        if lookup_allowances.get(integration.id, 0) <= 0:
+            return None
+        lookup_allowances[integration.id] -= 1
+        if not OrganizationMembership.objects.filter(
+            organization_id=organization_id,
+            user__email__iexact=normalized_email,
+            user__is_active=True,
+        ).exists():
+            cache[key] = None
+            return None
+        cache[key] = _slack_user_id_by_email(email=normalized_email, integration=integration, slack=slack)
+        return cache[key]
+
+    return resolve
+
+
+def _truncate_body(body: str) -> str:
+    """Cutting mid-``<…>`` leaves a link or mention token Slack renders as raw text, so a long
+    comment ending in one would show `<https://posthog.com/do…` to the reader."""
+    if len(body) <= _BODY_LIMIT:
+        return body
+    cut = body[: _BODY_LIMIT - 1]
+    unclosed = cut.rfind("<")
+    if unclosed > cut.rfind(">"):
+        cut = cut[:unclosed]
+    return cut.rstrip() + "…"
+
+
 def _author_name(comment: Comment) -> str:
     author = comment.created_by
     if author is None:
@@ -259,7 +337,14 @@ def _author_name(comment: Comment) -> str:
     return f"{author.first_name} {author.last_name}".strip() or author.email or "Someone"
 
 
-def _message(*, kind: str, comment: Comment, task: Task, organization_id: str | UUID | None) -> tuple[str, list[dict]]:
+def _message(
+    *,
+    kind: str,
+    comment: Comment,
+    task: Task,
+    organization_id: str | UUID | None,
+    slack_user_id_by_email: Callable[[str], str | None] | None = None,
+) -> tuple[str, list[dict]]:
     url = f"{settings.SITE_URL}/project/{task.team_id}/tasks/{task.id}"
     title = task.title or "a task"
     author = _author_name(comment)
@@ -271,10 +356,17 @@ def _message(*, kind: str, comment: Comment, task: Task, organization_id: str | 
     fallback = template.format(author=escape_slack_mrkdwn(author), link=escape_slack_mrkdwn(title))
 
     body, _ = rich_content_to_slack_payload(
-        comment.rich_content, comment.content or "", include_images=False, organization_id=organization_id
+        comment.rich_content,
+        comment.content or "",
+        include_images=False,
+        organization_id=organization_id,
+        slack_user_id_by_email=slack_user_id_by_email,
     )
-    body = body.strip()
-    if len(body) > _BODY_LIMIT:
-        body = body[: _BODY_LIMIT - 1] + "…"
-    text = f"{heading}\n\n> " + body.replace("\n", "\n> ") if body else heading
-    return fallback, [{"type": "section", "text": {"type": "mrkdwn", "text": text}}]
+    body = _truncate_body(body.strip())
+    text = f"{heading}\n\n{body}" if body else heading
+    blocks: list[dict] = [{"type": "section", "text": {"type": "mrkdwn", "text": text}}]
+    # Three canvases in one task otherwise produce three identical headings.
+    location = _LOCATIONS.get(comment.scope)
+    if location:
+        blocks.append({"type": "context", "elements": [{"type": "mrkdwn", "text": location}]})
+    return fallback, blocks

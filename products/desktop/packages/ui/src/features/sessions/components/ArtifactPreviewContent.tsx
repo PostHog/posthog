@@ -74,7 +74,6 @@ export function ArtifactPreviewContent({
   versionNav,
   taskId,
   commentTarget,
-  commentsEnabled,
   canEdit,
   beginEditing,
   previewData,
@@ -101,7 +100,6 @@ export function ArtifactPreviewContent({
   versionNav?: ReactNode;
   taskId: string;
   commentTarget: CommentTarget;
-  commentsEnabled: boolean;
   canEdit: boolean;
   beginEditing: () => void;
   previewData: PreviewData | undefined;
@@ -141,12 +139,10 @@ export function ArtifactPreviewContent({
           canEdit={canEdit}
           onEdit={beginEditing}
           actions={
-            commentsEnabled ? (
-              <ArtifactDocumentCommentAction
-                target={commentTarget}
-                taskId={taskId}
-              />
-            ) : undefined
+            <ArtifactDocumentCommentAction
+              target={commentTarget}
+              taskId={taskId}
+            />
           }
         />
         {commentLoadError}
@@ -161,20 +157,18 @@ export function ArtifactPreviewContent({
                 components={{ img: () => null }}
               />
             </div>
-            {commentsEnabled && (
-              <ArtifactTextAnnotations
-                artifactName={name}
-                rootRef={markdownRootRef}
-                containerRef={markdownContainerRef}
-                comments={annotationComments}
-                activeThreadId={focusedThreadId}
-                locateRequest={locateRequest}
-                members={members}
-                onActivateThread={activateThread}
-                onCreate={createAnchoredComment}
-                onResolutionsChange={onResolutionsChange}
-              />
-            )}
+            <ArtifactTextAnnotations
+              artifactName={name}
+              rootRef={markdownRootRef}
+              containerRef={markdownContainerRef}
+              comments={annotationComments}
+              activeThreadId={focusedThreadId}
+              locateRequest={locateRequest}
+              members={members}
+              onActivateThread={activateThread}
+              onCreate={createAnchoredComment}
+              onResolutionsChange={onResolutionsChange}
+            />
           </div>
         ) : (
           <div className="min-h-0 min-w-0 flex-1 overflow-hidden">
@@ -201,12 +195,10 @@ export function ArtifactPreviewContent({
           canEdit={canEdit}
           onEdit={beginEditing}
           actions={
-            commentsEnabled ? (
-              <ArtifactDocumentCommentAction
-                target={commentTarget}
-                taskId={taskId}
-              />
-            ) : undefined
+            <ArtifactDocumentCommentAction
+              target={commentTarget}
+              taskId={taskId}
+            />
           }
         />
         {commentLoadError}
@@ -214,7 +206,6 @@ export function ArtifactPreviewContent({
           <AnnotatedArtifactHtml
             html={previewData.html}
             name={name}
-            commentsEnabled={commentsEnabled}
             comments={annotationComments}
             activeThreadId={focusedThreadId}
             locateRequest={locateRequest}
@@ -243,7 +234,7 @@ export function ArtifactPreviewContent({
     (isAllowedImageMimeType(previewData.type) ||
       previewData.type === SVG_MIME_TYPE)
   ) {
-    const imageActions = commentsEnabled ? (
+    const imageActions = (
       <div className="flex shrink-0 items-center gap-1">
         <ArtifactDocumentCommentAction target={commentTarget} taskId={taskId} />
         <Tooltip>
@@ -270,7 +261,7 @@ export function ArtifactPreviewContent({
           </TooltipContent>
         </Tooltip>
       </div>
-    ) : undefined;
+    );
     return (
       <div className="flex h-full flex-col overflow-hidden">
         <GenericArtifactHeader
@@ -286,7 +277,7 @@ export function ArtifactPreviewContent({
             comments={annotationComments}
             activeThreadId={focusedThreadId}
             locateRequest={locateRequest}
-            commenting={commentsEnabled && imageCommenting}
+            commenting={imageCommenting}
             members={members}
             onCommentingChange={setImageCommenting}
             onActivateThread={activateThread}
@@ -298,9 +289,9 @@ export function ArtifactPreviewContent({
     );
   }
 
-  const documentActions = commentsEnabled ? (
+  const documentActions = (
     <ArtifactDocumentCommentAction target={commentTarget} taskId={taskId} />
-  ) : undefined;
+  );
   return (
     <div className="flex h-full flex-col overflow-hidden">
       {editableKind === "plain-text" && artifactResult?.source !== undefined ? (

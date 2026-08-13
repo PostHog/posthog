@@ -1463,7 +1463,8 @@ async fn a_fold_applies_precedence_and_scalars_and_lands_in_the_changelog() {
     let op = Uuid::now_v7();
     let mut harness = start_marked_fold_harness(
         CachedPerson {
-            properties: serde_json::json!({"a": "target", "b": "target"}),
+            properties: serde_json::to_vec(&serde_json::json!({"a": "target", "b": "target"}))
+                .unwrap(),
             created_at: 1_700_000_000,
             version: 3,
             is_identified: false,
@@ -1582,7 +1583,7 @@ async fn event_set_overrides_and_set_once_respects_snapshot_contributed_keys() {
     let op = Uuid::now_v7();
     let mut harness = start_marked_fold_harness(
         CachedPerson {
-            properties: serde_json::json!({"target_only": "t"}),
+            properties: serde_json::to_vec(&serde_json::json!({"target_only": "t"})).unwrap(),
             version: 2,
             ..test_cached_person()
         },
@@ -1629,7 +1630,7 @@ async fn fold_with_empty_target_properties_fills_from_snapshots_and_event() {
     let op = Uuid::now_v7();
     let mut harness = start_marked_fold_harness(
         CachedPerson {
-            properties: serde_json::json!({}),
+            properties: serde_json::to_vec(&serde_json::json!({})).unwrap(),
             created_at: 1_700_000_000,
             version: 10,
             ..test_cached_person()
@@ -1672,7 +1673,7 @@ async fn created_at_ignores_non_positive_snapshot_timestamps_and_target_can_be_e
     let op = Uuid::now_v7();
     let mut harness = start_marked_fold_harness(
         CachedPerson {
-            properties: serde_json::json!({}),
+            properties: serde_json::to_vec(&serde_json::json!({})).unwrap(),
             created_at: 1_500_000_000,
             version: 1,
             ..test_cached_person()
@@ -2017,7 +2018,8 @@ async fn an_oversized_fold_trims_the_contribution_not_the_targets_keys() {
     let target_value = "x".repeat(500_000);
     let mut harness = start_marked_fold_harness(
         CachedPerson {
-            properties: serde_json::json!({"aa_target": target_value.clone()}),
+            properties: serde_json::to_vec(&serde_json::json!({"aa_target": target_value.clone()}))
+                .unwrap(),
             version: 3,
             ..test_cached_person()
         },
@@ -2067,7 +2069,8 @@ async fn an_unremediable_fold_keeps_the_targets_document_untouched() {
     let target_value = "x".repeat(600_000);
     let mut harness = start_marked_fold_harness(
         CachedPerson {
-            properties: serde_json::json!({"tt_target": target_value.clone()}),
+            properties: serde_json::to_vec(&serde_json::json!({"tt_target": target_value.clone()}))
+                .unwrap(),
             version: 3,
             is_identified: false,
             ..test_cached_person()
@@ -2123,7 +2126,7 @@ async fn an_oversized_targets_fold_trims_to_the_hard_ceiling() {
         CachedPerson {
             // email is protected and alone overshoots the trim target;
             // tt_target is trimmable overflow above the ceiling.
-            properties: serde_json::json!({"email": email_value.clone(), "tt_target": "x".repeat(200_000)}),
+            properties: serde_json::to_vec(&serde_json::json!({"email": email_value.clone(), "tt_target": "x".repeat(200_000)})).unwrap(),
             version: 3,
             ..test_cached_person()
         },
@@ -2173,7 +2176,8 @@ async fn an_unapplyable_fold_completes_without_producing() {
     let email_value = "e".repeat(700_000);
     let mut harness = start_marked_fold_harness(
         CachedPerson {
-            properties: serde_json::json!({"email": email_value.clone()}),
+            properties: serde_json::to_vec(&serde_json::json!({"email": email_value.clone()}))
+                .unwrap(),
             version: 3,
             is_identified: false,
             ..test_cached_person()
@@ -2223,7 +2227,7 @@ async fn a_non_object_target_stays_an_object_through_the_unremediable_path() {
     let op = Uuid::now_v7();
     let mut harness = start_marked_fold_harness(
         CachedPerson {
-            properties: serde_json::json!("legacy-scalar"),
+            properties: serde_json::to_vec(&serde_json::json!("legacy-scalar")).unwrap(),
             ..test_cached_person()
         },
         &op,
@@ -2266,7 +2270,7 @@ async fn precedence_follows_ordinals_not_request_order() {
     let op = Uuid::now_v7();
     let mut harness = start_marked_fold_harness(
         CachedPerson {
-            properties: serde_json::json!({}),
+            properties: serde_json::to_vec(&serde_json::json!({})).unwrap(),
             version: 1,
             ..test_cached_person()
         },
@@ -2324,7 +2328,7 @@ async fn a_folds_target_cache_dirt_is_sanitized() {
     let op = Uuid::now_v7();
     let mut harness = start_marked_fold_harness(
         CachedPerson {
-            properties: serde_json::json!({"dirty": "a\u{0000}b"}),
+            properties: serde_json::to_vec(&serde_json::json!({"dirty": "a\u{0000}b"})).unwrap(),
             ..test_cached_person()
         },
         &op,

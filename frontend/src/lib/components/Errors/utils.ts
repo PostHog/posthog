@@ -5,6 +5,7 @@ import { isPostHogProperty } from '~/taxonomy/taxonomy'
 import {
     ErrorEventProperties,
     ErrorTrackingException,
+    ErrorTrackingRelease,
     ErrorTrackingRuntime,
     ErrorTrackingStackFrame,
     ExceptionAttributes,
@@ -192,6 +193,39 @@ export function getSessionId(properties: ErrorEventProperties): string | undefin
 
 export function getRecordingStatus(properties: ErrorEventProperties): string | undefined {
     return properties['$recording_status'] as string | undefined
+}
+
+/**
+ * Normalize Cymbal's event-level release snapshot to the release API shape used by the UI.
+ * The event property uses `timestamp`, while release API responses use `created_at`.
+ */
+export function getExceptionRelease(properties: ErrorEventProperties): ErrorTrackingRelease | undefined {
+    const release: unknown = properties['$exception_release']
+    if (!release || typeof release !== 'object' || Array.isArray(release)) {
+        return undefined
+    }
+
+    const candidate = release as Record<string, unknown>
+    if (
+        typeof candidate.id !== 'string' ||
+        typeof candidate.version !== 'string' ||
+        typeof candidate.timestamp !== 'string'
+    ) {
+        return undefined
+    }
+
+    const metadata =
+        candidate.metadata && typeof candidate.metadata === 'object' && !Array.isArray(candidate.metadata)
+            ? (candidate.metadata as ErrorTrackingRelease['metadata'])
+            : undefined
+
+    return {
+        id: candidate.id,
+        version: candidate.version,
+        created_at: candidate.timestamp,
+        project: typeof candidate.project === 'string' ? candidate.project : undefined,
+        metadata,
+    }
 }
 
 // we had a bug where SDK was sending non-string values for exception value

@@ -1,6 +1,7 @@
 ---
 name: debugging-table-access-denied
-description: Debug a TableAccessDeniedError — the "You don't have access to table `X`." error — from an error tracking issue, a Slack alert, or a user report. Use when investigating why HogQL denied a table (system.* or warehouse) and whether the occurrence is a real bug or working-as-designed. Trigger terms: TableAccessDeniedError, table_access_denied, "You don't have access to table".
+description: >-
+  Debugs a TableAccessDeniedError from an error tracking issue, Slack alert, or user report. Use when investigating why HogQL denied a system or warehouse table and whether the occurrence is a real bug or expected behavior. Trigger terms include TableAccessDeniedError, table_access_denied, and "You don't have access to table".
 ---
 
 # Debugging "You don't have access to table"

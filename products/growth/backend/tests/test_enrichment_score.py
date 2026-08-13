@@ -9,7 +9,7 @@ def _inputs(**overrides) -> IcpScoreInputs:
 
 
 def test_version_is_stamped():
-    assert SCORE_VERSION == "clay-parity-1"
+    assert SCORE_VERSION == "clay-parity-2"
 
 
 def test_all_inputs_missing_scores_only_the_country_penalty():

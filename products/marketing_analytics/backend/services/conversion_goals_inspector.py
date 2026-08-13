@@ -61,7 +61,7 @@ EXPLAIN_EVENT_SCAN_LIMIT = 5000
 
 @dataclass
 class ConversionGoalSummary:
-    id: str
+    conversion_goal_id: str
     name: str
     kind: GoalKind
     target_label: str
@@ -109,7 +109,7 @@ class GoalEventSample:
 
 @dataclass
 class GoalExplanation:
-    goal_id: str
+    conversion_goal_id: str
     goal_name: str
     kind: GoalKind
     period: DateRange
@@ -159,7 +159,7 @@ async def list_conversion_goals(team: Team, *, user: User | None = None) -> Conv
 def _failed_goal_summary(goal: dict[str, Any], exc: BaseException) -> ConversionGoalSummary:
     goal_id = str(goal.get("conversion_goal_id") or goal.get("id") or "")
     return ConversionGoalSummary(
-        id=goal_id,
+        conversion_goal_id=goal_id,
         name=goal.get("conversion_goal_name") or goal.get("name") or goal_id,
         kind=cast(GoalKind, goal.get("kind", "EventsNode")),
         target_label="(unavailable)",
@@ -193,7 +193,7 @@ async def explain_conversion_goal(
 
     if kind == "DataWarehouseNode":
         return GoalExplanation(
-            goal_id=goal_id,
+            conversion_goal_id=goal_id,
             goal_name=name,
             kind=kind,
             period=resolved_period,
@@ -265,7 +265,7 @@ async def explain_conversion_goal(
             )
 
     return GoalExplanation(
-        goal_id=goal_id,
+        conversion_goal_id=goal_id,
         goal_name=name,
         kind=kind,
         period=resolved_period,
@@ -350,7 +350,7 @@ async def _summarize_goal(
         action, action_error = await _resolve_action(team, target_id)
         if action is None:
             return ConversionGoalSummary(
-                id=goal_id,
+                conversion_goal_id=goal_id,
                 name=name,
                 kind=kind,
                 target_label=f"Action #{goal_id}",
@@ -380,7 +380,7 @@ async def _summarize_goal(
         target_label = f"{table_name}"
         last_30d_count, dw_misconfig = await _count_dw_goal(team, goal, user=user)
         return ConversionGoalSummary(
-            id=goal_id,
+            conversion_goal_id=goal_id,
             name=name,
             kind=kind,
             target_label=target_label,
@@ -397,7 +397,7 @@ async def _summarize_goal(
         )
 
     return ConversionGoalSummary(
-        id=goal_id,
+        conversion_goal_id=goal_id,
         name=name,
         kind=kind,
         target_label="(unknown kind)",
@@ -432,7 +432,7 @@ def _summary_with_split(
 ) -> ConversionGoalSummary:
     integrated_pct = round((counts.integrated / counts.total) * 100, 2) if counts.total > 0 else 0.0
     return ConversionGoalSummary(
-        id=goal_id,
+        conversion_goal_id=goal_id,
         name=name,
         kind=kind,
         target_label=target_label,

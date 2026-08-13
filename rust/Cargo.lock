@@ -8486,6 +8486,7 @@ dependencies = [
  "envconfig",
  "futures",
  "lifecycle",
+ "metrics-exporter-prometheus",
  "personhog-common",
  "personhog-proto",
  "rand 0.8.5",
@@ -8528,6 +8529,7 @@ dependencies = [
  "prost 0.13.5",
  "rdkafka",
  "rustls 0.23.37",
+ "serde",
  "serde_json",
  "sqlx",
  "tokio",
@@ -8971,7 +8973,7 @@ dependencies = [
 
 [[package]]
 name = "posthog-replay-anonymizer"
-version = "0.4.2"
+version = "0.4.3"
 dependencies = [
  "ahash 0.8.12",
  "anyhow",

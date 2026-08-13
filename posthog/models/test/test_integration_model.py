@@ -311,6 +311,8 @@ class TestOauthIntegrationModel(BaseTest):
         "GOOGLE_CALENDAR_APP_CLIENT_SECRET": "google-calendar-client-secret",
         "LINKEDIN_APP_CLIENT_ID": "linkedin-client-id",
         "LINKEDIN_APP_CLIENT_SECRET": "linkedin-client-secret",
+        "TIKTOK_ADS_CLIENT_ID": "tiktok-app-id",
+        "TIKTOK_ADS_CLIENT_SECRET": "tiktok-secret",
     }
 
     def create_integration(
@@ -714,6 +716,37 @@ class TestOauthIntegrationModel(BaseTest):
 
         assert integration.sensitive_config["access_token"] == "REFRESHED_ACCESS_TOKEN"
         assert integration.sensitive_config["refresh_token"] == expected_refresh_token
+
+    @patch("posthog.models.integration.reload_integrations_on_workers")
+    @patch("posthog.models.integration.requests.post")
+    def test_tiktok_ads_refresh_uses_business_api_and_unwraps_data(self, mock_post, mock_reload):
+        # TikTok Business API refreshes against its own endpoint with app_id/secret (JSON) and nests
+        # the refreshed tokens under `data` — not the Login Kit client_key/open.tiktokapis.com flow.
+        mock_post.return_value.status_code = 200
+        mock_post.return_value.json.return_value = {
+            "code": 0,
+            "data": {"access_token": "REFRESHED_ACCESS_TOKEN", "refresh_token": "ROTATED_REFRESH_TOKEN"},
+        }
+
+        integration = self.create_integration(kind="tiktok-ads", config={"expires_in": 1000})
+
+        with freeze_time("2024-01-01T14:00:00Z"):
+            with self.settings(**self.mock_settings):
+                OauthIntegration(integration).refresh_access_token()
+
+        mock_post.assert_called_with(
+            "https://business-api.tiktok.com/open_api/v1.3/oauth2/refresh_token/",
+            json={
+                "app_id": "tiktok-app-id",
+                "secret": "tiktok-secret",
+                "refresh_token": "REFRESH",
+                "grant_type": "refresh_token",
+            },
+            headers={"Content-Type": "application/json"},
+            timeout=10,
+        )
+        assert integration.sensitive_config["access_token"] == "REFRESHED_ACCESS_TOKEN"
+        assert integration.sensitive_config["refresh_token"] == "ROTATED_REFRESH_TOKEN"
 
     @patch("posthog.models.integration.reload_integrations_on_workers")
     @patch("posthog.models.integration.requests.post")

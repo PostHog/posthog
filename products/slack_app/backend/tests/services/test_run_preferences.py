@@ -133,14 +133,14 @@ class TestAvailableModelChoices:
     def test_drops_providers_we_cannot_route(self):
         """The gateway serves models under providers the tasks product has no runtime
         for; offering one would produce a run the gateway rejects."""
-        from products.slack_app.backend.services.llm_models import GatewayModel
+        from products.tasks.backend.facade.model_catalogue import GatewayModel
 
         gateway = (
             GatewayModel(id="claude-fable-5", owned_by="anthropic", context_window=200000),
             GatewayModel(id="titan-express", owned_by="bedrock", context_window=8000),
         )
         with patch(
-            "products.slack_app.backend.services.llm_models.list_slack_app_models",
+            "products.tasks.backend.logic.services.model_catalogue.list_gateway_models",
             return_value=gateway,
         ):
             assert [c.model for c in available_model_choices()] == ["claude-fable-5"]

@@ -2,6 +2,7 @@ import {
   computeRangeSelection,
   dedupeTaskIds,
   pruneToVisible,
+  sameTaskIds,
 } from "@posthog/core/sidebar/selection";
 import { create } from "zustand";
 
@@ -37,10 +38,23 @@ export const useTaskSelectionStore = create<TaskSelectionStore>()(
     selectedTaskIds: [],
     lastClickedId: null,
 
+    // A marquee drag rewrites this on every pointermove, most of which land on
+    // the row the last one did. Returning the same state leaves subscribers
+    // alone rather than re-rendering the list at the pointer's rate.
     setSelectedTaskIds: (taskIds) =>
-      set({
-        selectedTaskIds: dedupeTaskIds(taskIds),
-        lastClickedId: taskIds.length === 1 ? taskIds[0] : get().lastClickedId,
+      set((state) => {
+        const deduped = dedupeTaskIds(taskIds);
+        const lastClickedId =
+          taskIds.length === 1 ? taskIds[0] : state.lastClickedId;
+        // Both fields, so a no-op is only ever a genuine one — the anchor can
+        // move while the ids stay put.
+        if (
+          sameTaskIds(deduped, state.selectedTaskIds) &&
+          lastClickedId === state.lastClickedId
+        ) {
+          return state;
+        }
+        return { selectedTaskIds: deduped, lastClickedId };
       }),
 
     toggleTaskSelection: (taskId) =>

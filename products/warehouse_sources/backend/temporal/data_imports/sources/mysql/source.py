@@ -304,6 +304,15 @@ class MySQLSource(SQLSource[MySQLSourceConfig], SSHTunnelMixin, ValidateDatabase
             # locale-independent error code (the trailing message text is translated on non-English
             # servers) so it catches both the raw pymysql string and the wrapped `(1038, ...)` form.
             "(1038,": "Your MySQL/MariaDB server ran out of sort buffer memory while ordering this table by its incremental field (error 1038). We try to avoid the sort by forcing the incremental field's index, but this table has no usable index on that field. Add an index on the incremental field, raise the server's 'sort_buffer_size', or switch this table to a full re-sync, then resync.",
+            # MySQL/MariaDB error 3024 (ER_QUERY_TIMEOUT): the server's own `max_execution_time`
+            # cap killed the `ORDER BY <incremental_field>` query before the filesort could
+            # finish. We already try to dodge the sort with the in-activity FORCE INDEX fallback
+            # (see `_is_bad_plan_error`); this only escapes once that fallback can't apply — no
+            # usable index on the incremental field. Both `max_execution_time` and the missing
+            # index are static server-side state, so every retry filesorts the same rows and
+            # fails identically. Match the locale-independent error code (the trailing message
+            # text is translated on non-English servers).
+            "(3024,": "Your MySQL/MariaDB server's maximum statement execution time was exceeded while ordering this table by its incremental field (error 3024). We try to avoid the sort by forcing the incremental field's index, but this table has no usable index on that field. Add an index on the incremental field, raise the server's 'max_execution_time', or switch this table to a full re-sync, then resync.",
             # MySQL/MariaDB error 2013 (lost connection during query) that escapes the in-activity
             # FORCE INDEX fallback because the incremental field has no usable index (see
             # `MySQLUnavoidableFilesortError` in mysql.py). The un-indexed full-table sort re-times-out

@@ -38,6 +38,9 @@ export enum NotebookNodeType {
     Mention = RichContentNodeType.Mention,
     MarkdownNotebook = 'ph-markdown-notebook',
     Query = 'ph-query',
+    Dashboard = 'ph-dashboard-widget',
+    Action = 'ph-action',
+    Workflow = 'ph-workflow',
     Python = 'ph-python',
     // The revamped Python cell: runs in the notebook's sandbox kernel via the SQLV2 run
     // path, unlike the legacy ph-python node's in-browser kernel.
@@ -67,6 +70,7 @@ export enum NotebookNodeType {
     TaskCreate = 'ph-task-create',
     LLMTrace = 'ph-llm-trace',
     Issues = 'ph-issues',
+    ErrorTrackingIssue = 'ph-error-tracking-issue',
     UsageMetrics = 'ph-usage-metrics',
     ZendeskTickets = 'ph-zendesk-tickets',
     RelatedGroups = 'ph-related-groups',

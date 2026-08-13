@@ -2201,6 +2201,12 @@ export const HogFlowsRevisionsRestoreCreateBody = /* @__PURE__ */ zod.object({
         .describe(
             "Replace the open staged draft with this revision's content. Without it, restoring while a draft is open returns 409."
         ),
+    expected_draft_updated_at: zod.iso
+        .datetime({ offset: true })
+        .nullish()
+        .describe(
+            'The draft_updated_at of the staged draft this overwrite was confirmed against. If a draft exists with a different stamp (it was staged or edited since the confirmation was shown), the restore returns 409 instead of overwriting it. Omit to overwrite unconditionally.'
+        ),
 })
 
 export const hogFlowsSchedulesCreateBodyTimezoneMax = 64

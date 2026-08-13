@@ -138,13 +138,13 @@ export function runOutcomeNote(run: CustomPropertySyncRunApi, entityPlural: stri
     if (run.changed === 0) {
         return {
             label: 'no changes',
-            tooltip: `All ${run.rows_read} rows this sync read already hold the values last sent, so nothing needed updating.`,
+            tooltip: `All ${humanFriendlyNumber(run.rows_read)} rows this sync read already hold the values last sent, so nothing needed updating.`,
         }
     }
     if (run.existing === 0) {
         return {
             label: `no matching ${entityPlural}`,
-            tooltip: `${run.changed} rows changed, but none of their key column values matched an existing ${entityPlural === 'people' ? 'person' : 'group'}.`,
+            tooltip: `${humanFriendlyNumber(run.changed)} rows changed, but none of their key column values matched an existing ${entityPlural === 'people' ? 'person' : 'group'}.`,
         }
     }
     return null

@@ -1,5 +1,5 @@
 import { dayjs } from 'lib/dayjs'
-import { dateStringToComponents, dateStringToDayJs } from 'lib/utils/dateFilters'
+import { dateStringToComponents, dateStringToDayJs, getDefaultInterval } from 'lib/utils/dateFilters'
 
 import { IntervalType } from '~/types'
 
@@ -66,6 +66,77 @@ export function buildBucketKeys(
         }
     }
     return keys
+}
+
+// Grouping intervals offered in the picker. Sub-hour intervals are left out: the date filter has no
+// minute-level quick range, and a window short enough to need one is rare enough to skip.
+export const SELECTABLE_INTERVALS: IntervalType[] = ['hour', 'day', 'week', 'month']
+
+const INTERVAL_LABELS: Record<string, string> = { hour: 'Hour', day: 'Day', week: 'Week', month: 'Month' }
+
+// A line this dense is already a smear, and MCPToolQualityDailyStatsQuery's row limit starts dropping
+// the newest buckets not far above it, so intervals past this many points are offered disabled.
+const MAX_BUCKETS = 1000
+
+export interface IntervalOption {
+    value: IntervalType
+    label: string
+    // Set when the interval doesn't suit the selected window — the picker offers it disabled with
+    // this as the reason.
+    disabledReason: string | null
+}
+
+// Read a pinned grouping interval off a URL param, ignoring anything the picker can't offer.
+export function parseIntervalParam(raw: unknown): IntervalType | null {
+    return SELECTABLE_INTERVALS.find((interval) => interval === raw) ?? null
+}
+
+// How many buckets a window spans at an interval, without materializing every key. Approximate by
+// design: month lengths and DST shifts move the count by one, which never changes the judgement it
+// feeds.
+export function approximateBucketCount(
+    dateFrom: string | null,
+    dateTo: string | null,
+    timezone: string,
+    interval: IntervalType
+): number {
+    const { start, end } = resolveWindow(dateFrom, dateTo, timezone)
+    return Math.max(1, Math.floor(end.diff(startOfBucket(start, interval), interval, true)) + 1)
+}
+
+// The picker's options for a window, with the intervals that would draw an unreadable line or
+// collapse the range to a single point marked disabled.
+export function intervalOptionsForWindow(
+    dateFrom: string | null,
+    dateTo: string | null,
+    timezone: string
+): IntervalOption[] {
+    return SELECTABLE_INTERVALS.map((value) => {
+        const buckets = approximateBucketCount(dateFrom, dateTo, timezone, value)
+        return {
+            value,
+            label: INTERVAL_LABELS[value] ?? value,
+            disabledReason: buckets > MAX_BUCKETS ? 'Range too long' : buckets < 2 ? 'Range too short' : null,
+        }
+    })
+}
+
+// The interval to group by: the pinned choice when it still suits the window, else PostHog's
+// auto-choice for the range. A pin survives date changes, so it has to give way when the window
+// outgrows it — hourly kept from a 12-hour window would otherwise chart a year hour by hour.
+export function resolveInterval(
+    dateFrom: string | null,
+    dateTo: string | null,
+    timezone: string,
+    pinned: IntervalType | null
+): IntervalType {
+    if (pinned) {
+        const option = intervalOptionsForWindow(dateFrom, dateTo, timezone).find((o) => o.value === pinned)
+        if (option && !option.disabledReason) {
+            return pinned
+        }
+    }
+    return getDefaultInterval(dateFrom, dateTo)
 }
 
 // True when the final bucket is the current, still-running interval (open-ended window), so a chart

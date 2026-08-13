@@ -18,6 +18,8 @@ teams:
     # Metrics and Traces") absorbed logs, and #team-apm is where it lives.
     logs:
         slack: '#team-apm'
+    platform-ux:
+        slack: '#team-platform-ux'
     team-data-stack:
         slack: '#group-data-stack'
     # PostHog Desktop's channel kept the name it was created under.
@@ -63,8 +65,14 @@ rules:
       owners: team-ai-observability
     - match: '/docs/published/handbook/engineering/developing-locally.md'
       owners: team-devex
+    - match:
+          - '/frontend/src/lib/lemon-ui/'
+          - '/frontend/src/lib/ui/'
+      owners: platform-ux
     - match: '/nodejs/tests/'
       owners: team-ingestion
+    - match: '/packages/quill/'
+      owners: [platform-ux, '@sampennington']
     - match: '/posthog/helpers/email_utils.py'
       owners: team-platform-features
     - match: '/posthog/management/commands/find_enum_collisions.py'

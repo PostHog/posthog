@@ -40,7 +40,7 @@ import dataclasses
 from collections.abc import Callable
 from contextlib import closing
 from dataclasses import replace
-from datetime import date, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 from typing import Any, Literal
 
 from django.db import DatabaseError
@@ -92,7 +92,12 @@ from products.managed_warehouse.backend.facade.api import (
     get_stored_bucket_config,
     resolve_team_earliest_event_date,
 )
-from products.managed_warehouse.backend.facade.client import make_duckgres_conninfo
+from products.managed_warehouse.backend.facade.client import (
+    ServiceCredential,
+    ServiceCredentialUnavailable,
+    make_duckgres_conninfo,
+    mint_service_credential,
+)
 from products.managed_warehouse.backend.facade.contracts import ManagedWarehouseTeamMembership
 from products.managed_warehouse.backend.facade.metrics import record_duckling_backfill_workload, track_duckling_backfill
 from products.managed_warehouse.backend.facade.team_state import (
@@ -300,6 +305,75 @@ def _resolve_duckling_target(team_id: int) -> DucklingTarget:
     )
 
 
+def _mint_backfill_service_credential(target: DucklingTarget) -> ServiceCredential | None:
+    """Mint one team-scoped service credential for this session, or None to fall back.
+
+    Mint ORDER matters more than mint success: two backfill ops for the SAME
+    team routinely run concurrently (two partitions, or a daily + a full
+    backfill), and the CP's rotation is a shared, handshake-invalidating
+    operation on the team's login. Always force-rotating here would make
+    every session clobber every other in-flight session's credential — the
+    first worker drop thereafter fails that whole partition for good. So the
+    mint is reuse-FIRST: ask for the live grant with no rotation, and only
+    escalate to force_rotate when the CP has no usable credential to hand
+    back (fresh team, grant lapsed, or an admin rotation in-between — all
+    cases where CP returns no plaintext on the reuse path). Per the CP
+    contract (duckgres/CLAUDE.md "Service Credentials") a rotation inside the
+    TTL window is reserved for exactly that "nothing usable exists" case.
+
+    Fallback to org-root (None) is deliberate and transitional: a CP that is
+    unreachable, an org whose team row hasn't been created yet, or dev-mode
+    env-var duckgres all degrade to the legacy root credential so the backfill
+    keeps working while the service-credential path rolls out. Log loudly on
+    every fallback — this is exactly the drift we want visible during the
+    transition (the end state is root-access removed from Django entirely).
+    """
+    try:
+        credential = mint_service_credential(
+            target.organization_id,
+            target.team_id,
+            principal="dagster:events-backfill",
+            force_rotate=False,
+        )
+        if not credential.rotated or not credential.password:
+            # CP reused a live grant but hands us no plaintext — we hold
+            # nothing, so we are in the "nothing usable exists" case: rotate.
+            credential = mint_service_credential(
+                target.organization_id,
+                target.team_id,
+                principal="dagster:events-backfill",
+                force_rotate=True,
+            )
+        if not credential.password:
+            raise ServiceCredentialUnavailable(
+                f"service credential for org={target.organization_id} team={target.team_id} "
+                "carries no password even after force_rotate"
+            )
+        logger.info(
+            "duckling_service_credential_minted",
+            team_id=target.team_id,
+            organization_id=target.organization_id,
+            username=credential.username,
+            rotated=credential.rotated,
+            expires_at=credential.expires_at.isoformat(),
+        )
+        return credential
+    except Exception as exc:
+        # Broad on purpose: the rollout policy is "keep the backfill working,"
+        # and the failure modes a rollout actually hits (new CP deploys,
+        # settings/import hiccups, unexpected error shapes) are precisely the
+        # ones that don't arrive as ServiceCredentialUnavailable. The loud
+        # event name is the alert handle for this transitional period.
+        logger.warning(
+            "duckling_service_credential_unavailable_falling_back_to_root",
+            team_id=target.team_id,
+            organization_id=target.organization_id,
+            error=str(exc),
+            error_type=type(exc).__name__,
+        )
+        return None
+
+
 @retry(
     # The duckgres CP absorbs a warm-pool miss by blocking the connect itself for
     # up to the outer workerQueueTimeout (5m) waiting for a colocated worker — so a
@@ -308,14 +382,16 @@ def _resolve_duckling_target(team_id: int) -> DucklingTarget:
     # or the CP giving up after its block): the delay cap must exceed one full
     # attempt so a second one can actually run, hence 780s (~2 attempts) rather
     # than 360s (which a single 360s attempt would exhaust, making retries a no-op).
-    # This guards only the initial connect; a worker that drops mid-statement is
+    # This guards only the initial connect; a worker that drops mid-session is
     # handled separately by _DuckgresSession's reconnect-and-retry.
     stop=stop_after_delay(780) | stop_after_attempt(12),
     wait=wait_exponential(multiplier=1, min=5, max=60),
     retry=retry_if_exception_type((psycopg.OperationalError, OSError)),
     reraise=True,
 )
-def _connect_duckgres(target: DucklingTarget) -> psycopg.Connection[Any]:
+def _connect_duckgres(
+    target: DucklingTarget, service_credential: ServiceCredential | None = None
+) -> psycopg.Connection[Any]:
     """Open a psycopg connection to the org's duckgres server.
 
     Each org runs its own duckgres process on the duckling side; it auto-attaches
@@ -329,10 +405,16 @@ def _connect_duckgres(target: DucklingTarget) -> psycopg.Connection[Any]:
     connect_timeout to become ready (worker pod may need a fresh node), so we
     retry the connect rather than failing the partition on the first timeout.
     `psycopg.errors.ConnectionTimeout` is an `OperationalError` subclass.
+
+    When `service_credential` is provided the connection authenticates as the
+    team's canonical ``posthog_team_<id>_rw`` project_user login (team-scoped)
+    rather than the org-root credential. See
+    ``products/managed_warehouse/backend/service_credentials.py``.
     """
     conninfo = make_duckgres_conninfo(
         target.team_id,
         organization_id=target.organization_id,
+        service_credential=service_credential,
     )
     conn = psycopg.connect(
         conninfo,
@@ -478,7 +560,15 @@ class _DuckgresSession:
     def __init__(self, context: AssetExecutionContext, target: DucklingTarget) -> None:
         self._context = context
         self._target = target
-        self._conn = _connect_duckgres(target)
+        # Mint ONE team-scoped credential and present it on every connect of
+        # this session. Two classes of event can still invalidate it mid-run:
+        # (a) its TTL lapses and any other mint touch rotates the CP-side hash,
+        # (b) a CONCURRENT session for the same team rotates (backfill ops for
+        # one team run in parallel). Open connections are unaffected either
+        # way (expiry is handshake-only on the CP), but a _reconnect must
+        # refresh the credential once it's clearly stale — see _reconnect.
+        self._service_credential = _mint_backfill_service_credential(target)
+        self._conn = _connect_duckgres(target, service_credential=self._service_credential)
 
     @property
     def conn(self) -> psycopg.Connection[Any]:
@@ -537,12 +627,27 @@ class _DuckgresSession:
         assert last_exc is not None  # only reached after a recoverable-error break
         raise last_exc
 
+    # Reconnects refresh the held credential when it is (nearly) expired — a
+    # long-running session's TTL may lapse mid-run, and the CP rotates the
+    # hash on the first mint touch after lapse.
+    _CREDENTIAL_REFRESH_WINDOW = timedelta(minutes=2)
+
     def _reconnect(self) -> None:
         try:
             self._conn.close()
         except Exception:
             pass
-        self._conn = _connect_duckgres(self._target)
+        cred = self._service_credential
+        if cred is not None and cred.expires_at - datetime.now(UTC) < self._CREDENTIAL_REFRESH_WINDOW:
+            logger.info(
+                "duckling_service_credential_refreshing_on_reconnect",
+                team_id=self._target.team_id,
+                organization_id=self._target.organization_id,
+                expires_at=cred.expires_at.isoformat(),
+            )
+            cred = _mint_backfill_service_credential(self._target)
+            self._service_credential = cred
+        self._conn = _connect_duckgres(self._target, service_credential=cred)
 
     def close(self) -> None:
         try:

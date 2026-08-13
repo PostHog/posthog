@@ -1,8 +1,8 @@
 import {
   BellIcon,
   EnvelopeSimple,
+  GearSix,
   Lightning,
-  SlidersHorizontal,
 } from "@phosphor-icons/react";
 import {
   Button,
@@ -261,10 +261,10 @@ export function ChannelNav() {
           />
         ) : null}
         <NavIcon
-          icon={<SlidersHorizontal size={16} />}
-          label="Configure"
+          icon={<GearSix size={16} />}
+          label="Settings"
           isActive={false}
-          onClick={withTrack("configure", () => openSettings("agents"))}
+          onClick={withTrack("configure", () => openSettings())}
         />
       </div>
     </TooltipProvider>

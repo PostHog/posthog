@@ -2,7 +2,9 @@ use anyhow::Result;
 use clap::Subcommand;
 
 use crate::sourcemaps::{
-    args::{FileSelectionArgs, ReleaseArgs, UploadConcurrencyArgs, UploadConflictArgs},
+    args::{
+        FileSelectionArgs, ReleaseArgs, ReleaseMode, UploadConcurrencyArgs, UploadConflictArgs,
+    },
     inject::InjectArgs,
 };
 
@@ -47,6 +49,19 @@ pub struct ProcessArgs {
 
     #[clap(flatten)]
     pub upload_concurrency: UploadConcurrencyArgs,
+
+    /// How the release is associated with exceptions. `symbol-set` (the default) stamps the
+    /// release id onto the uploaded symbol sets: the previous behavior. EXPERIMENTAL `event`
+    /// injects the release id into each chunk as `_posthogReleaseId` (alongside
+    /// content-addressed chunk ids) so the SDK reports the release per event; symbol sets stay
+    /// release-independent. Also settable via `POSTHOG_RELEASE_MODE`.
+    #[arg(
+        long,
+        env = "POSTHOG_RELEASE_MODE",
+        value_enum,
+        default_value = "symbol-set"
+    )]
+    pub release_mode: ReleaseMode,
 }
 
 impl ProcessArgs {
@@ -63,6 +78,7 @@ impl From<ProcessArgs> for (InjectArgs, upload::Args) {
             file_selection: args.file_selection.clone(),
             release: args.release.clone(),
             public_path_prefix: args.public_path_prefix.clone(),
+            release_mode: args.release_mode,
         };
         let upload_args = upload::Args {
             file_selection: args.file_selection,
@@ -73,6 +89,7 @@ impl From<ProcessArgs> for (InjectArgs, upload::Args) {
             release: args.release,
             conflict: args.conflict,
             upload_concurrency: args.upload_concurrency,
+            release_mode: args.release_mode,
         };
 
         (inject_args, upload_args)

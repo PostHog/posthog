@@ -1,5 +1,13 @@
 import type { _MetricSeriesApi } from 'products/metrics/frontend/generated/api.schemas'
 
+/** Source-agnostic series shape for the metrics chart: the REST viewer (`_MetricSeriesApi`) and the
+ * `MetricsQuery` schema node (`MetricsQuerySeries`) both map onto it. */
+export interface MetricsChartSeries {
+    labels: Record<string, string>
+    points: { time: string; value: number | null }[]
+    metricName?: string | null
+}
+
 // PostHog defines data-color-1..15 in vars.scss; cycle through them so each series gets a distinct line.
 const SERIES_COLOR_COUNT = 15
 

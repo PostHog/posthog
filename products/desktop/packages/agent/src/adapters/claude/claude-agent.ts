@@ -164,11 +164,47 @@ const MCP_STATUS_TIMEOUT_MS = 5_000;
 
 const DEFAULT_FORCE_CANCEL_GRACE_MS = 30_000;
 
+// Cap on how long a finished turn waits for the SDK to fold a steer in, so a
+// steer stuck in the input queue can't defer the turn forever.
+const STEER_DELIVERY_GRACE_MS = 30_000;
+
 const SESSION_ENDED_MESSAGE =
   "The Claude Agent session has ended. Please start a new session.";
 
 const MAX_TITLE_LENGTH = 256;
 const LOCAL_ONLY_COMMANDS = new Set(["/context", "/heapdump", "/extra-usage"]);
+
+/** Steers the SDK has yet to fold into the turn. */
+function hasUnconsumedSteers(turn: Turn): boolean {
+  for (const steer of turn.pendingSteers.values()) {
+    if (!steer.consumed) {
+      return true;
+    }
+  }
+  return false;
+}
+
+/** Ack the steers already folded in: the model has now produced output for them. */
+function confirmConsumedSteers(turn: Turn): void {
+  for (const [uuid, steer] of turn.pendingSteers) {
+    if (steer.consumed) {
+      steer.settle(true);
+      turn.pendingSteers.delete(uuid);
+    }
+  }
+}
+
+/** Report every steer left on a finishing turn as undelivered so callers redeliver it. */
+function declinePendingSteers(turn: Turn): void {
+  if (turn.steerTimer) {
+    clearTimeout(turn.steerTimer);
+    turn.steerTimer = undefined;
+  }
+  for (const steer of turn.pendingSteers.values()) {
+    steer.settle(false);
+  }
+  turn.pendingSteers.clear();
+}
 
 function isSdkMcpServer(
   cfg: McpServerConfig,
@@ -496,10 +532,23 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
       const owner =
         this.session.activeTurn ??
         this.session.turnQueue.find((turn) => !turn.settled);
-      owner?.pendingSteerUuids.add(promptUuid);
+      // Decline before pushing, so the message is redelivered rather than also
+      // applied by a later turn.
+      if (!owner) {
+        return { stopReason: "end_turn", _meta: { steer: false } };
+      }
+      // Only a declined steer is redelivered, so acking on submission loses any
+      // steer the SDK never folds in. Wait for the model to act on it instead.
+      const ack = new Promise<PromptResponse>((resolve) => {
+        owner.pendingSteers.set(promptUuid, {
+          consumed: false,
+          settle: (reachedModel) =>
+            resolve({ stopReason: "end_turn", _meta: { steer: reachedModel } }),
+        });
+      });
       this.session.input.push(userMessage);
       await this.broadcastUserMessage(params);
-      return { stopReason: "end_turn", _meta: { steer: true } };
+      return ack;
     }
     if (isSteer) {
       return { stopReason: "end_turn", _meta: { steer: false } };
@@ -522,7 +571,7 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
 
     const turn: Turn = {
       promptUuid,
-      pendingSteerUuids: new Set(),
+      pendingSteers: new Map(),
       isLocalOnlyCommand,
       commandName: commandMatch?.[1],
       broadcast: () => this.broadcastUserMessage(params),
@@ -734,6 +783,7 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
         return;
       }
       turn.settled = true;
+      declinePendingSteers(turn);
       if (session.forceCancelTimer) {
         clearTimeout(session.forceCancelTimer);
         session.forceCancelTimer = undefined;
@@ -754,6 +804,7 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
         return;
       }
       turn.settled = true;
+      declinePendingSteers(turn);
       session.turnQueue = session.turnQueue.filter((t) => t !== turn);
       session.activeTurn = null;
       this.toolUseStreamCache.clear();
@@ -778,6 +829,7 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
       for (const turn of turns) {
         if (!turn.settled) {
           turn.settled = true;
+          declinePendingSteers(turn);
           turn.reject(error);
         }
       }
@@ -822,6 +874,7 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
           for (const queued of [...session.turnQueue]) {
             if (!queued.settled) {
               queued.settled = true;
+              declinePendingSteers(queued);
               queued.reject(
                 RequestError.internalError(undefined, SESSION_ENDED_MESSAGE),
               );
@@ -985,6 +1038,7 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
                   },
                 });
                 head.settled = true;
+                declinePendingSteers(head);
                 session.turnQueue = session.turnQueue.filter((t) => t !== head);
                 head.resolve({ stopReason: "end_turn" });
                 break;
@@ -1094,21 +1148,6 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
             );
 
             if (
-              !isTaskNotification &&
-              session.activeTurn &&
-              session.activeTurn.pendingSteerUuids.size > 0
-            ) {
-              this.logger.debug(
-                "Deferring turn completion until pending steers are consumed",
-                {
-                  sessionId,
-                  pendingSteers: session.activeTurn.pendingSteerUuids.size,
-                },
-              );
-              break;
-            }
-
-            if (
               (message as { stop_reason?: string }).stop_reason === "refusal"
             ) {
               // The API's stop_details.explanation is integrator-facing prose,
@@ -1183,6 +1222,33 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
                 POSTHOG_NOTIFICATIONS.BACKGROUND_TURN_COMPLETE,
                 { sessionId, stopReason: result.stopReason ?? "end_turn" },
               );
+            } else if (
+              session.activeTurn &&
+              hasUnconsumedSteers(session.activeTurn)
+            ) {
+              // Only settlement waits on the steer. The refusal and error
+              // branches above already returned, and this result's own side
+              // effects have run, so nothing is dropped if the turn later
+              // settles from the grace timer.
+              const deferred = session.activeTurn;
+              stopReason = result.stopReason ?? "end_turn";
+              deferred.deferredResult = { stopReason, usage: sessionUsage() };
+              deferred.steerTimer ??= setTimeout(() => {
+                if (session.activeTurn !== deferred) {
+                  return;
+                }
+                this.logger.warn("Steer never reached the model", {
+                  sessionId,
+                  pendingSteers: deferred.pendingSteers.size,
+                });
+                settleActive(
+                  deferred.deferredResult ?? { stopReason: "end_turn" },
+                );
+              }, STEER_DELIVERY_GRACE_MS);
+              this.logger.debug(
+                "Deferring turn completion until pending steers are consumed",
+                { sessionId, pendingSteers: deferred.pendingSteers.size },
+              );
             } else {
               stopReason = result.stopReason ?? "end_turn";
               settleActive({ stopReason, usage: sessionUsage() });
@@ -1246,7 +1312,9 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
             // active one first), then drops from the feed. Runs before the
             // cancelled guard so a turn enqueued after a cancel still starts.
             if (message.type === "user" && "uuid" in message && message.uuid) {
-              if (session.activeTurn?.pendingSteerUuids.delete(message.uuid)) {
+              const steer = session.activeTurn?.pendingSteers.get(message.uuid);
+              if (steer) {
+                steer.consumed = true;
                 break;
               }
               const queued = session.turnQueue.find(
@@ -1288,6 +1356,11 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
             }
 
             if (message.type === "assistant") {
+              // Subagent output is a separate model context, so it is no
+              // evidence the steer reached this turn's model.
+              if (session.activeTurn && message.parent_tool_use_id === null) {
+                confirmConsumedSteers(session.activeTurn);
+              }
               const inner = message.message as unknown as {
                 stop_reason?: string | null;
                 stop_details?: {
@@ -1444,6 +1517,7 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
         continue;
       }
       turn.settled = true;
+      declinePendingSteers(turn);
       session.turnQueue = session.turnQueue.filter((t) => t !== turn);
       session.pendingOrphanResults += 1;
       turn.resolve(this.cancelledResponse());

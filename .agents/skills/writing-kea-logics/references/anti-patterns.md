@@ -94,6 +94,23 @@ If the handler doesn't `await` anything, it's a reducer or selector wearing a lo
 hat. Loaders are for async — the action/success/failure trio and the `xLoading` boolean
 are noise when the work is synchronous.
 
+### A resolved-looking default for async state
+
+```ts
+// don't
+reducers({
+  hasAccess: [false, { loadAccessSuccess: (_, { access }) => access.allowed }],
+})
+// consumers can't tell "no access" from "nobody asked yet" — the UI renders a
+// verdict (upsell, empty state) before the request resolves
+```
+
+Default async state to `null` (a loader's natural default) or an explicit `'unknown'`
+so consumers can branch on resolution before acting, and keep resets distinct actions
+from verdicts. See [state-decision.md](state-decision.md#unknown-is-a-state); the UI
+side (loading, empty, and error are three different screens) lives in
+[writing-ui-components](../../writing-ui-components/SKILL.md#resolution-states).
+
 ## Loading data and persistence
 
 ### `localStorage.setItem` directly inside a listener
@@ -374,6 +391,28 @@ otherLogic.build(props).mount() // leaks
 ```
 
 Always store the return value and dispose it, ideally via `cache.disposables`.
+
+### Acquire/release pairs assembled by hand at each call site
+
+```ts
+// don't — every caller re-implements the pairing and the count
+listeners(({ cache }) => ({
+  openPanel: () => {
+    cache.watchers = (cache.watchers ?? 0) + 1
+    if (cache.watchers === 1) startWatching()
+  },
+  closePanel: () => {
+    cache.watchers -= 1
+    if (cache.watchers === 0) stopWatching()
+  },
+}))
+```
+
+When operations only make sense paired — watch/unwatch, claim/release,
+subscribe/unsubscribe — one helper owns the pairing (and the refcount, if there is
+one) so it can't be reassembled wrong, and the refcount gets tests: double-acquire,
+unbalanced release. If the resource is mount-scoped, that helper already exists:
+`cache.disposables` ([using-kea-disposables](../../using-kea-disposables/SKILL.md)).
 
 ### Calling `initKea` outside `initKea.ts` / `initKeaTests`
 

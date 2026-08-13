@@ -17,6 +17,7 @@ from temporalio.client import ScheduleListActionStartWorkflow
 from products.data_modeling.backend.logic.cohort_scheduling import tier_schedule_id
 from products.data_modeling.backend.logic.node_frequency import get_declared_target, set_declared_target
 from products.data_modeling.backend.logic.saved_query_dag_sync import sync_saved_query_to_dag
+from products.data_modeling.backend.logic.schedule_reconcile import DagScheduleTeardown
 from products.data_modeling.backend.models.dag import DAG, REVENUE_ANALYTICS_DAG_NAME
 from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
 from products.data_modeling.backend.models.edge import Edge
@@ -52,13 +53,11 @@ def _listing_client(schedules_by_dag):
 
 
 @contextmanager
-def _temporal_boundary(schedules_by_dag=None, v2_delete_error=None):
-    v2_delete = mock.Mock()
-    if v2_delete_error is not None:
-        v2_delete.side_effect = v2_delete_error
+def _temporal_boundary(schedules_by_dag=None, v2_teardown_fails=False):
+    v2_delete = mock.Mock(return_value=DagScheduleTeardown(ok=not v2_teardown_fails, deleted=()))
     with (
         mock.patch(f"{COMMAND}.sync_connect"),
-        mock.patch(f"{COMMAND}.delete_schedule", v2_delete),
+        mock.patch(f"{COMMAND}.delete_dag_schedules", v2_delete),
         mock.patch(f"{RECONCILE}.delete_schedule") as v1_delete,
         mock.patch(
             f"{RECONCILE}.async_connect", new=mock.AsyncMock(return_value=_listing_client(schedules_by_dag or {}))
@@ -413,7 +412,7 @@ class TestConsolidateDags(BaseTest):
         self._node(source, moved)
         schedules_by_dag = {str(target.id): [str(target.id)], str(source.id): [str(source.id)]}
 
-        with _temporal_boundary(schedules_by_dag=schedules_by_dag, v2_delete_error=RuntimeError("temporal down")):
+        with _temporal_boundary(schedules_by_dag=schedules_by_dag, v2_teardown_fails=True):
             with self.assertRaisesRegex(CommandError, "incomplete"):
                 self._run(apply=True)
 

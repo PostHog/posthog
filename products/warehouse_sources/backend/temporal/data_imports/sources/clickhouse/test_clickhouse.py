@@ -27,6 +27,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.clickhouse
     _get_partition_settings,
     _has_duplicate_primary_keys,
     _is_rate_limited,
+    _is_too_many_queries,
     _is_transient_connect_drop,
     _parse_mv_target,
     _project_columns,
@@ -733,6 +734,11 @@ class TestClickHouseSourceRetryableErrors:
             # typically ClickHouse Cloud still cold-resuming past our allowance.
             "Error HTTPSConnectionPool(host='play.clickhouse.com', port=8443): Read timed out. "
             "(read timeout=120) executing HTTP request attempt 1 (https://play.clickhouse.com:8443)",
+            # The source server was already at its concurrent-query limit when the
+            # client-construction probe ran; the exact wrapped message reached error tracking.
+            "HTTPDriver for https://play.clickhouse.com:8443 received ClickHouse error code 202\n "
+            "Code: 202. DB::Exception: Too many simultaneous queries for all users. Current: 500, "
+            "maximum: 500. (TOO_MANY_SIMULTANEOUS_QUERIES) (version 24.8.1.1 (official build))",
         ],
     )
     def test_transient_errors_are_retryable(self, source, error_msg):
@@ -816,6 +822,32 @@ class TestIsRateLimited:
         assert not _is_rate_limited(message)
 
 
+class TestIsTooManyQueries:
+    @pytest.mark.parametrize(
+        "message",
+        [
+            "Code: 202. DB::Exception: Too many simultaneous queries for all users. Current: 500, "
+            "maximum: 500. (TOO_MANY_SIMULTANEOUS_QUERIES)",
+            "HTTPDriver for https://host:8443 received ClickHouse error code 202\n "
+            "Code: 202. DB::Exception: Too many simultaneous queries for all users. Current: 100, "
+            "maximum: 100. (TOO_MANY_SIMULTANEOUS_QUERIES) (version 24.8.1.1 (official build))",
+        ],
+    )
+    def test_matches_too_many_queries(self, message):
+        assert _is_too_many_queries(message)
+
+    @pytest.mark.parametrize(
+        "message",
+        [
+            "Code: 241. DB::Exception: Memory limit exceeded",
+            "HTTPDriver for https://host:8443 returned response code 429",
+            "Code: 516. DB::Exception: Authentication failed",
+        ],
+    )
+    def test_does_not_match_other_codes(self, message):
+        assert not _is_too_many_queries(message)
+
+
 class TestGetClientTransientRetry:
     """`_get_client` retries a transient connection drop during connect in-process."""
 
@@ -864,6 +896,24 @@ class TestGetClientTransientRetry:
         with (
             patch.object(ch_module.time, "sleep") as mock_sleep,
             patch.object(ch_module, "get_client", side_effect=[rate_limited, rate_limited, client]) as mock_get_client,
+        ):
+            assert self._connect() is client
+        assert mock_get_client.call_count == 3
+        mock_sleep.assert_has_calls([call(2), call(4)])
+
+    def test_retries_connect_time_too_many_queries_then_succeeds(self):
+        # The client-construction probe itself can be rejected when the source server is
+        # already at its concurrent-query limit; we retry it with the same backoff as a 429.
+        client = MagicMock()
+        too_many_queries = OperationalError(
+            "Code: 202. DB::Exception: Too many simultaneous queries for all users. Current: 500, "
+            "maximum: 500. (TOO_MANY_SIMULTANEOUS_QUERIES)"
+        )
+        with (
+            patch.object(ch_module.time, "sleep") as mock_sleep,
+            patch.object(
+                ch_module, "get_client", side_effect=[too_many_queries, too_many_queries, client]
+            ) as mock_get_client,
         ):
             assert self._connect() is client
         assert mock_get_client.call_count == 3

@@ -187,6 +187,44 @@ describe('aiObservabilitySharedLogic', () => {
         })
     })
 
+    it.each(['-1h', 'all'])('keeps the explicit %s dashboard range through URL sync and refresh', (dateFrom) => {
+        logic.actions.setSavedDashboardDates('-30d', null)
+        router.actions.push(urls.aiObservabilityDashboard())
+
+        expectLogic(logic).toMatchValues({
+            dashboardDateFilter: { dateFrom: '-30d', dateTo: null },
+            dashboardDateOverride: false,
+            dashboardExternalDateFilters: { date_from: undefined, date_to: undefined },
+        })
+
+        logic.actions.setDashboardDates(dateFrom, null)
+
+        expect(router.values.searchParams).toMatchObject({ date_from: dateFrom })
+        expectLogic(logic).toMatchValues({
+            dashboardDateFilter: { dateFrom, dateTo: null },
+            dashboardDateOverride: true,
+            dashboardExternalDateFilters: { date_from: dateFrom, date_to: null },
+        })
+
+        logic.unmount()
+        logic = aiObservabilitySharedLogic({})
+        logic.mount()
+        logic.actions.setSavedDashboardDates('-30d', null)
+
+        expectLogic(logic).toMatchValues({
+            dashboardDateFilter: { dateFrom, dateTo: null },
+            dashboardDateOverride: true,
+        })
+
+        router.actions.push(urls.aiObservabilityDashboard())
+
+        expectLogic(logic).toMatchValues({
+            dashboardDateFilter: { dateFrom: '-30d', dateTo: null },
+            dashboardDateOverride: false,
+            dashboardExternalDateFilters: { date_from: undefined, date_to: undefined },
+        })
+    })
+
     it('syncs the trace content search between the URL, state, and traces query', () => {
         featureFlagLogic.mount()
         featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.LLM_OBSERVABILITY_TRACE_SEARCH], {
@@ -473,7 +511,38 @@ describe('AI observability persisted preferences', () => {
     })
 
     afterEach(() => {
+        jest.restoreAllMocks()
         window.localStorage.clear()
+    })
+
+    it('loads the saved dashboard date range from dashboard details', async () => {
+        const dashboardSummary = { id: 42, name: 'AI dashboard', description: '' }
+        jest.spyOn(api.dashboards, 'list').mockResolvedValue({
+            count: 1,
+            next: null,
+            previous: null,
+            results: [dashboardSummary],
+        } as unknown as Awaited<ReturnType<typeof api.dashboards.list>>)
+        const getDashboard = jest.spyOn(api.dashboards, 'get').mockResolvedValue({
+            ...dashboardSummary,
+            persisted_filters: { date_from: '-30d', date_to: null },
+        } as Awaited<ReturnType<typeof api.dashboards.get>>)
+
+        const sharedLogic = aiObservabilitySharedLogic()
+        const dashboardLogic = aiObservabilityDashboardLogic()
+        sharedLogic.mount()
+        dashboardLogic.mount()
+
+        await expectLogic(dashboardLogic, () => dashboardLogic.actions.loadLLMDashboards()).toFinishAllListeners()
+
+        expect(getDashboard).toHaveBeenCalledWith(42)
+        expect(dashboardLogic.values.availableDashboards).toEqual([
+            { ...dashboardSummary, dateFrom: '-30d', dateTo: null },
+        ])
+        expect(sharedLogic.values.dashboardDateFilter).toEqual({ dateFrom: '-30d', dateTo: null })
+
+        dashboardLogic.unmount()
+        sharedLogic.unmount()
     })
 
     it('persists generation column preferences across remount', () => {
@@ -508,7 +577,9 @@ describe('AI observability persisted preferences', () => {
     it('persists selected dashboard across remount', () => {
         const firstLogic = aiObservabilityDashboardLogic()
         firstLogic.mount()
-        firstLogic.actions.loadLLMDashboardsSuccess([{ id: 42, name: 'AI dashboard', description: '' }])
+        firstLogic.actions.loadLLMDashboardsSuccess([
+            { id: 42, name: 'AI dashboard', description: '', dateFrom: '-7d', dateTo: null },
+        ])
         firstLogic.unmount()
 
         const secondLogic = aiObservabilityDashboardLogic()

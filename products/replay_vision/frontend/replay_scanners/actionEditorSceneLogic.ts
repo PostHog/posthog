@@ -416,6 +416,7 @@ export const actionEditorSceneLogic = kea<actionEditorSceneLogicType>([
                 alert_threshold: action.alert_config?.threshold ?? 1,
                 alert_direction: alertDirection,
                 alert_window_days: action.alert_config?.window_days ?? 1,
+                alert_include_reasoning: action.alert_config?.include_reasoning ?? false,
                 verdict: action.selection?.verdict ?? [],
                 tags: action.selection?.tags ?? [],
                 min_score: action.selection?.min_score ?? null,

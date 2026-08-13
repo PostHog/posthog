@@ -1089,8 +1089,11 @@ async fn kafka_produce_failure_leaves_cache_unchanged() {
         panic!("expected original person in cache");
     };
     assert_eq!(cached.version, 1);
-    assert_eq!(cached.properties["email"], "test@example.com");
-    assert!(cached.properties.get("name").is_none());
+    assert_eq!(
+        cached.parse_properties().unwrap()["email"],
+        "test@example.com"
+    );
+    assert!(cached.parse_properties().unwrap().get("name").is_none());
 
     // Clear errors and verify the service recovers
     mock_cluster.clear_request_errors(RDKafkaApiKey::Produce);
@@ -1357,9 +1360,19 @@ async fn pg_fallback_reads_numerics_the_leaders_parser_rejects() {
     // The representable sentinel reads as the exact double JS reads;
     // beyond-f64 garbage clamps instead of poisoning the row; neighbors
     // are untouched.
-    assert_eq!(person.properties["credits"].as_f64().unwrap(), f64::MAX);
-    assert_eq!(person.properties["overflow"].as_f64().unwrap(), 1e307);
-    assert_eq!(person.properties["plan"], "pro");
+    assert_eq!(
+        person.parse_properties().unwrap()["credits"]
+            .as_f64()
+            .unwrap(),
+        f64::MAX
+    );
+    assert_eq!(
+        person.parse_properties().unwrap()["overflow"]
+            .as_f64()
+            .unwrap(),
+        1e307
+    );
+    assert_eq!(person.parse_properties().unwrap()["plan"], "pro");
 
     sqlx::query("DELETE FROM posthog_person WHERE team_id = $1")
         .bind(team_id)
@@ -2255,9 +2268,10 @@ async fn oversize_updates_are_rejected_and_oversized_rows_remediated() {
         oversized_partition,
         CachedPerson {
             id: OVERSIZED_PERSON_ID,
-            properties: serde_json::json!({
+            properties: serde_json::to_vec(&serde_json::json!({
                 "email": "a@b.c", "custom_a": big, "custom_b": big,
-            }),
+            }))
+            .unwrap(),
             ..test_cached_person()
         },
     );
@@ -2328,7 +2342,7 @@ async fn oversize_updates_are_rejected_and_oversized_rows_remediated() {
         unremediable_partition,
         CachedPerson {
             id: UNREMEDIABLE_PERSON_ID,
-            properties: serde_json::json!({ "email": huge_email }),
+            properties: serde_json::to_vec(&serde_json::json!({ "email": huge_email })).unwrap(),
             ..test_cached_person()
         },
     );

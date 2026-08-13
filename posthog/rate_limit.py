@@ -346,6 +346,19 @@ class WebAuthnSignupRegistrationThrottle(IPThrottle):
     rate = "10/minute"
 
 
+class LeakedKeyReportThrottle(IPThrottle):
+    """
+    Rate limit the public leaked-key revocation endpoint by IP address.
+
+    This isn't an authorization gate — guessing a valid high-entropy PostHog token
+    is computationally infeasible regardless of rate. It just bounds nuisance load
+    (hashing + DB lookups against garbage strings) from a single IP.
+    """
+
+    scope = "leaked_key_report"
+    rate = "10/minute"
+
+
 class SignupEmailPrecheckThrottle(IPThrottle):
     """
     Rate limit signup email precheck requests by IP.

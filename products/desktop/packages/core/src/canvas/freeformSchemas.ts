@@ -60,12 +60,23 @@ export type CanvasDataResult = z.infer<typeof canvasDataResultSchema>;
 // `dateRange` (the canvas date picker's window) re-scopes the insight for this
 // request via `filters_override`. The result is the same `{ columns, results }`
 // shape as `ph.query`.
+//
+// `variables` supplies per-request values for a SQL insight's HogQL variables (the
+// `{variables.code_name}` placeholders), forwarded as `variables_override`. This is
+// what lets ONE saved insight serve a whole board — a per-product revenue insight
+// rendered once per product — instead of only ever resolving its saved defaults. A
+// SQL variable is a SEPARATE axis from `dateRange`: an insight whose month comes
+// from a `{variables.month}` placeholder is driven through `variables`, and no
+// `dateRange` will ever reach it.
 // ---------------------------------------------------------------------------
 export const canvasLoadInsightInput = z.object({
   shortId: z.string().min(1).max(128),
   dateRange: z
     .object({ date_from: z.string().nullish(), date_to: z.string().nullish() })
     .optional(),
+  // Keyed by the variable's `code_name`, not its uuid — the host resolves ids
+  // server-side, so canvas code never carries a variable uuid.
+  variables: z.record(z.string().min(1).max(128), z.unknown()).optional(),
 });
 export type CanvasLoadInsightInput = z.infer<typeof canvasLoadInsightInput>;
 

@@ -137,6 +137,252 @@
                     "description": "Show the cohort name, size, and type."
                 }
             }
+        },
+        "Insight": {
+            "label": "Insight",
+            "description": "Saved insight visualization, configuration, and query results.",
+            "nodeType": "ph-query",
+            "idProp": "id",
+            "idDescription": "Insight short ID.",
+            "idExample": "insight-id",
+            "picker": "insight",
+            "defaultView": {
+                "name": "detail",
+                "label": "Detail",
+                "description": "Show the saved insight visualization."
+            },
+            "views": {
+                "summary": {
+                    "label": "Summary",
+                    "description": "Show the insight name, description, and type."
+                },
+                "editor": {
+                    "label": "Editor",
+                    "description": "Edit the insight query and visualization settings."
+                },
+                "results": {
+                    "label": "Results",
+                    "description": "Show the insight visualization and query results."
+                }
+            }
+        },
+        "Recording": {
+            "label": "Session recording",
+            "description": "Session recording playback and session context.",
+            "nodeType": "ph-recording",
+            "idProp": "id",
+            "idDescription": "Session recording ID.",
+            "idExample": "recording-id",
+            "picker": "recording",
+            "defaultView": {
+                "name": "detail",
+                "label": "Detail",
+                "description": "Show the session recording player."
+            },
+            "views": {
+                "summary": {
+                    "label": "Summary",
+                    "description": "Show a compact session recording preview."
+                }
+            }
+        },
+        "RecordingPlaylist": {
+            "label": "Recording playlist",
+            "description": "Saved recording playlist, matching recordings, and filter conditions.",
+            "nodeType": "ph-recording-playlist",
+            "idProp": "id",
+            "idDescription": "Recording playlist short ID.",
+            "idExample": "playlist-id",
+            "picker": "recording-playlist",
+            "defaultView": {
+                "name": "detail",
+                "label": "Detail",
+                "description": "Show recordings that belong to the playlist."
+            },
+            "views": {
+                "summary": {
+                    "label": "Summary",
+                    "description": "Show the playlist name, type, and recording count."
+                },
+                "conditions": {
+                    "label": "Conditions",
+                    "description": "Show the filters that define the playlist."
+                }
+            }
+        },
+        "Person": {
+            "label": "Person",
+            "description": "Person properties, account context, and recent activity.",
+            "nodeType": "ph-person",
+            "idProp": "id",
+            "idDescription": "Person UUID.",
+            "idExample": "person-uuid",
+            "picker": "person",
+            "defaultView": {
+                "name": "detail",
+                "label": "Detail",
+                "description": "Show person properties and account context."
+            },
+            "views": {
+                "summary": {
+                    "label": "Summary",
+                    "description": "Show the person's display name and identifying properties."
+                },
+                "activity": {
+                    "label": "Activity",
+                    "description": "Show the person's recent events."
+                }
+            }
+        },
+        "Group": {
+            "label": "Group",
+            "description": "Group properties, account context, and recent activity.",
+            "nodeType": "ph-group",
+            "idProp": "id",
+            "idDescription": "Group key.",
+            "idExample": "group-key",
+            "picker": "group",
+            "extraProps": {
+                "groupTypeIndex": {
+                    "description": "Numeric group type index.",
+                    "example": 0
+                }
+            },
+            "defaultView": {
+                "name": "detail",
+                "label": "Detail",
+                "description": "Show group properties and account context."
+            },
+            "views": {
+                "summary": {
+                    "label": "Summary",
+                    "description": "Show the group name, key, and type."
+                },
+                "activity": {
+                    "label": "Activity",
+                    "description": "Show the group's recent events."
+                }
+            }
+        },
+        "ErrorTrackingIssue": {
+            "label": "Error tracking issue",
+            "description": "Error tracking issue status, exception details, and occurrences.",
+            "nodeType": "ph-error-tracking-issue",
+            "idProp": "id",
+            "idDescription": "Error tracking issue ID.",
+            "idExample": "issue-id",
+            "picker": "error-tracking-issue",
+            "defaultView": {
+                "name": "detail",
+                "label": "Detail",
+                "description": "Show the latest exception details."
+            },
+            "views": {
+                "summary": {
+                    "label": "Summary",
+                    "description": "Show the issue status, first seen time, and occurrence count."
+                },
+                "activity": {
+                    "label": "Activity",
+                    "description": "Show recent exceptions grouped into this issue."
+                }
+            }
+        },
+        "LLMTrace": {
+            "label": "LLM trace",
+            "description": "LLM trace usage, latency, cost, and chronological operations.",
+            "nodeType": "ph-llm-trace",
+            "idProp": "id",
+            "idDescription": "LLM trace ID.",
+            "idExample": "trace-id",
+            "picker": "llm-trace",
+            "defaultView": {
+                "name": "detail",
+                "label": "Detail",
+                "description": "Show expanded trace operations and content."
+            },
+            "views": {
+                "summary": {
+                    "label": "Summary",
+                    "description": "Show trace usage, latency, cost, and errors."
+                },
+                "activity": {
+                    "label": "Activity",
+                    "description": "Show the chronological trace operations."
+                }
+            }
+        },
+        "Dashboard": {
+            "label": "Dashboard",
+            "description": "Dashboard description, insights, and current results.",
+            "nodeType": "ph-dashboard-widget",
+            "idProp": "id",
+            "idDescription": "Dashboard numeric ID.",
+            "idExample": 123,
+            "picker": "dashboard",
+            "defaultView": {
+                "name": "detail",
+                "label": "Detail",
+                "description": "Show the dashboard and its insight results."
+            },
+            "views": {
+                "summary": {
+                    "label": "Summary",
+                    "description": "Show the dashboard description and insight count."
+                }
+            }
+        },
+        "Action": {
+            "label": "Action",
+            "description": "Action definition, matching steps, and editor.",
+            "nodeType": "ph-action",
+            "idProp": "id",
+            "idDescription": "Action numeric ID.",
+            "idExample": 123,
+            "picker": "action",
+            "defaultView": {
+                "name": "detail",
+                "label": "Detail",
+                "description": "Show the action definition and matching conditions."
+            },
+            "views": {
+                "summary": {
+                    "label": "Summary",
+                    "description": "Show the action name, description, and step count."
+                },
+                "editor": {
+                    "label": "Editor",
+                    "description": "Edit the action definition in the notebook."
+                }
+            }
+        },
+        "Workflow": {
+            "label": "Workflow",
+            "description": "Workflow status, steps, editor, and run results.",
+            "nodeType": "ph-workflow",
+            "idProp": "id",
+            "idDescription": "Workflow ID.",
+            "idExample": "workflow-id",
+            "picker": "workflow",
+            "defaultView": {
+                "name": "detail",
+                "label": "Detail",
+                "description": "Show the workflow steps and trigger."
+            },
+            "views": {
+                "summary": {
+                    "label": "Summary",
+                    "description": "Show the workflow status, trigger, and step count."
+                },
+                "editor": {
+                    "label": "Editor",
+                    "description": "Edit the workflow in the notebook."
+                },
+                "results": {
+                    "label": "Results",
+                    "description": "Show workflow runs and outcomes."
+                }
+            }
         }
     }
 }

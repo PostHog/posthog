@@ -441,7 +441,8 @@ async fn warming_preserves_last_write_for_same_key() {
                 "cache must reflect the latest update's version"
             );
             assert_eq!(
-                entry.properties["email"], "v3@example.com",
+                entry.parse_properties().unwrap()["email"],
+                "v3@example.com",
                 "cache must reflect the latest update's properties"
             );
         }

@@ -165,6 +165,7 @@ mod tests {
             chunk_id: chunk_id.to_string(),
             release_id: None,
             data: data.to_vec(),
+            content_hash: None,
         };
 
         let uploads = merge_uploads_prefer_dsym(
@@ -184,6 +185,7 @@ mod tests {
             chunk_id: uuid.to_string(),
             release_id: None,
             data: data.to_vec(),
+            content_hash: None,
         };
 
         let uploads =

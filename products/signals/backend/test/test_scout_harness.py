@@ -32,7 +32,7 @@ from products.signals.backend.models import SignalScoutConfig, SignalScoutRun
 from products.signals.backend.report_charts import ReportChart
 from products.signals.backend.scout_harness.derived_metadata import DERIVED_METADATA_KEY
 from products.signals.backend.scout_harness.lazy_seed import HARNESS_SEEDED_BY, _compute_row_hash
-from products.signals.backend.scout_harness.limits import FAILURE_STREAK_PAUSE_THRESHOLD, STALE_RUN_CUTOFF_S
+from products.signals.backend.scout_harness.limits import STALE_RUN_CUTOFF_S, failure_streak_pause_threshold
 from products.signals.backend.scout_harness.model_selection import ScoutModel
 from products.signals.backend.scout_harness.prompt import _REPORT_CHARTS, HARNESS_PROMPT_VERSION, build_run_prompt
 from products.signals.backend.scout_harness.runner import (
@@ -41,6 +41,7 @@ from products.signals.backend.scout_harness.runner import (
     RunResult,
     _ai_stage,
     _create_run_row,
+    _failure_streak_runs_in_window,
     arun_signals_scout,
 )
 from products.signals.backend.scout_harness.skill_loader import (
@@ -1086,6 +1087,65 @@ async def test_sandbox_env_matches_config_network_access(
     assert (bridge.metadata or {}).get("network_access") == ("full" if network_access == "full" else None)
 
 
+def _resolved_failure_threshold(cron_schedule: str | None, interval_minutes: int) -> int:
+    config = SignalScoutConfig(run_cron_schedule=cron_schedule, run_interval_minutes=interval_minutes)
+    return failure_streak_pause_threshold(_failure_streak_runs_in_window(config))
+
+
+@parameterized.expand(
+    [
+        # The schedule floor. Bounded, so the densest lane cannot turn the span into an
+        # unbounded lease budget.
+        ("floor_interval", None, 30, 25),
+        # The outage case the breaker used to get wrong: hourly lanes accrued five failures
+        # inside an outage shorter than the 24h probe cooldown the pause then cost them. The
+        # threshold sits one past the 12 runs the window fits, so an outage lasting exactly
+        # the tolerated span still cannot trip the lane.
+        ("hourly_interval", None, 60, 13),
+        ("two_hourly_interval", None, 120, 7),
+        # An off-grid interval dispatches at the next whole coordinator tick (32 minutes runs
+        # hourly), so sizing off the raw column would hand a wedged lane nearly double the
+        # leases its real cadence earns.
+        ("off_grid_interval_sized_at_its_dispatch_cadence", None, 32, 13),
+        # Past the span the count floor takes over — a broken lane must not get more leases
+        # just because it runs rarely.
+        ("six_hourly_interval", None, 360, 5),
+        ("daily_default", None, 1440, 5),
+        ("monthly_interval", None, 43200, 5),
+        # A cron wins at dispatch, but `run_interval_minutes` keeps whatever it held before —
+        # so reading the column alone would size an hourly lane as a daily one. Two runs wider
+        # than the hourly interval lane: cron lanes are wall-clock schedules, so the sizing
+        # window carries DST slack for the largest spring-forward jump a project timezone can
+        # select (two hours).
+        ("hourly_cron_beats_stale_column", "0 * * * *", 1440, 15),
+        ("half_hourly_cron_hits_the_ceiling", "*/30 * * * *", 1440, 25),
+        # Bursty: a 30-minute gap that repeats twice a day is not a lane that runs all day, and
+        # must not be handed the tolerance of one — that is twelve days of leases on a wedge.
+        ("bursty_cron_is_not_a_dense_lane", "0,30 0 * * *", 1440, 5),
+        ("uneven_daily_cron", "0 9,17 * * *", 1440, 5),
+        # First-of-the-month or Sunday: the fullest window (six runs, 21:00 through 02:00) only
+        # exists where a matching Sunday touches a first — May 31st into June 1st in the sampled
+        # year. A sample truncated by occurrence count ends months earlier and sizes the lane
+        # off its ordinary three-run days.
+        ("sparse_cron_fullest_window_at_a_month_boundary", "0 0,1,2,21,22,23 1 * 0", 1440, 7),
+        # Valid but with no occurrence in the sampled year at all; sized as a single-run lane
+        # rather than crashing or zeroing out.
+        ("cron_with_no_occurrence_in_the_sample_year", "0 0 29 2 *", 1440, 5),
+        # Both only reachable by an out-of-band write (the API validates cron and interval on
+        # save); a run's breaker bookkeeping must not die on either.
+        ("malformed_cron_falls_back_to_the_interval", "not a cron", 60, 13),
+        ("nonsensical_interval_falls_back_to_the_floor", None, 0, 5),
+    ]
+)
+def test_failure_breaker_threshold_tracks_the_runs_an_outage_can_consume(
+    _name, cron_schedule, interval_minutes, expected
+):
+    # A fleet-wide count means hours on a tight lane and months on a slow one: it either trips
+    # healthy hourly scouts during a platform outage or lets a wedged daily scout burn leases
+    # for weeks. Both directions have to hold at once, on cron lanes as well as interval ones.
+    assert _resolved_failure_threshold(cron_schedule, interval_minutes) == expected
+
+
 @parameterized.expand(
     [
         ("canonical", "signals-scout-general", "scout:general"),
@@ -1397,7 +1457,7 @@ async def test_failure_streak_pauses_scout_once_and_a_success_resumes_it(ateam, 
     # produce nothing. Nothing else in the harness notices, so the breaker has to.
     session, result = await database_sync_to_async(_make_fake_session, thread_sensitive=False)(ateam, "close-out")
 
-    async def _run_once(*, failing: bool, capture):
+    async def _run_once(*, failing: bool, capture, triggered_by: str = "schedule"):
         start = (
             AsyncMock(side_effect=RuntimeError("poll_for_turn: timed out after 900s"))
             if failing
@@ -1411,7 +1471,9 @@ async def test_failure_streak_pauses_scout_once_and_a_success_resumes_it(ateam, 
             patch("products.signals.backend.scout_harness.runner.sync_canonical_skills"),
             _stubbed_spawn_dependencies(),
         ):
-            return await arun_signals_scout(team_id=ateam.id, skill_name="signals-scout-errors")
+            return await arun_signals_scout(
+                team_id=ateam.id, skill_name="signals-scout-errors", triggered_by=triggered_by
+            )
 
     def _paused_events(capture) -> list:
         return [c for c in capture.call_args_list if c.kwargs["event"] == "signals_scout_config_auto_paused"]
@@ -1422,22 +1484,36 @@ async def test_failure_streak_pauses_scout_once_and_a_success_resumes_it(ateam, 
         )
 
     capture = MagicMock()
-    for _ in range(FAILURE_STREAK_PAUSE_THRESHOLD - 1):
+    await _run_once(failing=True, capture=capture)
+    config = await _reload()
+    # The breaker scales with the lane's schedule, so the streak this run has to reach is
+    # derived from the config rather than fixed.
+    threshold = failure_streak_pause_threshold(_failure_streak_runs_in_window(config))
+
+    # A failed manual "run now" is off-schedule evidence and must not advance the streak:
+    # the threshold is sized on the schedule's cadence, so counting rapid manual retries
+    # would let a burst of them pause a daily lane within minutes of a platform blip.
+    await _run_once(failing=True, capture=capture, triggered_by="manual")
+    config = await _reload()
+    assert config.consecutive_failure_count == 1
+
+    for _ in range(threshold - 2):
         await _run_once(failing=True, capture=capture)
     config = await _reload()
-    assert config.consecutive_failure_count == FAILURE_STREAK_PAUSE_THRESHOLD - 1
+    assert config.consecutive_failure_count == threshold - 1
     assert config.status == SignalScoutConfig.Status.ACTIVE
     assert _paused_events(capture) == []
 
     await _run_once(failing=True, capture=capture)
     config = await _reload()
-    assert config.consecutive_failure_count == FAILURE_STREAK_PAUSE_THRESHOLD
+    assert config.consecutive_failure_count == threshold
     assert config.status == SignalScoutConfig.Status.PAUSED_BY_SYSTEM
     assert config.pause_reason == SignalScoutConfig.PauseReason.REPEATED_FAILURES
     assert config.enabled is False
     trip = _paused_events(capture)
     assert len(trip) == 1
-    assert trip[0].kwargs["properties"]["consecutive_failure_count"] == FAILURE_STREAK_PAUSE_THRESHOLD
+    assert trip[0].kwargs["properties"]["consecutive_failure_count"] == threshold
+    assert trip[0].kwargs["properties"]["failure_streak_threshold"] == threshold
     assert "timed out after 900s" in trip[0].kwargs["properties"]["auto_pause_reason"]
 
     # A failed probe leaves the lane paused but must not re-alert — otherwise the event stops

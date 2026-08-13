@@ -9,11 +9,11 @@ const MAX_URL_LENGTH = 2048
 const FETCHABLE_SCHEMES = new Set(['http:', 'https:'])
 
 /**
- * The producer splits a record at 64 URLs. A record above this came from a producer that does not
- * agree with this one, and its size drives a Redis pipeline and a batch's memory, so it is refused
- * rather than trusted.
+ * A record holds one domain from one message, and the collector caps a message at 512, so a
+ * well-formed record stays under this. Headroom is deliberately small: the Redis round trips of a
+ * batch scale with this value and run one after another inside one batch budget.
  */
-const MAX_URLS_PER_RECORD = 128
+const MAX_URLS_PER_RECORD = 640
 
 export interface FetchCandidate {
     ref: string

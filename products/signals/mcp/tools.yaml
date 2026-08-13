@@ -1077,6 +1077,9 @@ tools:
         description:
             'DEPRECATED: renamed to scout-runs-recent-emissions. This alias forwards to the same endpoint and will be
             removed. Call scout-runs-recent-emissions directly with the same arguments.'
+    signals-scout-runs-recent-per-scout:
+        operation: signals_scout_runs_recent_per_scout
+        enabled: false
     signals-scout-runs-retrieve:
         operation: signals_scout_runs_retrieve
         enabled: true

@@ -7,7 +7,7 @@ import { encodeParams } from 'kea-router'
 export type { EventSourceMessage } from '@microsoft/fetch-event-source'
 import posthog from 'posthog-js'
 
-import { ApiError } from 'lib/api-error'
+import { ApiError, NetworkError, type NetworkFailureReason } from 'lib/api-error'
 import { ActivityLogProps } from 'lib/components/ActivityLog/ActivityLog'
 import { ActivityLogItem } from 'lib/components/ActivityLog/humanizeActivity'
 import { apiStatusLogic } from 'lib/logic/apiStatusLogic'
@@ -252,6 +252,7 @@ import type {
     TaskRunCreateRequestSchemaApi,
 } from 'products/tasks/frontend/generated/api.schemas'
 import type { BlastRadiusApi } from 'products/workflows/frontend/generated/api.schemas'
+import type { HogFlowPublishResponseApi } from 'products/workflows/frontend/generated/api.schemas'
 import type { MessageTemplate } from 'products/workflows/frontend/TemplateLibrary/types'
 import type { HogflowTestResult } from 'products/workflows/frontend/Workflows/hogflows/steps/types'
 import type {
@@ -320,7 +321,7 @@ export interface ApiMethodOptions {
     headers?: Record<string, any>
 }
 
-export { ApiError }
+export { ApiError, NetworkError }
 
 export class RateLimitError extends Error {
     constructor(public retryAfterSeconds: number) {
@@ -6158,8 +6159,10 @@ const api = {
         },
     },
     fixHogQLErrors: {
-        async fix(query: string, error?: string): Promise<Record<string, any>> {
-            return await new ApiRequest().fixHogQLErrors().create({ data: { query, error } })
+        async fix(query: string, error?: string, connectionId?: string): Promise<Record<string, any>> {
+            return await new ApiRequest()
+                .fixHogQLErrors()
+                .create({ data: { query, error, connection_id: connectionId } })
         },
     },
 
@@ -6716,9 +6719,27 @@ const api = {
             hogFlowId: HogFlow['id'],
             // `base_updated_at` is the updated_at the client loaded; the server rejects the write with a
             // 409 if the stored copy is newer (optimistic concurrency). Omit it for last-writer-wins.
-            data: Partial<HogFlow> & { base_updated_at?: string | null }
+            // `stage_draft` routes content edits on an active workflow into its staged draft instead of
+            // the live config; publish promotes them. Ignored on non-active workflows.
+            // `base_live_updated_at` fences a staged save's live metadata write the same way.
+            data: Partial<HogFlow> & {
+                base_updated_at?: string | null
+                stage_draft?: boolean
+                base_live_updated_at?: string | null
+            }
         ): Promise<HogFlow> {
             return await new ApiRequest().hogFlow(hogFlowId).update({ data })
+        },
+        async publishHogFlow(
+            hogFlowId: HogFlow['id'],
+            // Without `confirm` this only previews the impact and returns a `confirm_token`; a confirmed
+            // publish must send that token back.
+            data: { confirm: boolean; confirm_token?: string }
+        ): Promise<HogFlowPublishResponseApi> {
+            return await new ApiRequest().hogFlow(hogFlowId).withAction('publish').create({ data })
+        },
+        async discardHogFlowDraft(hogFlowId: HogFlow['id']): Promise<HogFlow> {
+            return await new ApiRequest().hogFlow(hogFlowId).withAction('discard_draft').create()
         },
         async deleteHogFlow(hogFlowId: HogFlow['id']): Promise<void> {
             return await new ApiRequest().hogFlow(hogFlowId).delete()
@@ -7490,6 +7511,62 @@ const api = {
 
 const warnedSharedViewLeaks = new Set<string>()
 
+/**
+ * Tracks whether the document is on its way out. A browser cancels every in-flight `fetch` when it
+ * tears the document down, and the rejection it hands back is the same bare `TypeError` a real
+ * connectivity failure produces, so this flag is the only way `handleFetch` can tell the two apart.
+ * `pagehide` also fires when the page enters the back/forward cache, hence the reset on `pageshow`:
+ * a restored page is live again and its requests are expected to succeed.
+ */
+let documentUnloading = false
+if (typeof window !== 'undefined') {
+    window.addEventListener('pagehide', () => {
+        documentUnloading = true
+    })
+    window.addEventListener('pageshow', () => {
+        documentUnloading = false
+    })
+}
+
+/**
+ * A malformed URL is one of the things `fetch` rejects with a `TypeError` for, and `new URL` would
+ * throw on the same input. Without the fallback that throw escapes from inside the failure path and
+ * replaces the classified `NetworkError` with a bare crash, losing the request that caused it.
+ */
+function requestPathname(url: string): string {
+    try {
+        return new URL(url, location.origin).pathname
+    } catch {
+        return url
+    }
+}
+
+function classifyNetworkFailure(): NetworkFailureReason {
+    if (documentUnloading) {
+        return 'navigating'
+    }
+    if (typeof navigator !== 'undefined' && navigator.onLine === false) {
+        return 'offline'
+    }
+    return 'network'
+}
+
+function captureClientRequestFailure(properties: {
+    pathname: string
+    method: string
+    duration: number
+    /** 0 for a request that never reached the server, so network failures are separable from HTTP ones. */
+    status: number
+    is_shared_view: boolean
+    failure_reason?: NetworkFailureReason
+}): void {
+    // when used inside the posthog toolbar, `posthog.capture` isn't loaded
+    // check if the function is available before calling it.
+    if (posthog.capture) {
+        posthog.capture('client_request_failure', properties)
+    }
+}
+
 async function handleFetch(
     url: string,
     method: string,
@@ -7512,6 +7589,24 @@ async function handleFetch(
         if (error && (error as any).name === 'AbortError') {
             throw error
         }
+        // `fetch` rejects with a `TypeError` when the request never reached the server. Classifying it
+        // here is what makes the failure legible: the call site only knows "something threw", while
+        // this frame still knows which endpoint was in flight, how long it ran, and whether the client
+        // was offline or going away. Anything else thrown by the fetcher is a genuine fault in the
+        // request path, so it keeps surfacing as an unclassified `ApiError` rather than being
+        // relabelled as a connectivity problem and filtered out of error tracking.
+        if (error instanceof TypeError) {
+            const reason = classifyNetworkFailure()
+            captureClientRequestFailure({
+                pathname: requestPathname(url),
+                method,
+                duration: new Date().getTime() - startTime,
+                status: 0,
+                is_shared_view: isSharedView(),
+                failure_reason: reason,
+            })
+            throw new NetworkError(reason, error)
+        }
         throw new ApiError(error as any, response?.status)
     }
 
@@ -7528,17 +7623,13 @@ async function handleFetch(
         const duration = new Date().getTime() - startTime
         const pathname = new URL(url, location.origin).pathname
         const inSharedView = isSharedView()
-        // when used inside the posthog toolbar, `posthog.capture` isn't loaded
-        // check if the function is available before calling it.
-        if (posthog.capture) {
-            posthog.capture('client_request_failure', {
-                pathname,
-                method,
-                duration,
-                status: response.status,
-                is_shared_view: inSharedView,
-            })
-        }
+        captureClientRequestFailure({
+            pathname,
+            method,
+            duration,
+            status: response.status,
+            is_shared_view: inSharedView,
+        })
         if (inSharedView && (response.status === 401 || response.status === 403)) {
             const leakKey = `${method} ${pathname}`
             if (!warnedSharedViewLeaks.has(leakKey)) {

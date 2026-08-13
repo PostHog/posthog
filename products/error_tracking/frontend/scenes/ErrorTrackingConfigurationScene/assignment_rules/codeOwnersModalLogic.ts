@@ -259,7 +259,7 @@ export const codeOwnersModalLogic = kea<codeOwnersModalLogicType>([
                             const response = (await api.query({
                                 kind: NodeKind.EventsQuery,
                                 event: '$exception',
-                                select: ['count()', 'count(distinct properties.$exception_issue_id)'],
+                                select: ['count()', 'count(distinct issue_id)'],
                                 after: values.dateRange,
                                 fixedProperties: [{ type: filters.type, values: properties }],
                                 tags: { productKey: ProductKey.ERROR_TRACKING },

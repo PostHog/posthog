@@ -14,6 +14,8 @@ compatibility: >
 allowed_tools:
   - emit_report
   - edit_report
+scout-tags:
+  - ai-observability
 metadata:
   owner_team: signals
   scope: llm_analytics

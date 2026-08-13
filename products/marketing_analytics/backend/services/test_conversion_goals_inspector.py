@@ -112,7 +112,7 @@ class TestListConversionGoals(_InspectorMixin):
         assert response.attribution_mode == "first_touch"
         assert len(response.goals) == 1
         goal = response.goals[0]
-        assert goal.id == "purchase"
+        assert goal.conversion_goal_id == "purchase"
         assert goal.kind == "EventsNode"
         assert goal.target_label == "purchase"
         assert goal.last_30d_count == 200
@@ -166,7 +166,7 @@ class TestListConversionGoals(_InspectorMixin):
         assert response.goals[0].is_misconfigured is False
         # The summary still identifies the goal by its own id, which is what the setup
         # plan uses to open the right editor.
-        assert response.goals[0].id == "cg_demos"
+        assert response.goals[0].conversion_goal_id == "cg_demos"
 
     @pytest.mark.asyncio
     async def test_actions_node_with_resolved_action_uses_action_name(self):
@@ -585,7 +585,7 @@ class TestListGoalCountsClickhouse(ClickhouseTestMixin, BaseTest):
 
         assert len(response.goals) == 1
         goal = response.goals[0]
-        assert goal.id == "signup"
+        assert goal.conversion_goal_id == "signup"
         assert goal.kind == "EventsNode"
         assert goal.last_30d_count == 3
         assert goal.integrated_count == 3

@@ -41,6 +41,8 @@ function getBIEditorConfigProperties(config: BIConfig): Record<string, unknown> 
             fields.flatMap((field) => (field.dateBucket === undefined ? [] : [field.dateBucket]))
         ),
         custom_expression_count: customExpressionCount,
+        sort_kind: config.sort ? 'manual' : 'auto',
+        sort_direction: config.sort?.direction ?? null,
     }
 }
 

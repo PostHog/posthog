@@ -48,6 +48,8 @@ export interface VisionActionForm {
     alert_threshold: number | null
     alert_direction: VisionAlertDirectionEnumApi
     alert_window_days: WindowDaysEnumApi
+    // Include each matching observation's full reasoning in the alert message, not just its outcome.
+    alert_include_reasoning: boolean
 }
 
 export const NEW_ACTION_FORM = (): VisionActionForm => ({
@@ -70,6 +72,7 @@ export const NEW_ACTION_FORM = (): VisionActionForm => ({
     alert_threshold: 1,
     alert_direction: VisionAlertDirectionEnumApi.Above,
     alert_window_days: 1,
+    alert_include_reasoning: false,
 })
 
 // Map the UI form shape to the API body shared by create + partial-update. Kept standalone so the
@@ -107,7 +110,11 @@ export function buildActionBody(form: VisionActionForm, scannerId: string): Para
             ? {
                   alert_config:
                       form.alert_frequency === AlertConfigFrequencyEnumApi.EveryMatch
-                          ? { frequency: form.alert_frequency, metric: VisionAlertMetricEnumApi.Count }
+                          ? {
+                                frequency: form.alert_frequency,
+                                metric: VisionAlertMetricEnumApi.Count,
+                                include_reasoning: form.alert_include_reasoning,
+                            }
                           : {
                                 frequency: form.alert_frequency,
                                 metric: form.alert_metric,
@@ -121,6 +128,7 @@ export function buildActionBody(form: VisionActionForm, scannerId: string): Para
                                         ? form.alert_direction
                                         : VisionAlertDirectionEnumApi.Above,
                                 window_days: form.alert_window_days,
+                                include_reasoning: form.alert_include_reasoning,
                             },
               }
             : {}),

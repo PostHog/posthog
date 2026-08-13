@@ -62,11 +62,33 @@ rows.
   — the saved insight re-scopes to the window with no time SQL. Typed nodes take the same
   `dateRange`. Re-run every query when the window changes.
 - A saved **SQL** insight may ignore `dateRange` (its window lives inside the SQL) — a reason to
-  prefer insight query types.
+  prefer insight query types. If its window comes from a `{variables.…}` placeholder, drive it
+  through `variables` (below) instead; `dateRange` will never reach it.
 - Inline HogQL escape hatch only: never bake `now()` or a hardcoded INTERVAL. Compute unix bounds
   (`Math.floor(win.start.getTime() / 1000)`) and write half-open
   `timestamp >= toDateTime(fromUnix) AND timestamp < toDateTime(toUnix)`. Prior period = the
   equal-length window immediately before; bucket with `toStartOfDay`/`toStartOfHour`.
+
+## SQL variables
+
+A saved SQL insight whose HogQL contains `{variables.name}` placeholders takes its values per call,
+keyed by the variable's **code name** (not its uuid):
+
+```js
+await ph.loadInsight(shortId, { variables: { product: 'surveys', month: '2026-07-01' } })
+```
+
+This is how one saved insight fills a whole board — the same per-product insight loaded once per
+product — rather than every tile resolving the insight's saved default.
+
+- Read the code names off the insight's query first (`insight-get` over MCP). The host **rejects** a
+  variable the insight doesn't use, and rejects one whose value didn't take effect, instead of
+  silently falling back to the saved value — so a variable mismatch surfaces as a visible error, not
+  as another product's numbers.
+- Variables are part of the read cache key, so N products means N loads. Prefer **one** insight
+  returning every product as rows over the same insight loaded N times, and slice it client-side.
+- Values are typed by the variable's definition in PostHog (String / Number / Boolean / Date / List);
+  pass the same shape the insight expects, and an array for a multi-select List variable.
 
 ## Side effects
 

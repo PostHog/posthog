@@ -260,6 +260,20 @@ class TestWarmTaskSandbox(APIBaseTest):
         m_warm.assert_called_once()
         assert Task.objects.filter(team=self.team, deleted=False).count() == 1
 
+    def test_dedups_when_only_reasoning_effort_changes(self):
+        def fake_warm(self_warmer, **kwargs):
+            state = {"await_user_message": True, **kwargs["extra_state"]}
+            run = self_warmer.task.create_run(mode="interactive", extra_state=state, branch=state.get("branch"))
+            return WarmResult(run=run, just_created=True)
+
+        with patch(f"{WARM_SRC}.warm", autospec=True, side_effect=fake_warm) as mock_warm:
+            first = self._warm(runtime_adapter="codex", model="gpt-5.6-sol", reasoning_effort="high")
+            second = self._warm(runtime_adapter="codex", model="gpt-5.6-sol", reasoning_effort="xhigh")
+
+        assert first is not None and second is not None
+        assert second.run_id == first.run_id
+        mock_warm.assert_called_once()
+
     def test_does_not_reuse_warm_run_after_environment_access_is_revoked(self):
         other_user = User.objects.create_and_join(self.organization, "other-warm-owner@posthog.com", None)
         sandbox_environment = SandboxEnvironment.objects.create(
@@ -396,6 +410,50 @@ class TestCreateTaskWarmReuse(APIBaseTest):
         # The agent-server re-reads run state on the forwarded first message, so this
         # must be persisted for the warm run to honor the setting.
         assert run.state.get("auto_publish") is True
+
+    def test_reuses_warm_task_with_new_reasoning_effort_and_attachments(self):
+        warm_task, run = self._warm_run(
+            extra_state={
+                "runtime_adapter": "codex",
+                "model": "gpt-5.6-sol",
+                "reasoning_effort": "high",
+            }
+        )
+        run.artifacts = [_artifact_entry("artifact-1")]
+        run.save(update_fields=["artifacts"])
+
+        with patch(f"{FACADE}.signal_task_run_user_message", return_value=True) as mock_signal:
+            dto = self._create(
+                runtime_adapter="codex",
+                model="gpt-5.6-sol",
+                reasoning_effort="xhigh",
+                pending_user_message="inspect the attachment",
+                pending_user_artifact_ids=["artifact-1"],
+            )
+
+        assert str(dto.id) == str(warm_task.id)
+        run.refresh_from_db()
+        assert run.state.get("reasoning_effort") == "xhigh"
+        assert "await_user_message" not in run.state
+        _, kwargs = mock_signal.call_args
+        assert kwargs["artifact_ids"] == ["artifact-1"]
+
+    def test_reuses_warm_task_without_reasoning_effort_and_clears_prewarm_value(self):
+        warm_task, run = self._warm_run(
+            extra_state={
+                "runtime_adapter": "codex",
+                "model": "gpt-5.6-sol",
+                "reasoning_effort": "high",
+            }
+        )
+
+        with patch(f"{FACADE}.signal_task_run_user_message", return_value=True):
+            dto = self._create(runtime_adapter="codex", model="gpt-5.6-sol")
+
+        assert str(dto.id) == str(warm_task.id)
+        run.refresh_from_db()
+        assert "reasoning_effort" not in run.state
+        assert "await_user_message" not in run.state
 
     def test_reuses_matching_multi_repository_warm_task(self):
         repositories = ["posthog/posthog", "posthog/posthog-js"]
@@ -681,6 +739,7 @@ class TestRunTaskWarmActivation(APIBaseTest):
 
     def test_materializes_staged_artifacts_onto_warm_run_before_activation(self):
         task, run = self._warm_run()
+        TaskRun.update_state_atomic(run.id, updates={"reasoning_effort": "high"})
         staged = _artifact_entry("artifact-1")
         get_tasks_cache().set(build_task_staged_artifact_cache_key(str(task.id), "artifact-1"), staged, timeout=60)
 
@@ -694,6 +753,7 @@ class TestRunTaskWarmActivation(APIBaseTest):
                     "branch": "main",
                     "pending_user_message": "do it",
                     "pending_user_artifact_ids": ["artifact-1"],
+                    "reasoning_effort": "xhigh",
                 },
             )
 
@@ -702,6 +762,7 @@ class TestRunTaskWarmActivation(APIBaseTest):
         run.refresh_from_db()
         assert [artifact["id"] for artifact in run.artifacts] == ["artifact-1"]
         assert "await_user_message" not in run.state
+        assert run.state.get("reasoning_effort") == "xhigh"
         _, kwargs = m_signal.call_args
         assert kwargs["artifact_ids"] == ["artifact-1"]
 

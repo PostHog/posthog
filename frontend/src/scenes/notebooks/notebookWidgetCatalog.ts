@@ -3,7 +3,22 @@ import notebookWidgetCatalog from 'products/notebooks/notebook-widget-catalog.js
 import { CustomNotebookNodeAttributes, NotebookNodeProps, PostHogWidgetDefaultView, PostHogWidgetViews } from './types'
 
 export type NotebookWidgetTagName = keyof typeof notebookWidgetCatalog.widgets
-export type NotebookWidgetPickerKind = 'cohort' | 'early-access-feature' | 'experiment' | 'feature-flag' | 'survey'
+export type NotebookWidgetPickerKind =
+    | 'action'
+    | 'cohort'
+    | 'dashboard'
+    | 'early-access-feature'
+    | 'error-tracking-issue'
+    | 'experiment'
+    | 'feature-flag'
+    | 'group'
+    | 'insight'
+    | 'llm-trace'
+    | 'person'
+    | 'recording'
+    | 'recording-playlist'
+    | 'survey'
+    | 'workflow'
 
 type NotebookWidgetViewName<TTagName extends NotebookWidgetTagName> =
     keyof (typeof notebookWidgetCatalog.widgets)[TTagName]['views']

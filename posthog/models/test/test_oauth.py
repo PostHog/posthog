@@ -19,6 +19,7 @@ from posthog.models.oauth import (
     normalize_cimd_url,
     revoke_application_sessions,
     revoke_oauth_session,
+    revoke_oauth_token_session,
 )
 from posthog.models.oauth_provisioning import ProvisioningConfig
 
@@ -507,6 +508,91 @@ class TestOAuthModels(TestCase):
         revoke_oauth_session(access_token=access_token)
 
         self.assertFalse(OAuthAccessToken.objects.filter(id=token_id).exists())
+
+    def test_revoke_oauth_token_session_revokes_only_the_paired_tokens(self):
+        app = OAuthApplication.objects.create(
+            name="Narrow Revoke Test App",
+            client_id="narrow_revoke_test_client_id",
+            client_secret="narrow_revoke_test_client_secret",
+            client_type=OAuthApplication.CLIENT_CONFIDENTIAL,
+            authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
+            redirect_uris="https://example.com/callback",
+            organization=self.organization,
+            algorithm="RS256",
+        )
+        refresh_token = OAuthRefreshToken.objects.create(application=app, user=self.user, token="narrow_refresh_1")
+        access_token = OAuthAccessToken.objects.create(
+            application=app,
+            user=self.user,
+            token="narrow_access_1",
+            expires=timezone.now() + timedelta(minutes=5),
+            source_refresh_token=refresh_token,
+        )
+        # A second, unrelated session for the same user+application - must survive.
+        other_access_token = OAuthAccessToken.objects.create(
+            application=app,
+            user=self.user,
+            token="narrow_access_2",
+            expires=timezone.now() + timedelta(minutes=5),
+        )
+        grant = OAuthGrant.objects.create(
+            application=app,
+            user=self.user,
+            code="narrow_grant_code",
+            code_challenge="challenge",
+            code_challenge_method="S256",
+            expires=timezone.now() + timedelta(minutes=5),
+        )
+
+        revoke_oauth_token_session(access_token=access_token)
+
+        self.assertFalse(OAuthAccessToken.objects.filter(id=access_token.id).exists())
+        refresh_token.refresh_from_db()
+        self.assertIsNotNone(refresh_token.revoked)
+
+        self.assertTrue(OAuthAccessToken.objects.filter(id=other_access_token.id).exists())
+        self.assertTrue(OAuthGrant.objects.filter(id=grant.id).exists())
+
+    def test_revoke_oauth_token_session_sweeps_all_access_tokens_for_non_rotating_refresh(self):
+        # DCR/CIMD clients get non-rotating refreshes: _save_bearer_token inserts a new,
+        # unlinked OAuthAccessToken row per refresh instead of updating one in place, so
+        # source_refresh_token stays None on every one of them and there's no queryable
+        # link back to the refresh token that minted them. A per-token revoke can't find
+        # tokens it has no link to, so this must fall back to the full sweep instead.
+        app = OAuthApplication.objects.create(
+            name="DCR Non-Rotating Test App",
+            client_id="dcr_non_rotating_client_id",
+            client_secret="dcr_non_rotating_client_secret",
+            client_type=OAuthApplication.CLIENT_CONFIDENTIAL,
+            authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
+            redirect_uris="https://example.com/callback",
+            organization=self.organization,
+            algorithm="RS256",
+            is_dcr_client=True,
+        )
+        refresh_token = OAuthRefreshToken.objects.create(application=app, user=self.user, token="dcr_refresh_1")
+        first_access_token = OAuthAccessToken.objects.create(
+            application=app, user=self.user, token="dcr_access_1", expires=timezone.now() + timedelta(minutes=5)
+        )
+        second_access_token = OAuthAccessToken.objects.create(
+            application=app, user=self.user, token="dcr_access_2", expires=timezone.now() + timedelta(minutes=5)
+        )
+        grant = OAuthGrant.objects.create(
+            application=app,
+            user=self.user,
+            code="dcr_grant_code",
+            code_challenge="challenge",
+            code_challenge_method="S256",
+            expires=timezone.now() + timedelta(minutes=5),
+        )
+
+        revoke_oauth_token_session(refresh_token=refresh_token)
+
+        self.assertFalse(OAuthAccessToken.objects.filter(id=first_access_token.id).exists())
+        self.assertFalse(OAuthAccessToken.objects.filter(id=second_access_token.id).exists())
+        self.assertFalse(OAuthGrant.objects.filter(id=grant.id).exists())
+        refresh_token.refresh_from_db()
+        self.assertIsNotNone(refresh_token.revoked)
 
     @freeze_time("2026-01-01 00:00:00")
     def test_revoke_application_sessions_revokes_across_all_users_and_leaves_other_apps(self):

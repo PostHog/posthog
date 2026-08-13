@@ -9,7 +9,8 @@ import { BehavioralFilterKey } from 'scenes/cohorts/CohortFilters/types'
 import { createCohortFormData } from 'scenes/cohorts/cohortUtils'
 
 import { ErrorTrackingIssue } from '~/queries/schema/schema-general'
-import { BehavioralEventType, CohortType, FilterLogicalOperator, PropertyFilterType, PropertyOperator } from '~/types'
+import { escapeHogQLString } from '~/queries/utils'
+import { BehavioralEventType, CohortType, FilterLogicalOperator, PropertyFilterType } from '~/types'
 
 import type {
     ErrorTrackingIssueAssignee,
@@ -323,10 +324,8 @@ function createCohortParams(name: string, description: string, issueId: string):
                                 event_type: TaxonomicFilterGroupType.Events,
                                 event_filters: [
                                     {
-                                        key: '$exception_issue_id',
-                                        type: PropertyFilterType.Event,
-                                        value: [issueId],
-                                        operator: PropertyOperator.Exact,
+                                        key: `issue_id = ${escapeHogQLString(issueId)}`,
+                                        type: PropertyFilterType.HogQL,
                                     },
                                 ],
                                 explicit_datetime: '-30d',

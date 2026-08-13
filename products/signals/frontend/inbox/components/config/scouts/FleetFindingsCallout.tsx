@@ -1,6 +1,7 @@
 import { useValues } from 'kea'
 
 import { IconArrowRight, IconSparkles } from '@posthog/icons'
+import { LemonSkeleton } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
 import { pluralize } from 'lib/utils/strings'
@@ -19,8 +20,12 @@ export function FleetFindingsCallout({ onOpen }: { onOpen: () => void }): JSX.El
 
     const { count, authoredReportCount, editedReportCount, scoutCount, latestAt } = emittedFindingsSummary
 
-    // Hold until the cheap summary lands, then only show when there's something to read on either channel.
-    if (!fleetFindingsSummaryLoadedOnce || (count === 0 && authoredReportCount === 0 && editedReportCount === 0)) {
+    if (!fleetFindingsSummaryLoadedOnce) {
+        return <LemonSkeleton className="h-16 w-full rounded" />
+    }
+
+    // Once this request settles, only show the callout when there's something to read on either channel.
+    if (count === 0 && authoredReportCount === 0 && editedReportCount === 0) {
         return null
     }
 

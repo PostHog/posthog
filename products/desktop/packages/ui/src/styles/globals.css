@@ -1431,3 +1431,20 @@ button,
   background-color: rgb(0 0 0 / 0.7);
   opacity: 1;
 }
+
+/*
+ * @posthog/quill Tabs — quill paints an active trigger `var(--background)` with
+ * `!important`, and `!important` inverts cascade-layer order, so no utility
+ * class on the trigger can outrank it however specific or `!`-marked. An
+ * override has to sit in quill's own layer with a longer selector, which is
+ * what this is: the fill tokens the sidebar's tab strips ask for.
+ */
+@layer components {
+  .quill-tabs-fill .quill-tabs__trigger[data-active] {
+    background-color: var(--fill-hover) !important;
+  }
+  .quill-tabs-fill .quill-tabs__trigger:hover,
+  .quill-tabs-fill .quill-tabs__trigger[data-active]:hover {
+    background-color: var(--fill-selected) !important;
+  }
+}

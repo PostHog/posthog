@@ -3,7 +3,7 @@
 import re
 import html as html_mod
 import unicodedata
-from collections.abc import Iterable
+from collections.abc import Callable, Iterable
 from typing import Any
 from urllib.parse import urlparse
 from uuid import UUID
@@ -28,6 +28,7 @@ _RE_MD_ITALIC = re.compile(r"(?<!\*)\*([^*]+?)\*(?!\*)")
 _RE_MD_STRIKE = re.compile(r"~~(.+?)~~")
 _RE_MD_LINK = re.compile(r"\[([^\]]+)\]\(([^)]+)\)")
 _RE_MD_MENTION = re.compile(r"@member:([a-f0-9-]+)")
+_RE_INLINE_MENTION = re.compile(r"@\[([^\][\n]+)\]\(([^\s()@]+@[^\s()@]+)\)")
 _RE_SINGLE_NEWLINE = re.compile(r"(?<!\n)\n(?!\n)")
 _RE_MD_ESCAPE = re.compile(r"([\\`*_{}\[\]()#+\-.!|])")
 _RE_MD_ESCAPED_CHAR = re.compile(r"\\([\\`*_{}\[\]()#+\-.!|])")
@@ -175,7 +176,11 @@ def strip_slack_user_mentions(text: str) -> str:
     return _RE_SLACK_USER_MENTION.sub("", text)
 
 
-def content_to_slack_mrkdwn(content: str, organization_id: str | UUID | None = None) -> str:
+def content_to_slack_mrkdwn(
+    content: str,
+    organization_id: str | UUID | None = None,
+    slack_user_id_by_email: Callable[[str], str | None] | None = None,
+) -> str:
     """Convert markdown comment content to Slack mrkdwn text.
 
     Backslash-escaped characters are unescaped: mrkdwn has no escape syntax, so a
@@ -187,6 +192,10 @@ def content_to_slack_mrkdwn(content: str, organization_id: str | UUID | None = N
     the rendered text lands in someone's Slack workspace, so an unscoped lookup would let a comment
     pull a name or email out of another organization. Without an organization every marker falls
     back to the generic "@teammate".
+
+    ``slack_user_id_by_email`` renders ``@[Name](email)`` mentions as native Slack mentions when the
+    caller can map the address to a member of the destination workspace. Callers without a workspace
+    to resolve against get the plain display name.
     """
     if not content:
         return ""
@@ -225,6 +234,19 @@ def content_to_slack_mrkdwn(content: str, organization_id: str | UUID | None = N
     text = _RE_MD_BOLD.sub(capture_bold, text)
     text = _RE_MD_ITALIC.sub(r"_\1_", text)
     text = _RE_MD_STRIKE.sub(r"~\1~", text)
+
+    def render_inline_mention(match: re.Match) -> str:
+        name, email = match.group(1), match.group(2)
+        if slack_user_id_by_email:
+            try:
+                slack_user_id = slack_user_id_by_email(email)
+            except Exception:
+                slack_user_id = None
+            if slack_user_id:
+                return f"<@{slack_user_id}>"
+        return f"@{name}"
+
+    text = _RE_INLINE_MENTION.sub(render_inline_mention, text)
     text = _RE_MD_LINK.sub(r"<\2|\1>", text)
 
     for index, value in enumerate(bold_matches):
@@ -1002,11 +1024,13 @@ def rich_content_to_slack_payload(
     fallback_content: str,
     include_images: bool = True,
     organization_id: str | UUID | None = None,
+    slack_user_id_by_email: Callable[[str], str | None] | None = None,
 ) -> tuple[str, list[JSON] | None]:
     """
     Convert outbound app message to Slack payload fields.
 
-    ``organization_id`` scopes mention resolution — see content_to_slack_mrkdwn.
+    ``organization_id`` and ``slack_user_id_by_email`` scope mention resolution — see
+    content_to_slack_mrkdwn.
 
     Returns:
     - text (always present, used as fallback for notifications/older clients)
@@ -1016,6 +1040,6 @@ def rich_content_to_slack_payload(
         blocks = rich_content_to_slack_blocks(rich_content, include_images=include_images)
         markdown_text = rich_content_to_markdown(rich_content, include_images=include_images)
         source_content = markdown_text or fallback_content
-        return content_to_slack_mrkdwn(source_content, organization_id), blocks
+        return content_to_slack_mrkdwn(source_content, organization_id, slack_user_id_by_email), blocks
 
-    return content_to_slack_mrkdwn(fallback_content, organization_id), None
+    return content_to_slack_mrkdwn(fallback_content, organization_id, slack_user_id_by_email), None

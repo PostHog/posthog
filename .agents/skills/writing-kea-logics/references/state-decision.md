@@ -19,6 +19,21 @@ served by `fooLoading` from a loader or `isFooSubmitting` from a form. `cache.fo
 also has nothing to do with `cache.disposables` despite sharing the namespace — they
 are separate concerns.
 
+## Unknown is a state
+
+"Not yet known" is not the same value as "no" or "empty". A default of `false` or `[]`
+for async state makes them indistinguishable, and consumers will render a verdict
+("no access", "no results") before anything has resolved.
+
+- Default async state to `null` — a loader's natural default — or an explicit
+  `'unknown'` literal.
+- Branch on resolution first: `fooLoading` / `foo === null` before `foo.length === 0`.
+- Keep resets distinct from verdicts: a `reset` action returning the state to `null`
+  is not the same thing as a load failure or an empty result.
+
+The UI side of this rule (loading, empty, and error are three different screens) lives
+in [writing-ui-components](../../writing-ui-components/SKILL.md#resolution-states).
+
 ## Why this matters
 
 - **Reducers are the only thing React subscribes to via `useValues`.** Putting
@@ -101,3 +116,6 @@ React subscription. Only use for things the UI doesn't render.
   some other action triggers a re-render coincidentally.
 - **Mirroring loader data into a reducer.** Loaders already give you the value plus
   `xLoading`. Don't add a `foo` reducer alongside a `loadFoo` loader.
+- **Resolved-looking defaults for async state.** `false` / `[]` as the initial value
+  makes "not yet known" indistinguishable from "no" / "empty" — see
+  [Unknown is a state](#unknown-is-a-state).

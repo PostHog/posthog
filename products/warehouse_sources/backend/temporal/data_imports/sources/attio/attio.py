@@ -124,6 +124,14 @@ def get_resource(name: str) -> EndpointResource:
 
 def validate_credentials(api_key: str) -> tuple[bool, str | None]:
     """Validate Attio API credentials by making a test request."""
+    # A non-ASCII key can't be encoded into the Authorization header (requests uses latin-1),
+    # which would otherwise surface a raw UnicodeEncodeError to the user.
+    if not api_key.isascii():
+        return (
+            False,
+            "Your Attio API key contains an unsupported character (for example an invisible one pasted "
+            "from another app). Retype it by hand and try again.",
+        )
     try:
         res = make_tracked_session().get(
             "https://api.attio.com/v2/self",

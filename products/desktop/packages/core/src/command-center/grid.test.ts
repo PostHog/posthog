@@ -8,6 +8,7 @@ import {
   getExpandedLayout,
   getExpansionCellIndex,
   getGridDimensions,
+  getLayoutToFit,
   getOptimalLayout,
   getTerminalCellCwd,
   getTerminalCellId,
@@ -67,6 +68,39 @@ describe("getOptimalLayout", () => {
   ] as const)("fits %i tiles in %s", (count, expected) => {
     expect(getOptimalLayout(count)).toBe(expected);
   });
+});
+
+describe("getLayoutToFit", () => {
+  it.each([
+    { current: "2x2", needed: 4, expected: "2x2" },
+    { current: "2x2", needed: 2, expected: "2x2" },
+    { current: "2x2", needed: 5, expected: "3x2" },
+    { current: "1x1", needed: 4, expected: "2x2" },
+    { current: "1x1", needed: 2, expected: "2x1" },
+    { current: "3x1", needed: 5, expected: "3x2" },
+    { current: "2x2", needed: 20, expected: "3x3" },
+  ] as const)(
+    "grows $current to $expected for $needed tiles",
+    ({ current, needed, expected }) => {
+      expect(getLayoutToFit(current, needed)).toBe(expected);
+    },
+  );
+
+  // getOptimalLayout(5) is 3x2, which would cost 1x3 its third row on reflow.
+  it.each([
+    { current: "1x3", needed: 5, expected: "2x3" },
+    { current: "1x2", needed: 5, expected: "3x2" },
+  ] as const)(
+    "never shrinks an axis: $current for $needed tiles",
+    ({ current, needed, expected }) => {
+      const result = getLayoutToFit(current, needed);
+      expect(result).toBe(expected);
+      const before = getGridDimensions(current);
+      const after = getGridDimensions(result);
+      expect(after.cols).toBeGreaterThanOrEqual(before.cols);
+      expect(after.rows).toBeGreaterThanOrEqual(before.rows);
+    },
+  );
 });
 
 describe("getExpandedLayout", () => {

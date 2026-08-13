@@ -1,6 +1,7 @@
 import { useValues } from 'kea'
 
 import { IconArrowRight, IconNotebook } from '@posthog/icons'
+import { LemonSkeleton } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
 import { pluralize } from 'lib/utils/strings'
@@ -16,8 +17,12 @@ import { scratchpadLogic } from '../../../logics/scratchpadLogic'
 export function FleetMemoryCallout({ onOpen }: { onOpen: () => void }): JSX.Element | null {
     const { entries, totalCount, lastUpdatedAt } = useValues(scratchpadLogic)
 
-    // Hold until the first load settles, then only show when there's something to read.
-    if (entries === null || !totalCount) {
+    if (entries === null) {
+        return <LemonSkeleton className="h-16 w-full rounded" />
+    }
+
+    // Once this request settles, only show the callout when there's something to read.
+    if (!totalCount) {
         return null
     }
 

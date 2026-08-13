@@ -48,7 +48,7 @@ export function LemonDateFilterExclusions({
                         <div className="px-3 py-2.5">
                             <LemonSwitch
                                 fullWidth
-                                label="Incomplete period"
+                                label="Incomplete periods"
                                 checked={exclusions.incomplete}
                                 onChange={(incomplete) => onChange({ ...exclusions, incomplete })}
                                 data-attr="date-filter-exclude-incomplete-periods"

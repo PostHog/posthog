@@ -1,14 +1,14 @@
 """Render the PR-facing review body (stored as `ReviewReport.report_markdown` and posted to GitHub).
 
-Assembles the per-chunk report tree from in-process pipeline objects (chunks, the canonical issues
-and their validations), keeping only validated issues, then renders the high-level summary body. The
-detailed per-issue findings are published as inline comments by `publish_review` (read from the
-durable finding/verdict rows), so the body stays a summary.
+The body opens with a one-line severity tally of the findings this turn publishes. The findings
+themselves go out as inline comments from `publish_review` (read from the durable finding/verdict
+rows), so the tally is all the body says about them — nobody reads a summary of the diff they just
+wrote. The one exception is a finding GitHub can't take an inline comment on: those are written out
+in full in the "Other findings" section below the tally, because the body is the only place they can
+appear at all.
 """
 
-import logging
-
-from products.review_hog.backend.reviewer.constants import effective_priority
+from products.review_hog.backend.reviewer.constants import PRIORITIES_BY_URGENCY, PRIORITY_LABELS, effective_priority
 from products.review_hog.backend.reviewer.diff_position import (
     build_diff_line_map,
     find_diff_position,
@@ -17,19 +17,10 @@ from products.review_hog.backend.reviewer.diff_position import (
 from products.review_hog.backend.reviewer.models.github_meta import PRFile
 from products.review_hog.backend.reviewer.models.issue_validation import IssueValidation
 from products.review_hog.backend.reviewer.models.issues_review import Issue, IssuePriority
-from products.review_hog.backend.reviewer.models.prepare_validation_markdown import (
-    ValidationMarkdownReport,
-    ValidationMarkdownReportChunk,
-    ValidationMarkdownReportIssue,
-)
-from products.review_hog.backend.reviewer.models.split_pr_into_chunks import ChunksList
-
-logger = logging.getLogger(__name__)
 
 
 def build_review_body(
     *,
-    chunks_data: ChunksList,
     issues: list[Issue],
     validations: dict[str, IssueValidation],
     pr_files: list[PRFile],
@@ -38,51 +29,32 @@ def build_review_body(
     """Render the PR-facing review body from this turn's in-process pipeline objects.
 
     `validations` is keyed by the live issue id (`{pass}-{chunk}-{issue}`); only issues the
-    validator ruled valid appear in the report. `pr_files` (this turn's reviewed diff) decides which
+    validator ruled valid are counted. `pr_files` (this turn's reviewed diff) decides which
     valid findings can't be anchored to an inline comment — those are surfaced in an "Other findings"
     section instead of being silently dropped at publish. `published_priorities` is the acting user's
-    urgency-threshold set (`published_priorities_for`), shared with the publisher so counts and
-    comments agree.
+    urgency-threshold set (`published_priorities_for`), shared with the publisher so the tally and the
+    posted comments agree.
     """
-    report = _assemble_report(chunks_data, issues, validations)
+    counts = _published_counts(issues, validations, published_priorities)
     off_diff = _off_diff_publishable_findings(issues, validations, pr_files, published_priorities)
-    return _render_review_body(report, off_diff, published_priorities)
+    return _render_review_body(counts, off_diff)
 
 
-def _assemble_report(
-    chunks_data: ChunksList,
+def _published_counts(
     issues: list[Issue],
     validations: dict[str, IssueValidation],
-) -> ValidationMarkdownReport:
-    """Group validated issues under their chunk (keyed via the issue id `{pass}-{chunk}-{issue}`)."""
-    issues_by_chunk: dict[int, list[Issue]] = {}
+    published_priorities: set[IssuePriority],
+) -> dict[IssuePriority, int]:
+    """Validated, publishable findings tallied by effective (validator-wins) severity."""
+    counts = dict.fromkeys(IssuePriority, 0)
     for issue in issues:
-        parts = issue.id.split("-")
-        if len(parts) != 3:
-            logger.warning(f"Invalid issue ID format: {issue.id}")
+        validation = validations.get(issue.id)
+        if validation is None or not validation.is_valid:
             continue
-        try:
-            chunk_id = int(parts[1])
-        except ValueError:
-            logger.warning(f"Invalid issue ID format: {issue.id}")
-            continue
-        issues_by_chunk.setdefault(chunk_id, []).append(issue)
-
-    report_chunks: list[ValidationMarkdownReportChunk] = []
-    for chunk in chunks_data.chunks:
-        validated_issues = [
-            ValidationMarkdownReportIssue(
-                issue=issue, effective_priority=effective_priority(issue.priority, v.adjusted_priority)
-            )
-            for issue in issues_by_chunk.get(chunk.chunk_id, [])
-            if (v := validations.get(issue.id)) is not None and v.is_valid
-        ]
-        # A chunk with no validated finding has nothing to show — skip it so the body stays a list of
-        # findings and doesn't balloon on a large multi-chunk PR.
-        if not validated_issues:
-            continue
-        report_chunks.append(ValidationMarkdownReportChunk(chunk=chunk, validated_issues=validated_issues))
-    return ValidationMarkdownReport(chunks=report_chunks)
+        priority = effective_priority(issue.priority, validation.adjusted_priority)
+        if priority in published_priorities:
+            counts[priority] += 1
+    return counts
 
 
 def _off_diff_publishable_findings(
@@ -111,38 +83,19 @@ def _off_diff_publishable_findings(
 
 
 def _render_review_body(
-    report: ValidationMarkdownReport,
+    counts: dict[IssuePriority, int],
     off_diff_findings: list[tuple[Issue, IssueValidation]],
-    published_priorities: set[IssuePriority],
 ) -> str:
-    """Render the top-level review body: the per-chunk overview plus any off-diff findings section."""
+    """Render the review body: the severity tally plus any off-diff findings section."""
     lines = [
         "# ReviewHog Report",
         "",
     ]
 
-    for chunk_report in report.chunks:
-        chunk = chunk_report.chunk
-        issue_count = sum(1 for vi in chunk_report.validated_issues if vi.effective_priority in published_priorities)
-
-        chunk_type = chunk.chunk_type.replace("_", " ").capitalize() if chunk.chunk_type else "Changes"
-        lines.extend([f"## {chunk_type}", ""])
-
-        if issue_count > 0:
-            issues_label = "issue" if issue_count == 1 else "issues"
-            lines.extend([f"**Issues:** {issue_count} {issues_label}", ""])
-
-        if chunk.files:
-            lines.extend(["<details>", f"<summary>Files ({len(chunk.files)})</summary>", "<br>", ""])
-            for f in chunk.files:
-                lines.append(f"- `{f.filename}`")
-            lines.extend(["", "</details>", ""])
-
-        if chunk.key_changes:
-            lines.extend(["<details>", "<summary>What were the main changes</summary>", "<br>", ""])
-            for change in chunk.key_changes:
-                lines.append(f"- {change}")
-            lines.extend(["", "</details>", ""])
+    breakdown = ", ".join(
+        f"**{counts[priority]} {PRIORITY_LABELS[priority]}**" for priority in PRIORITIES_BY_URGENCY if counts[priority]
+    )
+    lines.extend([f"Found {breakdown}." if breakdown else "No issues to report.", ""])
 
     lines.extend(_render_off_diff_section(off_diff_findings))
     return "\n".join(lines)

@@ -470,18 +470,17 @@
         "$app_build": 1,
         "$process_person_profile": false,
         "$exception_handled": true,
-        "$exception_releases": {
-            "91731dae7b53a1ec38467f3f813ae6d790a2b62c1a6f5607c7378dcf752168dbdfd48990d6e1647e5bb10a12b00f6d2f36d409967e99dbf1609166d665fa5452": {
-                "version": "bd1373f1b02ffb849572aa5d953b223c142b0e0f",
-                "project": "posthog-android",
-                "timestamp": "2025-11-28T11:07:55.159862Z",
-                "metadata": {
-                    "git": {
-                        "branch": "chore/progaurd-support",
-                        "commit_id": "bd1373f1b02ffb849572aa5d953b223c142b0e0f",
-                        "remote_url": "git@github.com:PostHog/posthog-android.git",
-                        "repo_name": "posthog-android"
-                    }
+        "$exception_release": {
+            "id": "019aca26-0a47-776c-baa2-0afbec3ec7bb",
+            "version": "bd1373f1b02ffb849572aa5d953b223c142b0e0f",
+            "project": "posthog-android",
+            "timestamp": "2025-11-28T11:07:55.159862Z",
+            "metadata": {
+                "git": {
+                    "branch": "chore/progaurd-support",
+                    "commit_id": "bd1373f1b02ffb849572aa5d953b223c142b0e0f",
+                    "remote_url": "git@github.com:PostHog/posthog-android.git",
+                    "repo_name": "posthog-android"
                 }
             }
         },

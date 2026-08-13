@@ -38,7 +38,7 @@ logger = structlog.get_logger(__name__)
 # `kernel_idle_timeout_seconds`. A kernel serves one interactive session, so nobody waits on it
 # once the tab closes and this TTL is what reclaims it. The task-agent default
 # (`SANDBOX_TTL_SECONDS`) is longer because it has to outlast an unattended agent run.
-NOTEBOOK_KERNEL_TTL_SECONDS = 2 * 60 * 60
+NOTEBOOK_KERNEL_TTL_SECONDS = 1 * 60 * 60
 
 
 @dataclass

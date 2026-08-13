@@ -155,7 +155,7 @@ export class CloudArtifactService {
       preparedArtifacts,
     );
 
-    return finalizedArtifacts.map((artifact) => artifact.id);
+    return this.getFinalizedArtifactIds(preparedArtifacts, finalizedArtifacts);
   }
 
   async uploadRunOutput(
@@ -224,7 +224,24 @@ export class CloudArtifactService {
       preparedArtifacts,
     );
 
-    return finalizedArtifacts.map((artifact) => artifact.id);
+    return this.getFinalizedArtifactIds(preparedArtifacts, finalizedArtifacts);
+  }
+
+  private getFinalizedArtifactIds(
+    preparedArtifacts: PreparedCloudArtifact[],
+    finalizedArtifacts: FinalizedCloudArtifact[],
+  ): string[] {
+    const artifactIds = finalizedArtifacts
+      .map((artifact) => artifact.id)
+      .filter((artifactId) => artifactId.trim().length > 0);
+
+    if (artifactIds.length !== preparedArtifacts.length) {
+      throw new Error(
+        "Finalized uploads do not match the selected attachments",
+      );
+    }
+
+    return artifactIds;
   }
 
   private async loadCloudAttachments(

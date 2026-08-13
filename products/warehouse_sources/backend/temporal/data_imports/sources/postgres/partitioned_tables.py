@@ -14,6 +14,7 @@ from structlog.types import FilteringBoundLogger
 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arrow_utils import (
     QueryTimeoutException,
+    restrict_schema_to_columns,
     table_from_iterator,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.partitioning import (
@@ -440,12 +441,13 @@ def iterate_date_windows(
                     logger.debug(f"window query lo={lo} hi={hi}: {query.as_string()}")
                     cur.execute(query)
                     columns = [c.name for c in cur.description or []]
+                    window_schema = restrict_schema_to_columns(arrow_schema, columns)
                     while True:
                         rows = cur.fetchmany(chunk_size)
                         if not rows:
                             break
                         rows_this_window += len(rows)
-                        yield table_from_iterator((dict(zip(columns, r)) for r in rows), arrow_schema)
+                        yield table_from_iterator((dict(zip(columns, r)) for r in rows), window_schema)
         except psycopg.errors.QueryCanceled:
             qc_retries += 1
             if qc_retries > WINDOW_MAX_QUERY_CANCELED_RETRIES or window <= min_window:
@@ -626,12 +628,13 @@ def iterate_partitions(
                 logger.debug(f"partition query {child.schema}.{child.name}: {query.as_string()}")
                 cur.execute(query)
                 columns = [c.name for c in cur.description or []]
+                partition_schema = restrict_schema_to_columns(arrow_schema, columns)
                 while True:
                     rows = cur.fetchmany(chunk_size)
                     if not rows:
                         break
                     rows_this_partition += len(rows)
-                    yield table_from_iterator((dict(zip(columns, r)) for r in rows), arrow_schema)
+                    yield table_from_iterator((dict(zip(columns, r)) for r in rows), partition_schema)
 
         elapsed = clock() - p_start
         total_rows += rows_this_partition

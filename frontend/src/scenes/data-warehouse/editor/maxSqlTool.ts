@@ -21,6 +21,7 @@ export function getExecuteSqlToolContext(
     return {
         current_query: queryInput,
         current_query_node: getCurrentQueryNodeContext(sourceQuery),
+        connection_id: 'connectionId' in sourceQuery.source ? (sourceQuery.source.connectionId ?? null) : null,
     }
 }
 

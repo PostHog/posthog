@@ -1,5 +1,11 @@
 # posthog-cli
 
+## 0.11.0 — 2026-08-12
+
+### Minor changes
+
+- [8d58ef5de6c](https://github.com/PostHog/posthog/commit/8d58ef5de6c34563ed1c07a54c92fbbfe9e397d4) Add `--release-mode` (env `POSTHOG_RELEASE_MODE`) to `inject`/`upload`/`process`. The default `symbol-set` keeps the existing behavior: the release id is stamped onto the uploaded symbol sets. The experimental `event` mode derives content-addressed chunk ids that stay stable across rebuilds and injects the release id into each JS chunk as `_posthogReleaseId`, so the SDK reports it per event and symbol sets stay release-independent. The release is still created; it just isn't bound to any chunk. — Thanks @ablaszkiewicz!
+
 ## 0.10.0 — 2026-08-03
 
 ### Minor changes

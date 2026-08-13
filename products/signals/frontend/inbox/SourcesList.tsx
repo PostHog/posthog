@@ -179,7 +179,7 @@ export function SourcesList(): JSX.Element {
                         {iconForType('session_replay')}
                     </div>
                 }
-                title="PostHog Session Replay"
+                title="PostHog Session replay"
                 description="Session recordings + event data → Signals"
                 variant="available"
                 checked={!!sessionAnalysisConfig?.enabled}
@@ -206,7 +206,7 @@ export function SourcesList(): JSX.Element {
                         {iconForType('error_tracking')}
                     </div>
                 }
-                title="PostHog Error Tracking"
+                title="PostHog Error tracking"
                 description="New issues, reopenings, and volume spikes → Signals"
                 variant="available"
                 checked={errorTrackingIsFullyEnabled}
@@ -226,7 +226,7 @@ export function SourcesList(): JSX.Element {
 
             <Source
                 icon={<IconGraph className="size-5 text-accent" />}
-                title="PostHog Product Analytics"
+                title="PostHog Product analytics"
                 description="Anomalies in your tracked metrics, investigated automatically → Signals"
                 variant="available"
                 checked={!!anomalyInvestigationConfig?.enabled}
@@ -258,7 +258,7 @@ export function SourcesList(): JSX.Element {
 
             <Source
                 icon={<IconGithub className="size-5" />}
-                title="GitHub Issues"
+                title="GitHub issues"
                 description="New issues and updates → Signals"
                 variant="available"
                 checked={!!githubIssuesConfig?.enabled}

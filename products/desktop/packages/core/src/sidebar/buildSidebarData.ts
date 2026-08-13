@@ -193,6 +193,25 @@ export function isTaskUnread(
   );
 }
 
+/**
+ * Whether a session is running, and where. Split out because a surface can need
+ * this without the workspace and pin lookups the rest of `TaskData` costs.
+ */
+export function deriveTaskRunState(
+  task: Pick<SidebarTask, "id" | "latest_run">,
+  session: TaskSession | undefined,
+): Pick<
+  TaskData,
+  "id" | "isGenerating" | "taskRunStatus" | "taskRunEnvironment"
+> {
+  return {
+    id: task.id,
+    isGenerating: session?.isPromptPending ?? false,
+    taskRunStatus: session?.cloudStatus ?? task.latest_run?.status ?? undefined,
+    taskRunEnvironment: task.latest_run?.environment ?? undefined,
+  };
+}
+
 export function deriveTaskData(
   task: SidebarTask,
   ctx: DeriveTaskDataContext,
@@ -214,19 +233,16 @@ export function deriveTaskData(
     task.slack_thread_url ?? ctx.slackThreadUrlByTaskId.get(task.id);
 
   return {
-    id: task.id,
+    ...deriveTaskRunState(task, session),
     title: task.title,
     createdAt,
     lastActivityAt,
-    isGenerating: session?.isPromptPending ?? false,
     isUnread,
     isPinned: ctx.pinnedIds.has(task.id),
     isSuspended: ctx.suspendedIds.has(task.id),
     needsPermission: (session?.pendingPermissions?.size ?? 0) > 0,
     repository: getRepositoryInfo(task, workspace?.folderPath ?? undefined),
     folderId: workspace?.folderId || undefined,
-    taskRunStatus: session?.cloudStatus ?? task.latest_run?.status ?? undefined,
-    taskRunEnvironment: task.latest_run?.environment ?? undefined,
     runMode: task.latest_run?.mode ?? undefined,
     // The `latest_run` fallback only matters in the `showAllUsers` view: the
     // default view's `filterVisibleTasks` already restricts to tasks with a

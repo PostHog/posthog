@@ -25,6 +25,10 @@ import {
 import { useHandleOpenTask } from "@posthog/ui/features/deep-links/useHandleOpenTask";
 import { GitHubRepoPicker } from "@posthog/ui/features/folder-picker/GitHubRepoPicker";
 import { useCloudRepoPicker } from "@posthog/ui/features/integrations/useCloudRepoPicker";
+import {
+  SettingsSelect,
+  type SettingsSelectOption,
+} from "@posthog/ui/features/settings/components/SettingsSelect";
 import { useSettingsPageStore } from "@posthog/ui/features/settings/stores/settingsPageStore";
 import { ChevronDownIcon } from "@radix-ui/react-icons";
 import {
@@ -48,7 +52,6 @@ import {
 } from "react";
 import { toast } from "../../../../primitives/toast";
 import { imageFailureDetail } from "./imageBuildWatcher";
-import { SettingsSelect, type SettingsSelectOption } from "./SettingsSelect";
 import {
   useSandboxCustomImageDetail,
   useSandboxCustomImages,

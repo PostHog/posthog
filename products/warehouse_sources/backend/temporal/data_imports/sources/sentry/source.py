@@ -129,6 +129,15 @@ class SentrySource(ResumableSource[SentrySourceConfig, SentryResumeConfig]):
             STATS_SUMMARY_REJECTED_MESSAGE: None,
         }
 
+    def get_retryable_errors(self) -> set[str]:
+        # `_request_with_retry` (sentry.py) already retries a dropped connection, read timeout, or
+        # persistent 429/5xx before re-raising once that budget is exhausted. urllib3 wraps all of
+        # those as "... Max retries exceeded with url: ..." regardless of the underlying cause, so
+        # match that stable prefix rather than the per-request URL or nested error detail. Temporal
+        # then retries the whole activity, so the failure is transient and self-recovering. Mirrors
+        # Close's equivalent case.
+        return {"Max retries exceeded with url"}
+
     def get_schemas(
         self,
         config: SentrySourceConfig,

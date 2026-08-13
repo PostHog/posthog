@@ -45,6 +45,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arr
     QueryTimeoutException,
     TemporaryFileSizeExceedsLimitException,
     build_pyarrow_decimal_type,
+    restrict_schema_to_columns,
     table_from_iterator,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.consts import (
@@ -3524,7 +3525,10 @@ def postgres_source(
 
                             offset += len(rows)
 
-                            yield table_from_iterator((dict(zip(column_names, row)) for row in rows), arrow_schema)
+                            yield table_from_iterator(
+                                (dict(zip(column_names, row)) for row in rows),
+                                restrict_schema_to_columns(arrow_schema, column_names),
+                            )
 
                             successive_errors = 0
                             successive_conn_errors = 0
@@ -3723,6 +3727,7 @@ def postgres_source(
                             cursor.execute(query)
 
                             column_names = [column.name for column in cursor.description or []]
+                            read_schema = restrict_schema_to_columns(arrow_schema, column_names)
 
                             while True:
                                 rows = cursor.fetchmany(chunk_size)
@@ -3731,7 +3736,7 @@ def postgres_source(
 
                                 dicts = [dict(zip(column_names, row)) for row in rows]
                                 del rows
-                                yield table_from_iterator(iter(dicts), arrow_schema)
+                                yield table_from_iterator(iter(dicts), read_schema)
                                 offset += len(dicts)
                     return
                 except psycopg.errors.SerializationFailure as e:

@@ -49,7 +49,6 @@ import { useCompletedArtifactUploads } from "@posthog/ui/features/sessions/compo
 import { useCommentsForTargetsQuery } from "@posthog/ui/features/sessions/components/useComments";
 import { useSessionSelector } from "@posthog/ui/features/sessions/sessionStore";
 import { useArtifactDownload } from "@posthog/ui/features/sessions/useArtifactDownload";
-import { useCommentsEnabled } from "@posthog/ui/features/sessions/useCommentsEnabled";
 import { FileIcon } from "@posthog/ui/primitives/FileIcon";
 import { openExternalUrl } from "@posthog/ui/shell/openExternal";
 import { formatFileSize } from "@posthog/ui/utils/formatFileSize";
@@ -410,7 +409,6 @@ export function TaskArtifactsList({
    *  open externally rather than into a review pane nobody is showing. */
   canOpenInPlace?: boolean;
 }) {
-  const commentsEnabled = useCommentsEnabled();
   // A finished upload_artifact tool call re-keys the runs query, so a file
   // the agent just delivered shows up now rather than on the next poll.
   const events = useSessionSelector(task.id, (session) => session?.events);
@@ -424,12 +422,8 @@ export function TaskArtifactsList({
   // One query for every row's badge, so N resources cost one request rather
   // than one per row. The threads themselves live in the Comments tab.
   const targets = useMemo(() => commentTargets(rows), [rows]);
-  const commentsQuery = useCommentsForTargetsQuery(targets, task.id, {
-    enabled: commentsEnabled,
-  });
-  const comments = commentsEnabled
-    ? (commentsQuery.data ?? EMPTY_COMMENTS)
-    : EMPTY_COMMENTS;
+  const commentsQuery = useCommentsForTargetsQuery(targets, task.id);
+  const comments = commentsQuery.data ?? EMPTY_COMMENTS;
   // Open threads only, so a row's badge agrees with what the Comments tab
   // shows on the same resource.
   const openCountByItem = useMemo(() => {

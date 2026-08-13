@@ -24,6 +24,7 @@ import {
   createRuntimeMcpServers,
   createRuntimeMcpStdioServers,
   type PiRpcClient,
+  type PiRuntimeExtension,
 } from "../pi/rpc-client";
 import { piRpcCommandSchema, type RpcCommand } from "../pi/rpc-transport";
 import { PiRuntime } from "../pi/runtime";
@@ -127,7 +128,6 @@ export class PiAgentServer {
   private logFlushQueue: Promise<void> = Promise.resolve();
   private logFlushActive = false;
   private logFlushRequested = false;
-  private autoPublishInstructionDelivered = false;
   private readonly canceledSseControllers = new WeakSet<SseController>();
   private readonly pendingMcpPermissions = new Map<
     string,
@@ -529,6 +529,13 @@ export class PiAgentServer {
       ...createRuntimeMcpStdioServers(localTools ? [localTools] : []),
     };
 
+    const extensions: PiRuntimeExtension[] = [];
+    if (!this.config.repositoryPath) {
+      extensions.push("repository-tools");
+    }
+    if (this.config.autoPublish === true && this.config.createPr !== false) {
+      extensions.push("auto-publish");
+    }
     const client = createPiRpcClient({
       cliPath: this.config.piRpcHostPath,
       cwd,
@@ -543,7 +550,7 @@ export class PiAgentServer {
           this.config.apiUrl,
         ),
       },
-      channelMode: !this.config.repositoryPath,
+      extensions,
     });
     const runtime = new PiRuntime(client);
     const unsubscribeConversation = runtime.onConversationEvent((event) =>
@@ -712,9 +719,6 @@ export class PiAgentServer {
       typeof params.messageId === "string" ? params.messageId : randomUUID(),
       params.steer === true,
     );
-    if (message.includesAutoPublishInstruction) {
-      this.autoPublishInstructionDelivered = true;
-    }
     return result;
   }
 
@@ -724,7 +728,6 @@ export class PiAgentServer {
   ): Promise<{
     content: string;
     images: Parameters<PiRpcClient["prompt"]>[1];
-    includesAutoPublishInstruction: boolean;
   }> {
     const images: NonNullable<Parameters<PiRpcClient["prompt"]>[1]> = [];
     const filePaths: string[] = [];
@@ -768,36 +771,10 @@ export class PiAgentServer {
     const attachmentText = filePaths.length
       ? `Attached files:\n${filePaths.map((filePath) => `- ${filePath}`).join("\n")}`
       : "";
-    const autoPublishInstruction = this.buildAutoPublishInstruction();
     return {
-      content: [autoPublishInstruction, content, attachmentText]
-        .filter(Boolean)
-        .join("\n\n"),
+      content: [content, attachmentText].filter(Boolean).join("\n\n"),
       images,
-      includesAutoPublishInstruction: autoPublishInstruction !== null,
     };
-  }
-
-  /**
-   * Pi does not consume AgentServer's ACP session system prompt. Carry the
-   * user's cloud auto-publish choice into its first prompt explicitly, just as
-   * prewarmed ACP sessions inject a first-message override after reading run
-   * state. Without this, Pi sees the task but never sees the instruction to
-   * publish the completed change.
-   */
-  private buildAutoPublishInstruction(): string | null {
-    if (
-      this.autoPublishInstructionDelivered ||
-      this.config.autoPublish !== true ||
-      this.config.createPr === false
-    ) {
-      return null;
-    }
-    return [
-      "IMPORTANT — the user has auto-publish enabled for this cloud run.",
-      "After completing and verifying code changes, create a `posthog/` branch, stage the changes, use the `git_signed_commit` tool to create a signed commit, and open a draft pull request with `gh pr create --draft`. Do not stop with local changes waiting for review.",
-      "Do not use `git commit` or `git push`. If this task already has an open pull request for the same work, continue on that PR instead of opening another one.",
-    ].join("\n");
   }
 
   private async dispatchUserMessage(

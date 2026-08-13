@@ -86,6 +86,7 @@ from products.signals.backend.scout_harness.serializers import (
     ProjectProfileQuerySerializer,
     ProjectProfileSerializer,
     RecentEmissionsQuerySerializer,
+    RecentRunsPerScoutQuerySerializer,
     RecordStructuredOutputRequestSerializer,
     RecordStructuredOutputResponseSerializer,
     RememberRequestSerializer,
@@ -148,8 +149,11 @@ from products.signals.backend.scout_harness.tools.report import (
 )
 from products.signals.backend.scout_harness.tools.runs import (
     DEFAULT_FINDINGS_WINDOW_HOURS,
+    DEFAULT_RUNS_PER_SCOUT,
+    DEFAULT_RUNS_PER_SCOUT_MAX_AGE_DAYS,
     fleet_findings_summary,
     get_run,
+    recent_runs_per_scout,
     search_recent_runs,
 )
 from products.signals.backend.scout_harness.tools.scratchpad import (
@@ -513,6 +517,47 @@ class SignalScoutRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             skill_name=skill_name,
             skill_version=skill_version,
             limit=limit,
+        )
+        return Response(SignalScoutRunSummarySerializer([row.as_dict() for row in rows], many=True).data)
+
+    @validated_request(
+        query_serializer=RecentRunsPerScoutQuerySerializer,
+        responses={
+            200: OpenApiResponse(
+                response=SignalScoutRunSummarySerializer(many=True),
+                description="Each scout's most recent runs, newest-first across the fleet.",
+            ),
+        },
+        summary="List each scout's most recent runs",
+        description=(
+            "Return the most recent `per_scout_limit` runs of *every* configured scout on the "
+            "project (default 25), newest-first across the fleet. The per-scout probe is the point: "
+            "a fleet-wide time window has to serve hourly and weekly scouts from one result cap, so "
+            "the busy scouts crowd out the sparse ones and a scout's visible history shrinks as the "
+            "rest of the fleet gets busier. Probing each `skill_name` gives every scout the same "
+            "depth of history whatever its schedule, and bounds the response at scouts x "
+            "`per_scout_limit` rather than at the fleet's run rate. Only scouts that still have a "
+            "config are covered, so runs left behind by a deleted or renamed scout are excluded. "
+            "Runs older than the staleness guard are excluded too, so a scout that stopped running "
+            "reads as stale instead of healthy — `max_age_days` (default 30) is that guard's floor, "
+            "which each scout's own cadence extends. Use `list` instead when you want a literal "
+            "time window or a text/emitted filter. Strictly team-scoped."
+        ),
+        operation_id="signals_scout_runs_recent_per_scout",
+    )
+    @action(
+        detail=False,
+        methods=["get"],
+        url_path="recent-per-scout",
+        required_scopes=["signal_scout:read"],
+        pagination_class=None,
+    )
+    def recent_per_scout(self, request: Request, **kwargs) -> Response:
+        validated = getattr(request, "validated_query_data", {}) or {}
+        rows = recent_runs_per_scout(
+            team_id=_canonical_team_id(self),
+            per_scout_limit=validated.get("per_scout_limit") or DEFAULT_RUNS_PER_SCOUT,
+            max_age_days=validated.get("max_age_days") or DEFAULT_RUNS_PER_SCOUT_MAX_AGE_DAYS,
         )
         return Response(SignalScoutRunSummarySerializer([row.as_dict() for row in rows], many=True).data)
 

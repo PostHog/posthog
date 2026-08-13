@@ -678,6 +678,7 @@ mod tests {
                     id: issue_id.unwrap_or_default(),
                     team_id,
                     status: IssueStatus::Active,
+                    severity: None,
                     name: None,
                     description: None,
                     created_at: Utc::now(),

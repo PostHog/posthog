@@ -365,7 +365,22 @@ class TestExtractTextFromMessages:
         ]
         assert extract_text_from_messages(messages) == "user: First. Second."
 
-    def test_otel_parts_agentic_conversation_correlates_calls_and_results(self):
+    @pytest.mark.parametrize(
+        "response_part",
+        [
+            pytest.param({"type": "tool_call_response", "id": "call_1", "response": "-10C"}, id="schema_response_key"),
+            pytest.param({"type": "tool_call_response", "id": "call_1", "result": "-10C"}, id="example_result_key"),
+            pytest.param(
+                {"type": "tool_call_response", "id": "call_1", "response": "-10C", "result": "stale"},
+                id="response_wins_over_result",
+            ),
+            pytest.param(
+                {"type": "tool_call_response", "id": "call_1", "response": None, "result": "-10C"},
+                id="null_response_falls_back_to_result",
+            ),
+        ],
+    )
+    def test_otel_parts_agentic_conversation_correlates_calls_and_results(self, response_part):
         messages = [
             {"role": "user", "parts": [{"type": "text", "content": "Weather in Montreal?"}]},
             {
@@ -380,7 +395,7 @@ class TestExtractTextFromMessages:
                     },
                 ],
             },
-            {"role": "tool", "parts": [{"type": "tool_call_response", "id": "call_1", "result": "-10C"}]},
+            {"role": "tool", "parts": [response_part]},
             {"role": "assistant", "parts": [{"type": "text", "content": "It is -10C."}]},
         ]
         result = extract_text_from_messages(messages)
@@ -389,10 +404,29 @@ class TestExtractTextFromMessages:
         assert "tool[call_1]: -10C" in result
         assert "assistant: It is -10C." in result
         assert "need the weather tool" not in result
+        assert "stale" not in result
 
-    def test_otel_parts_dict_tool_call_response_result_is_stringified(self):
+    @pytest.mark.parametrize(
+        "response_part",
+        [
+            pytest.param(
+                {"type": "tool_call_response", "id": "call_1", "response": "", "result": "stale"},
+                id="empty_string_response_wins_over_result",
+            ),
+            pytest.param(
+                {"type": "tool_call_response", "id": "call_1", "result": None},
+                id="null_result_renders_empty_not_null",
+            ),
+        ],
+    )
+    def test_otel_parts_tool_call_response_null_and_empty_values(self, response_part):
+        messages = [{"role": "tool", "parts": [response_part]}]
+        assert extract_text_from_messages(messages) == "tool[call_1]:"
+
+    @pytest.mark.parametrize("field", ["response", "result"])
+    def test_otel_parts_dict_tool_call_response_is_stringified(self, field):
         messages = [
-            {"role": "tool", "parts": [{"type": "tool_call_response", "id": "call_1", "result": {"temperature": 25}}]}
+            {"role": "tool", "parts": [{"type": "tool_call_response", "id": "call_1", field: {"temperature": 25}}]}
         ]
         assert extract_text_from_messages(messages) == 'tool[call_1]: {"temperature": 25}'
 

@@ -8,6 +8,8 @@ export default defineConfig({
     "src/runtime.ts",
     "src/project-trust.ts",
     "src/extensions/registry.ts",
+    "src/extensions/auto-publish/extension.ts",
+    "src/extensions/auto-publish/index.ts",
     "src/extensions/hog-branding/extension.ts",
     "src/extensions/hog-branding/index.ts",
     "src/extensions/posthog-provider/extension.ts",

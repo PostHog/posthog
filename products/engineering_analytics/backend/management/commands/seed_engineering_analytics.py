@@ -1145,7 +1145,11 @@ class Command(BaseCommand):
             existing.options = {**(existing.options or {}), "csv_allow_double_quotes": True}
             existing.deleted = False
             existing.deleted_at = None
-            existing.save()
+            # url_pattern is computed above from team/table_name, not request input, and credential
+            # is a real value from get_or_create_datawarehouse_credential (never None) - but the
+            # guard reads the row's prior DB state, so a stale credential-less row would still trip
+            # it without this declared explicitly.
+            existing.save(internally_computed_url_pattern=True)
             table = existing
         else:
             table = DataWarehouseTable.objects.create(

@@ -9,7 +9,6 @@ const mocks = vi.hoisted(() => ({
   isFetchingNextPage: false,
   items: [] as TaskActivityItem[],
   markRead: vi.fn(),
-  commentsEnabled: true,
 }));
 
 vi.mock("@posthog/quill", () => ({
@@ -85,9 +84,6 @@ vi.mock("@posthog/ui/features/canvas/hooks/useTaskActivity", () => ({
     fetchNextPage: mocks.fetchNextPage,
   }),
 }));
-vi.mock("@posthog/ui/features/sessions/useCommentsEnabled", () => ({
-  useCommentsEnabled: () => mocks.commentsEnabled,
-}));
 vi.mock("@posthog/ui/primitives/hooks/useInView", () => ({
   useInView: () => [vi.fn(), true],
 }));
@@ -102,7 +98,6 @@ describe("ActivityHoverCard", () => {
     mocks.hasNextPage = true;
     mocks.isFetchingNextPage = false;
     mocks.items = [];
-    mocks.commentsEnabled = true;
     useActivityFilterStore.setState({ unreadsOnly: false });
   });
 
@@ -141,31 +136,6 @@ describe("ActivityHoverCard", () => {
         activity_id: "activity-1",
       },
     ]);
-  });
-
-  it("hides only comment-derived activity while comments are disabled", () => {
-    mocks.commentsEnabled = false;
-    mocks.items = [
-      {
-        id: "comment-activity",
-        taskId: "task-1",
-        activityAt: "2026-08-07T00:00:00Z",
-        activityKind: "mention",
-        commentId: "comment-1",
-        isUnread: true,
-      } as TaskActivityItem,
-      {
-        id: "task-activity",
-        taskId: "task-2",
-        activityAt: "2026-08-07T00:01:00Z",
-        activityKind: "mention",
-        isUnread: true,
-      } as TaskActivityItem,
-    ];
-
-    render(<ActivityHoverCard onClose={vi.fn()} />);
-
-    expect(screen.getAllByText("Activity row")).toHaveLength(1);
   });
 
   it("drops read activity while the unreads filter is on", () => {

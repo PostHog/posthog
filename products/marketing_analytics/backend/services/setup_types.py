@@ -27,10 +27,6 @@ class SuggestionKind(StrEnum):
     FIX_CONVERSION_GOAL = "fix_conversion_goal"
     MARK_GOAL_AS_REVENUE = "mark_goal_as_revenue"
     MARK_GOAL_AS_CUSTOMER = "mark_goal_as_customer"
-    SET_ACTIVITY_EVENT = "set_activity_event"
-    SET_SIGNUP_EVENT = "set_signup_event"
-    SET_PAYMENT_EVENT = "set_payment_event"
-    SET_SUBSCRIPTION_EVENT = "set_subscription_event"
 
 
 class Capability(StrEnum):
@@ -41,8 +37,6 @@ class Capability(StrEnum):
     ATTRIBUTION = "attribution"
     ROAS = "roas"
     CAC = "cac"
-    RETENTION_BY_CHANNEL = "retention_by_channel"
-    LTV_BY_CHANNEL = "ltv_by_channel"
 
 
 class ReadinessStatus(StrEnum):
@@ -100,12 +94,6 @@ UNBLOCKS: dict[SuggestionKind, frozenset[SuggestionKind]] = {
         {
             SuggestionKind.MARK_GOAL_AS_REVENUE,
             SuggestionKind.MARK_GOAL_AS_CUSTOMER,
-        }
-    ),
-    SuggestionKind.SET_ACTIVITY_EVENT: frozenset(
-        {
-            SuggestionKind.SET_PAYMENT_EVENT,
-            SuggestionKind.SET_SUBSCRIPTION_EVENT,
         }
     ),
 }

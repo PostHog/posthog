@@ -2,7 +2,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from enum import Enum, IntEnum
 from math import asin, cos, radians, sin, sqrt
-from typing import Optional
+from typing import Any, Optional
 
 from django.conf import settings
 from django.contrib.auth import BACKEND_SESSION_KEY
@@ -132,6 +132,10 @@ def evaluate_signals(baseline: Baseline, ctx: Context, *, now: datetime) -> set[
 # The independent axes a signal can observe. impossible_travel and new_country are both derived from
 # a single geoip lookup on a single IP, so they corroborate each other only in appearance. Every
 # RiskSignal must belong to exactly one axis or tier_for would silently cap it at MEDIUM forever.
+# Stands in for an absent user agent in telemetry, so a request that sent no header groups as its own
+# value in a breakdown instead of disappearing into null.
+MISSING_UA = "missing"
+
 NETWORK_SIGNALS = frozenset({RiskSignal.IMPOSSIBLE_TRAVEL, RiskSignal.NEW_COUNTRY})
 DEVICE_SIGNALS = frozenset({RiskSignal.UA_CHANGE})
 
@@ -333,17 +337,27 @@ def evaluate_session_risk(request: HttpRequest) -> RiskTier:
         request.session.save()
 
     if should_emit:
+        properties: dict[str, Any] = {
+            "signals": sorted(signal.value for signal in signals),
+            "tier": tier.name,
+            "enforced": enforced,
+        }
+        if RiskSignal.UA_CHANGE in signals:
+            # A session is one cookie in one browser, so the device signature should not move within
+            # it. Record which way it moved, so the volume can be attributed to a real cause — a
+            # desktop-mode toggle flipping all three components at once, a request arriving with no
+            # header — rather than guessed at. Family-level only, the same values already stored on
+            # the session row: no versions, nothing that identifies a device.
+            properties["ua_from"] = baseline.ua_signature
+            properties["ua_to"] = ctx.ua_signature or MISSING_UA
+
         # Telemetry must never break the request: a capture failure here would otherwise 500 an
         # otherwise-valid authenticated request from the request-phase middleware.
         try:
             posthoganalytics.capture(
                 distinct_id=str(user.distinct_id),
                 event="session_risk_detected",
-                properties={
-                    "signals": sorted(signal.value for signal in signals),
-                    "tier": tier.name,
-                    "enforced": enforced,
-                },
+                properties=properties,
             )
         except Exception:
             logger.exception("session_risk telemetry capture failed")

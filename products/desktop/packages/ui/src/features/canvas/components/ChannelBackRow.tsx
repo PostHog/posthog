@@ -91,7 +91,10 @@ export function ChannelBackRow({ channelId }: { channelId: string }) {
               // the star. Padding rather than a spacer element: quill hides an
               // empty one (`empty:hidden`), which is how the shortcut hint ended
               // up sitting beneath the star.
-              className={cn("w-full gap-1.5 text-left", showStar && "pr-8")}
+              className={cn(
+                "w-full gap-1.5 pr-1 text-left",
+                showStar && "pr-8",
+              )}
             >
               <CaretLeftIcon
                 size={12}

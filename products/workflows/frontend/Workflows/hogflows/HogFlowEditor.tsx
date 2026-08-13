@@ -9,6 +9,7 @@ import {
     Panel,
     ReactFlow,
     ReactFlowProvider,
+    useNodesInitialized,
     useReactFlow,
 } from '@xyflow/react'
 import { BindLogic, useActions, useValues } from 'kea'
@@ -43,10 +44,12 @@ function HogFlowEditorContent(): JSX.Element {
         setReactFlowWrapper,
         handlePaneClick,
         setIsZoomedOutFar,
+        fitView,
     } = useActions(hogFlowEditorLogic)
 
     const reactFlowWrapper = useRef<HTMLDivElement>(null)
     const reactFlowInstance = useReactFlow()
+    const nodesInitialized = useNodesInitialized()
 
     useEffect(() => {
         setReactFlowInstance(reactFlowInstance)
@@ -55,6 +58,12 @@ function HogFlowEditorContent(): JSX.Element {
     useEffect(() => {
         setReactFlowWrapper(reactFlowWrapper)
     }, [setReactFlowWrapper])
+
+    useEffect(() => {
+        if (nodesInitialized) {
+            fitView({ duration: 0 })
+        }
+    }, [fitView, nodesInitialized])
 
     // ReactFlow diffs its nodes prop by reference: an inline spread would hand it a fresh array
     // every render, making every render look like a graph change.

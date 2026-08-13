@@ -162,6 +162,64 @@ class TestQueryDateRange(APIBaseTest):
         )
         self.assertEqual(query_date_range.date_to(), parser.isoparse(expected_date_to))
 
+    @parameterized.expand(
+        [
+            # now is 2021-08-25T10:00Z (a Wednesday): a relative date_from landing mid-interval is
+            # advanced to the next boundary, so the leading bucket is a complete one
+            ("day_already_aligned", IntervalType.DAY, "-7d", "2021-08-18T00:00:00Z", WeekStartDay.SUNDAY),
+            ("week_sunday_start", IntervalType.WEEK, "-30d", "2021-08-01T00:00:00Z", WeekStartDay.SUNDAY),
+            ("week_monday_start", IntervalType.WEEK, "-33d", "2021-07-26T00:00:00Z", WeekStartDay.MONDAY),
+            ("month", IntervalType.MONTH, "-3m", "2021-06-01T00:00:00Z", WeekStartDay.SUNDAY),
+            ("quarter", IntervalType.QUARTER, "-2y", "2019-10-01T00:00:00Z", WeekStartDay.SUNDAY),
+            ("year", IntervalType.YEAR, "-3y", "2019-01-01T00:00:00Z", WeekStartDay.SUNDAY),
+        ]
+    )
+    def test_exclude_incomplete_periods_clips_date_from(
+        self, _name, interval, date_from, expected_date_from, week_start_day
+    ):
+        now = parser.isoparse("2021-08-25T10:00:00.000Z")
+        self.team.week_start_day = week_start_day
+        query_date_range = QueryDateRange(
+            team=self.team,
+            date_range=DateRange(date_from=date_from, excludeIncompletePeriods=True),
+            interval=interval,
+            now=now,
+        )
+        self.assertEqual(query_date_range.date_from(), parser.isoparse(expected_date_from))
+
+    def test_exclude_incomplete_periods_clips_explicit_historical_date_from(self):
+        # A fixed historical range starting mid-week still gets its leading partial bucket dropped.
+        now = parser.isoparse("2021-08-25T10:00:00.000Z")
+        query_date_range = QueryDateRange(
+            team=self.team,
+            date_range=DateRange(date_from="2021-06-15", date_to="2021-08-01", excludeIncompletePeriods=True),
+            interval=IntervalType.WEEK,
+            now=now,
+        )
+        self.assertEqual(query_date_range.date_from(), parser.isoparse("2021-06-20T00:00:00Z"))
+
+    @parameterized.expand(
+        [
+            # A range without a single complete interval must keep the partial leading bucket
+            # rather than being clipped into an empty or inverted range.
+            ("range_within_current_month", "-3d", IntervalType.MONTH, None, "2021-08-22T00:00:00Z"),
+            # Multi-unit buckets don't sit on single-interval boundaries: the flag is a no-op there.
+            ("multi_unit_interval", "-1d", IntervalType.HOUR, 2, "2021-08-24T10:00:00Z"),
+        ]
+    )
+    def test_exclude_incomplete_periods_date_from_no_op_edge_cases(
+        self, _name, date_from, interval, interval_count, expected_date_from
+    ):
+        now = parser.isoparse("2021-08-25T10:00:00.000Z")
+        query_date_range = QueryDateRange(
+            team=self.team,
+            date_range=DateRange(date_from=date_from, excludeIncompletePeriods=True),
+            interval=interval,
+            interval_count=interval_count,
+            now=now,
+        )
+        self.assertEqual(query_date_range.date_from(), parser.isoparse(expected_date_from))
+
     def test_exclude_incomplete_periods_clips_explicit_date_to_in_current_period(self):
         # explicitDate=True skips date_to padding, but excludeIncompletePeriods still clips
         # when the explicit date_to falls inside the incomplete current period.

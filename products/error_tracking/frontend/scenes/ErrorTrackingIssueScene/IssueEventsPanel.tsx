@@ -86,7 +86,7 @@ function IssueEventsLayout({
                                                 size="icon"
                                                 loading={loading}
                                                 aria-label="Reload exceptions"
-                                                onClick={onReload}
+                                                onClick={() => onReload?.()}
                                             />
                                         }
                                     >

@@ -62,6 +62,12 @@ other failures on these actions still toast.
 const ACCESS_DENIED_SELF_HANDLED = new Set(['saveFeatureFlag'])
 
 /*
+Write actions whose own logic toasts the duplicate-key 400 (code `unique` on attr `key`), so the
+generic toast would be a second one. Owned by featureFlagLogic's saveFeatureFlagFailure listener.
+*/
+const DUPLICATE_KEY_SELF_HANDLED = new Set(['saveFeatureFlag'])
+
+/*
 Transient gateway/proxy errors. These are infrastructure-level failures (the gateway can't
 reach the backend), not application bugs, so we still toast the user a retryable failure but
 don't report them to error tracking — otherwise sporadic 5xxs surface as noisy code-regression
@@ -160,6 +166,10 @@ export function initKea({
                     // with this code is form validation (e.g. inviting an outside-domain email)
                     // and must keep the generic error toast.
                     const isVerifiedDomainError = error.code === 'verified_domain_required' && error.status === 403
+                    const isFeatureFlagDuplicateKey =
+                        error.code === 'unique' &&
+                        error.attr === 'key' &&
+                        DUPLICATE_KEY_SELF_HANDLED.has(String(actionKey))
 
                     if (!errorMessage && error.status === 404) {
                         errorMessage = 'URL not found'
@@ -172,8 +182,13 @@ export function initKea({
                     ) {
                         errorMessage = `Rate limit exceeded. Please try again ${error.formattedRetryAfter}.`
                     }
-                    if (isTwoFactorError || isSensitiveActionError || isVerifiedDomainError) {
-                        // These get their own dedicated toast in apiStatusLogic.
+                    if (
+                        isTwoFactorError ||
+                        isSensitiveActionError ||
+                        isVerifiedDomainError ||
+                        isFeatureFlagDuplicateKey
+                    ) {
+                        // These are handled by their own dedicated toasts elsewhere.
                         errorMessage = null
                     }
                     if (errorMessage) {

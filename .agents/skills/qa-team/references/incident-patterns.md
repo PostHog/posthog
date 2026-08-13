@@ -134,6 +134,7 @@ This document grounds QA review agents with real-world failure modes.
 - Hardcoded configuration requiring a full deploy cycle to change
 - Deployment rollback failing due to permission misconfiguration
 - Missing alerts for customer-facing services (multi-hour detection gaps)
+- Application code adding reads of a resource its deployed least-privilege role has no grant for, with grants maintained in a separate infra repo; every test passes because suites run with privileged roles, and the mismatch first executes in production
 
 **Review signals:**
 
@@ -142,6 +143,7 @@ This document grounds QA review agents with real-world failure modes.
 - Infrastructure changes to networking, CNI, service mesh
 - Config values that should be runtime-adjustable but are hardcoded
 - Missing alerting for new services or endpoints
+- A first read of a new database table (or queue, bucket, secret) in a service whose runtime role has an explicit grant allowlist in another repo (e.g. `services/llm-gateway`, allowlist in posthog-cloud-infra)
 
 ## Pattern 8: Cross-Service & Queue Processing Failures
 

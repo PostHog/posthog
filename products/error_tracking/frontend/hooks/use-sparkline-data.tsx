@@ -84,6 +84,6 @@ export function applyVolumeSpikeHighlights(
     return data.map((datum) => {
         const datumTime = datum.date.getTime()
         const hasSpikeInBin = spikeTimestamps.some((st) => st >= datumTime && st < datumTime + binSizeMs)
-        return hasSpikeInBin ? { ...datum, color: spikeStripeColor, animated: true } : datum
+        return hasSpikeInBin ? { ...datum, color: spikeStripeColor, isSpike: true } : datum
     })
 }

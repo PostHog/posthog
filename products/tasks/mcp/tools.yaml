@@ -400,12 +400,12 @@ tools:
             idempotent: true
         enrich_url: '{id}'
         list: true
-        title: List tasks
+        title: Search and list tasks
         description: >
-            List agent tasks in the current project. Supports filtering by `origin_product`, `stage`, `organization`,
-            `repository`, `created_by`, and `internal`. Returns lightweight task metadata only — call tasks-retrieve for
-            the full task including its latest run, or tasks-runs-list for run history. Requires the calling token's
-            organization to have Tasks access enabled.
+            Search agent tasks before starting related work. Use `search` to match task titles and descriptions, and
+            `channel` to limit results to the current space. The results identify who created each task and whether its
+            latest run is active. Supports additional filtering by status, repository, creator, origin product, and
+            archived or internal state. Requires the calling token's organization to have Tasks access enabled.
         feature_flag: tasks
         response:
             include:
@@ -416,8 +416,16 @@ tools:
                 - origin_product
                 - repository
                 - internal
+                - channel
+                - created_by.first_name
+                - created_by.last_name
+                - latest_run.id
+                - latest_run.status
                 - created_at
                 - updated_at
+    tasks-models-retrieve:
+        operation: tasks_models_retrieve
+        enabled: false
     tasks-partial-update:
         operation: tasks_partial_update
         enabled: false

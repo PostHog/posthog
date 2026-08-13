@@ -1,4 +1,5 @@
 from django.contrib import admin
+from django.http import HttpRequest
 from django.urls import reverse
 from django.utils.html import format_html
 
@@ -23,6 +24,15 @@ class DataWarehouseTableAdmin(admin.ModelAdmin):
     autocomplete_fields = ("team", "created_by")
     readonly_fields = ("credential", "external_data_source")
     ordering = ("-created_at",)
+
+    def has_add_permission(self, request: HttpRequest) -> bool:
+        # A table created here would have no credential (this form has no way to set one - see
+        # readonly_fields) and an unrestricted url_pattern, which is exactly the combination
+        # DataWarehouseTable.clean()/save() exist to refuse on every other write path. Those checks
+        # can't cover creation (a brand-new row has no prior state to compare against), so the
+        # invariant depends entirely on the creator computing url_pattern itself rather than taking
+        # it from form input - true for upload/pipeline sync, never true for a raw admin add form.
+        return False
 
     @admin.display(description="Team")
     def team_link(self, obj: DataWarehouseTable):

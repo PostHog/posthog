@@ -18,7 +18,6 @@ export function useSparklineEvents(): SparklineEvent<string>[] {
                 date: firstSeen.toDate(),
                 color: 'var(--brand-blue)',
                 payload: 'First Seen',
-                radius: 6,
             })
         }
         if (selectedEvent && !isFirstOrLastEvent(firstSeen, lastSeen, selectedEvent)) {
@@ -27,7 +26,6 @@ export function useSparklineEvents(): SparklineEvent<string>[] {
                 date: new Date(selectedEvent.timestamp),
                 color: 'var(--brand-yellow)',
                 payload: 'Current',
-                radius: 6,
             })
         }
         if (lastSeen) {
@@ -36,7 +34,6 @@ export function useSparklineEvents(): SparklineEvent<string>[] {
                 date: lastSeen.toDate(),
                 color: 'var(--brand-red)',
                 payload: 'Last Seen',
-                radius: 6,
             })
         }
         return events

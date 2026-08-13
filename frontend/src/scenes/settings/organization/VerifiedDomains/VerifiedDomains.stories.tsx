@@ -2,7 +2,6 @@ import { MOCK_DEFAULT_ORGANIZATION, MOCK_DEFAULT_TEAM, MOCK_DEFAULT_USER } from 
 
 import type { Meta, StoryObj } from '@storybook/react'
 import { router } from 'kea-router'
-import { useEffect } from 'react'
 
 import { STORYBOOK_FEATURE_FLAGS } from 'lib/constants'
 import { App } from 'scenes/App'
@@ -118,9 +117,11 @@ const meta: Meta<typeof App> = {
         }),
     ],
     render: () => {
-        useEffect(() => {
-            router.actions.push(urls.settings('organization-authentication'))
-        }, [])
+        // Navigate synchronously before <App /> mounts so it renders the settings scene directly,
+        // never the project homepage. A useEffect push fires after the first paint, so the snapshot
+        // can race and capture the homepage frame instead.
+        router.actions.push(urls.settings('organization-authentication'))
+
         return <App />
     },
 }

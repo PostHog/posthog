@@ -2,6 +2,7 @@ import hashlib
 import datetime
 from dataclasses import dataclass
 from typing import Any, Optional
+from urllib.parse import urlencode
 
 import pyarrow as pa
 import structlog
@@ -37,6 +38,13 @@ REPORT_TIMEOUT_SECONDS = (DOIT_CONNECT_TIMEOUT_SECONDS, 300)
 
 # Key under a schema's persisted `schema_metadata` holding the DoIt report id.
 REPORT_ID_METADATA_KEY = "report_id"
+
+DOIT_REPORTS_URL = "https://api.doit.com/analytics/v1/reports"
+
+# The listing endpoint paginates at 50 reports per page by default, signalling more pages via a
+# `pageToken` in the response body. The cap is a safety valve against a server that keeps returning
+# tokens forever; at 50 reports per page it allows 10,000 reports.
+DOIT_REPORTS_MAX_PAGES = 200
 
 DOIT_INCREMENTAL_FIELDS: list[IncrementalField] = [
     {
@@ -87,18 +95,41 @@ def doit_list_reports(config: DoItSourceConfig, logger: Optional[FilteringBoundL
     if logger is None:
         logger = structlog.get_logger(__name__)
 
-    res = make_tracked_session(retry=DOIT_RETRY).get(
-        "https://api.doit.com/analytics/v1/reports",
-        headers={"Authorization": f"Bearer {config.api_key}"},
-        timeout=LIST_REPORTS_TIMEOUT_SECONDS,
-    )
+    session = make_tracked_session(retry=DOIT_RETRY)
 
-    # `DOIT_RETRY` sets `raise_on_status=False`, so a 5xx that outlives the retries lands here as a
-    # normal response; without this guard it surfaces as a JSON/key error with the status code lost.
-    if res.status_code != 200:
-        raise Exception(f"Request to list reports failed with status: {res.status_code}. With body: {res.text}")
+    reports: list[dict[str, Any]] = []
+    page_token: Optional[str] = None
+    for _ in range(DOIT_REPORTS_MAX_PAGES):
+        url = DOIT_REPORTS_URL
+        if page_token:
+            url = f"{DOIT_REPORTS_URL}?{urlencode({'pageToken': page_token})}"
 
-    reports = res.json()["reports"]
+        res = session.get(
+            url,
+            headers={"Authorization": f"Bearer {config.api_key}"},
+            timeout=LIST_REPORTS_TIMEOUT_SECONDS,
+        )
+
+        # `DOIT_RETRY` sets `raise_on_status=False`, so a 5xx that outlives the retries lands here as
+        # a normal response; without this guard it surfaces as a JSON/key error with the status code
+        # lost.
+        if res.status_code != 200:
+            raise Exception(f"Request to list reports failed with status: {res.status_code}. With body: {res.text}")
+
+        payload = res.json()
+        reports.extend(payload.get("reports") or [])
+
+        next_token = payload.get("pageToken")
+        # Treat an echoed token as the last page so a misbehaving server can't loop us.
+        if not next_token or next_token == page_token:
+            break
+        page_token = next_token
+    else:
+        logger.warning(
+            "DoIt report listing hit the page cap; the report list may be truncated",
+            max_pages=DOIT_REPORTS_MAX_PAGES,
+            reports_seen=len(reports),
+        )
 
     result = []
     for report in reports:

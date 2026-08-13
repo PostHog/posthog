@@ -580,6 +580,23 @@ def table_from_py_list(table_data: list[Any], schema: Optional[pa.Schema] = None
     return table_from_iterator(iter(table_data), schema=schema)
 
 
+def restrict_schema_to_columns(schema: pa.Schema, column_names: Sequence[str]) -> pa.Schema:
+    """Drop fields from `schema` that aren't among `column_names`.
+
+    `pa.Table.from_pydict` raises an opaque KeyError ("The passed mapping doesn't contain the
+    following field(s) of the schema: ...") when the provided schema declares a column the row
+    mapping lacks. A SQL source builds its Arrow schema from columns discovered during setup, but
+    the streaming read can return a strict subset — e.g. a column dropped at the source, or the
+    table recreated with a narrower shape, between discovery and the read. Restricting the schema
+    to the columns the query actually returned lets the batch build; extra columns present in the
+    rows but not the schema are still handled by `_process_batch`, which appends them.
+    """
+    present = set(column_names)
+    if all(name in present for name in schema.names):
+        return schema
+    return pa.schema([field for field in schema if field.name in present])
+
+
 def build_pyarrow_decimal_type(precision: int, scale: int) -> pa.Decimal128Type | pa.Decimal256Type:
     if precision <= 38:
         return pa.decimal128(precision, scale)

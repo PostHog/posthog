@@ -18,8 +18,8 @@ use crate::{
     },
     util::{get_json_nested, like, regex_match},
     values::{
-        compare_values, Callable, Closure, FromHogLiteral, HogLiteral, HogValue, LocalCallable,
-        Num, NumOp, Upvalue, UpvalueCell,
+        compare_values, temporal_seconds_pair, Callable, Closure, FromHogLiteral, HogLiteral,
+        HogValue, LocalCallable, Num, NumOp, Upvalue, UpvalueCell,
     },
 };
 
@@ -955,15 +955,18 @@ impl<'a> HogVM<'a> {
 
     /// `Eq`/`NotEq` core. The default path is the legacy structural equality every existing
     /// shared-crate consumer relies on. Only when the context opts into coercing comparisons (the
-    /// realtime-cohort evaluator) do two Hog temporals compare by epoch seconds to match ClickHouse
+    /// realtime-cohort evaluator) does a temporal pair compare by epoch seconds to match ClickHouse
     /// (`is_date_exact`); every non-temporal pair is unchanged either way.
+    ///
+    /// "Temporal pair" is [`temporal_seconds_pair`] — the same predicate [`compare_values`] uses for
+    /// ordering, so `timestamp == toDateTime(...)` and `timestamp > toDateTime(...)` agree on which
+    /// operands are dates. The Python/TS reference VMs route all six comparison opcodes through a
+    /// single coercion function, so equality has to cover the bare-field string case too, not just
+    /// the both-temporal one.
     fn eq_op(&self, a: &HogValue, b: &HogValue) -> Result<HogLiteral, VmError> {
         if self.context.coerce_comparisons {
             let (lhs, rhs) = (a.deref(&self.heap)?, b.deref(&self.heap)?);
-            if let (Some(x), Some(y)) = (
-                lhs.as_temporal_seconds(&self.heap),
-                rhs.as_temporal_seconds(&self.heap),
-            ) {
+            if let Some((x, y)) = temporal_seconds_pair(lhs, rhs, &self.heap) {
                 return Ok((x == y).into());
             }
         }

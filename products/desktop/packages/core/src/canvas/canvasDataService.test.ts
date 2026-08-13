@@ -27,6 +27,7 @@ function insight(partial: Partial<InsightFetchResult>): InsightFetchResult {
     queryKind: "TrendsQuery",
     columns: [],
     results: [],
+    resolvedVariables: {},
     ...partial,
   };
 }
@@ -92,6 +93,63 @@ describe("CanvasDataService.loadInsight", () => {
       "abc123",
       { dateRange: { date_from: "2026-01-01", date_to: "2026-02-01" } },
     );
+  });
+
+  it("forwards SQL variables alongside the date window", async () => {
+    fetchInsightByShortId.mockResolvedValue(
+      insight({ resolvedVariables: { product: "surveys" } }),
+    );
+
+    await makeService().loadInsight({
+      shortId: "abc123",
+      variables: { product: "surveys" },
+    });
+
+    expect(fetchInsightByShortId).toHaveBeenCalledWith(
+      expect.anything(),
+      "abc123",
+      { dateRange: undefined, variables: { product: "surveys" } },
+    );
+  });
+
+  // The API drops an override whose code_name matches nothing on the insight, and
+  // ignores overrides entirely under sharing-token auth — both silently, leaving the
+  // insight's own defaults to compute numbers that look real. Rendering another
+  // product's revenue as this product's is worse than showing an error, so a
+  // variable that didn't land has to reject.
+  it.each([
+    {
+      name: "the insight has no such variable",
+      resolvedVariables: { month: "2026-07-01" },
+      expectedError: 'has no SQL variable "product"',
+    },
+    {
+      name: "the override was ignored and the saved default came back",
+      resolvedVariables: { product: "session_replay" },
+      expectedError: "was not applied",
+    },
+  ])("rejects when $name", async ({ resolvedVariables, expectedError }) => {
+    fetchInsightByShortId.mockResolvedValue(insight({ resolvedVariables }));
+
+    await expect(
+      makeService().loadInsight({
+        shortId: "abc123",
+        variables: { product: "surveys" },
+      }),
+    ).rejects.toThrow(expectedError);
+  });
+
+  it("accepts a non-string variable value the server echoes back", async () => {
+    fetchInsightByShortId.mockResolvedValue(
+      insight({ resolvedVariables: { threshold: 500, tiers: ["a", "b"] } }),
+    );
+
+    await expect(
+      makeService().loadInsight({
+        shortId: "abc123",
+        variables: { threshold: 500, tiers: ["a", "b"] },
+      }),
+    ).resolves.toBeDefined();
   });
 
   it("rejects when the insight can't be found", async () => {

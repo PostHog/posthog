@@ -115,6 +115,14 @@ flags_hypercache = HyperCache(
 
 The `_get_feature_flags_for_service` function fetches all flags for a team (including inactive, but excluding deleted and encrypted remote config flags) and returns the cache payload. The Rust service filters out inactive flags at request time via `filtered_out_flag_ids`.
 
+Because that filtering happens before the matcher reads `filters`, an inactive flag's filters can never affect a response, so `_blank_inactive_filters` replaces them with an empty `{"groups": []}` before the payload is written.
+The flag entry itself stays, so a dependency condition on a disabled flag still resolves to false instead of raising `DependencyNotFound`.
+`build_flags_cache` in `rust/feature-flags/src/flags/cache_builder.rs` writes the same entry and applies the same blanking, so the two writers produce identical bytes and share one etag.
+While only one of the two carries the blanking, they disagree on inactive flags' `filters`, so the etag alternates and `FlagDefinitionsCache` reloads on each flip.
+This is scoped to teams whose invalidation routes to Kafka (`KAFKA_ROUTING_FLAG`), the only teams the Rust builder writes for.
+Every other team has Python as its sole writer and sees no disagreement.
+Deploy Django ahead of the Rust images: an older Python verifier lacks the `tolerate_blanked_filters` exemption, so it reports a blanked entry as `DATA_MISMATCH` and repairs it back to full filters, which the next Rust build undoes.
+
 ### Cache payload structure
 
 ```json

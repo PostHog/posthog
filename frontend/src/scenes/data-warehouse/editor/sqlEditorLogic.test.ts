@@ -1508,6 +1508,7 @@ describe('sqlEditorLogic', () => {
             values: [],
             filters: [{ field: eventField, operator: 'equals', value: 'signup' }],
             limit: 1000,
+            sort: null,
         }
         const configEventProperties = {
             source_kind: 'project_data',
@@ -1521,6 +1522,8 @@ describe('sqlEditorLogic', () => {
             filter_operator_types: ['equals'],
             date_bucket_types: [],
             custom_expression_count: 0,
+            sort_kind: 'auto',
+            sort_direction: null,
         }
 
         it('captures BI mode selection and query runs without query contents', async () => {

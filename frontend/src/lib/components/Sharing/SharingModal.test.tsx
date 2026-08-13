@@ -113,6 +113,8 @@ describe('SharingModal (dashboard)', () => {
 
         // Dashboard options smoke checks
         expect(screen.getByText(/Show PostHog branding/i)).toBeInTheDocument()
+        expect(screen.getByText('Theme')).toBeInTheDocument()
+        expect(screen.queryByText(/Show insight details/i)).toBeNull()
     })
 
     it('calls onSharingEnabledChange after the dashboard sharing switch update succeeds', async () => {

@@ -12,6 +12,20 @@ Use the shared product alert editor components in `products/alerts/frontend/comp
 
 A product can use both paths when it has a simple HogFunction creation flow and a richer product-owned alert configuration surface.
 
+## Compose a creation wizard
+
+Use `products/alerts/frontend/components/AlertWizard` for a product-owned alert creation modal that has ordered, meaningful setup stages. Logs and insight alerts use this pattern.
+
+- Keep the wizard container and navigation shared. Define product-specific steps in the product adapter.
+- Reuse `AlertEditorFormDetails` for name and enabled state.
+- Reuse `AlertWizardReview` for a final aligned summary. Pass normalized label/value items from the product.
+- Keep triggers, filters, simulations, destinations, and product-specific validation in product-owned step content and keyed kea logic.
+- Do not create an empty alert when the modal opens. Persist only when the user completes the final review step.
+- Validate a step before moving forward. Show its errors only after the user attempts to continue.
+- Keep a simulation within its relevant configuration step. Run it explicitly and clear stale results when its inputs change.
+
+Do not force every alert into a wizard. Use a direct editor when creation needs no ordered setup or review.
+
 ## Compose the shared editor
 
 Build the product form around these components:

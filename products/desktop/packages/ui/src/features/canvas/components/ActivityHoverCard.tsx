@@ -18,14 +18,12 @@ import { useBlockedTaskIds } from "@posthog/ui/features/canvas/hooks/useBlockedS
 import { useMarkTaskActivityRead } from "@posthog/ui/features/canvas/hooks/useMarkTaskActivityRead";
 import { useTaskActivity } from "@posthog/ui/features/canvas/hooks/useTaskActivity";
 import { useActivityFilterStore } from "@posthog/ui/features/canvas/stores/activityFilterStore";
-import { useCommentsEnabled } from "@posthog/ui/features/sessions/useCommentsEnabled";
 import { useInView } from "@posthog/ui/primitives/hooks/useInView";
 import { track } from "@posthog/ui/shell/analytics";
 import { useEffect, useState } from "react";
 import {
   activityReadPayload,
   getUnreadActivityItems,
-  getVisibleActivityItems,
   markLoadedReadLabel,
 } from "./activityFeed";
 
@@ -38,7 +36,6 @@ export function ActivityHoverCard({
   onClose,
   side = "right",
 }: ActivityHoverCardProps) {
-  const commentsEnabled = useCommentsEnabled();
   const client = useOptionalAuthenticatedClient();
   const { data: currentUser } = useCurrentUser({ client });
   const {
@@ -57,7 +54,7 @@ export function ActivityHoverCard({
     rootMargin: "100px 0px",
   });
   const unreadsOnly = useActivityFilterStore((state) => state.unreadsOnly);
-  const visibleItems = getVisibleActivityItems(items, commentsEnabled);
+  const visibleItems = items;
   const unreadItems = getUnreadActivityItems(visibleItems);
   const shownItems = unreadsOnly ? unreadItems : visibleItems;
   const { mutate: markTasksRead, isPending: isMarkingRead } =

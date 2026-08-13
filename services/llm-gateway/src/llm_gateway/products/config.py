@@ -92,18 +92,6 @@ _POSTHOG_CODE_AGENT_MODELS: Final[frozenset[str]] = frozenset(
     }
 )
 
-# Products whose requires_server_credential applies right away rather than waiting for
-# posthog_code_model_gate_enabled. The flag exists so products that already shipped accepting plain
-# Code OAuth tokens keep working until the Code billing cutover. A product that never had such a
-# permissive period has nothing to stay compatible with, and leaving it flag-gated would ship an
-# unbilled route open to any Code OAuth token for as long as the flag is off.
-UNCONDITIONAL_SERVER_CREDENTIAL_PRODUCTS: Final[frozenset[str]] = frozenset(
-    {
-        "custom_image_scans",
-        "onboarding",
-    }
-)
-
 # Models reserved for specific products must stay restricted even when a product otherwise allows
 # every model (`allowed_models=None`). This is an authorization boundary, not merely a
 # model-registry advertising filter; the registry also derives its advertising from it so the two
@@ -433,15 +421,13 @@ def check_free_tier_model_access(
     code_usage_billed: bool,
     usage_unlimited: bool,
 ) -> tuple[bool, str | None]:
-    settings = get_settings()
-    if not settings.posthog_code_model_gate_enabled:
-        return True, None
     if resolve_product_alias(product) != "posthog_code":
         return True, None
     # model=None is safe: every route requires a model at validation, so the request 422s
     if code_usage_billed or usage_unlimited or model is None:
         return True, None
 
+    settings = get_settings()
     free_models = frozenset(settings.posthog_code_free_tier_models)
     if _model_matches_product_allowlist(model, free_models, provider=provider, settings=settings):
         return True, None
@@ -521,15 +507,8 @@ def check_product_access(
     # and route around the posthog_code free-tier model gate. Require the internal marker that
     # only server-minted tokens carry. OAuth-only: personal API keys reach the gateway with an
     # explicit, feature-gated llm_gateway:read scope (a `*` PAK is rejected at auth), so the
-    # shared server-side gateway key still works here. Products that shipped before this check
-    # existed stay behind the free-tier flag so they keep working until the Code billing cutover;
-    # the rest enforce it now, per UNCONDITIONAL_SERVER_CREDENTIAL_PRODUCTS.
-    if (
-        config.requires_server_credential
-        and is_oauth
-        and INTERNAL_RUN_SCOPE not in (scopes or [])
-        and (settings.posthog_code_model_gate_enabled or resolved_product in UNCONDITIONAL_SERVER_CREDENTIAL_PRODUCTS)
-    ):
+    # shared server-side gateway key still works here.
+    if config.requires_server_credential and is_oauth and INTERNAL_RUN_SCOPE not in (scopes or []):
         return False, f"Product '{product}' requires a server-minted credential"
 
     if model and is_model_restricted_for_product(model, resolved_product):

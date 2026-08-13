@@ -387,6 +387,9 @@ tools:
     reset-token-partial-update:
         operation: organizations_projects_reset_token_partial_update
         enabled: false
+    revoke-leaked-key-create:
+        operation: revoke_leaked_key_create
+        enabled: false
     rotate-secret-token-partial-update:
         operation: organizations_projects_rotate_secret_token_partial_update
         enabled: false

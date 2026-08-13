@@ -1,9 +1,14 @@
 import os
 
 import pytest
+import structlog
+from fastapi import Depends, FastAPI
+from fastapi.testclient import TestClient
+from starlette.requests import ClientDisconnect
+from structlog.testing import capture_logs
 
 from llm_gateway.config import Settings, get_settings
-from llm_gateway.main import export_provider_credentials
+from llm_gateway.main import RequestLoggingMiddleware, export_provider_credentials
 
 _EXPORTED_ENV_VARS = (
     "ANTHROPIC_API_KEY",
@@ -151,3 +156,72 @@ class TestExportProviderCredentials:
 
         export_provider_credentials(settings)
         assert os.environ["OPENAI_BASE_URL"] == "https://eu.api.openai.com/v1"
+
+
+def _middleware_test_client() -> TestClient:
+    app = FastAPI()
+    app.add_middleware(RequestLoggingMiddleware)
+
+    def refuse_to_read_postgres() -> None:
+        raise RuntimeError("permission denied for table posthog_team")
+
+    @app.get("/ok")
+    def ok() -> dict[str, bool]:
+        return {"ok": True}
+
+    @app.get("/raises", dependencies=[Depends(refuse_to_read_postgres)])
+    def raises() -> dict[str, bool]:
+        return {"ok": True}
+
+    def abandon_request() -> None:
+        raise ClientDisconnect
+
+    @app.get("/disconnects", dependencies=[Depends(abandon_request)])
+    def disconnects() -> dict[str, bool]:
+        return {"ok": True}
+
+    return TestClient(app, raise_server_exceptions=False)
+
+
+class TestRequestLoggingMiddleware:
+    def test_every_request_gets_one_request_line_with_the_status_the_client_saw(self) -> None:
+        # Guards the regression where a raising dependency leaves no request line, which makes a
+        # status-code aggregation over these logs read a total outage as zero traffic.
+        client = _middleware_test_client()
+
+        with capture_logs() as logs:
+            assert client.get("/ok").status_code == 200
+            assert client.get("/raises").status_code == 500
+
+        assert [(log["path"], log["status_code"]) for log in logs if log["event"] == "request"] == [
+            ("/ok", 200),
+            ("/raises", 500),
+        ]
+
+    def test_unhandled_exception_is_logged_at_error_level_with_its_traceback(self) -> None:
+        client = _middleware_test_client()
+
+        with capture_logs(processors=[structlog.contextvars.merge_contextvars]) as logs:
+            client.get("/raises")
+
+        errors = [log for log in logs if log["event"] == "unhandled_exception"]
+        assert len(errors) == 1
+        assert errors[0]["log_level"] == "error"
+        assert errors[0]["method"] == "GET"
+        assert errors[0]["path"] == "/raises"
+        assert errors[0]["error_type"] == "RuntimeError"
+        assert "permission denied for table posthog_team" in errors[0]["exception"]
+
+        request_lines = [log for log in logs if log["event"] == "request"]
+        assert errors[0]["request_id"] == request_lines[0]["request_id"]
+
+    def test_client_disconnect_logs_neither_an_error_nor_a_status(self) -> None:
+        # ClientDisconnect is a plain Exception, so a client aborting mid-body would otherwise be
+        # reported as a 500 it never saw, and every abort would raise an error-level event.
+        client = _middleware_test_client()
+
+        with capture_logs() as logs:
+            client.get("/disconnects")
+
+        assert [log for log in logs if log["event"] == "unhandled_exception"] == []
+        assert [log for log in logs if log["event"] == "request"] == []

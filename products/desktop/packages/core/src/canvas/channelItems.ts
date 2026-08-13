@@ -1,4 +1,8 @@
-import type { WorkspaceMode } from "@posthog/shared";
+import {
+  formatShortDayLabel,
+  getLocalDayKey,
+  type WorkspaceMode,
+} from "@posthog/shared";
 import type {
   Task,
   TaskRunStatus,
@@ -315,4 +319,62 @@ export function sortChannelItems(
     ...pinned.sort((a, b) => compareChannelItems(a, b, sort)),
     ...rest.sort((a, b) => compareChannelItems(a, b, sort)),
   ];
+}
+
+export interface ChannelItemSection {
+  /** Stable between renders, so a section isn't rebuilt on every poll. */
+  key: string;
+  /** Null where the run has nothing to be called — an alphabetical list. */
+  label: string | null;
+  items: ChannelItemModel[];
+}
+
+/** The section pinned sessions lead the list under. */
+export const PINNED_SECTION_KEY = "pinned";
+
+/**
+ * A sorted list cut into the sections a reader can scan: the pins, then one per
+ * calendar day.
+ *
+ * The day is read off whichever timestamp the sort ordered by, so each section
+ * is a contiguous run — dating a created-first list by last activity would
+ * reopen a day the list had already passed. Alphabetical order holds no days at
+ * all, so it stays one unnamed run below the pins.
+ *
+ * Takes the list `sortChannelItems` returned: pins already lead it, so lifting
+ * them out keeps the order they were given.
+ */
+export function groupChannelItems(
+  items: readonly ChannelItemModel[],
+  sort: ChannelItemSort,
+  now: Date = new Date(),
+): ChannelItemSection[] {
+  const sections: ChannelItemSection[] = [];
+
+  const pinned = items.filter((item) => item.pinned);
+  if (pinned.length > 0) {
+    sections.push({ key: PINNED_SECTION_KEY, label: "Pinned", items: pinned });
+  }
+
+  const rest = items.filter((item) => !item.pinned);
+  if (rest.length === 0) return sections;
+  if (sort === "alpha") {
+    sections.push({ key: "all", label: null, items: rest });
+    return sections;
+  }
+
+  for (const item of rest) {
+    // Clamped to now, because the label does the same: a row stamped in the
+    // future (clock skew between the writer and this client) would otherwise
+    // take a day key of its own under a second "Today" header.
+    const ts = Math.min(sort === "created" ? item.createdAt : item.ts, +now);
+    const key = `day:${getLocalDayKey(ts)}`;
+    const open = sections[sections.length - 1];
+    if (open?.key === key) {
+      open.items.push(item);
+      continue;
+    }
+    sections.push({ key, label: formatShortDayLabel(ts, now), items: [item] });
+  }
+  return sections;
 }

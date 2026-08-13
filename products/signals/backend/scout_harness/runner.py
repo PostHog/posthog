@@ -3,14 +3,17 @@ from __future__ import annotations
 import time
 import asyncio
 import logging
+from collections import deque
 from dataclasses import dataclass
-from datetime import timedelta
+from datetime import UTC, datetime, timedelta
+from functools import lru_cache
 from typing import TYPE_CHECKING, Any
 
 from django.db.models import F
 from django.utils import timezone
 
 import posthoganalytics
+from croniter import CroniterError, croniter
 
 from posthog.event_usage import groups
 from posthog.exceptions_capture import capture_exception
@@ -25,8 +28,11 @@ from products.signals.backend.scout_harness.derived_metadata import stamp_derive
 from products.signals.backend.scout_harness.lazy_seed import canonical_skill_names, sync_canonical_skills
 from products.signals.backend.scout_harness.limits import (
     DEFAULT_MAX_RUNTIME_S,
-    FAILURE_STREAK_PAUSE_THRESHOLD,
+    FAILURE_STREAK_MAX_RUNS,
+    FAILURE_STREAK_MIN_SPAN_MINUTES,
     STALE_RUN_CUTOFF_S,
+    failure_streak_pause_threshold,
+    interval_runs_in_tolerance_window,
 )
 from products.signals.backend.scout_harness.model_selection import resolve_scout_model
 from products.signals.backend.scout_harness.prompt import (
@@ -69,6 +75,28 @@ SIGNALS_SCOUT_FULL_NETWORK_ENV_NAME = "SIGNALS_SCOUT_FULL_NETWORK"
 # up as one stage even though the tag names the individual scout.
 SCOUT_AI_STAGE_PREFIX = "scout:"
 
+# `_cron_runs_in_window` samples a cron schedule from a fixed reference (not `now`) so a lane's
+# breaker threshold is a property of its schedule rather than of when it happened to fail. The
+# horizon is one full pass of the month and day-of-month fields, which keeps cross-month
+# adjacencies in the sample: "first of the month or Sunday" packs its fullest window where a
+# matching Sunday touches a first, and a shorter occurrence-count sample never reaches one.
+# Day-of-week alignments unique to other calendar years can still be missed, which only ever
+# undercounts, so an exotic lane trips a little earlier instead of earning extra lease budget.
+# The sample cap covers the horizon at the 30-minute schedule floor with room to spare; denser
+# out-of-band schedules hit the `FAILURE_STREAK_MAX_RUNS` early exit long before it.
+_CRON_WINDOW_REFERENCE = datetime(2026, 1, 1, tzinfo=UTC)
+_CRON_WINDOW_HORIZON = timedelta(days=366)
+_CRON_WINDOW_MAX_SAMPLES = 20_000
+
+# Cron lanes hold wall-clock time in the project's timezone (see the coordinator's due-check),
+# so on the spring-forward night more wall-clock schedule fits inside the same absolute outage
+# than this transition-free sample sees. Sized to the largest jump among selectable project
+# timezones (Antarctica/Troll advances two hours; every other zone is an hour or less), which
+# keeps the tolerance honest on that night in every zone at the cost of at most a couple of
+# extra tolerated failures the rest of the year. That is far cheaper than sizing per project
+# timezone, which would put DST fold/gap arithmetic and a per-team cache key on the failure path.
+_CRON_WINDOW_DST_SLACK_MINUTES = 120
+
 # The report channel (emit_report/edit_report) is opt-in per skill. A scout's sandbox token
 # carries the report-write scope ONLY when its skill listed one of these in `allowed_tools` (see
 # the posture selection where the sandbox context is built). A baseline scout never carries that
@@ -105,6 +133,7 @@ def run_signals_scout(
     skill_version: int | None = None,
     repository: str | None = None,
     verbose: bool = False,
+    triggered_by: str = "schedule",
 ) -> RunResult:
     """Synchronous entrypoint: resolves config, spawns sandbox, persists the run row.
 
@@ -118,6 +147,7 @@ def run_signals_scout(
             skill_version=skill_version,
             repository=repository,
             verbose=verbose,
+            triggered_by=triggered_by,
         )
     )
 
@@ -129,8 +159,14 @@ async def arun_signals_scout(
     skill_version: int | None = None,
     repository: str | None = None,
     verbose: bool = False,
+    triggered_by: str = "schedule",
 ) -> RunResult:
-    """Async core. Safe to call from inside a running event loop (Temporal activity)."""
+    """Async core. Safe to call from inside a running event loop (Temporal activity).
+
+    `triggered_by` is `"schedule"` for coordinator-dispatched runs (including breaker probes)
+    and `"manual"` for on-demand triggers (the `run` endpoint, the management command). Only
+    scheduled failures feed the failure-streak breaker; see the failure path below.
+    """
     team = await database_sync_to_async(_get_team, thread_sensitive=False)(team_id)
 
     # Honor the per-scout holdback denylist, resolved against the canonical project. Two effects:
@@ -312,7 +348,9 @@ async def arun_signals_scout(
         )
         # A run that got all the way through closes the breaker: the lane works, so any streak
         # it had accumulated is stale and a standing auto-pause is lifted (this is also how the
-        # half-open probe recovers a paused lane once its underlying cause is fixed).
+        # half-open probe recovers a paused lane once its underlying cause is fixed). Any
+        # trigger counts, since a manual success is the natural way to revive a lane right
+        # after fixing its skill.
         await database_sync_to_async(_clear_failure_streak, thread_sensitive=False)(config.pk)
         _capture_run_finished(
             team=team,
@@ -366,8 +404,15 @@ async def arun_signals_scout(
             else (0, None)
         )
         # Advance the breaker before the event so the failure that trips it is the one whose
-        # `error_message` explains the pause.
-        streak = await database_sync_to_async(_record_failure_streak, thread_sensitive=False)(config.pk)
+        # `error_message` explains the pause. Scheduled failures only: the threshold is sized
+        # on the schedule's cadence, so counting off-schedule "run now" retries would let a
+        # burst of them reach a slow lane's threshold in minutes and impose the probe cooldown
+        # on a lane whose schedule never failed.
+        streak = (
+            await database_sync_to_async(_record_failure_streak, thread_sensitive=False)(config.pk)
+            if triggered_by == "schedule"
+            else None
+        )
         _capture_run_finished(
             team=team,
             config=config,
@@ -391,6 +436,7 @@ async def arun_signals_scout(
                 skill_name=skill.name,
                 run_id=run_id,
                 failure_count=streak.count,
+                failure_streak_threshold=streak.threshold,
                 reason=str(exc)[:300],
             )
         return RunResult(
@@ -834,6 +880,7 @@ class _FailureStreak:
 
     count: int
     tripped: bool
+    threshold: int
 
 
 def _clear_failure_streak(config_id: Any) -> None:
@@ -867,6 +914,63 @@ def _clear_failure_streak(config_id: Any) -> None:
         logger.exception("signals_scout: failed to clear failure streak", extra={"scout_config_id": str(config_id)})
 
 
+def _failure_streak_runs_in_window(config: SignalScoutConfig) -> int:
+    """Runs this lane's schedule fits in the breaker's tolerance window — what it scales on.
+
+    A cron schedule takes precedence over `run_interval_minutes` at dispatch, and the column
+    keeps whatever value it held before the cron was set, so reading the column alone would
+    size the breaker off a cadence the lane no longer runs at.
+
+    Cron gaps are uneven, and no single gap answers the question the breaker asks: "0,30 0 * * *"
+    has a 30-minute gap but runs twice a day, so its tightest gap would buy it the tolerance of a
+    lane that runs all day. So count occurrences over a whole schedule cycle and take the fullest
+    window — the most failures an outage of that length can actually leave behind.
+
+    A malformed expression can only arrive via an out-of-band write (the API validates on save);
+    fall back to the rolling interval rather than fail a run's breaker bookkeeping over it.
+    """
+    if config.run_cron_schedule:
+        try:
+            return _cron_runs_in_window(config.run_cron_schedule)
+        except (CroniterError, ValueError):
+            logger.warning(
+                "signals_scout: invalid cron schedule while sizing failure breaker",
+                extra={"scout_config_id": str(config.pk)},
+            )
+    return interval_runs_in_tolerance_window(config.run_interval_minutes)
+
+
+@lru_cache(maxsize=256)
+def _cron_runs_in_window(cron_schedule: str) -> int:
+    """Fullest tolerance window of occurrences (`FAILURE_STREAK_MIN_SPAN_MINUTES` plus the DST
+    slack) anywhere in the schedule's sampled cycle. Cached because it is a pure function of the
+    schedule string given the fixed reference, and the densest schedules cost a few hundred
+    milliseconds to walk.
+
+    Each window's count is read at its last occurrence: the occurrences within `window` looking
+    back from occurrence t are exactly the ones a window opened at its earliest member covers, so
+    the running deque sees every half-open window's count without materializing the sample. That
+    matches `interval_runs_in_tolerance_window`'s half-open count for a lane with no cron.
+    """
+    iterator = croniter(cron_schedule, _CRON_WINDOW_REFERENCE)
+    window = timedelta(minutes=FAILURE_STREAK_MIN_SPAN_MINUTES + _CRON_WINDOW_DST_SLACK_MINUTES)
+    horizon = _CRON_WINDOW_REFERENCE + _CRON_WINDOW_HORIZON + window
+    in_window: deque[datetime] = deque()
+    # A schedule with no occurrence inside the horizon (e.g. February 29th) still runs once.
+    fullest = 1
+    for _ in range(_CRON_WINDOW_MAX_SAMPLES):
+        occurrence = iterator.get_next(datetime)
+        if occurrence > horizon:
+            break
+        while in_window and in_window[0] <= occurrence - window:
+            in_window.popleft()
+        in_window.append(occurrence)
+        fullest = max(fullest, len(in_window))
+        if fullest >= FAILURE_STREAK_MAX_RUNS:
+            break
+    return fullest
+
+
 def _record_failure_streak(config_id: Any) -> _FailureStreak | None:
     """Bump the failure streak and pause the lane at the threshold. Returns None when the row
     is gone or the write failed — the caller only uses the result to decide whether to emit the
@@ -875,6 +979,10 @@ def _record_failure_streak(config_id: Any) -> _FailureStreak | None:
     The bump is an atomic `F()` increment, not read-then-write: the runner's single-flight guard
     means one run per (team, skill) at a time, but a config edit's streak reset can land
     concurrently, and a stale absolute write would resurrect the streak the edit just cleared.
+    The threshold is per-lane, derived from the runs the config's own schedule fits in the
+    tolerance window (`failure_streak_pause_threshold`), so the same wall-clock tolerance holds
+    whether the lane runs hourly or monthly.
+
     The pause goes through the transition helper: `tripped` is True only when the helper actually
     moved the status, so a re-failed probe (already paused, transition is a no-op) re-arms the
     cooldown via its own `last_run_at` stamp without firing the trip event again. The error text
@@ -891,13 +999,14 @@ def _record_failure_streak(config_id: Any) -> _FailureStreak | None:
         if config is None:
             return None
         count = config.consecutive_failure_count
+        threshold = failure_streak_pause_threshold(_failure_streak_runs_in_window(config))
         tripped = False
-        if count >= FAILURE_STREAK_PAUSE_THRESHOLD:
+        if count >= threshold:
             tripped = config.transition_status_by_system(
                 SignalScoutConfig.Status.PAUSED_BY_SYSTEM,
                 pause_reason=SignalScoutConfig.PauseReason.REPEATED_FAILURES,
             )
-        return _FailureStreak(count=count, tripped=tripped)
+        return _FailureStreak(count=count, tripped=tripped, threshold=threshold)
     except Exception:
         logger.exception("signals_scout: failed to record failure streak", extra={"scout_config_id": str(config_id)})
         return None
@@ -1032,6 +1141,7 @@ def _capture_config_auto_paused(
     skill_name: str,
     run_id: Any,
     failure_count: int,
+    failure_streak_threshold: int,
     reason: str,
 ) -> None:
     """Emit a scout-owned event when a lane's failure-streak breaker trips.
@@ -1051,7 +1161,12 @@ def _capture_config_auto_paused(
                 "scout_config_id": str(config.id),
                 "run_id": str(run_id),
                 "consecutive_failure_count": failure_count,
-                "failure_streak_threshold": FAILURE_STREAK_PAUSE_THRESHOLD,
+                # A wedge count is only readable next to the threshold the lane was actually
+                # held to, and the threshold only next to the schedule it was derived from
+                # (the cron when set, else the interval).
+                "failure_streak_threshold": failure_streak_threshold,
+                "run_interval_minutes": config.run_interval_minutes,
+                "run_cron_schedule": config.run_cron_schedule,
                 "auto_pause_reason": reason,
             },
             groups=groups(team.organization, team),

@@ -5,7 +5,7 @@ from django.db.models import Case, When
 from posthog.rbac.user_access_control import UserAccessControl
 
 from products.replay_vision.backend.models.replay_observation import ObservationStatus, ReplayObservation
-from products.replay_vision.backend.models.replay_scanner import ScannerType
+from products.replay_vision.backend.models.replay_scanner import ReplayScanner, ScannerType
 from products.replay_vision.backend.observation_formatting import format_line, read_output
 from products.replay_vision.backend.scanner_access import scanners_for_reading_observations
 
@@ -79,3 +79,13 @@ def fetch_page_session_observations(
         return None
 
     return as_untrusted_data("observations", lines)
+
+
+def has_signal_emitting_scanner(team_id: int) -> bool:
+    """Whether any of the team's scanners feeds findings into the Signals inbox.
+
+    Replay Vision authorizes signal emission per scanner (`emits_signals`) instead of writing a
+    `SignalSourceConfig` row, so callers asking "is this source on?" can't answer it from the
+    signals tables alone. See `SignalSourceConfig.is_source_enabled`.
+    """
+    return ReplayScanner.objects.filter(team_id=team_id, enabled=True, emits_signals=True).exists()

@@ -97,7 +97,11 @@ from products.slack_app.backend.services.slack_user_oauth import (
     find_linked_posthog_user,
     post_link_invite_message,
 )
-from products.slack_app.backend.slack_link_unfurl import handle_posthog_link_unfurl, parse_posthog_resource_link
+from products.slack_app.backend.slack_link_unfurl import (
+    handle_posthog_link_unfurl,
+    link_url_region,
+    parse_posthog_resource_link,
+)
 
 logger = structlog.get_logger(__name__)
 
@@ -627,22 +631,24 @@ def _proxy_event_and_return_route(request: HttpRequest, target_domain: str) -> s
     return ROUTE_PROXIED if _proxy_event_to_region(request, target_domain) is not None else ROUTE_PROXY_FAILED
 
 
-def _workspace_claims_cache_key(slack_team_id: str, kinds: list[str], team_id: int | None = None) -> str:
+def _workspace_claims_cache_key(slack_team_id: str, kinds: list[str]) -> str:
     kinds_token = ",".join(sorted(kinds))
-    team_token = team_id if team_id is not None else "*"
-    return f"slack_app:ws_claims:{slack_team_id}:{kinds_token}:{team_token}"
+    return f"slack_app:ws_claims:{slack_team_id}:{kinds_token}"
 
 
-def does_other_region_claim_workspace(
-    *, slack_team_id: str, kinds: list[str], incoming_host: str, team_id: int | None = None
-) -> bool | None:
+def does_other_region_claim_workspace(*, slack_team_id: str, kinds: list[str], incoming_host: str) -> bool | None:
     """Ask the other region whether it claims the given workspace for any of the kinds.
+
+    Ownership is asked at workspace granularity on purpose. Project ids are issued per region, so
+    "does the other region hold project 2 for this workspace" compares two unrelated numbering
+    spaces and answers no almost every time — which reads as "we own this" and pins the event to
+    whichever region Slack happened to deliver it to.
 
     Returns True/False on a definitive answer, or None on transport failure or bad response.
     Definitive answers are cached for ``WORKSPACE_CLAIMS_CACHE_TTL_SECONDS`` so a single probe
     flake does not reroute the next event. None is never cached so the next event re-probes.
     """
-    cache_key = _workspace_claims_cache_key(slack_team_id, kinds, team_id)
+    cache_key = _workspace_claims_cache_key(slack_team_id, kinds)
     cached = cache.get(cache_key)
     if isinstance(cached, bool):
         logger.info(
@@ -656,7 +662,7 @@ def does_other_region_claim_workspace(
     scheme = "http" if settings.DEBUG else "https"
     target_url = f"{scheme}://{target_domain}/slack/workspace/claims/"
 
-    body = json.dumps({"slack_team_id": slack_team_id, "kinds": kinds, "team_id": team_id}).encode("utf-8")
+    body = json.dumps({"slack_team_id": slack_team_id, "kinds": kinds}).encode("utf-8")
     signing_secret = SlackIntegration.slack_config()["SLACK_APP_SIGNING_SECRET"]
     signed = sign_slack_request(body, signing_secret)
 
@@ -709,7 +715,7 @@ def slack_workspace_claims_view(request: HttpRequest) -> HttpResponse:
     Both Cloud regions provision the PostHog Desktop Slack signing secret, so a region can HMAC-sign
     a small JSON body and the receiver can verify it with the same routine that validates real
     Slack webhooks. The signed body covers every filter, so a captured signature cannot be replayed
-    against a different workspace or project.
+    against a different workspace.
     """
     if request.method != "POST":
         return HttpResponse(status=405)
@@ -728,7 +734,6 @@ def slack_workspace_claims_view(request: HttpRequest) -> HttpResponse:
 
     slack_team_id = data.get("slack_team_id")
     kinds = data.get("kinds")
-    team_id = data.get("team_id")
     if not isinstance(slack_team_id, str) or not slack_team_id:
         return HttpResponse("Missing slack_team_id", status=400)
     if not isinstance(kinds, list) or not kinds:
@@ -736,16 +741,11 @@ def slack_workspace_claims_view(request: HttpRequest) -> HttpResponse:
     filtered = [k for k in kinds if isinstance(k, str) and k in _VALID_WORKSPACE_CLAIM_KINDS]
     if not filtered:
         return HttpResponse("No valid kinds", status=400)
-    if team_id is not None and (not isinstance(team_id, int) or isinstance(team_id, bool)):
-        return HttpResponse("Invalid team_id", status=400)
 
-    integrations = Integration.objects.filter(  # nosemgrep: idor-lookup-without-team
+    claimed = Integration.objects.filter(  # nosemgrep: idor-lookup-without-team
         kind__in=filtered,
         integration_id=slack_team_id,
-    )
-    if team_id is not None:
-        integrations = integrations.filter(team_id=team_id)
-    claimed = integrations.exists()
+    ).exists()
     return JsonResponse({"claimed": claimed})
 
 
@@ -2197,6 +2197,26 @@ def route_posthog_code_event_to_relevant_region(
             incoming_host=incoming_host,
         )
 
+    # The link's own host decides the region, from URL parsing alone — ahead of ``load_integrations``,
+    # whose query and Slack auth check would be thrown away on the forward. A workspace connected in
+    # both regions otherwise resolves a `us.` link's `/project/:id` against this region's project of
+    # the same number, which holds someone else's data or nothing at all.
+    link_region = _link_shared_url_region(event) if event_type == "link_shared" else None
+    if (
+        link_region is not None
+        and link_region != get_instance_region()
+        and not proxied
+        and cross_region_routing_enabled()
+    ):
+        logger.info(
+            "slack_app_link_unfurl_region_forward",
+            slack_team_id=slack_team_id,
+            event_id=event_id,
+            link_region=link_region,
+            incoming_host=incoming_host,
+        )
+        return _proxy_event_and_return_route(request, other_domain)
+
     # link_shared (unfurl) works with either integration kind.
     link_result = load_integrations(slack_team_id=slack_team_id, kinds=list(SLACK_INTEGRATION_KINDS))
     if event_type == "link_shared":
@@ -2206,6 +2226,7 @@ def route_posthog_code_event_to_relevant_region(
             slack_team_id=slack_team_id,
             event_id=event_id,
             source=link_target.source,
+            link_region=link_region,
             candidate_count=len(link_result.candidates),
             integration_id=link_target.integration.id if link_target.integration else None,
             team_id=link_target.integration.team_id if link_target.integration else None,
@@ -2217,15 +2238,14 @@ def route_posthog_code_event_to_relevant_region(
 
     local_match = link_target.integration
     if local_match:
-        # A link naming a project this region holds is an unambiguous claim on the event, so skip
-        # the precedence probe: a probe flake proxies to a region that has no row for the
-        # workspace, which drops the event and loses an unfurl we could have served.
-        if not link_target.explicit and _us_should_handle_instead(
+        # A link whose host names this region belongs here, whatever the other region claims about
+        # the workspace. Links with no region in the host say nothing about ownership, so those fall
+        # back to the workspace-level precedence every other surface uses.
+        if link_region != get_instance_region() and _us_should_handle_instead(
             slack_team_id,
             list(SLACK_INTEGRATION_KINDS),
             can_defer_to_other_region,
             incoming_host,
-            team_id=local_match.team_id,
         ):
             return _proxy_event_and_return_route(request, other_domain)
         if event_type == "link_shared":
@@ -2244,9 +2264,7 @@ def route_posthog_code_event_to_relevant_region(
     return _route_to_other_region_or_drop(request, slack_team_id, proxied=proxied, other_domain=other_domain)
 
 
-def _us_should_handle_instead(
-    slack_team_id: str, kinds: list[str], can_defer: bool, incoming_host: str, *, team_id: int | None = None
-) -> bool:
+def _us_should_handle_instead(slack_team_id: str, kinds: list[str], can_defer: bool, incoming_host: str) -> bool:
     """US-precedence guard. EU yields to US when both claim a workspace.
 
     Skipped when we're already US (we win) or when we were proxied to (the other region already
@@ -2258,9 +2276,7 @@ def _us_should_handle_instead(
     """
     if not can_defer:
         return False
-    claimed = does_other_region_claim_workspace(
-        slack_team_id=slack_team_id, kinds=kinds, incoming_host=incoming_host, team_id=team_id
-    )
+    claimed = does_other_region_claim_workspace(slack_team_id=slack_team_id, kinds=kinds, incoming_host=incoming_host)
     decision = True if claimed is None else claimed
     logger.info(
         "slack_app_route_us_probe_result",
@@ -3067,35 +3083,47 @@ def _link_shared_resource_refs(event: dict[str, Any]) -> list[dict[str, str]]:
 
 @dataclass(frozen=True)
 class LinkSharedTarget:
-    """The install that serves a ``link_shared`` event, and how it was chosen.
-
-    ``explicit`` is set only when one of the shared links names a ``/project/:id`` this region
-    holds. That is an unambiguous claim on the event, which lets the caller skip the cross-region
-    precedence probe.
-    """
+    """The install that serves a ``link_shared`` event, and how it was chosen."""
 
     integration: Integration | None
     source: str
-    explicit: bool = False
 
 
-def _link_shared_url_team_ids(event: dict[str, Any]) -> set[int]:
-    """Team ids named by ``/project/:id`` in the event's links, counting only unfurlable ones.
+def _link_shared_resource_urls(event: dict[str, Any]) -> list[str]:
+    """The event's links that parse as a resource we can unfurl.
 
     A shared replay or settings link carries a project id but can never produce an unfurl, so
-    letting it name the project would route a resource link in the same message to a project that
-    doesn't hold it.
+    letting it speak for the event would route a resource link in the same message to a project
+    that doesn't hold it.
     """
-    team_ids: set[int] = set()
     links = event.get("links")
     if not isinstance(links, list):
-        return team_ids
+        return []
+    urls: list[str] = []
     for link in links:
         if not isinstance(link, dict):
             continue
         url = link.get("url")
-        if not isinstance(url, str) or parse_posthog_resource_link(url) is None:
-            continue
+        if isinstance(url, str) and parse_posthog_resource_link(url) is not None:
+            urls.append(url)
+    return urls
+
+
+def _link_shared_url_region(event: dict[str, Any]) -> str | None:
+    """The Cloud region the event's links name, when they agree on one.
+
+    Project ids are issued per region, so `/project/2` on a `us.` link and `/project/2` on an `eu.`
+    link are unrelated projects. Reading the region off the host is what keeps a link from being
+    resolved against the same number in the wrong region.
+    """
+    regions = {region for url in _link_shared_resource_urls(event) if (region := link_url_region(url)) is not None}
+    return regions.pop() if len(regions) == 1 else None
+
+
+def _link_shared_url_team_ids(event: dict[str, Any]) -> set[int]:
+    """Team ids named by ``/project/:id`` in the event's unfurlable links."""
+    team_ids: set[int] = set()
+    for url in _link_shared_resource_urls(event):
         parts = [part for part in urlparse(url).path.split("/") if part]
         if len(parts) >= 2 and parts[0] == "project":
             try:
@@ -3115,7 +3143,7 @@ def _link_shared_target(
         team_id = next(iter(team_ids))
         match = next((candidate for candidate in candidates if candidate.team_id == team_id), None)
         if match is not None:
-            return LinkSharedTarget(match, "url_project", explicit=True)
+            return LinkSharedTarget(match, "url_project")
         # The link names a project no install in this region covers. Refusing lets the caller fall
         # through to the other region rather than unfurling out of an unrelated project.
         return LinkSharedTarget(None, "url_project_not_local")

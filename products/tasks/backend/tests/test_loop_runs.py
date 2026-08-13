@@ -1023,6 +1023,21 @@ class TestHandleLoopRunTerminal(LoopRunsTestCase):
 
     @patch(f"{LOOP_RUNS_MODULE}.dispatch_loop_event")
     @patch(f"{LOOP_RUNS_MODULE}.pause_loop_schedules")
+    def test_compute_billing_denial_pauses_without_retrying(self, mock_pause, mock_dispatch):
+        loop = self.create_loop(consecutive_failures=0)
+        task_run = self.make_terminal_task_run(loop, status=TaskRun.Status.FAILED, error_message="backend detail")
+
+        with self.captureOnCommitCallbacks(execute=True):
+            handle_loop_run_terminal(task_run, error_type="ComputeBillingLimitError")
+
+        loop.refresh_from_db()
+        self.assertFalse(loop.enabled)
+        self.assertEqual(loop.disabled_reason, DISABLED_REASON_USAGE_LIMITED)
+        self.assertEqual(loop.last_error, "Your organization has reached its PostHog Desktop credit limit.")
+        mock_pause.assert_called_once()
+
+    @patch(f"{LOOP_RUNS_MODULE}.dispatch_loop_event")
+    @patch(f"{LOOP_RUNS_MODULE}.pause_loop_schedules")
     def test_failed_run_reaching_threshold_auto_pauses_the_loop(self, mock_pause, mock_dispatch):
         loop = self.create_loop(consecutive_failures=LOOP_AUTO_PAUSE_THRESHOLD - 1)
         task_run = self.make_terminal_task_run(loop, status=TaskRun.Status.FAILED, error_message="boom")

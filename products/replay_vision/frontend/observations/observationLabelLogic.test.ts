@@ -56,6 +56,33 @@ describe('observationLabelLogic feedback autosave', () => {
         expect(onChange).toHaveBeenCalledWith({ is_correct: isCorrect, feedback: 'scanner missed the refund step' })
     })
 
+    it('settles as synced when the API trims the feedback it stores', async () => {
+        // The API trims before storing, so the echoed label never matches a draft with trailing whitespace.
+        ;(visionObservationsLabelCreate as jest.Mock).mockImplementation((_team, _id, body) =>
+            Promise.resolve({ ...body, feedback: body.feedback.trim() })
+        )
+        mountLogic(false)
+        logic.actions.setFeedbackDraft('scanner missed the refund step\n')
+        await jest.advanceTimersByTimeAsync(900)
+
+        expect(logic.values.feedbackSynced).toBe(true)
+        expect(logic.values.saving).toBe(false)
+        // The stored value already covers the draft, so an unchanged draft must not keep resaving.
+        logic.actions.setFeedbackDraft('scanner missed the refund step  ')
+        await jest.advanceTimersByTimeAsync(900)
+        expect(visionObservationsLabelCreate).toHaveBeenCalledTimes(1)
+    })
+
+    it('reports a failed autosave instead of staying on saving', async () => {
+        ;(visionObservationsLabelCreate as jest.Mock).mockRejectedValue({ detail: 'nope' })
+        mountLogic(false)
+        logic.actions.setFeedbackDraft('scanner missed the refund step')
+        await jest.advanceTimersByTimeAsync(900)
+
+        expect(logic.values.saveFailed).toBe(true)
+        expect(logic.values.saving).toBe(false)
+    })
+
     it('a rating click during the debounce wins over the pending autosave', async () => {
         mountLogic(false)
         logic.actions.setFeedbackDraft('scanner missed the refund step')

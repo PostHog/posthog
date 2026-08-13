@@ -35,7 +35,7 @@ export function ScratchpadPanel(): JSX.Element {
 
     return (
         <div className="flex flex-col gap-4 px-4 py-3">
-            <ScratchpadHeader totalCount={totalCount} lastUpdatedAt={lastUpdatedAt} />
+            <ScratchpadHeader totalCount={totalCount} lastUpdatedAt={lastUpdatedAt} loading={isInitialLoad} />
 
             <div className="flex flex-wrap items-center gap-2">
                 <LemonInput
@@ -59,9 +59,9 @@ export function ScratchpadPanel(): JSX.Element {
 
             {isInitialLoad ? (
                 <div className="flex flex-col gap-2">
-                    <LemonSkeleton className="h-12 w-full rounded" />
-                    <LemonSkeleton className="h-12 w-full rounded" />
-                    <LemonSkeleton className="h-12 w-full rounded" />
+                    <ScratchpadEntryCardSkeleton />
+                    <ScratchpadEntryCardSkeleton />
+                    <ScratchpadEntryCardSkeleton />
                 </div>
             ) : loadFailed && (!entries || entries.length === 0) ? (
                 <ScratchpadErrorState onRetry={() => loadEntries()} loading={entriesLoading} />
@@ -110,12 +110,32 @@ export function ScratchpadPanel(): JSX.Element {
     )
 }
 
+function ScratchpadEntryCardSkeleton(): JSX.Element {
+    return (
+        <div className="flex h-20 flex-col gap-3 rounded border border-primary bg-bg-light px-3 py-2">
+            <div className="flex items-center gap-2">
+                <LemonSkeleton className="size-4 shrink-0 rounded" />
+                <LemonSkeleton className="h-4 w-16 rounded" />
+                <LemonSkeleton className="h-3 w-40 rounded" />
+                <span className="flex-1" />
+                <LemonSkeleton className="h-3 w-24 rounded" />
+            </div>
+            <div className="flex flex-col gap-1 pl-6">
+                <LemonSkeleton className="h-3 w-full rounded" />
+                <LemonSkeleton className="h-3 w-2/3 rounded" />
+            </div>
+        </div>
+    )
+}
+
 function ScratchpadHeader({
     totalCount,
     lastUpdatedAt,
+    loading,
 }: {
     totalCount: number | null
     lastUpdatedAt: string | null
+    loading: boolean
 }): JSX.Element {
     return (
         <div className="flex flex-col gap-1">
@@ -127,17 +147,21 @@ function ScratchpadHeader({
                 Where your scouts jot down useful context as they scan your project — things they've classified, ruled
                 out, or the vocabulary they've settled on. Browse it to see what they're picking up about your setup.
             </p>
-            {totalCount !== null && totalCount > 0 && (
-                <span className="text-xs text-muted">
-                    {pluralize(totalCount, 'note')}
-                    {lastUpdatedAt ? (
-                        <>
-                            {' · last updated '}
-                            <TZLabel time={lastUpdatedAt} />
-                        </>
-                    ) : null}
-                </span>
-            )}
+            <div className="flex min-h-4 items-center">
+                {loading ? (
+                    <LemonSkeleton className="h-3 w-36 rounded" />
+                ) : totalCount !== null && totalCount > 0 ? (
+                    <span className="text-xs text-muted">
+                        {pluralize(totalCount, 'note')}
+                        {lastUpdatedAt ? (
+                            <>
+                                {' · last updated '}
+                                <TZLabel time={lastUpdatedAt} />
+                            </>
+                        ) : null}
+                    </span>
+                ) : null}
+            </div>
         </div>
     )
 }

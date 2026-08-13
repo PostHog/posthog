@@ -3,6 +3,7 @@ import {
   getExpandedLayout,
   getExpansionCellIndex,
 } from "@posthog/core/command-center/grid";
+import { planCommandCenterPlacement } from "@posthog/core/command-center/placement";
 import { navigateToCommandCenter } from "@posthog/ui/router/navigationBridge";
 import { useCommandCenterStore } from "./commandCenterStore";
 
@@ -17,6 +18,41 @@ export function placeTaskInCommandCenter(
 ): void {
   useCommandCenterStore.getState().requestPlacement(taskId, taskTitle);
   navigateToCommandCenter();
+}
+
+export interface BulkPlacementResult {
+  placed: number;
+  overflow: number;
+  alreadyPresent: number;
+}
+
+/**
+ * Tiles a whole selection at once. Unlike the single-task flow there is no
+ * picker — asking for a slot per session doesn't scale — so it navigates to the
+ * grid instead, where a batch that had to grow the layout is self-evident.
+ */
+export function placeTasksInCommandCenter(
+  taskIds: string[],
+  liveTaskIds: ReadonlySet<string> | null,
+): BulkPlacementResult {
+  const state = useCommandCenterStore.getState();
+  const plan = planCommandCenterPlacement({
+    cells: state.cells,
+    layout: state.layout,
+    taskIds,
+    liveTaskIds,
+  });
+
+  if (plan.placed.length > 0) {
+    state.applyPlacement({ layout: plan.layout, cells: plan.cells });
+  }
+  navigateToCommandCenter();
+
+  return {
+    placed: plan.placed.length,
+    overflow: plan.overflow.length,
+    alreadyPresent: plan.alreadyPresent.length,
+  };
 }
 
 /** Grows the grid by one column or row and puts the task in the slot picked. */

@@ -686,6 +686,8 @@ class TestTaskRun(TestCase):
                 "sandbox_url": "https://old-sandbox.test",
                 "sandbox_jwt_kid": "old-key",
                 "snapshot_external_id": "snapshot-1",
+                "pending_user_message": "Review the attachment",
+                "pending_user_artifact_ids": ["artifact-1"],
             },
         )
 
@@ -694,6 +696,8 @@ class TestTaskRun(TestCase):
         self.assertNotIn("sandbox_id", run.state)
         self.assertNotIn("sandbox_url", run.state)
         self.assertNotIn("sandbox_jwt_kid", run.state)
+        self.assertNotIn("pending_user_message", run.state)
+        self.assertNotIn("pending_user_artifact_ids", run.state)
         self.assertEqual(run.state["snapshot_external_id"], "snapshot-1")
         self.assertTrue(run.state["handoff_resumed"])
 

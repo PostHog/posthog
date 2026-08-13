@@ -564,7 +564,7 @@ export const aiEnrichmentLogic = kea<aiEnrichmentLogicType>([
         // The reducers above already clear runRows/runSummary on the same actions; this is the
         // half that actually cancels the network work and its in-flight-guard state.
         const stopRunIfInFlight = (): void => {
-            cache.disposables?.dispose('aiEnrichmentRunStream')
+            cache.disposables.dispose('aiEnrichmentRunStream')
             if (values.isRunning) {
                 actions.setIsRunning(false)
             }
@@ -707,11 +707,7 @@ export const aiEnrichmentLogic = kea<aiEnrichmentLogicType>([
                     }
                 } finally {
                     actions.setIsRunning(false)
-                    // Optional: an unmount mid-run already disposed everything (including this entry)
-                    // and nulled the registry (kea-disposables.ts's beforeUnmount) by the time this
-                    // finally block resumes after the abort it triggered - dispose() on null would
-                    // otherwise throw here as an unhandled rejection.
-                    cache.disposables?.dispose('aiEnrichmentRunStream')
+                    cache.disposables.dispose('aiEnrichmentRunStream')
                 }
             },
             consumeRunLine: ({ line }) => {

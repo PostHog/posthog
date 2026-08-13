@@ -218,6 +218,10 @@ def test_copy_activity_uses_s3_copy_and_local_duckgres_postgres_connection(monke
     connect = MagicMock(return_value=conn)
     monkeypatch.setattr(registration_module.psycopg, "connect", connect)
     monkeypatch.setattr(registration_module, "setup_duckgres_session", MagicMock())
+    cancel_timer = MagicMock()
+    cancel_timer_factory = MagicMock(return_value=cancel_timer)
+    monkeypatch.setattr(registration_module, "_duckgres_cancel_delay", MagicMock(return_value=60.0))
+    monkeypatch.setattr(registration_module.threading, "Timer", cancel_timer_factory)
     heartbeat_state = {"active": False}
     heartbeater = MagicMock()
     heartbeater.__enter__ = MagicMock(side_effect=lambda: heartbeat_state.update(active=True))
@@ -259,16 +263,27 @@ def test_copy_activity_uses_s3_copy_and_local_duckgres_postgres_connection(monke
     previous_cleanup_index = next(
         index for index, query in enumerate(executed) if "DROP TABLE IF EXISTS" in query and "__ph_previous_" in query
     )
-    assert len(registration_indexes) == 1
-    registration_query = executed[registration_indexes[0]]
+    assert len(registration_indexes) == 2
+    first_path = (
+        "s3://ducklake/posthog_data_imports_team_1/postgres_customers/_imports/schema/job/"
+        "1234567890_abcdef12/_ph_partition_key=2026-07/a.parquet"
+    )
+    second_path = (
+        "s3://ducklake/posthog_data_imports_team_1/postgres_customers/_imports/schema/job/"
+        "1234567890_abcdef12/_ph_partition_key=2026-08/b.parquet"
+    )
+    assert first_path in executed[registration_indexes[0]]
+    assert second_path not in executed[registration_indexes[0]]
+    assert second_path in executed[registration_indexes[1]]
+    assert first_path not in executed[registration_indexes[1]]
+    assert sum(first_path in query for query in executed) == 1
+    assert sum(second_path in query for query in executed) == 1
     parquet_glob = (
         "s3://ducklake/posthog_data_imports_team_1/postgres_customers/_imports/schema/job/"
         "1234567890_abcdef12/**/*.[pP][aA][rR][qQ][uU][eE][tT]"
     )
-    assert parquet_glob in registration_query
-    assert sum(parquet_glob in query for query in executed) == 3
-    assert not any("_ph_partition_key=2026-07/a.parquet" in query for query in executed)
-    assert not any("_ph_partition_key=2026-08/b.parquet" in query for query in executed)
+    assert sum(parquet_glob in query for query in executed) == 2
+    assert all(parquet_glob not in executed[index] for index in registration_indexes)
     assert len(verification_indexes) == 2
     assert len(rename_indexes) == 2
     assert max(registration_indexes) < min(verification_indexes)
@@ -286,6 +301,14 @@ def test_copy_activity_uses_s3_copy_and_local_duckgres_postgres_connection(monke
         executed[index] for index in rename_indexes
     ]
     conn.transaction.assert_called_once_with()
+    assert cancel_timer_factory.call_count == 1
+    assert cancel_timer_factory.call_args.args[0] == 60.0
+    assert callable(cancel_timer_factory.call_args.args[1])
+    cancel_timer.start.assert_called_once_with()
+    cancel_timer.cancel.assert_called_once_with()
+    cancel_timer.join.assert_called_once_with(timeout=registration_module._DUCKGRES_CANCEL_TIMEOUT_SECONDS + 1)
+    cancel_timer_factory.call_args.args[1]()
+    conn.cancel_safe.assert_not_called()
     assert any("SET PARTITIONED BY" in query for query in executed)
     workload_metrics.files_getter.assert_called_once_with(team_id=1, schema_id="schema")
     workload_metrics.rows_getter.assert_called_once_with(team_id=1, schema_id="schema")
@@ -293,6 +316,134 @@ def test_copy_activity_uses_s3_copy_and_local_duckgres_postgres_connection(monke
     workload_metrics.files.record.assert_called_once_with(2.0)
     workload_metrics.rows.record.assert_called_once_with(2.0)
     workload_metrics.bytes.record.assert_called_once_with(300.0)
+
+
+def test_duckgres_cancel_watchdog_cancels_the_active_query(monkeypatch):
+    conn = MagicMock()
+    cancel_timer = MagicMock()
+    cancel_timer_factory = MagicMock(return_value=cancel_timer)
+    monkeypatch.setattr(registration_module.threading, "Timer", cancel_timer_factory)
+    monkeypatch.setattr(registration_module, "_DUCKGRES_CANCEL_RETRY_SECONDS", 0.01)
+    first_cancel_finished = registration_module.threading.Event()
+    conn.cancel_safe.side_effect = lambda **_: first_cancel_finished.set()
+
+    with registration_module._cancel_duckgres_query_after(conn, 30.0) as cancel_requested:
+        callback_thread = registration_module.threading.Thread(target=cancel_timer_factory.call_args.args[1])
+        callback_thread.start()
+        assert first_cancel_finished.wait(timeout=1)
+
+    callback_thread.join(timeout=1)
+    assert not callback_thread.is_alive()
+    assert cancel_requested.is_set()
+    conn.cancel_safe.assert_called_with(timeout=registration_module._DUCKGRES_CANCEL_TIMEOUT_SECONDS)
+    cancel_timer.cancel.assert_called_once_with()
+    cancel_timer.join.assert_called_once_with(timeout=registration_module._DUCKGRES_CANCEL_TIMEOUT_SECONDS + 1)
+
+
+def test_duckgres_cancel_watchdog_retries_after_an_idle_cancel(monkeypatch):
+    conn = MagicMock()
+    cancel_timer = MagicMock()
+    cancel_timer_factory = MagicMock(return_value=cancel_timer)
+    monkeypatch.setattr(registration_module.threading, "Timer", cancel_timer_factory)
+    monkeypatch.setattr(registration_module, "_DUCKGRES_CANCEL_RETRY_SECONDS", 0.01)
+    first_cancel_finished = registration_module.threading.Event()
+    query_started = registration_module.threading.Event()
+    query_canceled = registration_module.threading.Event()
+
+    def cancel_safe(*, timeout: float) -> None:
+        assert timeout == registration_module._DUCKGRES_CANCEL_TIMEOUT_SECONDS
+        if first_cancel_finished.is_set() and query_started.is_set():
+            query_canceled.set()
+        first_cancel_finished.set()
+
+    conn.cancel_safe.side_effect = cancel_safe
+
+    with registration_module._cancel_duckgres_query_after(conn, 30.0):
+        callback_thread = registration_module.threading.Thread(target=cancel_timer_factory.call_args.args[1])
+        callback_thread.start()
+        assert first_cancel_finished.wait(timeout=1)
+        query_started.set()
+        assert query_canceled.wait(timeout=1)
+
+    callback_thread.join(timeout=1)
+    assert not callback_thread.is_alive()
+    assert conn.cancel_safe.call_count >= 2
+
+
+def test_duckgres_cancel_watchdog_bounds_cancel_retries(monkeypatch):
+    conn = MagicMock()
+    cancel_timer = MagicMock()
+    cancel_timer_factory = MagicMock(return_value=cancel_timer)
+    monkeypatch.setattr(registration_module.threading, "Timer", cancel_timer_factory)
+    monkeypatch.setattr(registration_module, "_DUCKGRES_CANCEL_RETRY_SECONDS", 0.0)
+    retries_finished = registration_module.threading.Event()
+
+    def cancel_safe(*, timeout: float) -> None:
+        assert timeout == registration_module._DUCKGRES_CANCEL_TIMEOUT_SECONDS
+        if conn.cancel_safe.call_count == registration_module._DUCKGRES_CANCEL_MAX_ATTEMPTS:
+            retries_finished.set()
+
+    conn.cancel_safe.side_effect = cancel_safe
+
+    with registration_module._cancel_duckgres_query_after(conn, 30.0):
+        callback_thread = registration_module.threading.Thread(target=cancel_timer_factory.call_args.args[1])
+        callback_thread.start()
+        assert retries_finished.wait(timeout=1)
+        callback_thread.join(timeout=1)
+        assert not callback_thread.is_alive()
+
+    assert conn.cancel_safe.call_count == registration_module._DUCKGRES_CANCEL_MAX_ATTEMPTS
+
+
+def test_duckgres_cancel_delay_includes_time_spent_copying(monkeypatch):
+    activity_info = MagicMock(start_to_close_timeout=dt.timedelta(minutes=30))
+    monkeypatch.setattr(registration_module.activity, "info", MagicMock(return_value=activity_info))
+    monkeypatch.setattr(registration_module.time, "monotonic", MagicMock(return_value=400.0))
+
+    assert registration_module._duckgres_cancel_delay(100.0) == 24 * 60
+
+
+def test_duckgres_cancel_watchdog_rejects_an_exhausted_activity_budget(monkeypatch):
+    timer_factory = MagicMock()
+    monkeypatch.setattr(registration_module.threading, "Timer", timer_factory)
+
+    with pytest.raises(TimeoutError, match="too close"):
+        with registration_module._cancel_duckgres_query_after(MagicMock(), 0.0):
+            pass
+
+    timer_factory.assert_not_called()
+
+
+def test_registration_stops_between_files_after_query_cancellation(monkeypatch):
+    monkeypatch.setattr(registration_module, "setup_duckgres_session", MagicMock())
+    conn = MagicMock()
+    cancel_requested = registration_module.threading.Event()
+
+    def execute(query: object) -> MagicMock:
+        if "ducklake_add_data_files" in str(query):
+            cancel_requested.set()
+        return MagicMock()
+
+    conn.execute.side_effect = execute
+    landing_uri = registration_module._generation_scoped_landing_uri(
+        _activity_inputs().metadata.landing_uri,
+        job_id=_activity_inputs().job_id,
+        prepared_queryable_folder=_activity_inputs().metadata.prepared_queryable_folder,
+    )
+
+    with pytest.raises(TimeoutError, match="activity deadline"):
+        registration_module._register_prepared_parquet_files(
+            _activity_inputs(),
+            conn,
+            [f"{landing_uri}/first.parquet", f"{landing_uri}/second.parquet"],
+            cancel_requested=cancel_requested,
+        )
+
+    executed = [str(call.args[0]) for call in conn.execute.call_args_list]
+    assert sum("ducklake_add_data_files" in query for query in executed) == 1
+    assert not any("SELECT count(*)" in query for query in executed)
+    assert sum("DROP TABLE" in query and "__ph_register_" in query for query in executed) == 1
+    assert not any("RENAME TO" in query for query in executed)
 
 
 def test_copy_activity_does_not_touch_catalog_for_stale_generation(monkeypatch):
@@ -495,6 +646,13 @@ async def test_workflow_records_end_to_end_duration_after_gate(monkeypatch):
     metrics.duration.record.assert_called_once_with(432.0)
     metrics.last_success_getter.assert_called_once_with(**metric_identifiers)
     metrics.last_success.set.assert_called_once_with(finished_at.timestamp())
+    registration_call = next(
+        call
+        for call in execute_activity.await_args_list
+        if call.args[0] is copy_and_register_ducklake_data_imports_activity
+    )
+    assert registration_call.kwargs["start_to_close_timeout"] == dt.timedelta(hours=1)
+    assert registration_call.kwargs["retry_policy"].maximum_attempts == 1
     assert _recorded_source_job_statuses(execute_activity) == [
         registration_module.ManagedWarehouseSourceJobStatus.RUNNING,
         registration_module.ManagedWarehouseSourceJobStatus.COMPLETED,

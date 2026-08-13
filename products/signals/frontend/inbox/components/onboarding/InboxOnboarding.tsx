@@ -1,6 +1,7 @@
 import './InboxOnboarding.scss'
 
 import { useActions } from 'kea'
+import { useEffect } from 'react'
 
 import { IconBolt, IconGithub, IconInfo, IconNotebook, IconPause, IconX } from '@posthog/icons'
 import { LemonButton, Tooltip } from '@posthog/lemon-ui'
@@ -8,6 +9,11 @@ import { LemonButton, Tooltip } from '@posthog/lemon-ui'
 import { Logomark } from 'lib/brand'
 import { CommandBlock } from 'lib/components/CommandBlock/CommandBlock'
 
+import {
+    InboxWelcomeCopySurface,
+    captureInboxWelcomeCommandCopied,
+    captureInboxWelcomeViewed,
+} from '../../inboxAnalytics'
 import { inboxOnboardingLogic } from '../../logics/inboxOnboardingLogic'
 import { PullRequestPreview, ReportPreview } from './InboxOnboardingPreviews'
 
@@ -87,7 +93,13 @@ const BEATS: Beat[] = [
  * Reuses the shared `CommandBlock` (same one MCP install uses) with the `rainbow` AI gradient, so
  * it reads as "enable a capability" rather than a code dump.
  */
-function SelfDrivingCommand({ size = 'md' }: { size?: 'sm' | 'md' }): JSX.Element {
+function SelfDrivingCommand({
+    size = 'md',
+    surface,
+}: {
+    size?: 'sm' | 'md'
+    surface: InboxWelcomeCopySurface
+}): JSX.Element {
     return (
         <CommandBlock
             command={SELF_DRIVING_WIZARD_COMMAND}
@@ -95,6 +107,11 @@ function SelfDrivingCommand({ size = 'md' }: { size?: 'sm' | 'md' }): JSX.Elemen
             ariaLabel="Copy self-driving setup command"
             decoration="rainbow"
             size={size}
+            // The takeover is the control arm of the welcome experiment; the banner shows one
+            // fixed layout regardless of arm, so its copies carry no variant.
+            onCopy={() =>
+                captureInboxWelcomeCommandCopied({ variant: surface === 'takeover' ? 'control' : null, surface })
+            }
             // rounded-md sits one step inside the rounded-lg card/banner it nests in.
             className="!m-0 rounded-md border border-primary bg-surface-secondary hover:border-accent"
         />
@@ -128,7 +145,7 @@ function CommandCard(): JSX.Element {
                     Run it in your project's repo. There are no in-app steps to click through.
                 </p>
             </div>
-            <SelfDrivingCommand size="md" />
+            <SelfDrivingCommand size="md" surface="takeover" />
             <ul className="m-0 flex list-none flex-col gap-1.5 p-0">
                 {WIZARD_SETS_UP.map((item) => (
                     <li key={item.label} className="flex items-center gap-2.5 text-sm text-secondary">
@@ -170,6 +187,10 @@ function BeatRow({ beat, index }: { beat: Beat; index: number }): JSX.Element {
  * report list – a plain centered column (not itself a card) that eases in with a subtle scale + fade.
  */
 export function InboxOnboardingTakeover(): JSX.Element {
+    useEffect(() => {
+        captureInboxWelcomeViewed({ variant: 'control' })
+    }, [])
+
     return (
         <div className="InboxOnboardingTakeover mx-auto flex w-full max-w-3xl flex-col gap-6 px-4 py-6 sm:px-6 sm:py-12">
             <Hero />
@@ -209,7 +230,7 @@ export function InboxOnboardingBanner(): JSX.Element {
                 No scouts or sources are enabled right now.{' '}
                 <strong>Switch self-driving back on with one command in your product's repo:</strong>
             </p>
-            <SelfDrivingCommand size="sm" />
+            <SelfDrivingCommand size="sm" surface="banner" />
         </div>
     )
 }

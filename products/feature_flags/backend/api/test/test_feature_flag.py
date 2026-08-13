@@ -5084,6 +5084,17 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         self.assertNotEqual(new_dashboard_id, deleted_dashboard_id)
         self.assertTrue(Dashboard.objects.filter(id=new_dashboard_id, deleted=False).exists())
 
+    @parameterized.expand(["dashboard", "enrich_usage_dashboard"])
+    def test_dashboard_generating_endpoints_reject_a_deleted_flag(self, endpoint: str) -> None:
+        flag = FeatureFlag.objects.create(team=self.team, created_by=self.user, key="deleted-flag", deleted=True)
+
+        response = self.client.post(f"/api/projects/{self.team.id}/feature_flags/{flag.id}/{endpoint}")
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("has been deleted", response.json()["error"])
+        flag.refresh_from_db()
+        self.assertIsNone(flag.usage_dashboard_id)
+
     @patch("products.feature_flags.backend.flag_analytics.CACHE_BUCKET_SIZE", 10)
     def test_local_evaluation_billing_analytics_for_regular_feature_flag_list(self):
         FeatureFlag.objects.all().delete()

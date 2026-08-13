@@ -29,10 +29,21 @@ pub struct Config {
     pub kafka_transactional_fencing: bool,
 
     /// How long a fencing transaction window admits joining writes
-    /// before committing. Amortizes the commit round trip across
-    /// concurrent same-partition writes.
+    /// before committing, when it does not fill first (see
+    /// FENCING_WINDOW_MAX_WRITES). Amortizes the commit round trip
+    /// across concurrent same-partition writes.
     #[envconfig(default = "5")]
     pub fencing_window_ms: u64,
+
+    /// Closes a fencing window early once this many writes have joined,
+    /// rather than holding it open for the rest of FENCING_WINDOW_MS.
+    /// Under a backlog, windows fill and commit at once, so a drain
+    /// cycle is bounded by the commit round trip instead of the window;
+    /// the window still bounds ack latency at light load. A close
+    /// trigger, not a hard cap: writes arriving while the close
+    /// propagates still ride the window.
+    #[envconfig(default = "32")]
+    pub fencing_window_max_writes: usize,
 
     /// Timeout for transactional init (fencing acquisition) and
     /// commit/abort operations.
@@ -590,6 +601,14 @@ impl Config {
                 "KAFKA_TRANSACTIONAL_FENCING requires LEASE_GATED_AUTHORITY: unless \
                  acquisition is gated on holding the lease, a pod whose lease has lapsed \
                  can take the changelog fence away from the partition's real owner"
+                    .to_string(),
+            );
+        }
+        if self.fencing_window_max_writes == 0 {
+            return Err(
+                "FENCING_WINDOW_MAX_WRITES must be at least 1: zero would close every \
+                 window at its first write, which is the per-write-commit shape the \
+                 window exists to avoid"
                     .to_string(),
             );
         }

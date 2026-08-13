@@ -17,6 +17,7 @@ from posthog.schema import (
     ExperimentRatioMetric,
     FunnelConversionWindowTimeUnit,
     FunnelMathType,
+    GroupMathType,
     PropertyMathType,
 )
 
@@ -90,7 +91,7 @@ def is_continuous(
     | CountPerActorMathType
     | ExperimentMetricMathType
     | CalendarHeatmapMathType
-    | Literal["unique_group"]
+    | GroupMathType
     | Literal["hogql"]
     | None,
 ) -> bool:

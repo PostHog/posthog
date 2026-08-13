@@ -28,6 +28,14 @@
       "types": "./dist/extensions/registry.d.ts",
       "import": "./dist/extensions/registry.js"
     },
+    "./extensions/auto-publish": {
+      "types": "./dist/extensions/auto-publish/index.d.ts",
+      "import": "./dist/extensions/auto-publish/index.js"
+    },
+    "./extensions/auto-publish/*": {
+      "types": "./dist/extensions/auto-publish/*.d.ts",
+      "import": "./dist/extensions/auto-publish/*.js"
+    },
     "./extensions/hog-branding": {
       "types": "./dist/extensions/hog-branding/extension.d.ts",
       "import": "./dist/extensions/hog-branding/extension.js"

@@ -4,6 +4,7 @@ import { addCellHandler } from '@/tools/notebooks/addCell'
 import { createMarkdownHandler } from '@/tools/notebooks/createMarkdown'
 import { deleteCellHandler } from '@/tools/notebooks/deleteCell'
 import { updateCellHandler } from '@/tools/notebooks/updateCell'
+import { formatNotebookWidgetCatalogForAgents } from '@/tools/notebooks/widgetCatalog'
 import { getToolDefinition } from '@/tools/toolDefinitions'
 import { POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY, type Context } from '@/tools/types'
 
@@ -102,6 +103,14 @@ describe('notebook cell tools', () => {
             expect(standardViewNames.has(widget.defaultView.name)).toBe(true)
             expect(Object.keys(widget.views).every((viewName) => standardViewNames.has(viewName))).toBe(true)
         }
+    })
+
+    it('describes compound widget identity to notebook-building agents', () => {
+        const catalogPrompt = formatNotebookWidgetCatalogForAgents()
+
+        expect(catalogPrompt).toContain('<Group id="group-key" groupTypeIndex={0} view="summary" />')
+        expect(catalogPrompt).toContain('"attrs":{"id":"group-key","groupTypeIndex":0,"view":"summary"}')
+        expect(catalogPrompt).toContain('groupTypeIndex: Numeric group type index.')
     })
 
     it('add sql cell inserts the tag, runs with sibling refs, and writes the result back', async () => {

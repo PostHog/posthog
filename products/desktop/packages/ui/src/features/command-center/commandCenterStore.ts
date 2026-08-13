@@ -42,6 +42,11 @@ interface CommandCenterStoreActions {
     terminalId: string,
     cwd?: string,
   ) => void;
+  /** Adopt a whole placement plan in one write — see `planCommandCenterPlacement`. */
+  applyPlacement: (plan: {
+    layout: LayoutPreset;
+    cells: (string | null)[];
+  }) => void;
   autofillCells: (taskIds: string[]) => void;
   optimizeLayout: (keepIndices: number[]) => void;
   clearCell: (cellIndex: number) => void;
@@ -148,6 +153,35 @@ export const useCommandCenterStore = create<CommandCenterStore>()(
             activeCellIndex: cellIndex,
             creatingCells: state.creatingCells.filter((i) => i !== cellIndex),
             hasAutofilled: true,
+          };
+        }),
+
+      applyPlacement: ({ layout, cells }) =>
+        set((state) => {
+          const activeTaskId =
+            state.activeTaskId && cells.includes(state.activeTaskId)
+              ? state.activeTaskId
+              : null;
+          return {
+            layout,
+            cells,
+            activeTaskId,
+            // Follows the active task to its new index; with none (a terminal or
+            // brainrot tile is focused) the existing highlight stays put, as in
+            // setLayout, so long as it's still within bounds.
+            activeCellIndex: activeTaskId
+              ? cells.indexOf(activeTaskId)
+              : state.activeCellIndex !== null &&
+                  state.activeCellIndex < cells.length
+                ? state.activeCellIndex
+                : null,
+            creatingCells: state.creatingCells.filter(
+              (i) => i < cells.length && cells[i] == null,
+            ),
+            // A bulk placement is the user curating the grid, so the one-shot
+            // autofill must not later stuff tiles behind their back.
+            hasAutofilled: true,
+            pendingPlacement: null,
           };
         }),
 

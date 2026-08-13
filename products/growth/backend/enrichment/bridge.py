@@ -1,8 +1,8 @@
 """Read the scoring inputs Clay still owns, off the organization group it writes.
 
-Two of the ICP score's inputs have no first-party source yet, so while Clay runs in parallel
-we read its own group properties back and score on them. That keeps `clay-parity-1` scores
-bit-comparable with Clay's on the orgs it also scores.
+The ICP score's revenue input has no first-party source, so while Clay runs in parallel we
+read its own group property back and score on it. That keeps our scores bit-comparable with
+Clay's on the orgs it also scores.
 
 The formula's third Clay-owned input, its GitHub profile lookup, is deliberately NOT read
 here: Clay never projects that column into PostHog at all (verified against live group and
@@ -41,7 +41,6 @@ class ClayBridgeInputs:
     """Clay-owned score inputs for one org. All None when Clay never processed it."""
 
     est_revenue: Optional[float] = None
-    company_type: Optional[str] = None
     # Presence of the company-type key, not its coerced value — Clay fills that column on
     # essentially every row it writes, making raw key-presence a reliable ran/didn't-run signal.
     clay_processed: bool = False
@@ -60,10 +59,6 @@ def _numeric(value: Any) -> Optional[float]:
         except ValueError:
             return None
     return None
-
-
-def _text(value: Any) -> Optional[str]:
-    return value if isinstance(value, str) and value else None
 
 
 def _organization_group_type_index(team: Team) -> int:
@@ -95,6 +90,5 @@ def read_clay_bridge_inputs(*, organization_id: str) -> ClayBridgeInputs:
     properties = group.group_properties or {}
     return ClayBridgeInputs(
         est_revenue=_numeric(properties.get(CLAY_EST_REVENUE_PROPERTY)),
-        company_type=_text(properties.get(CLAY_COMPANY_TYPE_PROPERTY)),
         clay_processed=CLAY_COMPANY_TYPE_PROPERTY in properties,
     )

@@ -96,3 +96,35 @@ describe("buildThreadGroups MCP detection", () => {
     expect(row.summary.doneLabel).toBe("1 subagent, 2 tool calls");
   });
 });
+
+describe("buildThreadGroups plan detection", () => {
+  // The plan tool call is emitted from the model's raw input, and its plan text
+  // and switch_mode kind are backfilled by the permission handler. Grouping by
+  // kind alone folds an ExitPlanMode call into the collapsed tool group before
+  // its kind resolves — burying the plan the user is meant to read. Matching by
+  // tool name keeps it as its own row regardless of when the kind arrives.
+  it.each([
+    ["switch_mode kind", { kind: "switch_mode" }, undefined],
+    [
+      "ExitPlanMode name, kind not yet resolved",
+      { kind: "other" },
+      { claudeCode: { toolName: "ExitPlanMode" } },
+    ],
+  ])(
+    "keeps a plan tool call (%s) as its own row, not folded into a group",
+    (_label, overrides, meta) => {
+      const write = toolCallItem(
+        "write",
+        { claudeCode: { toolName: "Write" } },
+        { kind: "edit" },
+      );
+      const plan = toolCallItem("plan", meta, overrides);
+
+      expect(isGroupableItem(plan)).toBe(false);
+
+      const grouping = buildThreadGroups([write, plan], {});
+      expect(grouping.rows.map((r) => r.kind)).toEqual(["tool_group", "item"]);
+      expect(grouping.idToRowIndex.get("plan")).toBe(1);
+    },
+  );
+});

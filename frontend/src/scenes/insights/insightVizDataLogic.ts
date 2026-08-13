@@ -2507,7 +2507,12 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
                 return (
                     querySource?.kind === NodeKind.TrendsQuery &&
                     querySource?.series?.some((s: { math?: string }) =>
-                        ['first_matching_event_for_user', 'first_time_for_user'].includes(s.math || '')
+                        [
+                            'first_matching_event_for_user',
+                            'first_time_for_user',
+                            'first_matching_event_for_group',
+                            'first_time_for_group',
+                        ].includes(s.math || '')
                     )
                 )
             },

@@ -94,7 +94,14 @@ export async function handleFreeformDataRequest(
       if (!input?.shortId || typeof input.shortId !== "string") {
         throw new Error("ph.loadInsight(shortId) requires an insight short id");
       }
-      const args = { shortId: input.shortId, dateRange: input.dateRange };
+      // `variables` is part of the cache key, not just the request: the same insight
+      // loaded for two different products is two different results, and omitting it
+      // here would serve the first product's numbers for every one of them.
+      const args = {
+        shortId: input.shortId,
+        dateRange: input.dateRange,
+        variables: input.variables,
+      };
       return cachedRead(queryClient, "loadInsight", args, () =>
         hostClient().canvasData.loadInsight.mutate(args),
       );

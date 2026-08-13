@@ -7977,7 +7977,7 @@ const schema91 = {
     ],
     type: 'string',
 }
-const schema92 = { const: 'unique_group', type: 'string' }
+const schema92 = { enum: ['unique_group', 'first_time_for_group', 'first_matching_event_for_group'], type: 'string' }
 const schema93 = { const: 'hogql', type: 'string' }
 const schema94 = {
     enum: ['total', 'sum', 'unique_session', 'min', 'max', 'avg', 'dau', 'unique_group', 'hogql'],
@@ -8174,13 +8174,19 @@ function validate94(data, { instancePath = '', parentData, parentDataProperty, r
                         }
                         errors++
                     }
-                    if ('unique_group' !== data) {
+                    if (
+                        !(
+                            data === 'unique_group' ||
+                            data === 'first_time_for_group' ||
+                            data === 'first_matching_event_for_group'
+                        )
+                    ) {
                         const err9 = {
                             instancePath,
-                            schemaPath: '#/definitions/GroupMathType/const',
-                            keyword: 'const',
-                            params: { allowedValue: 'unique_group' },
-                            message: 'must be equal to constant',
+                            schemaPath: '#/definitions/GroupMathType/enum',
+                            keyword: 'enum',
+                            params: { allowedValues: schema92.enum },
+                            message: 'must be equal to one of the allowed values',
                         }
                         if (vErrors === null) {
                             vErrors = [err9]

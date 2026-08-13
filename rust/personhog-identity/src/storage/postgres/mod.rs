@@ -1,7 +1,8 @@
 //! Postgres-backed identity storage. This module is dispatch-only: each
 //! trait method's logic lives in its own submodule (`resolve`,
-//! `stub_create`), keyed by the metrics operation label.
+//! `stub_create`, `attach`), keyed by the metrics operation label.
 
+mod attach;
 mod distinct_ids;
 mod resolve;
 mod stub_create;
@@ -16,7 +17,7 @@ use personhog_common::grpc::{current_client_name, current_method_name};
 
 use crate::config::IdentityTables;
 use crate::storage::error::StorageResult;
-use crate::storage::types::{DistinctIdMapping, Person, PersonStub, StubOutcome};
+use crate::storage::types::{AttachOutcome, DistinctIdMapping, Person, PersonStub, StubOutcome};
 use crate::storage::{IdentityStorage, DB_QUERY_DURATION};
 
 const POOL_LABEL: &str = "primary";
@@ -113,5 +114,23 @@ impl IdentityStorage for PostgresIdentityStorage {
         let labels = Self::query_labels("create_person_stubs");
         let _timer = common_metrics::timing_guard(DB_QUERY_DURATION, &labels);
         stub_create::create_person_stubs(&self.primary_pool, &self.tables, stubs).await
+    }
+
+    async fn attach_distinct_ids(
+        &self,
+        team_id: i64,
+        person_id: i64,
+        distinct_ids: &[String],
+    ) -> StorageResult<HashMap<String, AttachOutcome>> {
+        let labels = Self::query_labels("attach_distinct_ids");
+        let _timer = common_metrics::timing_guard(DB_QUERY_DURATION, &labels);
+        attach::attach_distinct_ids(
+            &self.primary_pool,
+            &self.tables,
+            team_id,
+            person_id,
+            distinct_ids,
+        )
+        .await
     }
 }

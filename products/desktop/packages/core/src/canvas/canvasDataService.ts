@@ -47,6 +47,43 @@ function boundedResult(result: CanvasDataResult): CanvasDataResult {
   return result;
 }
 
+// Compare a requested SQL-variable value against the one the server resolved.
+// Values round-trip verbatim, so structural equality is enough; `undefined`
+// normalizes to null because that's how it serializes over the wire.
+function sameVariableValue(a: unknown, b: unknown): boolean {
+  return JSON.stringify(a ?? null) === JSON.stringify(b ?? null);
+}
+
+/**
+ * Fail loudly when a requested SQL variable didn't actually take effect.
+ *
+ * The insights API drops an override whose `code_name` matches no variable on the
+ * insight, and ignores overrides wholesale under sharing-token auth. Both are
+ * SILENT: the insight then computes from its own saved defaults and returns numbers
+ * that look real. On a per-product board that means every product rendering the
+ * insight's default product — precisely the wrong-but-plausible data a canvas must
+ * never show. So verify against what the server says it used, and refuse otherwise.
+ */
+function assertVariablesApplied(
+  requested: Record<string, unknown> | undefined,
+  resolved: Record<string, unknown>,
+  shortId: string,
+): void {
+  for (const [codeName, requestedValue] of Object.entries(requested ?? {})) {
+    if (!(codeName in resolved)) {
+      const known = Object.keys(resolved);
+      throw new Error(
+        `Insight "${shortId}" has no SQL variable "${codeName}" (it uses: ${known.length > 0 ? known.join(", ") : "none"})`,
+      );
+    }
+    if (!sameVariableValue(resolved[codeName], requestedValue)) {
+      throw new Error(
+        `SQL variable "${codeName}" was not applied to insight "${shortId}" — it resolved to ${JSON.stringify(resolved[codeName])}, not ${JSON.stringify(requestedValue)}`,
+      );
+    }
+  }
+}
+
 /**
  * The host-side data avenue behind a freeform canvas's `ph.query` shim.
  *
@@ -112,13 +149,19 @@ export class CanvasDataService {
 
   // The preferred data avenue: load a SAVED insight by short id and return its
   // STORED result from the insights endpoint (not a fresh /query/ run). The
-  // canvas date picker's window rides along as the insight's date override.
+  // canvas date picker's window rides along as the insight's date override, and
+  // `variables` supplies the insight's SQL variables for this request.
   async loadInsight(input: CanvasLoadInsightInput): Promise<CanvasDataResult> {
     try {
       const insight = await fetchInsightByShortId(
         this.authService,
         input.shortId,
-        { dateRange: input.dateRange },
+        { dateRange: input.dateRange, variables: input.variables },
+      );
+      assertVariablesApplied(
+        input.variables,
+        insight.resolvedVariables,
+        input.shortId,
       );
       // Mirror the shape handling in `query`: a SQL insight returns rows (coerce a
       // bare scalar row to a 1-cell array); a trends-style insight returns SERIES

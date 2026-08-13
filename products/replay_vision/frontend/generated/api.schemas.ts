@@ -164,6 +164,8 @@ export interface AlertConfigApi {
      * * `14` - 14 days
      * * `30` - 30 days */
     window_days?: WindowDaysEnumApi
+    /** When true, each example line in the alert message includes the scanner's full reasoning for that observation, not just its verdict/score/tags. Useful when piping the message somewhere else to read or act on. Defaults to false. */
+    include_reasoning?: boolean
 }
 
 /**

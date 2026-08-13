@@ -83,3 +83,48 @@ export class ApiError extends Error {
         return 'later'
     }
 }
+
+/**
+ * Why a request never reached the server. `offline` and `navigating` describe the state of the
+ * client rather than a fault in the request path, so they are dropped before they reach error
+ * tracking (see `dropUnactionableNetworkExceptions`). `network` is the residue that is worth
+ * looking at: an ad blocker, a misconfigured reverse proxy, DNS, a CDN, or our own edge.
+ */
+export type NetworkFailureReason = 'offline' | 'navigating' | 'network'
+
+/**
+ * One fixed message per reason. Two constraints meet here. The browser's own wording varies by
+ * engine ("Failed to fetch", "Load failed", "NetworkError when attempting to fetch resource."),
+ * and the automatic unhandled-rejection capture carries no custom properties, so the message is
+ * the only place the reason can travel to `before_send` and to error tracking grouping rules.
+ */
+export const NETWORK_ERROR_MESSAGES = {
+    offline: 'Network request failed: device is offline',
+    navigating: 'Network request failed: page was closing',
+    network: 'Network request failed',
+} as const satisfies Record<NetworkFailureReason, string>
+
+/** The reasons that are never a defect, so filing them as error tracking issues only adds noise. */
+export const UNACTIONABLE_NETWORK_ERROR_MESSAGES: ReadonlySet<string> = new Set([
+    NETWORK_ERROR_MESSAGES.offline,
+    NETWORK_ERROR_MESSAGES.navigating,
+])
+
+/**
+ * A request the browser never completed, so there is no HTTP status to react to. `status` is left
+ * undefined on purpose: recovery paths across the app read `status === undefined` as "transient,
+ * may be retried" (for example `inviteSignupLogic` and `sourcesDataLogic`), and a placeholder like
+ * 0 would make them treat a connectivity blip as a client error.
+ */
+export class NetworkError extends ApiError {
+    constructor(
+        public reason: NetworkFailureReason,
+        cause?: unknown
+    ) {
+        super(NETWORK_ERROR_MESSAGES[reason])
+        // Sets the `type` posthog-js reports in `$exception_list`, which is what
+        // `dropUnactionableNetworkExceptions` and error tracking grouping rules match on.
+        this.name = 'NetworkError'
+        this.cause = cause
+    }
+}

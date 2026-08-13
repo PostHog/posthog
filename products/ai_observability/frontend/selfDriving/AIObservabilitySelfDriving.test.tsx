@@ -185,6 +185,31 @@ describe('AIObservabilitySelfDriving', () => {
         expect(router.values.searchParams).toEqual(expect.objectContaining({ evaluation_tab: 'configuration' }))
     })
 
+    it('sorts evals by report columns', async () => {
+        render(
+            <Provider>
+                <AIObservabilitySelfDriving />
+            </Provider>
+        )
+
+        const evalNames = (): string[] =>
+            Array.from(
+                document.querySelectorAll(
+                    '[data-attr="ai-observability-evaluations-table"] tbody tr td:first-child span:first-child'
+                )
+            ).map((nameSpan) => nameSpan.textContent ?? '')
+
+        expect(await screen.findByText('Correctness check')).toBeInTheDocument()
+        expect(evalNames()).toEqual(['Correctness check', 'Tone check'])
+
+        // The eval with no report counts as zero, so ascending order puts it first.
+        await userEvent.click(screen.getByText('Reports generated'))
+        expect(evalNames()).toEqual(['Tone check', 'Correctness check'])
+
+        await userEvent.click(screen.getByText('Reports generated'))
+        expect(evalNames()).toEqual(['Correctness check', 'Tone check'])
+    })
+
     it('guides users without evals to templates or their agent', async () => {
         jest.mocked(aiObservabilityApi.evaluationsList).mockResolvedValue({
             count: 0,

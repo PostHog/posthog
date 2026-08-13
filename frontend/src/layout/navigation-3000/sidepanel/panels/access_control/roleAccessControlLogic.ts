@@ -88,6 +88,13 @@ export interface roleAccessControlLogicActions {
             role: RoleType
         }
     }
+    createRoleWithMember: (
+        name: string,
+        userUuid: string
+    ) => {
+        name: string
+        userUuid: string
+    }
     deleteRole: (roleId: RoleType['id']) => {
         roleId: string
     }
@@ -171,6 +178,9 @@ export interface roleAccessControlLogicActions {
             name: string
         }
     }
+    roleMembershipsChanged: () => {
+        value: true
+    }
     selectRoleId: (roleId: RoleType['id'] | null) => {
         roleId: string | null
     }
@@ -247,6 +257,9 @@ export const roleAccessControlLogic = kea<roleAccessControlLogicType>([
         deleteRole: (roleId: RoleType['id']) => ({ roleId }),
         removeMemberFromRole: (role: RoleType, roleMemberId: string) => ({ role, roleMemberId }),
         addMembersToRole: (role: RoleType, members: string[]) => ({ role, members }),
+        createRoleWithMember: (name: string, userUuid: string) => ({ name, userUuid }),
+        /** Fired whenever a member is added to or removed from a role, so other logics can refresh. */
+        roleMembershipsChanged: true,
         setEditingRoleId: (roleId: string | null) => ({ roleId }),
     }),
     reducers({
@@ -365,6 +378,25 @@ export const roleAccessControlLogic = kea<roleAccessControlLogicType>([
     }),
 
     listeners(({ actions, values }) => ({
+        createRoleWithMember: async ({ name, userUuid }) => {
+            try {
+                const role = await api.roles.create(name)
+                await api.roles.members.create(role.id, userUuid)
+                lemonToast.success(`Created role "${name}" and assigned member`)
+                actions.loadRoles()
+                actions.roleMembershipsChanged()
+                actions.loadCurrentOrganization()
+            } catch (e) {
+                const error = (e as Record<string, any>).detail || 'Failed to create role'
+                lemonToast.error(error)
+            }
+        },
+        addMembersToRoleSuccess: () => {
+            actions.roleMembershipsChanged()
+        },
+        removeMemberFromRoleSuccess: () => {
+            actions.roleMembershipsChanged()
+        },
         loadRolesSuccess: () => {
             if (router.values.hashParams.role) {
                 actions.selectRoleId(router.values.hashParams.role)

@@ -6,7 +6,7 @@ use chrono::{TimeZone, Utc};
 use common::TestContext;
 
 use personhog_common::persons::person_uuid;
-use personhog_identity::storage::{IdentityStorage, PersonStub, StubOutcome};
+use personhog_identity::storage::{AttachOutcome, IdentityStorage, PersonStub, StubOutcome};
 
 /// Storage-assertion helpers used only by this test binary.
 impl TestContext {
@@ -672,5 +672,181 @@ async fn resolve_returns_only_existing_keys() {
     assert_eq!(resolved.len(), 1);
     assert_eq!(resolved[&(ctx.team_id, "known".to_string())].id, person_id);
 
+    ctx.cleanup().await.ok();
+}
+
+#[tokio::test]
+async fn attach_covers_fresh_revived_and_live_mappings_per_row() {
+    let ctx = TestContext::new().await;
+    let owner = ctx.insert_person_with_distinct_id("attach-owner").await;
+    let target = ctx.insert_person_with_distinct_id("attach-target").await;
+    ctx.insert_tombstoned_distinct_id("attach-tomb", owner, 5)
+        .await;
+
+    let outcomes = ctx
+        .storage
+        .attach_distinct_ids(
+            ctx.team_id,
+            target,
+            &[
+                "attach-fresh".to_string(),
+                "attach-tomb".to_string(),
+                "attach-owner".to_string(),
+            ],
+        )
+        .await
+        .expect("attach should succeed");
+
+    assert_eq!(
+        outcomes.get("attach-fresh"),
+        Some(&AttachOutcome::Attached { version: 1 })
+    );
+    assert_eq!(
+        outcomes.get("attach-tomb"),
+        Some(&AttachOutcome::Attached { version: 6 })
+    );
+    assert_eq!(
+        outcomes.get("attach-owner"),
+        Some(&AttachOutcome::AlreadyMapped { person_id: owner })
+    );
+    assert_eq!(
+        ctx.distinct_id_state("attach-fresh").await,
+        Some((target, false, Some(1)))
+    );
+    assert_eq!(
+        ctx.distinct_id_state("attach-tomb").await,
+        Some((target, false, Some(6)))
+    );
+    assert_eq!(
+        ctx.distinct_id_state("attach-owner").await,
+        Some((owner, false, Some(0)))
+    );
+
+    ctx.cleanup().await.ok();
+}
+
+#[tokio::test]
+async fn attach_to_a_dead_person_attaches_nothing() {
+    let ctx = TestContext::new().await;
+    let corpse = ctx.insert_tombstoned_person(uuid::Uuid::new_v4(), 3).await;
+
+    let outcomes = ctx
+        .storage
+        .attach_distinct_ids(ctx.team_id, corpse, &["attach-corpse".to_string()])
+        .await
+        .expect("attach should succeed");
+
+    assert!(outcomes.is_empty());
+    assert_eq!(ctx.distinct_id_state("attach-corpse").await, None);
+
+    ctx.cleanup().await.ok();
+}
+
+#[tokio::test]
+async fn attach_works_on_a_configured_table_set() {
+    // Runs attach against the tmp namespace — a leftover hardcoded posthog_
+    // table in its interpolated queries would pass silently on the default
+    // set. Asserted through table-aware storage reads, not the raw-SQL
+    // helpers above (those assume the default set).
+    let ctx = TestContext::new_with_tables(common::tmp_tables()).await;
+    let target = ctx
+        .insert_person_with_distinct_id("tmp-attach-target")
+        .await;
+
+    let outcomes = ctx
+        .storage
+        .attach_distinct_ids(ctx.team_id, target, &["tmp-attach-fresh".to_string()])
+        .await
+        .expect("attach should succeed");
+
+    assert_eq!(
+        outcomes.get("tmp-attach-fresh"),
+        Some(&AttachOutcome::Attached { version: 1 })
+    );
+    let key = (ctx.team_id, "tmp-attach-fresh".to_string());
+    let resolved = ctx
+        .storage
+        .resolve_distinct_ids(std::slice::from_ref(&key))
+        .await
+        .expect("resolve should succeed");
+    assert_eq!(resolved.get(&key).map(|p| p.id), Some(target));
+
+    ctx.cleanup().await.ok();
+}
+
+#[tokio::test]
+async fn attach_refuses_a_person_held_by_a_live_lifecycle_op() {
+    // A deletion overlapping an attach: the delete saga's destructive
+    // transaction sweeps the person's distinct id rows, then tombstones
+    // the person row, then commits. An attach whose liveness join runs
+    // mid-transaction still reads the live person version, so without a
+    // further guard it inserts a mapping the sweep already missed — a
+    // live distinct id pointing at a tombstoned person, which can never
+    // resolve and never gets cleaned up. The saga commits its mark before
+    // any destructive statement, so an attach that could land in that
+    // window always observes the mark; refusing marked persons closes it.
+    let ctx = TestContext::new().await;
+    let victim = ctx.insert_person_with_distinct_id("marked-victim").await;
+
+    // The saga's claim, committed before the fence and the destructive TX.
+    let op_id = uuid::Uuid::now_v7();
+    sqlx::query(
+        "INSERT INTO lifecycle_op (op_id, op_type, team_id, step, lease_expires_at, request) \
+         VALUES ($1, 'delete', $2, 'marked', now() + interval '1 hour', '{}'::jsonb)",
+    )
+    .bind(op_id)
+    .bind(ctx.team_id as i32)
+    .execute(&ctx.pool)
+    .await
+    .expect("seed op row");
+    sqlx::query(
+        "INSERT INTO lifecycle_op_person (op_id, team_id, person_id, person_uuid, role, status) \
+         VALUES ($1, $2, $3, gen_random_uuid(), 'victim', 'marked')",
+    )
+    .bind(op_id)
+    .bind(ctx.team_id as i32)
+    .bind(victim)
+    .execute(&ctx.pool)
+    .await
+    .expect("seed mark row");
+
+    // The destructive transaction, mid-flight: distinct ids swept, person
+    // not yet tombstoned, nothing committed.
+    let mut destroying_tx = ctx.pool.begin().await.expect("begin destroying tx");
+    sqlx::query("UPDATE posthog_persondistinctid SET is_deleted = true, version = COALESCE(version, 0) + 1 WHERE team_id = $1 AND person_id = $2")
+        .bind(ctx.team_id as i32)
+        .bind(victim)
+        .execute(&mut *destroying_tx)
+        .await
+        .expect("sweep distinct ids");
+
+    // The overlapping attach must refuse: the person is mark-held.
+    let outcomes = ctx
+        .storage
+        .attach_distinct_ids(ctx.team_id, victim, &["zombie-did".to_string()])
+        .await
+        .expect("attach call succeeds");
+    assert!(
+        outcomes.is_empty(),
+        "attach must not touch a mark-held person, got {outcomes:?}"
+    );
+
+    // The deletion finishes.
+    sqlx::query("UPDATE posthog_person SET is_deleted = true, version = COALESCE(version, 0) + 1 WHERE team_id = $1 AND id = $2")
+        .bind(ctx.team_id as i32)
+        .bind(victim)
+        .execute(&mut *destroying_tx)
+        .await
+        .expect("tombstone person");
+    destroying_tx.commit().await.expect("commit deletion");
+
+    // No zombie: nothing maps the distinct id to the dead person.
+    assert_eq!(ctx.distinct_id_state("zombie-did").await, None);
+
+    sqlx::query("DELETE FROM lifecycle_op WHERE op_id = $1")
+        .bind(op_id)
+        .execute(&ctx.pool)
+        .await
+        .expect("cleanup op");
     ctx.cleanup().await.ok();
 }

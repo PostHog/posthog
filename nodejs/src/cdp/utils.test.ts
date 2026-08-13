@@ -6,6 +6,7 @@ import { LogEntry } from './types'
 import {
     convertInternalEventToHogFunctionInvocationGlobals,
     fixLogDeduplication,
+    getSensitiveValues,
     gzipObject,
     sanitizeLogMessage,
     unGzipObject,
@@ -124,6 +125,28 @@ describe('Utils', () => {
             )
         })
     })
+    describe('getSensitiveValues', () => {
+        // A webhook's headers input ships as a non-secret dictionary, so nothing in it used to be
+        // masked. That is where the API key of the destination most likely to quote it back lives.
+        const webhookWithHeaders: any = {
+            inputs_schema: [{ key: 'headers', type: 'dictionary', secret: false }],
+        }
+
+        it.each([
+            ['Authorization', 'Bearer sk_live_abc', ['Bearer sk_live_abc', 'sk_live_abc']],
+            ['x-api-key', 'sk_live_abc', ['sk_live_abc']],
+        ])('masks the credential under a non-secret %s header', (header, value, expected) => {
+            expect(getSensitiveValues(webhookWithHeaders, { headers: { [header]: value } })).toEqual(expected)
+        })
+
+        // Redacting these would blank out ordinary headers in every error a destination reports.
+        it('leaves headers that carry no credential alone', () => {
+            expect(getSensitiveValues(webhookWithHeaders, { headers: { 'Content-Type': 'application/json' } })).toEqual(
+                []
+            )
+        })
+    })
+
     describe('sanitizeLogMessage', () => {
         it('should sanitize the log message', () => {
             const message = sanitizeLogMessage(['test', 'test2'])

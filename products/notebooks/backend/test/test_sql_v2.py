@@ -17,6 +17,7 @@ from freezegun import freeze_time
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
+from django.conf import settings
 from django.core import signing
 from django.core.cache import cache
 from django.test import SimpleTestCase, override_settings
@@ -1697,7 +1698,12 @@ class TestSQLV2DataPlaneEndpoint(APIBaseTest):
         from products.notebooks.backend import frame_store
 
         frame_uuid = "018e0e7a-1111-2222-3333-444444444444"
-        with self.settings(OBJECT_STORAGE_ENABLED=True):
+        # Presign against the endpoint this process writes through, dropping the cached storage
+        # client so the override applies — see test_frame_store.py for why both halves matter.
+        with (
+            self.settings(OBJECT_STORAGE_ENABLED=True, OBJECT_STORAGE_PUBLIC_ENDPOINT=settings.OBJECT_STORAGE_ENDPOINT),
+            patch.object(object_storage, "_client", object_storage.UnavailableStorage()),
+        ):
             self.addCleanup(self._delete_team_frames)
             response = self._run_to_completion(
                 {

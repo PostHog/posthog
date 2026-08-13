@@ -185,7 +185,7 @@ export const assignmentRuleModalLogic = kea<assignmentRuleModalLogicType>([
                     const query: Record<string, any> = {
                         kind: NodeKind.EventsQuery,
                         event: '$exception',
-                        select: ['count()', 'count(distinct properties.$exception_issue_id)'],
+                        select: ['count()', 'count(distinct issue_id)'],
                         after: values.dateRange,
                         tags: { productKey: ProductKey.ERROR_TRACKING },
                     }

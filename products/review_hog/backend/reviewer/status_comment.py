@@ -23,7 +23,12 @@ from django.utils import timezone
 from posthog.models.integration import GitHubIntegration
 
 from products.review_hog.backend.models import ReviewReport
-from products.review_hog.backend.reviewer.constants import effective_priority, published_priorities_for
+from products.review_hog.backend.reviewer.constants import (
+    PRIORITIES_BY_URGENCY,
+    PRIORITY_LABELS,
+    effective_priority,
+    published_priorities_for,
+)
 from products.review_hog.backend.reviewer.models.issues_review import IssuePriority
 from products.review_hog.backend.reviewer.persistence import load_findings_bundle, load_valid_findings
 from products.review_hog.backend.reviewer.progress import (
@@ -77,12 +82,6 @@ _THRESHOLD_ATTRIBUTIONS = {
 }
 # Only personal thresholds live in someone's ReviewHog settings; the default variant has no page to point at.
 _PERSONAL_THRESHOLD_SOURCES = frozenset({"author", "override"})
-
-_PRIORITY_LABELS = {
-    IssuePriority.MUST_FIX: "must fix",
-    IssuePriority.SHOULD_FIX: "should fix",
-    IssuePriority.CONSIDER: "consider",
-}
 
 # A clean review deserves a reward, not a bare "nothing here". We still post the comment (so "no
 # comment" can never be mistaken for "the run broke"), but swap the flat sign-off for calming media.
@@ -168,8 +167,7 @@ def render_final_body(
     """
     found_total = sum(counts.values())
     found_line = "Found " + ", ".join(
-        f"**{counts[priority]} {_PRIORITY_LABELS[priority]}**"
-        for priority in (IssuePriority.MUST_FIX, IssuePriority.SHOULD_FIX, IssuePriority.CONSIDER)
+        f"**{counts[priority]} {PRIORITY_LABELS[priority]}**" for priority in PRIORITIES_BY_URGENCY
     )
     lines = ["### \U0001f994 ReviewHog reviewed this pull request", ""]
     if found_total == 0:

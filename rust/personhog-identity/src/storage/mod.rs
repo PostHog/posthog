@@ -7,7 +7,7 @@ use std::collections::HashMap;
 use async_trait::async_trait;
 
 pub use error::{StorageError, StorageResult};
-pub use types::{DistinctIdMapping, Person, PersonStub, StubOutcome};
+pub use types::{AttachOutcome, DistinctIdMapping, Person, PersonStub, StubOutcome};
 
 pub const DB_QUERY_DURATION: &str = "personhog_identity_db_query_duration_ms";
 
@@ -42,4 +42,14 @@ pub trait IdentityStorage: Send + Sync {
     /// Callers must dedupe stubs by (team_id, distinct_id); duplicate keys in
     /// one call have unspecified per-row outcomes. Outcomes are in stub order.
     async fn create_person_stubs(&self, stubs: &[PersonStub]) -> StorageResult<Vec<StubOutcome>>;
+
+    /// Attach personless distinct ids to a live person with plain mapping
+    /// inserts. Live mappings are never repointed (`AlreadyMapped`); an id
+    /// absent from the result attached nothing. Callers dedupe.
+    async fn attach_distinct_ids(
+        &self,
+        team_id: i64,
+        person_id: i64,
+        distinct_ids: &[String],
+    ) -> StorageResult<HashMap<String, AttachOutcome>>;
 }

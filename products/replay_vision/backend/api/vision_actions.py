@@ -152,6 +152,15 @@ class AlertConfigSerializer(serializers.Serializer):
             "every_match ignores it (each check covers what's new since the previous one)."
         ),
     )
+    include_reasoning = serializers.BooleanField(
+        required=False,
+        default=False,
+        help_text=(
+            "When true, each example line in the alert message includes the scanner's full reasoning "
+            "for that observation, not just its verdict/score/tags. Useful when piping the message "
+            "somewhere else to read or act on. Defaults to false."
+        ),
+    )
 
     def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
         frequency = attrs.get("frequency", AlertFrequency.ON_BREACH)

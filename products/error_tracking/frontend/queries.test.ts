@@ -94,6 +94,18 @@ describe('queries', () => {
             })
 
             expect(actual.source.tags).toEqual({ productKey: ProductKey.ERROR_TRACKING })
+            expect(actual.source).toMatchObject({
+                series: [
+                    {
+                        properties: [
+                            {
+                                key: "issue_id = 'issue-id'",
+                                type: 'hogql',
+                            },
+                        ],
+                    },
+                ],
+            })
         })
     })
 })

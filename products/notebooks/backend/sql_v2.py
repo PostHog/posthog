@@ -32,6 +32,7 @@ logger = structlog.get_logger(__name__)
 
 REVAMPED_PY_NOTEBOOKS_FLAG = "revamped-py-notebooks"
 NOTEBOOKS_FRAME_STORE_FLAG = "notebooks-frame-store"
+NOTEBOOKS_FRAME_STORE_CH_WRITES_FLAG = "notebooks-frame-store-ch-writes"
 
 # How a run's result rows reached whoever consumes them. The data plane resolves this at
 # the moment it picks a transport and reports it in the 202 accept body; the sandbox echoes
@@ -119,6 +120,19 @@ def is_frame_store_enabled(user: User | None) -> bool:
     rollout no further than the environment is provisioned for.
     """
     return _flag_enabled_for(NOTEBOOKS_FRAME_STORE_FLAG, user)
+
+
+def is_frame_store_ch_writes_enabled(user: User | None) -> bool:
+    """Whether this user's materializations take the ClickHouse-side write path.
+
+    One switch for the whole new flow: it moves the query onto the offline pool as the
+    dedicated `notebooks` user, and hands the object write to ClickHouse. Sits inside
+    `is_frame_store_enabled`, which has to be on before any of this is reached.
+
+    Resolved in the web process and carried on the job, because the Temporal activity that
+    acts on it has no request user to evaluate a flag against.
+    """
+    return _flag_enabled_for(NOTEBOOKS_FRAME_STORE_CH_WRITES_FLAG, user)
 
 
 def mint_callback_token(run_id: str, team_id: int) -> str:

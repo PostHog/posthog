@@ -235,11 +235,7 @@ class TestUpdateTaskRunStatusActivity:
         assert len(completed) == 1
 
     @pytest.mark.django_db(transaction=True)
-    def test_terminal_transition_updates_loop_bookkeeping_exactly_once(self, activity_environment, test_task_run):
-        # This activity is how workflow-driven loop runs reach a terminal status, so it must
-        # drive loop bookkeeping (last_run_status, consecutive_failures -> auto-pause) — the
-        # HTTP PATCH path is never taken for these. A repeat of the same terminal update must
-        # not double-count.
+    def test_terminal_retry_completes_loop_bookkeeping_exactly_once(self, activity_environment, test_task_run):
         loop = Loop(
             team=test_task_run.team,
             created_by=test_task_run.task.created_by,
@@ -249,7 +245,9 @@ class TestUpdateTaskRunStatusActivity:
         )
         loop.save()
         test_task_run.state = {**(test_task_run.state or {}), "loop_id": str(loop.id)}
-        test_task_run.save(update_fields=["state"])
+        test_task_run.status = TaskRun.Status.FAILED
+        test_task_run.error_message = "sandbox crashed"
+        test_task_run.save(update_fields=["state", "status", "error_message"])
 
         input_data = UpdateTaskRunStatusInput(
             run_id=str(test_task_run.id), status=TaskRun.Status.FAILED, error_message="sandbox crashed"

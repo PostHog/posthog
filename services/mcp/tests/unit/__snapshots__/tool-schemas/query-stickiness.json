@@ -633,7 +633,11 @@
                                         "type": "string"
                                     },
                                     {
-                                        "const": "unique_group",
+                                        "enum": [
+                                            "unique_group",
+                                            "first_time_for_group",
+                                            "first_matching_event_for_group"
+                                        ],
                                         "type": "string"
                                     },
                                     {
@@ -1265,7 +1269,11 @@
                                         "type": "string"
                                     },
                                     {
-                                        "const": "unique_group",
+                                        "enum": [
+                                            "unique_group",
+                                            "first_time_for_group",
+                                            "first_matching_event_for_group"
+                                        ],
                                         "type": "string"
                                     },
                                     {

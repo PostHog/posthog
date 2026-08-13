@@ -538,6 +538,26 @@ class TestScoutHarnessRecentEmissionsAPI(APIBaseTest):
         assert [row["finding_id"] for row in response.json()] == ["older"]
 
 
+class TestScoutHarnessRecentPerScoutAPI(APIBaseTest):
+    def _url(self) -> str:
+        return f"/api/projects/{self.team.id}/signals/scout/runs/recent-per-scout/"
+
+    def test_returns_each_scouts_newest_runs(self) -> None:
+        # Wiring guard: the action reaches `recent_runs_per_scout` and honours `per_scout_limit`.
+        # The probe rules themselves are covered against the helper in test_scout_harness_tools.
+        for skill_name in ("signals-scout-errors", "signals-scout-surveys"):
+            SignalScoutConfig.objects.create(team=self.team, skill_name=skill_name)
+        busy = [_make_run(self.team, skill_name="signals-scout-errors") for _ in range(3)]
+        quiet = _make_run(self.team, skill_name="signals-scout-surveys")
+        response = self.client.get(self._url(), data={"per_scout_limit": 1})
+        assert response.status_code == status.HTTP_200_OK
+        assert {row["run_id"] for row in response.json()} == {str(busy[-1].id), str(quiet.id)}
+
+    def test_rejects_a_per_scout_limit_over_the_cap(self) -> None:
+        response = self.client.get(self._url(), data={"per_scout_limit": 5000})
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+
+
 class TestScoutHarnessFindingsSummaryAPI(APIBaseTest):
     def _url(self) -> str:
         return f"/api/projects/{self.team.id}/signals/scout/runs/findings/summary/"

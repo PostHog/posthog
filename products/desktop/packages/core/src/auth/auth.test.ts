@@ -82,6 +82,7 @@ function mockTokenResponse(
     refreshToken?: string | null;
     expiresIn?: number;
     scopedOrgs?: string[];
+    scopedTeams?: number[];
   } = {},
 ) {
   const refreshToken =
@@ -97,6 +98,7 @@ function mockTokenResponse(
       token_type: "Bearer",
       scope: "",
       scoped_organizations: overrides.scopedOrgs ?? ["org-1"],
+      ...(overrides.scopedTeams ? { scoped_teams: overrides.scopedTeams } : {}),
     },
   };
 }
@@ -1673,6 +1675,73 @@ describe("AuthService", () => {
         expect(service.getState()).toMatchObject(expectedState);
       },
     );
+
+    // Team-scoped tokens are rejected by the server on every endpoint that
+    // isn't project-nested, /api/organizations/* included — the map has to be
+    // assembled from the scoped projects, or login lands on "No projects".
+    it("builds the map from scoped projects when the token carries scoped_teams", async () => {
+      const calls = { org: 0, project: 0 };
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(async (input: string | Request) => {
+          const url = typeof input === "string" ? input : input.url;
+
+          if (url.includes("/api/users/@me/")) {
+            return {
+              ok: true,
+              json: vi.fn().mockResolvedValue({
+                uuid: "user-1",
+                organization: { id: "org-1", name: "Org 1" },
+              }),
+            } as unknown as Response;
+          }
+
+          if (/\/api\/organizations\/[^/]+\/$/.test(url)) {
+            calls.org++;
+            return {
+              ok: false,
+              status: 403,
+              json: vi.fn().mockResolvedValue({}),
+            } as unknown as Response;
+          }
+
+          if (/\/api\/projects\/42\/$/.test(url)) {
+            calls.project++;
+            return {
+              ok: true,
+              json: vi.fn().mockResolvedValue({
+                id: 42,
+                name: "Project 42",
+                organization: "org-1",
+              }),
+            } as unknown as Response;
+          }
+
+          return {
+            ok: true,
+            json: vi.fn().mockResolvedValue({ has_access: true }),
+          } as unknown as Response;
+        }) as unknown as typeof fetch,
+      );
+      oauthFlow.startFlow.mockResolvedValue(
+        mockTokenResponse({ scopedOrgs: [], scopedTeams: [42] }),
+      );
+
+      await service.login("us");
+
+      expect(calls).toEqual({ org: 0, project: 1 });
+      expect(service.getState()).toMatchObject({
+        status: "authenticated",
+        currentOrgId: "org-1",
+        currentProjectId: 42,
+        orgProjectsMap: {
+          "org-1": {
+            orgName: "Org 1",
+            projects: [{ id: 42, name: "Project 42" }],
+          },
+        },
+      });
+    });
   });
 
   describe("switchOrg", () => {

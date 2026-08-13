@@ -271,7 +271,6 @@ class TestFreeTierModelGateErrorBody:
         from llm_gateway.dependencies import get_authenticated_user
         from llm_gateway.products.config import POSTHOG_CODE_US_APP_ID
 
-        monkeypatch.setenv("LLM_GATEWAY_POSTHOG_CODE_MODEL_GATE_ENABLED", "true")
         get_settings.cache_clear()
         try:
             app = create_test_app(mock_db_pool)

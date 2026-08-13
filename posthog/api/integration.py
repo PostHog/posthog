@@ -1197,6 +1197,15 @@ class IntegrationViewSet(
                 auth_url = OauthIntegration.authorize_url(
                     kind, next=next, token=token, region=region, scopes=scopes, team_id=self.team_id
                 )
+                # Capture the hand-off to the provider's authorize page. A rejection there (e.g.
+                # TikTok's "app has been blocked") never returns to us, so this is the only leg we
+                # can record — an authorize start with no matching completion is now countable.
+                report_user_action(
+                    request.user,
+                    "integration authorize started",
+                    {"integration_kind": kind},
+                    team=self.team,
+                )
                 response = redirect(auth_url)
                 # nosemgrep: python.django.security.audit.secure-cookies.django-secure-set-cookie (OAuth state, short-lived, needed for cross-site redirect)
                 response.set_cookie("ph_oauth_state", token, max_age=60 * 5)

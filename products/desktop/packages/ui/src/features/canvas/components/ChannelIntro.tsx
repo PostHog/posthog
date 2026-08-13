@@ -86,8 +86,8 @@ export function ChannelIntro({
             <ItemContent className="self-start">
               <ItemTitle>Creating context.md</ItemTitle>
               <ItemDescription className="text-xs">
-                A planning session is building it now. Open its task card below
-                to shape the result.
+                A session is building it now. Open its task card below to follow
+                along.
               </ItemDescription>
             </ItemContent>
           </Item>

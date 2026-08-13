@@ -118,7 +118,7 @@ pub static PROPERTY_DEFINITION_ALIASES: [(&str, &str); 243] = [
     ),
     ("$exception_issue_id", "exception issue id"),
     ("$exception_source", "exception capture source"),
-    ("$exception_releases", "exception releases"),
+    ("$exception_release", "exception release"),
     ("$debug_images", "debug images"),
     ("$issue_name", "issue name"),
     ("$issue_description", "issue description"),

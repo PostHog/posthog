@@ -8,6 +8,8 @@ use common::TestContext;
 use tonic::{Code, Request, Status};
 
 use personhog_identity::leader::PropertyWriter;
+use personhog_identity::lifecycle::merge::{MergeDriver, MergeOpExecutor};
+use personhog_identity::service::merge::MergeEntrance;
 use personhog_identity::service::validation::RequestLimits;
 use personhog_identity::service::PersonHogIdentityService;
 use personhog_proto::personhog::identity::v1::person_hog_identity_server::PersonHogIdentity;
@@ -76,7 +78,17 @@ impl ServiceTestContext {
     async fn with_limits(limits: RequestLimits) -> Self {
         let ctx = TestContext::new().await;
         let writer = Arc::new(MockPropertyWriter::default());
-        let service = PersonHogIdentityService::new(ctx.storage.clone(), writer.clone(), limits);
+        let engine = Arc::new(ctx.engine());
+        let merge = MergeEntrance::new(
+            ctx.storage.clone(),
+            writer.clone(),
+            MergeOpExecutor::new(
+                engine,
+                MergeDriver::new(Arc::new(common::UnusedLeader), ctx.tables.clone()),
+            ),
+        );
+        let service =
+            PersonHogIdentityService::new(ctx.storage.clone(), writer.clone(), limits, merge);
         Self {
             ctx,
             writer,

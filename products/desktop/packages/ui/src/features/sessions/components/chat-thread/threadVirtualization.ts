@@ -84,6 +84,8 @@ export interface FlatThreadRow {
   isTrailingInTurn: boolean;
   /** Set on the last row of a completed turn; renders the turn's hover timestamp under it. */
   turnTimestamp?: number;
+  /** Set alongside {@link turnTimestamp}: identifies the turn its footer actions act on. */
+  turnId?: string;
   /** Set alongside {@link turnTimestamp}: the agent response as plain text, for its copy button. */
   turnCopyText?: string;
 }
@@ -123,6 +125,7 @@ export function flattenTurnRows(rows: TurnRow[]): FlatThreadRow[] {
           inTurn: true,
           isTrailingInTurn: isTrailing,
           turnTimestamp: isTrailing ? timestamp : undefined,
+          turnId: isTrailing ? row.id : undefined,
           turnCopyText: isTrailing ? copyText : undefined,
         });
       }

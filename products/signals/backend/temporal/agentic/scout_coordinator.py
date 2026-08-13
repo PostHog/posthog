@@ -23,7 +23,12 @@ from posthog.temporal.common.heartbeat import Heartbeater
 from products.signals.backend.models import SignalScoutConfig
 from products.signals.backend.scout_harness.config_registry import live_scout_skill_names, register_missing_configs
 from products.signals.backend.scout_harness.lazy_seed import sync_canonical_skills
-from products.signals.backend.scout_harness.limits import AUTO_PAUSE_PROBE_INTERVAL_S
+from products.signals.backend.scout_harness.limits import (
+    AUTO_PAUSE_PROBE_INTERVAL_S,
+    COORDINATOR_INTERVAL_MINUTES,
+    DUE_GRACE_SECONDS,
+    dispatch_ticks_per_interval,
+)
 
 # Per-team cap resolution + the flag-payload read live in the temporalio-free `team_limits` module
 # so the HTTP metadata surface can share them. Imported by name so the planning code below calls
@@ -53,14 +58,9 @@ logger = structlog.get_logger(__name__)
 # round-robin allocation do the day-to-day fairness work; this is the global ceiling.
 MAX_RUNS_PER_TICK = 1000
 
-# Coordinator tick cadence. Per-scout schedules are enforced via the due-check, so this is
-# just the polling granularity — the floor on how often any scout can run.
-COORDINATOR_INTERVAL_MINUTES = 30
-
-# Slack on the due-check so a scout that's a few seconds short at a tick still counts as due —
-# else stamp jitter makes it skip every other tick (a 60-min scout runs every 2h).
-DUE_GRACE_SECONDS = 60
-
+# The tick grid itself (`COORDINATOR_INTERVAL_MINUTES`, `DUE_GRACE_SECONDS`,
+# `dispatch_ticks_per_interval`) lives in `scout_harness/limits.py` so the failure breaker can
+# size lanes off the cadence dispatch actually produces; it is imported above.
 TICK_SECONDS = COORDINATOR_INTERVAL_MINUTES * 60
 
 
@@ -164,26 +164,9 @@ def _dispatch_slot(config_pk: str, run_interval_minutes: int) -> int:
     same slot across restarts, redeploys, and re-enrolments, and the fleet's slots are spread by
     the digest's uniformity rather than by whenever each scout happened to be enabled.
     """
-    ticks_per_interval = _ticks_per_interval(run_interval_minutes)
+    ticks_per_interval = dispatch_ticks_per_interval(run_interval_minutes)
     digest = hashlib.sha256(str(config_pk).encode("utf-8"), usedforsecurity=False).digest()
     return int.from_bytes(digest[:8], "big") % ticks_per_interval
-
-
-def _ticks_per_interval(run_interval_minutes: int) -> int:
-    """The scout's dispatch period, as a count of coordinator ticks.
-
-    This has to be the cadence the grid actually produces, or the anchor pulls the scout onto a
-    schedule its owner did not configure: an anchor period shorter than the real cadence snaps
-    every dispatch back far enough that the scout comes due again early, forever. So it accounts
-    for both effects the grid applies. A scout comes due `DUE_GRACE_SECONDS` short of its interval,
-    and is then dispatched at the first tick at or after that, which is why the interval is
-    rounded up rather than down and why the grace is subtracted before rounding.
-
-    `run_interval_minutes` is validated to 30..43200 with no multiple-of-30 constraint, so an
-    interval that lands off the grid is allowed even though the fleet does not use one today.
-    """
-    due_after_seconds = run_interval_minutes * 60 - DUE_GRACE_SECONDS
-    return max(1, -(-due_after_seconds // TICK_SECONDS))
 
 
 def _slot_anchor(config_pk: str, run_interval_minutes: int, dispatched_at: datetime) -> datetime:
@@ -201,7 +184,7 @@ def _slot_anchor(config_pk: str, run_interval_minutes: int, dispatched_at: datet
     together on the grid instead of ratcheting forward off it.
 
     The snapped anchor always lands in `(this tick - period, this tick]`, where the period is the
-    scout's cadence from `_ticks_per_interval`. Once a scout is dispatched on its own slot the
+    scout's cadence from `dispatch_ticks_per_interval`. Once a scout is dispatched on its own slot the
     anchor is exactly that tick, so its cadence is the configured one forever after.
 
     Before then the anchor can sit up to one period back, which shortens that single gap and costs
@@ -212,7 +195,7 @@ def _slot_anchor(config_pk: str, run_interval_minutes: int, dispatched_at: datet
     needs no migration and no backfill command, and the extra runs spread across every tick in the
     period rather than landing in the wave this is meant to break up.
     """
-    ticks_per_interval = _ticks_per_interval(run_interval_minutes)
+    ticks_per_interval = dispatch_ticks_per_interval(run_interval_minutes)
     slot = _dispatch_slot(config_pk, run_interval_minutes)
     tick_index = int(dispatched_at.timestamp()) // TICK_SECONDS
     snapped_index = tick_index - ((tick_index - slot) % ticks_per_interval)

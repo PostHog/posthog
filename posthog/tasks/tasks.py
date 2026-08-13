@@ -809,7 +809,9 @@ def capture_task_run_state_metrics() -> None:
             )
             oldest_age_gauge = Gauge(
                 "posthog_tasks_oldest_open_run_age_seconds",
-                "Age (seconds) of the oldest TaskRun still in a given non-terminal status, by origin_product and run_environment.",
+                "Age (seconds) of the oldest TaskRun still in a given non-terminal status, by origin_product and "
+                "run_environment. For `queued` this is time spent waiting in the queue, so a re-queued run counts "
+                "from its re-queue rather than from row creation.",
                 registry=registry,
                 labelnames=["status", "origin_product", "run_environment"],
             )

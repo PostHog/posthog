@@ -201,7 +201,7 @@ describe('UrlFetchConsumer', () => {
     })
 
     it('drops a record carrying more URLs than any producer sends', async () => {
-        const many = Array.from({ length: 300 }, (_value, index) => url(`u${index}`))
+        const many = Array.from({ length: 1100 }, (_value, index) => url(`u${index}`))
 
         await consumer.handleBatch([record(many)], NOW)
 

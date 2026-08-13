@@ -26,6 +26,7 @@ import structlog
 from opentelemetry import trace
 
 from posthog.api.capture import capture_internal
+from posthog.api.secret_revocation import NON_PERSONAL_SECRET_PREFIXES
 from posthog.auth import AUTH_BRAND_COOKIE, apply_auth_brand_cookie, normalize_auth_brand
 from posthog.cloud_utils import is_cloud
 from posthog.email import is_email_available
@@ -467,12 +468,7 @@ def api_key_search_view(request: HttpRequest):
     personal_api_key_hash_mode = None
     # Legacy personal API keys predate the phx_ prefix, so any query without another known
     # prefix is also treated as a personal key candidate (matching authentication behavior).
-    non_personal_api_key_prefixes = (
-        SECRET_API_TOKEN_PREFIX,
-        OAUTH_ACCESS_TOKEN_PREFIX,
-        OAUTH_REFRESH_TOKEN_PREFIX,
-        PROJECT_API_TOKEN_PREFIX,
-    )
+    non_personal_api_key_prefixes = (*NON_PERSONAL_SECRET_PREFIXES, PROJECT_API_TOKEN_PREFIX)
     if query and not query.startswith(non_personal_api_key_prefixes):
         result = find_personal_api_key(query)
         if result is not None:

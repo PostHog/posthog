@@ -9,7 +9,11 @@ from posthog.schema import (
     SourceFieldInputConfigType,
 )
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import (
+    FieldType,
+    ResumableSource,
+    VersionDeprecation,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
 )
@@ -24,6 +28,8 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
     LoopReturnsSourceConfig,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.loop_returns.loop_returns import (
+    API_VERSION_2026_07,
+    API_VERSION_V1,
     LoopReturnsResumeConfig,
     endpoint_permissions,
     loop_returns_source,
@@ -41,11 +47,12 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 class LoopReturnsSource(ResumableSource[LoopReturnsSourceConfig, LoopReturnsResumeConfig]):
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 
-    # Loop versions its API by date (`2026-07`) and documents `v1` as an alias of that release,
-    # kept for backward compatibility. The returns OpenAPI spec and the warehouse endpoint pages
-    # all serve from `/api/v1`, so that is the path this source calls and the version it pins.
-    supported_versions = ("v1",)
-    default_version = "v1"
+    # Loop versions its API by date in the URL path (`/api/2026-07/...`). `v1` is a legacy alias
+    # for the `2026-07` GA release that Loop is phasing out, so new sources pin the explicit date
+    # version and `v1` is marked deprecated. No calendar sunset date is published for the alias.
+    supported_versions = (API_VERSION_V1, API_VERSION_2026_07)
+    default_version = API_VERSION_2026_07
+    deprecated_versions = (VersionDeprecation(version=API_VERSION_V1, sunset_at=None),)
     api_docs_url = "https://docs.loopreturns.com/api-reference/versioning"
 
     @property

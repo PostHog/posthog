@@ -1,9 +1,9 @@
 // Ported from PostHog Desktop `packages/core/src/scouts/scoutRunsWindow.ts`
 // and `scoutPresentation.ts`. Pure metrics + display helpers over scout runs and
-// configs; no I/O. The runs endpoint caps each response at 100 rows newest-first;
-// `scoutFleetLogic.loadRunsWindow` assembles the full window by walking the
-// `date_to` cursor (same as desktop), and these helpers frame all numbers as
-// "the recent window" with a "truncated" suffix when that walk hits its page cap.
+// configs; no I/O. Two different run sets feed them: the per-scout stats read
+// `scoutFleetLogic.loadScoutRuns` (each scout's last N runs, one request), while the
+// fleet findings feed reads `loadRunsWindow` (a fixed lookback assembled by walking
+// the runs endpoint's `date_to` cursor past its 100-row page cap).
 
 import { humanFriendlyDuration } from 'lib/utils/durations'
 import { objectsEqual } from 'lib/utils/objects'
@@ -14,13 +14,34 @@ import type { SignalScoutConfigApi as SignalScoutConfig } from 'products/signals
 import { SignalScoutRunStatus, SignalScoutRunSummary } from '../types'
 
 /**
- * The window every scout stat describes. The cloud runs endpoint caps each list
- * response at 100 rows newest-first; we frame all numbers as "the recent window
- * we can see", matching desktop's fixed-window framing.
+ * How many of each scout's most recent runs the per-scout stats describe — the count the
+ * `recent-per-scout` endpoint is asked for, mirrored here so the labels match the data.
+ *
+ * Scouts run on their own schedules, so a shared time window can't serve them all: an hourly scout
+ * fills a fleet-wide result cap on its own, and the daily and weekly ones end up with a history
+ * that gets shorter the busier the rest of the fleet is. Counting per scout gives each the same
+ * depth whatever its cadence.
+ */
+export const SCOUT_RUNS_PER_SCOUT = 25
+
+/** Label for per-scout stats, e.g. "last 25 runs". */
+export const SCOUT_RUNS_PER_SCOUT_LABEL = `last ${SCOUT_RUNS_PER_SCOUT} runs`
+
+/**
+ * Empty-state copy for a scout the window returned nothing for. Deliberately not "no runs in the
+ * last 30 days": the endpoint's staleness guard stretches with each scout's own cadence, so the
+ * cutoff a given scout was judged against is not a number the client knows.
+ */
+export const SCOUT_NO_RECENT_RUNS = 'No recent runs.'
+
+/**
+ * The time window the fleet-wide findings feed describes. Unlike the per-scout stats, that feed
+ * answers "what has the troop surfaced lately?", which is a recency question — so it stays on a
+ * fixed lookback, walked page by page from the runs endpoint's 100-row cap.
  */
 export const SCOUT_RUNS_WINDOW_HOURS = 72
 
-/** Human-friendly span the window covers, e.g. "3 days". */
+/** Human-friendly span the findings window covers, e.g. "3 days". */
 export const SCOUT_RUNS_WINDOW_SPAN = ((): string => {
     if (SCOUT_RUNS_WINDOW_HOURS % 24 !== 0) {
         return `${SCOUT_RUNS_WINDOW_HOURS}h`
@@ -28,12 +49,6 @@ export const SCOUT_RUNS_WINDOW_SPAN = ((): string => {
     const days = SCOUT_RUNS_WINDOW_HOURS / 24
     return `${days} day${days === 1 ? '' : 's'}`
 })()
-
-/** Label for stats derived from a window, e.g. "last 3 days". */
-export function scoutRunsWindowLabel(complete: boolean): string {
-    const base = `last ${SCOUT_RUNS_WINDOW_SPAN}`
-    return complete ? base : `${base} · truncated`
-}
 
 // Fleet-wide findings views fetch/tally only the most recent N emitted runs, to bound the per-run
 // fan-out. Shared so the page (`findingsLogic`) and the callout summary count the exact same set.

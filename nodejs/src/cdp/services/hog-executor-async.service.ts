@@ -439,6 +439,11 @@ export class HogExecutorAsyncService {
             )
 
             const canRetry = isFetchResponseRetriable(fetchResponse, fetchError)
+            const maxRetries = options?.maxFetchRetries ?? this.config.fetchRetries
+            // `canRetry` only says the failure class is retriable. On the last attempt it is still
+            // true while no retry follows, so the customer-facing log has to gate on the same
+            // condition the scheduling below does.
+            const willRetry = canRetry && result.invocation.state.attempts < maxRetries
 
             let message = `HTTP fetch failed on attempt ${result.invocation.state.attempts} with status code ${
                 fetchResponse?.status ?? '(none)'
@@ -448,14 +453,13 @@ export class HogExecutorAsyncService {
                 message += ` Error: ${fetchError.message}.`
             }
 
-            if (canRetry) {
-                message += ` Retrying in ${backoffMs}ms.`
+            if (willRetry) {
+                message += ` Retrying.`
             }
 
             addLog(isNonFailure ? 'info' : 'error', message)
 
-            const maxRetries = options?.maxFetchRetries ?? this.config.fetchRetries
-            if (canRetry && result.invocation.state.attempts < maxRetries) {
+            if (willRetry) {
                 await fetchResponse?.dump()
                 result.invocation.queueParameters = params
                 result.invocation.queuePriority = invocation.queuePriority + 1

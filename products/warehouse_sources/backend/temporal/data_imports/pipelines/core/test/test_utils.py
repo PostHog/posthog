@@ -32,6 +32,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arr
     observe_and_project_table,
     observed_schema_metadata_columns,
     raise_on_nullability_drift,
+    restrict_schema_to_columns,
     source_uses_delta_write_column_selection,
     table_from_py_list,
 )
@@ -337,6 +338,31 @@ def test_table_from_py_list_schema_missing_temporal_column(value, expected_type)
 
     assert table.schema.field("ts").type == expected_type
     assert table.column("ts").to_pylist() == [value]
+
+
+def test_restrict_schema_to_columns_drops_fields_absent_from_the_read():
+    # A SQL source's discovered schema can declare a column the streaming read no longer returns
+    # (dropped at the source, or the table recreated with a narrower shape, between discovery and
+    # the read). `from_pydict` crashes with an opaque KeyError in that case, so the read path first
+    # restricts the schema to the columns it actually got back.
+    schema = pa.schema(
+        cast(Any, [pa.field("id", pa.int64()), pa.field("name", pa.string()), pa.field("dropped", pa.string())])
+    )
+    rows = [{"id": 1, "name": "a"}, {"id": 2, "name": "b"}]
+
+    with pytest.raises(KeyError):
+        table_from_py_list(rows, schema)
+
+    restricted = restrict_schema_to_columns(schema, ["id", "name"])
+    assert restricted.names == ["id", "name"]
+    assert restricted.field("id").type == pa.int64()
+
+    table = table_from_py_list(rows, restricted)
+    assert table.schema.names == ["id", "name"]
+    assert table.column("id").to_pylist() == [1, 2]
+
+    # When every schema field is present the schema is returned unchanged (common case).
+    assert restrict_schema_to_columns(restricted, ["id", "name"]) is restricted
 
 
 @pytest.mark.parametrize(

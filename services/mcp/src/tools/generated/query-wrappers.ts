@@ -362,7 +362,7 @@ const CountPerActorMathType = z.enum([
     'p99_count_per_actor',
 ])
 
-const GroupMathType = z.literal('unique_group')
+const GroupMathType = z.enum(['unique_group', 'first_time_for_group', 'first_matching_event_for_group'])
 
 const HogQLMathType = z.literal('hogql')
 

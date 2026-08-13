@@ -158,6 +158,10 @@ class StartAgentServerInput:
 class MarkRepoReadyInput:
     sandbox_id: str
     run_id: str
+    # Clone failures are non-fatal. Materialize their expected working directories before
+    # releasing the server so it can still open a session and let the agent retry the clone.
+    failed_repositories: list[str] | None = None
+    release_barrier: bool = True
 
 
 @dataclass
@@ -525,8 +529,22 @@ def launch_agent_server(input: StartAgentServerInput) -> StartAgentServerOutput:
 @asyncify
 def mark_repo_ready(input: MarkRepoReadyInput) -> None:
     sandbox = Sandbox.get_by_id(input.sandbox_id)
-    sandbox.mark_repo_ready(REPO_READY_FILE)
-    emit_agent_log(input.run_id, "debug", "Repo ready; released agent-server session barrier")
+    for repository in input.failed_repositories or []:
+        repo_path = sandbox_repo_path(repository)
+        result = sandbox.execute(f"mkdir -p {shlex.quote(repo_path)}", timeout_seconds=10)
+        if result.exit_code != 0:
+            raise RuntimeError(f"Failed to create fallback workspace for {repository}: {result.stderr}")
+    if input.release_barrier:
+        sandbox.mark_repo_ready(REPO_READY_FILE)
+    if input.failed_repositories:
+        action = "released agent with" if input.release_barrier else "created"
+        emit_agent_log(
+            input.run_id,
+            "warn",
+            f"Repository clone failed; {action} empty workspace for: {', '.join(input.failed_repositories)}",
+        )
+    elif input.release_barrier:
+        emit_agent_log(input.run_id, "debug", "Repo ready; released agent-server session barrier")
 
 
 @activity.defn

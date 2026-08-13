@@ -127,6 +127,7 @@ describe('actionEditorSceneLogic', () => {
                     alert_threshold: 1,
                     alert_direction: 'above',
                     alert_window_days: 1,
+                    alert_include_reasoning: false,
                 },
             })
 

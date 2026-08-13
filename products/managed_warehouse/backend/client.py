@@ -13,6 +13,7 @@ from products.managed_warehouse.backend.common import (
     sanitize_ducklake_identifier,
 )
 from products.managed_warehouse.backend.facade.contracts import DuckLakeQueryResult, DuckLakeTableResult
+from products.managed_warehouse.backend.service_credentials import ServiceCredential
 from products.managed_warehouse.backend.table_binding import bind_tables_to_ducklake
 
 if TYPE_CHECKING:
@@ -22,8 +23,62 @@ if TYPE_CHECKING:
     from posthog.models.team.team import Team
 
 
-def make_duckgres_conninfo(team_id: int, *, organization_id: str | None = None) -> str:
+def make_duckgres_conninfo(
+    team_id: int,
+    *,
+    organization_id: str | None = None,
+    service_credential: ServiceCredential | None = None,
+) -> str:
+    """Build a psycopg conninfo for a team's duckgres server.
+
+    Default (no ``service_credential``): the org-root username/password from
+    the stored ``DuckgresServer`` row — the transitional path used by the SQL
+    editor and materialization until they move to minted credentials.
+
+    With ``service_credential``: connect as the team's canonical
+    ``posthog_team_<id>_rw`` project_user login (CP-issued, short-lived,
+    scoped to exactly the team's warehouse schemas). This is what background
+    jobs (dagster) should present; see
+    ``products/managed_warehouse/backend/service_credentials.py``.
+    Host/port/database/sslmode come ENTIRELY from the credential's
+    CP-issued ``connect`` block — this branch never reads the stored
+    ``DuckgresServer`` row (the row is being deleted as a host store).
+    Service credentials are only mintable for a provisioned production
+    warehouse, so dev-mode is rejected loudly rather than silently
+    downgraded to root.
+    """
     from products.managed_warehouse.backend.common import _duckgres_dev_config, _get_org_id_for_team
+
+    if service_credential is not None:
+        if is_dev_mode():
+            raise RuntimeError(
+                "service credentials are not available in dev mode (no CP to mint against); "
+                "omit service_credential to use the dev duckgres defaults"
+            )
+        if not service_credential.password:
+            raise RuntimeError(
+                "service_credential carries no password: the CP reused a live grant. "
+                "Mint with force_rotate=True when you have no cached credential."
+            )
+        expected_username = f"posthog_team_{team_id}_rw"
+        if service_credential.username != expected_username:
+            raise RuntimeError(
+                f"service_credential username {service_credential.username!r} does not match the "
+                f"canonical login {expected_username!r} for team {team_id}: the credential belongs "
+                "to a different team/org than the connection being built"
+            )
+        connect = service_credential.connect
+        return make_conninfo(
+            host=connect.host,
+            port=connect.port,
+            dbname=connect.database,
+            user=service_credential.username,
+            password=service_credential.password,
+            sslmode=connect.sslmode,
+            sslcert="/tmp/no.txt",
+            sslkey="/tmp/no.txt",
+            sslrootcert="/tmp/no.txt",
+        )
 
     if is_dev_mode():
         config = _duckgres_dev_config()

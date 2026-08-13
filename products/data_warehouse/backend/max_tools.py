@@ -5,6 +5,7 @@ from langchain_core.prompts import ChatPromptTemplate
 
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import Database
+from posthog.hogql.direct_connection import get_direct_connection_source
 from posthog.hogql.errors import ExposedHogQLError, ResolutionError
 from posthog.hogql.functions.mapping import HOGQL_AGGREGATIONS, HOGQL_CLICKHOUSE_FUNCTIONS, HOGQL_POSTHOG_FUNCTIONS
 from posthog.hogql.metadata import get_table_names
@@ -186,7 +187,13 @@ class HogQLQueryFixerTool(MaxTool):
     context_prompt_template: str = SQL_ASSISTANT_ROOT_SYSTEM_PROMPT
 
     def _run_impl(self) -> tuple[str, str | None]:
-        database = Database.create_for(team=self._team, user=self._user)
+        connection_id = self.context.get("connection_id") or None
+        # A direct-query connection's tables live outside the ClickHouse catalog. Build the database
+        # from that connection so the prompt shows its real tables instead of only `events` etc.
+        source = get_direct_connection_source(self._team, connection_id, user=self._user) if connection_id else None
+        database = Database.create_for(
+            team=self._team, user=self._user, connection_id=str(source.id) if source else None
+        )
         hogql_context = HogQLContext(team=self._team, user=self._user, enable_select_queries=True, database=database)
 
         all_table_names = database.get_all_table_names()
@@ -210,7 +217,9 @@ class HogQLQueryFixerTool(MaxTool):
         for _ in range(3):
             try:
                 result = self._model.invoke(messages)
-                parsed_result = self._parse_output(result, hogql_context)
+                # Direct-query tables can't be printed to ClickHouse SQL, so the local validation the
+                # retry loop relies on doesn't apply; the runner validates against the connection instead.
+                parsed_result = self._parse_output(result, hogql_context, validate=source is None)
                 break
             except PydanticOutputParserException as e:
                 messages.append(
@@ -250,12 +259,14 @@ The newly updated query gave us this error:
             include_raw=False,
         )
 
-    def _parse_output(self, output, hogql_context: HogQLContext):
+    def _parse_output(self, output, hogql_context: HogQLContext, validate: bool = True):
         result = parse_pydantic_structured_output(SchemaGeneratorOutput[str])(output)  # type: ignore
-        # We also ensure the generated SQL is valid
         assert result.query is not None
+        result.query = result.query.rstrip(";").strip()
+        if not validate:
+            return result.query
+        # We also ensure the generated SQL is valid
         try:
-            result.query = result.query.rstrip(";").strip()
             prepare_and_print_ast(parse_select(result.query), context=hogql_context, dialect="clickhouse")
         except (ExposedHogQLError, ResolutionError) as err:
             err_msg = str(err)
