@@ -225,26 +225,6 @@ describe('hog-charts bar scales', () => {
         })
     })
 
-    describe('createBarScales — valueBounds', () => {
-        it('bounds the value axis', () => {
-            const series = [makeSeries({ key: 's1', data: [0, 50, 100] })]
-            const { value } = createBarScales(series, ['a', 'b', 'c'], dimensions, { valueBounds: { max: 60 } })
-            expect(value.domain()).toEqual([0, 60])
-        })
-
-        // padValueRange branches on the domain's sign to pick which end to reserve, so bounds applied
-        // after it would pad against a domain the axis no longer has.
-        it('applies bounds before valuePadding reserves range', () => {
-            const series = [makeSeries({ key: 's1', data: [0, 50, 100] })]
-            const { value } = createBarScales(series, ['a', 'b', 'c'], dimensions, {
-                valueBounds: { max: 60 },
-                valuePadding: 40,
-            })
-            expect(value(60)).toBeCloseTo(dimensions.plotTop + 40)
-            expect(value(0)).toBeCloseTo(dimensions.plotTop + dimensions.plotHeight)
-        })
-    })
-
     describe('createBarScales — valueDomain [min, max] (fixed)', () => {
         it.each([
             ['pins the domain regardless of data and skips nice()', undefined, [0, 40] as [number, number]],

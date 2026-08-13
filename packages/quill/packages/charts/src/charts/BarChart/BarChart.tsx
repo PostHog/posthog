@@ -100,7 +100,6 @@ function BarChartInner<Meta = unknown>({
         minBarSize,
         fitToHeight = false,
         valueDomain,
-        valueBounds,
         valuePadding,
         roundStackEnds = false,
         fillStyle: barFillStyle = 'flat',
@@ -193,7 +192,6 @@ function BarChartInner<Meta = unknown>({
                 minBandSize: resolvedMinBandSize,
                 minBarSize,
                 valueDomain,
-                valueBounds,
                 valuePadding,
                 axes: configYAxes,
             })
@@ -269,7 +267,6 @@ function BarChartInner<Meta = unknown>({
             resolvedMinBandSize,
             minBarSize,
             valueDomain,
-            valueBounds,
             valuePadding,
             configYAxes,
         ]
@@ -343,7 +340,6 @@ function BarChartInner<Meta = unknown>({
                 barCornerRadius,
                 barTrack,
                 isHorizontal,
-                dimensions: args.dimensions,
             })
             return true
         },

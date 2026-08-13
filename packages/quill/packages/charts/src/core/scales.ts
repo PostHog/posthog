@@ -686,8 +686,6 @@ export function createBarScales(
         minBarSize?: number
         /** Fixed `[min, max]` or `{ include }` extra values the value axis must cover. */
         valueDomain?: ValueDomain
-        /** Partial clamp on the primary value axis only, like `valueDomain`. See {@link applyValueBounds}. */
-        valueBounds?: ValueBounds
         /** Px reserved past the bars at the value-axis data end(s) — see {@link BarsConfig.valuePadding}. */
         valuePadding?: number
         /** Per-axis overrides — explicit values win over the alternating-side default and `options.scaleType`. */
@@ -706,7 +704,6 @@ export function createBarScales(
         minBandSize,
         minBarSize,
         valueDomain,
-        valueBounds,
         valuePadding = 0,
         axes,
     } = options
@@ -778,8 +775,7 @@ export function createBarScales(
                 axisOverrides.get(axisId)?.scaleType ?? scaleType,
                 axisStackedSeries?.length ? axisStackedSeries : undefined,
                 axisIndex === 0 ? valueDomain : undefined,
-                valuePadding,
-                axisIndex === 0 ? valueBounds : undefined
+                valuePadding
             )
             yAxes[axisId] = { scale, position }
         })
@@ -797,8 +793,7 @@ export function createBarScales(
             scaleType,
             valueStackedSeries,
             valueDomain,
-            valuePadding,
-            valueBounds
+            valuePadding
         ),
         group,
         minBarSize,
@@ -813,8 +808,7 @@ function buildBarValueScale(
     scaleType: 'linear' | 'log',
     stackedSeries: Series[] | undefined,
     valueDomain: ValueDomain | undefined,
-    valuePadding: number,
-    bounds: ValueBounds | undefined
+    valuePadding: number
 ): D3YScale {
     const { fixed, include } = resolveValueDomain(valueDomain)
     if (fixed) {
@@ -827,16 +821,12 @@ function buildBarValueScale(
         ? extendValueRange(seriesValueRange(stackedSeries ?? series), include)
         : seriesValueRange(stackedSeries ?? series)
     if (range.count === 0) {
-        return withValueBounds(scaleLinear().domain([0, 1]).range(valueRange), bounds, false)
+        return scaleLinear().domain([0, 1]).range(valueRange)
     }
     let min = range.min > 0 ? 0 : range.min
     let max = range.max < 0 ? 0 : range.max
     if (scaleType === 'log' && isFinite(range.minPositive)) {
-        return withValueBounds(
-            scaleLog().domain(niceLogDomain(range.minPositive, max)).range(valueRange).clamp(true),
-            bounds,
-            true
-        )
+        return scaleLog().domain(niceLogDomain(range.minPositive, max)).range(valueRange).clamp(true)
     }
     // Guard the degenerate single-point domain (e.g. empty data with a single goal value at 0), and
     // any non-finite extent, so the value scale never maps every bar to NaN.
@@ -845,8 +835,7 @@ function buildBarValueScale(
         min = lo
         max = hi
     }
-    // Bounds land before `padValueRange`, which reads the final domain to decide which end to pad.
-    const scale = withValueBounds(scaleLinear().domain([min, max]).nice(tickCount), bounds, false)
+    const scale = scaleLinear().domain([min, max]).nice(tickCount)
     return scale.range(padValueRange(valueRange, scale.domain() as [number, number], valuePadding))
 }
 

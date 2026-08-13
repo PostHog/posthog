@@ -1,7 +1,7 @@
 import { scaleBand, type ScaleBand } from 'd3-scale'
 
 import { createYScale, type D3YScale, groupVisibleSeriesByAxis, orderedAxisPositions, type StackedBand } from './scales'
-import type { ChartDimensions, Series, SeriesType, ValueBounds, ValueDomain } from './types'
+import type { ChartDimensions, Series, SeriesType, ValueDomain } from './types'
 import { DEFAULT_Y_AXIS_ID } from './types'
 
 /** Combo chart scale set — a band x-axis plus per-axis value scales spanning every series on
@@ -39,8 +39,6 @@ export interface CreateComboScalesOptions {
     /** Applied to the primary (default/left) axis only — goal lines (`{ include }`) render against
      *  the primary axis, so secondary axes keep their own data-derived scale. See {@link ValueDomain}. */
     valueDomain?: ValueDomain
-    /** Partial clamp on the primary axis only, like `valueDomain`. See {@link ValueBounds}. */
-    valueBounds?: ValueBounds
     /** Per-axis overrides — explicit values win over the alternating-side default and
      *  `options.scaleType`. `startAtZero: false` is ignored for axes carrying bar series. */
     axes?: { id: string; position?: 'left' | 'right'; scaleType?: 'linear' | 'log'; startAtZero?: boolean }[]
@@ -68,7 +66,6 @@ export function createComboScales(
         seriesTypeOf,
         barStackedData,
         valueDomain,
-        valueBounds,
         axes,
     } = options
 
@@ -129,7 +126,6 @@ export function createComboScales(
             percentStack: barLayout === 'percent' && hasBarSeries,
             valueDomain: axisId === primaryAxisId ? valueDomain : undefined,
             floatBaseline: !hasBarSeries && axisOverrides.get(axisId)?.startAtZero === false,
-            bounds: axisId === primaryAxisId ? valueBounds : undefined,
         })
         yAxes[axisId] = { scale, position }
     }

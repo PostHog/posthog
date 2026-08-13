@@ -451,9 +451,6 @@ export interface BarsConfig {
     fitToHeight?: boolean
     /** Value-axis domain control — omit for data-derived auto-scaling. See {@link ValueDomain}. */
     valueDomain?: ValueDomain
-    /** Partial clamp applied *after* the domain above, so either end may be left automatic and a
-     *  goal-line stretch still applies. See {@link ValueBounds} for why this is separate. */
-    valueBounds?: ValueBounds
     /** Px of headroom reserved past the bars at the value-axis data end(s), so overlays have room
      *  beyond the bar tip — e.g. a `ValueLabels` overlay can float beside/above each bar instead of
      *  being flipped onto it (an on-bar label looks like the bar grows when it lifts on hover). The
@@ -513,9 +510,6 @@ export interface ComboChartConfig extends Omit<ChartConfig, 'axisOrientation'> {
     /** Value-axis domain control for the primary axis — omit for data-derived auto-scaling. Used
      *  to keep off-scale goal lines on-plot (`{ include }`). See {@link ValueDomain}. */
     valueDomain?: ValueDomain
-    /** Partial clamp on the primary value axis, applied *after* the domain above, so either end may
-     *  be left automatic. See {@link ValueBounds} for why this is separate. */
-    valueBounds?: ValueBounds
 }
 
 /** Arguments passed to a chart type's canvas draw function. */

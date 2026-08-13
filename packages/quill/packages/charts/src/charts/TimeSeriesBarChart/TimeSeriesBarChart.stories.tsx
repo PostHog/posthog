@@ -179,18 +179,6 @@ function YFormatCell({ title, config, series }: YFormatCellProps): JSX.Element {
     )
 }
 
-/** A bounded axis truncates the bars that cross it, so bar length stops being proportional to value.
- *  Honored because it's asked for, but prefer floating a line chart's baseline where you can. */
-export const YAxisRange: Story = {
-    render: () => (
-        // eslint-disable-next-line react/forbid-dom-props
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, auto)', gap: 24 }}>
-            <YFormatCell title="automatic" series={NUMERIC_SERIES} config={{}} />
-            <YFormatCell title="max: 1500 (taller bars truncated)" series={NUMERIC_SERIES} config={{ max: 1500 }} />
-        </div>
-    ),
-}
-
 export const YAxisFormats: Story = {
     render: () => (
         // eslint-disable-next-line react/forbid-dom-props

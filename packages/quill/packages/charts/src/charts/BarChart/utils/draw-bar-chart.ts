@@ -18,7 +18,6 @@ import {
     drawBarTracks,
     drawGrid,
     resolveAxisLineColor,
-    withPlotClip,
     type DrawContext,
 } from '../../../core/canvas-renderer'
 import { barColorAt } from '../../../core/color-utils'
@@ -54,23 +53,28 @@ function computeGridTicks(
     )
 }
 
-/** Run `draw` clipped to the plot area (see {@link withPlotClip}), with the bar drop-shadow active
- *  when one is configured. The clip also keeps a 100% bar's upward shadow off the chart edge. */
-function withBarPlotClip(
+/** Run `draw` with the bar drop-shadow active, clipped to the plot area so a 100% bar's upward
+ *  shadow doesn't bleed past the chart edge. No-op wrapper (just calls `draw`) when no shadow. */
+function withBarShadow(
     ctx: CanvasRenderingContext2D,
     dimensions: ChartDimensions,
     shadow: BarShadow | undefined,
     draw: () => void
 ): void {
-    withPlotClip(ctx, dimensions, () => {
-        if (shadow) {
-            ctx.shadowColor = shadow.color
-            ctx.shadowBlur = shadow.blur
-            ctx.shadowOffsetX = shadow.offsetX ?? 0
-            ctx.shadowOffsetY = shadow.offsetY ?? 0
-        }
+    if (!shadow) {
         draw()
-    })
+        return
+    }
+    ctx.save()
+    ctx.beginPath()
+    ctx.rect(dimensions.plotLeft, dimensions.plotTop, dimensions.plotWidth, dimensions.plotHeight)
+    ctx.clip()
+    ctx.shadowColor = shadow.color
+    ctx.shadowBlur = shadow.blur
+    ctx.shadowOffsetX = shadow.offsetX ?? 0
+    ctx.shadowOffsetY = shadow.offsetY ?? 0
+    draw()
+    ctx.restore()
 }
 
 export interface DrawBarChartStaticArgs {
@@ -186,7 +190,7 @@ export function drawBarChartStatic(
         }
     }
 
-    withBarPlotClip(ctx, dimensions, resolveBarShadow(barShadow), () => {
+    withBarShadow(ctx, dimensions, resolveBarShadow(barShadow), () => {
         if (stackPills.length > 0) {
             ctx.save()
             clipToRoundedRects(ctx, stackPills, barCornerRadius)
@@ -216,7 +220,6 @@ export interface DrawBarHoverArgs {
     barCornerRadius: number
     barTrack: boolean
     isHorizontal: boolean
-    dimensions: ChartDimensions
 }
 
 /** Paint the resolved hover highlight. Track highlights draw a translucent full-extent rect; bar
@@ -226,42 +229,41 @@ export function drawBarHoverItems(
     ctx: CanvasRenderingContext2D,
     d3Scales: BarScaleSet,
     { items, hoveredBandPills }: ResolvedBarHover,
-    { alpha, barCornerRadius, barTrack, isHorizontal, dimensions }: DrawBarHoverArgs
+    { alpha, barCornerRadius, barTrack, isHorizontal }: DrawBarHoverArgs
 ): void {
     const [trackAxisStart = 0, trackAxisEnd = 0] = barTrack ? d3Scales.value.range() : []
     const highlightRadius = hoveredBandPills.length > 0 ? 0 : barCornerRadius
-    // The highlight traces the same rects as the resting bars, so it needs the same truncation.
-    withPlotClip(ctx, dimensions, () => {
-        ctx.globalAlpha = alpha
-        if (hoveredBandPills.length > 0) {
-            clipToRoundedRects(ctx, hoveredBandPills, barCornerRadius)
-        }
-        for (const { series: s, bar, isTrackHighlight } of items) {
-            if (isTrackHighlight) {
-                const parsed = d3Color(barColorAt(s, bar.dataIndex))
-                // Always translucent — the bar color direct would paint an opaque full-height
-                // block if d3 can't parse the color.
-                let trackColor: string
-                if (parsed) {
-                    parsed.opacity = BAR_TRACK_HOVER_ALPHA
-                    trackColor = parsed.toString()
-                } else {
-                    trackColor = `rgba(0,0,0,${BAR_TRACK_HOVER_ALPHA})`
-                }
-                const ceiling = s.trackData?.[bar.dataIndex]
-                const trackFarEnd =
-                    ceiling != null && isFinite(d3Scales.value(ceiling)) ? d3Scales.value(ceiling) : trackAxisEnd
-                drawBarHighlight(
-                    ctx,
-                    computeBarTrackRect(bar, trackAxisStart, trackFarEnd, isHorizontal),
-                    trackColor,
-                    highlightRadius
-                )
+    ctx.save()
+    ctx.globalAlpha = alpha
+    if (hoveredBandPills.length > 0) {
+        clipToRoundedRects(ctx, hoveredBandPills, barCornerRadius)
+    }
+    for (const { series: s, bar, isTrackHighlight } of items) {
+        if (isTrackHighlight) {
+            const parsed = d3Color(barColorAt(s, bar.dataIndex))
+            // Always translucent — the bar color direct would paint an opaque full-height
+            // block if d3 can't parse the color.
+            let trackColor: string
+            if (parsed) {
+                parsed.opacity = BAR_TRACK_HOVER_ALPHA
+                trackColor = parsed.toString()
             } else {
-                const barColor = barColorAt(s, bar.dataIndex)
-                const highlightColor = d3Color(barColor)?.darker(BAR_HIGHLIGHT_DARKEN).toString() ?? barColor
-                drawBarHighlight(ctx, bar, highlightColor, highlightRadius)
+                trackColor = `rgba(0,0,0,${BAR_TRACK_HOVER_ALPHA})`
             }
+            const ceiling = s.trackData?.[bar.dataIndex]
+            const trackFarEnd =
+                ceiling != null && isFinite(d3Scales.value(ceiling)) ? d3Scales.value(ceiling) : trackAxisEnd
+            drawBarHighlight(
+                ctx,
+                computeBarTrackRect(bar, trackAxisStart, trackFarEnd, isHorizontal),
+                trackColor,
+                highlightRadius
+            )
+        } else {
+            const barColor = barColorAt(s, bar.dataIndex)
+            const highlightColor = d3Color(barColor)?.darker(BAR_HIGHLIGHT_DARKEN).toString() ?? barColor
+            drawBarHighlight(ctx, bar, highlightColor, highlightRadius)
         }
-    })
+    }
+    ctx.restore()
 }

@@ -942,24 +942,6 @@ export const DEFAULT_BAR_CORNER_RADIUS = 4
  *  hovered-bar shade stays consistent. */
 export const BAR_HIGHLIGHT_DARKEN = 0.6
 
-/** Run `draw` with the canvas clipped to the plot rectangle. Bar rects are built straight from the
- *  value scale with no clamp, so a bar whose value falls outside a `valueBounds` window runs past the
- *  plot: without this it paints over the margins (title and legend above, tick labels below) rather
- *  than being truncated at the axis. Bars want all four edges clipped, unlike the line layer's
- *  {@link withVerticalClip}, which leaves the sides open so caps and edge markers render whole.
- *  `restore` always runs, even if `draw` throws. */
-export function withPlotClip(ctx: CanvasRenderingContext2D, dimensions: ChartDimensions, draw: () => void): void {
-    ctx.save()
-    ctx.beginPath()
-    ctx.rect(dimensions.plotLeft, dimensions.plotTop, dimensions.plotWidth, dimensions.plotHeight)
-    ctx.clip()
-    try {
-        draw()
-    } finally {
-        ctx.restore()
-    }
-}
-
 /** Run `draw` with the canvas clipped to the plot area vertically (full width, padded `pad` px top
  *  and bottom). Keeps out-of-domain values (e.g. a trendline below 0) out of the axis gutters while
  *  leaving the left/right edges unclipped so line caps and edge point markers render whole.

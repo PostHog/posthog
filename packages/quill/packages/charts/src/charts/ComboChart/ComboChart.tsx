@@ -19,7 +19,6 @@ import {
     drawGrid,
     drawLineHoverPoints,
     drawLineSeriesLayer,
-    withPlotClip,
     type BarRect,
     type DrawContext,
 } from '../../core/canvas-renderer'
@@ -101,7 +100,6 @@ function ComboChartInner<Meta = unknown>({
         defaultSeriesType = DEFAULT_SERIES_TYPE,
         xTickFormatter,
         valueDomain,
-        valueBounds,
         curve,
         yAxes: configYAxes,
     } = config ?? {}
@@ -127,7 +125,9 @@ function ComboChartInner<Meta = unknown>({
         if (barLayout === 'percent') {
             return computePercentStackData(barSeries, labels)
         }
-        return divergingStack ? computeDivergingStackData(barSeries, labels) : computeStackData(barSeries, labels)
+        return divergingStack
+            ? computeDivergingStackData(barSeries, labels)
+            : computeStackData(barSeries, labels)
     }, [barLayout, divergingStack, series, labels, seriesTypeOf])
 
     // Per-axis topmost bar — only bar layers below the cap forgo corner rounding. Non-bar series are
@@ -148,7 +148,6 @@ function ComboChartInner<Meta = unknown>({
                 seriesTypeOf,
                 barStackedData,
                 valueDomain,
-                valueBounds,
                 axes: configYAxes,
             })
 
@@ -182,7 +181,7 @@ function ComboChartInner<Meta = unknown>({
                 _private: comboPrivate,
             }
         },
-        [yScaleType, barLayout, seriesTypeOf, barStackedData, valueDomain, valueBounds, configYAxes]
+        [yScaleType, barLayout, seriesTypeOf, barStackedData, valueDomain, configYAxes]
     )
 
     const drawStatic = useCallback(
@@ -241,11 +240,9 @@ function ComboChartInner<Meta = unknown>({
                 false,
                 barLayout
             )
-            withPlotClip(ctx, dimensions, () => {
-                for (const { series: s, bars } of barLayers) {
-                    drawBars(baseDrawCtx, s, bars, barCornerRadius)
-                }
-            })
+            for (const { series: s, bars } of barLayers) {
+                drawBars(baseDrawCtx, s, bars, barCornerRadius)
+            }
 
             // ── 2. Lines + areas (shared with LineChart). `areas-first` so every area sits below
             //      every line regardless of input order; combo lines aren't stacked, so the raw data
