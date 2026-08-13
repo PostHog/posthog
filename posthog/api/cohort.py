@@ -98,6 +98,7 @@ from products.cohorts.backend.models.util import (
     cohort_filters_have_values,
     get_all_cohort_dependencies,
     get_friendly_error_message,
+    validate_actors_query_for_cohort,
 )
 from products.cohorts.backend.models.validation import CohortTypeValidationSerializer
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
@@ -410,9 +411,10 @@ def _calculate_realtime_support(group: CohortFilterGroup) -> bool:
                 return False
         else:  # It's a filter
             # person_metadata reads top-level persons-table columns, which the realtime
-            # precalculated_person_properties table doesn't carry. Any cohort referencing one
-            # must use the standard (non-realtime) calculation path, so force the whole cohort
-            # non-realtime as soon as a person_metadata filter appears in any group.
+            # evaluator's person scope doesn't expose (it carries only person.id and
+            # person.properties). Any cohort referencing one must use the standard
+            # (non-realtime) calculation path, so force the whole cohort non-realtime as
+            # soon as a person_metadata filter appears in any group.
             if getattr(value, "type", None) == "person_metadata":
                 return False
             # Check if filter has FilterBytecodeMixin and valid bytecode
@@ -1021,6 +1023,7 @@ class CohortSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerializ
             raise ValidationError("Query must be a dictionary.")
         if query.get("kind") == "ActorsQuery":
             ActorsQuery.model_validate(query)
+            validate_actors_query_for_cohort(query)
         elif query.get("kind") == "HogQLQuery":
             HogQLQuery.model_validate(query)
         else:

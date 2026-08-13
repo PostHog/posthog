@@ -22,7 +22,6 @@ export const LOOPS_REVIEW_RESOURCE_URI = 'ui://posthog/loops-review.html'
 export const QUERY_RESULTS_RESOURCE_URI = 'ui://posthog/query-results.html'
 export const RENDER_UI_RESOURCE_URI = 'ui://posthog/render-ui.html'
 export const SESSION_RECORDING_RESOURCE_URI = 'ui://posthog/session-recording.html'
-export const SESSION_SUMMARY_RESOURCE_URI = 'ui://posthog/session-summary.html'
 export const SURVEY_RESOURCE_URI = 'ui://posthog/survey.html'
 export const SURVEY_GLOBAL_STATS_RESOURCE_URI = 'ui://posthog/survey-global-stats.html'
 export const SURVEY_LIST_RESOURCE_URI = 'ui://posthog/survey-list.html'
@@ -56,7 +55,6 @@ export type UiAppKey =
     | 'query-results'
     | 'render-ui'
     | 'session-recording'
-    | 'session-summary'
     | 'survey'
     | 'survey-global-stats'
     | 'survey-list'
@@ -90,7 +88,6 @@ export const URI_MAP: Record<UiAppKey, string> = {
     'query-results': QUERY_RESULTS_RESOURCE_URI,
     'render-ui': RENDER_UI_RESOURCE_URI,
     'session-recording': SESSION_RECORDING_RESOURCE_URI,
-    'session-summary': SESSION_SUMMARY_RESOURCE_URI,
     survey: SURVEY_RESOURCE_URI,
     'survey-global-stats': SURVEY_GLOBAL_STATS_RESOURCE_URI,
     'survey-list': SURVEY_LIST_RESOURCE_URI,
@@ -126,7 +123,6 @@ export const DISPATCHABLE_APP_KEYS: UiAppKey[] = [
     'llm-costs',
     'query-results',
     'session-recording',
-    'session-summary',
     'survey',
     'survey-global-stats',
     'survey-list',
@@ -274,12 +270,6 @@ export const UI_APPS: Array<{
         uri: SESSION_RECORDING_RESOURCE_URI,
         description: 'Session Recording detail view',
         appDir: 'generated/session-recording',
-    },
-    {
-        name: 'PostHog Session Summary',
-        uri: SESSION_SUMMARY_RESOURCE_URI,
-        description: 'Session Summary detail view',
-        appDir: 'generated/session-summary',
     },
     {
         name: 'PostHog Survey',

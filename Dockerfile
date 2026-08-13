@@ -38,6 +38,7 @@ COPY common/esbuilder/ common/esbuilder/
 COPY common/replay-shared/ common/replay-shared/
 COPY common/tailwind/ common/tailwind/
 COPY packages/quill/ packages/quill/
+COPY packages/llm-normalizer/ packages/llm-normalizer/
 COPY products/ products/
 COPY docs/onboarding/ docs/onboarding/
 RUN --mount=type=cache,id=pnpm,target=/tmp/pnpm-store-v24 \
@@ -72,8 +73,8 @@ COPY --from=frontend-build /code/frontend/dist /code/frontend/dist
 # the processed frontend/dist ships in the final image, so the CLI must not be mutable remote code.
 # To upgrade, change POSTHOG_CLI_VERSION and recompute the hash:
 #   curl -LsSf "https://github.com/PostHog/posthog/releases/download/posthog-cli%2Fv<X.Y.Z>/posthog-cli-installer.sh" | sha256sum
-ARG POSTHOG_CLI_VERSION=0.7.22
-ARG POSTHOG_CLI_INSTALLER_SHA256=9bfeafcfb6f3acd2d15e3fad267b3c22b26d6aa0a28497e3f1a214f143f66219
+ARG POSTHOG_CLI_VERSION=0.11.0
+ARG POSTHOG_CLI_INSTALLER_SHA256=74b0e2d967b688f57432be5bbb78f96cb5dde69f9283c0d8930a01efc132fbc2
 RUN --mount=type=secret,id=posthog_upload_sourcemaps_cli_api_key \
     if ( \
         [ -f /run/secrets/posthog_upload_sourcemaps_cli_api_key ] && \
@@ -89,8 +90,9 @@ RUN --mount=type=secret,id=posthog_upload_sourcemaps_cli_api_key \
         posthog-cli sourcemap process \
             --directory /code/frontend/dist \
             --public-path-prefix /static \
-            --project posthog \
-            --version "${COMMIT_HASH:-unknown}" \
+            --release-mode event \
+            --release-name posthog \
+            --release-version "${COMMIT_HASH:-unknown}" \
     ); then \
         echo uploaded > /tmp/.sourcemaps-status; \
     else \

@@ -733,6 +733,7 @@ export const searchLogic = kea<searchLogicType>([
                 const allProducts = getTreeItemsProducts()
                 const productSearchKeywords: Record<string, string[]> = {
                     'Product analytics': ['insights'],
+                    Support: ['tickets'],
                 }
                 const filteredProducts = allProducts.filter((product) => {
                     if (!product.href) {
@@ -1571,6 +1572,15 @@ export const searchLogic = kea<searchLogicType>([
                         })
                     }
 
+                    // Add accounts
+                    if (accountItems.length > 0 || accountSearchResultsLoading) {
+                        categories.push({
+                            key: 'accounts',
+                            items: accountItems,
+                            isLoading: accountSearchResultsLoading,
+                        })
+                    }
+
                     // Add persons
                     if (personItems.length > 0 || personSearchResultsLoading) {
                         categories.push({
@@ -1586,15 +1596,6 @@ export const searchLogic = kea<searchLogicType>([
                             key: 'groups',
                             items: groupItems,
                             isLoading: groupSearchResultsLoading,
-                        })
-                    }
-
-                    // Add accounts
-                    if (accountItems.length > 0 || accountSearchResultsLoading) {
-                        categories.push({
-                            key: 'accounts',
-                            items: accountItems,
-                            isLoading: accountSearchResultsLoading,
                         })
                     }
                 }

@@ -61,7 +61,13 @@ from posthog.api.oauth.toolbar_service import (
 from posthog.api.organization import OrganizationSerializer
 from posthog.api.services.flags_service import get_flags_from_service
 from posthog.api.shared import OrganizationBasicSerializer, TeamBasicSerializer
-from posthog.api.utils import ClassicBehaviorBooleanFieldSerializer, action, unparsed_hostname_in_allowed_url_list
+from posthog.api.utils import (
+    ClassicBehaviorBooleanFieldSerializer,
+    action,
+    canonicalize_encoded_url,
+    strip_url_userinfo,
+    unparsed_hostname_in_allowed_url_list,
+)
 from posthog.auth import (
     IDJagAccessTokenAuthentication,
     OAuthAccessTokenAuthentication,
@@ -78,7 +84,12 @@ from posthog.event_usage import (
     report_user_verified_email,
 )
 from posthog.exceptions_capture import capture_exception
-from posthog.helpers.email_utils import EmailNormalizer, validate_display_name
+from posthog.helpers.email_utils import (
+    EmailNormalizer,
+    EmailValidationHelper,
+    reject_plus_addressed_email,
+    validate_display_name,
+)
 from posthog.helpers.session_cache import SessionCache
 from posthog.helpers.two_factor_session import has_passkeys, set_two_factor_verified_in_session
 from posthog.helpers.verified_domain_enforcement import VERIFIED_DOMAIN_REQUIRED_ERROR, resolve_login_organization
@@ -373,6 +384,18 @@ class UserSerializer(serializers.ModelSerializer):
 
     def validate_last_name(self, value: str) -> str:
         return validate_display_name(value)
+
+    def validate_email(self, value: str) -> str:
+        if self.instance and value.lower() == self.instance.email.lower():
+            # Unchanged — don't re-validate a legacy '+' address on an unrelated profile edit.
+            return value
+        reject_plus_addressed_email(value)
+        # Excluding the editor lets a legacy '+' account holder drop their own alias.
+        if EmailValidationHelper.user_exists_with_stripped_alias(
+            value, exclude_user_id=self.instance.pk if self.instance else None
+        ):
+            raise serializers.ValidationError("There is already an account with this email address.", code="unique")
+        return value
 
     def get_has_password(self, instance: User) -> bool:
         return bool(instance.password) and instance.has_usable_password()
@@ -1839,8 +1862,12 @@ def redirect_to_site(request):
 
     if not unparsed_hostname_in_allowed_url_list(team.app_urls, app_url):
         REDIRECT_TO_SITE_FAILED_COUNTER.inc()
-        parsed_app_url = urllib.parse.urlparse(app_url)
-        hostname = parsed_app_url.hostname or app_url
+        try:
+            hostname = urllib.parse.urlparse(app_url).hostname or app_url
+        except ValueError:
+            # A URL too malformed to parse is still a rejection, so report it back as typed
+            # rather than failing the request with a 500.
+            hostname = app_url
         logger.error(
             "can_only_redirect_to_permitted_domain",
             permitted_domains=team.app_urls,
@@ -1862,6 +1889,10 @@ def redirect_to_site(request):
             },
             status_code=403,
         )
+
+    # Redirect to the form that was approved, not the caller's raw string.
+    app_url = strip_url_userinfo(canonicalize_encoded_url(app_url))
+
     params = {
         "action": "ph_authorize",
         "token": team.api_token,

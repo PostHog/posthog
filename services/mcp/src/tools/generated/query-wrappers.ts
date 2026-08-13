@@ -324,7 +324,7 @@ const AssistantFlagPropertyFilter = z.object({
         )
         .default('flag'),
     value: z
-        .union([z.coerce.boolean(), z.string()])
+        .union([z.boolean(), z.string()])
         .describe('`true`/`false` for boolean flags, or a variant name string for multivariate flags.'),
 })
 
@@ -362,7 +362,7 @@ const CountPerActorMathType = z.enum([
     'p99_count_per_actor',
 ])
 
-const GroupMathType = z.literal('unique_group')
+const GroupMathType = z.enum(['unique_group', 'first_time_for_group', 'first_matching_event_for_group'])
 
 const HogQLMathType = z.literal('hogql')
 

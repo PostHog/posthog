@@ -397,7 +397,6 @@ const featureFlagActionsMapping: Record<
     last_called_at: () => null,
     is_used_in_replay_settings: () => null,
     _create_in_folder: () => null,
-    _should_create_usage_dashboard: () => null,
 }
 
 const getActorName = (logItem: ActivityLogItem): JSX.Element => {
@@ -448,6 +447,36 @@ export function flagActivityDescriber(logItem: ActivityLogItem, asNotification?:
                                     <Link to={urls.cohort(cohort_id)}>{cohort_name || `#${cohort_id}`}</Link>
                                 ) : (
                                     <span>{cohort_name || 'unknown'}</span>
+                                )}
+                            </Fragment>,
+                        ]}
+                        prefix={getActorName(logItem)}
+                        suffix={
+                            <>
+                                on {asNotification && ' the flag '}
+                                {nameOrLinkToFlag(logItem?.item_id, logItem?.detail.name)}
+                            </>
+                        }
+                    />
+                ),
+            }
+        }
+        // A flag this one depends on changed its definition: same story as above, only
+        // this flag's version moved. job_type must stay in sync with
+        // FLAG_DEPENDENCY_UPDATED_JOB_TYPE in
+        // products/feature_flags/backend/flag_version_sync.py.
+        if (logItem.detail.trigger?.job_type === 'flag_dependency_updated') {
+            const { flag_id, flag_key } = logItem.detail.trigger.payload ?? {}
+            return {
+                description: (
+                    <SentenceList
+                        listParts={[
+                            <Fragment key="flag-dependency-updated">
+                                changed the definition of linked flag{' '}
+                                {flag_id ? (
+                                    <Link to={urls.featureFlag(flag_id)}>{flag_key || `#${flag_id}`}</Link>
+                                ) : (
+                                    <span>{flag_key || 'unknown'}</span>
                                 )}
                             </Fragment>,
                         ]}

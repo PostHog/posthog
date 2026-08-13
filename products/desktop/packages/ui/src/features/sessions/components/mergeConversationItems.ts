@@ -1,7 +1,13 @@
 import { stripTrailingAttachmentSummary } from "@posthog/core/editor/cloud-prompt";
 import type { ConversationItem } from "./buildConversationItems";
-import { extractChannelContext } from "./session-update/channelContext";
-import { extractCustomInstructions } from "./session-update/customInstructions";
+import {
+  extractChannelContext,
+  hasChannelContext,
+} from "./session-update/channelContext";
+import {
+  extractCustomInstructions,
+  hasCustomInstructions,
+} from "./session-update/customInstructions";
 
 interface MergeConversationItemsArgs {
   conversationItems: ConversationItem[];
@@ -25,6 +31,10 @@ function strippedUserContent(content: string): string {
   const withoutInstructions =
     extractCustomInstructions(withoutChannel)?.stripped ?? withoutChannel;
   return stripTrailingAttachmentSummary(withoutInstructions);
+}
+
+function hasShadowContext(content: string): boolean {
+  return hasChannelContext(content) || hasCustomInstructions(content);
 }
 
 // Cloud's initial optimistic is pinned to the top so the user's prompt stays
@@ -68,6 +78,7 @@ export function mergeConversationItems({
   // attachment chips the placeholder lacks, so we surface the richer copy on
   // the pinned bubble below.
   const echoedItemByKey = new Map<string, UserMessageItem>();
+  const consumedPlainEchoByKey = new Set<string>();
   const dedupedConversation =
     unconsumedPinnedKeyCounts.size === 0
       ? conversationItems
@@ -75,12 +86,23 @@ export function mergeConversationItems({
           if (item.type !== "user_message") return true;
           const key = strippedUserContent(item.content);
           const remaining = unconsumedPinnedKeyCounts.get(key) ?? 0;
-          if (remaining === 0) return true;
-          unconsumedPinnedKeyCounts.set(key, remaining - 1);
-          if (!echoedItemByKey.has(key)) {
+          if (remaining > 0) {
+            unconsumedPinnedKeyCounts.set(key, remaining - 1);
             echoedItemByKey.set(key, item);
+            if (!hasShadowContext(item.content))
+              consumedPlainEchoByKey.add(key);
+            return false;
           }
-          return false;
+
+          if (
+            consumedPlainEchoByKey.has(key) &&
+            hasShadowContext(item.content)
+          ) {
+            echoedItemByKey.set(key, item);
+            consumedPlainEchoByKey.delete(key);
+            return false;
+          }
+          return true;
         });
 
   const resolvedPinnedItems =
