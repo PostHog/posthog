@@ -33,6 +33,7 @@ import { PropertyFilterType, RecordingUniversalFilters, UniversalFiltersGroup } 
 import { clampDurationFilter, durationFilterError, MAX_ACTIVE_LABEL } from '../durationBounds'
 import { replayScannerLogic } from '../replayScannerLogic'
 import { SAMPLING_MODE_OPTIONS, SamplingMode } from '../types'
+import { ScannerCreditLimit } from './ScannerCreditLimit'
 import { ScannerQuotaForecast } from './ScannerQuotaForecast'
 
 // Mirrors the recordings list taxonomy, including suggested filters so the search bar surfaces them.
@@ -339,6 +340,8 @@ export function ScannerTriggers({ scannerId }: { scannerId: string }): JSX.Eleme
                     )
                 }}
             </LemonField>
+
+            <ScannerCreditLimit scannerId={scannerId} />
 
             <ScannerQuotaForecast scannerId={scannerId} />
         </div>
