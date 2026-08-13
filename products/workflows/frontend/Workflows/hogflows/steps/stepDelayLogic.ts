@@ -25,7 +25,8 @@ const UNIT_LABELS: Record<string, string> = {
 export type DelayActionConfig = Extract<HogFlowAction, { type: 'delay' }>['config']
 
 export type DelayMode = 'duration' | 'until'
-export type DelayOffsetDirection = 'before' | 'after'
+/** 'on' means no offset at all: wait for the date itself. */
+export type DelayOffsetDirection = 'on' | 'before' | 'after'
 export type DelayPropertySource = 'person' | 'event'
 
 export interface DelayProperty {
@@ -34,15 +35,14 @@ export interface DelayProperty {
 }
 
 export interface DelayOffset {
-    amount: number
-    unit: string
+    /** An unsigned duration string, the same shape HogFlowDuration edits. */
+    duration: string
     direction: DelayOffsetDirection
 }
 
 export const DEFAULT_DELAY_DURATION = '10m'
 // Mirrors the executor's cap in nodejs/src/cdp/services/hogflows/actions/delay.ts.
 export const DEFAULT_MAX_DELAY_DURATION = '30d'
-export const DEFAULT_DELAY_OFFSET: DelayOffset = { amount: 0, unit: 'd', direction: 'before' }
 
 export function getDelayMode(config: DelayActionConfig): DelayMode {
     return config.delay_until ? 'until' : 'duration'
@@ -68,20 +68,22 @@ export function parseDelayExpression(expression: string): DelayProperty | null {
     return null
 }
 
-/** Undefined for a zero offset, so "wait until the date itself" saves no offset at all. */
-export function buildDelayOffset({ amount, unit, direction }: DelayOffset): string | undefined {
-    if (!Number.isFinite(amount) || amount <= 0) {
+/** Undefined for direction 'on', so "wait for the date itself" saves no offset at all. */
+export function buildDelayOffset({ duration, direction }: DelayOffset): string | undefined {
+    if (direction === 'on' || !DURATION_REGEX.test(duration) || !Number.isFinite(parseFloat(duration))) {
         return undefined
     }
-    return `${direction === 'before' ? '-' : ''}${amount}${unit}`
+    return `${direction === 'before' ? '-' : ''}${duration}`
 }
 
 export function parseDelayOffset(offset: string | undefined): DelayOffset {
     const parts = offset?.match(OFFSET_REGEX)
     if (!parts) {
-        return DEFAULT_DELAY_OFFSET
+        // A day is the offset almost every reminder uses, so it is the amount to start from once
+        // someone switches off 'on'.
+        return { duration: '1d', direction: 'on' }
     }
-    return { amount: parseFloat(parts[2]), unit: parts[3], direction: parts[1] === '-' ? 'before' : 'after' }
+    return { duration: `${parts[2]}${parts[3]}`, direction: parts[1] === '-' ? 'before' : 'after' }
 }
 
 /** "2 days" for '2d'. Null when there is no number to read, e.g. a cleared duration input. */

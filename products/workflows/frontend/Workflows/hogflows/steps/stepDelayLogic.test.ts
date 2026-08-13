@@ -122,20 +122,29 @@ describe('stepDelayLogic', () => {
         expect(parseDelayExpression('toDateTime(person.properties.a) + toIntervalDay(1)')).toBeNull()
     })
 
-    // The sign carries the direction, and a zero offset must save nothing at all: '0d' would otherwise
-    // reach the executor as a real offset and read back as "0 days before" in the step description.
+    // The sign carries the direction. Losing it turns "a day before their trial ends" into a message
+    // sent a day late, which reads as working right up until someone checks the send times.
     it.each([
-        [{ amount: 1, unit: 'd', direction: 'before' } as DelayOffset, '-1d'],
-        [{ amount: 2, unit: 'h', direction: 'after' } as DelayOffset, '2h'],
-        [{ amount: 1.5, unit: 'd', direction: 'before' } as DelayOffset, '-1.5d'],
-        [{ amount: 30, unit: 's', direction: 'after' } as DelayOffset, '30s'],
+        [{ duration: '1d', direction: 'before' } as DelayOffset, '-1d'],
+        [{ duration: '2h', direction: 'after' } as DelayOffset, '2h'],
+        [{ duration: '1.5d', direction: 'before' } as DelayOffset, '-1.5d'],
+        [{ duration: '30s', direction: 'after' } as DelayOffset, '30s'],
     ])('%o round trips through %p', (offset, serialized) => {
         expect(buildDelayOffset(offset)).toBe(serialized)
         expect(parseDelayOffset(serialized)).toEqual(offset)
     })
 
-    it.each([[0], [-1], [NaN]])('saves no offset for an amount of %p', (amount) => {
-        expect(buildDelayOffset({ amount, unit: 'd', direction: 'before' })).toBeUndefined()
+    // 'on' has to save nothing rather than '0d', and a cleared duration input emits just its unit.
+    it.each([
+        [{ duration: '1d', direction: 'on' } as DelayOffset],
+        [{ duration: 'd', direction: 'before' } as DelayOffset],
+        [{ duration: '', direction: 'after' } as DelayOffset],
+    ])('saves no offset for %o', (offset) => {
+        expect(buildDelayOffset(offset)).toBeUndefined()
+    })
+
+    it('starts a fresh date delay on the date itself', () => {
+        expect(parseDelayOffset(undefined).direction).toBe('on')
     })
 
     // The API rejects a config carrying both modes, so a merge here would 400 every save.
@@ -169,7 +178,7 @@ describe('stepDelayLogic', () => {
         }).toFinishListeners()
 
         await expectLogic(sdLogic, () => {
-            sdLogic.actions.setDelayOffset(delayAction.id, { amount: 1, unit: 'd', direction: 'before' })
+            sdLogic.actions.setDelayOffset(delayAction.id, { duration: '1d', direction: 'before' })
         }).toFinishListeners()
 
         expect(configOf(delayAction.id)).toEqual({

@@ -9,6 +9,7 @@ The contract for `actions` and `edges`. The stored workflow is loose JSON, but *
 - Edges
 - `function*` inputs
 - Duration strings (`delay_duration`, `max_wait_duration`)
+- Waiting until a date (`delay_until`)
 - Conversion & exit condition
 - Pre-submit checklist
 

@@ -1,7 +1,7 @@
 import { Node } from '@xyflow/react'
 import { useActions, useValues } from 'kea'
 
-import { LemonInput, LemonSelect } from '@posthog/lemon-ui'
+import { LemonSelect } from '@posthog/lemon-ui'
 
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { TaxonomicStringPopover } from 'lib/components/TaxonomicPopover/TaxonomicPopover'
@@ -18,13 +18,6 @@ import {
     parseDelayOffset,
     stepDelayLogic,
 } from './stepDelayLogic'
-
-const OFFSET_UNIT_OPTIONS = [
-    { label: 'Second(s)', value: 's' },
-    { label: 'Minute(s)', value: 'm' },
-    { label: 'Hour(s)', value: 'h' },
-    { label: 'Day(s)', value: 'd' },
-]
 
 const PROPERTY_GROUP_TYPES = [TaxonomicFilterGroupType.PersonProperties, TaxonomicFilterGroupType.EventProperties]
 
@@ -75,27 +68,18 @@ export function StepDelayConfiguration({
             ) : (
                 <>
                     <div className="flex flex-wrap items-center gap-2">
-                        <LemonInput
-                            type="number"
-                            className="w-20"
-                            value={offset.amount}
-                            min={0}
-                            step="any"
-                            onChange={(value) => setDelayOffset(action.id, { ...offset, amount: value ?? 0 })}
-                            data-attr="workflow-delay-offset-amount"
-                        />
-                        <LemonSelect
-                            size="small"
-                            value={offset.unit}
-                            onChange={(value) => setDelayOffset(action.id, { ...offset, unit: value })}
-                            options={OFFSET_UNIT_OPTIONS}
-                            data-attr="workflow-delay-offset-unit"
-                        />
+                        {offset.direction !== 'on' ? (
+                            <HogFlowDuration
+                                value={offset.duration}
+                                onChange={(duration) => setDelayOffset(action.id, { ...offset, duration })}
+                            />
+                        ) : null}
                         <LemonSelect
                             size="small"
                             value={offset.direction}
                             onChange={(value) => setDelayOffset(action.id, { ...offset, direction: value })}
                             options={[
+                                { label: 'on', value: 'on' as const },
                                 { label: 'before', value: 'before' as const },
                                 { label: 'after', value: 'after' as const },
                             ]}
