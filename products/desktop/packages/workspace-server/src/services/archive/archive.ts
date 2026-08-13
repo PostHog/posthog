@@ -306,13 +306,9 @@ export class ArchiveService {
                 logger: this.log,
               });
               await manager.deleteWorktree(worktreePath);
-              const worktreeBasePath = this.workspaceSettings.getWorktreeLocation();
+              const worktreeBasePath =
+                this.workspaceSettings.getWorktreeLocation();
               const parentDir = path.dirname(worktreePath);
-              // Only remove the parent directory for app-managed worktrees
-              // (those inside the worktree base path). Adopted external worktrees
-              // have their parent outside the managed base, and removing it would
-              // recursively delete the parent directory containing the main repo
-              // and sibling worktrees (see #81530).
               if (worktreePath.startsWith(worktreeBasePath)) {
                 await forceRemove(parentDir);
               }
@@ -469,7 +465,8 @@ export class ArchiveService {
                 restoredWorktreeName,
               );
               await manager.deleteWorktree(worktreePath);
-              const worktreeBasePath = this.workspaceSettings.getWorktreeLocation();
+              const worktreeBasePath =
+                this.workspaceSettings.getWorktreeLocation();
               const parentDir = path.dirname(worktreePath);
               if (worktreePath.startsWith(worktreeBasePath)) {
                 await forceRemove(parentDir);
