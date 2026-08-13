@@ -661,18 +661,22 @@ A bare id leaves the reader copying a string and guessing which page it belongs 
 
 - **Take the link off the tool result when it has one.** A result carrying a `*url` field (`_posthogUrl` and friends) already holds the canonical link, so surface it verbatim rather than rewriting or stripping it.
 - **Otherwise call `generate-app-url`** and use the `url` it returns verbatim. Never assemble a path around an id you retyped: a wrong slug reads as a working link and drops the reader on a 404.
+- **When neither source reaches the entity itself, keep the bare id.** Some entities have no detail page in the URL catalog (an insight alert, for one: `alert-get` returns its url, the catalog has only the `/alerts` list). Don't substitute a link to the list page the entity sits on, which reads as a link to the thing and drops the reader somewhere they still have to search.
 - **Full URLs only** (origin plus path), because a bare path is not clickable in the inbox or in Slack. Take the origin from the link the tool returned rather than from memory, since this project may not sit on the host you assume, and never include `/-/`.
 - **The anchor text names the entity**, so the sentence still reads without the URL. Keep the id itself in the prose or a `code` span wherever a reader may need to paste it into a query."""
 
-# Charts render on the report channel only, so the collision this warns about (writing a real URL
-# where a `chart:` target belongs, or the reverse) can only happen there — and *Attaching charts*
-# is in that tail alone, so naming it from the signal channel would dangle.
-_LINKING_CHART_CLAUSE = """
-- **A `chart:` target is not a URL.** `[Daily signups](chart:signups-drop)` places a chart (see *Attaching charts*); swapping in a link draws nothing, and pointing a `chart:` target at a page the reader could open is a broken chart reference instead."""
+# Both caveats are report-channel-only concerns. Charts render on the report channel alone, so the
+# collision the first warns about (writing a real URL where a `chart:` target belongs, or the
+# reverse) can only happen there, and *Attaching charts* is in that tail alone, so naming it from
+# the signal channel would dangle. The second names report fields (`title`, the report `summary`)
+# the signal channel never writes.
+_LINKING_REPORT_CLAUSES = """
+- **A `chart:` target is not a URL.** `[Daily signups](chart:signups-drop)` places a chart (see *Attaching charts*); swapping in a link draws nothing, and pointing a `chart:` target at a page the reader could open is a broken chart reference instead.
+- **A report `title` and the first line of its `summary` stay plain text.** The inbox renders the title as text and lifts the summary's first line out verbatim as the card headline, so a markdown link in either shows up as literal brackets beside a raw URL. Name the entity in words there, and link it where the body picks it up again."""
 
 
 def _linking_section(*, report_channel: bool) -> str:
-    return f"{_LINKING_HEAD}{_LINKING_CHART_CLAUSE}" if report_channel else _LINKING_HEAD
+    return f"{_LINKING_HEAD}{_LINKING_REPORT_CLAUSES}" if report_channel else _LINKING_HEAD
 
 
 _WRITING_STYLE = """# Writing style
