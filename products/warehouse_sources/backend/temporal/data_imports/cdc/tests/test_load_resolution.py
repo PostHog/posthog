@@ -1,0 +1,253 @@
+from unittest.mock import MagicMock, patch
+
+import pyarrow as pa
+from parameterized import parameterized
+
+from products.warehouse_sources.backend.temporal.data_imports.cdc.batcher import (
+    CDC_OP_COLUMN,
+    CDC_SEQ_COLUMN,
+    DELETED_COLUMN,
+)
+from products.warehouse_sources.backend.temporal.data_imports.cdc.load_resolution import (
+    MAX_VERIFIED_DELETE_ROWS,
+    SCD2_APPEND_MODE,
+    batch_max_seq,
+    dedupe_keep_highest_seq,
+    drop_superseded_rows,
+    is_cdc_write_resolution_enabled,
+    resolve_batch,
+    verify_delete_enrichment,
+)
+
+
+def _batch(ids, names, ops, seqs=None):
+    columns = {
+        "id": pa.array(ids, pa.int64()),
+        "name": pa.array(names, pa.string()),
+        CDC_OP_COLUMN: pa.array(ops, pa.string()),
+        DELETED_COLUMN: pa.array([op == "D" for op in ops], pa.bool_()),
+    }
+    if seqs is not None:
+        columns[CDC_SEQ_COLUMN] = pa.array(seqs, pa.int64())
+    return pa.table(columns)
+
+
+def _existing(ids, names):
+    return pa.table({"id": pa.array(ids, pa.int64()), "name": pa.array(names, pa.string())})
+
+
+class TestBatchMaxSeq:
+    def test_none_without_seq_column(self):
+        assert batch_max_seq(_batch([1], ["a"], ["I"])) is None
+
+    def test_none_when_empty(self):
+        assert batch_max_seq(_batch([], [], [], seqs=[])) is None
+
+    def test_ignores_nulls(self):
+        table = _batch([1, 2, 3], ["a", "b", "c"], ["I", "I", "I"], seqs=[10, None, 30])
+        assert batch_max_seq(table) == 30
+
+
+class TestDropSupersededRows:
+    def test_passthrough_without_watermark(self):
+        table = _batch([1, 2], ["a", "b"], ["I", "I"], seqs=[10, 20])
+        result, dropped = drop_superseded_rows(table, None)
+        assert dropped == 0
+        assert result is table
+
+    def test_passthrough_without_seq_column(self):
+        table = _batch([1, 2], ["a", "b"], ["I", "I"])
+        result, dropped = drop_superseded_rows(table, 99)
+        assert dropped == 0
+        assert result is table
+
+    def test_drops_at_or_below_watermark(self):
+        table = _batch([1, 2, 3], ["a", "b", "c"], ["I", "I", "I"], seqs=[10, 20, 30])
+        result, dropped = drop_superseded_rows(table, 20)
+
+        assert dropped == 2
+        assert result.column("id").to_pylist() == [3]
+
+    def test_keeps_null_positions(self):
+        # An unknown position cannot be proven stale; dropping it would lose data.
+        table = _batch([1, 2], ["a", "b"], ["I", "I"], seqs=[None, 5])
+        result, dropped = drop_superseded_rows(table, 10)
+
+        assert dropped == 1
+        assert result.column("id").to_pylist() == [1]
+
+    def test_drops_whole_batch_on_full_replay(self):
+        table = _batch([1, 2], ["a", "b"], ["I", "I"], seqs=[10, 20])
+        result, dropped = drop_superseded_rows(table, 20)
+
+        assert dropped == 2
+        assert result.num_rows == 0
+
+
+class TestDedupeKeepHighestSeq:
+    def test_passthrough_without_seq_column(self):
+        table = _batch([1, 1], ["a", "b"], ["I", "U"])
+        result, dropped = dedupe_keep_highest_seq(table, ["id"])
+        assert dropped == 0
+        assert result is table
+
+    def test_keeps_highest_position_per_key(self):
+        table = _batch([1, 1, 2], ["old", "new", "other"], ["I", "U", "I"], seqs=[10, 20, 15])
+        result, dropped = dedupe_keep_highest_seq(table, ["id"])
+
+        assert dropped == 1
+        assert result.column("name").to_pylist() == ["new", "other"]
+
+    def test_keeps_highest_even_when_batch_is_out_of_order(self):
+        table = _batch([1, 1], ["new", "old"], ["U", "I"], seqs=[20, 10])
+        result, dropped = dedupe_keep_highest_seq(table, ["id"])
+
+        assert dropped == 1
+        assert result.column("name").to_pylist() == ["new"]
+
+    def test_ties_keep_later_row(self):
+        table = _batch([1, 1], ["first", "second"], ["U", "U"], seqs=[10, 10])
+        result, _ = dedupe_keep_highest_seq(table, ["id"])
+
+        assert result.column("name").to_pylist() == ["second"]
+
+    def test_composite_keys(self):
+        table = pa.table(
+            {
+                "a": pa.array([1, 1, 1], pa.int64()),
+                "b": pa.array(["x", "x", "y"], pa.string()),
+                CDC_OP_COLUMN: pa.array(["I", "U", "I"], pa.string()),
+                CDC_SEQ_COLUMN: pa.array([10, 20, 30], pa.int64()),
+            }
+        )
+        result, dropped = dedupe_keep_highest_seq(table, ["a", "b"])
+
+        assert dropped == 1
+        assert result.column(CDC_SEQ_COLUMN).to_pylist() == [20, 30]
+
+    def test_no_duplicates_returns_original(self):
+        table = _batch([1, 2], ["a", "b"], ["I", "I"], seqs=[10, 20])
+        result, dropped = dedupe_keep_highest_seq(table, ["id"])
+        assert dropped == 0
+        assert result is table
+
+
+class TestResolveBatch:
+    def test_consolidated_lane_drops_superseded_and_dedupes(self):
+        table = _batch([1, 1, 2], ["old", "new", "other"], ["I", "U", "I"], seqs=[10, 20, 30])
+        result, stats = resolve_batch(table, ["id"], watermark=None, cdc_write_mode="incremental_merge")
+
+        assert stats.superseded == 0
+        assert stats.duplicate_key == 1
+        assert result.column("name").to_pylist() == ["new", "other"]
+
+    def test_history_lane_keeps_every_version_of_a_key(self):
+        # The companion table is append-only history: deduping it would delete versions, not
+        # resolve a conflict.
+        table = _batch([1, 1], ["v1", "v2"], ["I", "U"], seqs=[10, 20])
+        result, stats = resolve_batch(table, ["id"], watermark=None, cdc_write_mode=SCD2_APPEND_MODE)
+
+        assert stats.duplicate_key == 0
+        assert result.column("name").to_pylist() == ["v1", "v2"]
+
+    def test_history_lane_still_drops_already_applied_rows(self):
+        # Replaying a buffer file into the companion is how duplicate history rows arise.
+        table = _batch([1, 1], ["v1", "v2"], ["I", "U"], seqs=[10, 20])
+        result, stats = resolve_batch(table, ["id"], watermark=10, cdc_write_mode=SCD2_APPEND_MODE)
+
+        assert stats.superseded == 1
+        assert result.column("name").to_pylist() == ["v2"]
+
+    def test_noop_on_batches_without_positions(self):
+        table = _batch([1, 2], ["a", "b"], ["I", "I"])
+        result, stats = resolve_batch(table, ["id"], watermark=99, cdc_write_mode="incremental_merge")
+
+        assert (stats.superseded, stats.duplicate_key) == (0, 0)
+        assert result is table
+
+
+class TestVerifyDeleteEnrichment:
+    def test_enriched_delete_is_clean(self):
+        table = _batch([1], ["alice"], ["D"])
+        report = verify_delete_enrichment(table, ["id"], _existing([1], ["alice"]))
+
+        assert report.ok
+        assert report.delete_rows_checked == 1
+        assert report.columns == ()
+
+    def test_unenriched_delete_is_reported(self):
+        table = _batch([1], [None], ["D"])
+        report = verify_delete_enrichment(table, ["id"], _existing([1], ["alice"]))
+
+        assert not report.ok
+        assert report.rows_with_nulled_columns == 1
+        assert report.columns == ("name",)
+
+    def test_ignores_non_delete_rows(self):
+        # A NULL on an UPDATE is the source's own value, not lost data.
+        table = _batch([1], [None], ["U"])
+        report = verify_delete_enrichment(table, ["id"], _existing([1], ["alice"]))
+
+        assert report.ok
+        assert report.delete_rows_checked == 0
+
+    def test_ignores_deletes_with_no_existing_row(self):
+        # Unmatched delete becomes a tombstone insert; there is no data to lose.
+        table = _batch([2], [None], ["D"])
+        report = verify_delete_enrichment(table, ["id"], _existing([1], ["alice"]))
+
+        assert report.ok
+        assert report.delete_rows_checked == 0
+
+    def test_null_in_target_is_not_a_violation(self):
+        table = _batch([1], [None], ["D"])
+        report = verify_delete_enrichment(table, ["id"], _existing([1], [None]))
+
+        assert report.ok
+
+    @parameterized.expand(
+        [("no_existing_rows", None), ("empty_existing_rows", pa.table({"id": pa.array([], pa.int64())}))]
+    )
+    def test_returns_empty_without_target_state(self, _name, existing):
+        table = _batch([1], [None], ["D"])
+        assert verify_delete_enrichment(table, ["id"], existing).ok
+
+    def test_checked_rows_are_capped(self):
+        n = MAX_VERIFIED_DELETE_ROWS + 10
+        ids = list(range(n))
+        table = _batch(ids, [None] * n, ["D"] * n)
+        report = verify_delete_enrichment(table, ["id"], _existing(ids, [f"name{i}" for i in ids]))
+
+        assert report.delete_rows_checked == MAX_VERIFIED_DELETE_ROWS
+
+
+class TestIsCdcWriteResolutionEnabled:
+    def _team(self):
+        team = MagicMock()
+        team.uuid = "team-uuid"
+        team.organization_id = "org-id"
+        return team
+
+    @parameterized.expand([("on", True), ("off", False)])
+    def test_follows_the_flag(self, _name, flag_value):
+        with (
+            patch("posthog.models.Team.objects") as objects,
+            patch("posthoganalytics.feature_enabled", return_value=flag_value) as feature_enabled,
+        ):
+            objects.only.return_value.get.return_value = self._team()
+            assert is_cdc_write_resolution_enabled(2, "schema-1") is flag_value
+
+        assert feature_enabled.call_args.kwargs["person_properties"] == {"team_id": "2", "schema_id": "schema-1"}
+
+    def test_fails_closed_when_flag_service_raises(self):
+        with (
+            patch("posthog.models.Team.objects") as objects,
+            patch("posthoganalytics.feature_enabled", side_effect=Exception("flags down")),
+        ):
+            objects.only.return_value.get.return_value = self._team()
+            assert is_cdc_write_resolution_enabled(2, "schema-1") is False
+
+    def test_fails_closed_when_team_is_missing(self):
+        with patch("posthog.models.Team.objects") as objects:
+            objects.only.return_value.get.side_effect = Exception("no such team")
+            assert is_cdc_write_resolution_enabled(2, "schema-1") is False

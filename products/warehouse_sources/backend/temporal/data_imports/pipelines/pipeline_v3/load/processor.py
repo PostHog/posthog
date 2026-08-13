@@ -27,11 +27,19 @@ from products.warehouse_sources.backend.models.external_data_schema import Exter
 from products.warehouse_sources.backend.models.table import DataWarehouseTable
 from products.warehouse_sources.backend.temporal.data_imports.cdc.batcher import (
     CDC_OP_COLUMN,
+    CDC_SEQ_COLUMN,
     SCD2_VALID_FROM_COLUMN,
     SCD2_VALID_TO_COLUMN,
     TOAST_OMITTED_COLUMN,
     enrich_delete_rows,
     enrich_toast_omitted_rows,
+)
+from products.warehouse_sources.backend.temporal.data_imports.cdc.load_resolution import (
+    SEQ_WATERMARK_METADATA_KEY,
+    batch_max_seq,
+    is_cdc_write_resolution_enabled,
+    resolve_batch,
+    verify_delete_enrichment,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.common.load import (
     run_post_load_operations,
@@ -60,6 +68,8 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
     mark_batch_as_processed,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.load.metrics import (
+    CDC_DELETE_ENRICHMENT_VIOLATIONS_TOTAL,
+    CDC_SEQ_GUARD_ROWS_DROPPED_TOTAL,
     DELTA_ROWS_WRITTEN_TOTAL,
     DELTA_WRITE_DURATION_SECONDS,
     IDEMPOTENCY_HIT_TOTAL,
@@ -119,6 +129,8 @@ def _enrich_cdc_rows(
     cdc_write_mode: str | None,
     existing_delta_table: deltalake.DeltaTable | None,
     batch_index: int,
+    verify_deletes: bool = False,
+    team_id: str = "",
 ) -> pa.Table:
     """Cross-batch CDC enrichment against the existing DeltaLake state.
 
@@ -193,6 +205,24 @@ def _enrich_cdc_rows(
                 # not the nulls standing in for omitted columns.
                 pa_table = enrich_toast_omitted_rows(pa_table, primary_keys, existing_rows)
                 pa_table = enrich_delete_rows(pa_table, primary_keys, existing_rows)
+
+                # deltalite replaces the whole row on upsert, so an unenriched DELETE silently
+                # erases columns the target still holds. Nothing downstream can detect that after
+                # the fact — verify here, while the previous state is still in hand.
+                if verify_deletes and delete_key_set:
+                    report = verify_delete_enrichment(pa_table, present_pks, existing_rows)
+                    if not report.ok:
+                        CDC_DELETE_ENRICHMENT_VIOLATIONS_TOTAL.labels(team_id=team_id).inc(
+                            report.rows_with_nulled_columns
+                        )
+                        logger.warning(
+                            "cdc_delete_enrichment_violation",
+                            delete_rows_checked=report.delete_rows_checked,
+                            rows_with_nulled_columns=report.rows_with_nulled_columns,
+                            columns=list(report.columns),
+                            cdc_write_mode=cdc_write_mode,
+                            batch_index=batch_index,
+                        )
 
     if TOAST_OMITTED_COLUMN in pa_table.column_names:
         pa_table = pa_table.drop_columns([TOAST_OMITTED_COLUMN])
@@ -808,13 +838,51 @@ def _process_message_reported(
             "batch_index": str(export_signal.batch_index),
         }
 
+        # One flag evaluation per CDC batch, mirroring the deltalite gate's cadence. Non-CDC
+        # batches never reach the flags service.
+        resolution_enabled = cdc_write_mode is not None and is_cdc_write_resolution_enabled(
+            export_signal.team_id, schema_id_str
+        )
+
         pa_table = _enrich_cdc_rows(
             pa_table,
             primary_keys=primary_keys,
             cdc_write_mode=cdc_write_mode,
             existing_delta_table=existing_delta_table,
             batch_index=export_signal.batch_index,
+            verify_deletes=resolution_enabled,
+            team_id=team_id_str,
         )
+
+        # Position resolution. Dormant until batches carry CDC_SEQ_COLUMN — the legacy lane strips
+        # it — so this costs nothing (not even the history read) on today's traffic.
+        if resolution_enabled and CDC_SEQ_COLUMN in pa_table.column_names:
+            raw_watermark = async_to_sync(DeltaWriter(delta_table_ref).latest_commit_metadata_value)(
+                SEQ_WATERMARK_METADATA_KEY
+            )
+            watermark = int(raw_watermark) if raw_watermark is not None and raw_watermark.isdigit() else None
+
+            pa_table, stats = resolve_batch(
+                pa_table,
+                primary_keys or [],
+                watermark=watermark,
+                cdc_write_mode=cdc_write_mode,
+            )
+            for reason, dropped in stats.as_pairs():
+                if dropped:
+                    CDC_SEQ_GUARD_ROWS_DROPPED_TOTAL.labels(team_id=team_id_str, reason=reason).inc(dropped)
+                    logger.debug(
+                        "cdc_seq_guard_dropped_rows",
+                        reason=reason,
+                        dropped=dropped,
+                        watermark=watermark,
+                        batch_index=export_signal.batch_index,
+                    )
+
+            # Tag the commit with how far this batch got, so the next one can resolve against it.
+            max_seq = batch_max_seq(pa_table)
+            if max_seq is not None:
+                commit_metadata[SEQ_WATERMARK_METADATA_KEY] = str(max_seq)
 
         if existing_delta_table is not None:
             pa_table = evolve_pyarrow_schema(pa_table, existing_delta_table.schema())

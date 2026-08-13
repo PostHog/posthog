@@ -663,6 +663,77 @@ class TestEnrichCdcRows:
             }
         )
 
+    def _write_existing(self, path: str) -> None:
+        write_deltalake(
+            path,
+            pa.table(
+                {
+                    "id": pa.array([1], pa.int64()),
+                    "name": pa.array(["one"], pa.string()),
+                    "big": pa.array(["toasted-1"], pa.string()),
+                }
+            ),
+            mode="overwrite",
+        )
+
+    def test_verification_stays_quiet_when_enrichment_filled_the_delete(self):
+        with tempfile.TemporaryDirectory() as path:
+            self._write_existing(path)
+
+            with patch(f"{_PROCESSOR}.CDC_DELETE_ENRICHMENT_VIOLATIONS_TOTAL") as violations:
+                _enrich_cdc_rows(
+                    self._batch([{"id": 1, "op": "D"}]),
+                    primary_keys=["id"],
+                    cdc_write_mode="incremental_merge",
+                    existing_delta_table=DeltaTable(path),
+                    batch_index=0,
+                    verify_deletes=True,
+                    team_id="2",
+                )
+
+            violations.labels.assert_not_called()
+
+    def test_verification_reports_a_delete_that_would_null_target_data(self):
+        with tempfile.TemporaryDirectory() as path:
+            self._write_existing(path)
+
+            # Enrichment silently doing nothing is the failure this lane exists to catch: under
+            # deltalite the upsert replaces the whole row, so those nulls would land in the table.
+            with (
+                patch(f"{_PROCESSOR}.enrich_delete_rows", side_effect=lambda table, *_a, **_kw: table),
+                patch(f"{_PROCESSOR}.CDC_DELETE_ENRICHMENT_VIOLATIONS_TOTAL") as violations,
+            ):
+                _enrich_cdc_rows(
+                    self._batch([{"id": 1, "op": "D"}]),
+                    primary_keys=["id"],
+                    cdc_write_mode="incremental_merge",
+                    existing_delta_table=DeltaTable(path),
+                    batch_index=0,
+                    verify_deletes=True,
+                    team_id="2",
+                )
+
+            violations.labels.assert_called_once_with(team_id="2")
+            violations.labels.return_value.inc.assert_called_once_with(1)
+
+    def test_verification_is_skipped_when_the_flag_is_off(self):
+        with tempfile.TemporaryDirectory() as path:
+            self._write_existing(path)
+
+            with (
+                patch(f"{_PROCESSOR}.enrich_delete_rows", side_effect=lambda table, *_a, **_kw: table),
+                patch(f"{_PROCESSOR}.verify_delete_enrichment") as verify,
+            ):
+                _enrich_cdc_rows(
+                    self._batch([{"id": 1, "op": "D"}]),
+                    primary_keys=["id"],
+                    cdc_write_mode="incremental_merge",
+                    existing_delta_table=DeltaTable(path),
+                    batch_index=0,
+                )
+
+            verify.assert_not_called()
+
     def test_fills_toast_and_delete_rows_from_delta_state_and_drops_marker(self):
         with tempfile.TemporaryDirectory() as path:
             write_deltalake(

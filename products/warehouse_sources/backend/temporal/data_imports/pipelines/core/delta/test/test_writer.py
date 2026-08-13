@@ -136,6 +136,49 @@ class TestHasCommitWithMetadata:
         mock_delta.history.assert_called_once_with(limit=123)
 
 
+class TestLatestCommitMetadataValue:
+    @pytest.mark.asyncio
+    async def test_returns_none_when_no_delta_table(self):
+        writer = _make_writer()
+        with patch.object(writer._table, "get_delta_table", AsyncMock(return_value=None)):
+            assert await writer.latest_commit_metadata_value("cdc_max_seq") is None
+
+    @parameterized.expand(
+        [
+            ("flat_inlined", [{"operation": "MERGE", "cdc_max_seq": "42"}], "42"),
+            ("nested_dict", [{"userMetadata": {"cdc_max_seq": "42"}}], "42"),
+            ("nested_json_string", [{"userMetadata": json.dumps({"cdc_max_seq": "42"})}], "42"),
+            ("absent_from_history", [{"operation": "WRITE"}, {}], None),
+            ("invalid_json_skipped_then_found", [{"userMetadata": "not-json{"}, {"cdc_max_seq": "7"}], "7"),
+            # history is newest-first, so the newest commit carrying the key wins
+            ("newest_commit_wins", [{"cdc_max_seq": "90"}, {"cdc_max_seq": "10"}], "90"),
+            # commits without the key are skipped rather than terminating the scan
+            ("skips_commits_without_key", [{"operation": "OPTIMIZE"}, {"cdc_max_seq": "12"}], "12"),
+            # non-string values are normalised, since delta-rs may hand back ints
+            ("coerces_non_string", [{"cdc_max_seq": 55}], "55"),
+        ]
+    )
+    @pytest.mark.asyncio
+    async def test_layout(self, _name: str, history: list[dict], expected: str | None):
+        writer = _make_writer()
+        mock_delta = MagicMock()
+        mock_delta.history = MagicMock(return_value=history)
+
+        with patch.object(writer._table, "get_delta_table", AsyncMock(return_value=mock_delta)):
+            assert await writer.latest_commit_metadata_value("cdc_max_seq") == expected
+
+    @pytest.mark.asyncio
+    async def test_scan_limit_passed_to_history(self):
+        writer = _make_writer()
+        mock_delta = MagicMock()
+        mock_delta.history = MagicMock(return_value=[])
+
+        with patch.object(writer._table, "get_delta_table", AsyncMock(return_value=mock_delta)):
+            await writer.latest_commit_metadata_value("k", scan_limit=7)
+
+        mock_delta.history.assert_called_once_with(limit=7)
+
+
 class TestHasBatchBeenCommitted:
     @parameterized.expand(
         [

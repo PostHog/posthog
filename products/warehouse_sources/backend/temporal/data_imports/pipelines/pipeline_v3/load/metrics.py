@@ -47,6 +47,22 @@ DELTA_REPARTITION_SKIP_TOTAL = Counter(
     labelnames=["team_id", "reason"],
 )
 
+# CDC write resolution (see cdc/load_resolution.py). Ordering and delete semantics are resolved on
+# the batch before the write, because the engine that performs it (deltalite) cannot express them.
+CDC_SEQ_GUARD_ROWS_DROPPED_TOTAL = Counter(
+    "warehouse_load_cdc_seq_guard_rows_dropped_total",
+    "CDC rows dropped before the write as already-applied, by reason",
+    labelnames=["team_id", "reason"],
+)
+
+# Non-zero means a DELETE is about to erase data the target still holds — i.e. enrichment failed and
+# the upsert would replace the row with nulls. Alert on this; it has no other detector.
+CDC_DELETE_ENRICHMENT_VIOLATIONS_TOTAL = Counter(
+    "warehouse_load_cdc_delete_enrichment_violations_total",
+    "DELETE rows that would null a data column the target currently holds",
+    labelnames=["team_id"],
+)
+
 # deltalite real-write path (phase 2). `outcome` is one of:
 #   written    - deltalite performed the incremental merge and committed
 #   fallback   - deltalite was enabled but failed (or refused), so the delta-rs MERGE ran instead
