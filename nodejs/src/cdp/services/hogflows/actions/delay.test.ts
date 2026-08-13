@@ -1,6 +1,11 @@
 import { DateTime } from 'luxon'
 
-import { calculatedScheduledAt } from './delay'
+import { FixtureHogFlowBuilder } from '~/cdp/_tests/builders/hogflow.builder'
+import { createExampleHogFlowInvocation } from '~/cdp/_tests/fixtures-hogflows'
+
+import { findActionByType } from '../hogflow-utils'
+import { ActionHandlerResult } from './action.interface'
+import { DelayHandler, calculatedScheduledAt } from './delay'
 
 describe('calculatedScheduledAt', () => {
     let startedAtTimestamp: number
@@ -86,5 +91,134 @@ describe('calculatedScheduledAt', () => {
         it('should throw error if startedAtTimestamp is invalid', () => {
             expect(() => calculatedScheduledAt('1h', 0)).toThrow("'startedAtTimestamp' is not set or is invalid")
         })
+    })
+})
+
+describe('DelayHandler with delay_until', () => {
+    // Compiled by the HogQL compiler from `person.properties.trial_expiration_at`.
+    const EXPIRY_BYTECODE = ['_H', 1, 32, 'trial_expiration_at', 32, 'properties', 32, 'person', 1, 3]
+    const NOW = '2025-01-01T00:00:00.000Z'
+
+    const runDelay = async (
+        config: Record<string, any>,
+        personProperties: Record<string, any> = {}
+    ): Promise<ActionHandlerResult> => {
+        const hogFlow = new FixtureHogFlowBuilder()
+            .withWorkflow({
+                actions: {
+                    delay: { type: 'delay', config: config as any },
+                    exit: { type: 'exit', config: {} },
+                },
+                edges: [{ from: 'delay', to: 'exit', type: 'continue' }],
+            })
+            .build()
+        const action = findActionByType(hogFlow, 'delay')!
+        const invocation = createExampleHogFlowInvocation(hogFlow, {}, { properties: personProperties })
+        invocation.state.currentAction = {
+            id: action.id,
+            startedAtTimestamp: DateTime.fromISO(NOW).toMillis(),
+        }
+        return await new DelayHandler().execute({ invocation, action, result: {} as any })
+    }
+
+    const delayUntil = (overrides: Record<string, any> = {}): Record<string, any> => ({
+        delay_until: {
+            expression: 'person.properties.trial_expiration_at',
+            bytecode: EXPIRY_BYTECODE,
+            ...overrides,
+        },
+    })
+
+    beforeEach(() => {
+        jest.useFakeTimers()
+        jest.setSystemTime(new Date(NOW))
+    })
+
+    afterEach(() => {
+        jest.useRealTimers()
+    })
+
+    // A stored date reaches the VM in whichever shape the customer set it, and all of these have to park to
+    // the same instant — the step exists to follow their data rather than dictate a format.
+    it.each([
+        ['ISO string', '2025-01-08T00:00:00.000Z'],
+        ['ISO string with no offset, read as UTC', '2025-01-08T00:00:00'],
+        ['unix seconds', DateTime.fromISO('2025-01-08T00:00:00.000Z').toSeconds()],
+        [
+            'HogDateTime',
+            { __hogDateTime__: true, dt: DateTime.fromISO('2025-01-08T00:00:00.000Z').toSeconds(), zone: 'UTC' },
+        ],
+    ])('parks until a date given as %s', async (_label, value) => {
+        const result = await runDelay(delayUntil(), { trial_expiration_at: value })
+
+        expect(result.scheduledAt?.toISO()).toBe(DateTime.fromISO('2025-01-08T00:00:00.000Z').toUTC().toISO())
+        // Parking must not advance the step, or the matcher could wake the run and collapse the wait.
+        expect(result.nextAction).toBeUndefined()
+    })
+
+    // Why a bare property picker is not enough: the reminder has to fire before the stored date.
+    it.each([
+        ['a day before', '-1d', '2025-01-07T00:00:00.000Z'],
+        ['three days before', '-3d', '2025-01-05T00:00:00.000Z'],
+        ['two hours after', '2h', '2025-01-08T02:00:00.000Z'],
+    ])('applies an offset of %s', async (_label, offset, expected) => {
+        const result = await runDelay(delayUntil({ offset }), { trial_expiration_at: '2025-01-08T00:00:00.000Z' })
+
+        expect(result.scheduledAt?.toISO()).toBe(DateTime.fromISO(expected).toUTC().toISO())
+    })
+
+    it('continues immediately when the date has already passed', async () => {
+        const result = await runDelay(delayUntil(), { trial_expiration_at: '2024-12-01T00:00:00.000Z' })
+
+        expect(result.scheduledAt).toBeUndefined()
+        expect(result.nextAction?.type).toBe('exit')
+    })
+
+    it('continues when the offset pulls the date into the past', async () => {
+        // "Three days before" a date only one day out, so the reminder moment has already gone.
+        const result = await runDelay(delayUntil({ offset: '-3d' }), {
+            trial_expiration_at: '2025-01-02T00:00:00.000Z',
+        })
+
+        expect(result.nextAction?.type).toBe('exit')
+    })
+
+    it('clamps a far-future date to the default maximum', async () => {
+        const result = await runDelay(delayUntil(), { trial_expiration_at: '2030-01-01T00:00:00.000Z' })
+
+        // 30 days past the step's start, not five years: an unbounded park would strand the run.
+        expect(result.scheduledAt?.toISO()).toBe(DateTime.fromISO(NOW).toUTC().plus({ days: 30 }).toISO())
+    })
+
+    it('honours a configured maximum', async () => {
+        const result = await runDelay(
+            { ...delayUntil(), max_delay_duration: '2d' },
+            { trial_expiration_at: '2025-01-08T00:00:00.000Z' }
+        )
+
+        expect(result.scheduledAt?.toISO()).toBe(DateTime.fromISO(NOW).toUTC().plus({ days: 2 }).toISO())
+    })
+
+    // Failing is deliberate. Continuing would run the next step at once, which for a "before X" reminder
+    // sends the wrong message rather than none; erroring leaves the choice to the step's error handling.
+    it.each([
+        ['the property is missing', {}],
+        ['the property is not a date', { trial_expiration_at: 'whenever' }],
+    ])('fails when %s', async (_label, personProperties) => {
+        await expect(runDelay(delayUntil(), personProperties)).rejects.toThrow(
+            'The date to wait for did not evaluate to a date'
+        )
+    })
+
+    it('fails when the expression was never compiled', async () => {
+        await expect(
+            runDelay({ delay_until: { expression: 'person.properties.x', bytecode_error: 'boom' } })
+        ).rejects.toThrow('Could not read the date to wait for: boom')
+    })
+
+    it('still delays by a fixed duration when that is what is configured', async () => {
+        const result = await runDelay({ delay_duration: '2h' })
+
+        expect(result.scheduledAt?.toISO()).toBe(DateTime.fromISO(NOW).toUTC().plus({ hours: 2 }).toISO())
     })
 })

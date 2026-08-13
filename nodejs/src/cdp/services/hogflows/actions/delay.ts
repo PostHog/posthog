@@ -1,19 +1,23 @@
 import { DateTime, DurationLike } from 'luxon'
 
 import { HogFlowAction } from '~/cdp/schema/hogflow'
+import { CyclotronJobInvocationHogFlow } from '~/cdp/types'
+import { execHog } from '~/cdp/utils/hog-exec'
 
 import { findContinueAction } from '../hogflow-utils'
 import { ActionHandler, ActionHandlerOptions, ActionHandlerResult } from './action.interface'
 
 export class DelayHandler implements ActionHandler {
-    execute({
+    async execute({
         invocation,
         action,
-    }: ActionHandlerOptions<Extract<HogFlowAction, { type: 'delay' }>>): ActionHandlerResult {
-        const nextScheduledAt = calculatedScheduledAt(
-            action.config.delay_duration,
-            invocation.state.currentAction?.startedAtTimestamp
-        )
+    }: ActionHandlerOptions<Extract<HogFlowAction, { type: 'delay' }>>): Promise<ActionHandlerResult> {
+        const nextScheduledAt = action.config.delay_until
+            ? await scheduledAtFromInstant(action, invocation)
+            : calculatedScheduledAt(
+                  action.config.delay_duration ?? '',
+                  invocation.state.currentAction?.startedAtTimestamp
+              )
 
         // While the delay is still pending, park WITHOUT advancing currentAction. Advancing eagerly
         // (returning nextAction alongside scheduledAt) made the job look like it was already at the
@@ -31,6 +35,100 @@ export class DelayHandler implements ActionHandler {
 // Value is expected to be like `10d` or `1.5h` or `10m`
 
 const DURATION_REGEX = /^(\d*\.?\d+)([dhms])$/
+
+// Same shape as a duration, with an optional leading sign so an offset can point before the instant.
+const OFFSET_REGEX = /^(-?)(\d*\.?\d+)([dhms])$/
+
+const DEFAULT_MAX_DELAY_UNTIL = '30d'
+
+/** Seconds for a duration string, using the same units and per-unit ceilings as a fixed delay. */
+function durationSeconds(value: string): number | null {
+    const match = OFFSET_REGEX.exec(value)
+    if (!match) {
+        return null
+    }
+    const [, sign, amountString, unit] = match
+    const perUnit: Record<string, number> = { d: 86400, h: 3600, m: 60, s: 1 }
+    const capped = Math.min(MAX_VALUE_FOR_DURATION_UNIT[unit], parseFloat(amountString))
+    return (sign === '-' ? -1 : 1) * capped * perUnit[unit]
+}
+
+/** The instant a `delay_until` expression evaluates to, or null when it yields nothing usable. */
+function instantFromHogValue(value: unknown): DateTime | null {
+    if (value && typeof value === 'object' && '__hogDateTime__' in (value as Record<string, unknown>)) {
+        const seconds = (value as { dt?: unknown }).dt
+        return typeof seconds === 'number' ? DateTime.fromSeconds(seconds, { zone: 'UTC' }) : null
+    }
+    if (typeof value === 'number') {
+        // Unix seconds, matching toUnixTimestamp(). Milliseconds would put the instant ~50,000 years out,
+        // which the max-delay clamp would swallow silently, so reject rather than guess the unit.
+        const asSeconds = DateTime.fromSeconds(value, { zone: 'UTC' })
+        return asSeconds.isValid ? asSeconds : null
+    }
+    if (typeof value === 'string') {
+        const parsed = DateTime.fromISO(value, { zone: 'UTC' })
+        return parsed.isValid ? parsed : null
+    }
+    return null
+}
+
+/**
+ * When to continue for a `delay_until` step: the instant its expression evaluates to, plus any offset,
+ * clamped to `max_delay_duration` past the step's start. Returns null once that instant has passed.
+ *
+ * Re-evaluated on every wake rather than only on entry, so a stored date that moves while the run is
+ * parked is honoured — the behaviour a clock-based `wait_until_condition` had, without needing a poll to
+ * notice. Waking early is free; the step simply re-parks to the new instant.
+ */
+async function scheduledAtFromInstant(
+    action: Extract<HogFlowAction, { type: 'delay' }>,
+    invocation: CyclotronJobInvocationHogFlow
+): Promise<DateTime | null> {
+    const config = action.config.delay_until!
+    const startedAtTimestamp = invocation.state.currentAction?.startedAtTimestamp
+    if (!startedAtTimestamp) {
+        throw new Error("'startedAtTimestamp' is not set or is invalid")
+    }
+
+    if (!Array.isArray(config.bytecode) || config.bytecode.length === 0) {
+        throw new Error(`Could not read the date to wait for: ${config.bytecode_error ?? 'no compiled expression'}`)
+    }
+
+    const globals = { ...invocation.filterGlobals, variables: invocation.state.variables }
+    const { execResult, error } = await execHog(config.bytecode, { globals })
+    if (error || execResult?.error) {
+        throw new Error(`Could not read the date to wait for: ${String(error ?? execResult?.error)}`)
+    }
+
+    // A resumed invocation rebuilds its globals from stored state, which can arrive without the event
+    // properties the expression reads. Re-evaluating is still worth attempting on every wake, because it is
+    // what lets a stored date that moved while parked be honoured — but it must not strand a run that
+    // already resolved once, so fall back to the instant recorded on the first park.
+    const previous = invocation.state.currentAction?.delayUntilAt
+    const instant = instantFromHogValue(execResult?.result) ?? (previous ? DateTime.fromISO(previous) : null)
+    if (!instant) {
+        // Continuing here would fire the next step immediately, which for a "before X happens" reminder is
+        // worse than surfacing it: the step fails and its own error handling decides whether to go on.
+        throw new Error('The date to wait for did not evaluate to a date')
+    }
+    if (invocation.state.currentAction) {
+        invocation.state.currentAction.delayUntilAt = instant.toISO() ?? undefined
+    }
+
+    const offsetSeconds = config.offset ? durationSeconds(config.offset) : 0
+    if (offsetSeconds === null) {
+        throw new Error(`Invalid offset: ${config.offset}`)
+    }
+
+    const target = instant.plus({ seconds: offsetSeconds })
+    const maxSeconds = durationSeconds(action.config.max_delay_duration ?? DEFAULT_MAX_DELAY_UNTIL)
+    const cap = DateTime.fromMillis(startedAtTimestamp)
+        .toUTC()
+        .plus({ seconds: maxSeconds ?? 0 })
+    const scheduledAt = target > cap ? cap : target
+
+    return DateTime.utc() >= scheduledAt ? null : scheduledAt
+}
 
 const MAX_VALUE_FOR_DURATION_UNIT: Record<string, number> = {
     d: 30,

@@ -381,6 +381,10 @@ export type HogFlowInvocationContext = {
     currentAction?: {
         id: string
         startedAtTimestamp: number
+        // The instant a delay_until step resolved to when it first parked, as an ISO string. A resumed
+        // invocation rebuilds its filter globals from stored state, which can arrive without the event
+        // properties the expression reads, so re-evaluating on wake is allowed to fail back to this.
+        delayUntilAt?: string
         hogFunctionState?: CyclotronJobInvocationHogFunctionContext
         // Set by the subscription matcher consumer when it wakes a wait_until_condition
         // job because a matching event arrived (as opposed to a scheduled timeout firing).

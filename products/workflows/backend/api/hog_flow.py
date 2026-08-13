@@ -31,6 +31,10 @@ from rest_framework.serializers import BaseSerializer
 
 from posthog.schema import ProductKey
 
+from posthog.hogql.compiler.bytecode import create_bytecode
+from posthog.hogql.context import HogQLContext
+from posthog.hogql.parser import parse_expr
+
 from posthog.api.app_metrics2 import AppMetricsMixin, fetch_app_metric_totals_by_source
 from posthog.api.documentation import _FallbackSerializer
 from posthog.api.hog_invocation_rerun import HogInvocationRerunRequestSerializer, HogInvocationRerunResponseSerializer
@@ -139,6 +143,9 @@ logger = structlog.get_logger(__name__)
 # wait_until_condition's max_wait_duration reaches the same parser via conditional_branch.ts, so it
 # is held to the same format.
 DELAY_DURATION_REGEX = re.compile(r"^\d*\.?\d+[dhms]$")
+
+# A delay_until offset is the same shape, signed, so it can point before the date it is offsetting.
+DELAY_OFFSET_REGEX = re.compile(r"^-?\d*\.?\d+[dhms]$")
 
 
 def _is_valid_duration(value: Any) -> bool:
@@ -1325,10 +1332,59 @@ class HogFlowActionSerializer(serializers.Serializer):
                 raise serializers.ValidationError({"config": _duration_error("max_wait_duration")})
 
         if data.get("type") == "delay":
-            if strict and not _is_valid_duration(data.get("config", {}).get("delay_duration")):
-                raise serializers.ValidationError({"config": _duration_error("delay_duration")})
+            self._validate_delay(data, strict)
 
         return data
+
+    def _validate_delay(self, data: dict, strict: bool) -> None:
+        """A delay waits either a fixed span or until a date carried by the person or event, never both."""
+        config = data.get("config") or {}
+        delay_until = config.get("delay_until")
+
+        if delay_until is None:
+            if strict and not _is_valid_duration(config.get("delay_duration")):
+                raise serializers.ValidationError({"config": _duration_error("delay_duration")})
+            return
+
+        if config.get("delay_duration"):
+            raise serializers.ValidationError(
+                {"config": "A delay takes either delay_duration or delay_until, not both."}
+            )
+        if not isinstance(delay_until, dict):
+            raise serializers.ValidationError({"config": "delay_until must be an object with an 'expression'."})
+
+        expression = delay_until.get("expression")
+        if not isinstance(expression, str) or not expression.strip():
+            raise serializers.ValidationError({"config": "delay_until.expression is required and must be SQL."})
+
+        offset = delay_until.get("offset")
+        if offset is not None and not (isinstance(offset, str) and DELAY_OFFSET_REGEX.match(offset)):
+            raise serializers.ValidationError(
+                {
+                    "config": (
+                        "delay_until.offset must be a string matching ^-?\\d*\\.?\\d+[dhms]$ "
+                        "(e.g. '-1d' for a day before the date, '2h' for two hours after)."
+                    )
+                }
+            )
+
+        max_delay_duration = config.get("max_delay_duration")
+        if max_delay_duration is not None and not _is_valid_duration(max_delay_duration):
+            raise serializers.ValidationError({"config": _duration_error("max_delay_duration")})
+
+        # Compiled here rather than trusted from the client, as the executor runs whatever bytecode it finds.
+        # Compiling also surfaces a broken expression at save time instead of at the first run that reaches it.
+        try:
+            bytecode = create_bytecode(
+                parse_expr(expression), context=HogQLContext(team_id=self.context["get_team"]().id)
+            ).bytecode
+        except Exception as e:
+            raise serializers.ValidationError({"config": f"delay_until.expression could not be read as SQL: {e}"})
+
+        data["config"]["delay_until"] = {
+            **{k: v for k, v in delay_until.items() if k not in ("bytecode", "bytecode_error")},
+            "bytecode": bytecode,
+        }
 
 
 class HogFlowVariableSerializer(serializers.ListSerializer):
