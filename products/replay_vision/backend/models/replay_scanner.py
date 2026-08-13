@@ -185,6 +185,15 @@ class ReplayScanner(UUIDModel):
         help_text="When the estimate was last computed. Refreshed on config saves and by the sweep when stale.",
     )
 
+    # Not "monthly": this resets with the org's billing period, which is only a calendar month
+    # until billing syncs a real one. See quota.current_period_bounds.
+    credit_limit = models.PositiveIntegerField(
+        null=True,
+        blank=True,
+        validators=[MinValueValidator(1)],
+        help_text="Optional cap on this scanner's own credit spend per billing period. Null means no scanner-level cap.",
+    )
+
     created_at = models.DateTimeField(auto_now_add=True)
     created_by = models.ForeignKey("posthog.User", on_delete=models.SET_NULL, null=True, blank=True, related_name="+")
     updated_at = models.DateTimeField(auto_now=True)
@@ -219,6 +228,12 @@ class ReplayScanner(UUIDModel):
             models.CheckConstraint(
                 condition=models.Q(sampling_rate__gte=0.0) & models.Q(sampling_rate__lte=1.0),
                 name="replay_scanner_sampling_rate_range",
+            ),
+            # A stray 0 would read as "block every observation" to the quota check, and be
+            # indistinguishable from an unset cap. NULL stays valid: it means no scanner-level cap.
+            models.CheckConstraint(
+                condition=models.Q(credit_limit__isnull=True) | models.Q(credit_limit__gte=1),
+                name="replay_scanner_credit_limit_positive",
             ),
         ]
         indexes = [
