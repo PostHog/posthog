@@ -5,6 +5,7 @@ from itertools import zip_longest
 from unittest import TestCase
 
 from hypothesis import (
+    assume,
     given,
     settings,
     strategies as st,
@@ -189,6 +190,15 @@ class TestMinePatterns(TestCase):
         patterns = mine_patterns([_sample(line)])
 
         assert "<host>" not in patterns[0].pattern
+
+    def test_a_name_that_starts_with_an_address_masks_the_address_first(self) -> None:
+        # Wildcard-DNS names carry an address in their leading labels ("10.0.0.1.nip.io"), and
+        # ip runs before host by design, so the address masks and the domain masks after it.
+        # Both halves are variable and both are covered; the order is what this pins, because
+        # letting host win would bury the address a reader opened the pattern for.
+        patterns = mine_patterns([_sample("upstream 10.0.0.1.nip.io refused")])
+
+        assert patterns[0].pattern == "upstream <ip>.<host> refused"
 
     def test_a_dotted_run_longer_than_any_hostname_keeps_its_head_literal(self) -> None:
         # The label repeat is capped because an uncapped one retries the suffix alternation at
@@ -418,6 +428,15 @@ _label_st = st.text("abcdefghijklmnopqrstuvwxyz0123456789", min_size=1, max_size
 _non_suffix_label_st = _label_st.filter(lambda label: label not in _HOST_SUFFIXES)
 
 
+# A name whose first four labels are a dotted quad ("0.0.0.0.ai", "10.0.0.1.nip.io") is an
+# address with a domain after it, and ip runs before host by design, so it masks as "<ip>.<host>"
+# rather than a single placeholder. That precedence has its own case above; excluding the shape
+# here keeps this strategy to names the host mask alone owns.
+# The trailing guards mirror the ip mask's own: a fifth label that starts with a digit makes the
+# leading quad the head of a longer dotted run, which the mask leaves alone.
+_LEADING_ADDRESS_RE = re.compile(r"^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}(?!\d)(?!\.\d)")
+
+
 # Up to five labels before the suffix, past the deepest names that show up in real logs
 # ("pod.ns.svc.cluster.local", "a.b.c.example.co.uk"). The mask caps how many labels it will
 # consume, and this range is deliberately not derived from that cap: tightening the cap below
@@ -425,7 +444,9 @@ _non_suffix_label_st = _label_st.filter(lambda label: label not in _HOST_SUFFIXE
 @st.composite
 def _fqdn_st(draw: st.DrawFn) -> str:
     labels = draw(st.lists(_non_suffix_label_st, min_size=1, max_size=5))
-    return ".".join([*labels, draw(st.sampled_from(_HOST_SUFFIXES))])
+    name = ".".join([*labels, draw(st.sampled_from(_HOST_SUFFIXES))])
+    assume(not _LEADING_ADDRESS_RE.match(name))
+    return name
 
 
 @st.composite
