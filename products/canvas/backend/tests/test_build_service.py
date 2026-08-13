@@ -7,6 +7,8 @@ from unittest.mock import patch
 from django.test import override_settings
 from django.utils import timezone
 
+from parameterized import parameterized
+
 from posthog.models.scoping import team_scope
 
 from products.canvas.backend import build_service
@@ -63,7 +65,7 @@ class BuildServiceBaseTest(APIBaseTest):
             has_expected_version=False,
             expected_version_id=None,
             task_id=None,
-            created_by_id=None,
+            created_by=None,
         )
         self.canvas.refresh_from_db()
         return build
@@ -84,6 +86,32 @@ class TestRunCanvasBuild(BuildServiceBaseTest):
         assert self.canvas.published_build_id == build.id
         entry_key = f"{build.artifact_object_prefix}/index.html"
         assert self.storage.objects[entry_key] == b"<html></html>"
+
+    def test_draft_build_ready_does_not_advance_pointer(self):
+        published = self._publish()
+        with patch.object(
+            build_service, "run_cloud_builder", return_value=_builder_result({"index.html": "<html></html>"})
+        ):
+            build_service.run_canvas_build(self.team.id, str(published.id))
+        self.canvas.refresh_from_db()
+
+        _version, draft_build, _widening = build_service.create_draft_version(
+            self.canvas,
+            project=synthetic_source_project("export default function C() { return 2 }"),
+            prompt=None,
+            task_id=None,
+            created_by=None,
+        )
+        with patch.object(
+            build_service, "run_cloud_builder", return_value=_builder_result({"index.html": "<html>2</html>"})
+        ):
+            build_service.run_canvas_build(self.team.id, str(draft_build.id))
+
+        draft_build.refresh_from_db()
+        self.canvas.refresh_from_db()
+        assert draft_build.status == CanvasBuild.STATUS_READY
+        assert draft_build.artifact_object_prefix
+        assert self.canvas.published_build_id == published.id
 
     def test_stale_head_does_not_advance_pointer(self):
         build = self._publish()
@@ -187,6 +215,35 @@ class TestRunCanvasBuild(BuildServiceBaseTest):
         self.canvas.refresh_from_db()
         assert build.status == CanvasBuild.STATUS_FAILED
         assert self.canvas.published_build_id is None
+
+    @parameterized.expand(
+        [
+            ("ready", _builder_result({"index.html": "<html></html>"}), []),
+            (
+                "failed",
+                {
+                    "contractVersion": 1,
+                    "status": "failed",
+                    "diagnostics": [{"severity": "error", "code": "bundle_error", "message": "boom"}],
+                },
+                ["bundle_error"],
+            ),
+        ]
+    )
+    def test_terminal_build_captures_its_outcome(self, outcome: str, builder_result: dict, error_codes: list[str]):
+        # The capture is wrapped in a catch-all so telemetry never fails a build, which
+        # would let a broken payload lose the event silently.
+        build = self._publish()
+        with patch.object(build_service, "ph_background_capture") as capture:
+            with self.captureOnCommitCallbacks(execute=True):
+                with patch.object(build_service, "run_cloud_builder", return_value=builder_result):
+                    build_service.run_canvas_build(self.team.id, str(build.id))
+
+        properties = capture.return_value.call_args.kwargs["properties"]
+        assert capture.return_value.call_args.kwargs["event"] == "canvas build completed"
+        assert properties["outcome"] == outcome
+        assert properties["error_codes"] == error_codes
+        assert properties["build_id"] == str(build.id)
 
 
 class TestSweeper(BuildServiceBaseTest):
@@ -317,7 +374,7 @@ class TestLegacySourcePreservation(BuildServiceBaseTest):
             has_expected_version=True,
             expected_version_id=None,
             task_id=None,
-            created_by_id=None,
+            created_by=None,
         )
 
         head = CanvasSourceVersion.objects.unscoped().get(pk=version.id)

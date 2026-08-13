@@ -311,16 +311,16 @@ def _state_claim_candidates_sql(sync_type_scope: str = "") -> str:
     lost its parquet to retention, so it must never be claimed. The gates keep
     ``PARTITION_PRUNING_INTERVAL`` for the same reason the sync-type scope
     stays out of them — they must see every row that still exists.
+
+    Selects only the join-back keys ``(id, created_at)``. The caller's fairness
+    ranking sorts the entire claimable set before its LIMIT can apply, so the
+    sort input must stay narrow: selecting the wide row here (``metadata``
+    alone is ~1 KB per batch) made every poll sort megabytes-to-gigabytes of
+    payload to keep ~50 rows, spilling past ``work_mem`` to disk once a backlog
+    built up and degrading the whole fleet's polls with it.
     """
     return f"""
-        SELECT
-            b.id, b.team_id, b.schema_id, b.source_id, b.job_id,
-            b.run_uuid, b.batch_index, b.s3_path, b.row_count, b.byte_size,
-            b.is_final_batch, b.total_batches, b.total_rows, b.sync_type,
-            b.cumulative_row_count, b.resource_name, b.is_resume,
-            b.is_first_ever_sync, b.metadata,
-            b.latest_attempt,
-            b.created_at
+        SELECT b.id, b.created_at
         FROM {BATCH_TABLE} b
         WHERE
             b.created_at > now() - interval '{CLAIM_ELIGIBILITY_INTERVAL}'
@@ -633,6 +633,13 @@ class BatchQueue:
         dropped by the ``JOIN claimed``. This replaces the old session advisory
         lock so an abandoned group simply expires rather than wedging the fleet.
 
+        Ranking runs over narrow ``(id, created_at)`` candidates and the wide
+        rows are fetched only for the LIMIT winners (the ``candidates``
+        join-back, ~LIMIT primary-key probes): the fairness sort has to process
+        the whole claimable set, so its input must stay narrow or a backlog
+        turns every poll into a disk-spilling sort of full rows (see
+        :func:`_state_claim_candidates_sql`).
+
         Uses a MATERIALIZED CTE so that candidate selection (with LIMIT) is
         fully resolved before the lease claim runs. ``candidate_groups`` is
         ``SELECT DISTINCT`` because ``INSERT ... ON CONFLICT DO UPDATE`` cannot
@@ -681,7 +688,7 @@ class BatchQueue:
         async with conn.cursor(row_factory=dict_row) as cur:
             await cur.execute(
                 f"""
-                WITH candidates AS MATERIALIZED (
+                WITH narrow AS MATERIALIZED (
                     {candidates_sql}
                         AND NOT EXISTS (
                             SELECT 1
@@ -698,6 +705,18 @@ class BatchQueue:
                         b.created_at ASC,
                         b.batch_index ASC
                     LIMIT %(limit)s
+                ),
+                candidates AS MATERIALIZED (
+                    SELECT
+                        b.id, b.team_id, b.schema_id, b.source_id, b.job_id,
+                        b.run_uuid, b.batch_index, b.s3_path, b.row_count, b.byte_size,
+                        b.is_final_batch, b.total_batches, b.total_rows, b.sync_type,
+                        b.cumulative_row_count, b.resource_name, b.is_resume,
+                        b.is_first_ever_sync, b.metadata,
+                        b.latest_attempt,
+                        b.created_at
+                    FROM {BATCH_TABLE} b
+                    JOIN narrow n ON n.id = b.id AND n.created_at = b.created_at
                 ),
                 candidate_groups AS (
                     SELECT DISTINCT team_id, schema_id FROM candidates
@@ -1049,13 +1068,43 @@ class BatchQueue:
         *,
         job_id: str,
         current_run_uuid: str,
+        progress_stale_seconds: int = TAKEOVER_STALE_THRESHOLD_SECONDS,
     ) -> int:
-        """Mark non-terminal batches from older runs of the same job as superseded."""
+        """Mark non-terminal batches from *stalled* older runs of the same job as superseded.
+
+        A run the loader is still working through is spared: any batch whose latest
+        state is 'executing', 'succeeded', or 'waiting_retry' with ``state_changed_at``
+        within ``progress_stale_seconds`` counts as loader progress. Superseding such a
+        run destroys partially loaded work and, repeated on a timer, can re-enqueue a
+        large table from zero forever while flooding the queue with failed rows. A run
+        with no such write is genuinely stalled and still gets superseded, so dead runs
+        recover here on the same clock as the stranded-run reconcile sweep.
+
+        Progress is judged on active-state transitions only: 'pending'/'waiting' rows
+        are producer output the loader never touched (superseding an unstarted backlog
+        loses nothing, since this run re-enqueues equivalent data), and 'failed' is
+        terminal. Heartbeats refresh only the status log, not ``state_changed_at``, so
+        a wedged-but-heartbeating loader cannot keep a run unsupersedable forever.
+
+        A spared run that stalls later is not re-checked here (this fires once, at the
+        new run's first batch); the reconcile sweep's stranded-run pass owns that case.
+        """
         cursor = conn.execute(
-            _bulk_fail_dual_write_sql("b.job_id = %(job_id)s AND b.run_uuid != %(current_run_uuid)s"),
+            _bulk_fail_dual_write_sql(
+                f"""b.job_id = %(job_id)s AND b.run_uuid != %(current_run_uuid)s
+                AND NOT EXISTS (
+                    SELECT 1
+                    FROM {BATCH_TABLE} b_live
+                    WHERE b_live.run_uuid = b.run_uuid
+                        AND b_live.created_at > now() - interval '{PARTITION_PRUNING_INTERVAL}'
+                        AND b_live.latest_state IN ('executing', 'succeeded', 'waiting_retry')
+                        AND b_live.state_changed_at > now() - make_interval(secs => %(progress_stale)s)
+                )"""
+            ),
             {
                 "job_id": job_id,
                 "current_run_uuid": current_run_uuid,
+                "progress_stale": progress_stale_seconds,
                 "error_response": json.dumps({"error": "superseded by newer attempt", "superseded": True}),
             },
         )

@@ -38,6 +38,13 @@ from products.warehouse_sources.backend.types import IncrementalFieldType
 
 logger = structlog.get_logger(__name__)
 
+# Graph API versions this source can sync against, as opaque vendor labels copied verbatim
+# from Meta's changelog — never parsed or ordered. The resolved source pin is threaded into
+# every request URL's `{API_VERSION}` segment by `meta_ads_source`.
+# https://developers.facebook.com/docs/graph-api/changelog
+META_ADS_API_VERSION_V25 = "v25.0"
+META_ADS_API_VERSION_V26 = "v26.0"
+
 # Meta Ads API only supports data from the last 3 years. Meta's insights endpoints
 # reject a `time_range` whose start is beyond ~37 months from today with error code
 # 3018 ("The start date of the time range cannot be beyond 37 months from the current
@@ -240,9 +247,11 @@ TIME_RANGE_CHUNK_SIZES = [30, 7, 1]
 # Per-page row limits for adaptive pagination. When the Graph API times out
 # mid-chunk (i.e. on a paging.next cursor request, after we've already yielded
 # rows from the chunk), shrinking the chunk's date range would force us to
-# re-issue earlier pages and re-emit rows we've already produced. Instead we
-# shrink the per-page ``limit`` and retry the same cursor URL — Meta accepts
-# ``limit`` as a query param on cursor URLs.
+# re-issue earlier pages and re-emit rows we've already produced. So we prefer
+# to shrink the per-page ``limit`` and retry the same cursor URL, which Meta
+# accepts as a query param on cursor URLs. Only once this ladder bottoms out
+# does the chunk ladder take over, because a re-emit costs less than a dead sync
+# and every stats table keys on its breakdown columns, so the rows upsert.
 PAGE_LIMIT_FALLBACK_SIZES = [500, 100, 50]
 
 # Meta's Graph API intermittently returns HTTP 200 with a truncated/partial JSON
@@ -279,6 +288,22 @@ def _next_smaller_limit(current: int) -> int | None:
             return None
         return PAGE_LIMIT_FALLBACK_SIZES[idx + 1]
     smaller = [s for s in PAGE_LIMIT_FALLBACK_SIZES if s < current]
+    return max(smaller) if smaller else None
+
+
+def _next_smaller_chunk_size(current: int) -> int | None:
+    """Return the next smaller value in ``TIME_RANGE_CHUNK_SIZES``.
+
+    Returns ``None`` if ``current`` is already at or below the smallest rung. A
+    resumed sync can carry a chunk size that predates the current ladder, so an
+    off-ladder value steps to the largest rung below it rather than giving up.
+    """
+    if current in TIME_RANGE_CHUNK_SIZES:
+        idx = TIME_RANGE_CHUNK_SIZES.index(current)
+        if idx >= len(TIME_RANGE_CHUNK_SIZES) - 1:
+            return None
+        return TIME_RANGE_CHUNK_SIZES[idx + 1]
+    smaller = [s for s in TIME_RANGE_CHUNK_SIZES if s < current]
     return max(smaller) if smaller else None
 
 
@@ -679,13 +704,14 @@ def _iter_time_range_pagination(
     follows ``paging.next`` within each chunk. There are two adaptive-fallback
     dimensions:
 
-    - **Chunk size** (``TIME_RANGE_CHUNK_SIZES``): shrunk only when the
-      *initial* chunk request times out, before any rows are yielded.
-    - **Page limit** (``PAGE_LIMIT_FALLBACK_SIZES``): shrunk when a *cursor*
-      request inside the chunk times out, after we've already yielded earlier
-      pages from this chunk. We must not re-shrink the chunk here — that would
-      force re-yielding rows we already produced. Instead we override the
-      ``limit`` query param on the same cursor URL and retry.
+    - **Chunk size** (``TIME_RANGE_CHUNK_SIZES``): shrunk when the *initial*
+      chunk request times out, before any rows are yielded, and as the last
+      resort for a *cursor* timeout once the page limit bottoms out.
+    - **Page limit** (``PAGE_LIMIT_FALLBACK_SIZES``): the first lever for a
+      *cursor* request that times out after we already yielded earlier pages
+      from this chunk. Overriding the ``limit`` on the same cursor URL leaves
+      those pages alone, so we exhaust this ladder before restarting the chunk
+      at a smaller size and re-yielding them.
 
     Resume state captures both levels: ``chunk_since`` + ``chunk_size_days``
     for the outer loop, ``chunk_next_url`` when the crash happened mid-chunk,
@@ -733,6 +759,9 @@ def _iter_time_range_pagination(
         # Params of the initial chunk request, kept so a truncated 200 body can be
         # re-fetched. Only set on the non-resume path; unused once we're on a cursor.
         chunk_params: dict | None = None
+        # Set when the page-limit ladder bottoms out mid-chunk and a smaller chunk
+        # takes over, so the outer loop restarts this chunk instead of advancing.
+        restart_chunk = False
 
         if pending_next_url:
             # Mid-chunk resume: re-attach a fresh access_token at request time
@@ -752,11 +781,10 @@ def _iter_time_range_pagination(
             if response.status_code != 200:
                 # Fallback only happens on the initial chunk request (before any data is yielded).
                 if _should_shrink_request(response):
-                    if chunk_size_days in TIME_RANGE_CHUNK_SIZES:
-                        current_index = TIME_RANGE_CHUNK_SIZES.index(chunk_size_days)
-                        if current_index < len(TIME_RANGE_CHUNK_SIZES) - 1:
-                            chunk_size_days = TIME_RANGE_CHUNK_SIZES[current_index + 1]
-                            continue
+                    smaller_chunk = _next_smaller_chunk_size(chunk_size_days)
+                    if smaller_chunk is not None:
+                        chunk_size_days = smaller_chunk
+                        continue
                     # The date range is already a single day, so the page size
                     # is the only dimension left. Re-issuing the same chunk at a
                     # smaller limit is safe: nothing has been yielded yet.
@@ -780,6 +808,20 @@ def _iter_time_range_pagination(
                         retry_url = _override_limit(last_paging_url, current_limit)
                         response = _fetch_paging_url(retry_url, access_token)
                         continue
+                    # The page limit cannot go lower, so narrow the window instead and
+                    # restart this chunk from its first day. Meta prices an insights
+                    # request on the window and the breakdown, not on the page size, so
+                    # a chunk this heavy keeps timing out at every limit. Re-yielding
+                    # the chunk's earlier pages costs a merge that the primary key
+                    # already dedupes, which beats failing the whole sync.
+                    smaller_chunk = _next_smaller_chunk_size(chunk_size_days)
+                    if smaller_chunk is not None:
+                        chunk_size_days = smaller_chunk
+                        # Drop the saved cursor. It encodes the wider window, so a
+                        # resume has to re-enter this chunk at the new size.
+                        _save(current_start, chunk_size_days, None)
+                        restart_chunk = True
+                        break
                     _raise_shrink_exhausted_error(response)
                 _raise_meta_api_error(response)
 
@@ -816,6 +858,9 @@ def _iter_time_range_pagination(
             _save(current_start, chunk_size_days, stripped_next_url)
             last_paging_url = stripped_next_url
             response = _fetch_paging_url(_override_limit(stripped_next_url, current_limit), access_token)
+
+        if restart_chunk:
+            continue
 
         current_start = current_end + dt.timedelta(days=1)
         # Always save the chunk-boundary state, even when we've advanced past
@@ -860,17 +905,45 @@ def _make_paginated_api_request(
         yield from _iter_time_range_pagination(url, params, time_range, resume_config, resumable_source_manager)
 
 
+def _attribution_params(config: MetaAdsSourceConfig) -> dict[str, str]:
+    """Attribution settings to add to an Insights request, only when the source configures them.
+
+    Omitted entirely when unset, so existing connections keep Meta's default attribution and
+    produce byte-for-byte the same request as before. When set, they let a user reconcile
+    PostHog's spend and conversion numbers with what Ads Manager shows.
+
+    - ``action_attribution_windows``: a comma-separated list in config (e.g. ``7d_click,1d_view``),
+      sent JSON-encoded the way Meta's Graph API accepts a list parameter.
+    - ``use_unified_attribution_setting``: a string flag (``"true"``/``"false"``) sent verbatim;
+      any other value (including the "use Meta's default" empty option) leaves it unset.
+    """
+    params: dict[str, str] = {}
+
+    windows_raw = getattr(config, "action_attribution_windows", None)
+    if windows_raw:
+        windows = [window.strip() for window in windows_raw.split(",") if window.strip()]
+        if windows:
+            params["action_attribution_windows"] = json.dumps(windows)
+
+    use_unified = getattr(config, "use_unified_attribution_setting", None)
+    if use_unified in ("true", "false"):
+        params["use_unified_attribution_setting"] = use_unified
+
+    return params
+
+
 def meta_ads_source(
     resource_name: str,
     config: MetaAdsSourceConfig,
     team_id: int,
     resumable_source_manager: ResumableSourceManager[MetaAdsResumeConfig],
+    api_version: str,
     should_use_incremental_field: bool = False,
     db_incremental_field_last_value: typing.Any = None,
     incremental_field: str | None = None,
     incremental_field_type: IncrementalFieldType | None = None,
 ) -> SourceResponse:
-    """A data warehouse Meta Ads source."""
+    """A data warehouse Meta Ads source. ``api_version`` is the source instance's resolved pin."""
     name = NamingConvention.normalize_identifier(resource_name)
     schema = get_schemas()[resource_name]
 
@@ -917,9 +990,7 @@ def meta_ads_source(
                 "until": today.strftime("%Y-%m-%d"),
             }
 
-        formatted_url = schema.url.format(
-            API_VERSION=MetaAdsIntegration.api_version, account_id=_clean_account_id(config.account_id)
-        )
+        formatted_url = schema.url.format(API_VERSION=api_version, account_id=_clean_account_id(config.account_id))
 
         if schema.single_object:
             yield from _fetch_single_object(formatted_url, {"fields": ",".join(schema.field_names)}, access_token)
@@ -930,6 +1001,10 @@ def meta_ads_source(
             "limit": PAGE_LIMIT_FALLBACK_SIZES[0],
             **schema.extra_params,
         }
+        # Attribution settings apply only to Insights (stats) tables; entity endpoints (campaigns,
+        # ads, ...) don't take them and Meta would reject the extra params.
+        if schema.is_stats:
+            params.update(_attribution_params(config))
 
         yield from _make_paginated_api_request(
             formatted_url, params, access_token, time_range, resumable_source_manager

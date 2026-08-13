@@ -12,6 +12,7 @@ import { useStorybookMocks } from '~/mocks/browser'
 import { AlertCalculationInterval } from '~/queries/schema/schema-general'
 import { IntegrationType } from '~/types'
 
+import { alertCadenceMinutes } from 'products/alerts/frontend/logic/alertIntervalHelpers'
 import { alertNotificationLogic } from 'products/alerts/frontend/logic/alertNotificationLogic'
 import type { ScheduleRestriction } from 'products/alerts/frontend/types'
 import { InlineAlertNotifications } from 'products/alerts/frontend/views/InlineAlertNotifications'
@@ -345,9 +346,9 @@ function QuietHoursStory(): JSX.Element {
         <div className="max-w-2xl border rounded bg-surface-primary p-4">
             <QuietHoursFields
                 scheduleRestriction={scheduleRestriction}
+                cadenceMinutes={alertCadenceMinutes(AlertCalculationInterval.HOURLY)}
                 onChange={setScheduleRestriction}
                 teamTimezone="America/Toronto"
-                calculationInterval={AlertCalculationInterval.HOURLY}
             />
         </div>
     )
