@@ -271,7 +271,7 @@ export const notebookNodeGenUILogic: LogicWrapper<notebookNodeGenUILogicType> = 
                     let channelId = props.channelId
                     if (!channelId) {
                         const channels = await taskChannelsList(String(values.currentTeamId))
-                        channelId = channels.results.find((channel) => channel.channel_type === 'personal')?.id
+                        channelId = channels.find((channel) => channel.channel_type === 'personal')?.id
                     }
                     if (!channelId) {
                         throw new Error("Couldn't find your personal task channel. Refresh and try again.")
