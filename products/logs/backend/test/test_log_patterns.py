@@ -102,6 +102,18 @@ class TestMinePatterns(TestCase):
                 "397557",
             ),
             (
+                "version_after_product",
+                ["agent Chrome/139.0.0.0 connected", "agent Chrome/140.0.7.1 connected"],
+                "<version>",
+                "139",
+            ),
+            (
+                "protocol_version",
+                ["served HTTP/1.1 request", "served HTTP/2.0 request"],
+                "<version>",
+                "1.1",
+            ),
+            (
                 "timestamp_utc_offset",
                 [
                     "job 2026-08-12T08:10:43+00:00 retried",
@@ -136,6 +148,20 @@ class TestMinePatterns(TestCase):
         patterns = mine_patterns([_sample(line)])
 
         assert "<ip>" not in patterns[0].pattern
+
+    @parameterized.expand(
+        [
+            ("decimal_metric", "request took duration=1.5 seconds"),
+            ("numeric_path_segment", "POST /api/projects/2/query/ returned 200"),
+            ("module_version", "loaded python3.13 runtime"),
+        ]
+    )
+    def test_plain_decimals_are_not_masked_as_versions(self, _name: str, line: str) -> None:
+        # The "/" requirement is what separates a version from a measurement. Masking a
+        # latency or a ratio as <version> hides the number a reader came for.
+        patterns = mine_patterns([_sample(line)])
+
+        assert "<version>" not in patterns[0].pattern
 
     def test_error_count_includes_only_error_and_fatal(self) -> None:
         samples = [
@@ -253,6 +279,7 @@ class TestCompileMatchRegex(TestCase):
             ("request <uuid> failed", "request 93fce79d-6926-4b08-8fa5-00ffd8e65f4e failed"),
             ("peer <ip> disconnected", "peer 10.32.243.94 disconnected"),
             ("token <hex> rejected", "token 0xdeadbeef rejected"),
+            ("agent Chrome/<version> connected", "agent Chrome/139.0.0.0 connected"),
             ("path /api/v1/users?id=<num> hit", "path /api/v1/users?id=42 hit"),
             ("job <timestamp> finished", "job 2026-08-12T08:10:43.397557Z finished"),
         ]
