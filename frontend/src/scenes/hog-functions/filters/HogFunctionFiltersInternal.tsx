@@ -129,6 +129,17 @@ export const getProductEventPropertyFilterOptions = (contextId: HogFunctionConfi
     return []
 }
 
+// Hoisted so repeated calls return stable references, keeping downstream memos idle.
+// The generated enum mirrors the backend ActivityScope literal, unlike the handwritten
+// frontend ActivityScope enum, which lags behind it.
+const ACTIVITY_LOG_SCOPE_VALUES: PropValue[] = Object.values(ActivityLogListScope)
+    .sort()
+    .map((name) => ({ name }))
+// The standard lifecycle activities. Scopes also log custom activities (e.g. 'exported'),
+// which can still be entered as custom values.
+const ACTIVITY_LOG_ACTIVITY_VALUES: PropValue[] = ['created', 'updated', 'deleted'].map((name) => ({ name }))
+const NO_SUGGESTED_VALUES: PropValue[] = []
+
 /**
  * Value suggestions for the property filters on the 'Trigger' field. Internal events are
  * never ingested into ClickHouse, so the default events-table suggestions would surface
@@ -144,17 +155,11 @@ export const getProductEventPropertyValues = (
     }
     switch (propertyKey) {
         case 'scope':
-            // The generated enum mirrors the backend ActivityScope literal, unlike the
-            // handwritten frontend ActivityScope enum, which lags behind it
-            return Object.values(ActivityLogListScope)
-                .sort()
-                .map((name) => ({ name }))
+            return ACTIVITY_LOG_SCOPE_VALUES
         case 'activity':
-            // The standard lifecycle activities. Scopes also log custom activities (e.g.
-            // 'exported'), which can still be entered as custom values.
-            return ['created', 'updated', 'deleted'].map((name) => ({ name }))
+            return ACTIVITY_LOG_ACTIVITY_VALUES
         default:
-            return []
+            return NO_SUGGESTED_VALUES
     }
 }
 
