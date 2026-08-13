@@ -45,6 +45,15 @@ from products.replay_vision.backend.models.vision_action import (
     VisionActionRun,
     VisionActionRunStatus,
 )
+from products.replay_vision.backend.observation_window import (
+    COVERAGE_TIERS,
+    MAX_OBSERVATIONS,
+    MAX_RUN_OBSERVATIONS,
+    default_window_start,
+    estimate_summary_cost_usd,
+    synthesis_llm_calls,
+    window_observations,
+)
 from products.replay_vision.backend.rrule import validate_rrule, validate_timezone
 from products.replay_vision.backend.scanner_access import readable_scanner_ids, selection_target_ids
 from products.replay_vision.backend.scanner_config import acting_user
@@ -614,11 +623,9 @@ def _check_action_scanner_access(
             raise PermissionDenied("You don't have access to one or more scanners this action targets.")
 
 
-class RunActionRequestSerializer(serializers.Serializer):
-    """Optional explicit observation window for POST /vision/actions/{id}/run/. With no body the run
-    covers everything since the action's last summary (or the last 24h); with a window it becomes a
-    one-off period summary over exactly that range, leaving the recurring schedule and its windows
-    untouched."""
+class ObservationWindowSerializer(serializers.Serializer):
+    """An optional explicit observation window. Without one, a run (or preview) covers everything
+    since the action's last summary (or the last 24h); with one it covers exactly that range."""
 
     window_start = serializers.DateTimeField(
         required=False,
@@ -644,6 +651,24 @@ class RunActionRequestSerializer(serializers.Serializer):
         return attrs
 
 
+class RunActionRequestSerializer(ObservationWindowSerializer):
+    """Body for POST /vision/actions/{id}/run/: an optional explicit window (making the run a one-off
+    period summary that leaves the recurring schedule and its windows untouched) and an optional
+    coverage cap for this run only."""
+
+    max_observations = serializers.IntegerField(
+        required=False,
+        min_value=1,
+        max_value=MAX_RUN_OBSERVATIONS,
+        help_text=(
+            "Summarize up to this many observations in this run, sampling evenly across the window when "
+            f"it holds more. Defaults to the action's own cap ({MAX_OBSERVATIONS} when unset); at most "
+            f"{MAX_RUN_OBSERVATIONS}. Each run's synthesis is billed to the team's AI credits, and more "
+            "coverage means more LLM calls — GET run_preview estimates the cost first."
+        ),
+    )
+
+
 class RunActionResponseSerializer(serializers.Serializer):
     """Async-accepted response for POST /vision/actions/{id}/run/."""
 
@@ -655,6 +680,54 @@ class RunActionResponseSerializer(serializers.Serializer):
             "True when a run for this action was already in progress (scheduled or manual), so this "
             "request coalesced onto it rather than starting a second run."
         )
+    )
+
+
+class RunPreviewTierSerializer(serializers.Serializer):
+    """Coverage and estimated cost of one coverage tier over the previewed window."""
+
+    key = serializers.CharField(
+        help_text="Tier identifier: 'standard', 'deep', or 'complete'.",
+    )
+    max_observations = serializers.IntegerField(
+        help_text="The coverage cap this tier passes as the run's max_observations.",
+    )
+    covered_count = serializers.IntegerField(
+        help_text="Observations the run would actually summarize at this tier: the window total clamped to the cap.",
+    )
+    llm_calls = serializers.IntegerField(
+        help_text=(
+            "Synthesis LLM calls the run would make at this tier: one for a single-pass run, or one "
+            "per chunk plus a final reduce pass when the coverage exceeds one batch."
+        ),
+    )
+    estimated_cost_usd = serializers.FloatField(
+        help_text=(
+            "Estimated AI-credit cost of those calls in USD, from pinned per-token rates. An estimate "
+            "by construction; billing meters actual usage."
+        ),
+    )
+
+
+class RunPreviewResponseSerializer(serializers.Serializer):
+    """Pre-run preview for GET /vision/actions/{id}/run_preview/: how many observations a run over
+    the window would draw from, and what each coverage tier would cover and cost."""
+
+    observation_count = serializers.IntegerField(
+        help_text="Observations in the window matching the action's targeting, before any coverage cap.",
+    )
+    window_start = serializers.DateTimeField(
+        help_text=(
+            "Resolved window start the preview counted over: the explicit window_start, or the "
+            "action's last summary (falling back to 24h ago)."
+        ),
+    )
+    window_end = serializers.DateTimeField(
+        help_text="Resolved window end (exclusive): the explicit window_end, or now.",
+    )
+    tiers = RunPreviewTierSerializer(
+        many=True,
+        help_text="Per-tier coverage and cost estimate, in ascending cap order.",
     )
 
 
@@ -814,6 +887,7 @@ class VisionActionViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             scheduled_at=timezone.now(),
             window_start=body.validated_data.get("window_start"),
             window_end=body.validated_data.get("window_end"),
+            max_observations=body.validated_data.get("max_observations"),
         )
         if outcome is WorkflowStartOutcome.FAILED:
             return Response(
@@ -825,6 +899,55 @@ class VisionActionViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 {"workflow_id": workflow_id, "already_running": outcome is WorkflowStartOutcome.ALREADY_RUNNING}
             ).data,
             status=status.HTTP_202_ACCEPTED,
+        )
+
+    @extend_schema(
+        parameters=[ObservationWindowSerializer],
+        responses={200: RunPreviewResponseSerializer},
+    )
+    @action(
+        detail=True,
+        methods=["get"],
+        url_path="run_preview",
+        required_scopes=["vision_action:read", "session_recording:read"],
+    )
+    def run_preview(self, request: Request, **kwargs: Any) -> Response:
+        """Preview what running this summary would cover: how many observations the window holds, and
+        what each coverage tier would summarize and cost. Read-only — counts observations without
+        reading their content, makes no LLM calls, and bills nothing."""
+        # Same gate order as `run`: get_object() object-checks the bound scanner's access, then
+        # session_recording read, then summaries only.
+        action_obj = self.get_object()
+        if not self.user_access_control.check_access_level_for_resource("session_recording", required_level="viewer"):
+            raise PermissionDenied("Previewing a Replay Vision summary requires session_recording read access.")
+        if action_obj.mode != ActionMode.GROUP_SUMMARY:
+            raise ValidationError("Only scheduled summaries have a run preview.")
+        params = ObservationWindowSerializer(data=request.query_params)
+        params.is_valid(raise_exception=True)
+
+        # Resolve the window exactly the way the run would, so the preview counts what the run gets.
+        window_start = params.validated_data.get("window_start") or default_window_start(self.team_id, action_obj.id)
+        window_end = params.validated_data.get("window_end") or timezone.now()
+        count = window_observations(self.team, action_obj, window_start=window_start, window_end=window_end).count()
+        tiers = [
+            {
+                "key": tier.key,
+                "max_observations": tier.max_observations,
+                "covered_count": min(count, tier.max_observations),
+                "llm_calls": synthesis_llm_calls(min(count, tier.max_observations)),
+                "estimated_cost_usd": round(estimate_summary_cost_usd(min(count, tier.max_observations)), 4),
+            }
+            for tier in COVERAGE_TIERS
+        ]
+        return Response(
+            RunPreviewResponseSerializer(
+                {
+                    "observation_count": count,
+                    "window_start": window_start,
+                    "window_end": window_end,
+                    "tiers": tiers,
+                }
+            ).data
         )
 
 

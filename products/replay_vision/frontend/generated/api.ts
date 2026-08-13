@@ -43,6 +43,7 @@ import type {
     RetryResponseApi,
     RunActionRequestApi,
     RunActionResponseApi,
+    RunPreviewResponseApi,
     ScannerCreatorsResponseApi,
     ScannerImpactApi,
     ScannerStatsResponseApi,
@@ -51,6 +52,7 @@ import type {
     VisionActionApi,
     VisionActionRunApi,
     VisionActionsListParams,
+    VisionActionsRunPreviewRetrieveParams,
     VisionActionsRunsListParams,
     VisionObservationsListParams,
     VisionObservationsRetrieveParams,
@@ -205,6 +207,43 @@ export const visionActionsRunCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(runActionRequestApi),
+    })
+}
+
+export const getVisionActionsRunPreviewRetrieveUrl = (
+    projectId: string,
+    id: string,
+    params?: VisionActionsRunPreviewRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/vision/actions/${id}/run_preview/?${stringifiedParams}`
+        : `/api/projects/${projectId}/vision/actions/${id}/run_preview/`
+}
+
+/**
+ * Preview what running this summary would cover: how many observations the window holds, and
+ * what each coverage tier would summarize and cost. Read-only — counts observations without
+ * reading their content, makes no LLM calls, and bills nothing.
+ */
+export const visionActionsRunPreviewRetrieve = async (
+    projectId: string,
+    id: string,
+    params?: VisionActionsRunPreviewRetrieveParams,
+    options?: RequestInit
+): Promise<RunPreviewResponseApi> => {
+    return apiMutator<RunPreviewResponseApi>(getVisionActionsRunPreviewRetrieveUrl(projectId, id, params), {
+        ...options,
+        method: 'GET',
     })
 }
 

@@ -35,13 +35,10 @@ from products.replay_vision.backend.observation_formatting import (
     SEARCH_SNIPPET_LIMIT,
     describe_output,
 )
+from products.replay_vision.backend.observation_window import MAX_OBSERVATIONS, apply_observation_predicate
 from products.replay_vision.backend.scanner_access import readable_scanner_ids
 from products.replay_vision.backend.temporal.decorators import track_activity
-from products.replay_vision.backend.temporal.vision_actions.synthesis import (
-    MAX_OBSERVATIONS,
-    _markdown_to_slack,
-    apply_observation_predicate,
-)
+from products.replay_vision.backend.temporal.vision_actions.synthesis import _markdown_to_slack
 from products.replay_vision.backend.temporal.vision_actions.types import (
     AlertStatus,
     EvaluateAlertInputs,

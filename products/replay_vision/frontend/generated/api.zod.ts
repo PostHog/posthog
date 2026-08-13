@@ -389,6 +389,8 @@ export const VisionActionsPartialUpdateBody = /* @__PURE__ */ zod
  * period when one is given in the body. The recurring schedule is untouched: the engine advances
  * next_run_at only at scheduled claim time, never in the run itself.
  */
+export const visionActionsRunCreateBodyMaxObservationsMax = 2000
+
 export const VisionActionsRunCreateBody = /* @__PURE__ */ zod
     .object({
         window_start: zod.iso
@@ -403,9 +405,17 @@ export const VisionActionsRunCreateBody = /* @__PURE__ */ zod
             .describe(
                 'End of the explicit window (exclusive). ISO 8601 datetime; requires window_start and defaults to now.'
             ),
+        max_observations: zod
+            .number()
+            .min(1)
+            .max(visionActionsRunCreateBodyMaxObservationsMax)
+            .optional()
+            .describe(
+                "Summarize up to this many observations in this run, sampling evenly across the window when it holds more. Defaults to the action's own cap (100 when unset); at most 2000. Each run's synthesis is billed to the team's AI credits, and more coverage means more LLM calls — GET run_preview estimates the cost first."
+            ),
     })
     .describe(
-        "Optional explicit observation window for POST \/vision\/actions\/{id}\/run\/. With no body the run\ncovers everything since the action's last summary (or the last 24h); with a window it becomes a\none-off period summary over exactly that range, leaving the recurring schedule and its windows\nuntouched."
+        'Body for POST \/vision\/actions\/{id}\/run\/: an optional explicit window (making the run a one-off\nperiod summary that leaves the recurring schedule and its windows untouched) and an optional\ncoverage cap for this run only.'
     )
 
 /**

@@ -238,6 +238,13 @@ class VisionActionRun(TeamScopedRootMixin, UUIDModel):
         blank=True,
         help_text="Explicit observation-window end; null falls back to the run's scheduled tick.",
     )
+    # A period summary can raise its coverage above the action's default; synthesis reads the cap
+    # from this row so a Temporal retry can't silently fall back to the default.
+    max_observations = models.PositiveIntegerField(
+        null=True,
+        blank=True,
+        help_text="Per-run coverage override; null uses the action's max_observations.",
+    )
     status = models.CharField(
         max_length=20, choices=VisionActionRunStatus.choices, default=VisionActionRunStatus.RUNNING
     )

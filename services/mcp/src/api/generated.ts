@@ -68201,16 +68201,21 @@ export namespace Schemas {
     }
 
     /**
-     * Optional explicit observation window for POST /vision/actions/{id}/run/. With no body the run
-     * covers everything since the action's last summary (or the last 24h); with a window it becomes a
-     * one-off period summary over exactly that range, leaving the recurring schedule and its windows
-     * untouched.
+     * Body for POST /vision/actions/{id}/run/: an optional explicit window (making the run a one-off
+     * period summary that leaves the recurring schedule and its windows untouched) and an optional
+     * coverage cap for this run only.
      */
     export interface RunActionRequest {
       /** Summarize observations recorded from this instant (inclusive) instead of since the last summary. ISO 8601 datetime. */
       window_start?: string;
       /** End of the explicit window (exclusive). ISO 8601 datetime; requires window_start and defaults to now. */
       window_end?: string;
+      /**
+         * Summarize up to this many observations in this run, sampling evenly across the window when it holds more. Defaults to the action's own cap (100 when unset); at most 2000. Each run's synthesis is billed to the team's AI credits, and more coverage means more LLM calls — GET run_preview estimates the cost first.
+         * @minimum 1
+         * @maximum 2000
+         */
+      max_observations?: number;
     }
 
     /**
@@ -68261,6 +68266,37 @@ export namespace Schemas {
       readonly title: string | null;
       /** When the observation was produced. */
       readonly created_at: string;
+    }
+
+    /**
+     * Coverage and estimated cost of one coverage tier over the previewed window.
+     */
+    export interface RunPreviewTier {
+      /** Tier identifier: 'standard', 'deep', or 'complete'. */
+      key: string;
+      /** The coverage cap this tier passes as the run's max_observations. */
+      max_observations: number;
+      /** Observations the run would actually summarize at this tier: the window total clamped to the cap. */
+      covered_count: number;
+      /** Synthesis LLM calls the run would make at this tier: one for a single-pass run, or one per chunk plus a final reduce pass when the coverage exceeds one batch. */
+      llm_calls: number;
+      /** Estimated AI-credit cost of those calls in USD, from pinned per-token rates. An estimate by construction; billing meters actual usage. */
+      estimated_cost_usd: number;
+    }
+
+    /**
+     * Pre-run preview for GET /vision/actions/{id}/run_preview/: how many observations a run over
+     * the window would draw from, and what each coverage tier would cover and cost.
+     */
+    export interface RunPreviewResponse {
+      /** Observations in the window matching the action's targeting, before any coverage cap. */
+      observation_count: number;
+      /** Resolved window start the preview counted over: the explicit window_start, or the action's last summary (falling back to 24h ago). */
+      window_start: string;
+      /** Resolved window end (exclusive): the explicit window_end, or now. */
+      window_end: string;
+      /** Per-tier coverage and cost estimate, in ascending cap order. */
+      tiers: RunPreviewTier[];
     }
 
     export interface RunRequest {
@@ -89998,6 +90034,17 @@ export namespace Schemas {
      * Filter to the actions belonging to one scanner.
      */
     scanner?: string;
+    };
+
+    export type VisionActionsRunPreviewRetrieveParams = {
+    /**
+     * End of the explicit window (exclusive). ISO 8601 datetime; requires window_start and defaults to now.
+     */
+    window_end?: string;
+    /**
+     * Summarize observations recorded from this instant (inclusive) instead of since the last summary. ISO 8601 datetime.
+     */
+    window_start?: string;
     };
 
     export type VisionActionsRunsListParams = {

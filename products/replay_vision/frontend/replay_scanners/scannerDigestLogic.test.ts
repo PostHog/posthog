@@ -55,6 +55,28 @@ describe('scannerDigestLogic', () => {
                 ...RUNS[1],
                 synthesized_markdown: '## What happened\nUsers struggled with checkout.',
             },
+            '/api/projects/:team/vision/actions/:action/run_preview/': {
+                observation_count: 4,
+                window_start: '2026-07-01T00:00:00Z',
+                window_end: '2026-08-01T00:00:00Z',
+                tiers: [
+                    {
+                        key: 'standard',
+                        max_observations: 100,
+                        covered_count: 4,
+                        llm_calls: 1,
+                        estimated_cost_usd: 0.003,
+                    },
+                    { key: 'deep', max_observations: 500, covered_count: 4, llm_calls: 1, estimated_cost_usd: 0.003 },
+                    {
+                        key: 'complete',
+                        max_observations: 2000,
+                        covered_count: 4,
+                        llm_calls: 1,
+                        estimated_cost_usd: 0.003,
+                    },
+                ],
+            },
         },
         post: {
             '/api/projects/:team/vision/actions/': () => [201, { ...DIGEST, id: 'd-new' }],
@@ -201,6 +223,105 @@ describe('scannerDigestLogic', () => {
         expect(Date.parse(body.window_end)).toBeCloseTo(Date.now(), -4)
         expect(logic.values.periodModalOpen).toBe(false)
         expect(logic.values.summarizingPeriod).toBe(false)
+    })
+
+    it('loads the coverage preview for the picked range and submits the picked tier cap', async () => {
+        // The tier picker quotes counts and costs straight off this preview, and the picked tier's
+        // cap must reach the run body — dropping it silently shrinks a deep run back to the default.
+        useMocks(mocksFor([DIGEST]))
+        mountLogic()
+        await expectLogic(logic).toFinishAllListeners()
+        let runBody: any = null
+        useMocks({
+            get: {
+                '/api/projects/:team/vision/actions/:action/run_preview/': () => [
+                    200,
+                    {
+                        observation_count: 623,
+                        window_start: '2026-07-01T00:00:00Z',
+                        window_end: '2026-08-01T00:00:00Z',
+                        tiers: [
+                            {
+                                key: 'standard',
+                                max_observations: 100,
+                                covered_count: 100,
+                                llm_calls: 1,
+                                estimated_cost_usd: 0.0089,
+                            },
+                            {
+                                key: 'deep',
+                                max_observations: 500,
+                                covered_count: 500,
+                                llm_calls: 6,
+                                estimated_cost_usd: 0.0492,
+                            },
+                            {
+                                key: 'complete',
+                                max_observations: 2000,
+                                covered_count: 623,
+                                llm_calls: 8,
+                                estimated_cost_usd: 0.0627,
+                            },
+                        ],
+                    },
+                ],
+            },
+            post: {
+                '/api/projects/:team/vision/actions/:action/run/': async ({ request }: { request: Request }) => {
+                    runBody = await request.json()
+                    return [202, { workflow_id: 'wf-1', already_running: false }]
+                },
+            },
+        })
+        await expectLogic(logic, () => {
+            logic.actions.openPeriodModal()
+        })
+            .toDispatchActions(['loadRunPreview', 'loadRunPreviewSuccess'])
+            .toFinishAllListeners()
+        expect(logic.values.runPreview?.observation_count).toEqual(623)
+        // Opening resets to the cheapest tier so an expensive choice never carries over silently.
+        expect(logic.values.coverageTier).toEqual('standard')
+
+        await expectLogic(logic, () => {
+            logic.actions.setCoverageTier('deep')
+            logic.actions.summarizePeriod()
+        })
+            .toDispatchActions(['summarizePeriodDone'])
+            .toFinishAllListeners()
+        expect(runBody.max_observations).toEqual(500)
+    })
+
+    it('falls back to the mirrored tier caps when the preview fails', async () => {
+        // A preview outage must not block generating, and the submitted cap must still match the
+        // tier label rather than going out undefined.
+        useMocks(mocksFor([DIGEST]))
+        mountLogic()
+        await expectLogic(logic).toFinishAllListeners()
+        let runBody: any = null
+        useMocks({
+            get: {
+                '/api/projects/:team/vision/actions/:action/run_preview/': () => [500, {}],
+            },
+            post: {
+                '/api/projects/:team/vision/actions/:action/run/': async ({ request }: { request: Request }) => {
+                    runBody = await request.json()
+                    return [202, { workflow_id: 'wf-1', already_running: false }]
+                },
+            },
+        })
+        await expectLogic(logic, () => {
+            logic.actions.openPeriodModal()
+        })
+            .toDispatchActions(['loadRunPreviewFailure'])
+            .toFinishAllListeners()
+        await expectLogic(logic, () => {
+            logic.actions.setCoverageTier('complete')
+            logic.actions.summarizePeriod()
+        })
+            .toDispatchActions(['summarizePeriodDone'])
+            .toFinishAllListeners()
+        expect(runBody.max_observations).toEqual(2000)
+        expect(logic.values.runPreviewLoading).toEqual(false)
     })
 
     it('summarizePeriod keeps the modal open when the server coalesced onto a running digest', async () => {

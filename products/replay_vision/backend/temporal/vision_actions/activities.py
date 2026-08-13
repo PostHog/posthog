@@ -138,6 +138,7 @@ def _create_run(inputs: CreateVisionActionRunInputs) -> UUID:
             "scheduled_at": inputs.scheduled_at,
             "window_start": inputs.window_start,
             "window_end": inputs.window_end,
+            "max_observations": inputs.max_observations,
             "status": VisionActionRunStatus.RUNNING,
         },
     )

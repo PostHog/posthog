@@ -69,6 +69,7 @@ class ProcessVisionActionWorkflow(PostHogWorkflow):
                     scheduled_at=inputs.scheduled_at,
                     window_start=inputs.window_start,
                     window_end=inputs.window_end,
+                    max_observations=inputs.max_observations,
                 ),
                 start_to_close_timeout=dt.timedelta(minutes=2),
                 retry_policy=_RECORD_RETRY,

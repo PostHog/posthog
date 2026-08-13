@@ -215,6 +215,7 @@ def start_process_vision_action_workflow(
     scheduled_at: datetime,
     window_start: datetime | None = None,
     window_end: datetime | None = None,
+    max_observations: int | None = None,
 ) -> tuple[str, WorkflowStartOutcome]:
     """Start the per-action processing workflow on demand ("Run now"); never raises.
 
@@ -242,6 +243,7 @@ def start_process_vision_action_workflow(
                 mode="group_summary",
                 window_start=window_start,
                 window_end=window_end,
+                max_observations=max_observations,
             ),
             id=workflow_id,
             task_queue=settings.REPLAY_VISION_TASK_QUEUE,

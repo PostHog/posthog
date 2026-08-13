@@ -1,4 +1,4 @@
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from posthog.test.base import APIBaseTest
@@ -20,7 +20,7 @@ from products.replay_vision.backend.api.vision_actions import (
     RunActionRequestSerializer,
     _redact_webhook_url,
 )
-from products.replay_vision.backend.models.replay_observation import ReplayObservation
+from products.replay_vision.backend.models.replay_observation import ObservationStatus, ReplayObservation
 from products.replay_vision.backend.models.replay_scanner import ReplayScanner, ScannerModel, ScannerOrigin, ScannerType
 from products.replay_vision.backend.models.vision_action import VisionAction, VisionActionRun, VisionActionRunStatus
 
@@ -762,9 +762,11 @@ class TestVisionActionRunNow(_VisionActionAPITestCase):
         self.assertEqual(inputs.vision_action_id, action.id)
         self.assertEqual(inputs.mode, "group_summary")
         self.assertIsNotNone(inputs.scheduled_at)  # anchors the window at "now"
-        # A body-less run keeps the derived window (backwards compatible with pre-window clients).
+        # A body-less run keeps the derived window and the action's own coverage cap (backwards
+        # compatible with pre-window clients).
         self.assertIsNone(inputs.window_start)
         self.assertIsNone(inputs.window_end)
+        self.assertIsNone(inputs.max_observations)
 
         # The run must not advance the recurring schedule — that only happens at scheduled claim time.
         action.refresh_from_db()
@@ -832,6 +834,22 @@ class TestVisionActionRunNow(_VisionActionAPITestCase):
 
     @patch("products.replay_vision.backend.api.trigger.async_to_sync")
     @patch("products.replay_vision.backend.api.trigger.sync_connect")
+    def test_run_passes_max_observations_into_the_workflow(
+        self, mock_sync_connect: MagicMock, mock_async_to_sync: MagicMock
+    ) -> None:
+        # The coverage tier the user picked rides the run body; dropping it would silently shrink
+        # every deep/complete run back to the default 100-observation sample.
+        mock_sync_connect.return_value = MagicMock()
+        start_workflow = MagicMock()
+        mock_async_to_sync.return_value = start_workflow
+        action = self._summary()
+
+        resp = self.client.post(self._run_url(str(action.id)), {"max_observations": 500}, format="json")
+        self.assertEqual(resp.status_code, 202, resp.content)
+        self.assertEqual(start_workflow.call_args.args[1].max_observations, 500)
+
+    @patch("products.replay_vision.backend.api.trigger.async_to_sync")
+    @patch("products.replay_vision.backend.api.trigger.sync_connect")
     def test_run_rejects_an_invalid_window_before_starting_anything(
         self, mock_sync_connect: MagicMock, mock_async_to_sync: MagicMock
     ) -> None:
@@ -840,6 +858,93 @@ class TestVisionActionRunNow(_VisionActionAPITestCase):
         resp = self.client.post(self._run_url(str(action.id)), {"window_end": "2026-07-01T00:00:00Z"}, format="json")
         self.assertEqual(resp.status_code, 400, resp.content)
         mock_async_to_sync.return_value.assert_not_called()
+
+
+class TestVisionActionRunPreview(_VisionActionAPITestCase):
+    """GET /vision/actions/{id}/run_preview/ counts the window and estimates each coverage tier."""
+
+    def _summary(self, **overrides: Any) -> VisionAction:
+        defaults: dict[str, Any] = {
+            "team_id": self.team.id,
+            "scanner": self.scanner,
+            "name": "daily digest",
+            "created_by": self.user,
+            "trigger_config": {"rrule": "FREQ=DAILY;BYHOUR=8", "timezone": "UTC"},
+        }
+        defaults.update(overrides)
+        return VisionAction.objects.for_team(self.team.id).create(**defaults)
+
+    def _preview_url(self, action_id: str) -> str:
+        return f"{self.actions_url}{action_id}/run_preview/"
+
+    def _succeeded_observation(self, session_id: str) -> ReplayObservation:
+        return ReplayObservation.objects.create(
+            scanner=self.scanner,
+            session_id=session_id,
+            status=ObservationStatus.SUCCEEDED,
+            completed_at=datetime.now(UTC),
+            scanner_result={"model_output": {"summary": "checkout friction"}},
+        )
+
+    def test_preview_counts_the_window_and_estimates_every_tier(self) -> None:
+        # The modal's tier picker renders straight off this response; a wrong count or a covered_count
+        # that ignores the window total would quote the user the wrong coverage and cost.
+        action = self._summary()
+        for i in range(3):
+            self._succeeded_observation(f"s{i}")
+
+        resp = self.client.get(self._preview_url(str(action.id)), {"window_start": "2026-01-01T00:00:00Z"})
+        self.assertEqual(resp.status_code, 200, resp.content)
+        body = resp.json()
+        self.assertEqual(body["observation_count"], 3)
+        self.assertIsNotNone(body["window_end"])
+        tiers = body["tiers"]
+        self.assertEqual([t["key"] for t in tiers], ["standard", "deep", "complete"])
+        self.assertEqual([t["max_observations"] for t in tiers], [100, 500, 2000])
+        for tier in tiers:
+            # 3 observations fit every tier's cap: covered is the window total, one single-pass call.
+            self.assertEqual(tier["covered_count"], 3)
+            self.assertEqual(tier["llm_calls"], 1)
+            self.assertGreater(tier["estimated_cost_usd"], 0)
+
+    def test_preview_default_window_anchors_on_the_last_summary(self) -> None:
+        # Without an explicit window the preview must count what a run-now would actually cover —
+        # since the last completed summary, not a fixed lookback.
+        action = self._summary()
+        anchor = (datetime.now(UTC) - timedelta(days=3)).replace(microsecond=0)
+        VisionActionRun.all_teams.create(
+            team_id=self.team.id,
+            vision_action=action,
+            idempotency_key="prev",
+            status=VisionActionRunStatus.COMPLETED,
+            scheduled_at=anchor,
+        )
+        inside = self._succeeded_observation("inside")
+        ReplayObservation.objects.filter(pk=inside.pk).update(created_at=anchor + timedelta(days=1))
+        before = self._succeeded_observation("before-anchor")
+        ReplayObservation.objects.filter(pk=before.pk).update(created_at=anchor - timedelta(days=1))
+
+        resp = self.client.get(self._preview_url(str(action.id)))
+        self.assertEqual(resp.status_code, 200, resp.content)
+        body = resp.json()
+        self.assertEqual(body["observation_count"], 1)
+        self.assertEqual(datetime.fromisoformat(body["window_start"].replace("Z", "+00:00")), anchor)
+
+    def test_preview_rejects_alerts(self) -> None:
+        alert = self._summary(
+            name="rage alert",
+            mode="alert",
+            alert_config={"frequency": "every_match", "metric": "count"},
+        )
+        resp = self.client.get(self._preview_url(str(alert.id)))
+        self.assertEqual(resp.status_code, 400, resp.content)
+
+    def test_preview_rejects_an_invalid_window(self) -> None:
+        # Wiring guard for the query serializer; the validation matrix lives in
+        # TestRunActionRequestSerializer (same window shape).
+        action = self._summary()
+        resp = self.client.get(self._preview_url(str(action.id)), {"window_end": "2026-07-01T00:00:00Z"})
+        self.assertEqual(resp.status_code, 400, resp.content)
 
 
 class TestRunActionRequestSerializer(SimpleTestCase):
@@ -856,11 +961,15 @@ class TestRunActionRequestSerializer(SimpleTestCase):
             ),
             ("end_before_start", {"window_start": "2026-07-02T00:00:00Z", "window_end": "2026-07-01T00:00:00Z"}, False),
             ("not_a_datetime", {"window_start": "last month"}, False),
+            ("max_observations_at_ceiling", {"max_observations": 2000}, True),
+            ("max_observations_zero", {"max_observations": 0}, False),
+            ("max_observations_over_ceiling", {"max_observations": 2001}, False),
         ]
     )
     def test_window_shape(self, _label: str, body: dict[str, Any], expected_valid: bool) -> None:
-        # An inverted or half-specified window would silently synthesize an empty summary; it must be
-        # rejected in-memory before any workflow is started.
+        # An inverted or half-specified window would silently synthesize an empty summary, and an
+        # out-of-bounds coverage cap an unbounded LLM job; both must be rejected in-memory before
+        # any workflow is started.
         self.assertEqual(RunActionRequestSerializer(data=body).is_valid(), expected_valid)
 
 

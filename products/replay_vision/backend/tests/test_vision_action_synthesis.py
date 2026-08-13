@@ -1,5 +1,7 @@
+import re
 from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
+from typing import Any
 from uuid import uuid4
 
 from posthog.test.base import BaseTest
@@ -15,6 +17,7 @@ from products.replay_vision.backend.models.replay_observation import Observation
 from products.replay_vision.backend.models.replay_scanner import ScannerModel, ScannerType
 from products.replay_vision.backend.models.vision_action import VisionActionRunStatus
 from products.replay_vision.backend.temporal.vision_actions.synthesis import (
+    _CHUNK_SYSTEM_PROMPT,
     SLACK_BLOCK_TEXT_LIMIT,
     _markdown_to_slack,
     _slack_blocks,
@@ -806,6 +809,172 @@ class TestVisionActionSynthesis(BaseTest):
 
         run.refresh_from_db()
         self.assertIn("[obs 1]", run.synthesized_markdown)
+
+    def test_run_max_observations_overrides_the_action_cap(self) -> None:
+        # The per-run coverage override ("summarize a period" at a chosen tier) must beat the
+        # per-action setting — if the cap line drops it, every deep run silently shrinks back to 100.
+        for i in range(3):
+            self._observation(f"obs {i}", session_id=f"s{i}")
+        action = self._action(max_observations=3)
+        run = self._run_for(action)
+        run.max_observations = 1
+        run.save(update_fields=["max_observations"])
+
+        result = self._synthesize(action, run)
+        self.assertEqual(result.observation_count, 1)
+
+    def test_run_max_observations_is_clamped_to_the_ceiling(self) -> None:
+        # The run-level ceiling bounds every override — without it a crafted run row could queue an
+        # unbounded LLM job. Patched small so the test doesn't need thousands of rows.
+        for i in range(3):
+            self._observation(f"obs {i}", session_id=f"s{i}")
+        action = self._action()
+        run = self._run_for(action)
+        run.max_observations = 5
+        run.save(update_fields=["max_observations"])
+
+        with patch(f"{_SYNTH_PATH}.MAX_RUN_OBSERVATIONS", 2):
+            result = self._synthesize(action, run)
+        self.assertEqual(result.observation_count, 2)
+
+
+def _first_label(text: str) -> str:
+    match = re.search(r"\[obs \d+\]", text)
+    assert match is not None, f"no [obs N] label in: {text[:200]}"
+    return match.group(0)
+
+
+class TestChunkedSynthesis(BaseTest):
+    """Map-reduce synthesis: batches over the chunk size go through per-chunk digests plus a reduce
+    pass, with finished chunk digests cached on the run so a retry never re-bills them."""
+
+    def setUp(self) -> None:
+        super().setUp()
+        self.scanner = ReplayScanner.objects.create(
+            team=self.team,
+            name="summarizer",
+            scanner_type=ScannerType.SUMMARIZER,
+            scanner_config={"prompt": "summarize"},
+            model=ScannerModel.GEMINI_3_6_FLASH,
+        )
+        self.action = VisionAction(
+            team=self.team,
+            name="summary",
+            scanner=self.scanner,
+            created_by=self.user,
+            trigger_config={"rrule": "FREQ=DAILY", "timezone": "UTC"},
+        )
+        self.action.save()
+
+    def _observations(self, count: int) -> None:
+        for i in range(count):
+            ReplayObservation.objects.create(
+                scanner=self.scanner,
+                session_id=f"s{i}",
+                scanner_snapshot=snapshot_for(self.scanner),
+                triggered_by=ObservationTrigger.SCHEDULE,
+                status=ObservationStatus.SUCCEEDED,
+                completed_at=timezone.now(),
+                scanner_result={
+                    "model_output": {"scanner_type": ScannerType.SUMMARIZER, "summary": f"observation body {i}"}
+                },
+            )
+
+    def _run(self, key: str = "k1") -> VisionActionRun:
+        run = VisionActionRun(vision_action=self.action, team=self.team, idempotency_key=key)
+        run.save()
+        return run
+
+    def _routing_client(
+        self, calls: list[tuple[str, str]], reduce_content: str, fail_chunk_with_label: str | None = None
+    ) -> Any:
+        # Routes on the system prompt: chunk-digest calls use the compressor prompt, everything else
+        # is the reduce pass. Chunk responses echo the chunk's first global label so the reduce input
+        # (and the resume cache) is attributable per chunk.
+        def _create(**kwargs: Any) -> SimpleNamespace:
+            system = next(m["content"] for m in kwargs["messages"] if m["role"] == "system")
+            user = _user_message(kwargs)
+            calls.append((system, user))
+            if system == _CHUNK_SYSTEM_PROMPT:
+                if fail_chunk_with_label is not None and fail_chunk_with_label in user:
+                    raise RuntimeError("chunk call failed")
+                content = f"- recurring friction, 2 of 2 in this batch {_first_label(user)}"
+            else:
+                content = reduce_content
+            return SimpleNamespace(choices=[SimpleNamespace(message=SimpleNamespace(content=content))])
+
+        client = SimpleNamespace(chat=SimpleNamespace(completions=SimpleNamespace(create=_create)))
+        return lambda **_kwargs: client
+
+    def _synthesize_with(self, run: VisionActionRun, client: Any) -> Any:
+        with (
+            patch(f"{_SYNTH_PATH}.is_team_over_ai_credit_budget", return_value=False),
+            patch(f"{_SYNTH_PATH}.SYNTHESIS_CHUNK_SIZE", 2),
+            patch(f"{_SYNTH_PATH}.OpenAI", client),
+        ):
+            return _synthesize(SynthesizeGroupSummaryInputs(run_id=run.id, team_id=self.team.id))
+
+    def test_over_chunk_size_runs_chunk_digests_then_one_reduce(self) -> None:
+        # 5 observations at chunk size 2 → 3 chunk calls + 1 reduce. If the batch silently went
+        # through the flat single pass instead, coverage past the first context would degrade —
+        # the regression the map-reduce path exists to prevent.
+        self._observations(5)
+        run = self._run()
+        calls: list[tuple[str, str]] = []
+
+        result = self._synthesize_with(run, self._routing_client(calls, "**TL;DR:** merged themes [obs 3]"))
+
+        self.assertEqual(result.status, SynthesisStatus.SYNTHESIZED)
+        self.assertEqual(result.observation_count, 5)
+        chunk_calls = [(s, u) for s, u in calls if s == _CHUNK_SYSTEM_PROMPT]
+        reduce_calls = [(s, u) for s, u in calls if s != _CHUNK_SYSTEM_PROMPT]
+        self.assertEqual((len(chunk_calls), len(reduce_calls)), (3, 1))
+        # Labels are global across chunks (chunk 2 starts at [obs 3]) so reduce citations resolve
+        # against the run's full observation_ids list, not a per-chunk numbering.
+        self.assertEqual({_first_label(u) for _, u in chunk_calls}, {"[obs 1]", "[obs 3]", "[obs 5]"})
+        # The reduce pass reads every chunk digest, fenced as data.
+        _, reduce_user = reduce_calls[0]
+        for label in ("[obs 1]", "[obs 3]", "[obs 5]"):
+            self.assertIn(f"in this batch {label}", reduce_user)
+        self.assertIn("<digests>", reduce_user)
+
+        run.refresh_from_db()
+        self.assertIn("merged themes", run.synthesized_markdown)
+        self.assertIn("5 recordings", run.synthesized_markdown)
+        # The reduce citation resolves through the normal Slack pipeline like any single-pass one.
+        self.assertIn("|[3]>", run.output["slack"])
+        # The final save drops the in-flight chunk cache — it must not linger on completed runs.
+        self.assertNotIn("chunk_digests", run.output)
+
+    def test_failed_chunk_persists_finished_digests_and_retry_resumes(self) -> None:
+        # An LLM failure mid-fan-out must not lose the chunks that finished: they're billed calls.
+        # The retry must serve them from the run's cache and only re-call the failed chunk + reduce.
+        self._observations(4)
+        run = self._run()
+        first_attempt: list[tuple[str, str]] = []
+
+        with self.assertRaises(RuntimeError):
+            self._synthesize_with(run, self._routing_client(first_attempt, "unused", fail_chunk_with_label="[obs 3]"))
+
+        run.refresh_from_db()
+        self.assertEqual(run.synthesized_markdown, "")
+        cached = run.output["chunk_digests"]
+        self.assertEqual(len(cached), 1)
+        self.assertIn("[obs 1]", next(iter(cached.values())))
+
+        retry_calls: list[tuple[str, str]] = []
+        result = self._synthesize_with(run, self._routing_client(retry_calls, "**TL;DR:** recovered [obs 1]"))
+
+        self.assertEqual(result.status, SynthesisStatus.SYNTHESIZED)
+        # Only the failed chunk and the reduce ran — the finished chunk came from the cache.
+        chunk_users = [u for s, u in retry_calls if s == _CHUNK_SYSTEM_PROMPT]
+        self.assertEqual(len(chunk_users), 1)
+        self.assertIn("[obs 3]", chunk_users[0])
+        reduce_user = next(u for s, u in retry_calls if s != _CHUNK_SYSTEM_PROMPT)
+        self.assertIn("in this batch [obs 1]", reduce_user)  # the cached digest fed the reduce
+        run.refresh_from_db()
+        self.assertIn("recovered", run.synthesized_markdown)
+        self.assertNotIn("chunk_digests", run.output)
 
 
 class TestMarkdownToSlack(BaseTest):
