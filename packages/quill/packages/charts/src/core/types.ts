@@ -349,11 +349,12 @@ export interface ChartLegendConfig {
      *  actions to work at all; `onToggleSeries` fires one key at a time and can't express them as a
      *  single update. Uncontrolled legends update their own state and don't need it. */
     onSetHiddenSeries?: (hiddenKeys: string[]) => void
-    /** Maps a legend row's key to the identity its visibility is actually stored against. Rows that
-     *  map to the same group share one visibility bit, so isolating keeps the whole group visible,
-     *  "only this one is visible" is judged per group, and a legend with one group has nothing to
-     *  isolate. A chart comparing two periods needs this when it stores one visibility bit for a
-     *  series' current and previous rows. Defaults to the row's own key. */
+    /** Groups legend rows that a consumer stores one visibility bit for, so the chart counts them as
+     *  one series: isolating keeps the whole group visible, "only this one is visible" is judged per
+     *  group, and a legend with one group has nothing to isolate. A chart comparing two periods needs
+     *  this when a series' current and previous rows share one stored bit. `hiddenKeys` stays in row
+     *  space either way — this only answers which rows are the same series, never where the consumer
+     *  keeps the state. Defaults to the row's own key. */
     visibilityGroupKey?: (rowKey: string) => string
     /** Wrap each rendered legend row — receives the default row node, its item, and that row's
      *  {@link LegendItemControls} (visibility state plus toggle/isolate/hide-all actions), and
