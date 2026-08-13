@@ -64,7 +64,3 @@ export const Default: Story = {
 export const MultipleSeriesWithLegend: Story = {
     render: () => render({ xData, yData: twoSeries, chartSettings: { ...baseSettings, showLegend: true } }),
 }
-
-export const LogarithmicXAxis: Story = {
-    render: () => render({ xData, yData, chartSettings: { ...baseSettings, scatter: { xScale: 'logarithmic' } } }),
-}
