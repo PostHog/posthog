@@ -81,7 +81,6 @@ function NotificationButton({ insightShortId }: { insightShortId: InsightShortId
                                 posthog.capture('insight notify prominent button clicked', {
                                     insight_short_id: insightShortId,
                                     option: 'alerts',
-                                    header_copy: 'Monitor',
                                 })
                                 push(urls.insightAlerts(insightShortId))
                             }}
@@ -104,7 +103,6 @@ function NotificationButton({ insightShortId }: { insightShortId: InsightShortId
                                 posthog.capture('insight notify prominent button clicked', {
                                     insight_short_id: insightShortId,
                                     option: 'subscriptions',
-                                    header_copy: 'Monitor',
                                 })
                                 push(urlForSubscriptions({ insightShortId }))
                             }}
