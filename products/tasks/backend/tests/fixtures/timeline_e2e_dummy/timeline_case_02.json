@@ -1,5 +1,6 @@
 {
   "case": "timeline-e2e-02",
   "event": "task_started",
-  "status": "running"
+  "status": "paused",
+  "timeline_step": "awaiting_input"
 }
