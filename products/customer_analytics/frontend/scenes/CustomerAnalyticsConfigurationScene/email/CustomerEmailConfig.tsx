@@ -176,10 +176,10 @@ export function CustomerEmailConfig(): JSX.Element {
     const { channels, channelsLoadFailed, channelsLoading, expandedChannelIds } = useValues(customerEmailConfigLogic)
     const { loadChannels, setExpandedChannelIds } = useActions(customerEmailConfigLogic)
 
-    if (channelsLoading) {
+    if (channelsLoading && channels.length === 0) {
         return <LemonSkeleton className="h-32 max-w-2xl" />
     }
-    if (channelsLoadFailed) {
+    if (channelsLoadFailed && channels.length === 0) {
         return (
             <LemonBanner type="error" action={{ children: 'Try again', onClick: loadChannels }}>
                 Could not load your connected emails.
