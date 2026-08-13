@@ -1,9 +1,12 @@
 import jwt from 'jsonwebtoken'
 
-import { JWT, PosthogJwtAudience } from './jwt-utils'
+import { JWT, PosthogJwtAudience, makeOptionalJwt } from './jwt-utils'
 
 // Mirrors DEFAULT_SERVICE_TOKEN_TTL in posthog/scoped_service_jwt.py.
 const DEFAULT_TTL_SECONDS = 5 * 60
+
+// jsonwebtoken tolerates this much clock skew between minter and verifier.
+const CLOCK_TOLERANCE_SECONDS = 30
 
 /**
  * One service-to-service auth relationship, Node side. The Python counterpart is
@@ -20,13 +23,9 @@ export class ScopedServiceJwt {
     private defaultTtlSeconds: number
 
     constructor(audience: PosthogJwtAudience, commaSeparatedKeys: string, defaultTtlSeconds = DEFAULT_TTL_SECONDS) {
-        // Trim entries to match the Python side's get_list, so a key value like "new, old"
-        // produces the same key set in both languages.
-        const keys = (commaSeparatedKeys || '')
-            .split(',')
-            .map((key) => key.trim())
-            .filter((key) => key)
-        this.jwt = keys.length ? new JWT(keys.join(',')) : null
+        // makeOptionalJwt trims entries to match the Python side's get_list, so a key value like
+        // "new, old" produces the same key set in both languages.
+        this.jwt = makeOptionalJwt(commaSeparatedKeys || '')
         this.audience = audience
         this.defaultTtlSeconds = defaultTtlSeconds
     }
@@ -48,6 +47,11 @@ export class ScopedServiceJwt {
         if (!this.jwt) {
             throw new Error(`Cannot verify service token for ${this.audience}: no signing key configured`)
         }
-        return this.jwt.verify(token, this.audience) as jwt.JwtPayload
+        return this.jwt.verify(token, this.audience, {
+            // Pin HS256 to match the Python minter; don't accept other HMAC variants the
+            // library would otherwise allow.
+            algorithms: ['HS256'],
+            clockTolerance: CLOCK_TOLERANCE_SECONDS,
+        }) as jwt.JwtPayload
     }
 }

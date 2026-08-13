@@ -64,6 +64,12 @@ class TestScopedServiceJwtPurpose(APIBaseTest):
         with pytest.raises(pyjwt.InvalidAudienceError):
             TEST_PURPOSE.verify(token)
 
+    @override_settings(TEST_SCOPED_SERVICE_JWT_SECRET=["list-new", "list-old"])
+    def test_list_typed_settings_sign_with_first_and_verify_all(self):
+        minted = TEST_PURPOSE.mint({"team_id": 1})
+        pyjwt.decode(minted, "list-new", audience=TEST_PURPOSE.audience.value, algorithms=["HS256"])
+        assert TEST_PURPOSE.verify(_raw_token("list-old", {"team_id": 1}))["team_id"] == 1
+
     @override_settings(TEST_SCOPED_SERVICE_JWT_SECRET="")
     def test_unprovisioned_purpose_is_disabled_and_refuses_to_mint(self):
         assert TEST_PURPOSE.enabled() is False

@@ -50,7 +50,12 @@ class ScopedServiceJwtPurpose:
     default_ttl: timedelta = field(default=DEFAULT_SERVICE_TOKEN_TTL)
 
     def signing_keys(self) -> list[str]:
-        return [key for key in get_list(getattr(settings, self.settings_name, "") or "") if key]
+        value = getattr(settings, self.settings_name, "") or ""
+        # Settings may hold either the raw comma-separated string (RECORDING_API_JWT_SECRET) or a
+        # list already parsed with get_list at load time (WORKFLOWS_RESCHEDULE_JWT_SECRETS).
+        if isinstance(value, list | tuple):
+            return [key.strip() for key in value if key and key.strip()]
+        return [key for key in get_list(value) if key]
 
     def enabled(self) -> bool:
         """False until the purpose's secret is provisioned. Callers use this to fall back to

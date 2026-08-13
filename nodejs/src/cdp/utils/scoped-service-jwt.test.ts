@@ -48,6 +48,16 @@ describe('ScopedServiceJwt', () => {
             expect(jwt.verify(scoped.mint({ team_id: 1 }), 'new-key', { audience: AUDIENCE })).toBeTruthy()
         })
 
+        it('rejects a token signed with a different HMAC algorithm even under the right key', () => {
+            const scoped = new ScopedServiceJwt(AUDIENCE, 'test-key')
+            const forged = jwt.sign({ team_id: 1 }, 'test-key', {
+                algorithm: 'HS512',
+                audience: AUDIENCE,
+                expiresIn: '5m',
+            })
+            expect(() => scoped.verify(forged)).toThrow(/algorithm/)
+        })
+
         it('applies the shared 5 minute default ttl', () => {
             const scoped = new ScopedServiceJwt(AUDIENCE, 'test-key')
             const claims = scoped.verify(scoped.mint({ team_id: 1 }))
