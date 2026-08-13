@@ -1038,7 +1038,7 @@ class TestEnrichedAnalytics(BaseTest):
 
     def test_find_flags_with_enriched_analytics_via_feature_interaction_only(self):
         # A flag that only ever receives $feature_interaction (no $feature_view) should still be
-        # detected as enriched — the docs present the two events as interchangeable triggers.
+        # detected as enriched, because the docs present the two events as interchangeable triggers.
         flag = FeatureFlag.objects.create(
             team=self.team,
             name="Interaction only feature",
