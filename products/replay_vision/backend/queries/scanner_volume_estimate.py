@@ -94,8 +94,8 @@ def estimate_scanner_session_volume(
 
     Reuses `SessionRecordingListFromQuery`'s filter compilation so the estimate and the real
     recordings list agree on what "matches". The exact count runs first; when it times out, is
-    rejected as too slow, or exceeds its per-query memory limit, it retries with sampled events
-    subqueries and corrects the count back up (`sampled=True` on the result).
+    rejected as too slow, or hits a memory limit, it retries with sampled events subqueries and
+    corrects the count back up (`sampled=True` on the result).
     """
     # Sampling is only sound when every match must pass the sampled events leg; under OR, sessions
     # matched via unsampled branches (persons, cohorts, console logs) would be multiplied by the
@@ -154,10 +154,7 @@ def estimate_scanner_session_volume(
         ClickHouseQueryTimeOut,
         ClickHouseEstimatedQueryExecutionTimeTooLong,
         ClickHouseQueryMemoryLimitExceeded,
-    ) as e:
-        # A memory limit that isn't per-query means the cluster is under pressure; retrying piles on.
-        if isinstance(e, ClickHouseQueryMemoryLimitExceeded) and not e.is_per_query_limit:
-            raise
+    ):
         # Full budget: halving it fails teams whose sampled count needs more than half.
         return _execute_estimate_query(
             sampled_plan,

@@ -104,12 +104,6 @@ def test_estimate_samples_only_positive_events_subqueries(
     assert (sql.count(f"SAMPLE {_ESTIMATE_EVENTS_SAMPLE_FACTOR}") > 0) == expect_sampled
 
 
-def _memory_limit_error(*, per_query: bool) -> ClickHouseQueryMemoryLimitExceeded:
-    error = ClickHouseQueryMemoryLimitExceeded()
-    error.is_per_query_limit = per_query
-    return error
-
-
 _EVENT_FILTERED_AND_QUERY = RecordingsQuery(
     events=[{"id": "$pageview", "type": "events", "name": "$pageview"}],
     properties=[{"type": "person", "key": "email", "operator": "icontains", "value": "@"}],
@@ -123,7 +117,7 @@ _EVENT_FILTERED_AND_QUERY = RecordingsQuery(
     [
         ([MagicMock(results=[[5, None]])], 5, False, [15]),
         ([ClickHouseQueryTimeOut(), MagicMock(results=[[5, None]])], 50, True, [15, 30]),
-        ([_memory_limit_error(per_query=True), MagicMock(results=[[5, None]])], 50, True, [15, 30]),
+        ([ClickHouseQueryMemoryLimitExceeded(), MagicMock(results=[[5, None]])], 50, True, [15, 30]),
     ],
 )
 def test_estimate_falls_back_to_sampling_only_when_the_exact_count_times_out(
@@ -161,7 +155,6 @@ def test_estimate_falls_back_to_sampling_only_when_the_exact_count_times_out(
             ClickHouseQueryTimeOut(),
         ),
         (RecordingsQuery(), ClickHouseQueryTimeOut()),
-        (_EVENT_FILTERED_AND_QUERY, _memory_limit_error(per_query=False)),
     ],
 )
 def test_estimate_propagates_errors_when_a_retry_would_not_help(
