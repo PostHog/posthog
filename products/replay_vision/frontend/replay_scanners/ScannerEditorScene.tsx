@@ -288,10 +288,17 @@ function ConfigureStep(): JSX.Element {
                         options={getModelOptions(namingVariant)}
                     />
                 </LemonField>
+                {/* The price line stays outside the variant branch so every arm of the model-naming experiment
+                    shows it. Tier names give even less of a cost anchor than provider model names do. */}
                 <div className="text-xs text-muted">
                     {namingVariant
                         ? 'Higher tiers tend to produce higher-quality observations, but cost more per observation.'
-                        : 'Newer models tend to produce higher-quality observations, but cost more per observation.'}
+                        : 'Newer models tend to produce higher-quality observations, but cost more per observation.'}{' '}
+                    1 credit is $0.01.{' '}
+                    <Link to="https://posthog.com/replay-vision/pricing" target="_blank">
+                        Read more about pricing
+                    </Link>
+                    .
                 </div>
             </div>
 
