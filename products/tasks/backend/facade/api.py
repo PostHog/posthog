@@ -3123,6 +3123,9 @@ def finalize_task_run_artifact_uploads(
             merged = [entry for entry in (locked_run.artifacts or []) if entry.get("id") not in new_ids]
             merged.extend(new_entries)
             _save_artifact_manifest(locked_run, merged)
+        # The locked merge is the authoritative manifest; version-counting from the
+        # pre-lock snapshot would miss a concurrent finalize of the same name.
+        manifest = merged
 
     for storage_path in new_storage_paths:
         _tag_artifact_object(run, storage_path)
