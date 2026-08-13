@@ -11,6 +11,7 @@ export const SIDEBAR_MIN_WIDTH = 240;
 export const CHANNELS_SIDEBAR_MIN_WIDTH = 272;
 
 export const CUSTOMIZABLE_NAV_ITEMS = [
+  { id: "home", label: "Home", analyticsId: "home", defaultVisible: true },
   { id: "inbox", label: "Inbox", analyticsId: "inbox", defaultVisible: true },
   {
     id: "activity",

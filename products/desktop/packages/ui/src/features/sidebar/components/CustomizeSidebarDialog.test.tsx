@@ -154,7 +154,7 @@ describe("CustomizeSidebarSettings", () => {
     useSidebarStore.setState({ navItemOrder: ["configure", "inbox"] });
     renderSettings();
 
-    expect(rowLabels().slice(0, 2)).toEqual(["Settings", "Inbox"]);
+    expect(rowLabels().slice(0, 3)).toEqual(["Home", "Settings", "Inbox"]);
   });
 
   it("previews on dragover and persists only on drop", () => {
@@ -163,13 +163,14 @@ describe("CustomizeSidebarSettings", () => {
     dragStart("loops");
     dragOver("loops", "inbox");
 
-    expect(rowLabels()[0]).toBe("Loops");
+    expect(rowLabels()[1]).toBe("Loops");
     expect(useSidebarStore.getState().navItemOrder).toEqual([]);
     expect(track).not.toHaveBeenCalled();
 
     dragEnd("loops");
 
     expect(useSidebarStore.getState().navItemOrder).toEqual([
+      "home",
       "loops",
       "inbox",
       "activity",
@@ -178,7 +179,7 @@ describe("CustomizeSidebarSettings", () => {
     ]);
     expect(track).toHaveBeenCalledWith(ANALYTICS_EVENTS.SIDEBAR_REORDERED, {
       item: "loops",
-      to_index: 0,
+      to_index: 1,
     });
   });
 
@@ -189,11 +190,11 @@ describe("CustomizeSidebarSettings", () => {
     dragOver("loops", "inbox");
     dragOver("loops", "inbox");
 
-    expect(rowLabels()[0]).toBe("Loops");
+    expect(rowLabels()[1]).toBe("Loops");
 
     dragEnd("loops");
 
-    expect(useSidebarStore.getState().navItemOrder[0]).toBe("loops");
+    expect(useSidebarStore.getState().navItemOrder[1]).toBe("loops");
   });
 
   it("a canceled drag drops the preview and leaves the store untouched", () => {
@@ -203,7 +204,7 @@ describe("CustomizeSidebarSettings", () => {
     dragOver("loops", "inbox");
     dragEnd("loops", { cancel: true });
 
-    expect(rowLabels()[0]).toBe("Inbox");
+    expect(rowLabels()[1]).toBe("Inbox");
     expect(useSidebarStore.getState().navItemOrder).toEqual([]);
     expect(track).not.toHaveBeenCalled();
   });
@@ -226,6 +227,6 @@ describe("CustomizeSidebarSettings", () => {
     await user.click(screen.getByRole("button", { name: "Reset" }));
 
     expect(useSidebarStore.getState().navItemOrder).toEqual([]);
-    expect(rowLabels()[0]).toBe("Inbox");
+    expect(rowLabels()[0]).toBe("Home");
   });
 });

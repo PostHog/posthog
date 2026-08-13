@@ -46,6 +46,7 @@ describe("orderedNavItems", () => {
 
     expect(ids.indexOf("activity")).toBe(ids.indexOf("inbox") + 1);
     expect(ids.filter((id) => id !== "activity")).toEqual([
+      "home",
       "inbox",
       "loops",
       "command-center",
@@ -58,16 +59,18 @@ describe("orderedNavItems", () => {
       (item) => item.id,
     );
 
-    expect(ids[0]).toBe("inbox");
+    expect(ids[0]).toBe("home");
   });
 
   it("puts stored ids first and appends the rest in default order", () => {
-    const ids = orderedNavItems(["configure", "inbox"]).map((item) => item.id);
+    const ids = orderedNavItems(["home", "configure", "inbox"]).map(
+      (item) => item.id,
+    );
 
-    expect(ids.slice(0, 2)).toEqual(["configure", "inbox"]);
-    expect(ids.slice(2)).toEqual(
+    expect(ids.slice(0, 3)).toEqual(["home", "configure", "inbox"]);
+    expect(ids.slice(3)).toEqual(
       CUSTOMIZABLE_NAV_ITEM_IDS.filter(
-        (id) => id !== "configure" && id !== "inbox",
+        (id) => id !== "home" && id !== "configure" && id !== "inbox",
       ),
     );
   });
@@ -77,7 +80,9 @@ describe("moveNavItem", () => {
   it("moves an item backward to the target position", () => {
     const next = moveNavItem([], "loops", "inbox");
 
-    expect(next[0]).toBe("loops");
+    expect(next.indexOf("loops")).toBe(
+      CUSTOMIZABLE_NAV_ITEM_IDS.indexOf("inbox"),
+    );
     expect(next).toHaveLength(CUSTOMIZABLE_NAV_ITEM_IDS.length);
   });
 

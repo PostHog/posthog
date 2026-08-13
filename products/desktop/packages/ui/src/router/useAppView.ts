@@ -7,6 +7,7 @@ import { useMemo } from "react";
 import { getCurrentMatches } from "./navigationBridge";
 
 export type AppViewType =
+  | "home"
   | "task-detail"
   | "task-pending"
   | "task-input"
@@ -43,6 +44,10 @@ function deriveFromMatches(matches: Match[]): AppView {
   if (!last) return { type: "task-input" };
 
   switch (last.routeId) {
+    // The root route renders Home on bluebird; off it, it redirects into Code
+    // before this view is read for anything user-visible.
+    case "/":
+      return { type: "home" };
     // Both the /code task detail and the channels-space task detail render the
     // same task-detail view, so consumers (active-state highlighting, archive's
     // navigate-away-if-active check) treat them identically.

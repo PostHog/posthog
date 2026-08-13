@@ -17,6 +17,7 @@ import { useSidebarStore } from "@posthog/ui/features/sidebar/sidebarStore";
 import {
   navigateToActivity,
   navigateToCommandCenter,
+  navigateToHome,
   navigateToInbox,
   navigateToLoops,
   navigateToWebsiteCommandCenter,
@@ -31,6 +32,7 @@ import type { ReactNode } from "react";
 import { ActivityItem } from "./items/ActivityItem";
 import { CommandCenterItem } from "./items/CommandCenterItem";
 import { ConfigureItem } from "./items/ConfigureItem";
+import { HomeItem } from "./items/HomeItem";
 import { InboxItem } from "./items/InboxItem";
 import { LoopsItem } from "./items/LoopsItem";
 import { NewTaskItem } from "./items/NewTaskItem";
@@ -83,8 +85,9 @@ export function SidebarNavSection({
 
   // Active flags are pure functions of the current view — mirror what
   // useSidebarData derives, without pulling in its task-loading.
-  const isHomeActive =
+  const isNewTaskActive =
     view.type === "task-input" || view.type === "task-pending";
+  const isHomeActive = view.type === "home";
   const isActivityActive = view.type === "activity";
   const isInboxActive = view.type === "inbox";
   const isLoopsActive = view.type === "loops";
@@ -134,6 +137,9 @@ export function SidebarNavSection({
     ),
   );
   const navItemAvailable: Record<CustomizableNavItemId, boolean> = {
+    // Home is the root route's bluebird view; off the flag that route only
+    // redirects into Code, so the row would lead nowhere.
+    home: bluebirdEnabled,
     inbox: true,
     "command-center": true,
     activity: bluebirdEnabled,
@@ -147,6 +153,13 @@ export function SidebarNavSection({
     CustomizableNavItemId,
     (depth: 0 | 1) => ReactNode
   > = {
+    home: (depth) => (
+      <HomeItem
+        depth={depth}
+        isActive={isHomeActive}
+        onClick={withNavTrack("home", navigateToHome, depth)}
+      />
+    ),
     inbox: (depth) => (
       <InboxItem
         depth={depth}
@@ -192,7 +205,7 @@ export function SidebarNavSection({
     <Flex direction="column" className="shrink-0 gap-px px-2 py-2">
       <Box mb="2">
         <NewTaskItem
-          isActive={isHomeActive}
+          isActive={isNewTaskActive}
           onClick={withNavTrack("new_task", goNewTask)}
         />
       </Box>

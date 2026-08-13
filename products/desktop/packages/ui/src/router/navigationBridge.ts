@@ -15,6 +15,10 @@ import { getRouterOrNull } from "./routerRef";
 // (early boot, unit tests). These are renderer conveniences — they must never
 // throw just because the router singleton hasn't been created.
 
+export function navigateToHome(): void {
+  void getRouterOrNull()?.navigate({ to: "/" });
+}
+
 export function navigateToCode(): void {
   void getRouterOrNull()?.navigate({ to: "/code" });
 }

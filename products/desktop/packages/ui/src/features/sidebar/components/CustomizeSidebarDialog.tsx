@@ -4,6 +4,7 @@ import {
   Bell,
   DotsSixVertical,
   EnvelopeSimple,
+  HouseIcon,
   SlidersHorizontal,
   SquaresFourIcon,
 } from "@phosphor-icons/react";
@@ -28,6 +29,7 @@ const ITEM_ICONS: Record<
   CustomizableNavItemId,
   React.ComponentType<{ size?: number | string }>
 > = {
+  home: HouseIcon,
   inbox: EnvelopeSimple,
   "command-center": SquaresFourIcon,
   activity: Bell,
@@ -72,7 +74,7 @@ export function CustomizeSidebarSettings() {
   const items = orderedNavItems(previewOrder ?? navItemOrder).filter(
     ({ id }) => {
       if (id === "loops") return loopsEnabled;
-      if (id === "activity") return bluebirdEnabled;
+      if (id === "activity" || id === "home") return bluebirdEnabled;
       return true;
     },
   );

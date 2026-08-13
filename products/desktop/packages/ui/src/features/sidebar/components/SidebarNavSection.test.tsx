@@ -21,6 +21,7 @@ const {
   navigateToMcpServers,
   navigateToCommandCenter,
   navigateToActivity,
+  navigateToHome,
   openCommandMenu,
 } = vi.hoisted(() => ({
   track: vi.fn(),
@@ -31,6 +32,7 @@ const {
   navigateToMcpServers: vi.fn(),
   navigateToCommandCenter: vi.fn(),
   navigateToActivity: vi.fn(),
+  navigateToHome: vi.fn(),
   openCommandMenu: vi.fn(),
 }));
 
@@ -48,6 +50,7 @@ vi.mock("@posthog/ui/router/navigationBridge", () => ({
   navigateToActivity,
   navigateToAgents,
   navigateToCommandCenter,
+  navigateToHome,
   navigateToInbox,
   navigateToLoops: vi.fn(),
   navigateToMcpServers,
@@ -111,6 +114,7 @@ describe("SidebarNavSection", () => {
   });
 
   it.each([
+    ["home", "Home"],
     ["inbox", "Inbox"],
     ["command-center", "Command Center"],
     ["activity", "Activity"],
@@ -149,6 +153,15 @@ describe("SidebarNavSection", () => {
       ANALYTICS_EVENTS.SIDEBAR_NAV_ITEM_CLICKED,
       { item: "inbox", in_more: false, layout: "code" },
     );
+  });
+
+  it("navigates to the root route from Home", async () => {
+    const user = userEvent.setup();
+    renderNav();
+
+    await user.click(screen.getByRole("button", { name: /Home/ }));
+
+    expect(navigateToHome).toHaveBeenCalledTimes(1);
   });
 
   it("does not render the Channels mode toggle in navigation", () => {
