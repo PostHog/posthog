@@ -4,6 +4,8 @@ import { useRef, useState } from 'react'
 import { IconOpenSidebar } from '@posthog/icons'
 import { LemonTag, Link } from '@posthog/lemon-ui'
 
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { aiConsentLogic } from 'scenes/settings/organization/aiConsentLogic'
 import { AIConsentPopoverWrapper } from 'scenes/settings/organization/AIConsentPopoverWrapper'
 
@@ -11,6 +13,7 @@ import { ScannerTypeBadge } from '../../components/ScannerTypeBadge'
 import { ScannerTemplate, defaultScannerTemplates } from '../scannerTemplates'
 import { ScannerType } from '../types'
 import { CreateScannerButton } from './CreateScannerButton'
+import { ScannerGoalDraft } from './ScannerGoalDraft'
 import { TemplateCard } from './ScannerTemplatePicker'
 
 // Test arms of the replay-vision-empty-state-experiment flag, keyed by the flag's variant key.
@@ -39,9 +42,9 @@ const DOCS_LINK = (
     </Link>
 )
 
-// Unlike the picker page, these cards are reachable before the organization has approved AI data
-// processing, so each one interposes the consent popover before the template's draft starts.
-function ConsentGatedTemplateCard({ template }: { template: ScannerTemplate | 'blank' }): JSX.Element {
+// Unlike the picker page, this surface is reachable before the organization has approved AI data
+// processing, so every AI entry point interposes the consent popover before its draft starts.
+function ConsentGate({ children }: { children: (gate: (proceed: () => void) => void) => JSX.Element }): JSX.Element {
     const { dataProcessingAccepted } = useValues(aiConsentLogic)
     const [consentRequested, setConsentRequested] = useState(false)
     const pendingStart = useRef<(() => void) | null>(null)
@@ -60,18 +63,32 @@ function ConsentGatedTemplateCard({ template }: { template: ScannerTemplate | 'b
             }}
             onDismiss={() => setConsentRequested(false)}
         >
-            <TemplateCard
-                template={template}
-                gateStart={(proceed) => {
-                    if (dataProcessingAccepted) {
-                        proceed()
-                        return
-                    }
-                    pendingStart.current = proceed
-                    setConsentRequested(true)
-                }}
-            />
+            {children((proceed) => {
+                if (dataProcessingAccepted) {
+                    proceed()
+                    return
+                }
+                pendingStart.current = proceed
+                setConsentRequested(true)
+            })}
         </AIConsentPopoverWrapper>
+    )
+}
+
+function ConsentGatedTemplateCard({ template }: { template: ScannerTemplate | 'blank' }): JSX.Element {
+    return <ConsentGate>{(gate) => <TemplateCard template={template} gateStart={gate} />}</ConsentGate>
+}
+
+// Without the goal-draft flag the backend rejects the draft call, so the box only renders with it on.
+function GatedGoalDraft({ className }: { className?: string }): JSX.Element | null {
+    const { featureFlags } = useValues(featureFlagLogic)
+    if (!featureFlags[FEATURE_FLAGS.REPLAY_VISION_GOAL_DRAFT]) {
+        return null
+    }
+    return (
+        <div className={className}>
+            <ConsentGate>{(gate) => <ScannerGoalDraft gateSubmit={gate} />}</ConsentGate>
+        </div>
     )
 }
 
@@ -91,6 +108,7 @@ function TemplatesEmptyState(): JSX.Element {
                 ))}
                 <ConsentGatedTemplateCard template="blank" />
             </div>
+            <GatedGoalDraft className="w-full max-w-160 mx-auto" />
             <div className="text-center">{DOCS_LINK}</div>
         </div>
     )
@@ -147,6 +165,7 @@ function ExampleObservationsEmptyState(): JSX.Element {
                     />
                     {DOCS_LINK}
                 </div>
+                <GatedGoalDraft className="mt-2" />
             </div>
             <div className="flex flex-col gap-3 flex-1 w-full max-w-160">
                 <span className="text-muted text-xs font-semibold uppercase tracking-wide">Example results</span>

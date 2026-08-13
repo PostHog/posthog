@@ -6,17 +6,29 @@ import { LemonButton, LemonTextArea } from '@posthog/lemon-ui'
 
 import { replayScannerLogic } from '../replayScannerLogic'
 
-/** "Tell PostHog AI what you want to accomplish" box on the template step: drafts a full scanner
- * from the stated goal and drops the user into the configure step to review it. */
-export function ScannerGoalDraft(): JSX.Element {
+/** "Tell PostHog AI what you want to accomplish" box on the template step and the zero-scanner
+ * empty state: drafts a full scanner from the stated goal and drops the user into the configure
+ * step to review it. */
+export function ScannerGoalDraft({
+    gateSubmit,
+}: {
+    // Lets pre-consent surfaces interpose the AI consent popover before the draft request fires.
+    gateSubmit?: (proceed: () => void) => void
+}): JSX.Element {
     const textAreaRef = useRef<HTMLTextAreaElement>(null)
     const logic = replayScannerLogic({ id: 'new' })
     const { goalDraftInput, goalDraftLoading } = useValues(logic)
     const { draftScannerFromGoal, setGoalDraftInput } = useActions(logic)
 
     const handleSubmit = (): void => {
-        if (goalDraftInput.trim() && !goalDraftLoading) {
-            draftScannerFromGoal(goalDraftInput.trim())
+        if (!goalDraftInput.trim() || goalDraftLoading) {
+            return
+        }
+        const proceed = (): void => draftScannerFromGoal(goalDraftInput.trim())
+        if (gateSubmit) {
+            gateSubmit(proceed)
+        } else {
+            proceed()
         }
     }
 
