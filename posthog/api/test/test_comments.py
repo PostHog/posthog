@@ -97,6 +97,37 @@ class TestComments(APIBaseTest, QueryMatchingTest):
         )
         assert [row["id"] for row in with_task.json()["results"]] == [created.json()["id"]]
 
+    @mock.patch("posthog.api.comments.send_mention_notifications")
+    @mock.patch("posthog.api.comments.produce_discussion_mention_events")
+    @mock.patch("posthog.tasks.email.send_discussions_mentioned.delay")
+    def test_desktop_comment_mentions_do_not_enqueue_email(
+        self,
+        send_email: mock.Mock,
+        produce_events: mock.Mock,
+        send_notifications: mock.Mock,
+    ) -> None:
+        task = self._task_artifact_target()
+        mentioned = User.objects.create_and_join(self.organization, "desktop-mentioned@example.com", None)
+        payload = {
+            "content": "Review this",
+            "scope": "task_artifact",
+            "item_id": "artifact-1",
+            "item_context": {"anchor": {"kind": "document"}, "taskId": str(task.id)},
+            "mentions": [mentioned.id],
+        }
+
+        created = self.client.post(f"/api/projects/{self.team.id}/comments", payload)
+        updated = self.client.patch(
+            f"/api/projects/{self.team.id}/comments/{created.json()['id']}",
+            {"content": "Review this update", "mentions": [mentioned.id]},
+        )
+
+        assert created.status_code == status.HTTP_201_CREATED
+        assert updated.status_code == status.HTTP_200_OK
+        send_email.assert_not_called()
+        assert produce_events.call_count == 2
+        assert send_notifications.call_count == 2
+
     @mock.patch("posthog.api.comments.posthoganalytics.capture")
     def test_task_comment_actions_track_mentions_without_counting_state_as_replies(self, capture: mock.Mock) -> None:
         task = self._task_artifact_target()

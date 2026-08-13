@@ -16,7 +16,9 @@ import structlog
 
 from posthog.models.team import Team
 
+from products.replay_vision.backend.api.scanners import _refresh_estimate_fail_soft
 from products.replay_vision.backend.models.replay_scanner import ReplayScanner, ScannerModel, ScannerType
+from products.replay_vision.backend.queries import MIN_SAMPLING_RATE
 from products.signals.backend.models import SignalSourceConfig
 
 logger = structlog.get_logger(__name__)
@@ -74,12 +76,11 @@ class Command(BaseCommand):
             )
         if options["credit_limit"] < 1:
             raise CommandError("--credit-limit must be at least 1.")
-        if not 0.0 < options["sampling_rate"] <= 1.0:
-            raise CommandError("--sampling-rate must be above 0 and at most 1.")
+        # Same floor the serializer enforces: below it a scanner samples so little it scans nothing.
+        if not MIN_SAMPLING_RATE <= options["sampling_rate"] <= 1.0:
+            raise CommandError(f"--sampling-rate must be between {MIN_SAMPLING_RATE} and 1.")
 
         team_ids = self._target_team_ids(options.get("team_ids"))
-        if options.get("limit"):
-            team_ids = team_ids[: options["limit"]]
 
         created = skipped_no_consent = 0
         for team in Team.objects.filter(id__in=team_ids).select_related("organization").order_by("id"):
@@ -89,6 +90,10 @@ class Command(BaseCommand):
                 self.stdout.write(f"  skip team {team.id}: org has not approved AI data processing")
                 continue
 
+            # Counted after the consent skip so `--limit 10` provisions ten teams rather than considering ten.
+            if options.get("limit") and created >= options["limit"]:
+                break
+
             if not options["apply"]:
                 self.stdout.write(f"  would provision team {team.id}")
                 created += 1
@@ -96,6 +101,8 @@ class Command(BaseCommand):
 
             with transaction.atomic():
                 scanner = self._create_scanner(team, options)
+            # Without this the scanner spends credits while missing from the org's spend forecast.
+            _refresh_estimate_fail_soft(scanner)
             logger.info(
                 "replay_vision.provisioned_summarizer",
                 team_id=team.id,
@@ -146,4 +153,5 @@ class Command(BaseCommand):
             # command predates. `handle` refuses to run until it exists, so this is never silently dropped.
             "credit_limit": options["credit_limit"],
         }
+        # No built-in digest: it is a second scheduled LLM run per day, and nobody asked for this scanner.
         return ReplayScanner.objects.create(**fields)

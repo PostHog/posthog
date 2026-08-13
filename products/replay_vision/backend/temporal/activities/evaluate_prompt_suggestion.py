@@ -149,6 +149,7 @@ def record_evaluation_result_activity(inputs: RecordEvaluationResultInputs) -> N
                 defaults={
                     "organization_id": suggestion.team.organization_id,
                     "team_id": inputs.team_id,
+                    "scanner_id": suggestion.scanner_id,
                     "observation_created_at": timezone.now(),
                     "model": inputs.model,
                     "credits": observation_credits_for_model(inputs.model or ""),

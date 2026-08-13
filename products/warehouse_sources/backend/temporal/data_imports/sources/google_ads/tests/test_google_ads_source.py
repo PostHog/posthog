@@ -1484,9 +1484,12 @@ class TestGoogleAdsQueryConstruction:
         assert all("2100-01-01" not in q for q in queries)
         assert response.sort_mode == "asc"
 
-    def test_first_sync_uses_open_ended_scan_not_windows(self):
-        # A first sync carries the 1970 sentinel cursor; windowing it would crawl 7 days at a time
-        # from 1970 and never catch up, so first syncs must stay a single open-ended ascending scan.
+    def test_first_sync_drains_in_windows_from_a_bounded_backfill_start(self):
+        # A first sync has no cursor. Running it as the open-ended `1970 .. 2100` scan meant one run
+        # had to extract the whole account history before anything landed durably; it never
+        # finished, so the cursor never advanced and the next run repeated the same scan — report
+        # tables that had never synced could never start. It must window like any other run,
+        # beginning a bounded backfill behind today.
         with freeze_time("2026-07-17"):
             _response, queries = self._run_source(
                 self._stats_table(),
@@ -1496,11 +1499,13 @@ class TestGoogleAdsQueryConstruction:
                 incremental_field_type=IncrementalFieldType.Date,
             )
 
-        assert queries == [
+        assert queries[0] == (
             "SELECT campaign.id,segments.date FROM campaign_stats "
-            "WHERE segments.date >= '1970-01-01' AND segments.date < '2100-01-01' "
+            "WHERE segments.date >= '2024-07-17' AND segments.date < '2024-07-24' "
             "ORDER BY segments.date ASC"
-        ]
+        )
+        assert all("2100-01-01" not in q for q in queries)
+        assert all("1970-01-01" not in q for q in queries)
 
     def test_run_stops_after_max_data_windows(self):
         # Every window has data; the run must stop after GOOGLE_ADS_MAX_DATA_WINDOWS_PER_RUN

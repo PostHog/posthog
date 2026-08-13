@@ -1710,6 +1710,9 @@ export const ExternalDataSourceSerializersCreatedViaEnumApi = {
  * * `Snovio` - Snovio
  * * `GoogleMerchantCenter` - GoogleMerchantCenter
  * * `Raisely` - Raisely
+ * * `RakutenAdvertising` - RakutenAdvertising
+ * * `Zitadel` - Zitadel
+ * * `DeelFlows` - DeelFlows
  * * `WindsorAi` - WindsorAi
  * * `Wix` - Wix
  * * `Sevalla` - Sevalla
@@ -3007,6 +3010,9 @@ export const ExternalDataSourceTypeEnumApi = {
     Snovio: 'Snovio',
     GoogleMerchantCenter: 'GoogleMerchantCenter',
     Raisely: 'Raisely',
+    RakutenAdvertising: 'RakutenAdvertising',
+    Zitadel: 'Zitadel',
+    DeelFlows: 'DeelFlows',
     WindsorAi: 'WindsorAi',
     Wix: 'Wix',
     Sevalla: 'Sevalla',
@@ -4444,6 +4450,9 @@ export interface ExternalDataSourceCreateApi {
      * * `Snovio` - Snovio
      * * `GoogleMerchantCenter` - GoogleMerchantCenter
      * * `Raisely` - Raisely
+     * * `RakutenAdvertising` - RakutenAdvertising
+     * * `Zitadel` - Zitadel
+     * * `DeelFlows` - DeelFlows
      * * `WindsorAi` - WindsorAi
      * * `Wix` - Wix
      * * `Sevalla` - Sevalla
@@ -5955,6 +5964,9 @@ export interface ExternalDataSourceConnectionOptionApi {
      * * `Snovio` - Snovio
      * * `GoogleMerchantCenter` - GoogleMerchantCenter
      * * `Raisely` - Raisely
+     * * `RakutenAdvertising` - RakutenAdvertising
+     * * `Zitadel` - Zitadel
+     * * `DeelFlows` - DeelFlows
      * * `WindsorAi` - WindsorAi
      * * `Wix` - Wix
      * * `Sevalla` - Sevalla
@@ -7279,6 +7291,9 @@ export interface DatabaseSchemaRequestApi {
      * * `Snovio` - Snovio
      * * `GoogleMerchantCenter` - GoogleMerchantCenter
      * * `Raisely` - Raisely
+     * * `RakutenAdvertising` - RakutenAdvertising
+     * * `Zitadel` - Zitadel
+     * * `DeelFlows` - DeelFlows
      * * `WindsorAi` - WindsorAi
      * * `Wix` - Wix
      * * `Sevalla` - Sevalla
@@ -8580,6 +8595,9 @@ export interface DirectConnectionSourceOptionApi {
      * * `Snovio` - Snovio
      * * `GoogleMerchantCenter` - GoogleMerchantCenter
      * * `Raisely` - Raisely
+     * * `RakutenAdvertising` - RakutenAdvertising
+     * * `Zitadel` - Zitadel
+     * * `DeelFlows` - DeelFlows
      * * `WindsorAi` - WindsorAi
      * * `Wix` - Wix
      * * `Sevalla` - Sevalla
@@ -9966,6 +9984,9 @@ export interface SourcePreviewRequestApi {
      * * `Snovio` - Snovio
      * * `GoogleMerchantCenter` - GoogleMerchantCenter
      * * `Raisely` - Raisely
+     * * `RakutenAdvertising` - RakutenAdvertising
+     * * `Zitadel` - Zitadel
+     * * `DeelFlows` - DeelFlows
      * * `WindsorAi` - WindsorAi
      * * `Wix` - Wix
      * * `Sevalla` - Sevalla
@@ -11302,6 +11323,9 @@ export interface SourceSetupApi {
      * * `Snovio` - Snovio
      * * `GoogleMerchantCenter` - GoogleMerchantCenter
      * * `Raisely` - Raisely
+     * * `RakutenAdvertising` - RakutenAdvertising
+     * * `Zitadel` - Zitadel
+     * * `DeelFlows` - DeelFlows
      * * `WindsorAi` - WindsorAi
      * * `Wix` - Wix
      * * `Sevalla` - Sevalla
@@ -12645,6 +12669,9 @@ export interface SourceCredentialCreateApi {
      * * `Snovio` - Snovio
      * * `GoogleMerchantCenter` - GoogleMerchantCenter
      * * `Raisely` - Raisely
+     * * `RakutenAdvertising` - RakutenAdvertising
+     * * `Zitadel` - Zitadel
+     * * `DeelFlows` - DeelFlows
      * * `WindsorAi` - WindsorAi
      * * `Wix` - Wix
      * * `Sevalla` - Sevalla

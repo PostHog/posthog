@@ -4513,22 +4513,6 @@ const api = {
             return await new ApiRequest().recording(recordingId).update({ data })
         },
 
-        async summarizeStream(
-            recordingId: SessionRecordingType['id'],
-            options?: ApiMethodOptions & { forceRestart?: boolean }
-        ): Promise<Response> {
-            const { forceRestart, ...apiOptions } = options ?? {}
-            return await api.createResponse(
-                new ApiRequest().recording(recordingId).withAction('summarize').assembleFullUrl(),
-                forceRestart ? { force_restart: true } : undefined,
-                apiOptions
-            )
-        },
-
-        async cancelSummarize(recordingId: SessionRecordingType['id']): Promise<{ cancelled: boolean }> {
-            return await new ApiRequest().recording(recordingId).withAction('summarize/cancel').create()
-        },
-
         async similarRecordings(recordingId: SessionRecordingType['id']): Promise<[string, number][]> {
             return await new ApiRequest().recording(recordingId).withAction('similar_sessions').get()
         },

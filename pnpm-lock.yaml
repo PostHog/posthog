@@ -632,6 +632,9 @@ importers:
       '@posthog/icons':
         specifier: 'catalog:'
         version: 0.38.0(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
+      '@posthog/llm-normalizer':
+        specifier: workspace:*
+        version: link:../packages/llm-normalizer
       '@posthog/products-access-control':
         specifier: workspace:*
         version: link:../products/access_control
@@ -779,9 +782,6 @@ importers:
       '@posthog/products-session-replay':
         specifier: workspace:*
         version: link:../products/session_replay
-      '@posthog/products-session-summaries':
-        specifier: workspace:*
-        version: link:../products/session_summaries
       '@posthog/products-signals':
         specifier: workspace:*
         version: link:../products/signals
@@ -1892,6 +1892,12 @@ importers:
       tsx:
         specifier: ^4.7.0
         version: 4.20.5
+
+  packages/llm-normalizer:
+    dependencies:
+      yaml:
+        specifier: 'catalog:'
+        version: 2.9.0
 
   packages/quill:
     devDependencies:
@@ -4047,27 +4053,6 @@ importers:
         specifier: 18.3.1
         version: 18.3.1
 
-  products/session_summaries:
-    dependencies:
-      '@posthog/icons':
-        specifier: 'catalog:'
-        version: 0.38.0(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
-      '@types/react':
-        specifier: 18.3.27
-        version: 18.3.27
-      kea:
-        specifier: 'catalog:'
-        version: 4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1)
-      kea-loaders:
-        specifier: 'catalog:'
-        version: 3.1.1(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1))
-      kea-router:
-        specifier: 'catalog:'
-        version: 3.4.1(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1))
-      react:
-        specifier: 18.3.1
-        version: 18.3.1
-
   products/signals:
     dependencies:
       '@pierre/diffs':
@@ -4780,6 +4765,9 @@ importers:
       '@modelcontextprotocol/sdk':
         specifier: ^1.29.0
         version: 1.29.0(@cfworker/json-schema@4.1.1)(zod@4.3.6)
+      '@posthog/llm-normalizer':
+        specifier: workspace:*
+        version: link:../../packages/llm-normalizer
       '@posthog/mcp-analytics':
         specifier: npm:@posthog/mcp@0.10.2
         version: '@posthog/mcp@0.10.2(@modelcontextprotocol/sdk@1.29.0(@cfworker/json-schema@4.1.1)(zod@4.3.6))(posthog-node@5.46.1(rxjs@7.8.1))'

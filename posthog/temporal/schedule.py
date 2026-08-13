@@ -81,6 +81,7 @@ from products.business_knowledge.backend.temporal.schedule import create_busines
 from products.conversations.backend.temporal.channel_summary.schedule import create_channel_summary_coordinator_schedule
 from products.conversations.backend.temporal.schedule import create_support_reply_coordinator_schedule
 from products.customer_analytics.backend.facade.temporal import create_calendar_sync_coordinator_schedule
+from products.data_quality.backend.facade.temporal import create_cleanup_data_quality_check_runs_schedule
 from products.engineering_analytics.backend.facade.temporal import (
     create_ci_signals_coordinator_schedule,
     create_github_job_logs_coordinator_schedule,
@@ -93,11 +94,13 @@ from products.error_tracking.backend.facade.temporal import (
 )
 from products.experiments.backend.temporal.schedule import create_experiment_precompute_canary_schedule
 from products.exports.backend.temporal.subscriptions.types import ScheduleAllSubscriptionsWorkflowInputs
+from products.logs.backend.facade.temporal import create_logs_volume_tick_schedule
 from products.managed_warehouse.backend.facade.temporal import DucklakeCompactionInput
 from products.replay_vision.backend.temporal.estimates import create_replay_vision_estimates_schedule
 from products.replay_vision.backend.temporal.gemini_cleanup_sweep import (
     create_replay_vision_gemini_cleanup_sweep_schedule,
 )
+from products.replay_vision.backend.temporal.read_meter import create_replay_vision_read_meter_schedule
 from products.replay_vision.backend.temporal.reconciler import create_replay_vision_reconciler_schedule
 from products.review_hog.backend.temporal.outcomes_schedule import create_review_hog_finding_outcomes_schedule
 from products.signals.backend.emission.conversations_schedule import create_conversations_signals_coordinator_schedule
@@ -108,6 +111,9 @@ from products.web_analytics.backend.temporal.weekly_digest.types import WAWeekly
 from ee.billing.salesforce_enrichment.constants import DEFAULT_CHUNK_SIZE
 
 logger = structlog.get_logger(__name__)
+
+# The retired summarization sweep created one schedule per team under this prefix.
+LEGACY_SUMMARIZATION_TEAM_SCHEDULE_PREFIX = "session-summarization-team-"
 
 
 async def cleanup_sync_vectors_schedule(client: Client):
@@ -636,6 +642,16 @@ async def cleanup_legacy_session_summarization_schedules(client: Client):
         if await a_schedule_exists(client, schedule_id):
             await a_delete_schedule(client, schedule_id)
 
+    # The sweep also created one schedule per team, and the reconciler that used to reap them is gone.
+    # Left alone they fire every few minutes forever against a workflow type no worker registers.
+    try:
+        async for schedule in await client.list_schedules():
+            if schedule.id.startswith(LEGACY_SUMMARIZATION_TEAM_SCHEDULE_PREFIX):
+                await a_delete_schedule(client, schedule.id)
+    except Exception:
+        # Reaping is best effort: a listing failure must not stop the rest of schedule setup.
+        logger.exception("temporal.cleanup_legacy_summarization_team_schedules_failed")
+
 
 async def cleanup_cohort_calculation_schedules(client: Client):
     """Delete the realtime cohort calculation and precalculated-data reconcile schedules.
@@ -865,6 +881,7 @@ schedules = [
     create_wa_weekly_digest_schedule,
     create_wa_digest_notification_schedule,
     create_logs_alert_check_schedule,
+    create_logs_volume_tick_schedule,
     create_schedule_due_alert_checks_schedule,
     create_run_investigation_safety_net_schedule,
     create_cleanup_alert_checks_schedule,
@@ -874,9 +891,11 @@ schedules = [
     create_calendar_sync_coordinator_schedule,
     create_replay_vision_reconciler_schedule,
     create_replay_vision_estimates_schedule,
+    create_replay_vision_read_meter_schedule,
     create_github_job_logs_coordinator_schedule,
     create_review_hog_finding_outcomes_schedule,
     create_ci_signals_coordinator_schedule,
+    create_cleanup_data_quality_check_runs_schedule,
 ]
 
 if settings.CLOUD_DEPLOYMENT:
