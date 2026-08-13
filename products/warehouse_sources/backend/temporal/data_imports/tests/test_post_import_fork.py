@@ -334,6 +334,31 @@ async def test_post_import_workflow_runs_moved_steps(gates_on: bool, steps_mode:
     assert any(c.startswith("ducklake-copy-data-imports-") for c in child_ids)
 
 
+async def test_each_completed_sync_gets_its_own_data_quality_suite():
+    from products.warehouse_sources.backend.temporal.data_imports.post_import_job import (
+        PostImportContext,
+        PostImportWorkflowInputs,
+        _start_data_quality_checks,
+    )
+
+    schema_id, table_id = str(uuid.uuid4()), str(uuid.uuid4())
+    ctx = PostImportContext(table_id=table_id)
+
+    with mock.patch(
+        "products.warehouse_sources.backend.temporal.data_imports.post_import_job.workflow.start_child_workflow",
+        new_callable=mock.AsyncMock,
+    ) as mock_start_child:
+        for job_id in (_JOB_ID, str(uuid.uuid4())):
+            await _start_data_quality_checks(
+                PostImportWorkflowInputs(team_id=1, job_id=job_id, schema_id=schema_id, source_id=str(uuid.uuid4())),
+                ctx,
+            )
+
+    child_ids = [call.kwargs["id"] for call in mock_start_child.call_args_list]
+    assert len(set(child_ids)) == 2
+    assert all(child_id.startswith(f"data-quality-source-sync-{schema_id}-") for child_id in child_ids)
+
+
 @pytest.fixture
 def _no_close_old_connections():
     # The activity reconnects stale worker connections; under pytest-django that would

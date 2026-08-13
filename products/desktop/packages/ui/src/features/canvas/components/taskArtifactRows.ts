@@ -21,7 +21,7 @@ import { parseHttpsUrl, parseShareLink } from "@posthog/ui/utils/posthogLinks";
 export type RunFile = RunArtifact & { runId: string };
 
 export type ArtifactRow =
-  | { kind: "pr"; key: string; url: string }
+  | { kind: "pr"; key: string; url: string; ts: number }
   | {
       kind: "canvas";
       key: string;
@@ -29,6 +29,7 @@ export type ArtifactRow =
       url: string | null;
       /** The canvas row id, the stable comment target (never the name). */
       dashboardId: string | null;
+      ts: number;
     }
   | {
       kind: "file";
@@ -144,16 +145,16 @@ export function buildRows(
   const rows: ArtifactRow[] = [];
   const seenPrUrls = new Set<string>();
 
-  const addPr = (url: string, key: string) => {
+  const addPr = (url: string, key: string, ts: number) => {
     if (seenPrUrls.has(url)) return;
     seenPrUrls.add(url);
-    rows.push({ kind: "pr", key, url });
+    rows.push({ kind: "pr", key, url, ts });
   };
 
   for (const row of timeline) {
     if (row.kind !== "artifact") continue;
     if (row.artifact.kind === "pr") {
-      addPr(row.artifact.url, row.message.id);
+      addPr(row.artifact.url, row.message.id, row.timestamp);
     } else {
       const url = row.artifact.url;
       rows.push({
@@ -162,6 +163,7 @@ export function buildRows(
         name: row.artifact.name,
         url,
         dashboardId: canvasDashboardId(url),
+        ts: row.timestamp,
       });
     }
   }
@@ -171,8 +173,11 @@ export function buildRows(
 
   const files: RunFile[] = [];
   for (const run of allRuns) {
+    // Runs added straight from output have no announcing timeline message, so
+    // the run's own updated_at is the closest stand-in for the PR's age.
+    const runTs = Date.parse(run.updated_at) || 0;
     for (const outputPr of readPrUrls(run.output)) {
-      addPr(outputPr, `output-pr:${outputPr}`);
+      addPr(outputPr, `output-pr:${outputPr}`, runTs);
     }
     files.push(
       ...readRunOutputs(run).map((file) => ({ ...file, runId: run.id })),
