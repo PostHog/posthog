@@ -18,6 +18,7 @@ export const keyBinds: Record<string, string[]> = {
     edit: ['e'],
     escape: ['escape'],
     save: [...baseModifier, 's'],
+    stopTask: ['command', 'shift', 'x'],
     dashboardAddTextTile: [...baseModifier, 'a'],
     filter: [...baseModifier, 'f'],
     refresh: [...baseModifier, 'r'],

@@ -1,5 +1,7 @@
 import { BindLogic, useActions, useValues } from 'kea'
 
+import { keyBinds } from 'lib/components/Shortcuts/shortcuts'
+import { useShortcut } from 'lib/components/Shortcuts/useShortcut'
 import { AIConsentPopoverWrapper } from 'scenes/settings/organization/AIConsentPopoverWrapper'
 import { userLogic } from 'scenes/userLogic'
 
@@ -77,6 +79,18 @@ function TaskRunChatContent({
     logicProps: RunInteractionLogicProps
     readOnly: boolean
 }): JSX.Element {
+    const { isBusy } = useValues(runInteractionLogic(logicProps))
+    const { cancelRun } = useActions(runInteractionLogic(logicProps))
+
+    useShortcut({
+        name: 'stop-task',
+        keybind: [keyBinds.stopTask],
+        intent: 'Stop task',
+        interaction: 'function',
+        callback: cancelRun,
+        disabled: readOnly || !isBusy,
+    })
+
     // This surface renders the approval card, so persist tools must prompt here — register as a
     // foreground stream (same key resolution as `RunSurface.Root`). A read-only staff view omits the
     // composer and could never answer a forced prompt, so it stays a background consumer.
