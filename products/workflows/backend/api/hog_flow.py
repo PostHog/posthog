@@ -1360,12 +1360,20 @@ class HogFlowActionSerializer(serializers.Serializer):
         if not isinstance(delay_until, dict):
             raise serializers.ValidationError({"config": "delay_until must be an object with an 'expression'."})
 
+        # Client bytecode is dropped on every path, strict or not, as the executor runs whatever it finds.
+        stored = {k: v for k, v in delay_until.items() if k not in ("bytecode", "bytecode_error")}
+        data["config"]["delay_until"] = stored
+
         expression = delay_until.get("expression")
         if not isinstance(expression, str) or not expression.strip():
-            raise serializers.ValidationError({"config": "delay_until.expression is required and must be SQL."})
+            if strict:
+                raise serializers.ValidationError({"config": "delay_until.expression is required and must be SQL."})
+            # The builder writes the mode before the date is picked, so a draft can legitimately be
+            # half-configured. Nothing further is checkable without an expression.
+            return
 
         offset = delay_until.get("offset")
-        if offset is not None and not (isinstance(offset, str) and DELAY_OFFSET_REGEX.match(offset)):
+        if strict and offset is not None and not (isinstance(offset, str) and DELAY_OFFSET_REGEX.match(offset)):
             raise serializers.ValidationError(
                 {
                     "config": (
@@ -1376,22 +1384,18 @@ class HogFlowActionSerializer(serializers.Serializer):
             )
 
         max_delay_duration = config.get("max_delay_duration")
-        if max_delay_duration is not None and not _is_valid_duration(max_delay_duration):
+        if strict and max_delay_duration is not None and not _is_valid_duration(max_delay_duration):
             raise serializers.ValidationError({"config": _duration_error("max_delay_duration")})
 
-        # Compiled here rather than trusted from the client, as the executor runs whatever bytecode it finds.
-        # Compiling also surfaces a broken expression at save time instead of at the first run that reaches it.
+        # Compiled here rather than trusted from the client. Compiling also surfaces a broken expression
+        # at save time instead of at the first run that reaches it.
         try:
-            bytecode = create_bytecode(
+            stored["bytecode"] = create_bytecode(
                 parse_expr(expression), context=HogQLContext(team_id=self.context["get_team"]().id)
             ).bytecode
         except Exception as e:
-            raise serializers.ValidationError({"config": f"delay_until.expression could not be read as SQL: {e}"})
-
-        data["config"]["delay_until"] = {
-            **{k: v for k, v in delay_until.items() if k not in ("bytecode", "bytecode_error")},
-            "bytecode": bytecode,
-        }
+            if strict:
+                raise serializers.ValidationError({"config": f"delay_until.expression could not be read as SQL: {e}"})
 
 
 class HogFlowVariableSerializer(serializers.ListSerializer):

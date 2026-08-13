@@ -104,9 +104,6 @@ export interface stepWaitUntilTimeWindowLogicActions {
                   }[]
               }
             | {
-                  delay_duration: string
-              }
-            | {
                   reason?: string | undefined
               }
             | {
@@ -168,6 +165,18 @@ export interface stepWaitUntilTimeWindowLogicActions {
                         }[]
                       | undefined
                   max_wait_duration: string
+              }
+            | {
+                  delay_duration?: string | undefined
+                  delay_until?:
+                      | {
+                            bytecode?: any
+                            bytecode_error?: string | undefined
+                            expression: string
+                            offset?: string | undefined
+                        }
+                      | undefined
+                  max_delay_duration?: string | undefined
               }
             | {
                   inputs: Record<
@@ -368,9 +377,6 @@ export interface stepWaitUntilTimeWindowLogicActions {
                   }[]
               }
             | {
-                  delay_duration: string
-              }
-            | {
                   reason?: string | undefined
               }
             | {
@@ -432,6 +438,18 @@ export interface stepWaitUntilTimeWindowLogicActions {
                         }[]
                       | undefined
                   max_wait_duration: string
+              }
+            | {
+                  delay_duration?: string | undefined
+                  delay_until?:
+                      | {
+                            bytecode?: any
+                            bytecode_error?: string | undefined
+                            expression: string
+                            offset?: string | undefined
+                        }
+                      | undefined
+                  max_delay_duration?: string | undefined
               }
             | {
                   filters: {

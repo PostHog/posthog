@@ -344,7 +344,16 @@ export interface workflowLogicActions {
                         }
                       | {
                             config: {
-                                delay_duration: string
+                                delay_duration?: string | undefined
+                                delay_until?:
+                                    | {
+                                          bytecode?: any
+                                          bytecode_error?: string | undefined
+                                          expression: string
+                                          offset?: string | undefined
+                                      }
+                                    | undefined
+                                max_delay_duration?: string | undefined
                             }
                             created_at?: number | undefined
                             description: string
@@ -1138,7 +1147,16 @@ export interface workflowLogicActions {
                         }
                       | {
                             config: {
-                                delay_duration: string
+                                delay_duration?: string | undefined
+                                delay_until?:
+                                    | {
+                                          bytecode?: any
+                                          bytecode_error?: string | undefined
+                                          expression: string
+                                          offset?: string | undefined
+                                      }
+                                    | undefined
+                                max_delay_duration?: string | undefined
                             }
                             created_at?: number | undefined
                             description: string
@@ -1901,9 +1919,6 @@ export interface workflowLogicActions {
                   }[]
               }
             | {
-                  delay_duration: string
-              }
-            | {
                   reason?: string | undefined
               }
             | {
@@ -1965,6 +1980,18 @@ export interface workflowLogicActions {
                         }[]
                       | undefined
                   max_wait_duration: string
+              }
+            | {
+                  delay_duration?: string | undefined
+                  delay_until?:
+                      | {
+                            bytecode?: any
+                            bytecode_error?: string | undefined
+                            expression: string
+                            offset?: string | undefined
+                        }
+                      | undefined
+                  max_delay_duration?: string | undefined
               }
             | {
                   inputs: Record<
@@ -2247,9 +2274,6 @@ export interface workflowLogicActions {
                   }[]
               }
             | {
-                  delay_duration: string
-              }
-            | {
                   reason?: string | undefined
               }
             | {
@@ -2311,6 +2335,18 @@ export interface workflowLogicActions {
                         }[]
                       | undefined
                   max_wait_duration: string
+              }
+            | {
+                  delay_duration?: string | undefined
+                  delay_until?:
+                      | {
+                            bytecode?: any
+                            bytecode_error?: string | undefined
+                            expression: string
+                            offset?: string | undefined
+                        }
+                      | undefined
+                  max_delay_duration?: string | undefined
               }
             | {
                   inputs: Record<

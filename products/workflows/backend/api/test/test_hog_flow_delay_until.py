@@ -20,12 +20,12 @@ def delay(config: dict) -> dict:
 
 
 class TestDelayUntil(APIBaseTest):
-    def _post(self, delay_config: dict) -> tuple[int, dict]:
+    def _post(self, delay_config: dict, status: str = "active") -> tuple[int, dict]:
         response = self.client.post(
             f"/api/projects/{self.team.id}/hog_flows",
             {
                 "name": "Test Flow",
-                "status": "active",
+                "status": status,
                 "actions": [TRIGGER, delay(delay_config), EXIT],
                 "edges": [
                     {"from": "trigger_node", "to": "delay_1", "type": "continue"},
@@ -92,6 +92,17 @@ class TestDelayUntil(APIBaseTest):
         status, body = self._post({"delay_until": {"expression": "person.properties.expires_at", "offset": offset}})
 
         assert status == 201, body
+
+    def test_a_draft_saves_the_date_mode_before_a_date_is_picked(self):
+        # The builder writes the mode as soon as it is chosen, so the editor autosaves this exact state
+        # every time someone starts a date delay. Client bytecode is still dropped on this path.
+        status, body = self._post(
+            {"delay_until": {"expression": "", "bytecode": ["_H", 1, 32, "malicious"]}}, status="draft"
+        )
+
+        assert status == 201, body
+        stored = next(a for a in body["actions"] if a["id"] == "delay_1")["config"]["delay_until"]
+        assert stored == {"expression": ""}
 
     def test_a_draft_can_be_saved_without_a_usable_delay(self):
         # Drafts from the builder stay lenient so a half-built graph saves; the checks apply on activation.

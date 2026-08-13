@@ -1,11 +1,32 @@
 import { Node } from '@xyflow/react'
 import { useActions, useValues } from 'kea'
 
+import { LemonInput, LemonSelect } from '@posthog/lemon-ui'
+
+import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import { TaxonomicStringPopover } from 'lib/components/TaxonomicPopover/TaxonomicPopover'
+
 import { workflowLogic } from '../../workflowLogic'
 import { HogFlowAction } from '../types'
 import { HogFlowDuration } from './components/HogFlowDuration'
 import { StepSchemaErrors } from './components/StepSchemaErrors'
-import { stepDelayLogic } from './stepDelayLogic'
+import {
+    DEFAULT_MAX_DELAY_DURATION,
+    getDelayMode,
+    getDurationText,
+    parseDelayExpression,
+    parseDelayOffset,
+    stepDelayLogic,
+} from './stepDelayLogic'
+
+const OFFSET_UNIT_OPTIONS = [
+    { label: 'Second(s)', value: 's' },
+    { label: 'Minute(s)', value: 'm' },
+    { label: 'Hour(s)', value: 'h' },
+    { label: 'Day(s)', value: 'd' },
+]
+
+const PROPERTY_GROUP_TYPES = [TaxonomicFilterGroupType.PersonProperties, TaxonomicFilterGroupType.EventProperties]
 
 export function StepDelayConfiguration({
     node,
@@ -13,22 +34,102 @@ export function StepDelayConfiguration({
     node: Node<Extract<HogFlowAction, { type: 'delay' }>>
 }): JSX.Element {
     const action = node.data
-    const { delay_duration } = action.config
+    const config = action.config
 
     const { logicProps } = useValues(workflowLogic)
-    const { setDelayWorkflowActionConfig } = useActions(stepDelayLogic({ workflowLogicProps: logicProps }))
+    const { setDelayWorkflowActionConfig, setDelayMode, setDelayProperty, setDelayOffset } = useActions(
+        stepDelayLogic({ workflowLogicProps: logicProps })
+    )
+
+    const mode = getDelayMode(config)
+    const expression = config.delay_until?.expression ?? ''
+    const property = parseDelayExpression(expression)
+    const offset = parseDelayOffset(config.delay_until?.offset)
+    // An expression saved through the API can be any SQL, so it may not read back as a property pick.
+    const customExpression = expression.trim() && !property ? expression : null
+    const maxDelayText = getDurationText(config.max_delay_duration ?? '') ?? getDurationText(DEFAULT_MAX_DELAY_DURATION)
 
     return (
         <>
             <StepSchemaErrors />
 
-            <p className="mb-0">Wait for a specified duration.</p>
-            <HogFlowDuration
-                value={delay_duration}
-                onChange={(value) => {
-                    setDelayWorkflowActionConfig(action.id, { delay_duration: value })
-                }}
-            />
+            <div className="flex flex-wrap items-center gap-2">
+                <span>Wait for</span>
+                <LemonSelect
+                    size="small"
+                    value={mode}
+                    onChange={(value) => setDelayMode(action.id, value)}
+                    options={[
+                        { label: 'a specified duration', value: 'duration' as const },
+                        { label: 'a date on the person or event', value: 'until' as const },
+                    ]}
+                    data-attr="workflow-delay-mode"
+                />
+            </div>
+
+            {mode === 'duration' ? (
+                <HogFlowDuration
+                    value={config.delay_duration ?? ''}
+                    onChange={(value) => setDelayWorkflowActionConfig(action.id, { delay_duration: value })}
+                />
+            ) : (
+                <>
+                    <div className="flex flex-wrap items-center gap-2">
+                        <LemonInput
+                            type="number"
+                            className="w-20"
+                            value={offset.amount}
+                            min={0}
+                            step="any"
+                            onChange={(value) => setDelayOffset(action.id, { ...offset, amount: value ?? 0 })}
+                            data-attr="workflow-delay-offset-amount"
+                        />
+                        <LemonSelect
+                            size="small"
+                            value={offset.unit}
+                            onChange={(value) => setDelayOffset(action.id, { ...offset, unit: value })}
+                            options={OFFSET_UNIT_OPTIONS}
+                            data-attr="workflow-delay-offset-unit"
+                        />
+                        <LemonSelect
+                            size="small"
+                            value={offset.direction}
+                            onChange={(value) => setDelayOffset(action.id, { ...offset, direction: value })}
+                            options={[
+                                { label: 'before', value: 'before' as const },
+                                { label: 'after', value: 'after' as const },
+                            ]}
+                            data-attr="workflow-delay-offset-direction"
+                        />
+                        <TaxonomicStringPopover
+                            size="small"
+                            groupType={TaxonomicFilterGroupType.PersonProperties}
+                            groupTypes={PROPERTY_GROUP_TYPES}
+                            value={property?.key}
+                            placeholder="Choose a date property"
+                            onChange={(key, groupType) =>
+                                setDelayProperty(action.id, {
+                                    source: groupType === TaxonomicFilterGroupType.EventProperties ? 'event' : 'person',
+                                    key,
+                                })
+                            }
+                            data-attr="workflow-delay-property"
+                        />
+                    </div>
+
+                    {customExpression ? (
+                        <p className="mb-0 text-xs text-muted">
+                            This step waits for <code>{customExpression}</code>, which was set through the API. Choose a
+                            property to replace it.
+                        </p>
+                    ) : null}
+
+                    <p className="mb-0 text-xs text-muted">
+                        The property is read again each time the run wakes, so a date that moves still applies. A run
+                        never waits more than {maxDelayText} past this step.
+                    </p>
+                </>
+            )}
         </>
     )
 }
