@@ -602,8 +602,9 @@ def delete_events(
         }
     )
 
-    # The predicate below reads only team_id, person_id, timestamp and uuid — columns every
-    # registered target declares — so it applies unchanged to all of them.
+    # Every registered target must get this delete, or rows survive on the table that got skipped.
+    # The predicate below reads only team_id, person_id, timestamp and uuid, which every target
+    # declares, so it applies unchanged to all of them.
     delete_mutation_runners = [
         LightweightDeleteMutationRunner(
             table=table,

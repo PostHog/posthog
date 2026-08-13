@@ -53,26 +53,30 @@ That works because `materialize()` creates columns as `DEFAULT <expr>`, which is
 - Updating `properties` is rejected too, because `flag_key` is materialized from it and sits in the sort key: `Updated column 'properties' affects MATERIALIZED column 'flag_key', which is a key column`.
 - `CREATE TABLE tmp AS sharded_flag_evaluations ENGINE = MergeTree()` inherits the sort key and the column kinds, so the staging table hits the same rejection.
 
-Rewriting these rows therefore needs a different algorithm:
-`INSERT … SELECT` the cleaned rows and let the shard recompute the typed columns on write, then lightweight-delete the originals.
-Until that exists, `get_property_removal_shards` refuses to start when the table holds rows matching the request, so a request cannot complete while data it named survives.
+The planned fix is two follow-ups:
+
+1. Recreate the table with the typed columns as `DEFAULT <expr>`, the kind `materialize()` mints on events.
+   Recreating is only free while the table is empty, so this must land before the producer ships.
+2. Point the events rewrite machinery (column discovery, staging rewrite, shard walk) at the table; today all of it is scoped to `events`.
+
+One open question for the schema follow-up: `flag_key` sits in the sort key, and ClickHouse never accepts `UPDATE` on a key column, whatever its kind.
+Whether `UPDATE properties` is accepted once a `DEFAULT` key column depends on it needs measuring.
+If it is still rejected, the fallback is the heavier rewrite: `INSERT … SELECT` the cleaned rows, let the shard recompute the typed columns on write, then lightweight-delete the originals.
+
+Until the fix exists, `get_property_removal_shards` refuses to start when the table holds rows matching the request, so a request cannot complete while data it named survives.
 The check costs nothing while the table is empty.
 
 This is also why `flag_evaluations` is deliberately absent from `MATERIALIZATION_VALID_TABLES`.
 Adding it would let `materialize()` mint `DEFAULT`-kind columns on a table whose property-removal path cannot reset them.
 
-#### Decide the escape hatch before a producer lands
+#### If a request arrives before the fix lands
 
 Today the refusal costs nothing, because the table is empty.
 Once it holds rows, a property removal with `delete_all_events` refuses whenever a single flag-evaluation row carries the named property, and the operator has no way through: `delete_all_events` and `events` are mutually exclusive on the model, so the request cannot be narrowed to exclude `$feature_flag_called`, and the admin Retry button replays the same failure.
-The only exits are waiting out the TTL or shipping the re-insert algorithm. The table partitions by month with `ttl_only_drop_parts = 1`, so a part drops only once its newest row expires: the real wait is up to about 120 days, not the 90-day TTL. `posthog/models/flag_evaluations/sql.py` says the same thing next to the partition clause.
+The only exits are waiting out the TTL or shipping the fix above. The table partitions by month with `ttl_only_drop_parts = 1`, so a part drops only once its newest row expires: the real wait is up to about 120 days, not the 90-day TTL. `posthog/models/flag_evaluations/sql.py` says the same thing next to the partition clause.
 
-That is the right default (refusing beats silently under-deleting), but it needs a deliberate answer before real traffic hits it. The options, in rough order of cost:
-
-1. Ship the re-insert rewrite, which removes the refusal entirely.
-2. Let a request exclude event names, so an operator can scope around the table.
-3. Record an explicit, audited acknowledgement on the request so an operator can accept the residue rather than being stuck.
-
+Refusing beats silently under-deleting, so the gate is the right default.
+If the fix has not landed by the time real traffic hits, the cheaper stopgaps are letting a request exclude event names so an operator can scope around the table, or recording an explicit, audited acknowledgement on the request so an operator can accept the residue rather than being stuck.
 Doing nothing means the first affected GDPR request becomes an escalation.
 
 ### Event removal with a HogQL predicate does not reach `flag_evaluations`
