@@ -2745,6 +2745,9 @@ export interface CredentialApi {
  * * `Snovio` - Snovio
  * * `GoogleMerchantCenter` - GoogleMerchantCenter
  * * `Raisely` - Raisely
+ * * `RakutenAdvertising` - RakutenAdvertising
+ * * `Zitadel` - Zitadel
+ * * `DeelFlows` - DeelFlows
  * * `WindsorAi` - WindsorAi
  * * `Wix` - Wix
  * * `Sevalla` - Sevalla
@@ -4042,6 +4045,9 @@ export const ExternalDataSourceTypeEnumApi = {
     Snovio: 'Snovio',
     GoogleMerchantCenter: 'GoogleMerchantCenter',
     Raisely: 'Raisely',
+    RakutenAdvertising: 'RakutenAdvertising',
+    Zitadel: 'Zitadel',
+    DeelFlows: 'DeelFlows',
     WindsorAi: 'WindsorAi',
     Wix: 'Wix',
     Sevalla: 'Sevalla',

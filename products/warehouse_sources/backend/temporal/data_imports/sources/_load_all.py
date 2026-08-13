@@ -333,6 +333,7 @@ from .dbt.source import DbtSource
 from .debugbear.source import DebugbearSource
 from .decagon.source import DecagonSource
 from .deel.source import DeelSource
+from .deelflows.source import DeelFlowsSource
 from .deepgram.source import DeepgramSource
 from .deepsource.source import DeepsourceSource
 from .deno_deploy.source import DenoDeploySource
@@ -943,6 +944,7 @@ from .railway.source import RailwaySource
 from .railz.source import RailzSource
 from .raisely.source import RaiselySource
 from .raken.source import RakenSource
+from .rakuten_advertising.source import RakutenAdvertisingSource
 from .ramp.source import RampSource
 from .rapid7_insightvm.source import Rapid7InsightvmSource
 from .raygun.source import RaygunSource
@@ -1283,6 +1285,7 @@ from .zenefits.source import ZenefitsSource
 from .zenloop.source import ZenloopSource
 from .zep.source import ZepSource
 from .zero.source import ZeroSource
+from .zitadel.source import ZitadelSource
 from .zluri.source import ZluriSource
 from .zoho_analytics.source import ZohoAnalyticsSource
 from .zoho_bigin.source import ZohoBiginSource
