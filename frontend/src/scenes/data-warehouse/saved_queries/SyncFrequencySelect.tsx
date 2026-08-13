@@ -39,9 +39,9 @@ const ORDERED_CADENCES = Object.keys(CADENCE_LABELS) as DataModelingSyncInterval
 
 /**
  * Decorative, so `aria-hidden`: they only restate which way the bar runs, which the segment labels
- * already say outright. The hairline stroke keeps both silhouettes legible at label size.
+ * already say outright.
  */
-const PACE_ICON_CLASS = 'text-lg text-secondary shrink-0 stroke-current [stroke-width:0.5]'
+const PACE_ICON_CLASS = 'text-xl text-secondary shrink-0'
 
 /**
  * Why the cadence controls are read-only, for the modes where cadence is not this view's to set.
