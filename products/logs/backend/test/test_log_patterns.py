@@ -363,3 +363,35 @@ class TestMaskingProperties(TestCase):
         assert len(patterns) == 1
         assert patterns[0].match_regex is not None
         assert re.search(patterns[0].match_regex, body)
+
+
+_letter_st = st.text("ABCDEFGHIJKLMNOPQRSTUVWXYZ", min_size=1, max_size=2)
+_digit_letter_run_st = st.tuples(st.integers(0, 99), _letter_st, st.integers(0, 999999)).map(
+    lambda t: f"{t[0]}{t[1]}{t[2]}"
+)
+_date_only_st = st.dates(min_value=dt.date(1000, 1, 1)).map(str)
+_minute_timestamp_st = st.datetimes(min_value=dt.datetime(1000, 1, 1)).map(
+    lambda instant: instant.strftime("%Y-%m-%dT%H:%M")
+)
+_letter_hex_st = st.text("abcdef", min_size=4, max_size=12)
+_truncated_uuid_st = st.uuids().map(lambda u: str(u)[:23])
+
+# Tokens the masker deliberately leaves (fully or partly) literal. A pivot regex mined
+# from a masked body must not match a sibling holding one of these in the same slot.
+_impostor_st = st.one_of(_digit_letter_run_st, _date_only_st, _minute_timestamp_st, _letter_hex_st, _truncated_uuid_st)
+
+
+class TestPivotSoundness(TestCase):
+    @given(value=_variable_token_st, impostor=_impostor_st)
+    @settings(deadline=None)
+    def test_pivot_rejects_bodies_that_mask_to_another_template(self, value: str, impostor: str) -> None:
+        # A placeholder pattern broader than its masking rule pulls unrelated lines into
+        # the "view matching logs" pivot: the sibling masks to a different template, yet
+        # the pivot regex still matches it.
+        patterns = mine_patterns([_sample(f"event {value} done")])
+        assert patterns[0].match_regex is not None
+
+        sibling = f"event {impostor} done"
+        sibling_template = mine_patterns([_sample(sibling)])[0].pattern
+        if sibling_template != patterns[0].pattern:
+            assert not re.search(patterns[0].match_regex, sibling)
