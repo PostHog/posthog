@@ -75,9 +75,11 @@ function Component({
 
     const generationStatus = generationProgressView ? (
         <div className="flex min-w-0 flex-1 items-center gap-2" role="status" aria-live="polite">
-            <Spinner className="shrink-0 text-sm" />
             <div className="min-w-0 flex-1">
-                <div className="font-semibold text-primary">{generationProgressView.label}</div>
+                <div className="flex items-center gap-2 font-semibold text-primary">
+                    <Spinner className="shrink-0 text-sm" />
+                    <span>{generationProgressView.label}</span>
+                </div>
                 <div className="text-muted">{generationProgressView.detail}</div>
             </div>
             {generationWatch ? (
