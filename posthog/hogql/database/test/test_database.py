@@ -233,6 +233,20 @@ class TestUnknownTableSuggestions(TestCase):
                 "customer_orders",
                 "Unknown table `customer_orders`. Did you mean: warehouse.customer_orders?",
             ),
+            (
+                "misspelled_schema_is_resolved_to_the_closest_one",
+                ["warehouse.customer_orders"],
+                [],
+                "warehous.customer_orders",
+                "Unknown table `warehous.customer_orders`. Did you mean: warehouse.customer_orders?",
+            ),
+            (
+                "unrelated_schema_is_not_resolved_to_any_other",
+                ["warehouse.customer_orders"],
+                ["stg_customer_orders"],
+                "public.customer_orders",
+                "Unknown table `public.customer_orders`.",
+            ),
         ]
     )
     def test_suggestions_stay_within_the_namespace_the_author_named(

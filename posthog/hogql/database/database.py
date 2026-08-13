@@ -663,8 +663,10 @@ class Database(BaseModel):
         calling `get_table()`, which would recurse back into this helper when
         a warehouse table fails to resolve.
 
-        A qualified name states which namespace the author meant, so candidates
-        outside it are dropped no matter how well the leaf scores.
+        A qualified name states which schema the author meant, so candidates
+        outside it are dropped no matter how well the leaf scores. When no such
+        schema exists, the schema itself is the likely typo, so the closest
+        known schema is searched instead.
         """
         import difflib
 
@@ -682,8 +684,12 @@ class Database(BaseModel):
         candidates = {c for c in candidates if c.casefold() != lowered}
         prefix, dot, _ = name.rpartition(".")
         if dot:
-            qualifier = f"{prefix.casefold()}."
-            candidates = {c for c in candidates if c.casefold().startswith(qualifier)}
+            schema = prefix.casefold()
+            if not any(c.casefold().startswith(f"{schema}.") for c in candidates):
+                known = sorted({c.rpartition(".")[0].casefold() for c in candidates if "." in c})
+                nearest = difflib.get_close_matches(schema, known, n=1, cutoff=0.8)
+                schema = nearest[0] if nearest else schema
+            candidates = {c for c in candidates if c.casefold().startswith(f"{schema}.")}
         if not candidates:
             return []
         return difflib.get_close_matches(name, sorted(candidates), n=limit, cutoff=0.7)
