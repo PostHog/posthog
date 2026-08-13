@@ -395,8 +395,8 @@ export function ScannerObservationsTable({ scannerId }: { scannerId: string }): 
                     ) : (
                         <div className="p-6 flex flex-col items-center gap-3 text-center">
                             <div className="text-muted">
-                                No observations yet. They'll appear here once the scanner fires on its schedule — or
-                                scan a recording right now.
+                                No observations yet. They'll appear here once the scanner fires on its schedule, or you
+                                can scan a recording right now.
                             </div>
                             <LemonButton
                                 type="primary"

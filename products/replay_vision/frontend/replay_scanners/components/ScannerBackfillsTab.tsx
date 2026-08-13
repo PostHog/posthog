@@ -270,7 +270,7 @@ export function ScannerBackfillsTab({ scannerId }: { scannerId: string }): JSX.E
                     <>
                         No backfills yet. Pick a time range above to scan historical recordings.{' '}
                         <VisionDocsLink page="running-scanners" dataAttr="vision-empty-docs-link-backfills">
-                            Learn about backfills
+                            Learn how backfills work
                         </VisionDocsLink>
                     </>
                 }

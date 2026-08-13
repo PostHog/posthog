@@ -16,7 +16,7 @@ import { urls } from 'scenes/urls'
 
 import { AccessControlLevel } from '~/types'
 
-import { VISION_DOCS_URL } from '../../components/DocsLink'
+import { visionDocsUrl } from '../../components/DocsLink'
 import { DeliveryTargetTypeEnumApi } from '../../generated/api.schemas'
 import type { VisionActionApi } from '../../generated/api.schemas'
 import { getReplayVisionDeleteDisabledReason, getReplayVisionEditDisabledReason } from '../../utils/accessControl'
@@ -123,7 +123,7 @@ function VisionActionsTable({
                 thingName="digest or alert"
                 isEmpty
                 customHog={HedgehogXRay}
-                docsURL={`${VISION_DOCS_URL}/actions`}
+                docsURL={visionDocsUrl('actions')}
                 description="Get scheduled digests of this scanner's observations, synthesized by AI on the cadence you choose. Or set alerts that notify you when new matches appear or a threshold is reached. Both can deliver to Slack."
                 actionElementOverride={
                     <div className="flex gap-2">

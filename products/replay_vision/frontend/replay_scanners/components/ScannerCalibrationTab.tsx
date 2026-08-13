@@ -994,7 +994,7 @@ export function ScannerCalibrationTab({ scannerId }: { scannerId: string }): JSX
                                     No successful observations to rate yet. They'll appear here once the scanner
                                     produces results.{' '}
                                     <VisionDocsLink page="calibration" dataAttr="vision-empty-docs-link-calibration">
-                                        Learn about calibration
+                                        Learn how calibration works
                                     </VisionDocsLink>
                                 </>
                             )}

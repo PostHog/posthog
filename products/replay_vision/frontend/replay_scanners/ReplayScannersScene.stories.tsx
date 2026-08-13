@@ -488,8 +488,7 @@ export default meta
 
 export const ScannersList: StoryObj = {}
 
-// First-run state: snapshot-covers the product introduction's docs button and the table
-// empty state's docs link.
+// Zero scanners: snapshot-covers the table empty state and its docs link, which no other story renders.
 export const ScannersListEmpty: StoryObj = {
     decorators: [
         mswDecorator({

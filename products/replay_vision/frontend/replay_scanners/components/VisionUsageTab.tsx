@@ -283,7 +283,7 @@ export function VisionUsageTab(): JSX.Element {
                     <>
                         No spend this period yet. Costs appear here once scanners produce observations.{' '}
                         <VisionDocsLink page="quota-and-limits" dataAttr="vision-empty-docs-link-usage">
-                            Learn about credits and limits
+                            Learn how credits and limits work
                         </VisionDocsLink>
                     </>
                 }
