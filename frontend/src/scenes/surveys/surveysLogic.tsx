@@ -291,12 +291,12 @@ export interface surveysLogicActions {
     }
     loadResponsesCountSuccess: (
         surveysResponsesCount: {
-            [key: string]: number
+            [x: string]: number
         },
         payload?: string
     ) => {
         surveysResponsesCount: {
-            [key: string]: number
+            [x: string]: number
         }
         payload?: string
     }
@@ -404,11 +404,11 @@ export interface surveysLogicMeta {
     __keaTypeGenInternalSelectorTypes: {
         searchedSurveys: (data: SurveyDataState, searchTerm: any, filters: Partial<SurveysFilters>) => Survey[]
         surveysStylingAvailable: (
-            hasAvailableFeature: (feature: AvailableFeature, currentUsage?: number | undefined) => boolean
+            hasAvailableFeature: (feature: AvailableFeature, currentUsage?: number | undefined) => boolean // userLogic
         ) => boolean
         formBuilderEnabled: (enabledFlags: FeatureFlagsSet) => boolean
         globalSurveyAppearanceConfigAvailable: (
-            hasAvailableFeature: (feature: AvailableFeature, currentUsage?: number | undefined) => boolean
+            hasAvailableFeature: (feature: AvailableFeature, currentUsage?: number | undefined) => boolean // userLogic
         ) => boolean
         showSurveysDisabledBanner: (currentTeam: TeamPublicType | TeamType | null) => boolean
     }
