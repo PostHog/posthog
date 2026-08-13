@@ -1465,6 +1465,7 @@ export enum SessionRecordingSidebarTab {
     NETWORK_WATERFALL = 'network-waterfall',
     LINKED_ISSUES = 'linked-issues',
     SESSIONS = 'sessions',
+    OBSERVATIONS = 'observations',
 }
 
 export enum SessionRecordingSidebarStacking {
@@ -5320,6 +5321,8 @@ export enum HogQLMathType {
 }
 export enum GroupMathType {
     UniqueGroup = 'unique_group',
+    FirstTimeForGroup = 'first_time_for_group',
+    FirstMatchingEventForGroup = 'first_matching_event_for_group',
 }
 
 export enum ExperimentMetricMathType {
@@ -5926,8 +5929,17 @@ export interface EffectiveAccessControlEntry {
     effective_access_level: AccessControlLevel | null
     inherited_access_level: AccessControlLevel | null
     inherited_access_level_reason: InheritedAccessLevelReason | null
+    /** What applies when no rule exists anywhere. Only returned by the defaults endpoint. */
+    system_default_access_level?: AccessControlLevel
     minimum: AccessControlLevel
     maximum: AccessControlLevel
+}
+
+export interface ObjectRuleResource {
+    resource: APIScopeObject
+    available_access_levels: AccessControlLevel[]
+    /** Levels below this are rejected by the backend, so the pickers offer them disabled. */
+    minimum_access_level: AccessControlLevel
 }
 
 export interface AccessControlDefaultsResponse {
@@ -5936,6 +5948,9 @@ export interface AccessControlDefaultsResponse {
     can_edit: boolean
     project_access_level: AccessControlLevel
     resource_access_levels: Record<string, EffectiveAccessControlEntry>
+    /** Resources supporting object-level rules, derived server-side from viewset registration,
+     * each with the levels a rule on it accepts. */
+    object_rule_resources: ObjectRuleResource[]
 }
 
 export interface AccessControlRolesResponse {
@@ -7054,6 +7069,8 @@ export enum SidePanelTab {
     Discussion = 'discussion',
     Exports = 'exports',
     AccessControl = 'access-control',
+    /** Access detail for one member or role. Opened programmatically from access control settings. */
+    AccessDetail = 'access-detail',
     Info = 'info',
 }
 

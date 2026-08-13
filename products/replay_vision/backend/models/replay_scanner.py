@@ -151,6 +151,11 @@ class ReplayScanner(UUIDModel):
         db_default="",
         help_text="Keyset tiebreaker; set when the last batch saturated so the next sweep resumes past session_end ties.",
     )
+    last_deep_swept_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text="Watermark for the periodic full-events-lookback catch-up sweep; null until the first regular sweep initializes it.",
+    )
 
     # Shape: ScannerExperimentTargetingSerializer. Stored because the compiled `query` speaks flag
     # keys, so the experiment association isn't recoverable from it. Not version-tracked; scanning
@@ -287,7 +292,10 @@ class ReplayScanner(UUIDModel):
                         # Re-enabling restarts the sweep from now — don't backfill (and bill) the disabled gap.
                         self.last_swept_at = initial_watermark()
                         self.last_seen_session_id = ""
-                        extra_fields.extend(["last_swept_at", "last_seen_session_id"])
+                        # The deep pass sweeps from this watermark up to the fast one, so leaving it
+                        # behind would make its first window span the whole disabled gap.
+                        self.last_deep_swept_at = self.last_swept_at
+                        extra_fields.extend(["last_swept_at", "last_seen_session_id", "last_deep_swept_at"])
                     if update_fields is not None and extra_fields:
                         kwargs["update_fields"] = [*update_fields, *extra_fields]
                 super().save(*args, **kwargs)

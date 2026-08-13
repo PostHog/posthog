@@ -201,7 +201,9 @@ class UtmAuditResponseSerializer(serializers.Serializer):
 
 
 class ConversionGoalSummarySerializer(serializers.Serializer):
-    id = serializers.CharField(help_text="Unique id of the goal (event name, action id, or DW goal id)")
+    conversion_goal_id = serializers.CharField(
+        help_text="Id of the goal. Pass this to the explain, update and delete endpoints."
+    )
     name = serializers.CharField(help_text="Display name of the conversion goal")
     # `kind` collides with other enums in drf-spectacular, so it carries a stable name via
     # ENUM_NAME_OVERRIDES ("ConversionGoalKindEnum") — a plain CharField would leave consumers
@@ -471,8 +473,9 @@ class DataSourceHealthResponseSerializer(serializers.Serializer):
 
 
 class ExplainConversionGoalQuerySerializer(serializers.Serializer):
-    goal_id = serializers.CharField(
-        required=True, help_text="Id of the conversion goal to explain (from list_conversion_goals)."
+    conversion_goal_id = serializers.CharField(
+        required=True,
+        help_text=("conversion_goal_id of the goal to explain, as returned by the conversion_goals list endpoint."),
     )
     date_from = serializers.CharField(
         required=False, default=None, allow_null=True, help_text="ISO start; defaults to 30 days ago"
@@ -495,7 +498,7 @@ class GoalExplanationPeriodSerializer(serializers.Serializer):
 
 
 class GoalExplanationSerializer(serializers.Serializer):
-    goal_id = serializers.CharField(help_text="Id of the explained conversion goal")
+    conversion_goal_id = serializers.CharField(help_text="conversion_goal_id of the explained goal")
     goal_name = serializers.CharField(help_text="Display name of the conversion goal")
     kind = serializers.ChoiceField(
         choices=CONVERSION_GOAL_KIND_CHOICES,
@@ -800,7 +803,7 @@ class SuggestionSerializer(serializers.Serializer):
     )
     unlocks = serializers.ListField(
         child=serializers.CharField(),
-        help_text="Capabilities this unblocks: cost, attribution, roas, cac, retention_by_channel, ltv_by_channel",
+        help_text="Capabilities this unblocks: cost, attribution, roas, cac",
     )
     # DRF has no discriminated-union field and fighting drf-spectacular for one isn't
     # worth it. The shape is the `ApplyOp` union in `services/setup_types.py`, which is
@@ -832,7 +835,7 @@ class SuggestionSerializer(serializers.Serializer):
 
 
 class CapabilityReadinessSerializer(serializers.Serializer):
-    capability = serializers.CharField(help_text="cost/attribution/roas/cac/retention_by_channel/ltv_by_channel")
+    capability = serializers.CharField(help_text="cost/attribution/roas/cac")
     status = serializers.CharField(help_text="unlocked/partial/blocked")
     explanation = serializers.CharField(help_text="Why it's in that state, in plain English")
     blocked_by = serializers.ListField(
@@ -1328,7 +1331,7 @@ class MarketingAnalyticsViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
         methods=["GET"], detail=False, url_path="explain_conversion_goal", required_scopes=["marketing_analytics:read"]
     )
     def explain_conversion_goal(self, request: Request, *args, **kwargs) -> Response:
-        goal_id = request.validated_query_data["goal_id"]
+        goal_id = request.validated_query_data["conversion_goal_id"]
         date_from = request.validated_query_data["date_from"]
         date_to = request.validated_query_data["date_to"]
         period = DateRange(date_from=date_from, date_to=date_to) if (date_from or date_to) else None
