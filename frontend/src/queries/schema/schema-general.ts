@@ -8949,6 +8949,11 @@ export const externalDataSources = [
     'Framer',
     'Cloudinary',
     'Uploadcare',
+    'WHMCS',
+    'MSG91',
+    'Depot',
+    'Schematic',
+    'Dokploy',
 ] as const
 
 export type ExternalDataSourceType = (typeof externalDataSources)[number]
