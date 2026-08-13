@@ -13,7 +13,7 @@ import {
 
 // Builds the HTML document loaded into the freeform-canvas sandbox iframe.
 //
-// Security notes (see docs/canvas-freeform-react-plan.md):
+// Security notes (see docs/CANVAS-FREEFORM-REACT-PLAN.md):
 //   - The iframe is mounted with sandbox="allow-scripts" and NO
 //     allow-same-origin, so this document runs at a null origin: it cannot read
 //     the host's cookies/storage or touch the host DOM. That is also why all

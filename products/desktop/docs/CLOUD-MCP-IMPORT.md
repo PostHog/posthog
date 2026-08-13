@@ -24,7 +24,7 @@ runs.
 This document covers **import**: forwarding url-based servers that are
 reachable from the public internet. Servers that are not importable (stdio, or
 private-network URLs) need the desktop **relay** — see
-[cloud-mcp-relay.md](./cloud-mcp-relay.md).
+[CLOUD-MCP-RELAY.md](./CLOUD-MCP-RELAY.md).
 
 ## What the client does
 
@@ -163,7 +163,7 @@ in `~/.claude.json` carry no expiry metadata, and OAuth-backed servers
 managed by Claude Code keep their tokens in Claude's credential store — not
 in `mcpServers.headers` — so those servers aren't importable this way at all
 (they surface as headerless imports that 401 in the sandbox; the relay in
-[cloud-mcp-relay.md](./cloud-mcp-relay.md) covers them properly). For the
+[CLOUD-MCP-RELAY.md](./CLOUD-MCP-RELAY.md) covers them properly). For the
 static-header servers we can import, there is nothing to watch except the
 file itself, which is the trigger described above.
 

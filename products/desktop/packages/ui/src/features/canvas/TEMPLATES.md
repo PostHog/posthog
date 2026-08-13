@@ -26,5 +26,5 @@ iframe and talks to PostHog only through the injected `ph` shim.
   `@posthog/core/canvas/canvasDataService.ts`.
 - Storage: `@posthog/core/canvas/dashboardsService.ts` + `dashboardSchemas.ts`.
 - Deeper walkthrough of the canvas tier + the data path: the `canvas-templates`
-  skill, and the forward-looking `docs/canvas-freeform-react-plan.md` (publish /
+  skill, and the forward-looking `docs/CANVAS-FREEFORM-REACT-PLAN.md` (publish /
   external sharing).

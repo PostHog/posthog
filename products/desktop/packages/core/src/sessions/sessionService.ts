@@ -5730,7 +5730,7 @@ export class SessionService {
    */
   /**
    * Register this client as the relay executor for a run's desktop-only MCP
-   * servers (docs/cloud-mcp-relay.md). Called by the creation saga — only the
+   * servers (docs/CLOUD-MCP-RELAY.md). Called by the creation saga — only the
    * creating client may execute relay requests.
    */
   async designateRelayedMcpServers(
