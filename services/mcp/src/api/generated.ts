@@ -14511,6 +14511,63 @@ export namespace Schemas {
     }
 
     /**
+     * * `filed` - filed
+     * * `duplicate` - duplicate
+     * * `no_authoring_task` - no_authoring_task
+     * * `skipped` - skipped
+     */
+    export type ReportOutcomeEnum = typeof ReportOutcomeEnum[keyof typeof ReportOutcomeEnum];
+
+
+    export const ReportOutcomeEnum = {
+      Filed: 'filed',
+      Duplicate: 'duplicate',
+      NoAuthoringTask: 'no_authoring_task',
+      Skipped: 'skipped',
+    } as const;
+
+    /**
+     * Outcome of filing a canvas error report.
+     */
+    export interface CanvasErrorReportResult {
+      /** filed: a new report row was written. duplicate: this build and error type were already reported. no_authoring_task: the canvas has no linked task to notify. skipped: thread updates are unavailable.
+       *
+       * * `filed` - filed
+       * * `duplicate` - duplicate
+       * * `no_authoring_task` - no_authoring_task
+       * * `skipped` - skipped */
+      report_outcome: ReportOutcomeEnum;
+    }
+
+    /**
+     * * `signaled` - signaled
+     * * `new_run` - new_run
+     * * `already_queued` - already_queued
+     */
+    export type DispatchOutcomeEnum = typeof DispatchOutcomeEnum[keyof typeof DispatchOutcomeEnum];
+
+
+    export const DispatchOutcomeEnum = {
+      Signaled: 'signaled',
+      NewRun: 'new_run',
+      AlreadyQueued: 'already_queued',
+    } as const;
+
+    /**
+     * Outcome of dispatching a canvas fix to the authoring agent.
+     */
+    export interface CanvasFixRequestResult {
+      /** signaled: the task's live run received the request. new_run: a fresh agent run was started. already_queued: a fix run was already starting, so no new run was created.
+       *
+       * * `signaled` - signaled
+       * * `new_run` - new_run
+       * * `already_queued` - already_queued */
+      dispatch_outcome: DispatchOutcomeEnum;
+      /** The authoring task the fix was routed to. */
+      task_id: string;
+    }
+
+    /**
      * Payload for promoting a draft version to the canvas's live head.
      */
     export interface CanvasPromote {
@@ -14541,6 +14598,32 @@ export namespace Schemas {
     export interface CanvasPublishCurrentVersion {
       /** Current source version to publish. A changed head returns a 409 version_conflict. */
       expected_current_version_id: string;
+    }
+
+    /**
+     * Payload for reporting a runtime error observed while rendering a canvas build.
+     */
+    export interface CanvasReportError {
+      /** Id of the build that was rendering when the error occurred. */
+      build_id: string;
+      /**
+         * Error class name only, for example TypeError. Values that are not a plain class-name identifier are recorded as 'unknown'. Full error messages and stack traces must stay client-side.
+         * @maxLength 64
+         */
+      error_type: string;
+    }
+
+    /**
+     * Payload for asking the canvas's authoring agent to fix a failing build or runtime error.
+     */
+    export interface CanvasRequestFix {
+      /** Id of the failing or erroring build the fix should address. */
+      build_id: string;
+      /**
+         * Error class from the runtime report, when fixing a runtime error. Omit for a failed build; its diagnostics are read server-side.
+         * @maxLength 64
+         */
+      error_type?: string;
     }
 
     /**
