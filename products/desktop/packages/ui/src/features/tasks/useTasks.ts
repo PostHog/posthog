@@ -1,9 +1,10 @@
 import type { Schemas } from "@posthog/api-client";
 import type { Task } from "@posthog/shared/domain-types";
-import { useChannelsWorld } from "@posthog/ui/features/canvas/hooks/useChannelsWorld";
 import { keepPreviousData } from "@tanstack/react-query";
+import { useEffect } from "react";
 import { useAuthenticatedQuery } from "../../hooks/useAuthenticatedQuery";
 import { useMeQuery } from "../auth/useMeQuery";
+import { useAllUsersTaskPollStore } from "./allUsersTaskPollStore";
 import { taskKeys } from "./taskKeys";
 import { taskListRefetchIntervalMs } from "./taskListPollInterval";
 
@@ -24,9 +25,23 @@ export function useTasks(
   options?: { enabled?: boolean },
 ) {
   const { data: currentUser } = useMeQuery();
-  const channelsWorld = useChannelsWorld();
   const createdBy = filters?.showAllUsers ? undefined : currentUser?.id;
   const internal = filters?.showInternal ? true : undefined;
+  const enabled = (options?.enabled ?? true) && !!currentUser?.id;
+
+  const isAllUsersList =
+    enabled &&
+    !!filters?.showAllUsers &&
+    !filters?.repository &&
+    !filters?.showInternal;
+  const register = useAllUsersTaskPollStore((s) => s.register);
+  const unregister = useAllUsersTaskPollStore((s) => s.unregister);
+  useEffect(() => {
+    if (!isAllUsersList) return;
+    register();
+    return () => unregister();
+  }, [isAllUsersList, register, unregister]);
+  const allUsersListMounted = useAllUsersTaskPollStore((s) => s.observers > 0);
 
   return useAuthenticatedQuery(
     taskKeys.list({ repository: filters?.repository, createdBy, internal }),
@@ -37,8 +52,8 @@ export function useTasks(
         internal,
       }) as unknown as Promise<Task[]>,
     {
-      enabled: (options?.enabled ?? true) && !!currentUser?.id,
-      refetchInterval: taskListRefetchIntervalMs(filters, channelsWorld),
+      enabled,
+      refetchInterval: taskListRefetchIntervalMs(filters, allUsersListMounted),
     },
   );
 }

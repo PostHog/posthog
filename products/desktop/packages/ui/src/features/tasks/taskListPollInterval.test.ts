@@ -10,41 +10,41 @@ describe("taskListRefetchIntervalMs", () => {
   it.each<{
     name: string;
     filters: TaskListHookFilters | undefined;
-    channelsWorldActive: boolean;
+    allUsersListMounted: boolean;
     expected: number;
   }>([
     {
-      name: "plain mine list falls back while the channels world polls org-wide",
+      name: "plain mine list falls back while an all-users list is mounted",
       filters: undefined,
-      channelsWorldActive: true,
+      allUsersListMounted: true,
       expected: TASK_LIST_FALLBACK_POLL_INTERVAL_MS,
     },
     {
-      name: "plain mine list keeps full cadence without the channels world",
+      name: "plain mine list keeps full cadence without an all-users list",
       filters: undefined,
-      channelsWorldActive: false,
+      allUsersListMounted: false,
       expected: TASK_LIST_POLL_INTERVAL_MS,
     },
     {
-      name: "all-users list keeps full cadence (it is the badge poll itself)",
+      name: "all-users list keeps full cadence (it is the covering poll itself)",
       filters: { showAllUsers: true },
-      channelsWorldActive: true,
+      allUsersListMounted: true,
       expected: TASK_LIST_POLL_INTERVAL_MS,
     },
     {
       name: "repository-filtered list keeps full cadence",
       filters: { repository: "posthog/example" },
-      channelsWorldActive: true,
+      allUsersListMounted: true,
       expected: TASK_LIST_POLL_INTERVAL_MS,
     },
     {
       name: "internal list keeps full cadence",
       filters: { showInternal: true },
-      channelsWorldActive: true,
+      allUsersListMounted: true,
       expected: TASK_LIST_POLL_INTERVAL_MS,
     },
-  ])("$name", ({ filters, channelsWorldActive, expected }) => {
-    expect(taskListRefetchIntervalMs(filters, channelsWorldActive)).toBe(
+  ])("$name", ({ filters, allUsersListMounted, expected }) => {
+    expect(taskListRefetchIntervalMs(filters, allUsersListMounted)).toBe(
       expected,
     );
   });
