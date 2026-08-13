@@ -7,6 +7,7 @@ import { logger } from '~/common/utils/logger'
 import { UUIDT } from '~/common/utils/utils'
 
 import {
+    ConversionWatcherRow,
     CyclotronJobInvocationHogFlow,
     CyclotronJobInvocationResult,
     HogFunctionCapturedEvent,
@@ -17,6 +18,7 @@ import {
     MessageAssetRow,
     MinimalAppMetric,
     MinimalLogEntry,
+    PinnedConversionGoal,
     WarehouseWebhookPayload,
 } from '../../types'
 import { convertToHogFunctionFilterGlobal, filterFunctionInstrumented } from '../../utils/hog-function-filtering'
@@ -101,6 +103,72 @@ export function createHogFlowInvocation(
         queue: 'hogflow',
         queuePriority: 1,
     }
+}
+
+// A goal is configured if either detection path has something to evaluate. Gates the watcher: a
+// workflow with no goal has nothing to measure, so it writes no rows.
+function pinConversionGoal(hogFlow: HogFlow): PinnedConversionGoal | null {
+    const properties = hogFlow.conversion?.filters?.length ? hogFlow.conversion.bytecode : undefined
+    const events = (hogFlow.conversion?.events ?? [])
+        .map((eventConfig) => eventConfig.filters?.bytecode)
+        .filter((bytecode): bytecode is any[] => Array.isArray(bytecode) && bytecode.length > 0)
+
+    if (!properties?.length && !events.length) {
+        return null
+    }
+    return {
+        ...(properties?.length ? { properties } : {}),
+        ...(events.length ? { events } : {}),
+    }
+}
+
+// The watcher outlives the run, which is the whole point: once the run finishes its cyclotron job is
+// gone, and a conversion landing after that has nothing left to match against. See the
+// conversion_watchers migration.
+//
+// A run is enrolling iff it has no `currentAction` yet: every dispatch path (events, warehouse,
+// webhooks, batch children, reruns) creates the invocation without one, and `ensureCurrentAction`
+// fills it in on the first execution. `ON CONFLICT (id) DO NOTHING` on the insert makes a retry after
+// a crash idempotent, since the id is derived from the run.
+function buildConversionWatcher(invocation: CyclotronJobInvocationHogFlow): ConversionWatcherRow | null {
+    if (invocation.state.currentAction) {
+        return null
+    }
+    const goal = pinConversionGoal(invocation.hogFlow)
+    if (!goal) {
+        return null
+    }
+    const distinctId = invocation.state.event?.distinct_id || null
+    const personId = invocation.person?.id ?? invocation.state.personId ?? null
+    // Without either key the matcher can never look this watcher up, so the row would be dead weight.
+    if (!distinctId && !personId) {
+        return null
+    }
+    return {
+        id: invocation.id,
+        team_id: invocation.hogFlow.team_id,
+        function_id: invocation.hogFlow.id,
+        run_id: invocation.id,
+        parent_run_id: invocation.parentRunId ?? null,
+        distinct_id: distinctId,
+        person_id: personId,
+        flow_version: invocation.state.flowVersion ?? null,
+        goal,
+        expires_at: new Date(Date.now() + conversionWindowMinutes(invocation.hogFlow) * 60_000),
+    }
+}
+
+// A null window means "no explicit window", which cannot mean "forever": the row would never be
+// swept and the table would grow without bound. The cap is also what keeps the watcher population
+// proportional to recent traffic rather than to all traffic ever.
+export const MAX_CONVERSION_WINDOW_MINUTES = 30 * 24 * 60
+
+function conversionWindowMinutes(hogFlow: HogFlow): number {
+    const configured = hogFlow.conversion?.window_minutes
+    if (!configured || configured <= 0) {
+        return MAX_CONVERSION_WINDOW_MINUTES
+    }
+    return Math.min(configured, MAX_CONVERSION_WINDOW_MINUTES)
 }
 
 export class HogFlowExecutorService {
@@ -230,10 +298,22 @@ export class HogFlowExecutorService {
         const capturedPostHogEvents: HogFunctionCapturedEvent[] = []
         const warehouseWebhookPayloads: WarehouseWebhookPayload[] = []
         const messageAssets: MessageAssetRow[] = []
+        const conversionWatchers: ConversionWatcherRow[] = []
 
-        const earlyExitResult = await this.shouldExitEarly(invocation, metrics, capturedPostHogEvents)
+        // A run enrolls on its first execution, before any exit check: a run that exits immediately
+        // still consumed an enrollment, and `triggered` already counted it, so leaving it out would
+        // overstate the rate.
+        const watcher = buildConversionWatcher(invocation)
+
+        const earlyExitResult = await this.shouldExitEarly(invocation)
         if (earlyExitResult) {
+            if (watcher) {
+                earlyExitResult.conversionWatchers.push(watcher)
+            }
             return earlyExitResult
+        }
+        if (watcher) {
+            conversionWatchers.push(watcher)
         }
 
         // Routing-only reschedule: the previous dequeue moved this job onto a dedicated queue
@@ -268,6 +348,7 @@ export class HogFlowExecutorService {
             capturedPostHogEvents.push(...result.capturedPostHogEvents)
             warehouseWebhookPayloads.push(...result.warehouseWebhookPayloads)
             messageAssets.push(...result.messageAssets)
+            conversionWatchers.push(...result.conversionWatchers)
 
             if (this.shouldEndHogFlowExecution(result, logs)) {
                 break
@@ -279,6 +360,7 @@ export class HogFlowExecutorService {
         result.capturedPostHogEvents = capturedPostHogEvents
         result.warehouseWebhookPayloads = warehouseWebhookPayloads
         result.messageAssets = messageAssets
+        result.conversionWatchers = conversionWatchers
 
         return result
     }
@@ -321,9 +403,7 @@ export class HogFlowExecutorService {
      * Determines if the invocation should exit early based on the hogflow's exit condition
      */
     private async shouldExitEarly(
-        invocation: CyclotronJobInvocationHogFlow,
-        metrics: MinimalAppMetric[],
-        capturedPostHogEvents: HogFunctionCapturedEvent[]
+        invocation: CyclotronJobInvocationHogFlow
     ): Promise<CyclotronJobInvocationResult<CyclotronJobInvocationHogFlow> | null> {
         let earlyExitResult: CyclotronJobInvocationResult<CyclotronJobInvocationHogFlow> | null = null
 
@@ -360,42 +440,10 @@ export class HogFlowExecutorService {
                 )
             }
         }
-        // Count property-based conversions here, regardless of exit condition, so the metric is
-        // meaningful even for flows that don't exit on conversion. Captured before the event-flag
-        // override below: event-based conversions are counted by the subscription matcher, so the
-        // executor must only emit for the property path or exit-on-conversion event flows double-count.
-        // Guarded once-per-run by `conversionCounted` since shouldExitEarly runs on every resume.
-        const propertyConversionMatched = conversionMatch === true
-        let conversionMetric: MinimalAppMetric | null = null
-        let conversionEvent: HogFunctionCapturedEvent | null = null
-        if (propertyConversionMatched && !invocation.state.conversionCounted) {
-            invocation.state.conversionCounted = true
-            conversionMetric = {
-                team_id: hogFlow.team_id,
-                app_source_id: invocation.parentRunId ?? hogFlow.id,
-                instance_id: hogFlow.id,
-                metric_kind: 'other',
-                metric_name: 'conversion',
-                count: 1,
-            }
-            // Also surface the conversion as a billable PostHog event so it can power insights and
-            // cohorts (mirrors the $workflows_email_* engagement events). Event-based conversions are
-            // emitted by the subscription matcher, so this only fires for the property path.
-            const distinctId = invocation.state.event?.distinct_id
-            if (distinctId) {
-                conversionEvent = {
-                    team_id: hogFlow.team_id,
-                    event: '$workflows_conversion',
-                    distinct_id: distinctId,
-                    timestamp: new Date().toISOString(),
-                    properties: {
-                        $workflow_id: hogFlow.id,
-                        $workflow_version: hogFlow.version,
-                        $workflow_conversion_type: 'property',
-                    },
-                }
-            }
-        }
+        // Counting lives entirely on the run's conversion watcher, which the matcher claims. The run
+        // only decides whether to exit. Keeping the two apart is what makes the count survive the run
+        // finishing, and stops a watcher and a still-live run from both counting the same conversion.
+        //
         // Event-based conversion goals are evaluated by the subscription matcher (against the live
         // event stream), which flags the job when the conversion event fires. The property-based
         // check above can't see those, so honor the flag here. It is a one-shot signal ("the
@@ -446,16 +494,6 @@ export class HogFlowExecutorService {
                 metric_name: 'early_exit',
                 count: 1,
             })
-        }
-
-        // Route the conversion metric/event onto whichever result is actually flushed: the early-exit
-        // result when we exit, otherwise the caller's arrays (which become result.metrics /
-        // result.capturedPostHogEvents once the run continues and finishes).
-        if (conversionMetric) {
-            ;(earlyExitResult?.metrics ?? metrics).push(conversionMetric)
-        }
-        if (conversionEvent) {
-            ;(earlyExitResult?.capturedPostHogEvents ?? capturedPostHogEvents).push(conversionEvent)
         }
 
         return earlyExitResult

@@ -15,6 +15,7 @@ import { WarehouseSourceWebhooksOutput } from './outputs/outputs'
 import { CdpProducerName } from './outputs/producers'
 import { createCdpOutputsRegistry } from './outputs/registry'
 import { CapturedEventsService } from './services/captured-events/captured-events.service'
+import { ConversionWatchersService } from './services/conversion-watchers/conversion-watchers.service'
 import { HogExecutorAsyncService } from './services/hog-executor-async.service'
 import { HogExecutorService } from './services/hog-executor.service'
 import { HogInputsService } from './services/hog-inputs.service'
@@ -479,12 +480,17 @@ export function createCdpCoreServices(
     const hogInvocationResultsService = new HogInvocationResultsService(outputs, config)
     const warehouseWebhooksService = new WarehouseWebhooksService(outputs)
     const capturedEventsService = new CapturedEventsService(deps.internalCaptureService, deps.teamManager)
+    const conversionWatchersService = new ConversionWatchersService(
+        config.CYCLOTRON_NODE_DATABASE_URL,
+        config.CYCLOTRON_NODE_MAX_CONNECTIONS
+    )
     const invocationResultsService = new InvocationResultsService(
         hogFunctionMonitoringService,
         hogInvocationResultsService,
         warehouseWebhooksService,
         capturedEventsService,
-        messageAssetsService
+        messageAssetsService,
+        conversionWatchersService
     )
 
     const nativeDestinationExecutorService = new NativeDestinationExecutorService(config)

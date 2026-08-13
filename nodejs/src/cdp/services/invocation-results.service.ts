@@ -2,6 +2,7 @@ import { instrumentFn } from '~/common/tracing/tracing-utils'
 
 import { CyclotronJobInvocationResult } from '../types'
 import { CapturedEventsService } from './captured-events/captured-events.service'
+import { ConversionWatchersService } from './conversion-watchers/conversion-watchers.service'
 import { MessageAssetsService } from './messaging/message-assets.service'
 import { HogFunctionMonitoringService } from './monitoring/hog-function-monitoring.service'
 import { HogInvocationResultsService } from './monitoring/hog-invocation-results.service'
@@ -18,6 +19,8 @@ import { WarehouseWebhooksService } from './warehouse/warehouse-webhooks.service
  * - `CapturedEventsService`       — PostHog events emitted via posthog.capture()
  * - `MessageAssetsService`        — rendered-email snapshots for the workflow
  *                                    Assets tab
+ * - `ConversionWatchersService`   — per-run conversion watchers, which outlive the
+ *                                    run so a late conversion stays observable
  *
  * Callers interact with this one service instead of coordinating queue/flush
  * calls across the five individually. `queueInvocationResultsAndFlush` is the
@@ -31,7 +34,8 @@ export class InvocationResultsService {
         public readonly invocationResultsRowsService: HogInvocationResultsService,
         public readonly warehouseWebhooksService: WarehouseWebhooksService,
         public readonly capturedEventsService: CapturedEventsService,
-        public readonly messageAssetsService: MessageAssetsService
+        public readonly messageAssetsService: MessageAssetsService,
+        public readonly conversionWatchersService: ConversionWatchersService
     ) {}
 
     queueInvocationResults(results: CyclotronJobInvocationResult[]): Promise<void> {
@@ -40,6 +44,7 @@ export class InvocationResultsService {
             this.invocationResultsRowsService.queueInvocationResults(results)
             this.warehouseWebhooksService.queueInvocationResults(results)
             this.messageAssetsService.queueInvocationResults(results)
+            this.conversionWatchersService.queueInvocationResults(results)
             await this.capturedEventsService.queueInvocationResults(results)
         })
     }
@@ -51,6 +56,7 @@ export class InvocationResultsService {
             this.warehouseWebhooksService.flush(),
             this.capturedEventsService.flush(),
             this.messageAssetsService.flush(),
+            this.conversionWatchersService.flush(),
         ])
     }
 

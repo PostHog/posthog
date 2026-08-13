@@ -1322,8 +1322,7 @@ describe('Hogflow Executor', () => {
                 )
                 const result2 = await executor.execute(invocation2)
                 expect(result2.finished).toBe(true)
-                // The property-based conversion is also counted on the exit path
-                expect(result2.metrics.map((m) => m.metric_name)).toEqual(['early_exit', 'conversion'])
+                expect(result2.metrics.map((m) => m.metric_name)).toEqual(['early_exit'])
                 expect(result2.logs.map((log) => log.message)).toMatchInlineSnapshot(`
                     [
                       "Workflow exited early due to exit condition: exit_on_conversion ([Person:person_id|John Doe] matches conversion filters)",
@@ -1438,8 +1437,7 @@ describe('Hogflow Executor', () => {
 
                 const result2 = await executor.execute(invocation2)
                 expect(result2.finished).toBe(true)
-                // The property-based conversion is also counted on the exit path
-                expect(result2.metrics.map((m) => m.metric_name)).toEqual(['early_exit', 'conversion'])
+                expect(result2.metrics.map((m) => m.metric_name)).toEqual(['early_exit'])
                 expect(result2.logs.map((log) => log.message)).toMatchInlineSnapshot(`
                     [
                       "Workflow exited early due to exit condition: exit_on_trigger_not_matched_or_conversion ([Person:person_id|John Doe] matches conversion filters)",
@@ -1447,76 +1445,76 @@ describe('Hogflow Executor', () => {
                 `)
             })
 
-            it('counts a property-based conversion without exiting when exit condition is exit_only_at_end', async () => {
-                hogFlow.exit_condition = 'exit_only_at_end'
-                hogFlow.conversion = {
+            describe('conversion watchers', () => {
+                const propertyGoal = {
                     filters: [{ key: '$browser', type: 'person', value: ['Chrome'], operator: 'exact' }],
                     bytecode: ['_H', 1, 32, 'Chrome', 32, '$browser', 32, 'properties', 32, 'person', 1, 3, 11],
                     window_minutes: null,
                 }
+                const eventGoal = {
+                    filters: [],
+                    bytecode: [],
+                    window_minutes: null,
+                    events: [{ filters: { bytecode: ['_H', 1, 29] } }],
+                }
+                const noGoal = { filters: [], bytecode: [], window_minutes: null }
 
-                const invocation = createExampleHogFlowInvocation(
-                    hogFlow,
-                    {
-                        event: {
-                            ...createHogExecutionGlobals().event,
-                            event: '$pageview',
-                            properties: { name: 'John Doe', $current_url: 'https://posthog.com' },
-                        },
-                    },
-                    { properties: { $browser: 'Chrome' } }
-                )
+                it.each([
+                    ['a property goal', propertyGoal, true],
+                    ['an event goal', eventGoal, true],
+                    ['no goal configured', noGoal, false],
+                ])('writes a watcher for a workflow with %s', async (_name, conversion, shouldWrite) => {
+                    hogFlow.exit_condition = 'exit_only_at_end'
+                    hogFlow.conversion = conversion as any
 
-                const result = await executor.execute(invocation)
-                // The run completes normally (no early exit) but the conversion is counted exactly once
-                expect(result.finished).toBe(true)
-                expect(result.metrics.map((m) => m.metric_name)).toEqual([
-                    'conversion',
-                    'fetch',
-                    'billable_invocation',
-                    'succeeded',
-                    'succeeded',
-                ])
-                expect(result.metrics.filter((m) => m.metric_name === 'conversion')).toHaveLength(1)
-                expect(invocation.state.conversionCounted).toBe(true)
-                // The conversion is also surfaced as a billable $workflows_conversion event exactly once.
-                const conversionEvents = result.capturedPostHogEvents.filter((e) => e.event === '$workflows_conversion')
-                expect(conversionEvents).toHaveLength(1)
-                expect(conversionEvents[0]).toMatchObject({
-                    distinct_id: 'distinct_id',
-                    properties: {
-                        $workflow_id: hogFlow.id,
-                        $workflow_version: hogFlow.version,
-                        $workflow_conversion_type: 'property',
-                    },
+                    const invocation = createExampleHogFlowInvocation(hogFlow, {}, { properties: { $browser: 'Edge' } })
+                    const result = await executor.execute(invocation)
+
+                    expect(result.conversionWatchers).toHaveLength(shouldWrite ? 1 : 0)
+                    if (shouldWrite) {
+                        expect(result.conversionWatchers[0]).toMatchObject({
+                            run_id: invocation.id,
+                            function_id: hogFlow.id,
+                            team_id: hogFlow.team_id,
+                            distinct_id: 'distinct_id',
+                        })
+                    }
                 })
-            })
 
-            it('does not re-count a property-based conversion on a resume that already counted', async () => {
-                hogFlow.exit_condition = 'exit_only_at_end'
-                hogFlow.conversion = {
-                    filters: [{ key: '$browser', type: 'person', value: ['Chrome'], operator: 'exact' }],
-                    bytecode: ['_H', 1, 32, 'Chrome', 32, '$browser', 32, 'properties', 32, 'person', 1, 3, 11],
-                    window_minutes: null,
-                }
+                it('pins the goal as it stood at enrollment', async () => {
+                    // Read from the watcher rather than the live flow, so editing a goal changes what
+                    // later runs are measured against without re-judging cohorts already in flight.
+                    hogFlow.conversion = propertyGoal as any
 
-                const invocation = createExampleHogFlowInvocation(
-                    hogFlow,
-                    {
-                        event: {
-                            ...createHogExecutionGlobals().event,
-                            event: '$pageview',
-                            properties: { name: 'John Doe', $current_url: 'https://posthog.com' },
-                        },
-                    },
-                    { properties: { $browser: 'Chrome' } }
-                )
-                // Simulate a prior step in this run having already counted the conversion
-                invocation.state.conversionCounted = true
+                    const result = await executor.execute(createExampleHogFlowInvocation(hogFlow))
 
-                const result = await executor.execute(invocation)
-                expect(result.finished).toBe(true)
-                expect(result.metrics.map((m) => m.metric_name)).not.toContain('conversion')
+                    expect(result.conversionWatchers[0].goal).toEqual({ properties: propertyGoal.bytecode })
+                })
+
+                it('caps an unbounded window at 30 days', async () => {
+                    // `window_minutes: null` is the default for most goal workflows. Treating it as
+                    // "forever" would mean watchers the expiry sweep can never remove.
+                    hogFlow.conversion = propertyGoal as any
+
+                    const before = Date.now()
+                    const result = await executor.execute(createExampleHogFlowInvocation(hogFlow))
+
+                    const expiresInMs = result.conversionWatchers[0].expires_at.getTime() - before
+                    expect(expiresInMs).toBeLessThanOrEqual(30 * 24 * 60 * 60 * 1000)
+                    expect(expiresInMs).toBeGreaterThan(29 * 24 * 60 * 60 * 1000)
+                })
+
+                it('does not write a second watcher when a parked run resumes', async () => {
+                    // A run with several delays would otherwise enroll once per wake, inflating the
+                    // denominator and the row count together.
+                    hogFlow.conversion = propertyGoal as any
+
+                    const invocation = createExampleHogFlowInvocation(hogFlow)
+                    invocation.state.currentAction = { id: 'function_id_1', startedAtTimestamp: Date.now() }
+
+                    const result = await executor.execute(invocation)
+                    expect(result.conversionWatchers).toHaveLength(0)
+                })
             })
 
             it('does not count event-based conversions in the executor (counted by the matcher)', async () => {

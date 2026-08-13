@@ -1,0 +1,147 @@
+import { Pool } from 'pg'
+import { Counter, Gauge } from 'prom-client'
+
+import { logger } from '~/common/utils/logger'
+import { captureException } from '~/common/utils/posthog'
+
+import { ConversionWatcherRow, CyclotronJobInvocationResult } from '../../types'
+
+const counterConversionWatchersInserted = new Counter({
+    name: 'cdp_conversion_watchers_inserted',
+    help: 'Conversion watcher rows written at run start, one per enrolled run on a goal workflow.',
+})
+
+const counterConversionWatchersFailed = new Counter({
+    name: 'cdp_conversion_watchers_failed',
+    help: 'Watcher rows dropped because the insert failed. Each one is a run whose conversion can never be counted, so the conversion rate under-reports by exactly this much.',
+})
+
+const counterConversionWatchersSwept = new Counter({
+    name: 'cdp_conversion_watchers_swept',
+    help: 'Expired watcher rows deleted. These are runs that reached the end of their attribution window without converting.',
+})
+
+const gaugeConversionWatchersPending = new Gauge({
+    name: 'cdp_conversion_watchers_pending_rows',
+    help: 'Watcher rows queued in memory waiting for the next flush. Resets to 0 after each flush.',
+})
+
+// Bounds a single INSERT's parameter count: Postgres caps a statement at 65535 bindings, and each row
+// binds 10.
+const INSERT_CHUNK_SIZE = 1000
+
+// Bounds one sweep so a long-neglected table can't lock a huge delete; the interval simply runs again.
+const SWEEP_LIMIT = 10000
+
+/**
+ * Owns the `conversion_watchers` table: writes a watcher when a run enrolls, and deletes expired ones.
+ *
+ * Reading and claiming watchers belongs to the subscription matcher, which is where the event stream
+ * is. This service is the write side, wired into `InvocationResultsService` alongside the other
+ * result-borne row sinks.
+ */
+export class ConversionWatchersService {
+    private queuedRows: ConversionWatcherRow[] = []
+    private pool: Pool | null
+
+    // Owns its pool rather than taking one, mirroring the subscription matcher: the table lives in the
+    // cyclotron database, which nothing else in the result-sink chain connects to. A process without
+    // the connection string drops watchers via the failure counter rather than throwing, so processes
+    // that never run workflows are unaffected.
+    constructor(databaseUrl: string | undefined, maxConnections?: number) {
+        this.pool = databaseUrl ? new Pool({ connectionString: databaseUrl, max: maxConnections }) : null
+    }
+
+    public async stop(): Promise<void> {
+        await this.pool?.end()
+    }
+
+    public queueInvocationResults(results: CyclotronJobInvocationResult[]): void {
+        for (const result of results) {
+            if (result.conversionWatchers.length) {
+                this.queuedRows.push(...result.conversionWatchers)
+            }
+        }
+        gaugeConversionWatchersPending.set(this.queuedRows.length)
+    }
+
+    public async flush(): Promise<void> {
+        if (!this.queuedRows.length) {
+            return
+        }
+        const rows = this.queuedRows
+        this.queuedRows = []
+        gaugeConversionWatchersPending.set(0)
+
+        if (!this.pool) {
+            counterConversionWatchersFailed.inc(rows.length)
+            logger.error('⚠️', 'Dropping conversion watchers: no cyclotron database configured', {
+                count: rows.length,
+            })
+            return
+        }
+
+        for (let offset = 0; offset < rows.length; offset += INSERT_CHUNK_SIZE) {
+            const chunk = rows.slice(offset, offset + INSERT_CHUNK_SIZE)
+            try {
+                await this.insertChunk(chunk)
+                counterConversionWatchersInserted.inc(chunk.length)
+            } catch (err) {
+                // Dropping a watcher silently under-reports conversions rather than failing loudly, so
+                // this counter is the only signal that it happened. Not rethrown: a failed insert must
+                // not take down the batch that produced the run, which has already executed.
+                counterConversionWatchersFailed.inc(chunk.length)
+                logger.error('⚠️', 'Failed to insert conversion watchers', { err, count: chunk.length })
+                captureException(err)
+            }
+        }
+    }
+
+    private async insertChunk(rows: ConversionWatcherRow[]): Promise<void> {
+        const values: any[] = []
+        const placeholders = rows.map((row, index) => {
+            const base = index * 10
+            values.push(
+                row.id,
+                row.team_id,
+                row.function_id,
+                row.run_id,
+                row.parent_run_id,
+                row.distinct_id,
+                row.person_id,
+                row.flow_version,
+                JSON.stringify(row.goal),
+                row.expires_at
+            )
+            return `($${base + 1}, $${base + 2}, $${base + 3}, $${base + 4}, $${base + 5}, $${base + 6}, $${base + 7}, $${base + 8}, $${base + 9}, $${base + 10})`
+        })
+
+        await this.pool!.query(
+            `INSERT INTO conversion_watchers
+                (id, team_id, function_id, run_id, parent_run_id, distinct_id, person_id, flow_version, goal, expires_at)
+             VALUES ${placeholders.join(', ')}
+             ON CONFLICT (id) DO NOTHING`,
+            values
+        )
+    }
+
+    /**
+     * Deletes watchers whose attribution window has closed. Nothing else removes them: a watcher that
+     * converts is deleted by the claim, and one that never converts would otherwise live forever.
+     */
+    public async sweepExpired(): Promise<number> {
+        if (!this.pool) {
+            return 0
+        }
+        const result = await this.pool.query(
+            `DELETE FROM conversion_watchers
+             WHERE id IN (
+                 SELECT id FROM conversion_watchers WHERE expires_at <= NOW() LIMIT $1
+             )`,
+            [SWEEP_LIMIT]
+        )
+        const deleted = result.rowCount ?? 0
+        counterConversionWatchersSwept.inc(deleted)
+        return deleted
+    }
+}
