@@ -155,16 +155,12 @@ def _release_expired_customer_email_reservation(*, from_email: str) -> None:
             from_email=from_email,
             kind=EmailChannelKind.CUSTOMER_COMMUNICATION,
         )
-        .select_related("setup")
         .first()
     )
     if channel is None or channel.connection_status == EmailChannelConnectionStatus.ACTIVE:
         return
 
-    try:
-        setup = channel.setup
-    except EmailChannelSetup.DoesNotExist:
-        setup = None
+    setup = EmailChannelSetup.objects.for_team(channel.team_id).filter(channel=channel).first()
 
     setup_expired = setup is None or setup.expires_at <= timezone.now()
     if channel.connection_status == EmailChannelConnectionStatus.CONFIRMATION_EXPIRED or setup_expired:
