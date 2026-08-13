@@ -40,9 +40,12 @@ def make_duckgres_conninfo(
     scoped to exactly the team's warehouse schemas). This is what background
     jobs (dagster) should present; see
     ``products/managed_warehouse/backend/service_credentials.py``.
-    ``organization_id`` must be provided in that mode — service credentials
-    are only mintable for a provisioned production warehouse, so dev-mode is
-    rejected loudly rather than silently downgraded to root.
+    Host/port/database/sslmode come ENTIRELY from the credential's
+    CP-issued ``connect`` block — this branch never reads the stored
+    ``DuckgresServer`` row (the row is being deleted as a host store).
+    Service credentials are only mintable for a provisioned production
+    warehouse, so dev-mode is rejected loudly rather than silently
+    downgraded to root.
     """
     from products.managed_warehouse.backend.common import _duckgres_dev_config, _get_org_id_for_team
 
@@ -64,14 +67,14 @@ def make_duckgres_conninfo(
                 f"canonical login {expected_username!r} for team {team_id}: the credential belongs "
                 "to a different team/org than the connection being built"
             )
-        config = get_duckgres_config_for_org(organization_id or _get_org_id_for_team(team_id))
+        connect = service_credential.connect
         return make_conninfo(
-            host=config["DUCKGRES_HOST"],
-            port=int(config["DUCKGRES_PORT"]),
-            dbname=config["DUCKGRES_DATABASE"],
+            host=connect.host,
+            port=connect.port,
+            dbname=connect.database,
             user=service_credential.username,
             password=service_credential.password,
-            sslmode="require",
+            sslmode=connect.sslmode,
             sslcert="/tmp/no.txt",
             sslkey="/tmp/no.txt",
             sslrootcert="/tmp/no.txt",

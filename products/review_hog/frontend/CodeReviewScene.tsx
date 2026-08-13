@@ -32,11 +32,13 @@ import { Logomark } from 'lib/brand'
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import { NotFound } from 'lib/components/NotFound'
 import { TZLabel } from 'lib/components/TZLabel'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { IconStamphog } from 'lib/lemon-ui/icons'
 import { LemonCard } from 'lib/lemon-ui/LemonCard'
 import { LemonCollapse } from 'lib/lemon-ui/LemonCollapse'
 import { LemonDrawer } from 'lib/lemon-ui/LemonDrawer'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
@@ -1574,15 +1576,17 @@ export const scene: SceneExport = {
 /**
  * The "Code review" scene: ReviewHog's combined onboarding and settings page. One scrollable
  * guided-configuration page — every control is live from load, no save step. See
- * `reviewHogSettingsLogic` for the data flow. Staff-only while ReviewHog is an internal alpha;
- * the FEATURE_FLAGS.REVIEW_HOG flag only controls the menu entry's visibility.
+ * `reviewHogSettingsLogic` for the data flow. Access is gated on FEATURE_FLAGS.REVIEW_HOG, the same
+ * flag that shows the menu entry, so whoever discovers the entry can open the page. Staff bypass the
+ * flag, keeping the page reachable by direct URL where the flag is off.
  */
 export function CodeReviewScene(): JSX.Element {
     const { user } = useValues(userLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
     const { blindSpots, validators, initialLoadFailed } = useValues(reviewHogSettingsLogic)
     const { selectBlindSpots, selectValidator, loadAll } = useActions(reviewHogSettingsLogic)
 
-    if (user != null && !user.is_staff) {
+    if (user != null && !user.is_staff && !featureFlags[FEATURE_FLAGS.REVIEW_HOG]) {
         return <NotFound object="page" />
     }
 

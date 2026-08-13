@@ -474,6 +474,11 @@ class AssistantContextManager(AssistantContextMixin):
                 ),
                 *canvas_instructions,
                 (
+                    "- `<SQLV2 />` and `<PythonV2 />` carry their body in a `code` prop holding the SQL or Python "
+                    "as a string. Only `<Query />` takes a `query` prop holding a query object, so never give a "
+                    "code cell a `query` prop."
+                ),
+                (
                     "When the current user asks you to change broad notebook content, use notebook tools against "
                     "the current notebook instead of explaining how the user could do it. "
                     "For Markdown notebook v2, preserve the single ph-markdown-notebook node and update "

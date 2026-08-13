@@ -10,7 +10,14 @@ import { componentsToDayJs, dateStringToComponents, dateStringToDayJs, isStringD
 import { Params } from 'scenes/sceneTypes'
 
 import { DateRange, ErrorTrackingIssue } from '~/queries/schema/schema-general'
-import { AccessControlLevel, AccessControlResourceType } from '~/types'
+import { escapeHogQLString } from '~/queries/utils'
+import {
+    AccessControlLevel,
+    AccessControlResourceType,
+    FilterLogicalOperator,
+    PropertyFilterType,
+    type UniversalFiltersGroup,
+} from '~/types'
 
 /** Reason error tracking write actions are disabled, or null when the user has editor access. */
 export function errorTrackingEditAccessDisabledReason(): string | null {
@@ -112,6 +119,30 @@ export function getIssueReplayDateRange(firstSeen: string, lastSeen: Dayjs | nul
     return {
         date_from: from.subtract(1, 'hour').toISOString(),
         date_to: to.add(1, 'hour').toISOString(),
+    }
+}
+
+export function getIssueReplayFilterGroup(issueId: string): UniversalFiltersGroup {
+    return {
+        type: FilterLogicalOperator.And,
+        values: [
+            {
+                type: FilterLogicalOperator.And,
+                values: [
+                    {
+                        id: '$exception',
+                        name: '$exception',
+                        type: 'events',
+                        properties: [
+                            {
+                                key: `issue_id = ${escapeHogQLString(issueId)}`,
+                                type: PropertyFilterType.HogQL,
+                            },
+                        ],
+                    },
+                ],
+            },
+        ],
     }
 }
 

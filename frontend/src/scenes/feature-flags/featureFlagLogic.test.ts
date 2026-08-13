@@ -322,6 +322,93 @@ describe('featureFlagLogic', () => {
                 toastSpy.mockRestore()
             }
         })
+
+        it('links the duplicate-key toast to the flag already using that key', async () => {
+            useMocks({
+                patch: {
+                    [`/api/projects/${MOCK_DEFAULT_PROJECT.id}/feature_flags/${MOCK_FEATURE_FLAG.id}/`]: () => [
+                        400,
+                        {
+                            type: 'validation_error',
+                            code: 'unique',
+                            attr: 'key',
+                            detail: 'There is already a feature flag with this key.',
+                        },
+                    ],
+                },
+                get: {
+                    [`/api/projects/${MOCK_DEFAULT_PROJECT.id}/feature_flags/`]: () => [
+                        200,
+                        { results: [{ ...MOCK_FEATURE_FLAG, id: 42 }], count: 1 },
+                    ],
+                },
+            })
+            const toastSpy = jest.spyOn(lemonToast, 'error').mockReturnValue('toast-id')
+            const openSpy = jest.spyOn(window, 'open').mockImplementation(() => null)
+            try {
+                await expectLogic(logic, () => {
+                    logic.actions.saveFeatureFlag(logic.values.featureFlag)
+                })
+                    .toDispatchActions(['saveFeatureFlagFailure'])
+                    .toFinishAllListeners()
+
+                // One toast means the generic loaders toast stayed suppressed (initKea.ts) and this
+                // listener produced the only message; two would mean the suppression broke.
+                expect(toastSpy).toHaveBeenCalledTimes(1)
+                const [message, options] = toastSpy.mock.calls[0] as [
+                    string,
+                    { button?: { label: string; action: () => void } } | undefined,
+                ]
+                expect(message).toBe('Save feature flag failed: There is already a feature flag with this key.')
+                expect(options?.button?.label).toBe('View existing flag')
+
+                options?.button?.action()
+                expect(openSpy).toHaveBeenCalledWith(urls.featureFlag(42), '_blank')
+            } finally {
+                toastSpy.mockRestore()
+                openSpy.mockRestore()
+            }
+        })
+
+        it.each([
+            ['the list returns no matching flag', 200, { results: [], count: 0 }],
+            ['the lookup request fails', 500, { type: 'server_error', detail: 'boom' }],
+        ])('shows a plain duplicate-key toast when %s', async (_desc, listStatus, listBody) => {
+            useMocks({
+                patch: {
+                    [`/api/projects/${MOCK_DEFAULT_PROJECT.id}/feature_flags/${MOCK_FEATURE_FLAG.id}/`]: () => [
+                        400,
+                        {
+                            type: 'validation_error',
+                            code: 'unique',
+                            attr: 'key',
+                            detail: 'There is already a feature flag with this key.',
+                        },
+                    ],
+                },
+                get: {
+                    [`/api/projects/${MOCK_DEFAULT_PROJECT.id}/feature_flags/`]: () => [listStatus, listBody],
+                },
+            })
+            const toastSpy = jest.spyOn(lemonToast, 'error').mockReturnValue('toast-id')
+            const openSpy = jest.spyOn(window, 'open').mockImplementation(() => null)
+            try {
+                await expectLogic(logic, () => {
+                    logic.actions.saveFeatureFlag(logic.values.featureFlag)
+                })
+                    .toDispatchActions(['saveFeatureFlagFailure'])
+                    .toFinishAllListeners()
+
+                expect(toastSpy).toHaveBeenCalledTimes(1)
+                expect(toastSpy).toHaveBeenCalledWith(
+                    'Save feature flag failed: There is already a feature flag with this key.'
+                )
+                expect(openSpy).not.toHaveBeenCalled()
+            } finally {
+                toastSpy.mockRestore()
+                openSpy.mockRestore()
+            }
+        })
     })
 
     describe('saveFeatureFlag navigation', () => {

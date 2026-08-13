@@ -13,12 +13,13 @@ from products.tasks.backend.facade.run_config import (
 logger = logging.getLogger(__name__)
 
 # REVIEW MODEL
-REVIEW_RUNTIME_ADAPTER = RuntimeAdapter.CLAUDE
-REVIEW_MODEL = "claude-sonnet-5"
+REVIEW_RUNTIME_ADAPTER = RuntimeAdapter.CODEX
+REVIEW_MODEL = "gpt-5.6-sol"
 REVIEW_REASONING_EFFORT = ReasoningEffort.XHIGH
-# Claude sandboxes run with bypassPermissions by default, so headless MCP skill pulls need no
-# extra approval mode. (Only Codex's default "auto" stalls on MCP calls and needs "full-access".)
-REVIEW_INITIAL_PERMISSION_MODE = None
+# Codex's default "auto" approval mode does not auto-approve MCP tool calls, so a headless reviewer
+# stalls on the skill pull without "full-access". (Claude sandboxes bypass permissions by default
+# and take None here.)
+REVIEW_INITIAL_PERMISSION_MODE = "full-access"
 
 
 @dataclass(frozen=True)
@@ -43,24 +44,15 @@ DEFAULT_REVIEW_ARM = ReviewArm(
     initial_permission_mode=REVIEW_INITIAL_PERMISSION_MODE,
 )
 
-# The reviewer-model experiment: each new report draws its arm once at creation and keeps it for
+# The reviewer-model arm draw: each new report draws its arm once at creation and keeps it for
 # life, because a per-turn redraw would feed one arm's findings into the other arm's
-# "already covered" injection. Weights are relative shares (`random.choices` normalizes them). End
-# the experiment by dropping arms HERE, never by deregistering the model in products/tasks:
-# persisted assignments resolve against the live registry per unit, so a mid-experiment
-# deregistration silently falls in-flight turns back to the default pins, unit by unit.
-REVIEW_EXPERIMENT_ARMS: tuple[tuple[float, ReviewArm], ...] = (
-    (0.5, DEFAULT_REVIEW_ARM),
-    (
-        0.5,
-        ReviewArm(
-            runtime_adapter=RuntimeAdapter.CODEX,
-            model="gpt-5.6-sol",
-            reasoning_effort=ReasoningEffort.XHIGH,
-            initial_permission_mode="full-access",
-        ),
-    ),
-)
+# "already covered" injection. Weights are relative shares (`random.choices` normalizes them).
+# Run a model experiment by adding weighted arms here; end it by dropping arms HERE, never by
+# deregistering the model in products/tasks: persisted assignments resolve against the live
+# registry per unit, so a mid-experiment deregistration silently falls in-flight turns back to
+# the default pins, unit by unit. Reports that drew a now-dropped arm keep running it while its
+# combo stays registered, by design.
+REVIEW_EXPERIMENT_ARMS: tuple[tuple[float, ReviewArm], ...] = ((1.0, DEFAULT_REVIEW_ARM),)
 
 
 def draw_review_arm() -> ReviewArm:
@@ -119,7 +111,7 @@ def resolve_review_arm(
 # Pins for the per-chunk warm validation sessions. All-None = the agent server's default model at its
 # default effort (the behavior before this knob existed); set all three to pin, like the review pins.
 VALIDATION_RUNTIME_ADAPTER: RuntimeAdapter | None = RuntimeAdapter.CLAUDE
-VALIDATION_MODEL: str | None = "claude-opus-4-8"
+VALIDATION_MODEL: str | None = "claude-opus-5"
 VALIDATION_REASONING_EFFORT: ReasoningEffort | None = ReasoningEffort.XHIGH
 VALIDATION_INITIAL_PERMISSION_MODE: str | None = None
 
@@ -157,6 +149,17 @@ _PRIORITY_RANK = {IssuePriority.CONSIDER: 0, IssuePriority.SHOULD_FIX: 1, IssueP
 
 # The threshold applied when no per-user setting is available (matches `ReviewUserSettings`' default).
 DEFAULT_URGENCY_THRESHOLD = IssuePriority.CONSIDER
+
+# Severities most urgent first — the order every count breakdown is read in.
+PRIORITIES_BY_URGENCY = (IssuePriority.MUST_FIX, IssuePriority.SHOULD_FIX, IssuePriority.CONSIDER)
+
+# Human-readable severity labels, shared by the PR-facing renderers (the review body and the status
+# comment) so their count lines read the same.
+PRIORITY_LABELS = {
+    IssuePriority.MUST_FIX: "must fix",
+    IssuePriority.SHOULD_FIX: "should fix",
+    IssuePriority.CONSIDER: "consider",
+}
 
 
 def published_priorities_for(threshold: IssuePriority) -> set[IssuePriority]:
@@ -212,10 +215,10 @@ CHUNK_SOFT_MAX_ADDITIONS = 600
 
 # OUTCOME TELEMETRY
 # The outcome-classifier judge decides whether the commits that landed after review actually
-# addressed a finding. Pinned to a model DIFFERENT from the reviewer's (`REVIEW_MODEL` /
-# `ONESHOT_MODEL` = claude-sonnet-5): a judge sharing the reviewer's model family would inherit the
-# same blind spots the telemetry exists to measure. Effort is "high" — a focused yes/no on a small
-# diff, not the reviewer's exhaustive xhigh pass.
+# addressed a finding. Pinned to a model family DIFFERENT from the reviewer's (`REVIEW_MODEL`):
+# a judge sharing the reviewer's model family would inherit the same blind spots the telemetry
+# exists to measure. Effort is "high" — a focused yes/no on a small diff, not the reviewer's
+# exhaustive xhigh pass.
 OUTCOME_JUDGE_MODEL = "claude-opus-5"
 OUTCOME_JUDGE_REASONING_EFFORT = "high"
 # The judge's stated reason is persisted with the outcome so a classification can be explained later.

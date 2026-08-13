@@ -734,6 +734,7 @@ def sync_issues_to_clickhouse(*, issue_ids: list, team_id: int) -> None:
                 "issue_name": issue.name,
                 "issue_description": issue.description,
                 "issue_status": _clickhouse_status(issue.status),
+                "issue_severity": issue.severity,
                 "assigned_user_id": assigned_user_id,
                 "assigned_role_id": assigned_role_id,
                 "first_seen": first_seen,
