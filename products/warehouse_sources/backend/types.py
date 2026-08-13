@@ -1331,6 +1331,9 @@ class ExternalDataSourceType(models.TextChoices):
     UPLOADCARE = "Uploadcare", "Uploadcare"
     WHMCS = "WHMCS", "WHMCS"
     MSG91 = "MSG91", "MSG91"
+    DEPOT = "Depot", "Depot"
+    SCHEMATIC = "Schematic", "Schematic"
+    DOKPLOY = "Dokploy", "Dokploy"
 
 
 # Maps a source type to the direct-SQL engine that can query it live. A source type is only
