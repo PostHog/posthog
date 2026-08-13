@@ -3,6 +3,7 @@ from datetime import UTC, datetime, timedelta
 from freezegun import freeze_time
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, flush_persons_and_events
 
+from parameterized import parameterized
 from rest_framework.exceptions import ValidationError
 
 from posthog.clickhouse.client import sync_execute
@@ -33,6 +34,7 @@ class TestSessionRecordingsListByExperimentExposure(ClickhouseTestMixin, APIBase
         flag_filters: dict | None = None,
         start_date: datetime | None = BASE_TIME - timedelta(days=1),
         key: str = "recordings-linkage-flag",
+        excluded_variants: list[str] | None = None,
     ) -> Experiment:
         flag = FeatureFlag.objects.create(
             team=self.team,
@@ -56,6 +58,7 @@ class TestSessionRecordingsListByExperimentExposure(ClickhouseTestMixin, APIBase
             created_by=self.user,
             start_date=start_date,
             exposure_criteria=exposure_criteria or {},
+            excluded_variants=excluded_variants,
             metrics=[],
         )
 
@@ -188,6 +191,48 @@ class TestSessionRecordingsListByExperimentExposure(ClickhouseTestMixin, APIBase
             [],
         )
 
+    def test_excluded_variants_are_invisible_to_the_linkage(self) -> None:
+        experiment = self._create_experiment(
+            flag_filters={
+                "groups": [{"properties": [], "rollout_percentage": 100}],
+                "multivariate": {
+                    "variants": [
+                        {"key": "control", "rollout_percentage": 50},
+                        {"key": "test", "rollout_percentage": 25},
+                        {"key": "beta", "rollout_percentage": 25},
+                    ]
+                },
+            },
+            excluded_variants=["beta"],
+        )
+        create_person(team=self.team, distinct_ids=["beta-only-user"])
+        create_person(team=self.team, distinct_ids=["control-and-beta-user"])
+        exposure_time = BASE_TIME + timedelta(hours=1)
+        self._create_exposure_event("beta-only-user", exposure_time, "beta")
+        # Exposures to an excluded variant are invisible to the analysis, so this person
+        # attributes cleanly to control rather than counting as multiple-variant.
+        self._create_exposure_event("control-and-beta-user", exposure_time, "control")
+        self._create_exposure_event("control-and-beta-user", exposure_time + timedelta(minutes=5), "beta")
+        flush_persons_and_events()
+
+        session_start = exposure_time + timedelta(hours=1)
+        self._produce_recording(
+            "beta-only-user", "session-of-beta-only", session_start, session_start + timedelta(minutes=10)
+        )
+        self._produce_recording(
+            "control-and-beta-user", "session-of-control", session_start, session_start + timedelta(minutes=10)
+        )
+
+        self._assert_query_matches_session_ids(
+            {"experiment_exposure": {"experiment_id": experiment.id}},
+            ["session-of-control"],
+        )
+        with self.assertRaises(ValidationError):
+            filter_recordings_by(
+                team=self.team,
+                recordings_filter={"experiment_exposure": {"experiment_id": experiment.id, "variant": "beta"}},
+            )
+
     def test_activation_mode_counts_exposure_from_the_activation_event(self) -> None:
         experiment = self._create_experiment(
             exposure_criteria={
@@ -272,38 +317,40 @@ class TestSessionRecordingsListByExperimentExposure(ClickhouseTestMixin, APIBase
             ["session-after-custom"],
         )
 
-    def test_rejects_experiments_the_linkage_cannot_answer_for(self) -> None:
-        with self.assertRaises(ValidationError):
-            filter_recordings_by(team=self.team, recordings_filter={"experiment_exposure": {"experiment_id": 999999}})
-
-        draft = self._create_experiment(start_date=None, key="draft-flag")
-        with self.assertRaises(ValidationError):
-            filter_recordings_by(team=self.team, recordings_filter={"experiment_exposure": {"experiment_id": draft.id}})
-
-        group_scoped = self._create_experiment(
-            key="group-flag",
-            flag_filters={
-                "groups": [{"properties": [], "rollout_percentage": 100}],
-                "aggregation_group_type_index": 0,
-                "multivariate": {
-                    "variants": [
-                        {"key": "control", "rollout_percentage": 50},
-                        {"key": "test", "rollout_percentage": 50},
-                    ]
+    @parameterized.expand(
+        [
+            ("unknown_experiment", None, None),
+            ("draft_experiment", {"start_date": None, "key": "draft-flag"}, None),
+            (
+                "group_aggregated_experiment",
+                {
+                    "key": "group-flag",
+                    "flag_filters": {
+                        "groups": [{"properties": [], "rollout_percentage": 100}],
+                        "aggregation_group_type_index": 0,
+                        "multivariate": {
+                            "variants": [
+                                {"key": "control", "rollout_percentage": 50},
+                                {"key": "test", "rollout_percentage": 50},
+                            ]
+                        },
+                    },
                 },
-            },
-        )
-        with self.assertRaises(ValidationError):
-            filter_recordings_by(
-                team=self.team, recordings_filter={"experiment_exposure": {"experiment_id": group_scoped.id}}
-            )
+                None,
+            ),
+            ("unknown_variant", {"key": "variant-check-flag"}, "nope"),
+        ]
+    )
+    def test_rejects_experiments_the_linkage_cannot_answer_for(
+        self, _name: str, experiment_kwargs: dict | None, variant: str | None
+    ) -> None:
+        experiment_id = self._create_experiment(**experiment_kwargs).id if experiment_kwargs is not None else 999999
+        exposure_filter: dict = {"experiment_id": experiment_id}
+        if variant is not None:
+            exposure_filter["variant"] = variant
 
-        experiment = self._create_experiment(key="variant-check-flag")
         with self.assertRaises(ValidationError):
-            filter_recordings_by(
-                team=self.team,
-                recordings_filter={"experiment_exposure": {"experiment_id": experiment.id, "variant": "nope"}},
-            )
+            filter_recordings_by(team=self.team, recordings_filter={"experiment_exposure": exposure_filter})
 
     def test_composes_with_event_filters(self) -> None:
         experiment = self._create_experiment()
