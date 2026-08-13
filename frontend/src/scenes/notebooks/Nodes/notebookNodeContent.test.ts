@@ -135,6 +135,25 @@ describe('buildNotebookDependencyGraph', () => {
         expect(identifiers).not.toContain('head')
     })
 
+    it('links a SQLV2 cell that carries its SQL in a query prop', () => {
+        // Cells authored with the `<Query query={…} />` prop shape have no `code` attr, so
+        // without recovering the SQL they read as empty and reference no upstream frame.
+        const markdown = [
+            serializeMarkdownNotebookComponent('SQLV2', {
+                nodeId: 'a',
+                returnVariable: 'df1',
+                code: 'select id from events',
+            }),
+            serializeMarkdownNotebookComponent('SQLV2', {
+                nodeId: 'b',
+                returnVariable: 'joined',
+                query: { kind: 'HogQLQuery', query: 'select * from df1' },
+            }),
+        ].join('\n\n')
+        const graph = buildNotebookDependencyGraph(buildMarkdownNotebookContent(markdown))
+        expect(graph.downstreamUsageByNode['a'].df1.map((usage) => usage.nodeId)).toEqual(['b'])
+    })
+
     it('links SQLV2 cells inside a markdown notebook', () => {
         // Markdown notebooks hold cells as tags inside one markdown attribute; without
         // expanding them the graph is empty and the "Used in" back-links never render.
