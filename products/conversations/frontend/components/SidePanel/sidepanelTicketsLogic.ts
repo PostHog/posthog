@@ -465,7 +465,10 @@ export const sidepanelTicketsLogic = kea<sidepanelTicketsLogicType>([
                 clearTimeout(cache.conversationsRetryTimer)
                 cache.conversationsRetryTimer = null
             }
-            if (!posthog.conversations) {
+            // Not just a truthiness check: posthog-js creates the `conversations` facade at init,
+            // but its methods resolve null until the lazily loaded manager is ready — a cold page
+            // load would otherwise render an empty list once and never retry
+            if (!posthog.conversations?.isAvailable()) {
                 // Conversations extension loads lazily — retry until it's ready
                 if ((cache.conversationsRetries ?? 0) < 20) {
                     cache.conversationsRetries = (cache.conversationsRetries ?? 0) + 1
@@ -808,7 +811,10 @@ export const sidepanelTicketsLogic = kea<sidepanelTicketsLogicType>([
         },
         restoreFromUrlToken: async ({ token }) => {
             const conversations = posthog.conversations as any
-            if (!conversations?.restoreFromToken) {
+            // isAvailable rather than method presence: the facade and its methods exist from
+            // posthog-js init, but resolve null until the manager loads — which would consume
+            // the one-shot restore token without restoring anything
+            if (!posthog.conversations?.isAvailable()) {
                 if ((cache.restoreRetries ?? 0) < 20) {
                     cache.restoreRetries = (cache.restoreRetries ?? 0) + 1
                     cache.restoreRetryTimer = window.setTimeout(() => actions.restoreFromUrlToken(token), 500)

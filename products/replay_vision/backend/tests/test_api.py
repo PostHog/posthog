@@ -1489,6 +1489,8 @@ class TestReplayObservationViewSet(_VisionAPITestCase):
             ("status=bogus", "status"),
             ("triggered_by=hack", "triggered_by"),
             ("verdict=maybe", "verdict"),
+            ("min_score=low", "min_score"),
+            ("max_score=high", "max_score"),
             ("order_by=garbage", "order_by"),
             ("order_by=-result_score_typo", "order_by"),
         ]
@@ -1550,6 +1552,62 @@ class TestReplayObservationViewSet(_VisionAPITestCase):
         resp = self.client.get(f"{self.observations_url(str(scorer.id))}?order_by=-result_score")
         sessions = [r["session_id"] for r in resp.json()["results"]]
         self.assertEqual(sessions, ["sess-1", "sess-0", "sess-2"])
+
+    def _create_scorer_with_scores(self, scores: list[Any]) -> ReplayScanner:
+        scorer = self._create_scanner(
+            name="frustration",
+            scanner_type=ScannerType.SCORER,
+            scanner_config={"prompt": "p", "scale": {"min": 0, "max": 10}},
+        )
+        for idx, score in enumerate(scores):
+            ReplayObservation.objects.create(
+                scanner=scorer,
+                session_id=f"sess-{idx}",
+                scanner_snapshot=_snapshot_for(scorer),
+                triggered_by=ObservationTrigger.SCHEDULE,
+                status=ObservationStatus.SUCCEEDED,
+                completed_at=timezone.now(),
+                scanner_result={
+                    "model_output": {"scanner_type": "scorer", "score": score, "reasoning": "r", "confidence": 0.5},
+                    "signals_count": 0,
+                },
+            )
+        return scorer
+
+    @parameterized.expand(
+        [
+            ("at_least", "min_score=7", ["sess-1", "sess-3"]),
+            ("at_most", "max_score=3", ["sess-0", "sess-2"]),
+            ("range", "min_score=3&max_score=7", ["sess-0", "sess-3"]),
+            # Bounds are inclusive, and 10 must not lose to a lexicographic comparison against 7.
+            ("boundary", "min_score=10", ["sess-1"]),
+        ]
+    )
+    def test_filterset_score_bounds(self, _name: str, query: str, expected: list[str]) -> None:
+        scorer = self._create_scorer_with_scores([3.0, 10.0, 0.5, 7.0])
+        resp = self.client.get(f"{self.observations_url(str(scorer.id))}?{query}")
+        self.assertEqual(resp.status_code, 200, resp.json())
+        self.assertEqual(sorted(r["session_id"] for r in resp.json()["results"]), expected)
+
+    def test_filterset_score_bounds_exclude_rows_without_a_numeric_score(self) -> None:
+        # A pending run has no result at all, and schema drift can leave `score` a string; neither may 500 or match.
+        scorer = self._create_scorer_with_scores([5.0, "not-a-number"])
+        ReplayObservation.objects.create(
+            scanner=scorer,
+            session_id="sess-pending",
+            scanner_snapshot=_snapshot_for(scorer),
+            triggered_by=ObservationTrigger.SCHEDULE,
+        )
+        resp = self.client.get(f"{self.observations_url(str(scorer.id))}?min_score=0&max_score=10")
+        self.assertEqual(resp.status_code, 200, resp.json())
+        self.assertEqual([r["session_id"] for r in resp.json()["results"]], ["sess-0"])
+
+    def test_filterset_score_bounds_combine_with_ordering(self) -> None:
+        # Both annotate the score off the same JSONB path; applying them together must not collide.
+        scorer = self._create_scorer_with_scores([3.0, 10.0, 0.5, 7.0])
+        resp = self.client.get(f"{self.observations_url(str(scorer.id))}?min_score=3&order_by=-result_score")
+        self.assertEqual(resp.status_code, 200, resp.json())
+        self.assertEqual([r["session_id"] for r in resp.json()["results"]], ["sess-1", "sess-3", "sess-0"])
 
     def test_order_by_scanner_version_numeric(self) -> None:
         snap_v1 = {**_snapshot_for(self.scanner), "scanner_version": 1}

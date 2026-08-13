@@ -7,6 +7,21 @@ export { funnelConversionRate, funnelFromCounts, RATE_TO_PERCENT } from './chart
 export type { FunnelFromCountsOptions, FunnelStepCount } from './charts/FunnelChart/funnel-data'
 export { LineChart } from './charts/LineChart/LineChart'
 export type { LineChartProps } from './charts/LineChart/LineChart'
+export { ScatterChart } from './charts/ScatterChart/ScatterChart'
+export type { ScatterChartProps } from './charts/ScatterChart/ScatterChart'
+export { ScatterTooltip } from './charts/ScatterChart/ScatterTooltip'
+export type { ScatterTooltipProps } from './charts/ScatterChart/ScatterTooltip'
+export type {
+    ScatterAreaSelection,
+    ScatterAxisConfig,
+    ScatterChartConfig,
+    ScatterMarkerShape,
+    ScatterPoint,
+    ScatterPointDatum,
+    ScatterSeries,
+    ScatterTooltipConfig,
+    ScatterTooltipContext,
+} from './charts/ScatterChart/types'
 export { ComboChart } from './charts/ComboChart/ComboChart'
 export type { ComboChartProps } from './charts/ComboChart/ComboChart'
 export { TimeSeriesLineChart } from './charts/TimeSeriesLineChart/TimeSeriesLineChart'
@@ -135,13 +150,14 @@ export type {
 export { DEFAULT_Y_AXIS_ID, resolveAxisLines } from './core/types'
 
 // Theme: read a ChartTheme from quill data-viz CSS vars (with a built-in fallback palette)
-export { themeFromCssVars, useChartTheme, DEFAULT_CHART_COLORS } from './core/theme'
+export { themeDefaultsFromCssVars, themeFromCssVars, useChartTheme, DEFAULT_CHART_COLORS } from './core/theme'
+export { DEFAULT_CHART_CONFIG } from './core/chart-config'
 export type { ThemeFromCssOptions } from './core/theme'
 
 // Built-in tooltip (for reference or extension)
 export { DefaultTooltip, type DefaultTooltipProps } from './overlays/DefaultTooltip'
 // Shared tooltip surface — reuse to build custom tooltips with the quill look
-export { TooltipSurface, TooltipSwatch } from './overlays/TooltipSurface'
+export { TooltipFooter, TooltipSurface, TooltipSwatch } from './overlays/TooltipSurface'
 
 // Optional overlays
 export { ReferenceLine, ReferenceLines } from './overlays/ReferenceLine'

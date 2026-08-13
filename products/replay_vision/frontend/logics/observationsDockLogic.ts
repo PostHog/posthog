@@ -232,10 +232,10 @@ export const observationsDockLogic = kea<observationsDockLogicType>([
                 actions.loadObservations
             )
         }
-        // Shared by every dock trigger: show the row that is coming, and re-read the quota the scan spent.
-        // Only call this when a scan actually started, or the poll window opens for work that will never land.
+        // Show the row that is coming, and re-read the quota the scan spent. Only call this when a scan
+        // actually started, or the poll window opens for work that will never land. The dock is opened
+        // by the summarize path alone; it only surfaces summaries.
         const afterScanStarted = (): void => {
-            actions.setDockOpen(true)
             actions.loadObservations()
             refreshVisionQuota()
         }
@@ -327,19 +327,44 @@ export const observationsDockLogic = kea<observationsDockLogicType>([
                     // One session in, so one result out. The inline scanner is shared per project, so a
                     // recording somebody already summarized comes back settled instead of started.
                     const outcome = response.results?.[0]?.scan_outcome
+                    if (outcome === 'already_scanned') {
+                        // A row settled server-side, but the inline scanner is shared and RBAC-scoped, so
+                        // the row may not be readable here, and the reload can also fail. Confirm the row
+                        // is in hand before naming it, and leave a way to re-read when it stays hidden.
+                        actions.summarizeFailure()
+                        actions.setDockOpen(true)
+                        const tryAgain = { label: 'Try again', action: () => actions.loadObservations() }
+                        try {
+                            const reloaded = await visionObservationsList(String(teamId), {
+                                session_id: props.sessionId,
+                            })
+                            const results = reloaded.results ?? []
+                            actions.loadObservationsSuccess(results)
+                            if (response.scan_id && results.some((o) => o.scanner_id === response.scan_id)) {
+                                // The row is readable below. A failed or ineligible one still shows its retry
+                                // control there, so the user has a way to run the summary again.
+                                lemonToast.info('This recording already has a result below.')
+                            } else {
+                                lemonToast.warning(
+                                    'This recording was already summarized, but the result is not available here.',
+                                    { button: tryAgain }
+                                )
+                            }
+                        } catch {
+                            metricCount('replay_vision_frontend_observations_load_failures')
+                            actions.loadObservationsFailure()
+                            lemonToast.warning("Couldn't load this recording's summary.", { button: tryAgain })
+                        }
+                        return
+                    }
                     const { level, message } = summarizeOutcomeMessage(outcome)
                     lemonToast[level](message)
                     if (outcome === 'started' || outcome === 'already_running') {
                         // A scan is in flight either way — ours, or one this project already had running
                         // against the shared inline scanner — so the poll window has a row to wait for.
                         actions.summarizeSuccess()
-                        afterScanStarted()
-                    } else if (outcome === 'already_scanned') {
-                        // Settled server-side, but the scanner is shared, so the row may have landed after
-                        // this dock loaded. Re-read rather than trusting what is already on screen.
-                        actions.summarizeFailure()
                         actions.setDockOpen(true)
-                        actions.loadObservations()
+                        afterScanStarted()
                     } else {
                         // Nothing started and nothing to read, so the poll window would watch for a row
                         // that never arrives.

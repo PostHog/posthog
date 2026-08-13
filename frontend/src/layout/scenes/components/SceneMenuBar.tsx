@@ -252,7 +252,7 @@ type SceneMenuBarItemProps = ComponentProps<typeof MenubarItem> & {
 
 /**
  * Pass `variant="destructive"` for any "Delete X" / "Archive X" / "Remove X" action so the
- * visual signal (red text + icon) is consistent across PostHog scenes.
+ * visual signal is consistent across PostHog scenes.
  */
 export function SceneMenuBarItem({
     opensFloatingUi,

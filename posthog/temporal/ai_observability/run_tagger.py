@@ -10,13 +10,13 @@ from structlog.contextvars import bind_contextvars
 from temporalio.common import RetryPolicy
 from temporalio.exceptions import ApplicationError
 
-from posthog.api.capture import CaptureInternalError, capture_internal
-from posthog.models.team import Team
+from posthog.api.capture import CaptureInternalError
 from posthog.sync import database_sync_to_async
 from posthog.temporal.ai_observability.evaluation_event_io import extract_event_io
 from posthog.temporal.ai_observability.evaluation_workflow_activities import update_key_state_activity
 from posthog.temporal.ai_observability.message_utils import extract_text_from_messages
 from posthog.temporal.ai_observability.model_resolution import model_spec
+from posthog.temporal.ai_observability.team_capture import capture_internal_for_team
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.scoped import scoped_temporal
 
@@ -472,12 +472,6 @@ async def emit_tagger_event_activity(inputs: EmitTaggerEventInputs) -> None:
     start_time = inputs.start_time
 
     def _emit():
-        try:
-            team = Team.objects.get(id=event_data["team_id"])
-        except Team.DoesNotExist:
-            logger.exception("Team not found", team_id=event_data["team_id"])
-            raise ValueError(f"Team {event_data['team_id']} not found")
-
         properties_raw = (
             json.loads(event_data["properties"])
             if isinstance(event_data["properties"], str)
@@ -514,18 +508,14 @@ async def emit_tagger_event_activity(inputs: EmitTaggerEventInputs) -> None:
                 }
             )
 
-        event_timestamp = datetime.now(UTC)
-
-        routed_result = capture_internal(
-            token=team.api_token,
+        capture_internal_for_team(
+            team_id=event_data["team_id"],
             event_name="$ai_tag",
             event_source="llm_analytics_tagger",
             distinct_id=event_data["distinct_id"],
-            timestamp=event_timestamp,
+            timestamp=datetime.now(UTC),
             properties=properties,
-            process_person_profile=True,
         )
-        routed_result.raise_for_status()
 
     try:
         await database_sync_to_async(_emit, thread_sensitive=False)()
