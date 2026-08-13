@@ -22,7 +22,6 @@ const STATS = {
 const IMPACT = { affected_sessions: 0, affected_users: 0, sessions_without_user: 0, window_days: 14 }
 
 describe('scannerOverviewLogic', () => {
-    let logic: ReturnType<typeof scannerOverviewLogic.build>
     let statsRequests: string[]
     let impactRequests: string[]
 
@@ -51,65 +50,92 @@ describe('scannerOverviewLogic', () => {
             },
         })
         initKeaTests()
-        logic = scannerOverviewLogic({ scannerId: 'sid' })
-        logic.mount()
     })
 
-    afterEach(() => logic.unmount())
+    describe('with a mounted scanner', () => {
+        let logic: ReturnType<typeof scannerOverviewLogic.build>
 
-    it('treats the default date range as inactive but any pill or non-default date as active', async () => {
-        await expectLogic(logic).toFinishAllListeners()
-        // A spurious "active" here would surface a Clear button on an untouched Overview.
-        expect(logic.values.hasActiveOverviewFilters).toBe(false)
+        beforeEach(() => {
+            logic = scannerOverviewLogic({ scannerId: 'sid' })
+            logic.mount()
+        })
 
-        await expectLogic(logic, () => logic.actions.setOverviewVerdictFilter(['no'])).toFinishAllListeners()
-        expect(logic.values.hasActiveOverviewFilters).toBe(true)
+        afterEach(() => logic.unmount())
 
-        await expectLogic(logic, () => {
-            logic.actions.setOverviewVerdictFilter([])
-            logic.actions.setOverviewDateRange('-30d', null)
-        }).toFinishAllListeners()
-        expect(logic.values.hasActiveOverviewFilters).toBe(true)
-    })
+        it('treats the default date range as inactive but any pill or non-default date as active', async () => {
+            await expectLogic(logic).toFinishAllListeners()
+            // A spurious "active" here would surface a Clear button on an untouched Overview.
+            expect(logic.values.hasActiveOverviewFilters).toBe(false)
 
-    it('reloads stats with the active filters as query params', async () => {
-        await expectLogic(logic).toFinishAllListeners()
-        statsRequests = []
+            await expectLogic(logic, () => logic.actions.setOverviewVerdictFilter(['no'])).toFinishAllListeners()
+            expect(logic.values.hasActiveOverviewFilters).toBe(true)
 
-        await expectLogic(logic, () => {
-            logic.actions.setOverviewVerdictFilter(['no'])
-            logic.actions.setOverviewTagFilter(['checkout'])
-        }).toFinishAllListeners()
+            await expectLogic(logic, () => {
+                logic.actions.setOverviewVerdictFilter([])
+                logic.actions.setOverviewDateRange('-30d', null)
+            }).toFinishAllListeners()
+            expect(logic.values.hasActiveOverviewFilters).toBe(true)
+        })
 
-        // Only the overview reloads on these actions, so the newest stats request is its own.
-        const url = new URL(statsRequests[statsRequests.length - 1])
-        expect(url.searchParams.get('verdict')).toBe('no')
-        expect(url.searchParams.get('tags')).toBe('checkout')
-    })
+        it('reloads stats with the active filters as query params', async () => {
+            await expectLogic(logic).toFinishAllListeners()
+            statsRequests = []
 
-    it('reloads impact with a window derived from the date range, clamped to the endpoint max', async () => {
-        await expectLogic(logic).toFinishAllListeners()
-        impactRequests = []
+            await expectLogic(logic, () => {
+                logic.actions.setOverviewVerdictFilter(['no'])
+                logic.actions.setOverviewTagFilter(['checkout'])
+            }).toFinishAllListeners()
 
-        await expectLogic(logic, () => logic.actions.setOverviewDateRange('-7d', null)).toFinishAllListeners()
-        expect(new URL(impactRequests[impactRequests.length - 1]).searchParams.get('window_days')).toBe('7')
+            // Only the overview reloads on these actions, so the newest stats request is its own.
+            const url = new URL(statsRequests[statsRequests.length - 1])
+            expect(url.searchParams.get('verdict')).toBe('no')
+            expect(url.searchParams.get('tags')).toBe('checkout')
+        })
 
-        // A range past the endpoint's 90-day cap must clamp, not send an out-of-range value the API rejects.
-        await expectLogic(logic, () => logic.actions.setOverviewDateRange('-180d', null)).toFinishAllListeners()
-        expect(new URL(impactRequests[impactRequests.length - 1]).searchParams.get('window_days')).toBe('90')
-    })
+        it('reloads impact with a window derived from the date range, clamped to the endpoint max', async () => {
+            await expectLogic(logic).toFinishAllListeners()
+            impactRequests = []
 
-    it('clearOverviewFilters resets the date back to the default, not null', async () => {
-        await expectLogic(logic, () => {
-            logic.actions.setOverviewDateRange('-90d', null)
-            logic.actions.setOverviewVerdictFilter(['no'])
-        }).toFinishAllListeners()
+            await expectLogic(logic, () => logic.actions.setOverviewDateRange('-7d', null)).toFinishAllListeners()
+            expect(new URL(impactRequests[impactRequests.length - 1]).searchParams.get('window_days')).toBe('7')
 
-        // A null date would break the recent_days derivation the stats loader depends on.
-        await expectLogic(logic, () => logic.actions.clearOverviewFilters()).toFinishAllListeners()
-        expect(logic.values.overviewDateFrom).toBe('-14d')
-        expect(logic.values.overviewVerdictFilter).toEqual([])
-        expect(logic.values.hasActiveOverviewFilters).toBe(false)
+            // A range past the endpoint's 90-day cap must clamp, not send an out-of-range value the API rejects.
+            await expectLogic(logic, () => logic.actions.setOverviewDateRange('-180d', null)).toFinishAllListeners()
+            expect(new URL(impactRequests[impactRequests.length - 1]).searchParams.get('window_days')).toBe('90')
+        })
+
+        it('clearOverviewFilters resets the date back to the default, not null', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.setOverviewDateRange('-90d', null)
+                logic.actions.setOverviewVerdictFilter(['no'])
+            }).toFinishAllListeners()
+
+            // A null date would break the recent_days derivation the stats loader depends on.
+            await expectLogic(logic, () => logic.actions.clearOverviewFilters()).toFinishAllListeners()
+            expect(logic.values.overviewDateFrom).toBe('-14d')
+            expect(logic.values.overviewVerdictFilter).toEqual([])
+            expect(logic.values.hasActiveOverviewFilters).toBe(false)
+        })
+
+        describe('drillIntoObservations', () => {
+            it('navigates to the observations tab filtered to the clicked day, with the monitor verdict', async () => {
+                // The mocked scanner is a monitor, so the drill-down should carry verdict=yes.
+                await expectLogic(logic, () => logic.actions.drillIntoObservations('2026-05-04')).toFinishAllListeners()
+                expect(router.values.location.pathname).toContain(urls.replayVision('sid'))
+                expect(router.values.searchParams).toMatchObject({
+                    tab: 'observations',
+                    date_from: '2026-05-04',
+                    date_to: '2026-05-04',
+                    verdict: 'yes',
+                })
+            })
+
+            it('ignores clicks on buckets that cannot map to a day filter', async () => {
+                const before = router.values.location.pathname
+                await expectLogic(logic, () => logic.actions.drillIntoObservations(undefined)).toFinishAllListeners()
+                expect(router.values.location.pathname).toBe(before)
+            })
+        })
     })
 
     describe('observationsDrilldownSearchParams', () => {
@@ -224,10 +250,13 @@ describe('scannerOverviewLogic', () => {
             await jest.advanceTimersByTimeAsync(1_000)
             expect(freshLogic.values.firstScanPending).toBe(true)
 
-            // Pending arms a background reload on the calmer first-scan interval.
+            // Pending arms a background reload on the calmer first-scan interval. Each tick refreshes
+            // stats and the watermark only; reloading impact per tick would triple the request count.
             const before = statsRequests.length
+            const impactBefore = impactRequests.length
             await jest.advanceTimersByTimeAsync(16_000)
             expect(statsRequests.length).toBe(before + 1)
+            expect(impactRequests.length).toBe(impactBefore)
 
             // Once observations settle, the pending state dissolves and polling stops.
             statsBody = SETTLED_STATS
@@ -252,6 +281,23 @@ describe('scannerOverviewLogic', () => {
             expect(freshLogic.values.firstScanPending).toBe(false)
         })
 
+        it('stays dissolved once it settles, even if a later check reports new work in flight', async () => {
+            jest.useFakeTimers()
+            freshLogic.mount()
+            await jest.advanceTimersByTimeAsync(1_000)
+            expect(freshLogic.values.firstScanPending).toBe(true)
+
+            scannerBody = { ...scannerBody, last_swept_at: dayjs().toISOString() }
+            await jest.advanceTimersByTimeAsync(16_000)
+            expect(freshLogic.values.firstScanPending).toBe(false)
+
+            // A follow-up sweep queueing observations must not swap the charts back out for the spinner.
+            statsBody = { ...STATS, status_counts: { ...STATS.status_counts, total: 2, in_flight: 2 } }
+            freshLogic.actions.loadOverviewStats()
+            await jest.advanceTimersByTimeAsync(1_000)
+            expect(freshLogic.values.firstScanPending).toBe(false)
+        })
+
         it('keeps polling through a transient outage while pending, without toasting each retry', async () => {
             jest.useFakeTimers()
             const toastSpy = jest.spyOn(lemonToast, 'error')
@@ -270,25 +316,39 @@ describe('scannerOverviewLogic', () => {
             await jest.advanceTimersByTimeAsync(16_000)
             expect(freshLogic.values.firstScanPending).toBe(false)
         })
-    })
 
-    describe('drillIntoObservations', () => {
-        it('navigates to the observations tab filtered to the clicked day, with the monitor verdict', async () => {
-            // The mocked scanner is a monitor, so the drill-down should carry verdict=yes.
-            await expectLogic(logic, () => logic.actions.drillIntoObservations('2026-05-04')).toFinishAllListeners()
-            expect(router.values.location.pathname).toContain(urls.replayVision('sid'))
-            expect(router.values.searchParams).toMatchObject({
-                tab: 'observations',
-                date_from: '2026-05-04',
-                date_to: '2026-05-04',
-                verdict: 'yes',
-            })
+        it('surfaces repeated failed checks on the panel instead of spinning silently', async () => {
+            jest.useFakeTimers()
+            freshLogic.mount()
+            await jest.advanceTimersByTimeAsync(1_000)
+            expect(freshLogic.values.firstScanCheckFailing).toBe(false)
+
+            failRequests = true
+            await jest.advanceTimersByTimeAsync(48_000)
+            expect(freshLogic.values.firstScanPending).toBe(true)
+            expect(freshLogic.values.firstScanCheckFailing).toBe(true)
+
+            // One good response clears the failure notice.
+            failRequests = false
+            await jest.advanceTimersByTimeAsync(16_000)
+            expect(freshLogic.values.firstScanCheckFailing).toBe(false)
         })
 
-        it('ignores clicks on buckets that cannot map to a day filter', async () => {
-            const before = router.values.location.pathname
-            await expectLogic(logic, () => logic.actions.drillIntoObservations(undefined)).toFinishAllListeners()
-            expect(router.values.location.pathname).toBe(before)
+        it('caps a stuck first scan at an hour even when every check fails, then stops polling', async () => {
+            jest.useFakeTimers()
+            freshLogic.mount()
+            await jest.advanceTimersByTimeAsync(1_000)
+            expect(freshLogic.values.firstScanPending).toBe(true)
+
+            // A dead endpoint (say the scanner was deleted in another tab) must still hit the age cap:
+            // failed checks advance the selector's clock input, so pending can't stick forever.
+            failRequests = true
+            await jest.advanceTimersByTimeAsync(61 * 60_000)
+            expect(freshLogic.values.firstScanPending).toBe(false)
+
+            const after = statsRequests.length
+            await jest.advanceTimersByTimeAsync(60_000)
+            expect(statsRequests.length).toBe(after)
         })
     })
 })

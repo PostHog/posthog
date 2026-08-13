@@ -116,7 +116,7 @@ export function daysFromDateRange(dateFrom: string | null, dateTo: string | null
 
 // Past this age a first sweep that never completed means something is stuck (throttled or stalled),
 // so the UI should fall back to the normal empty states instead of promising results indefinitely.
-const FIRST_RESULTS_MAX_AGE_HOURS = 1
+const FIRST_RESULTS_MAX_AGE_MINUTES = 60
 
 /**
  * True while a just-created scanner has no settled observations yet: its first sweep hasn't completed
@@ -137,7 +137,8 @@ export function isAwaitingFirstResults(
         return false
     }
     const createdAt = dayjs(scanner.created_at)
-    if (now.diff(createdAt, 'hour') >= FIRST_RESULTS_MAX_AGE_HOURS) {
+    // Minutes rather than hours, since dayjs truncates diffs to whole units.
+    if (now.diff(createdAt, 'minute') >= FIRST_RESULTS_MAX_AGE_MINUTES) {
         return false
     }
     return counts.in_flight > 0 || dayjs(scanner.last_swept_at).isBefore(createdAt)

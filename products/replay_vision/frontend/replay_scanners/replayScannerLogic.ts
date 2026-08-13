@@ -440,6 +440,9 @@ export interface replayScannerLogicActions {
     scannerSaved: (scanner: ReplayScanner) => {
         scanner: ReplayScanner
     }
+    scannerWatermarkRefreshed: (scanner: ReplayScanner) => {
+        scanner: ReplayScanner
+    }
     setChartDateRange: (
         dateFrom: string | null,
         dateTo: string | null
@@ -598,6 +601,9 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
         loadScanner: true,
         loadScannerSuccess: (scanner: ReplayScanner) => ({ scanner }),
         loadScannerFailure: true,
+        // Background refetches use this instead of loadScannerSuccess, which also resets the form,
+        // originalScanner, and submitIntent, and can refire the observation loads.
+        scannerWatermarkRefreshed: (scanner: ReplayScanner) => ({ scanner }),
         saveAffectedCohort: (tag?: string) => ({ tag }),
         setScannerType: (scannerType: ScannerType) => ({ scannerType }),
         startFromTemplate: (templateKey: string | null) => ({ templateKey }),
@@ -820,6 +826,11 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                 saveAffectedCohortFailure: () => null,
             },
         ],
+        scanner: {
+            // Only the sweep watermark lands, so a background refresh can't clobber unsaved form edits.
+            scannerWatermarkRefreshed: (state: ReplayScanner, { scanner }: { scanner: ReplayScanner }) =>
+                state ? { ...state, last_swept_at: scanner.last_swept_at } : scanner,
+        },
         originalScanner: [
             null as ReplayScanner | null,
             {

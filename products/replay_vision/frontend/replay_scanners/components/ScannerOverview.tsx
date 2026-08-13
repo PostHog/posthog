@@ -401,18 +401,35 @@ function SummarizerOverview({ scannerId }: { scannerId: string }): JSX.Element |
 
 // The interstitial a just-created scanner shows instead of the filters + charts, whose "no matching
 // events" empty state would wrongly suggest the user's setup is broken while the first sweep runs.
-function FirstScanPendingPanel(): JSX.Element {
+// It also hides the overview's reload buttons, so when the background checks keep failing it has to
+// surface that itself and offer a retry.
+function FirstScanPendingPanel({ scannerId }: { scannerId: string }): JSX.Element {
     const { setActiveTab } = useActions(replayScannerSceneLogic)
+    const { firstScanCheckFailing, overviewStatsApiLoading } = useValues(scannerOverviewLogic({ scannerId }))
+    const { loadOverviewStats } = useActions(scannerOverviewLogic({ scannerId }))
     return (
         <div
             className="border rounded bg-surface-primary p-6 flex flex-col items-center gap-2 text-center"
             data-attr="vision-first-scan-pending"
         >
-            <Spinner className="text-2xl" />
+            {!firstScanCheckFailing && <Spinner className="text-2xl" />}
             <div className="font-semibold">First scan in progress</div>
             <div className="text-muted text-sm max-w-md">
-                This scanner picks up new recordings on a schedule. Results usually appear within 15 minutes.
+                {firstScanCheckFailing
+                    ? "We couldn't check for results. We'll keep retrying, or you can retry now."
+                    : 'This scanner picks up new recordings on a schedule. Results usually appear within 15 minutes.'}
             </div>
+            {firstScanCheckFailing && (
+                <LemonButton
+                    type="secondary"
+                    size="small"
+                    loading={overviewStatsApiLoading}
+                    onClick={() => loadOverviewStats()}
+                    data-attr="vision-first-scan-pending-retry"
+                >
+                    Retry
+                </LemonButton>
+            )}
             <LemonButton
                 type="secondary"
                 size="small"
@@ -432,7 +449,7 @@ export function ScannerOverview({ scannerId }: { scannerId: string }): JSX.Eleme
         return null
     }
     if (firstScanPending) {
-        return <FirstScanPendingPanel />
+        return <FirstScanPendingPanel scannerId={scannerId} />
     }
     const scannerType: ScannerType = scanner.scanner_type
     const typeOverview =
