@@ -541,7 +541,7 @@ function ConditionSection({ scannerId }: { scannerId: string }): JSX.Element {
                     label={
                         <span className="flex items-center gap-1">
                             Send each observation's reasoning as part of the message
-                            <Tooltip title="This makes each message a lot longer, which is useful if an agent parses your alerts. Every alert links back to the observation, where you can read the reasoning too.">
+                            <Tooltip title="Whether this is on or off, each alert will link to view the triggering observations in PostHog.">
                                 <IconInfo className="text-lg text-secondary" />
                             </Tooltip>
                         </span>
