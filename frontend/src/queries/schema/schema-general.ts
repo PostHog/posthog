@@ -8954,6 +8954,9 @@ export const externalDataSources = [
     'Depot',
     'Schematic',
     'Dokploy',
+    'RakutenAdvertising',
+    'Zitadel',
+    'DeelFlows',
 ] as const
 
 export type ExternalDataSourceType = (typeof externalDataSources)[number]

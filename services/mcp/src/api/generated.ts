@@ -21094,6 +21094,9 @@ export namespace Schemas {
      * * `Snovio` - Snovio
      * * `GoogleMerchantCenter` - GoogleMerchantCenter
      * * `Raisely` - Raisely
+     * * `RakutenAdvertising` - RakutenAdvertising
+     * * `Zitadel` - Zitadel
+     * * `DeelFlows` - DeelFlows
      * * `WindsorAi` - WindsorAi
      * * `Wix` - Wix
      * * `Sevalla` - Sevalla
@@ -22391,6 +22394,9 @@ export namespace Schemas {
       Snovio: 'Snovio',
       GoogleMerchantCenter: 'GoogleMerchantCenter',
       Raisely: 'Raisely',
+      RakutenAdvertising: 'RakutenAdvertising',
+      Zitadel: 'Zitadel',
+      DeelFlows: 'DeelFlows',
       WindsorAi: 'WindsorAi',
       Wix: 'Wix',
       Sevalla: 'Sevalla',
@@ -23702,6 +23708,9 @@ export namespace Schemas {
        * * `Snovio` - Snovio
        * * `GoogleMerchantCenter` - GoogleMerchantCenter
        * * `Raisely` - Raisely
+       * * `RakutenAdvertising` - RakutenAdvertising
+       * * `Zitadel` - Zitadel
+       * * `DeelFlows` - DeelFlows
        * * `WindsorAi` - WindsorAi
        * * `Wix` - Wix
        * * `Sevalla` - Sevalla
@@ -25701,6 +25710,9 @@ export namespace Schemas {
        * * `Snovio` - Snovio
        * * `GoogleMerchantCenter` - GoogleMerchantCenter
        * * `Raisely` - Raisely
+       * * `RakutenAdvertising` - RakutenAdvertising
+       * * `Zitadel` - Zitadel
+       * * `DeelFlows` - DeelFlows
        * * `WindsorAi` - WindsorAi
        * * `Wix` - Wix
        * * `Sevalla` - Sevalla
@@ -33426,6 +33438,9 @@ export namespace Schemas {
        * * `Snovio` - Snovio
        * * `GoogleMerchantCenter` - GoogleMerchantCenter
        * * `Raisely` - Raisely
+       * * `RakutenAdvertising` - RakutenAdvertising
+       * * `Zitadel` - Zitadel
+       * * `DeelFlows` - DeelFlows
        * * `WindsorAi` - WindsorAi
        * * `Wix` - Wix
        * * `Sevalla` - Sevalla
@@ -34755,6 +34770,9 @@ export namespace Schemas {
        * * `Snovio` - Snovio
        * * `GoogleMerchantCenter` - GoogleMerchantCenter
        * * `Raisely` - Raisely
+       * * `RakutenAdvertising` - RakutenAdvertising
+       * * `Zitadel` - Zitadel
+       * * `DeelFlows` - DeelFlows
        * * `WindsorAi` - WindsorAi
        * * `Wix` - Wix
        * * `Sevalla` - Sevalla
@@ -66586,6 +66604,16 @@ export namespace Schemas {
       createdAt: string | null;
     }
 
+    export interface ReadyToMergeBucket {
+      /** Bucket start, aligned to ready_to_merge_series_granularity (top of hour, midnight, or Monday). */
+      bucket_start: string;
+      /**
+         * Median per-PR ready_to_merge_seconds (merged_at minus the last observed ready-for-review transition) over PRs merged in this bucket, bots and drafts excluded. Null when nothing merged with an observed value (a gap, never zero).
+         * @nullable
+         */
+      p50_seconds: number | null;
+    }
+
     /**
      * Request body for triggering a metrics recalculation.
      */
@@ -66779,7 +66807,7 @@ export namespace Schemas {
       /** Bucket start, aligned to time_to_green_series_granularity (top of hour, midnight, or Monday). */
       bucket_start: string;
       /**
-         * Median wall-clock seconds of successful PR-attributed CI runs started in this bucket. Null when the bucket had no successful PR run (a gap, not instant CI).
+         * Median wall-clock seconds from a PR push round's first run start until every workflow on that head SHA first completed benign, over rounds started in this bucket (merge-queue gates and partially-attributed fork rounds excluded). Null when the bucket had no fully green round (a gap, not instant CI).
          * @nullable
          */
       p50_seconds: number | null;
@@ -66788,12 +66816,14 @@ export namespace Schemas {
     export interface RepoOverview {
       /** CI cost per merged PR across the window, oldest first, zero-filled, bucketed by cost_series_granularity. Empty when the job-level source isn't synced or include_series=false. */
       cost_series: CostPerMergeBucket[];
-      /** Median time-to-green (p50 successful PR-attributed CI run duration) per bucket across the window, oldest first, bucketed by time_to_green_series_granularity. Empty buckets carry null; the whole series is empty when include_series=false. */
+      /** Median time-to-green (p50 wall clock for a PR push round to settle fully green) per bucket across the window, oldest first, bucketed by time_to_green_series_granularity. Empty buckets carry null; the whole series is empty when include_series=false. */
       time_to_green_series: TimeToGreenBucket[];
       /** CI pass rate (completed runs that succeeded, all branches) per bucket across the window, oldest first, bucketed by success_rate_series_granularity. Empty buckets carry null; the whole series is empty when include_series=false. */
       success_rate_series: PassRateBucket[];
       /** Median time-to-merge (p50 open_to_merge_seconds, bots/drafts excluded) per bucket across the window, oldest first, bucketed by open_to_merge_series_granularity. Empty buckets carry null; the whole series is empty when include_series=false. */
       open_to_merge_series: OpenToMergeBucket[];
+      /** Median cycle time (p50 per-PR ready_to_merge_seconds, bots/drafts excluded) per bucket across the window, oldest first, bucketed by ready_to_merge_series_granularity. Empty buckets carry null; the whole series is empty when the issue-events table isn't synced or include_series=false, so fall back to open_to_merge_series. */
+      ready_to_merge_series: ReadyToMergeBucket[];
       /** Workflow runs started in the window, all branches and workflows. */
       run_count: number;
       /** Same count over the equal-length window immediately before date_from — the delta baseline. */
@@ -66826,6 +66856,16 @@ export namespace Schemas {
          * @nullable
          */
       median_open_to_merge_seconds_prev: number | null;
+      /**
+         * Median per-PR ready_to_merge_seconds (the true cycle time: merged_at minus the last observed ready-for-review transition) over PRs merged in the window, bots and drafts excluded. Null when the issue-events table isn't synced or no merged PR has an observed value; fall back to median_open_to_merge_seconds and label it open-to-merge.
+         * @nullable
+         */
+      median_ready_to_merge_seconds: number | null;
+      /**
+         * The same median over the previous window. Null when not observed.
+         * @nullable
+         */
+      median_ready_to_merge_seconds_prev: number | null;
       /**
          * Billable (self-hosted) job minutes in the window; null when the job-level source isn't synced.
          * @nullable
@@ -66868,6 +66908,8 @@ export namespace Schemas {
       success_rate_series_granularity: string;
       /** Bucket width of the open_to_merge_series trend: 'hour', 'day', or 'week'. */
       open_to_merge_series_granularity: string;
+      /** Bucket width of the ready_to_merge_series trend: 'hour', 'day', or 'week'. */
+      ready_to_merge_series_granularity: string;
     }
 
     export type ReportPriority = typeof ReportPriority[keyof typeof ReportPriority];
@@ -71483,6 +71525,9 @@ export namespace Schemas {
        * * `Snovio` - Snovio
        * * `GoogleMerchantCenter` - GoogleMerchantCenter
        * * `Raisely` - Raisely
+       * * `RakutenAdvertising` - RakutenAdvertising
+       * * `Zitadel` - Zitadel
+       * * `DeelFlows` - DeelFlows
        * * `WindsorAi` - WindsorAi
        * * `Wix` - Wix
        * * `Sevalla` - Sevalla
@@ -72822,6 +72867,9 @@ export namespace Schemas {
        * * `Snovio` - Snovio
        * * `GoogleMerchantCenter` - GoogleMerchantCenter
        * * `Raisely` - Raisely
+       * * `RakutenAdvertising` - RakutenAdvertising
+       * * `Zitadel` - Zitadel
+       * * `DeelFlows` - DeelFlows
        * * `WindsorAi` - WindsorAi
        * * `Wix` - Wix
        * * `Sevalla` - Sevalla
@@ -74151,6 +74199,9 @@ export namespace Schemas {
        * * `Snovio` - Snovio
        * * `GoogleMerchantCenter` - GoogleMerchantCenter
        * * `Raisely` - Raisely
+       * * `RakutenAdvertising` - RakutenAdvertising
+       * * `Zitadel` - Zitadel
+       * * `DeelFlows` - DeelFlows
        * * `WindsorAi` - WindsorAi
        * * `Wix` - Wix
        * * `Sevalla` - Sevalla
