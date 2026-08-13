@@ -1,6 +1,7 @@
 import time
 from datetime import UTC, datetime
 
+from django.core.cache import cache
 from django.db.models import Q
 from django.http import HttpResponse, JsonResponse
 from django.views.decorators.csrf import csrf_exempt
@@ -19,7 +20,6 @@ from posthog.exceptions import (
 from posthog.helpers.encrypted_fields import EncryptedFieldMixin
 from posthog.models.integration import Integration
 from posthog.models.team.team import Team
-from posthog.redis import get_client
 from posthog.utils import decompress, load_data_from_request
 from posthog.utils_cors import cors_response
 
@@ -86,18 +86,19 @@ def _find_integrations(team_id: int, app_id: str) -> list[Integration]:
 
 
 def _unconfigured_rejection_throttled(team_id: int) -> bool:
-    """Fixed-window counter per team, keyed on the window bucket so a missed expiry can never wedge the
-    throttle shut. Fails open: a Redis outage must not turn registrations into 429s."""
+    """Fixed-window counter per team, keyed on the window so a missed expiry can never wedge the throttle
+    shut. Fails open: a cache outage must not turn registrations into 429s."""
+    window = int(time.time()) // _UNCONFIGURED_THROTTLE_WINDOW_SECONDS
+    key = f"push_subscriptions_unconfigured:{team_id}:{window}"
     try:
-        client = get_client()
-        bucket = int(time.time() // _UNCONFIGURED_THROTTLE_WINDOW_SECONDS)
-        key = f"push_subscriptions:unconfigured:{team_id}:{bucket}"
-        count = client.incr(key)
-        if count == 1:
-            client.expire(key, _UNCONFIGURED_THROTTLE_WINDOW_SECONDS * 2)
-        return count > _UNCONFIGURED_THROTTLE_LIMIT
+        cache.add(key, 0, timeout=_UNCONFIGURED_THROTTLE_WINDOW_SECONDS)
+        count = cache.incr(key)
+    except ValueError:
+        # The key expired between add and incr; this request is the window's first.
+        count = 1
     except Exception:
         return False
+    return count > _UNCONFIGURED_THROTTLE_LIMIT
 
 
 def _strictest_verification_mode(integrations: list[Integration]) -> str:
@@ -247,7 +248,7 @@ def push_subscriptions(request: Request):
                 f"No push integration found for app_id '{app_id}'. "
                 "Please configure the integration in your PostHog project settings.",
                 type="throttled_error",
-                code="integration_not_found_throttled",
+                code="throttled",
                 status_code=status.HTTP_429_TOO_MANY_REQUESTS,
             )
             throttled["Retry-After"] = str(_UNCONFIGURED_THROTTLE_WINDOW_SECONDS)

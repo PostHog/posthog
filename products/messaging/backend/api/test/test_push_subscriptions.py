@@ -4,6 +4,7 @@ import json
 from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, patch
 
+from django.core.cache import cache
 from django.test import Client
 
 from cryptography.hazmat.primitives import serialization
@@ -14,7 +15,6 @@ from rest_framework import status
 from posthog.models.integration import Integration
 from posthog.models.team.team import Team
 from posthog.models.team.team_caching import set_team_in_cache
-from posthog.redis import get_client
 
 from products.messaging.backend.api import push_subscriptions
 from products.messaging.backend.api.push_identity_tokens import sign_push_identity_token, sign_push_identity_token_es256
@@ -67,12 +67,10 @@ class TestPushSubscriptionsAPI(BaseTest):
         self._clear_unconfigured_throttle()
 
     def _clear_unconfigured_throttle(self):
-        # The throttle counter lives in Redis, which fakeredis shares across every test in the process
-        # and no transaction rolls back. Tests here reuse one team id, so without this a test that trips
-        # the throttle would leak 429s into whichever test runs next in the same window.
-        client = get_client()
-        for key in client.scan_iter(f"push_subscriptions:unconfigured:{self.team.id}:*"):
-            client.delete(key)
+        # The throttle counter lives in the cache, which no transaction rolls back and which every test
+        # in the process shares. Tests here reuse one team id, so without this a test that trips the
+        # throttle would leak 429s into whichever test runs next in the same window.
+        cache.clear()
 
     def _post(self, data: dict, api_key: str | None = None):
         payload = {**data, "api_key": api_key or self.team.api_token}
@@ -334,9 +332,11 @@ class TestPushSubscriptionsAPI(BaseTest):
             )
             assert response.status_code == status.HTTP_200_OK
 
-    @patch("products.messaging.backend.api.push_subscriptions.get_client", side_effect=Exception("redis down"))
-    def test_throttle_fails_open_when_redis_is_unavailable(self, _mock_client: MagicMock):
-        # Failing closed here would turn a Redis outage into a 500 on a public endpoint.
+    @patch("products.messaging.backend.api.push_subscriptions.cache")
+    def test_throttle_fails_open_when_the_cache_is_unavailable(self, mock_cache: MagicMock):
+        # Failing closed here would turn a cache outage into a 500 on a public endpoint.
+        mock_cache.incr.side_effect = Exception("cache down")
+
         response = self._post({**self.UNCONFIGURED_PAYLOAD})
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
