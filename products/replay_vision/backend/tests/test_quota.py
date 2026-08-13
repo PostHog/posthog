@@ -1,3 +1,4 @@
+import uuid
 from datetime import UTC, datetime, timedelta
 
 from posthog.test.base import APIBaseTest
@@ -25,11 +26,14 @@ from products.replay_vision.backend.quota import (
     MONTHLY_CREDIT_QUOTA,
     BillingPeriod,
     ScannerBudget,
+    _parse_org_credit_limit_overrides,
     compute_quota_snapshot,
     compute_scanner_budget,
     compute_scanner_budgets,
 )
 from products.replay_vision.backend.tests.helpers import snapshot_for as _snapshot_for
+
+_ORG_ID = "01234567-89ab-cdef-0123-456789abcdef"
 
 
 class _VisionQuotaTestCase(APIBaseTest):
@@ -605,6 +609,58 @@ class TestBillingSyncedQuota(_VisionQuotaTestCase):
         self.organization.save()
         snapshot = compute_quota_snapshot(organization_id=self.organization.id)
         assert snapshot.credit_limit == expected_quota
+
+    @parameterized.expand(
+        [
+            # An unlimited plan (billing syncs no limit) gets the override as its cap.
+            ("caps_an_uncapped_org", {"replay_vision_credits": {"limit": None, "usage": 0}}, 500, 500),
+            ("tighter_override_wins", {"replay_vision_credits": {"limit": 42, "usage": 0}}, 10, 10),
+            # The override can only reduce credits; a looser value never overrides billing.
+            ("looser_override_ignored", {"replay_vision_credits": {"limit": 42, "usage": 0}}, 9000, 42),
+        ]
+    )
+    def test_org_credit_limit_override(self, _name: str, usage: dict, override: int, expected_quota: int) -> None:
+        self.organization.usage = usage
+        self.organization.save()
+        with patch.dict(
+            "products.replay_vision.backend.quota.ORG_CREDIT_LIMIT_OVERRIDES",
+            {str(self.organization.id): override},
+        ):
+            snapshot = compute_quota_snapshot(organization_id=self.organization.id)
+        assert snapshot.credit_limit == expected_quota
+
+    def test_override_for_another_org_changes_nothing(self) -> None:
+        self.organization.usage = {"replay_vision_credits": {"limit": None, "usage": 0}}
+        self.organization.save()
+        with patch.dict(
+            "products.replay_vision.backend.quota.ORG_CREDIT_LIMIT_OVERRIDES",
+            {str(uuid.uuid4()): 500},
+        ):
+            snapshot = compute_quota_snapshot(organization_id=self.organization.id)
+        assert snapshot.credit_limit is None
+
+    @parameterized.expand(
+        [
+            ("canonical_id", '{"01234567-89ab-cdef-0123-456789abcdef": 500000}', {_ORG_ID: 500000}),
+            # Written another way, the same org must still be capped rather than silently uncapped.
+            ("uppercase_id", '{"01234567-89AB-CDEF-0123-456789ABCDEF": 500000}', {_ORG_ID: 500000}),
+            ("unhyphenated_id", '{"0123456789abcdef0123456789abcdef": 500000}', {_ORG_ID: 500000}),
+            # A negative cap would read as already over, so a typo blocks the org rather than freeing it.
+            ("negative_value_clamped", '{"01234567-89ab-cdef-0123-456789abcdef": -5}', {_ORG_ID: 0}),
+            ("not_an_object", "[1, 2]", {}),
+            ("non_int_value", '{"01234567-89ab-cdef-0123-456789abcdef": "lots"}', {}),
+            ("non_uuid_key", '{"not-an-org": 500000}', {}),
+            # int(True) is 1, which would cap the org at a single credit rather than not at all.
+            ("boolean_value", '{"01234567-89ab-cdef-0123-456789abcdef": true}', {}),
+            ("invalid_json", "{nope", {}),
+        ]
+    )
+    def test_parse_org_credit_limit_overrides(self, _name: str, raw: str, expected: dict) -> None:
+        assert _parse_org_credit_limit_overrides(raw) == expected
+
+    def test_one_bad_entry_does_not_void_the_others(self) -> None:
+        raw = '{"not-an-org": 1, "01234567-89ab-cdef-0123-456789abcdef": 500000}'
+        assert _parse_org_credit_limit_overrides(raw) == {_ORG_ID: 500000}
 
     def test_uncapped_org_is_never_exhausted(self) -> None:
         self.organization.usage = {"replay_vision_credits": {"limit": None, "usage": 0}}
