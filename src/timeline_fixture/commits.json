@@ -2,6 +2,7 @@
   {
     "commit_id": "fixture-001",
     "files": ["docs/timeline-fixture/README.md"],
-    "kind": "add"
+    "kind": "add",
+    "file_count": 1
   }
 ]

@@ -1,5 +1,6 @@
 {
   "add": {"tone": "positive", "label": "Added"},
   "edit": {"tone": "neutral", "label": "Updated"},
-  "remove": {"tone": "critical", "label": "Removed"}
+  "remove": {"tone": "critical", "label": "Removed"},
+  "rename": {"tone": "informative", "label": "Renamed"}
 }
