@@ -31,6 +31,7 @@ import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { ProductKey } from '~/queries/schema/schema-general'
 
+import { visionDocsUrl, VisionDocsLink } from '../components/DocsLink'
 import { FilterPill } from '../components/FilterPill'
 import { IngestionLimitBanner } from '../components/IngestionLimitBanner'
 import { ReplayVisionFeedbackButton } from '../components/ReplayVisionFeedbackButton'
@@ -285,9 +286,9 @@ export function ReplayScannersScene(): JSX.Element {
                 <LemonBanner type="warning" dismissKey="replay-vision-launch-beta-scanners">
                     Replay vision is out of beta and scans now use billed credits. Your scanners were turned off for the
                     launch, so re-enable the ones you want to keep running. See{' '}
-                    <Link to="https://posthog.com/docs/replay-vision/quota-and-limits" target="_blank">
+                    <VisionDocsLink page="quota-and-limits" dataAttr="vision-docs-link-launch-banner">
                         how credits are priced
-                    </Link>{' '}
+                    </VisionDocsLink>{' '}
                     in the docs, or check the Usage tab for current spend.
                 </LemonBanner>
             )}
@@ -300,6 +301,7 @@ export function ReplayScannersScene(): JSX.Element {
                 secondaryDescription="Start from a template or build a fully custom scanner."
                 customHog={HedgehogXRay}
                 action={() => push(urls.replayVisionTemplates())}
+                docsURL={visionDocsUrl()}
             />
 
             <LemonTabs
@@ -396,6 +398,12 @@ export function ReplayScannersScene(): JSX.Element {
                                             dataAttr="vision-scanner-create-empty"
                                             size="medium"
                                         />
+                                        <VisionDocsLink
+                                            page="creating-scanners"
+                                            dataAttr="vision-empty-docs-link-scanners"
+                                        >
+                                            Learn how scanners work
+                                        </VisionDocsLink>
                                     </div>
                                 ) : (
                                     <span className="text-muted">No scanners match your filters.</span>

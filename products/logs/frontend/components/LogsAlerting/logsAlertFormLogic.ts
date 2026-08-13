@@ -13,6 +13,8 @@ import { urls } from 'scenes/urls'
 import { LogMessage } from '~/queries/schema/schema-general'
 import { FilterLogicalOperator, UniversalFiltersGroup } from '~/types'
 
+import { findQuietHoursIssues } from 'products/alerts/frontend/logic/scheduleRestrictionValidation'
+import type { ScheduleRestriction } from 'products/alerts/frontend/types'
 import {
     logsAlertsCreate,
     logsAlertsPartialUpdate,
@@ -48,6 +50,7 @@ export interface LogsAlertFormType {
     evaluationPeriods: number
     datapointsToAlarm: number
     cooldownMinutes: number
+    scheduleRestriction: ScheduleRestriction | null
 }
 
 export interface LogsAlertFormLogicProps {
@@ -87,6 +90,7 @@ export function buildFormDefaults(alert: LogsAlertConfigurationApi | null): Logs
         evaluationPeriods: alert?.evaluation_periods ?? 1,
         datapointsToAlarm: alert?.datapoints_to_alarm ?? 1,
         cooldownMinutes: alert?.cooldown_minutes ?? 0,
+        scheduleRestriction: alert?.schedule_restriction ?? null,
     }
 }
 
@@ -324,6 +328,13 @@ export const logsAlertFormLogic = kea<logsAlertFormLogicType>([
                     form.name = 'Untitled alert'
                 }
 
+                if (form.scheduleRestriction?.blocked_windows) {
+                    const quietHoursIssue = findQuietHoursIssues(form.scheduleRestriction.blocked_windows)
+                    if (quietHoursIssue) {
+                        throw new Error(quietHoursIssue.message)
+                    }
+                }
+
                 if (!hasAnyFilter(form.severityLevels, form.serviceNames, form.filterGroup)) {
                     lemonToast.error('At least one filter is required')
                     throw new Error('At least one filter is required')
@@ -338,6 +349,7 @@ export const logsAlertFormLogic = kea<logsAlertFormLogicType>([
                     evaluation_periods: form.evaluationPeriods,
                     datapoints_to_alarm: form.datapointsToAlarm,
                     cooldown_minutes: form.cooldownMinutes,
+                    schedule_restriction: form.scheduleRestriction,
                 }
 
                 let savedAlertId: string

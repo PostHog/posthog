@@ -155,6 +155,11 @@ class DucklingBackfillConfig:
 
 3. To trigger immediate historical backfill, reset the full backfill sensor cursor
 
+Each Dagster backfill session mints a new short-lived Duckgres service credential.
+Concurrent sessions use the same `dagster:events-backfill` audit principal but receive
+different credential IDs and secrets. A reconnect refreshes only the credential ID held
+by that session.
+
 ## Troubleshooting
 
 ### Partition stuck in "Running"

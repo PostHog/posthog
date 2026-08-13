@@ -16,6 +16,7 @@ import { urls } from 'scenes/urls'
 
 import { DateMappingOption } from '~/types'
 
+import { VisionDocsLink } from '../../components/DocsLink'
 import type { BackfillStatusEnumApi, ReplayScannerBackfillApi } from '../../generated/api.schemas'
 import { formatCreditCount, formatCredits } from '../../utils/credits'
 import { backfillsLogic, isBackfillActive } from '../backfillsLogic'
@@ -289,7 +290,14 @@ export function ScannerBackfillsTab({ scannerId }: { scannerId: string }): JSX.E
                 columns={columns}
                 loading={backfillsLoading}
                 rowKey="id"
-                emptyState="No backfills yet. Pick a time range above to scan historical recordings."
+                emptyState={
+                    <>
+                        No backfills yet. Pick a time range above to scan historical recordings.{' '}
+                        <VisionDocsLink page="running-scanners" dataAttr="vision-empty-docs-link-backfills">
+                            Learn how backfills work
+                        </VisionDocsLink>
+                    </>
+                }
                 data-attr="vision-backfills-table"
             />
         </div>

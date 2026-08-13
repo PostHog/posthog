@@ -1,3 +1,4 @@
+import json
 from typing import Any, NoReturn, cast
 from uuid import UUID
 
@@ -100,8 +101,9 @@ from products.replay_vision.backend.temporal.metrics import record_scanner_limit
 # Date is set by the schedule at trigger time, not by the user — strip on save.
 _QUERY_FIELDS_TO_STRIP = ("date_from", "date_to")
 
-# Size caps enforced at the write boundary; scanner_config is copied into every observation's snapshot.
+# Size caps enforced at the write boundary; scanner_config and query are copied into every observation's snapshot.
 _MAX_DESCRIPTION_LENGTH = 1_000
+_MAX_QUERY_BYTES = 50_000
 
 logger = structlog.get_logger(__name__)
 
@@ -554,6 +556,10 @@ class ReplayScannerSerializer(UserAccessControlSerializerMixin, serializers.Mode
             raise serializers.ValidationError({"query": "Recording filter is invalid."})
         # Persist exactly what the user sent (validated), minus the date keys the schedule controls.
         attrs["query"] = {k: v for k, v in attrs["query"].items() if k not in _QUERY_FIELDS_TO_STRIP}
+        if len(json.dumps(attrs["query"], separators=(",", ":")).encode()) > _MAX_QUERY_BYTES:
+            raise serializers.ValidationError(
+                {"query": f"Recording filter is too large. Keep it under {_MAX_QUERY_BYTES // 1000} KB."}
+            )
 
     def to_representation(self, instance: ReplayScanner) -> dict[str, Any]:
         data = super().to_representation(instance)

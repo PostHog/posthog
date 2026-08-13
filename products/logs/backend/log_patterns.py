@@ -19,7 +19,19 @@ _MASKING_INSTRUCTIONS = [
     # a letter, so "12T08" and "397557Z" in ISO-8601 bodies would survive \b\d+\b intact.
     MaskingInstruction(r"\b\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}:\d{2}(?:[.,]\d+)?(?:Z|[+-]\d{2}:?\d{2})?", "timestamp"),
     MaskingInstruction(r"\b[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}\b", "uuid"),
-    MaskingInstruction(r"\b\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}\b", "ip"),
+    # A dotted quad after "<letter>/" is a version, not an address ("Chrome/139.0.0.0"), and
+    # a \b-bounded match claims it as an <ip>. The guard keys on the letter so an address in
+    # a URL, which follows "//" or ":", still masks. The "." guards keep the mask off the
+    # tail and head of a longer dotted run such as "1.2.3.4.5", and only a "." that carries
+    # on the run blocks the match, so a sentence-final address still masks.
+    MaskingInstruction(r"(?<![A-Za-z]/)(?<![\w.])\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}(?!\w)(?!\.\d)", "ip"),
+    # Dotted version numbers ("Chrome/139.0.0.0", "HTTP/1.1") otherwise split into one <num>
+    # per part, which buries the literal content of a user-agent or protocol template. The
+    # "/" is required: it separates a version from a plain decimal such as "duration=1.5".
+    # The part count is unbounded so a longer release such as "build/1.2.3.4.5" collapses
+    # whole, instead of leaving a "<version>.<num>" tail on a template of its own.
+    # Runs after ip so an address in a URL is already masked and cannot look like a version.
+    MaskingInstruction(r"(?<=/)\d+(?:\.\d+)+", "version"),
     MaskingInstruction(r"\b0x[0-9a-fA-F]+\b", "hex"),
     MaskingInstruction(r"\b[0-9a-fA-F]{16,}\b", "hex"),
     MaskingInstruction(r"\b\d+\b", "num"),
@@ -37,6 +49,7 @@ _PLACEHOLDER_PATTERNS = {
     "<timestamp>": r"\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}:\d{2}(?:[.,]\d+)?(?:Z|[+-]\d{2}:?\d{2})?",
     "<uuid>": r"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}",
     "<ip>": r"\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}",
+    "<version>": r"\d+(?:\.\d+)+",
     "<hex>": r"(?:0x[0-9a-fA-F]+|[0-9a-fA-F]{16,})",
 }
 _PLACEHOLDER_RE = re.compile("|".join(re.escape(p) for p in _PLACEHOLDER_PATTERNS))
