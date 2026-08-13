@@ -1,3 +1,4 @@
+import time
 from datetime import UTC, datetime
 
 from django.db.models import Q
@@ -18,6 +19,7 @@ from posthog.exceptions import (
 from posthog.helpers.encrypted_fields import EncryptedFieldMixin
 from posthog.models.integration import Integration
 from posthog.models.team.team import Team
+from posthog.redis import get_client
 from posthog.utils import decompress, load_data_from_request
 from posthog.utils_cors import cors_response
 
@@ -32,6 +34,24 @@ PUSH_IDENTITY_VERIFICATION_COUNTER = Counter(
     "Outcome of push subscription identity token verification.",
     labelnames=["mode", "operation", "outcome"],
 )
+
+PUSH_SUBSCRIPTION_UNCONFIGURED_COUNTER = Counter(
+    "push_subscription_unconfigured",
+    "Registrations for an app_id with no matching push integration, by whether the rejection was throttled.",
+    labelnames=["outcome"],
+)
+
+# A device re-sends its pending registration on every process start until one succeeds, because both
+# mobile SDKs treat 4xx as terminal without persisting that decision across launches. So a project that
+# ships the SDK without a push integration produces one rejection per app launch per device
+# indefinitely, a floor that grows with installs rather than with traffic.
+#
+# Throttling the rejection keeps the first few per window visible, so a genuine app_id typo still
+# surfaces, and serves 429 beyond that, which the SDKs treat as retryable and back off on. The 400 stays
+# the default because it is what makes a device eventually register once the project is configured;
+# answering 2xx instead would mark the registration delivered and strand every installed device.
+_UNCONFIGURED_THROTTLE_LIMIT = 10
+_UNCONFIGURED_THROTTLE_WINDOW_SECONDS = 60
 
 VALID_PLATFORMS = ("android", "ios")
 
@@ -63,6 +83,21 @@ def _find_integrations(team_id: int, app_id: str) -> list[Integration]:
         .filter(Q(kind="firebase", config__project_id=app_id) | Q(kind="apns", config__bundle_id=app_id))
         .only("id", "config")
     )
+
+
+def _unconfigured_rejection_throttled(team_id: int) -> bool:
+    """Fixed-window counter per team, keyed on the window bucket so a missed expiry can never wedge the
+    throttle shut. Fails open: a Redis outage must not turn registrations into 429s."""
+    try:
+        client = get_client()
+        bucket = int(time.time() // _UNCONFIGURED_THROTTLE_WINDOW_SECONDS)
+        key = f"push_subscriptions:unconfigured:{team_id}:{bucket}"
+        count = client.incr(key)
+        if count == 1:
+            client.expire(key, _UNCONFIGURED_THROTTLE_WINDOW_SECONDS * 2)
+        return count > _UNCONFIGURED_THROTTLE_LIMIT
+    except Exception:
+        return False
 
 
 def _strictest_verification_mode(integrations: list[Integration]) -> str:
@@ -205,6 +240,19 @@ def push_subscriptions(request: Request):
 
     integrations = _find_integrations(team.id, app_id)
     if not integrations:
+        if _unconfigured_rejection_throttled(team.id):
+            PUSH_SUBSCRIPTION_UNCONFIGURED_COUNTER.labels(outcome="throttled").inc()
+            throttled = generate_exception_response(
+                "push_subscriptions",
+                f"No push integration found for app_id '{app_id}'. "
+                "Please configure the integration in your PostHog project settings.",
+                type="throttled_error",
+                code="integration_not_found_throttled",
+                status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            )
+            throttled["Retry-After"] = str(_UNCONFIGURED_THROTTLE_WINDOW_SECONDS)
+            return cors_response(request, throttled)
+        PUSH_SUBSCRIPTION_UNCONFIGURED_COUNTER.labels(outcome="rejected").inc()
         return cors_response(
             request,
             generate_exception_response(

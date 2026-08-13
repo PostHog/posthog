@@ -8,12 +8,15 @@ from django.test import Client
 
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import ec
+from parameterized import parameterized
 from rest_framework import status
 
 from posthog.models.integration import Integration
 from posthog.models.team.team import Team
 from posthog.models.team.team_caching import set_team_in_cache
+from posthog.redis import get_client
 
+from products.messaging.backend.api import push_subscriptions
 from products.messaging.backend.api.push_identity_tokens import sign_push_identity_token, sign_push_identity_token_es256
 
 
@@ -36,6 +39,13 @@ class TestPushSubscriptionsAPI(BaseTest):
     # Realistic length (>= 32 bytes) so signing/verification exercises a real phs_ secret.
     SECRET = "phs_project_secret_0123456789abcdef0123"
 
+    UNCONFIGURED_PAYLOAD = {
+        "distinct_id": "user-1",
+        "device_token": "device-token",
+        "platform": "android",
+        "app_id": "nonexistent-project",
+    }
+
     def setUp(self):
         super().setUp()
         self.client = Client()
@@ -54,6 +64,15 @@ class TestPushSubscriptionsAPI(BaseTest):
             config={"bundle_id": "com.example.app", "team_id": "TEAM123", "key_id": "KEY123"},
             sensitive_config={},
         )
+        self._clear_unconfigured_throttle()
+
+    def _clear_unconfigured_throttle(self):
+        # The throttle counter lives in Redis, which fakeredis shares across every test in the process
+        # and no transaction rolls back. Tests here reuse one team id, so without this a test that trips
+        # the throttle would leak 429s into whichever test runs next in the same window.
+        client = get_client()
+        for key in client.scan_iter(f"push_subscriptions:unconfigured:{self.team.id}:*"):
+            client.delete(key)
 
     def _post(self, data: dict, api_key: str | None = None):
         payload = {**data, "api_key": api_key or self.team.api_token}
@@ -276,6 +295,52 @@ class TestPushSubscriptionsAPI(BaseTest):
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert "integration" in response.json()["detail"].lower()
+
+    @parameterized.expand(
+        [
+            (push_subscriptions._UNCONFIGURED_THROTTLE_LIMIT, status.HTTP_400_BAD_REQUEST),
+            (push_subscriptions._UNCONFIGURED_THROTTLE_LIMIT + 1, status.HTTP_429_TOO_MANY_REQUESTS),
+        ]
+    )
+    def test_repeated_unconfigured_registrations_are_throttled(self, attempts: int, expected_status: int):
+        for _ in range(attempts - 1):
+            self._post({**self.UNCONFIGURED_PAYLOAD})
+
+        response = self._post({**self.UNCONFIGURED_PAYLOAD})
+
+        assert response.status_code == expected_status
+
+    def test_throttled_rejection_advertises_retry_after(self):
+        for _ in range(push_subscriptions._UNCONFIGURED_THROTTLE_LIMIT + 1):
+            response = self._post({**self.UNCONFIGURED_PAYLOAD})
+
+        assert response.status_code == status.HTTP_429_TOO_MANY_REQUESTS
+        assert response["Retry-After"] == str(push_subscriptions._UNCONFIGURED_THROTTLE_WINDOW_SECONDS)
+
+    @patch("products.messaging.backend.api.push_subscriptions.capture_internal")
+    def test_configured_app_is_never_throttled(self, mock_capture: MagicMock):
+        # The throttle guards the rejection path only. If it were hoisted above the integration lookup
+        # it would start 429ing real device registrations once a busy project crossed the limit.
+        mock_capture.return_value = MagicMock(status_code=200)
+
+        for _ in range(push_subscriptions._UNCONFIGURED_THROTTLE_LIMIT + 5):
+            response = self._post(
+                {
+                    "distinct_id": "user-1",
+                    "device_token": "fcm-device-token-abc",
+                    "platform": "android",
+                    "app_id": "my-firebase-project",
+                }
+            )
+            assert response.status_code == status.HTTP_200_OK
+
+    @patch("products.messaging.backend.api.push_subscriptions.get_client", side_effect=Exception("redis down"))
+    def test_throttle_fails_open_when_redis_is_unavailable(self, _mock_client: MagicMock):
+        # Failing closed here would turn a Redis outage into a 500 on a public endpoint.
+        response = self._post({**self.UNCONFIGURED_PAYLOAD})
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json()["code"] == "integration_not_found"
 
     def test_team_isolation(self):
         other_team = Team.objects.create(organization=self.organization, name="Other Team")
