@@ -26,6 +26,7 @@ from django.db.models import (
     Q,
     QuerySet,
     Subquery,
+    UUIDField,
     Value,
 )
 from django.db.models.functions import Cast
@@ -58,6 +59,7 @@ from posthog.api.tagged_item import TaggedItemSerializerMixin, TaggedItemViewSet
 from posthog.api.utils import action
 from posthog.clickhouse.client.async_task_chain import task_chain_context
 from posthog.constants import GENERATED_DASHBOARD_PREFIX
+from posthog.dataclasses import frozen
 from posthog.event_usage import EventSource, get_event_source, report_user_action
 from posthog.exceptions_capture import capture_exception
 from posthog.helpers import create_dashboard_from_template
@@ -167,6 +169,43 @@ DASHBOARD_TILE_ERROR_TYPE = "DashboardTileError"
 DASHBOARD_TILE_ERROR_MESSAGE = "There is a problem loading this dashboard tile."
 DASHBOARD_STREAM_ERROR_MESSAGE = "Dashboard tiles couldn't be loaded. Refresh the dashboard to try again."
 
+
+def dashboard_file_system_entries(team_id: Any, ref: Any) -> QuerySet[FileSystem]:
+    """
+    The project-tree entries a dashboard is filed under, oldest first. Taking `OuterRef`s as well as concrete
+    values lets the list annotation and the direct read share one definition, which they have to: a dashboard
+    can hold several non-shortcut entries, and if the two picked different ones a move would target one and
+    report the other. The arguments are `Any` because Django's lookup stubs do not admit an `OuterRef`.
+    """
+    return (
+        FileSystem.objects.filter(surface_q(DEFAULT_SURFACE), team_id=team_id, type="dashboard", ref=ref)
+        .exclude(shortcut=True)
+        .order_by("id")
+    )
+
+
+@frozen
+class FiledEntry:
+    id: str
+    path: str
+
+
+def filed_entry(dashboard: Dashboard) -> FiledEntry | None:
+    """
+    Where a dashboard sits in the project tree, or None when it was never filed. Prefers the annotation
+    `dangerously_get_queryset` adds, and queries only for a dashboard that never went through it, which the
+    endpoints serializing an instance directly (`create_from_template_json`, `create_unlisted_dashboard`, the
+    tile move and copy responses) all hand over. Those return a single dashboard, so the query cannot fan out
+    over a list.
+    """
+    if hasattr(dashboard, "_folder_path"):
+        path = dashboard._folder_path
+        entry_id = dashboard._folder_id  # type: ignore[attr-defined]
+        return FiledEntry(id=str(entry_id), path=path) if path and entry_id else None
+    row = dashboard_file_system_entries(dashboard.team_id, str(dashboard.id)).values("id", "path").first()
+    return FiledEntry(id=str(row["id"]), path=row["path"]) if row else None
+
+
 DASHBOARD_SHARED_FIELDS = [
     "id",
     "name",
@@ -177,6 +216,8 @@ DASHBOARD_SHARED_FIELDS = [
     "last_accessed_at",
     "last_viewed_at",
     "folder",
+    "file_system_id",
+    "file_system_path",
     "is_shared",
     "deleted",
     "creation_mode",
@@ -1023,6 +1064,20 @@ class DashboardBasicSerializer(
             "dashboard has no file system entry. The dashboard's own name is not part of the path."
         ),
     )
+    file_system_id = serializers.SerializerMethodField(
+        help_text=(
+            "Id of this dashboard's file system entry, or null when it has none. Together with "
+            "`file_system_path` this is everything a caller needs to move the dashboard between "
+            "folders, so a list page does not have to look the entry up separately."
+        ),
+    )
+    file_system_path = serializers.SerializerMethodField(
+        help_text=(
+            "Full path of this dashboard's file system entry, e.g. 'Unfiled/Dashboards/Revenue'. "
+            "Unlike `folder` this keeps the dashboard's own name as the last segment, which is what "
+            "a move needs in order to compute the destination path. Null when it has no entry."
+        ),
+    )
 
     class Meta:
         model = Dashboard
@@ -1036,6 +1091,8 @@ class DashboardBasicSerializer(
             "last_accessed_at",
             "last_viewed_at",
             "folder",
+            "file_system_id",
+            "file_system_path",
             "is_shared",
             "deleted",
             "creation_mode",
@@ -1075,16 +1132,30 @@ class DashboardBasicSerializer(
 
     @extend_schema_field(serializers.CharField(allow_null=True))
     def get_folder(self, dashboard: Dashboard) -> str | None:
-        # Don't expose the project-tree location to anonymous viewers of a publicly shared dashboard —
-        # the folder name can encode internal organisational structure.
+        # Don't expose the project-tree location to anonymous viewers of a publicly shared dashboard,
+        # because the folder name can encode internal organisational structure.
         if self.context.get("is_shared"):
             return None
         # `_folder_path` is annotated on DashboardsViewSet.dangerously_get_queryset (all actions).
         # The file system path's last segment is the dashboard's own name; the folder is everything above it.
-        path = getattr(dashboard, "_folder_path", None)
-        if not path:
+        entry = filed_entry(dashboard)
+        return join_path(split_path(entry.path)[:-1]) if entry else None
+
+    @extend_schema_field(serializers.UUIDField(allow_null=True))
+    def get_file_system_id(self, dashboard: Dashboard) -> str | None:
+        if self.context.get("is_shared"):
             return None
-        return join_path(split_path(path)[:-1])
+        entry = filed_entry(dashboard)
+        return entry.id if entry else None
+
+    @extend_schema_field(serializers.CharField(allow_null=True))
+    def get_file_system_path(self, dashboard: Dashboard) -> str | None:
+        # The path carries every folder above the dashboard, so it withholds for the same reason `folder`
+        # does: an anonymous viewer of a public dashboard must not learn the internal folder structure.
+        if self.context.get("is_shared"):
+            return None
+        entry = filed_entry(dashboard)
+        return entry.path if entry else None
 
 
 class DashboardMetadataSerializer(DashboardBasicSerializer):
@@ -1719,6 +1790,10 @@ class DashboardSerializer(DashboardMetadataSerializer):
                 )
 
         self.user_permissions.reset_insights_dashboard_cached_results()
+        # A rename re-paths the entry in a post-save signal, so the annotation bound before the save now
+        # points at the old path. Dropping it sends `filed_entry` back to the file system for the new one.
+        instance.__dict__.pop("_folder_id", None)
+        instance.__dict__.pop("_folder_path", None)
         return instance
 
     # Display-only tile fields that may appear in PATCH payloads. Safe to pass to
@@ -2361,19 +2436,17 @@ class DashboardsViewSet(
         # and avoids the row multiplication a join could cause when shortcuts/multiple surfaces exist.
         # The default surface matches both NULL and "web" rows, so order by id to keep the picked path
         # stable when more than one non-shortcut entry exists for the same dashboard.
+        entry_for_dashboard = dashboard_file_system_entries(OuterRef("team_id"), OuterRef("_ref_id"))
         queryset = queryset.annotate(_ref_id=Cast(F("id"), output_field=CharField())).annotate(
             _folder_path=Subquery(
-                FileSystem.objects.filter(
-                    surface_q(DEFAULT_SURFACE),
-                    team_id=OuterRef("team_id"),
-                    type="dashboard",
-                    ref=OuterRef("_ref_id"),
-                )
-                .exclude(shortcut=True)
-                .order_by("id")
-                .values("path")[:1],
+                entry_for_dashboard.values("path")[:1],
                 output_field=CharField(),
-            )
+            ),
+            # Same row as `_folder_path`, so a caller can move the dashboard without fetching the entry.
+            _folder_id=Subquery(
+                entry_for_dashboard.values("id")[:1],
+                output_field=UUIDField(),
+            ),
         )
 
         include_deleted = False
