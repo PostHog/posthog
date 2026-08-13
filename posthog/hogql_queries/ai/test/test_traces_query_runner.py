@@ -1079,16 +1079,15 @@ class TestTracesQueryRunner(ClickhouseTestMixin, BaseTest):
         self.assertEqual(len(response.results[0].events), 1)
         self.assertEqual(response.results[0].events[0].properties["$ai_model_parameters"], {"temperature": 0.5})
 
-    @parameterized.expand(
-        [
-            ("no_value", None),
-            ("empty_string", ""),
-            ("empty_list", []),
-            ("blank_in_list", [""]),
-        ]
-    )
-    def test_property_filter_without_a_usable_value_is_ignored(self, _name, value):
+    def test_property_filter_matches_an_explicit_empty_string(self):
         _create_person(distinct_ids=["person1"], team=self.team)
+        _create_ai_generation_event(
+            distinct_id="person1",
+            trace_id="trace_with_empty_name",
+            team=self.team,
+            timestamp=datetime(2024, 12, 1, 0, 0),
+            properties={"$ai_span_name": ""},
+        )
         _create_ai_generation_event(
             distinct_id="person1",
             trace_id="trace_with_name",
@@ -1096,24 +1095,18 @@ class TestTracesQueryRunner(ClickhouseTestMixin, BaseTest):
             timestamp=datetime(2024, 12, 1, 0, 0),
             properties={"$ai_span_name": "chat"},
         )
-        _create_ai_generation_event(
-            distinct_id="person1",
-            trace_id="trace_without_name",
-            team=self.team,
-            timestamp=datetime(2024, 12, 1, 0, 0),
-        )
 
         response = TracesQueryRunner(
             team=self.team,
             query=TracesQuery(
                 properties=[
-                    EventPropertyFilter(key="$ai_span_name", value=value, operator=PropertyOperator.EXACT),
+                    EventPropertyFilter(key="$ai_span_name", value=[""], operator=PropertyOperator.EXACT),
                 ],
                 dateRange=DateRange(date_from="2024-12-01T00:00:00Z", date_to="2024-12-01T00:10:00Z"),
             ),
         ).calculate()
 
-        self.assertEqual({result.id for result in response.results}, {"trace_with_name", "trace_without_name"})
+        self.assertEqual({result.id for result in response.results}, {"trace_with_empty_name"})
 
     @snapshot_clickhouse_queries
     def test_properties_filter_with_multiple_events_in_group(self):

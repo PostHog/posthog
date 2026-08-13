@@ -105,9 +105,7 @@ class TestFilledPropertyFilters(BaseTest):
     @parameterized.expand(
         [
             ("no_value", EventPropertyFilter(key="$ai_span_name", operator=PropertyOperator.EXACT)),
-            ("empty_string", EventPropertyFilter(key="$ai_span_name", operator=PropertyOperator.EXACT, value="")),
             ("empty_list", EventPropertyFilter(key="$ai_span_name", operator=PropertyOperator.EXACT, value=[])),
-            ("blank_in_list", EventPropertyFilter(key="$ai_span_name", operator=PropertyOperator.EXACT, value=[""])),
             ("no_key", EventPropertyFilter(key="", operator=PropertyOperator.EXACT, value="chat")),
             ("hogql_without_expression", HogQLPropertyFilter(key="")),
         ]
@@ -119,6 +117,11 @@ class TestFilledPropertyFilters(BaseTest):
         [
             ("string_value", EventPropertyFilter(key="$ai_span_name", operator=PropertyOperator.EXACT, value="chat")),
             ("list_value", EventPropertyFilter(key="$ai_span_name", operator=PropertyOperator.EXACT, value=["chat"])),
+            ("empty_string", EventPropertyFilter(key="$ai_span_name", operator=PropertyOperator.EXACT, value="")),
+            (
+                "empty_string_in_list",
+                EventPropertyFilter(key="$ai_span_name", operator=PropertyOperator.EXACT, value=[""]),
+            ),
             ("is_set", EventPropertyFilter(key="$ai_span_name", operator=PropertyOperator.IS_SET)),
             ("is_not_set", EventPropertyFilter(key="$ai_span_name", operator=PropertyOperator.IS_NOT_SET)),
             ("false_value", EventPropertyFilter(key="$ai_is_error", operator=PropertyOperator.EXACT, value=False)),

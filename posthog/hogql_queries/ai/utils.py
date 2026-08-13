@@ -86,29 +86,13 @@ def _is_filled_property_filter(prop: Any) -> bool:
 
     value = getattr(prop, "value", None)
     if isinstance(value, list | tuple):
-        # A list of blanks (`[""]` from a cleared value editor) is as unusable as an empty one.
-        return any(item not in (None, "") for item in value)
-    if isinstance(value, str):
-        return value != ""
-    # `False` and `0` are real values for boolean and numeric properties, so only a missing value disqualifies here.
+        return len(value) > 0
+    # `False`, `0`, and empty strings are real property values, so only a missing value is incomplete here.
     return value is not None
 
 
 def filled_property_filters(properties: Sequence[Any] | None) -> list[Any]:
-    """Return only the property filters that can narrow anything, dropping the half-built ones.
-
-    The taxonomic filter emits a filter as soon as a key is picked, before any value is entered, and the AI
-    observability scenes forward whatever is in state straight into the query. Handing such a filter to
-    `property_to_expr` gives two different silent failures, neither of which narrows the way the active-looking
-    filter in the UI suggests. A missing or empty-list value compiles away to a no-op that is true for every
-    event, so the list comes back completely unfiltered. An empty-string value compiles to
-    `equals(properties.foo, '')`, which never matches, because an unset property reads as NULL rather than the
-    empty string, so the list comes back empty. Dropping the filter here makes the intent explicit and keeps
-    both cases on the same behavior.
-
-    Matches `isValidPropertyFilter` in frontend/src/lib/components/PropertyFilters/utils.ts, so the UI and the
-    query runners agree on which filters count as filled.
-    """
+    """Drop incomplete filters without conflating valid falsy values with missing input."""
     return [prop for prop in (properties or []) if _is_filled_property_filter(prop)]
 
 
