@@ -48,6 +48,7 @@ export enum NotebookNodeType {
     DuckSQL = 'ph-duck-sql',
     HogQLSQL = 'ph-hogql-sql',
     SQLV2 = 'ph-sql-v2',
+    GenUI = 'ph-gen-ui',
     Recording = 'ph-recording',
     RecordingPlaylist = 'ph-recording-playlist',
     FeatureFlag = 'ph-feature-flag',
@@ -122,6 +123,7 @@ export type CreatePostHogWidgetNodeOptions<T extends CustomNotebookNodeAttribute
     ToolbarComponent?: (props: NotebookNodeProps<T>) => JSX.Element | null
     attributes: Record<keyof T, NotebookNodeAttributeConfig>
     serializedText?: (attributes: NotebookNodeAttributes<T>) => string
+    hideIdFromSettings?: boolean
     defaultView?: PostHogWidgetDefaultView
     views?: PostHogWidgetViews<T>
 }

@@ -142,3 +142,21 @@ class TestCanvasSourceAdapter(SimpleTestCase):
         entry = next(d for d in validate_source_project(candidate) if d["code"] == "import_not_allowed")
         self.assertEqual(entry["path"], CANVAS_COMPONENT_PATH)
         self.assertEqual(entry["line"], 3)
+
+    def test_read_frame_requires_a_declared_notebook_frame(self):
+        code = CODE + 'ph.readFrame("pandas_df");'
+        undeclared = project(files={CANVAS_COMPONENT_PATH: code})
+        declared = project(
+            files={CANVAS_COMPONENT_PATH: code},
+            capabilities={
+                "posthog": {"insights": [], "inlineQueries": False, "captureEvents": []},
+                "network": {"origins": []},
+                "notebook": {"frames": ["pandas_df"]},
+            },
+        )
+
+        self.assertIn(
+            "capability_missing_notebook_frame",
+            [entry["code"] for entry in validate_source_project(undeclared)],
+        )
+        self.assertFalse(has_errors(validate_source_project(declared)))

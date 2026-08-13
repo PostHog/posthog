@@ -30,6 +30,10 @@ export const CANVAS_PLATFORM_MANIFEST = {
       version: "1.11.13",
       url: "https://esm.sh/dayjs@1.11.13",
     },
+    three: {
+      version: "0.185.1",
+      url: "https://esm.sh/three@0.185.1",
+    },
   },
   runtimeImports: {
     "react/jsx-runtime": "https://esm.sh/react@19.0.0/jsx-runtime",
@@ -43,6 +47,7 @@ export const CANVAS_PLATFORM_MANIFEST = {
     "recharts",
     "lucide-react",
     "dayjs",
+    "three",
   ],
   csp: "default-src 'none'; base-uri 'none'; object-src 'none'; form-action 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; connect-src 'none'; img-src 'self' data: blob:; font-src 'self' data:; media-src 'self' data: blob:; worker-src 'self' blob:",
   limits: {

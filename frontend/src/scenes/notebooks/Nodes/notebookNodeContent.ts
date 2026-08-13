@@ -460,6 +460,7 @@ export type NotebookFrameNodeSummary = {
     /** [column name, type] pairs from the last run, empty when the cell has never produced a frame. */
     columns: [string, string][]
     rowCount: number | null
+    previewRows?: unknown[][]
     /**
      * The cell has a stored result. A cell that has never run can't be referenced at all — the
      * backend resolves refs to the latest DONE run — but a cell that ran and produced no frame
@@ -471,12 +472,24 @@ export type NotebookFrameNodeSummary = {
 }
 
 const frameNodeColumns = (result: any): [string, string][] => {
-    if (!result || !Array.isArray(result.types)) {
+    if (!result) {
         return []
     }
-    return result.types
-        .filter((pair: unknown): pair is [string, string] => Array.isArray(pair) && pair.length >= 2)
-        .map(([name, type]: [string, string]) => [String(name), String(type)] as [string, string])
+    if (Array.isArray(result.types)) {
+        return result.types
+            .filter((pair: unknown): pair is [string, string] => Array.isArray(pair) && pair.length >= 2)
+            .map(([name, type]: [string, string]) => [String(name), String(type)] as [string, string])
+    }
+    return Array.isArray(result.columns)
+        ? result.columns.map((name: unknown) => [String(name), 'unknown'] as [string, string])
+        : []
+}
+
+const frameNodePreviewRows = (result: any): unknown[][] => {
+    if (!result || !Array.isArray(result.first_page)) {
+        return []
+    }
+    return result.first_page.filter((row: unknown): row is unknown[] => Array.isArray(row))
 }
 
 /**
@@ -526,6 +539,7 @@ export const collectNotebookFrameNodes = (content?: JSONContent | null): Noteboo
                     nodeType: isSql ? 'sql' : 'python',
                     columns: frameNodeColumns(result),
                     rowCount: typeof result?.row_count === 'number' ? result.row_count : null,
+                    previewRows: frameNodePreviewRows(result),
                     hasRun: Boolean(result),
                     code: typeof attrs.code === 'string' ? attrs.code : '',
                 })

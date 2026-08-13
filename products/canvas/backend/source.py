@@ -80,6 +80,7 @@ _NETWORK_PATTERNS: list[tuple[re.Pattern[str], str, str]] = [
 _PH_LOAD_INSIGHT_RE = re.compile(r"\bph\s*\.\s*loadInsight\s*\(\s*(?:[\"']([^\"']+)[\"'])?")
 _PH_QUERY_RE = re.compile(r"\bph\s*\.\s*query\s*\(")
 _PH_CAPTURE_RE = re.compile(r"\bph\s*\.\s*capture\s*\(\s*(?:[\"']([^\"']+)[\"'])?")
+_PH_READ_FRAME_RE = re.compile(r"\bph\s*\.\s*readFrame\s*\(\s*(?:[\"']([^\"']+)[\"'])?")
 
 _PATH_SEGMENT_RE = re.compile(r"^[A-Za-z0-9._@-]+$")
 
@@ -208,6 +209,7 @@ def _validate_capabilities(path: str, code: str, capabilities: dict[str, Any]) -
     declared_insights = set(posthog_capabilities.get("insights") or [])
     declared_events = set(posthog_capabilities.get("captureEvents") or [])
     inline_queries = bool(posthog_capabilities.get("inlineQueries"))
+    declared_frames = set((capabilities.get("notebook") or {}).get("frames") or [])
 
     for match in _PH_LOAD_INSIGHT_RE.finditer(code):
         short_id = match.group(1)
@@ -270,6 +272,32 @@ def _validate_capabilities(path: str, code: str, capabilities: dict[str, Any]) -
                     "capability_missing_capture_event",
                     "ph.capture() is called with a dynamic event but capabilities.posthog.captureEvents is empty — "
                     "declare every event name the canvas captures",
+                    path=path,
+                    line=line,
+                )
+            )
+
+    for match in _PH_READ_FRAME_RE.finditer(code):
+        frame_name = match.group(1)
+        line = _line_of(code, match.start())
+        if frame_name is not None and frame_name not in declared_frames:
+            diagnostics.append(
+                diagnostic(
+                    "error",
+                    "capability_missing_notebook_frame",
+                    f'ph.readFrame("{frame_name}") requires "{frame_name}" in capabilities.notebook.frames — '
+                    "the host rejects undeclared notebook frames at runtime",
+                    path=path,
+                    line=line,
+                )
+            )
+        elif frame_name is None and not declared_frames:
+            diagnostics.append(
+                diagnostic(
+                    "warning",
+                    "capability_missing_notebook_frame",
+                    "ph.readFrame() is called with a dynamic name but capabilities.notebook.frames is empty — "
+                    "declare every notebook frame the canvas reads",
                     path=path,
                     line=line,
                 )

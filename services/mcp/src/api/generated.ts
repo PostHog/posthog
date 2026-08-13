@@ -14431,9 +14431,18 @@ export namespace Schemas {
       origins: string[];
     }
 
+    export interface CanvasNotebookCapabilities {
+      /**
+         * @maxItems 100
+         * @items.maxLength 128
+         */
+      frames: string[];
+    }
+
     export interface CanvasCapabilities {
       posthog: CanvasPostHogCapabilities;
       network: CanvasNetworkCapabilities;
+      notebook?: CanvasNotebookCapabilities;
     }
 
     /**
@@ -14451,6 +14460,8 @@ export namespace Schemas {
       inline_queries_enabled: boolean;
       /** Network origins the draft newly declares it may reach. */
       network_origins_added: string[];
+      /** Notebook frame names the draft newly declares it may read. */
+      notebook_frames_added: string[];
     }
 
     /**
@@ -14604,7 +14615,7 @@ export namespace Schemas {
     export type CanvasSourceProjectAssets = {[key: string]: CanvasSourceAsset};
 
     /**
-     * Exact-version dependencies, restricted to the platform-supported set (react, react-dom, @posthog/quill, recharts, lucide-react, dayjs) at their pinned versions.
+     * Exact-version dependencies, restricted to the platform-supported set (react, react-dom, @posthog/quill, recharts, lucide-react, dayjs, three) at their pinned versions.
      */
     export type CanvasSourceProjectDependencies = {[key: string]: string};
 
@@ -14620,11 +14631,11 @@ export namespace Schemas {
       assets?: CanvasSourceProjectAssets;
       /** The project's entry HTML file. Currently always "index.html". */
       entryHtml: string;
-      /** Exact-version dependencies, restricted to the platform-supported set (react, react-dom, @posthog/quill, recharts, lucide-react, dayjs) at their pinned versions. */
+      /** Exact-version dependencies, restricted to the platform-supported set (react, react-dom, @posthog/quill, recharts, lucide-react, dayjs, three) at their pinned versions. */
       dependencies?: CanvasSourceProjectDependencies;
       /** Version of the host-injected `ph` canvas SDK the project targets. */
       canvasSdkVersion?: string;
-      /** Bounded capabilities frozen into the built artifact. Declare every insight short id the canvas loads, every event it captures, and inlineQueries when it runs ad-hoc HogQL — the host enforces these at runtime and validation rejects undeclared `ph` calls. */
+      /** Bounded capabilities frozen into the built artifact. Declare every insight short id the canvas loads, every event it captures, every notebook frame it reads, and inlineQueries when it runs ad-hoc HogQL — the host enforces these at runtime and validation rejects undeclared `ph` calls. */
       capabilities?: CanvasCapabilities;
     }
 

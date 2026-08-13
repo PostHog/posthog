@@ -10,7 +10,8 @@
         },
         "recharts": { "version": "2.15.0", "url": "https://esm.sh/recharts@2.15.0?external=react,react-dom" },
         "lucide-react": { "version": "1.21.0", "url": "https://esm.sh/lucide-react@1.21.0?external=react" },
-        "dayjs": { "version": "1.11.13", "url": "https://esm.sh/dayjs@1.11.13" }
+        "dayjs": { "version": "1.11.13", "url": "https://esm.sh/dayjs@1.11.13" },
+        "three": { "version": "0.185.1", "url": "https://esm.sh/three@0.185.1" }
     },
     "runtimeImports": {
         "react/jsx-runtime": "https://esm.sh/react@19.0.0/jsx-runtime",
@@ -23,7 +24,8 @@
         "@posthog/quill",
         "recharts",
         "lucide-react",
-        "dayjs"
+        "dayjs",
+        "three"
     ],
     "csp": "sandbox allow-scripts; default-src 'none'; base-uri 'none'; object-src 'none'; form-action 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; connect-src 'none'; img-src 'self' data: blob:; font-src 'self' data:; media-src 'self' data: blob:; worker-src 'self' blob:",
     "limits": {

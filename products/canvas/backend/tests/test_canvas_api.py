@@ -872,10 +872,12 @@ class TestCanvasActivityLog(CanvasAPIBaseTest):
         default_capabilities = {
             "posthog": {"insights": [], "inlineQueries": False, "captureEvents": []},
             "network": {"origins": []},
+            "notebook": {"frames": []},
         }
         widened_capabilities = {
             "posthog": {"insights": ["abc123"], "inlineQueries": True, "captureEvents": []},
             "network": {"origins": []},
+            "notebook": {"frames": []},
         }
         widened = self._project("export default function C() { return 2 }")
         widened["capabilities"] = widened_capabilities

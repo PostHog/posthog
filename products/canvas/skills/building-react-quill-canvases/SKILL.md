@@ -21,9 +21,9 @@ typed-node result reading. Keep that wiring; replace the sample metric and layou
 ## Imports
 
 Import only from: `react`, `react-dom`, `react-dom/client`, `@posthog/quill`, `recharts`,
-`lucide-react`, `dayjs`. Anything else — including dynamic `import()`, `require()`, `fetch()`,
+`lucide-react`, `dayjs`, `three`. Anything else — including dynamic `import()`, `require()`, `fetch()`,
 `<script>` tags, or remote code — fails validation. Use `@posthog/quill` for UI, `recharts` for
-charts, `lucide-react` for icons, `dayjs` for dates.
+charts, `three` for custom WebGL visualizations, `lucide-react` for icons, and `dayjs` for dates.
 
 ## Quill component rules
 
@@ -34,7 +34,8 @@ control or a styled `<div>` standing in for one:
   text field → `Input`/`Textarea`; checkbox → `Checkbox`; label → `Label`.
 - Table → `Table` (`TableHeader` > `TableRow` > `TableHead`, then `TableBody` > `TableRow` > `TableCell`);
   panel → `Card` (`CardHeader` + `CardTitle` + `CardContent`); pill → `Badge`; titles → `Heading`; body → `Text`.
-- The only non-Quill tags allowed are plain layout `<div>`s and `recharts` elements.
+- The only non-Quill tags allowed are plain layout `<div>`s, `recharts` elements, and a `<canvas>`
+  owned by Three.js or another direct browser drawing API.
 - Quill is built on Base UI: compose compound parts (`Select` + `SelectTrigger`/`SelectContent`/`SelectItem`),
   use controlled `value` + `onValueChange`, and swap a part's element with the `render` prop
   (e.g. `<PopoverTrigger render={<Button …/>} />`) instead of wrapping it.

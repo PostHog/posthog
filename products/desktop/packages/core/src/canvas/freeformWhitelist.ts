@@ -59,6 +59,8 @@ export const FREEFORM_WHITELIST: WhitelistEntry[] = [
   },
   // One formatting/date util.
   { name: "dayjs", version: "1.11.13", esm: `${ESM}/dayjs@1.11.13` },
+  // Direct Three.js access for custom 3D visualizations.
+  { name: "three", version: "0.185.1", esm: `${ESM}/three@0.185.1` },
 ];
 
 // The CDN host the edit-mode import map (and Babel) load from. The iframe CSP

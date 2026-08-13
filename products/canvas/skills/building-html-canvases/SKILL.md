@@ -30,10 +30,9 @@ experience in HTML/CSS/browser APIs inside it:
   can hand a chart's `<canvas>` to imperative code while React owns the chrome.
 
 The import allowlist still applies (react, react-dom, @posthog/quill, recharts, lucide-react,
-dayjs) — browser globals (`document`, `CanvasRenderingContext2D`, `WebGLRenderingContext`,
-`requestAnimationFrame`, `IntersectionObserver`, Web Audio, etc.) need no import. Three.js and
-other npm graphics libraries are not yet loadable; write against raw WebGL or 2D canvas until the
-build pipeline's dependency admission ships.
+dayjs, three) — browser globals (`document`, `CanvasRenderingContext2D`, `WebGLRenderingContext`,
+`requestAnimationFrame`, `IntersectionObserver`, Web Audio, etc.) need no import. Use Three.js for
+3D scenes and raw WebGL or 2D canvas when the smaller API is enough.
 
 ## Styling and theme without Quill
 

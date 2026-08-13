@@ -79,6 +79,12 @@ describe('markdownNotebookRegistry', () => {
             expect(flagOff.components.SQLV2.insertCommand).toBeUndefined()
             expect(flagOff.components.PythonV2.insertCommand).toBeUndefined()
         })
+
+        it('offers custom visualizations in the insert menu', () => {
+            expect(
+                getInsertCommandsByLabel({ [FEATURE_FLAGS.REVAMPED_PY_NOTEBOOKS]: true }, 'Custom visualization')
+            ).toEqual([{ key: 'component-GenUI', category: 'Code' }])
+        })
     })
 
     describe('insert menu SQL commands', () => {
@@ -262,6 +268,26 @@ describe('markdownNotebookRegistry', () => {
 
         expect(fields[0].textContent).toContain('Session recording ID')
         expect(fields[1].textContent).toContain('View')
+    })
+
+    it('hides the backing canvas ID from custom visualization settings', () => {
+        const { container } = render(
+            <RealNotebookNodeIdentityAndViewEdit
+                node={{
+                    id: 'genui-node',
+                    type: 'component',
+                    tagName: 'GenUI',
+                    props: { id: 'canvas-id' },
+                }}
+                mode="edit"
+                updateProps={jest.fn()}
+                deleteNode={jest.fn()}
+                notebookNodeType={NotebookNodeType.GenUI}
+                options={KNOWN_NODES[NotebookNodeType.GenUI]}
+            />
+        )
+
+        expect(container.childElementCount).toBe(0)
     })
 
     it('selects a referenced object from the same picker used by notebook insertion', () => {

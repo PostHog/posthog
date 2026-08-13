@@ -11,6 +11,7 @@ import '../Nodes/NotebookNodeFlag'
 import '../Nodes/NotebookNodeFlagCodeExample'
 import '../Nodes/NotebookNodeGroup'
 import '../Nodes/NotebookNodeGroupProperties'
+import '../Nodes/NotebookNodeGenUI/NotebookNodeGenUI'
 import '../Nodes/NotebookNodeHogQL'
 import '../Nodes/NotebookNodeImage'
 import '../Nodes/NotebookNodeIssues'
@@ -169,6 +170,7 @@ export const MARKDOWN_TAG_TO_NOTEBOOK_NODE_TYPE: Partial<Record<string, Notebook
     DuckSQL: NotebookNodeType.DuckSQL,
     HogQLSQL: NotebookNodeType.HogQLSQL,
     SQLV2: NotebookNodeType.SQLV2,
+    GenUI: NotebookNodeType.GenUI,
     Recording: NotebookNodeType.Recording,
     RecordingPlaylist: NotebookNodeType.RecordingPlaylist,
     FeatureFlag: NotebookNodeType.FeatureFlag,
@@ -274,6 +276,15 @@ export const MARKDOWN_NODE_DEFINITIONS: {
             // fingerprints, so without a persisted id every prop change (running the cell
             // writes runId/result) would orphan the cell's run history and cross-cell refs.
             defaultProps: () => ({ ...getDefaultPropsForNodeType(NotebookNodeType.SQLV2), nodeId: uuid() }),
+        },
+    },
+    {
+        tagName: 'GenUI',
+        category: 'Code',
+        label: 'Custom visualization',
+        insertCommand: {
+            aliases: ['genui', 'visualization', '3d'],
+            defaultProps: () => ({ ...getDefaultPropsForNodeType(NotebookNodeType.GenUI), nodeId: uuid() }),
         },
     },
     { tagName: 'RecordingPlaylist', category: 'Data', label: 'Session recordings' },
@@ -560,7 +571,7 @@ export function RealNotebookNodeIdentityAndViewEdit({
     notebookNodeType: NotebookNodeType
     options: CreatePostHogWidgetNodeOptions<any>
 }): JSX.Element | null {
-    const hasId = 'id' in options.attributes
+    const hasId = 'id' in options.attributes && !options.hideIdFromSettings
     if (!hasId && !options.views) {
         return null
     }

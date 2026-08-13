@@ -7,14 +7,17 @@ from products.canvas.backend.capabilities import capability_widening
 BASE = {
     "posthog": {"insights": ["abc"], "captureEvents": ["clicked"], "inlineQueries": False},
     "network": {"origins": []},
+    "notebook": {"frames": ["base_df"]},
 }
 WIDER = {
     "posthog": {"insights": ["abc", "def"], "captureEvents": ["clicked"], "inlineQueries": True},
     "network": {"origins": ["https://api.example.com"]},
+    "notebook": {"frames": ["base_df", "pandas_df"]},
 }
 NARROWER = {
     "posthog": {"insights": [], "captureEvents": [], "inlineQueries": False},
     "network": {"origins": []},
+    "notebook": {"frames": []},
 }
 
 
@@ -37,6 +40,7 @@ class TestCapabilityWidening(TestCase):
         assert widening.capture_events_added == []
         assert widening.inline_queries_enabled is True
         assert widening.network_origins_added == ["https://api.example.com"]
+        assert widening.notebook_frames_added == ["pandas_df"]
 
     def test_inline_queries_already_enabled_is_not_a_widening(self):
         enabled = {"posthog": {"inlineQueries": True}}

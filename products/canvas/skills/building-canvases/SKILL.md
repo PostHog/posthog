@@ -51,7 +51,8 @@ user-visible requirement you cannot infer.
    skill (saved insights loaded via the `ph` SDK — never fetch or your own PostHog client), and
    **declare every `ph` call in `project.capabilities`** (insight short ids in
    `capabilities.posthog.insights`, captured events in `captureEvents`, `inlineQueries: true` for
-   ad-hoc queries) — the host enforces these at runtime and validation rejects undeclared calls.
+   ad-hoc queries, and notebook dataframe names in `capabilities.notebook.frames` for
+   `ph.readFrame(name)`) — the host enforces these at runtime and validation rejects undeclared calls.
 3. Validate with `canvas-validate-create` as often as needed and fix every error-severity
    diagnostic.
 4. Save the project — which tool depends on whether the canvas is already live:

@@ -33,6 +33,7 @@ export const fromNodeTypeToLabel: Omit<
     [NotebookNodeType.DuckSQL]: 'SQL (DuckDB)',
     [NotebookNodeType.HogQLSQL]: 'SQL (HogQL)',
     [NotebookNodeType.SQLV2]: 'SQL (v2)',
+    [NotebookNodeType.GenUI]: 'Custom visualizations',
     [NotebookNodeType.Recording]: 'Session recordings',
     [NotebookNodeType.RecordingPlaylist]: 'Session replay playlists',
     [NotebookNodeType.ReplayTimestamp]: 'Session recording comments',

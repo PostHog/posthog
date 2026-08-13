@@ -22,6 +22,11 @@ export const canvasCapabilitiesSchema = z.object({
   network: z.object({
     origins: z.array(z.string().url().max(2_048)).max(20),
   }),
+  notebook: z
+    .object({
+      frames: z.array(z.string().min(1).max(128)).max(100),
+    })
+    .optional(),
 });
 export type CanvasCapabilities = z.infer<typeof canvasCapabilitiesSchema>;
 

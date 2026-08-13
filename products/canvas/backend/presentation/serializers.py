@@ -120,9 +120,14 @@ class CanvasNetworkCapabilitiesSerializer(serializers.Serializer):
     origins = serializers.ListField(child=serializers.URLField(max_length=2048), max_length=20)
 
 
+class CanvasNotebookCapabilitiesSerializer(serializers.Serializer):
+    frames = serializers.ListField(child=serializers.CharField(max_length=128), max_length=100)
+
+
 class CanvasCapabilitiesSerializer(serializers.Serializer):
     posthog = CanvasPostHogCapabilitiesSerializer()
     network = CanvasNetworkCapabilitiesSerializer()
+    notebook = CanvasNotebookCapabilitiesSerializer(required=False, default=lambda: {"frames": []})
 
 
 class CanvasSourceProjectSerializer(serializers.Serializer):
@@ -150,7 +155,7 @@ class CanvasSourceProjectSerializer(serializers.Serializer):
         default=dict,
         help_text=(
             "Exact-version dependencies, restricted to the platform-supported set (react, react-dom, "
-            "@posthog/quill, recharts, lucide-react, dayjs) at their pinned versions."
+            "@posthog/quill, recharts, lucide-react, dayjs, three) at their pinned versions."
         ),
     )
     canvasSdkVersion = serializers.CharField(
@@ -163,11 +168,13 @@ class CanvasSourceProjectSerializer(serializers.Serializer):
         default=lambda: {
             "posthog": {"insights": [], "inlineQueries": False, "captureEvents": []},
             "network": {"origins": []},
+            "notebook": {"frames": []},
         },
         help_text=(
             "Bounded capabilities frozen into the built artifact. Declare every insight short id the "
-            "canvas loads, every event it captures, and inlineQueries when it runs ad-hoc HogQL — the "
-            "host enforces these at runtime and validation rejects undeclared `ph` calls."
+            "canvas loads, every event it captures, every notebook frame it reads, and inlineQueries "
+            "when it runs ad-hoc HogQL — the host enforces these at runtime and validation rejects "
+            "undeclared `ph` calls."
         ),
     )
 
@@ -535,6 +542,10 @@ class CanvasCapabilityWideningSerializer(serializers.Serializer):
     network_origins_added = serializers.ListField(
         child=serializers.CharField(),
         help_text="Network origins the draft newly declares it may reach.",
+    )
+    notebook_frames_added = serializers.ListField(
+        child=serializers.CharField(),
+        help_text="Notebook frame names the draft newly declares it may read.",
     )
 
 
