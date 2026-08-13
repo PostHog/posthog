@@ -1,6 +1,8 @@
+import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
 import api from 'lib/api'
+import { urls } from 'scenes/urls'
 
 import type { SourceConfig } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
@@ -1187,6 +1189,44 @@ describe('sourceWizardLogic', () => {
                 expect(createWebhook).toHaveBeenCalledTimes(2)
                 expect(createWebhook).toHaveBeenLastCalledWith('source-1')
                 expect(onComplete).toHaveBeenCalled()
+            } finally {
+                unmount()
+            }
+        })
+    })
+
+    describe('OAuth callback integration binding', () => {
+        const googleSearchConsoleSource = {
+            name: 'GoogleSearchConsole',
+            iconPath: '',
+            caption: null,
+            fields: [
+                {
+                    name: 'google_search_console_integration_id',
+                    label: 'Search Console account',
+                    type: 'oauth',
+                    required: true,
+                    kind: 'google-search-console',
+                },
+            ],
+        } as SourceConfig
+
+        it('binds the integration id from the callback URL to the connector oauth field', () => {
+            // The OAuth callback redirects back with `integration_id=<new id>`. Without reading it,
+            // the wizard leaves the field empty and IntegrationChoice binds to whatever integration
+            // is first on the team — the reconnect loop this fixes.
+            const logic = sourceWizardLogic({
+                availableSources: { GoogleSearchConsole: googleSearchConsoleSource },
+            })
+            const unmount = logic.mount()
+
+            try {
+                router.actions.push(urls.dataWarehouseSourceNew(), {
+                    kind: 'googlesearchconsole',
+                    integration_id: '42',
+                })
+
+                expect(logic.values.sourceConnectionDetails.google_search_console_integration_id).toEqual(42)
             } finally {
                 unmount()
             }

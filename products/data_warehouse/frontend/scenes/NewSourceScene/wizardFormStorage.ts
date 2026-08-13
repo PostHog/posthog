@@ -14,14 +14,22 @@ export function saveSourceFormState(sourceKind: string, formValues: Record<strin
 
 export function restoreSourceFormState(sourceKind: string): Record<string, unknown> | null {
     try {
-        const key = storageKey(sourceKind)
-        const saved = sessionStorage.getItem(key)
+        const saved = sessionStorage.getItem(storageKey(sourceKind))
         if (saved) {
-            sessionStorage.removeItem(key)
             return JSON.parse(saved) as Record<string, unknown>
         }
     } catch {
         // sessionStorage may be unavailable or data may be corrupted
     }
     return null
+}
+
+// Keep the snapshot until the wizard finishes: reading it must not delete it, or a re-mount in
+// the same visit restores an empty form. Clear it when the wizard is closed or cleared instead.
+export function clearSourceFormState(sourceKind: string): void {
+    try {
+        sessionStorage.removeItem(storageKey(sourceKind))
+    } catch {
+        // sessionStorage may be unavailable
+    }
 }

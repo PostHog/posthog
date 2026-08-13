@@ -56,7 +56,7 @@ import type { WebhookCreateResult } from '../../shared/components/forms/WebhookS
 import { sourceManagementLogic } from '../../shared/logics/sourceManagementLogic'
 import { FILE_UPLOAD_SOURCE_CONFIG, FILE_UPLOAD_SOURCE_NAME } from './fileUploadSource'
 import { selfManagedSourceLogic } from './selfManagedSourceLogic'
-import { restoreSourceFormState, saveSourceFormState } from './wizardFormStorage'
+import { clearSourceFormState, restoreSourceFormState, saveSourceFormState } from './wizardFormStorage'
 
 export const SSH_FIELD: SourceFieldSwitchGroupConfig = {
     name: 'ssh_tunnel',
@@ -3066,6 +3066,12 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
             }
         },
         onClear: () => {
+            // Drop the saved OAuth snapshot now that the wizard is done with it — read it
+            // before selectConnector(null) clears the connector name the key is derived from.
+            const sourceKind = values.selectedConnector?.name?.toLowerCase()
+            if (sourceKind) {
+                clearSourceFormState(sourceKind)
+            }
             actions.selectConnector(null)
             actions.resetSourceConnectionDetails()
             actions.clearSource()
@@ -3717,6 +3723,16 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                 actions.selectConnector(source, accessMethod)
                 actions.handleRedirect(source.name)
                 actions.setStep(2)
+
+                // The OAuth callback appends the freshly created integration's id. Bind the
+                // connector's oauth field to it so the new integration wins over both the
+                // pre-redirect form snapshot and IntegrationChoice's "first integration" fallback.
+                // This runs after selectConnector resets the form, so it is not overwritten.
+                const integrationId = searchParams.integration_id
+                const oauthField = source.fields?.find((f) => f.type === 'oauth')
+                if (integrationId && oauthField && Number.isFinite(Number(integrationId))) {
+                    actions.setSourceConnectionDetailsValue(oauthField.name, Number(integrationId))
+                }
                 return
             }
 
