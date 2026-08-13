@@ -1607,7 +1607,7 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
             setObservationVerdictFilter: () => reloadObservationsAndStats(),
             setObservationTagFilter: () => reloadObservationsAndStats(),
             setObservationScoreRange: async (_, breakpoint) => {
-                // Typed into number inputs — debounce so each keystroke of "10" doesn't fire its own request.
+                // Typed into number inputs; debounce so each keystroke of "10" does not fire its own request.
                 await breakpoint(300)
                 reloadObservationsAndStats()
             },

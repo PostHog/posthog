@@ -97,6 +97,7 @@ from products.managed_warehouse.backend.facade.client import (
     ServiceCredentialUnavailable,
     make_duckgres_conninfo,
     mint_service_credential,
+    refresh_service_credential,
 )
 from products.managed_warehouse.backend.facade.contracts import ManagedWarehouseTeamMembership
 from products.managed_warehouse.backend.facade.metrics import record_duckling_backfill_workload, track_duckling_backfill
@@ -306,20 +307,18 @@ def _resolve_duckling_target(team_id: int) -> DucklingTarget:
 
 
 def _mint_backfill_service_credential(target: DucklingTarget) -> ServiceCredential | None:
-    """Mint one team-scoped service credential for this session, or None to fall back.
+    """Mint one org-scoped per-credential service credential for this session,
+    or None to fall back.
 
-    Mint ORDER matters more than mint success: two backfill ops for the SAME
-    team routinely run concurrently (two partitions, or a daily + a full
-    backfill), and the CP's rotation is a shared, handshake-invalidating
-    operation on the team's login. Always force-rotating here would make
-    every session clobber every other in-flight session's credential — the
-    first worker drop thereafter fails that whole partition for good. So the
-    mint is reuse-FIRST: ask for the live grant with no rotation, and only
-    escalate to force_rotate when the CP has no usable credential to hand
-    back (fresh team, grant lapsed, or an admin rotation in-between — all
-    cases where CP returns no plaintext on the reuse path). Per the CP
-    contract (duckgres/CLAUDE.md "Service Credentials") a rotation inside the
-    TTL window is reserved for exactly that "nothing usable exists" case.
+    The CP hands back a fresh (credential_id, credential_secret) pair: reuse
+    asks for the live grant without rotation (so a concurrent backfill's
+    own per-credential session is NOT clobbered), and only escalates to
+    force_rotate when the CP has no usable credential to hand back (fresh
+    principal entry, grant lapsed, or an operator revoke in-between — all
+    cases where the reuse path returns no plaintext). With per-credential
+    grants each mint mints a NEW credential, so an escalation can never
+    smash another run's open session the way a shared-login rotation once
+    did.
 
     Fallback to org-root (None) is deliberate and transitional: a CP that is
     unreachable, an org whose team row hasn't been created yet, or dev-mode
@@ -335,7 +334,7 @@ def _mint_backfill_service_credential(target: DucklingTarget) -> ServiceCredenti
             principal="dagster:events-backfill",
             force_rotate=False,
         )
-        if not credential.rotated or not credential.password:
+        if not credential.rotated or not credential.credential_secret:
             # CP reused a live grant but hands us no plaintext — we hold
             # nothing, so we are in the "nothing usable exists" case: rotate.
             credential = mint_service_credential(
@@ -344,16 +343,16 @@ def _mint_backfill_service_credential(target: DucklingTarget) -> ServiceCredenti
                 principal="dagster:events-backfill",
                 force_rotate=True,
             )
-        if not credential.password:
+        if not credential.credential_secret:
             raise ServiceCredentialUnavailable(
                 f"service credential for org={target.organization_id} team={target.team_id} "
-                "carries no password even after force_rotate"
+                "carries no credential_secret even after force_rotate"
             )
         logger.info(
             "duckling_service_credential_minted",
             team_id=target.team_id,
             organization_id=target.organization_id,
-            username=credential.username,
+            credential_id=credential.credential_id,
             rotated=credential.rotated,
             expires_at=credential.expires_at.isoformat(),
         )
@@ -643,9 +642,15 @@ class _DuckgresSession:
                 "duckling_service_credential_refreshing_on_reconnect",
                 team_id=self._target.team_id,
                 organization_id=self._target.organization_id,
+                credential_id=cred.credential_id,
                 expires_at=cred.expires_at.isoformat(),
             )
-            cred = _mint_backfill_service_credential(self._target)
+            # Refresh the SAME credential in place. The refresh endpoint
+            # always rotates the secret and bumps expires_at; with
+            # per-credential grants it can't smash any other run's session
+            # (we OWN this credential_id), so a re-mint would only waste a
+            # fresh row and mint log for no gain.
+            cred = refresh_service_credential(self._target.organization_id, cred.credential_id)
             self._service_credential = cred
         self._conn = _connect_duckgres(self._target, service_credential=cred)
 
