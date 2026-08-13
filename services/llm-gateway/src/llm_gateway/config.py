@@ -201,8 +201,6 @@ class Settings(BaseSettings):
     user_cost_limits: dict[str, UserCostLimit] = DEFAULT_USER_COST_LIMITS
     user_cost_limits_disabled: bool = False
 
-    # TODO: flip on when Code migrates all users to usage-based billing
-    posthog_code_model_gate_enabled: bool = False
     posthog_code_free_tier_models: list[str] = [
         "@cf/zai-org/glm-5.2",
         "deepseek-ai/deepseek-v4-flash-0731",

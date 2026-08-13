@@ -46,6 +46,7 @@ pub struct Issue {
     pub id: Uuid,
     pub team_id: i32,
     pub status: IssueStatus,
+    pub severity: Option<String>,
     pub name: Option<String>,
     pub description: Option<String>,
     pub created_at: DateTime<Utc>,
@@ -55,6 +56,7 @@ pub struct IssueWithFirstSeen {
     pub id: Uuid,
     pub team_id: i32,
     pub status: IssueStatus,
+    pub severity: Option<String>,
     pub name: Option<String>,
     pub description: Option<String>,
     pub created_at: DateTime<Utc>,
@@ -68,6 +70,7 @@ impl IssueWithFirstSeen {
                 id: self.id,
                 team_id: self.team_id,
                 status: self.status,
+                severity: self.severity,
                 name: self.name,
                 description: self.description,
                 created_at: self.created_at,
@@ -99,7 +102,7 @@ impl Issue {
         let res = sqlx::query_as!(
             IssueWithFirstSeen,
             r#"
-            SELECT i.id, i.team_id, i.status, i.name, i.description, i.created_at, f.first_seen as fingerprint_first_seen
+            SELECT i.id, i.team_id, i.status, i.severity, i.name, i.description, i.created_at, f.first_seen as fingerprint_first_seen
             FROM posthog_errortrackingissue i
             JOIN posthog_errortrackingissuefingerprintv2 f ON i.id = f.issue_id
             WHERE f.team_id = $1 AND f.fingerprint = $2
@@ -124,7 +127,7 @@ impl Issue {
         let res = sqlx::query_as!(
             Issue,
             r#"
-            SELECT id, team_id, status, name, description, created_at FROM posthog_errortrackingissue
+            SELECT id, team_id, status, severity, name, description, created_at FROM posthog_errortrackingissue
             WHERE team_id = $1 AND id = $2
             "#,
             team_id,
@@ -158,6 +161,7 @@ impl Issue {
             id: Uuid::now_v7(),
             team_id,
             status: IssueStatus::Active,
+            severity: None,
             name: Some(name),
             description: Some(description),
             created_at: Utc::now(),
@@ -243,6 +247,7 @@ pub struct FingerprintIssueState {
     pub issue_name: Option<String>,
     pub issue_description: Option<String>,
     pub issue_status: String,
+    pub issue_severity: Option<String>,
     pub assigned_user_id: Option<i64>,
     pub assigned_role_id: Option<String>,
     pub first_seen: String,
@@ -281,6 +286,7 @@ impl FingerprintIssueState {
             issue_name: issue.name.clone(),
             issue_description: issue.description.clone(),
             issue_status: issue.status.to_string(),
+            issue_severity: issue.severity.clone(),
             assigned_user_id,
             assigned_role_id,
             first_seen: first_seen.format("%Y-%m-%d %H:%M:%S%.3f").to_string(),
@@ -308,6 +314,29 @@ pub async fn send_fingerprint_issue_state(
     .collect::<Result<Vec<_>, KafkaProduceError>>()
     .map_err(UnhandledError::KafkaProduceError)?;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn fingerprint_issue_state_serializes_severity() {
+        let issue = Issue {
+            id: Uuid::now_v7(),
+            team_id: 1,
+            status: IssueStatus::Active,
+            severity: Some("high".to_string()),
+            name: Some("Issue".to_string()),
+            description: None,
+            created_at: Utc::now(),
+        };
+
+        let state = FingerprintIssueState::new(&issue, "fingerprint", None, Utc::now());
+        let payload = serde_json::to_value(state).unwrap();
+
+        assert_eq!(payload["issue_severity"], "high");
+    }
 }
 
 impl IssueFingerprintOverride {
