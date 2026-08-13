@@ -7,7 +7,7 @@ The one dag today is the **dataset** dag; future ranking dags (training, eval) l
 inbox_ranking/
 ├── common.py       # shared: S3 destination config, daily partition def, gating, Parquet IO
 ├── dataset/
-│   ├── dag.py      # the four dataset assets + job + schedule
+│   ├── dag.py      # the five dataset assets + job + schedule
 │   └── queries.py  # HogQL label SQL, embeddings SQL, stream merging
 └── tests/
 ```
@@ -16,17 +16,20 @@ Registered via `posthog/dags/locations/signals.py` (US only) and loaded locally 
 
 ## The dataset dag
 
-`inbox_ranking_dataset_job` runs daily at 02:30 UTC (schedule default: running on prod US, stopped everywhere else — including hosted DEV and E2E, which have no dogfood project to read labels from) and builds four assets on one daily partition, each a Parquet object in S3:
+`inbox_ranking_dataset_job` runs daily at 02:30 UTC (schedule default: running on prod US, stopped everywhere else — including hosted DEV and E2E, which have no dogfood project to read labels from) and builds five assets on one daily partition, each a Parquet object in S3:
 
 ```text
 s3://<bucket>/<prefix>/
 ├── inbox_report_state/v1/dt=YYYY-MM-DD/       # Postgres spine + report state + tabular features
 ├── inbox_report_embeddings/v1/dt=YYYY-MM-DD/  # report_id -> small-1536 vector as of snapshot end
 ├── inbox_report_labels/v1/dt=YYYY-MM-DD/      # cumulative label columns from dogfood telemetry
-└── inbox_report_model_data/v1/
-    ├── dt=YYYY-MM-DD/                         # materialized join of the three (the training table)
-    └── latest/                                # rewritten by the newest partition; warehouse tables point here
+├── inbox_report_model_data/v1/
+│   ├── dt=YYYY-MM-DD/                         # materialized join of the three (the training table)
+│   └── latest/                                # rewritten by the newest partition; warehouse tables point here
+└── inbox_signal_embeddings/v1/dt=YYYY-MM-DD/  # one row per signal emitted during the day (signal grain)
 ```
+
+The first four are report grain and land in one table. `inbox_signal_embeddings` is signal grain, feeds the group-level model, and is read on its own — training joins it to `inbox_report_model_data` by `report_id`.
 
 ### Partition semantics
 
@@ -36,6 +39,15 @@ s3://<bucket>/<prefix>/
 - Rows for reports **outside this dag's region** are label-only: no Postgres state, no embedding, and `report_team_id` null (a US team id and an EU team id of the same number are different teams, so the label stream's id can't be merged in). `status_event_team_id` carries the team the transition itself reported, which is the tenant attribution those rows do have.
 - **Backfills are not fully point-in-time**: labels are exact for any past day, embeddings are exact within the source table's 3-month TTL, but report state is read from Postgres as of the run (`features_observed_at` flags this per row).
 - Report-state mutability reaches **inclusion**, not just feature values: `promoted_at` is cleared on suppression and snooze, so a report promoted before the cutoff and suppressed after it leaves the spine unless a label event referenced it before the cutoff. Forward runs see this only for the 2.5 hours between the cutoff and the schedule; backfills see the full accumulated effect. Deriving the spine from immutable promotion history (`signal_report_status_changed` carries `promoted_at`) is the v2 fix.
+
+### Signal-grain partitions
+
+`inbox_signal_embeddings` is the one asset here whose partitions are **not** full snapshots. `dt=D` holds only the signal documents inserted during D — an emission log — because a cumulative copy at signal grain means a 1536-float vector per signal, fleet-wide, rewritten every day.
+
+- Read the **union** of partitions and take the latest row per `signal_id` at or before the cutoff. That is the same latest-wins the other assets do in SQL, moved to read time; retractions arrive as their own rows (`is_deleted`) rather than collapsing into the vector they supersede.
+- The vectors' source TTL runs from **signal event time**, so this asset is also where signal vectors become durable. Whatever a partition does not capture before its signals age out is gone.
+- Consequently a late re-run of an old partition would find fewer rows than it first wrote, and the overwrite would be unrecoverable. The asset **fails instead of shrinking a partition**; a deliberate shrink means deleting the object by hand first. Row counts are stamped in S3 object metadata at write time to make that check a `head_object`.
+- Signal text never leaves ClickHouse: the query selects the vector and the structured metadata (weight, source, match graph), not `content` or the free-text metadata fields.
 
 ### Configuration
 

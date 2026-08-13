@@ -101,6 +101,7 @@ def s3_client():  # noqa: ANN201
 
 
 SNAPSHOT_DATE_METADATA_KEY = "snapshot-date"
+ROW_COUNT_METADATA_KEY = "row-count"
 
 
 def write_parquet(client, bucket: str, key: str, table: pa.Table, snapshot_date: str | None = None) -> None:
@@ -111,7 +112,9 @@ def write_parquet(client, bucket: str, key: str, table: pa.Table, snapshot_date:
     so they grow past both the 5 GB single-request ceiling and what a second in-memory copy of the
     encoded file costs. `upload_fileobj` switches to a multipart upload on its own once the object
     is large enough."""
-    metadata = {SNAPSHOT_DATE_METADATA_KEY: snapshot_date} if snapshot_date else {}
+    metadata = {ROW_COUNT_METADATA_KEY: str(table.num_rows)}
+    if snapshot_date:
+        metadata[SNAPSHOT_DATE_METADATA_KEY] = snapshot_date
     with tempfile.TemporaryFile() as spool:
         pq.write_table(table, spool, compression="zstd")
         spool.seek(0)
@@ -128,6 +131,30 @@ def object_snapshot_date(client, bucket: str, key: str) -> str | None:
             return None
         raise
     return head.get("Metadata", {}).get(SNAPSHOT_DATE_METADATA_KEY)
+
+
+def object_row_count(client, bucket: str, key: str) -> int | None:
+    """The row count stamped on an object at write time, or None when the object is missing (or
+    predates the stamp), so callers treat it as unknown rather than empty."""
+    try:
+        head = client.head_object(Bucket=bucket, Key=key)
+    except ClientError as error:
+        if error.response.get("Error", {}).get("Code") in ("404", "NoSuchKey", "NotFound"):
+            return None
+        raise
+    stamped = head.get("Metadata", {}).get(ROW_COUNT_METADATA_KEY)
+    return int(stamped) if stamped is not None else None
+
+
+def partition_write_allowed(existing_row_count: int | None, row_count: int) -> bool:
+    """Whether a re-run may overwrite a partition it has already written.
+
+    Incremental partitions are read back out of a source table with a TTL, so a late re-run can
+    legitimately produce fewer rows than the object it would replace — and those rows are gone from
+    the source, which makes the overwrite unrecoverable. A partition may only be rewritten with at
+    least as many rows as it already holds; anything smaller needs a human to delete the object
+    deliberately. An unknown count (no object, or one written before the stamp) is not a veto."""
+    return existing_row_count is None or row_count >= existing_row_count
 
 
 def read_parquet(client, bucket: str, key: str) -> pa.Table:

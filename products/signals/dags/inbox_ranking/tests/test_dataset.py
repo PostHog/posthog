@@ -71,6 +71,23 @@ def test_latest_advances_monotonically_and_backfills_never_clobber_it(existing, 
     assert common.latest_is_stale(existing, partition_key) is expected
 
 
+@pytest.mark.parametrize(
+    "existing,row_count,expected",
+    [
+        (None, 0, True),
+        (1200, 1200, True),
+        (1200, 1500, True),
+        (1200, 1199, False),
+        (1200, 0, False),
+    ],
+)
+def test_incremental_partitions_never_shrink_on_a_re_run(existing, row_count, expected):
+    # Signal vectors are read back out of a table with a 3-month TTL, so a late re-run of an old
+    # partition returns fewer rows than it first captured — and those rows no longer exist anywhere
+    # else. Overwriting is unrecoverable data loss, so a shrink must fail rather than proceed.
+    assert common.partition_write_allowed(existing, row_count) is expected
+
+
 def test_snapshot_bounds_cover_the_partition_day():
     start, end = common.snapshot_bounds("2026-07-29")
     assert start == datetime.datetime(2026, 7, 29, tzinfo=datetime.UTC)
