@@ -1,6 +1,7 @@
 import type { ReactNode } from 'react'
 
 import type { LegendItem } from '../components/Legend/Legend'
+import type { LegendItemControls } from '../components/Legend/useChartLegend'
 
 /** Visual theme colours consumed by chart rendering. */
 export interface ChartTheme {
@@ -340,10 +341,17 @@ export interface ChartLegendConfig {
     defaultHiddenKeys?: string[]
     /** Called whenever a series is toggled, with its key and resulting hidden state. */
     onToggleSeries?: (key: string, hidden: boolean) => void
-    /** Wrap each rendered legend row — receives the default row node and its item, returns the
-     *  node to render. Lets consumers augment rows (e.g. a right-click context menu) while keeping
-     *  the default swatch/label/toggle rendering. Return `defaultNode` to leave a row untouched. */
-    renderItem?: (defaultNode: ReactNode, item: LegendItem) => ReactNode
+    /** Called with the whole next hidden set when a bulk action runs — double-click to isolate a
+     *  series, or a row menu's isolate / hide-all. A controlled legend must handle this for those
+     *  actions to work at all; `onToggleSeries` fires one key at a time and can't express them as a
+     *  single update. Uncontrolled legends update their own state and don't need it. */
+    onSetHiddenSeries?: (hiddenKeys: string[]) => void
+    /** Wrap each rendered legend row — receives the default row node, its item, and that row's
+     *  {@link LegendItemControls} (visibility state plus toggle/isolate/hide-all actions), and
+     *  returns the node to render. Lets consumers augment rows (e.g. a right-click context menu)
+     *  while keeping the default swatch/label/toggle rendering. Return `defaultNode` to leave a row
+     *  untouched. */
+    renderItem?: (defaultNode: ReactNode, item: LegendItem, controls: LegendItemControls) => ReactNode
 }
 
 export interface TooltipConfig {
