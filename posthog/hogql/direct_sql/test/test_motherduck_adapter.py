@@ -102,6 +102,9 @@ class TestMotherDuckReadOnlyGuard(SimpleTestCase):
             # A column named like a blocked function is an identifier in quotes — allowed.
             ("quoted_column_named_glob", 'SELECT "glob" FROM taxi'),
             ("string_literal", "SELECT 'read_csv' AS label"),
+            # Blocked names are only rejected in call position, so these stay usable as columns.
+            ("column_named_query", "SELECT query FROM request_log"),
+            ("qualified_column_named_query", "SELECT t.query, t.duration FROM request_log t"),
         ]
     )
     def test_allows_read_only(self, _name, sql):
@@ -135,9 +138,27 @@ class TestMotherDuckReadOnlyGuard(SimpleTestCase):
             ("getenv", "SELECT getenv('AWS_SECRET_ACCESS_KEY')"),
             ("uppercase", "SELECT * FROM READ_CSV('/etc/passwd')"),
             ("nested", "SELECT * FROM (SELECT * FROM read_json_auto('x.json'))"),
+            # DuckDB resolves a quoted identifier to the same function.
+            ("quoted_call", "SELECT * FROM \"read_csv\"('/etc/passwd')"),
         ]
     )
     def test_rejects_environment_reading_functions(self, _name, sql):
+        with self.assertRaises(ExposedHogQLError):
+            ensure_read_only_raw_motherduck_statement(sql)
+
+    @parameterized.expand(
+        [
+            # `query()` runs its string argument as a statement, so the outer SELECT gate alone
+            # would let `PRAGMA PRINT_MD_TOKEN` return the source's MotherDuck token.
+            ("query_pragma_token", "SELECT * FROM query('PRAGMA PRINT_MD_TOKEN')"),
+            ("query_table", "SELECT * FROM query_table('taxi')"),
+            # The token travels in the DSN and lands as a readable DuckDB setting.
+            ("current_setting", "SELECT current_setting('motherduck_token')"),
+            ("duckdb_settings", "SELECT value FROM duckdb_settings() WHERE name = 'motherduck_token'"),
+            ("duckdb_secrets", "SELECT * FROM duckdb_secrets()"),
+        ]
+    )
+    def test_rejects_credential_revealing_functions(self, _name, sql):
         with self.assertRaises(ExposedHogQLError):
             ensure_read_only_raw_motherduck_statement(sql)
 
@@ -264,4 +285,21 @@ class TestMotherDuckAdapterExecute(BaseTest):
         request = self._request("SELECT * FROM missing_table")
         with patch("posthog.hogql.direct_sql.motherduck_adapter.cached_motherduck_connection", fake_cache):
             with self.assertRaises(ExposedHogQLError):
+                MotherDuckAdapter().execute(request)
+
+    def test_failed_connect_surfaces_its_translated_message(self):
+        from contextlib import contextmanager
+
+        from posthog.hogql.direct_sql.motherduck_adapter import MotherDuckAdapter
+
+        from products.warehouse_sources.backend.facade.source_management import MotherDuckConnectionError
+
+        @contextmanager
+        def failing_cache(token, database):
+            raise MotherDuckConnectionError("Invalid MotherDuck token.")
+            yield  # pragma: no cover
+
+        request = self._request("SELECT 1")
+        with patch("posthog.hogql.direct_sql.motherduck_adapter.cached_motherduck_connection", failing_cache):
+            with self.assertRaisesRegex(ExposedHogQLError, "Invalid MotherDuck token."):
                 MotherDuckAdapter().execute(request)

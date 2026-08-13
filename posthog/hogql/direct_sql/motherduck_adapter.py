@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING, cast
 import sqlparse
 from opentelemetry import trace
 from sqlparse import tokens as sqlparse_tokens
+from sqlparse.sql import Token
 
 from posthog.hogql.constants import HogQLDialect
 from posthog.hogql.direct_query_metrics import DIRECT_QUERY_ROW_CAP_EXCEEDED_TOTAL, observe_direct_query
@@ -39,13 +40,25 @@ DIRECT_MOTHERDUCK_ROW_CAP_ERROR = (
 )
 DIRECT_MOTHERDUCK_TIMEOUT_ERROR = "MotherDuck query timed out."
 
-# Functions that parse as a plain SELECT but touch the worker's environment or filesystem.
-# The connection is opened with `saas_mode=true` (no local filesystem, no extension
-# installs) and `read_only=True`, so these are defense in depth for the raw passthrough
-# path — HogQL-authored SQL never emits them. Quoted identifiers tokenize as strings, not
-# names, so a column legitimately named e.g. "getenv" is unaffected.
+# Functions that parse as a plain SELECT but touch the worker's environment or filesystem,
+# read back the connection's own credentials, or smuggle a second statement past the SELECT
+# gate. The connection is opened with `saas_mode=true` (no local filesystem, no extension
+# installs) and `read_only=True`, so the filesystem entries are defense in depth for the raw
+# passthrough path — HogQL-authored SQL never emits them. The credential entries are not:
+# `motherduck_token` travels in the DSN and lands as a readable DuckDB setting, so
+# `current_setting`/`duckdb_settings` would hand the source's token to anyone who can run
+# raw SQL, and `query()` would run `PRAGMA PRINT_MD_TOKEN` inside an outer SELECT.
+#
+# Only call positions are rejected, so a column or table legitimately named `query` or `glob`
+# still resolves. Quoting doesn't help an attacker either: DuckDB resolves `"glob"('/*')` to
+# the same function, so the check covers quoted identifiers in call position too.
 _RAW_MOTHERDUCK_BLOCKED_FUNCTIONS = frozenset(
     {
+        "QUERY",
+        "QUERY_TABLE",
+        "CURRENT_SETTING",
+        "DUCKDB_SETTINGS",
+        "DUCKDB_SECRETS",
         "READ_CSV",
         "READ_CSV_AUTO",
         "READ_JSON",
@@ -99,6 +112,27 @@ def motherduck_error_to_message(error: Exception) -> str:
     return translate_motherduck_error(error)
 
 
+def _blocked_function_name(token: Token) -> str | None:
+    """The blocked-function name this token could resolve to, or None."""
+    if token.ttype in sqlparse_tokens.Name:
+        name = token.value.upper()
+    elif token.ttype in sqlparse_tokens.String.Symbol and len(token.value) >= 2:
+        # DuckDB resolves `"glob"(...)` to the same function as `glob(...)`.
+        name = token.value[1:-1].upper()
+    else:
+        return None
+    return name if name in _RAW_MOTHERDUCK_BLOCKED_FUNCTIONS else None
+
+
+def _opens_call(tokens: list[Token], index: int) -> bool:
+    """Whether the token at `index` is immediately followed by `(`, i.e. invoked as a function."""
+    for token in tokens[index + 1 :]:
+        if token.ttype in sqlparse_tokens.Whitespace or token.ttype in sqlparse_tokens.Comment:
+            continue
+        return token.ttype is sqlparse_tokens.Punctuation and token.value == "("
+    return False
+
+
 def ensure_read_only_raw_motherduck_statement(sql: str) -> str:
     sql = ensure_single_direct_statement(sql)
     statements = [statement for statement in sqlparse.parse(sql) if str(statement).strip(" \t\r\n;")]
@@ -106,13 +140,14 @@ def ensure_read_only_raw_motherduck_statement(sql: str) -> str:
         raise ExposedHogQLError(RAW_MOTHERDUCK_READ_ONLY_ERROR)
     # The connection itself is read-only (DuckDB rejects writes engine-side) and runs in
     # MotherDuck's SaaS mode, so this gate is defense in depth for the raw passthrough path:
-    # reject DDL, any DML other than SELECT, and environment/file-reading table functions.
-    for token in statements[0].flatten():
+    # reject DDL, any DML other than SELECT, and calls to the blocked functions above.
+    tokens = list(statements[0].flatten())
+    for index, token in enumerate(tokens):
         if token.ttype in sqlparse_tokens.DDL:
             raise ExposedHogQLError(RAW_MOTHERDUCK_READ_ONLY_ERROR)
         if token.ttype in sqlparse_tokens.DML and token.value.upper() != "SELECT":
             raise ExposedHogQLError(RAW_MOTHERDUCK_READ_ONLY_ERROR)
-        if token.ttype in sqlparse_tokens.Name and token.value.upper() in _RAW_MOTHERDUCK_BLOCKED_FUNCTIONS:
+        if _blocked_function_name(token) is not None and _opens_call(tokens, index):
             raise ExposedHogQLError(RAW_MOTHERDUCK_BLOCKED_FUNCTION_ERROR)
     return sql
 
@@ -198,6 +233,10 @@ class MotherDuckAdapter:
         """
         import duckdb  # noqa: PLC0415 — keeps the heavy dep off the import path
 
+        from products.warehouse_sources.backend.facade.source_management import (  # noqa: PLC0415
+            MotherDuckConnectionError,
+        )
+
         source = request.source
         motherduck_source, source_config = self.validate_source_config(source, request.team)
         settings = request.settings
@@ -226,15 +265,15 @@ class MotherDuckAdapter:
                                 raise ExposedHogQLError(DIRECT_MOTHERDUCK_TIMEOUT_ERROR) from None
                             raise
                     description = connection.description or []
-        except (duckdb.Error, ExposedHogQLError) as error:
+        except (duckdb.Error, MotherDuckConnectionError, ExposedHogQLError) as error:
             span.set_attribute("error_type", error.__class__.__name__)
+            # A failed cold connect already arrives translated; only raw driver errors need it.
+            message = str(error) if isinstance(error, MotherDuckConnectionError) else motherduck_error_to_message(error)
             if request.debug:
-                return DirectQueryResult(
-                    results=[], types=[], print_columns=[], error=motherduck_error_to_message(error)
-                )
+                return DirectQueryResult(results=[], types=[], print_columns=[], error=message)
             if isinstance(error, ExposedHogQLError):
                 raise
-            raise ExposedHogQLError(motherduck_error_to_message(error)) from error
+            raise ExposedHogQLError(message) from error
 
         span.set_attribute("row_count", len(results))
         types: list[tuple[str, str]] = [

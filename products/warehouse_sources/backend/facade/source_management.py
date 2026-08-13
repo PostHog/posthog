@@ -58,6 +58,7 @@ _LAZY = {
     "CustomSourceConfig": "sources.generated_configs.custom",
     "GithubSource": "sources.github.source",
     "GithubSourceConfig": "sources.generated_configs.github",
+    "MotherDuckConnectionError": "sources.motherduck.motherduck",
     "MotherduckSource": "sources.motherduck.source",
     "MotherduckSourceConfig": "sources.generated_configs.motherduck",
     "translate_motherduck_error": "sources.motherduck.motherduck",
