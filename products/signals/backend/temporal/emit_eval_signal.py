@@ -1,3 +1,10 @@
+"""Legacy per-result evaluation signal path.
+
+The frontend no longer exposes per-evaluation signal enablement. Keep this workflow and activity
+registered for existing Temporal histories and stored configs until the backend path is removed.
+Evaluation reports are the supported AI observability signal source.
+"""
+
 import json
 from dataclasses import dataclass
 from datetime import timedelta
