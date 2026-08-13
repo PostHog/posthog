@@ -9,65 +9,61 @@ import { urls } from 'scenes/urls'
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 
-export type SkillsTab = 'your' | 'community'
+import { DEFAULT_SKILLS_TAB_KEY, llmSkillsLogic, skillTabUrl } from './llmSkillsLogic'
 
-const TAB_DESCRIPTIONS: Record<SkillsTab, string> = {
-    your: 'Manage versioned agent skills that any MCP-connected agent can discover and use.',
-    community: 'Discover and install agent skills shared by the PostHog community.',
-}
+/** Tab key for the Community scene, which lives at its own URL rather than under /skills. */
+export const COMMUNITY_SKILLS_TAB_KEY = 'community'
+
+export const COMMUNITY_SKILLS_TAB_DESCRIPTION = 'Discover and install agent skills shared by the PostHog community.'
 
 /**
- * Shared shell for the two Skills tabs ("Your skills" and "Community"). Each scene renders this
- * with only its own tab's content; the inactive tab navigates via its `link`, so its content is
- * never mounted here. This keeps the two scenes' logics (and URL contracts) independent while
- * presenting them as one tabbed surface. The Community tab is gated behind the community-skills
- * flag (but stays visible when it's already the active tab, so a direct URL still renders cleanly).
+ * Shared shell for every Skills tab. It renders one tab bar — the default "Skills" tab, the
+ * category tabs (Scouts, Code review), then "Community" — so the category tabs and Community sit
+ * in the same row instead of stacking two bars.
+ *
+ * Community is a separate scene at its own URL, so each scene renders this with only its own tab's
+ * content; the other tabs navigate via their `link` and are never mounted here. That keeps the two
+ * scenes' logics (and URL contracts) independent while presenting them as one tabbed surface. The
+ * Community tab is gated behind the community-skills flag (but stays visible when it's already the
+ * active tab, so a direct URL still renders cleanly).
  */
 export function SkillsSceneShell({
-    activeTab,
+    activeTabKey,
     actions,
     description,
     content,
 }: {
-    activeTab: SkillsTab
+    activeTabKey: string
     actions?: JSX.Element
-    description?: string
+    description: string
     content: JSX.Element
 }): JSX.Element {
     const { featureFlags } = useValues(featureFlagLogic)
+    // Read from the skills logic even on the Community scene, so the category tabs don't disappear
+    // from the row when you switch to Community.
+    const { visibleCategoryTabs } = useValues(llmSkillsLogic)
     const communityEnabled = !!featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_COMMUNITY_SKILLS]
 
-    const tabs: LemonTab<SkillsTab>[] = [
-        {
-            key: 'your',
-            label: 'Your skills',
-            link: urls.skills(),
-            content: activeTab === 'your' ? content : <></>,
-        },
-        ...(communityEnabled || activeTab === 'community'
-            ? [
-                  {
-                      key: 'community' as SkillsTab,
-                      label: 'Community',
-                      link: urls.communitySkills(),
-                      content: activeTab === 'community' ? content : <></>,
-                  },
-              ]
+    const tabs: LemonTab<string>[] = [
+        { key: DEFAULT_SKILLS_TAB_KEY, label: 'Skills', link: skillTabUrl(DEFAULT_SKILLS_TAB_KEY) },
+        ...visibleCategoryTabs.map((tab) => ({ key: tab.key, label: tab.label, link: skillTabUrl(tab.key) })),
+        ...(communityEnabled || activeTabKey === COMMUNITY_SKILLS_TAB_KEY
+            ? [{ key: COMMUNITY_SKILLS_TAB_KEY, label: 'Community', link: urls.communitySkills() }]
             : []),
-    ]
+    ].map((tab) => ({ ...tab, content: tab.key === activeTabKey ? content : <></> }))
 
     return (
         <SceneContent>
             <SceneTitleSection
                 name="Skills"
-                description={description ?? TAB_DESCRIPTIONS[activeTab]}
+                description={description}
                 resourceType={{ type: 'llm_analytics' }}
                 actions={actions}
             />
-            {/* Only surface the tab bar once Community is reachable — otherwise the lone "Your skills"
-                tab is noise, so flag-off users see the plain Skills scene exactly as before. */}
+            {/* Only surface the tab bar once there's somewhere else to go — otherwise the lone
+                "Skills" tab is noise, so those users see the plain Skills scene exactly as before. */}
             {tabs.length > 1 ? (
-                <LemonTabs activeKey={activeTab} data-attr="skills-tabs" tabs={tabs} sceneInset />
+                <LemonTabs activeKey={activeTabKey} data-attr="skills-tabs" tabs={tabs} sceneInset />
             ) : (
                 content
             )}
