@@ -4,6 +4,7 @@ import posthog from 'posthog-js'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import type { Dayjs } from 'lib/dayjs'
 import { now } from 'lib/dayjs'
+import type { IntegrationConnectSurface } from 'lib/integrations/utils'
 import { TimeToSeeDataPayload } from 'lib/internalMetrics'
 import { preflightLogic } from 'lib/logic/preflightLogic'
 import { objectClean } from 'lib/utils/objects'
@@ -1601,10 +1602,14 @@ export interface eventUsageLogicActions {
     }
     reportIntegrationConnectClicked: (
         integration: string,
-        kind: string
+        kind: string,
+        surface: IntegrationConnectSurface,
+        selfDriving?: boolean
     ) => {
         integration: string
         kind: string
+        selfDriving: boolean | undefined
+        surface: IntegrationConnectSurface
     }
     reportInviteMembersButtonClicked: () => {
         value: true
@@ -1765,6 +1770,9 @@ export interface eventUsageLogicActions {
     }
     reportPersonSplit: (merge_count: number) => {
         merge_count: number
+    }
+    reportPersonalIntegrationConnectClicked: (kind: string) => {
+        kind: string
     }
     reportPersonsJoinModeUpdated: (mode: string) => {
         mode: string
@@ -2168,7 +2176,18 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         // timing
         reportTimeToSeeData: (payload: TimeToSeeDataPayload) => ({ payload }),
         reportGroupTypeDetailDashboardCreated: () => ({}),
-        reportIntegrationConnectClicked: (integration: string, kind: string) => ({ integration, kind }),
+        reportIntegrationConnectClicked: (
+            integration: string,
+            kind: string,
+            surface: IntegrationConnectSurface,
+            selfDriving?: boolean
+        ) => ({
+            integration,
+            kind,
+            surface,
+            selfDriving,
+        }),
+        reportPersonalIntegrationConnectClicked: (kind: string) => ({ kind }),
         reportGroupPropertyUpdated: (
             action: 'added' | 'updated' | 'removed',
             totalProperties: number,
@@ -3068,8 +3087,22 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         reportInstanceSettingChange: ({ name, value }) => {
             posthog.capture('instance setting change', { name, value })
         },
-        reportIntegrationConnectClicked: ({ integration, kind }) => {
-            posthog.capture('integration_connect_clicked', { integration, integration_kind: kind })
+        reportIntegrationConnectClicked: ({ integration, kind, surface, selfDriving }) => {
+            posthog.capture('integration_connect_clicked', {
+                integration,
+                integration_kind: kind,
+                surface,
+                // Only set where the surface can actually tell. The OAuth landing page serves both
+                // self-driving runs and everyone else, so it resolves this; surfaces that are
+                // self-driving by construction leave it unset rather than assert a constant.
+                self_driving: selfDriving,
+            })
+        },
+        // Personal integrations are a separate table with their own connect surface, so they get
+        // their own event: saved insights already count `integration_connect_clicked` unfiltered and
+        // would silently start including personal links.
+        reportPersonalIntegrationConnectClicked: ({ kind }) => {
+            posthog.capture('personal integration connect clicked', { integration_kind: kind })
         },
         reportDashboardLoadingTime: async ({ loadingMilliseconds, dashboardId }) => {
             posthog.capture('dashboard loading time', { loadingMilliseconds, dashboardId })
