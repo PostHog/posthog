@@ -1,0 +1,7 @@
+[
+  {
+    "commit_id": "fixture-001",
+    "files": ["docs/timeline-fixture/README.md"],
+    "kind": "add"
+  }
+]
