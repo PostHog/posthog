@@ -39,7 +39,6 @@ import { ErrorBoundary } from "@posthog/ui/primitives/ErrorBoundary";
 import { useSidebarEdgeHoverPeek } from "@posthog/ui/primitives/hooks/useSidebarEdgeHoverPeek";
 import { ResizableSidebar } from "@posthog/ui/primitives/ResizableSidebar";
 import { navigateToArchived } from "@posthog/ui/router/navigationBridge";
-import { Box } from "@radix-ui/themes";
 import { useParams } from "@tanstack/react-router";
 import { useDeferredValue, useEffect, useRef } from "react";
 
@@ -72,7 +71,7 @@ function ChannelPanes({
   });
 
   return (
-    <Box ref={panesRef} className="min-h-0 flex-1 overflow-hidden">
+    <div ref={panesRef} className="min-h-0 flex-1 overflow-hidden">
       <div
         className={cn(
           "flex h-full w-[200%] transition-transform duration-200 ease-out motion-reduce:transition-none",
@@ -95,7 +94,7 @@ function ChannelPanes({
           )}
         </div>
       </div>
-    </Box>
+    </div>
   );
 }
 export function ChannelsSidebar() {
@@ -243,30 +242,30 @@ export function ChannelsSidebar() {
                   window, so under the layout it sits above the nav row rather
                   than in the footer. Its menu opens downward, which is the
                   right direction from the top of a sidebar. */}
-              <Box className="shrink-0 px-2 pb-1">
+              <div className="shrink-0 px-2 pb-1">
                 <ProjectSwitcher />
-              </Box>
+              </div>
               <ChannelNav />
               <ChannelPanes channelId={currentChannelId} showList={showList} />
             </>
           ) : bodyChannelsWorld ? (
             <>
               <Separator />
-              <Box className="relative min-h-0 flex-1">
+              <div className="relative min-h-0 flex-1">
                 <ChannelsList />
                 <ChannelsFab />
-              </Box>
+              </div>
             </>
           ) : (
-            <Box className="min-h-0 flex-1">
+            <div className="min-h-0 flex-1">
               <SidebarMenu />
-            </Box>
+            </div>
           )}
 
           <UpdateBanner />
 
           {showArchivedRow && archivedTaskIds.size > 0 && (
-            <Box className="shrink-0 border-border border-t">
+            <div className="shrink-0 border-border border-t">
               <button
                 type="button"
                 className="flex w-full items-center gap-1 bg-transparent px-2 py-1.5 text-left text-[13px] text-gray-11 transition-colors hover:bg-gray-3"
@@ -277,15 +276,15 @@ export function ChannelsSidebar() {
                 </span>
                 <span className="text-gray-11">Archived</span>
               </button>
-            </Box>
+            </div>
           )}
 
           {/* The code layout keeps it in the footer: that sidebar's top is the nav
             section and task header, and there's no nav row to sit above. */}
           {!channelsLayout && (
-            <Box className="shrink-0 px-2 pb-2">
+            <div className="shrink-0 px-2 pb-2">
               <ProjectSwitcher />
-            </Box>
+            </div>
           )}
         </div>
       </ChannelItemPreviewCardProvider>
