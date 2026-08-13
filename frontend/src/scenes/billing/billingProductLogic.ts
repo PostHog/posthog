@@ -1160,7 +1160,7 @@ export const billingProductLogic = kea<billingProductLogicType>([
             if (!values.unsubscribeError && values.surveyID) {
                 actions.reportSurveySent(values.surveyID, values.surveyResponse)
                 await breakpoint(400)
-                document.getElementsByClassName('Navigation3000__scene')[0].scrollIntoView()
+                document.getElementsByClassName('Navigation3000__scene')[0]?.scrollIntoView()
             }
         },
         setScrollToProductKey: ({ scrollToProductKey }) => {

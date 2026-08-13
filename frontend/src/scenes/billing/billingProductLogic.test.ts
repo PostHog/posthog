@@ -144,9 +144,10 @@ describe('billingProductLogic', () => {
                     'reportSurveySent',
                     'setSurveyID',
                 ])
-                // Enough to fire the loader's breakpoint(2000) but not the post-report
-                // breakpoint(400), so the jsdom-unsupported scrollIntoView is never reached.
-                await jest.advanceTimersByTimeAsync(2100)
+                // Run past the post-report breakpoint(400) so the scroll runs. The scene element
+                // is absent in jsdom, so this also guards that indexing it stays safe: without the
+                // optional-chain guard, scrollIntoView on the missing element throws a TypeError.
+                await jest.advanceTimersByTimeAsync(2500)
                 await expectation
 
                 expect(deactivateBody).toEqual({ products: 'product_analytics' })
