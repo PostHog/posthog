@@ -9318,6 +9318,10 @@ export namespace Schemas {
       readonly created_at: string;
       /** Insight ID monitored by this alert. Note: Response returns full InsightBasicSerializer object. */
       insight: number;
+      /** Short ID of the insight monitored by this alert. */
+      readonly insight_short_id: string;
+      /** Display name of the insight monitored by this alert. */
+      readonly insight_display_name: string;
       /**
          * Human-readable name for the alert.
          * @maxLength 255
@@ -18766,7 +18770,7 @@ export namespace Schemas {
     export interface DataCatalogMetric {
       readonly id: string;
       /**
-         * Identifier-safe run handle, unique per team and reserved forever. Write-once.
+         * Identifier-safe run handle, unique among the team's live metrics. Renaming or deleting a metric frees its name for reuse, and anything referencing the old name (SQL over information_schema.metrics, run URLs, links) stops resolving.
          * @maxLength 128
          * @pattern ^[A-Za-z][A-Za-z0-9_]*$
          */
@@ -27312,6 +27316,7 @@ export namespace Schemas {
      * * `snowflake` - snowflake
      * * `redshift` - redshift
      * * `clickhouse` - clickhouse
+     * * `motherduck` - motherduck
      */
     export type EngineEnum = typeof EngineEnum[keyof typeof EngineEnum];
 
@@ -27323,6 +27328,7 @@ export namespace Schemas {
       Snowflake: 'snowflake',
       Redshift: 'redshift',
       Clickhouse: 'clickhouse',
+      Motherduck: 'motherduck',
     } as const;
 
     export interface EngineeringAnalyticsCIBrokenDefaultBranchSignalExtra {
@@ -32193,7 +32199,8 @@ export namespace Schemas {
        * * `mysql` - mysql
        * * `snowflake` - snowflake
        * * `redshift` - redshift
-       * * `clickhouse` - clickhouse */
+       * * `clickhouse` - clickhouse
+       * * `motherduck` - motherduck */
       readonly engine: EngineEnum | null;
       /** The source type (e.g. 'Postgres', 'MySQL', 'Snowflake').
        *
@@ -34962,7 +34969,8 @@ export namespace Schemas {
        * * `mysql` - mysql
        * * `snowflake` - snowflake
        * * `redshift` - redshift
-       * * `clickhouse` - clickhouse */
+       * * `clickhouse` - clickhouse
+       * * `motherduck` - motherduck */
       readonly engine: EngineEnum | null;
       /** @nullable */
       readonly last_run_at: string | null;
@@ -35379,6 +35387,91 @@ export namespace Schemas {
          * @nullable
          */
       readonly modified_by: number | null;
+    }
+
+    /**
+     * * `requested` - Requested
+     */
+    export type RequestStatusEnum = typeof RequestStatusEnum[keyof typeof RequestStatusEnum];
+
+
+    export const RequestStatusEnum = {
+      Requested: 'requested',
+    } as const;
+
+    export interface FeatureRequestAccount {
+      /** ID of the affected Customer Analytics account. */
+      readonly id: string;
+      /** Name of the affected account. */
+      readonly name: string;
+    }
+
+    export interface FeatureRequestProductArea {
+      /** Stable product area ID. */
+      readonly id: string;
+      /**
+         * Team-maintained product area name.
+         * @maxLength 200
+         */
+      name: string;
+      /**
+         * Position in product area selectors. Lower values appear first.
+         * @minimum 0
+         */
+      display_order?: number;
+      /** Whether editors can select this product area for new requests. */
+      is_active?: boolean;
+      /** When the product area was created. */
+      readonly created_at: string;
+      /** When the product area was last updated. */
+      readonly updated_at: string;
+    }
+
+    export interface FeatureRequest {
+      /** Stable feature request ID. */
+      readonly id: string;
+      /** Customer-facing request title. */
+      readonly title: string;
+      /** Customer-facing request description in Markdown. */
+      readonly description: string;
+      /** Current customer-facing status. The first release always creates requests as requested.
+       *
+       * * `requested` - Requested */
+      readonly request_status: RequestStatusEnum;
+      /** Affected account in the first release. */
+      readonly account: FeatureRequestAccount;
+      /** Product areas affected by this request. */
+      readonly product_areas: readonly FeatureRequestProductArea[];
+      /**
+         * ID of the user who created the request.
+         * @nullable
+         */
+      readonly created_by: number | null;
+      /**
+         * ID of the last user to update the request.
+         * @nullable
+         */
+      readonly updated_by: number | null;
+      /** When the request was created. */
+      readonly created_at: string;
+      /** When the request was last updated. */
+      readonly updated_at: string;
+    }
+
+    export interface FeatureRequestCreate {
+      /**
+         * Required customer-facing request title.
+         * @maxLength 400
+         */
+      title: string;
+      /** Required customer-facing request description in Markdown. */
+      description: string;
+      /** ID of the affected Customer Analytics account. */
+      account_id: string;
+      /** One or more active product area IDs. Duplicate IDs are ignored. */
+      product_area_ids: string[];
+      /** Client-generated key that makes retries return the original request instead of creating a duplicate. */
+      idempotency_key: string;
     }
 
     export interface FeaturebaseFeedbackSignalExtra {
@@ -35931,11 +36024,13 @@ export namespace Schemas {
     } as const;
 
     /**
-     * One agent's access to a gateway server.
+     * One agent's access to a gateway server, on behalf of one member.
      */
     export interface GatewayAgentAccess {
       /** Service account granted access. */
       service_account_id: string;
+      /** The member whose connection the agent uses. */
+      user: UserBasic;
       /** Agent display name. */
       name: string;
       /** Agent identity handle, e.g. posthog-support. */
@@ -35950,7 +36045,7 @@ export namespace Schemas {
          * @nullable
          */
       last_active_at: string | null;
-      /** Admin who shared this server with the agent. */
+      /** Member who shared this server with the agent. */
       granted_by: UserBasic | null;
     }
 
@@ -44596,6 +44691,8 @@ export namespace Schemas {
     export interface MCPServiceAccountServer {
       /** Gateway server granted to the agent. */
       id: string;
+      /** The member whose connection the agent uses. */
+      shared_by: UserBasic;
       /** Server display name. */
       name: string;
       /** Server description. */
@@ -46320,6 +46417,38 @@ export namespace Schemas {
       prompt: string;
       /** The full type-specific config this version ran with (prompt plus, depending on scanner type, allow_inconclusive, tags, scale, or length), taken from the observation run snapshots. */
       scanner_config: unknown;
+      /**
+         * The scanner type this version ran as.
+         * @nullable
+         */
+      scanner_type: string | null;
+      /**
+         * The model this version ran on.
+         * @nullable
+         */
+      model: string | null;
+      /**
+         * The provider this version ran on.
+         * @nullable
+         */
+      provider: string | null;
+      /**
+         * Whether this version emitted signals.
+         * @nullable
+         */
+      emits_signals: boolean | null;
+      /** The `RecordingsQuery` recording filters this version ran with. */
+      query: unknown;
+      /**
+         * The 0..1 downsample this version ran with.
+         * @nullable
+         */
+      sampling_rate: number | null;
+      /**
+         * The session-coverage pre-filter this version ran with.
+         * @nullable
+         */
+      sampling_mode: string | null;
       /** Thumbs-up ratings on this version's observations. */
       up: number;
       /** Thumbs-down ratings on this version's observations. */
@@ -46337,7 +46466,7 @@ export namespace Schemas {
       by_day: ObservationLabelDayCount[];
       /** Daily label counts over the last `recent_days` days, bucketed by the day the rating was last set or changed: the team's rating activity. Days without rating changes are omitted. */
       by_rating_day: ObservationLabelDayCount[];
-      /** Each scanner (prompt) version that produced observations (all-time), with its first day, prompt, and rating counts, for chart markers and the prompt version history. */
+      /** Each scanner version that produced observations (all-time), with its first day, the config it ran with, and rating counts, for chart markers and the config version history. */
       version_markers: ObservationVersionMarker[];
     }
 
@@ -48027,6 +48156,15 @@ export namespace Schemas {
       /** @nullable */
       previous?: string | null;
       results: FeatureFlag[];
+    }
+
+    export interface PaginatedFeatureRequestList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: FeatureRequest[];
     }
 
     export interface PaginatedFieldNoteList {
@@ -53443,6 +53581,10 @@ export namespace Schemas {
       readonly created_at?: string;
       /** Insight ID monitored by this alert. Note: Response returns full InsightBasicSerializer object. */
       insight?: number;
+      /** Short ID of the insight monitored by this alert. */
+      readonly insight_short_id?: string;
+      /** Display name of the insight monitored by this alert. */
+      readonly insight_display_name?: string;
       /**
          * Human-readable name for the alert.
          * @maxLength 255
@@ -54155,7 +54297,7 @@ export namespace Schemas {
     export interface PatchedDataCatalogMetric {
       readonly id?: string;
       /**
-         * Identifier-safe run handle, unique per team and reserved forever. Write-once.
+         * Identifier-safe run handle, unique among the team's live metrics. Renaming or deleting a metric frees its name for reuse, and anything referencing the old name (SQL over information_schema.metrics, run URLs, links) stops resolving.
          * @maxLength 128
          * @pattern ^[A-Za-z][A-Za-z0-9_]*$
          */
@@ -55653,7 +55795,8 @@ export namespace Schemas {
        * * `mysql` - mysql
        * * `snowflake` - snowflake
        * * `redshift` - redshift
-       * * `clickhouse` - clickhouse */
+       * * `clickhouse` - clickhouse
+       * * `motherduck` - motherduck */
       readonly engine?: EngineEnum | null;
       /** @nullable */
       readonly last_run_at?: string | null;
@@ -55713,6 +55856,27 @@ export namespace Schemas {
        * * `distinct_id` - User ID (default)
        * * `device_id` - Device ID */
       bucketing_identifier?: BucketingIdentifierEnum | null;
+    }
+
+    export interface PatchedFeatureRequestProductArea {
+      /** Stable product area ID. */
+      readonly id?: string;
+      /**
+         * Team-maintained product area name.
+         * @maxLength 200
+         */
+      name?: string;
+      /**
+         * Position in product area selectors. Lower values appear first.
+         * @minimum 0
+         */
+      display_order?: number;
+      /** Whether editors can select this product area for new requests. */
+      is_active?: boolean;
+      /** When the product area was created. */
+      readonly created_at?: string;
+      /** When the product area was last updated. */
+      readonly updated_at?: string;
     }
 
     /**
@@ -68993,10 +69157,12 @@ export namespace Schemas {
     } as const;
 
     export interface ServiceAccountAccessUpdate {
-      /** Gateway server to grant or revoke. */
+      /** Gateway server to share or stop sharing. */
       gateway_server_id: string;
-      /** True grants access, false revokes it. */
+      /** True shares the caller's own connection with the agent, false removes the caller's share. */
       enabled: boolean;
+      /** Only valid with enabled=false. Removes every member's share of this server with this agent, along with the agent's tool policies for it. Project admins only. */
+      all?: boolean;
       /**
          * Optional agent-scope tool policies to set alongside the grant. At most 1,000 entries per request.
          * @maxItems 1000
@@ -81865,9 +82031,17 @@ export namespace Schemas {
      */
     created_by?: string;
     /**
+     * Optional. Restrict results by whether the alert uses anomaly detection.
+     */
+    has_detector?: boolean;
+    /**
      * Optional. Restrict results to alerts on this insight ID.
      */
     insight_id?: number;
+    /**
+     * Optional. Restrict results to alerts whose insight has this tag.
+     */
+    insight_tag?: string;
     /**
      * Number of results to return per page.
      */
@@ -84772,6 +84946,24 @@ export namespace Schemas {
      * Groups for feature flag evaluation (JSON object string)
      */
     groups?: string;
+    };
+
+    export type FeatureRequestProductAreasListParams = {
+    /**
+     * Include inactive product areas. Defaults to false.
+     */
+    include_inactive?: boolean;
+    };
+
+    export type FeatureRequestsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
     };
 
     export type FieldNotesListParams = {

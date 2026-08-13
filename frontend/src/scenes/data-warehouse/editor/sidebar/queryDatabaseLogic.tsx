@@ -4,6 +4,7 @@ import { subscriptions } from 'kea-subscriptions'
 
 import {
     IconBolt,
+    IconBrackets,
     IconDatabase,
     IconDocument,
     IconEndpoints,
@@ -21,13 +22,17 @@ import { TreeItem } from 'lib/components/DatabaseTableTree/DatabaseTableTree'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonTreeRef, TreeDataItem } from 'lib/lemon-ui/LemonTree/LemonTree'
 import { FeatureFlagsSet, featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { uuid } from 'lib/utils/dom'
 import { createFuse, IFuseOptions } from 'lib/utils/fuseSearch'
 import { newInternalTab } from 'lib/utils/newInternalTab'
 import { TableFieldsStatus, databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
 import { POSTHOG_WAREHOUSE } from 'scenes/data-warehouse/editor/connectionSelectorLogic'
+import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
+import { propertyDefinitionsList } from '~/generated/core/api'
+import type { EnterprisePropertyDefinitionApi, PropertyDefinitionsListType } from '~/generated/core/api.schemas'
 import {
     DatabaseSchemaDataWarehouseTable,
     DatabaseSchemaEndpointTable,
@@ -35,6 +40,7 @@ import {
     DatabaseSchemaManagedViewTable,
     DatabaseSchemaTable,
 } from '~/queries/schema/schema-general'
+import { escapeDottedHogQLIdentifier, escapeRawPropertyAsHogQLIdentifier } from '~/queries/utils'
 import {
     DataWarehouseSavedQuery,
     DataWarehouseSavedQueryDraft,
@@ -145,6 +151,13 @@ const MAX_FIELD_TRAVERSAL_DEPTH = 10
 
 type FieldTraversalOptions = {
     expandedLazyNodeIds?: Set<string>
+    propertyDefinitionLists?: Record<string, SidebarPropertyDefinitionList>
+    loadPropertyDefinitions?: (
+        propertyFieldKey: string,
+        target: SidebarPropertyDefinitionTarget,
+        offset: number
+    ) => void
+    allowPropertyDefinitionExpansion?: boolean
     visitedColumnPaths?: Set<string>
     depth?: number
     hydration?: TableFieldsHydration
@@ -179,6 +192,60 @@ const getTableFieldsState = (
         return 'ready'
     }
     return 'pending'
+}
+
+export type SidebarPropertyDefinitionTarget = {
+    type: PropertyDefinitionsListType
+    groupTypeIndex?: number
+}
+
+export type SidebarPropertyDefinitionList = {
+    activeRequestId: string | null
+    count: number
+    definitions: EnterprisePropertyDefinitionApi[]
+    error: boolean
+    loading: boolean
+    search: string
+}
+
+const PROPERTY_DEFINITIONS_PAGE_SIZE = 25
+
+export const getSidebarPropertyDefinitionTarget = (
+    tableName: string,
+    columnPath: string,
+    field: DatabaseSchemaField
+): SidebarPropertyDefinitionTarget | null => {
+    if (field.type !== 'json') {
+        return null
+    }
+
+    const pathSegments = columnPath.split('.')
+    const fieldName = pathSegments.at(-1)
+    if (fieldName !== 'properties' && fieldName !== 'person_properties') {
+        return null
+    }
+
+    if (fieldName === 'person_properties') {
+        return { type: 'person' }
+    }
+
+    const groupPathSegment = pathSegments.find((segment) => /^(?:group|goe)_[0-4]$/.test(segment))
+    if (groupPathSegment) {
+        return { type: 'group', groupTypeIndex: Number(groupPathSegment.at(-1)) }
+    }
+
+    if (
+        ['persons', 'raw_persons'].includes(tableName) ||
+        pathSegments.some((segment) => ['person', 'pdi', 'poe'].includes(segment))
+    ) {
+        return { type: 'person' }
+    }
+
+    if (['ai_events', 'events'].includes(tableName) && columnPath === 'properties') {
+        return { type: 'event' }
+    }
+
+    return null
 }
 
 export type SearchTreeSourceContext = {
@@ -309,7 +376,8 @@ const createColumnNode = (
     tableName: string,
     field: DatabaseSchemaField,
     columnPath: string,
-    isSearch = false
+    isSearch = false,
+    hogqlExpression?: string
 ): TreeDataItem => ({
     id: `${isSearch ? 'search-' : ''}col-${tableName}-${columnPath}`,
     name: field.name,
@@ -318,9 +386,165 @@ const createColumnNode = (
         type: 'column',
         columnName: columnPath,
         field,
+        hogqlExpression,
         table: tableName,
     },
 })
+
+const getPropertyDefinitionFieldType = (
+    propertyDefinition: EnterprisePropertyDefinitionApi
+): DatabaseSchemaField['type'] => {
+    switch (propertyDefinition.property_type) {
+        case 'Boolean':
+            return 'boolean'
+        case 'DateTime':
+            return 'datetime'
+        case 'Duration':
+        case 'Numeric':
+            return 'float'
+        default:
+            return 'string'
+    }
+}
+
+const createPropertyDefinitionChildren = (
+    tableName: string,
+    columnPath: string,
+    isSearch: boolean,
+    propertyFieldKey: string,
+    target: SidebarPropertyDefinitionTarget,
+    propertyDefinitionList: SidebarPropertyDefinitionList | undefined,
+    loadPropertyDefinitions: FieldTraversalOptions['loadPropertyDefinitions']
+): TreeDataItem[] => {
+    if (!propertyDefinitionList) {
+        return [
+            {
+                id: `${isSearch ? 'search-' : ''}property-${tableName}-${columnPath}-placeholder/`,
+                name: 'Loading...',
+                displayName: <>Loading...</>,
+                icon: <Spinner />,
+                disableSelect: true,
+                type: 'loading-indicator',
+            },
+        ]
+    }
+
+    const propertyNodes: TreeDataItem[] = propertyDefinitionList.definitions.map((propertyDefinition) => {
+        const propertyPath = `${columnPath}.${propertyDefinition.name}`
+        const hogqlExpression = `${escapeDottedHogQLIdentifier(columnPath)}.${escapeRawPropertyAsHogQLIdentifier(
+            propertyDefinition.name
+        )}`
+
+        const propertyNode = createColumnNode(
+            tableName,
+            {
+                id: propertyDefinition.id,
+                name: propertyDefinition.name,
+                hogql_value: propertyDefinition.name,
+                type: getPropertyDefinitionFieldType(propertyDefinition),
+                schema_valid: true,
+            },
+            propertyPath,
+            isSearch,
+            hogqlExpression
+        )
+
+        return {
+            ...propertyNode,
+            record: {
+                ...propertyNode.record,
+                propertyDefinition,
+            },
+        }
+    })
+
+    if (propertyDefinitionList.loading) {
+        propertyNodes.push({
+            id: `${isSearch ? 'search-' : ''}property-${tableName}-${columnPath}-loading/`,
+            name: 'Loading...',
+            displayName: <>Loading...</>,
+            icon: <Spinner />,
+            disableSelect: true,
+            type: 'loading-indicator',
+        })
+    } else if (propertyDefinitionList.error) {
+        propertyNodes.push(
+            {
+                id: `${isSearch ? 'search-' : ''}property-${tableName}-${columnPath}-error/`,
+                name: "Couldn't load properties",
+                displayName: <span className="text-danger">Couldn't load properties</span>,
+                icon: <IconWarning className="text-danger" />,
+                disableSelect: true,
+                type: 'node',
+                record: { type: 'property-definitions-error' },
+            },
+            {
+                id: `${isSearch ? 'search-' : ''}property-${tableName}-${columnPath}-retry/`,
+                name: 'Try again',
+                displayName: <>Try again</>,
+                icon: <IconRefresh />,
+                onClick: () => loadPropertyDefinitions?.(propertyFieldKey, target, 0),
+                record: { type: 'property-definitions-retry' },
+            }
+        )
+    } else if (propertyDefinitionList.definitions.length < propertyDefinitionList.count) {
+        propertyNodes.push({
+            id: `${isSearch ? 'search-' : ''}property-${tableName}-${columnPath}-load-more/`,
+            name: 'Load more',
+            displayName: <>Load more</>,
+            icon: <IconPlus />,
+            onClick: () =>
+                loadPropertyDefinitions?.(propertyFieldKey, target, propertyDefinitionList.definitions.length),
+            record: { type: 'property-definitions-load-more' },
+        })
+    } else if (propertyNodes.length === 0) {
+        propertyNodes.push({
+            id: `${isSearch ? 'search-' : ''}property-${tableName}-${columnPath}-empty/`,
+            name: propertyDefinitionList.search ? 'No matching properties' : 'No properties found',
+            type: 'empty-folder',
+            record: { type: 'empty-folder' },
+        })
+    }
+
+    return propertyNodes
+}
+
+const createPropertyDefinitionFieldNode = (
+    tableName: string,
+    field: DatabaseSchemaField,
+    isSearch: boolean,
+    columnPath: string,
+    target: SidebarPropertyDefinitionTarget,
+    options: FieldTraversalOptions
+): TreeDataItem => {
+    const propertyFieldKey = `${tableName}:${columnPath}`
+    const propertyDefinitionList = options.propertyDefinitionLists?.[propertyFieldKey]
+
+    return {
+        id: `${isSearch ? 'search-' : ''}property-${tableName}-${columnPath}`,
+        name: field.name,
+        type: 'node',
+        icon: <IconBrackets />,
+        record: {
+            type: 'property-field',
+            columnName: columnPath,
+            field,
+            propertyDefinitionKey: propertyFieldKey,
+            propertyDefinitionSearch: propertyDefinitionList?.search ?? '',
+            propertyDefinitionTarget: target,
+            table: tableName,
+        },
+        children: createPropertyDefinitionChildren(
+            tableName,
+            columnPath,
+            isSearch,
+            propertyFieldKey,
+            target,
+            propertyDefinitionList,
+            options.loadPropertyDefinitions
+        ),
+    }
+}
 
 const createVirtualTableField = (
     fieldName: string,
@@ -810,10 +1034,27 @@ const createFieldNode = (
     nextVisitedColumnPaths.add(columnKey)
     const nextOptions: FieldTraversalOptions = {
         expandedLazyNodeIds,
+        propertyDefinitionLists: options?.propertyDefinitionLists,
+        loadPropertyDefinitions: options?.loadPropertyDefinitions,
+        allowPropertyDefinitionExpansion: options?.allowPropertyDefinitionExpansion,
         visitedColumnPaths: nextVisitedColumnPaths,
         depth: depth + 1,
         hydration: options?.hydration,
     }
+    const propertyDefinitionTarget = options?.allowPropertyDefinitionExpansion
+        ? getSidebarPropertyDefinitionTarget(tableName, columnPath, field)
+        : null
+    if (propertyDefinitionTarget) {
+        return createPropertyDefinitionFieldNode(
+            tableName,
+            field,
+            isSearch,
+            columnPath,
+            propertyDefinitionTarget,
+            nextOptions
+        )
+    }
+
     if (field.type === 'virtual_table') {
         const children =
             field.fields
@@ -972,10 +1213,7 @@ const createTableNode = (
     matches: FuseSearchMatch[] | null = null,
     isSearch = false,
     tableLookup?: TableLookup,
-    options?: {
-        expandedLazyNodeIds?: Set<string>
-        hydration?: TableFieldsHydration
-    }
+    options?: FieldTraversalOptions
 ): TreeDataItem => {
     const tableId = `${isSearch ? 'search-' : ''}table-${table.name}`
     const tableChildren: TreeDataItem[] = []
@@ -993,6 +1231,9 @@ const createTableNode = (
                     tableChildren.push(
                         createFieldNode(table.name, field, isSearch, field.name, tableLookup, {
                             expandedLazyNodeIds: options?.expandedLazyNodeIds,
+                            propertyDefinitionLists: options?.propertyDefinitionLists,
+                            loadPropertyDefinitions: options?.loadPropertyDefinitions,
+                            allowPropertyDefinitionExpansion: table.type === 'posthog',
                             hydration: options?.hydration,
                         })
                     )
@@ -1217,10 +1458,7 @@ const createSourceFolderNode = (
     matches: [any, FuseSearchMatch[] | null][] = [],
     isSearch = false,
     tableLookup?: TableLookup,
-    options?: {
-        expandedLazyNodeIds?: Set<string>
-        hydration?: TableFieldsHydration
-    }
+    options?: FieldTraversalOptions
 ): TreeDataItem => {
     const sourceChildren: TreeDataItem[] = []
 
@@ -1526,6 +1764,27 @@ const findTreeItem = (items: TreeDataItem[], targetId: string): TreeDataItem | n
     return path ? path[path.length - 1] : null
 }
 
+const getUnloadedPropertyDefinitionRequest = (
+    items: TreeDataItem[],
+    targetId: string,
+    propertyDefinitionLists: Record<string, SidebarPropertyDefinitionList>
+): { propertyFieldKey: string; target: SidebarPropertyDefinitionTarget } | null => {
+    const propertyField = findTreeItem(items, targetId)
+    const propertyFieldKey = propertyField?.record?.propertyDefinitionKey
+    const target = propertyField?.record?.propertyDefinitionTarget as SidebarPropertyDefinitionTarget | undefined
+
+    if (
+        propertyField?.record?.type !== 'property-field' ||
+        typeof propertyFieldKey !== 'string' ||
+        !target ||
+        propertyDefinitionLists[propertyFieldKey]
+    ) {
+        return null
+    }
+
+    return { propertyFieldKey, target }
+}
+
 const getTreeItemDataSourceName = (item: TreeDataItem): string | null => {
     switch (item.record?.type) {
         case 'table':
@@ -1616,12 +1875,14 @@ export interface queryDatabaseLogicValues {
     joins: DataWarehouseViewLink[] // joinsLogic
     joinsLoading: boolean // joinsLogic
     dataWarehouseSources: PaginatedResponse<ExternalDataSource> | null // sourceManagementLogic
+    currentProjectId: number | string // teamLogic
     user: UserType | null // userLogic
     activeDraggedViewId: string | null
     activeExpandedFolderIds: string[]
     defaultExpandedRootIds: string[]
     displayedTreeData: TreeDataItem[]
     editingDraftId: string | null
+    editingPropertyDefinition: EnterprisePropertyDefinitionApi | null
     effectiveDataWarehouseSavedQueries: DataWarehouseSavedQuery[]
     expandedFolders: string[]
     expandedFoldersByConnection: Record<string, string[]>
@@ -1632,6 +1893,7 @@ export interface queryDatabaseLogicValues {
     highlightedDropFolderId: string | null
     joinsByFieldName: Record<string, DataWarehouseViewLink>
     pendingViewFolderOverrides: Record<string, string | null>
+    propertyDefinitionLists: Record<string, SidebarPropertyDefinitionList>
     queryTabState: QueryTabState | null
     queryTabStateLoading: boolean
     relevantDataWarehouseTables: [DatabaseSchemaDataWarehouseTable, FuseSearchMatch[] | null][]
@@ -1776,6 +2038,9 @@ export interface queryDatabaseLogicActions {
     clearTableToLocate: () => {
         value: true
     }
+    closePropertyDefinitionEditor: () => {
+        value: true
+    }
     deleteUnsavedQuery: (record: Record<string, any>) => {
         record: Record<string, any>
     }
@@ -1813,6 +2078,44 @@ export interface queryDatabaseLogicActions {
             record: Record<string, any>
         }
     }
+    loadPropertyDefinitions: (
+        propertyFieldKey: string,
+        target: SidebarPropertyDefinitionTarget,
+        offset: number
+    ) => {
+        offset: number
+        propertyFieldKey: string
+        requestId: string
+        target: SidebarPropertyDefinitionTarget
+    }
+    loadPropertyDefinitionsFailure: (
+        propertyFieldKey: string,
+        search: string,
+        requestId: string
+    ) => {
+        propertyFieldKey: string
+        requestId: string
+        search: string
+    }
+    loadPropertyDefinitionsSuccess: (
+        propertyFieldKey: string,
+        search: string,
+        offset: number,
+        requestId: string,
+        response: {
+            count: number
+            results: EnterprisePropertyDefinitionApi[]
+        }
+    ) => {
+        offset: number
+        propertyFieldKey: string
+        requestId: string
+        response: {
+            count: number
+            results: EnterprisePropertyDefinitionApi[]
+        }
+        search: string
+    }
     loadQueryTabState: () => any
     loadQueryTabStateFailure: (
         error: string,
@@ -1837,6 +2140,9 @@ export interface queryDatabaseLogicActions {
     ) => {
         dropTargetId: string | null
         viewId: string
+    }
+    openPropertyDefinitionEditor: (propertyDefinition: EnterprisePropertyDefinitionApi) => {
+        propertyDefinition: EnterprisePropertyDefinitionApi
     }
     openUnsavedQuery: (record: Record<string, any>) => {
         record: Record<string, any>
@@ -1874,6 +2180,15 @@ export interface queryDatabaseLogicActions {
         folderId: string | null
         viewId: string
     }
+    setPropertyDefinitionSearch: (
+        propertyFieldKey: string,
+        target: SidebarPropertyDefinitionTarget,
+        search: string
+    ) => {
+        propertyFieldKey: string
+        search: string
+        target: SidebarPropertyDefinitionTarget
+    }
     setSearchTerm: (searchTerm: string) => {
         searchTerm: string
     }
@@ -1895,6 +2210,9 @@ export interface queryDatabaseLogicActions {
     }
     updateDraggedViewDropTarget: (dropTargetId: string | null) => {
         dropTargetId: string | null
+    }
+    updatePropertyDefinition: (propertyDefinition: EnterprisePropertyDefinitionApi) => {
+        propertyDefinition: EnterprisePropertyDefinitionApi
     }
 }
 
@@ -1971,7 +2289,8 @@ export interface queryDatabaseLogicMeta {
             searchTerm: string,
             featureFlags: FeatureFlagsSet,
             expandedSearchFolders: string[],
-            materializingViewIds: string[]
+            materializingViewIds: string[],
+            propertyDefinitionLists: Record<string, SidebarPropertyDefinitionList>
         ) => TreeDataItem[]
         treeDataContext: (
             allPosthogTables: DatabaseSchemaTable[],
@@ -1996,6 +2315,7 @@ export interface queryDatabaseLogicMeta {
             queryTabState: QueryTabState | null,
             expandedFolders: string[],
             materializingViewIds: string[],
+            propertyDefinitionLists: Record<string, SidebarPropertyDefinitionList>,
             databaseFieldsComplete: boolean,
             tableFieldsStatus: TableFieldsStatus
         ) => TreeDataItem[]
@@ -2058,6 +2378,33 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
         toggleFolderOpen: (folderId: string, isExpanded: boolean) => ({ folderId, isExpanded }),
         setTreeRef: (ref: EditorSidebarTreeRef | null) => ({ ref }),
         setSearchTerm: (searchTerm: string) => ({ searchTerm }),
+        setPropertyDefinitionSearch: (
+            propertyFieldKey: string,
+            target: SidebarPropertyDefinitionTarget,
+            search: string
+        ) => ({ propertyFieldKey, target, search }),
+        loadPropertyDefinitions: (
+            propertyFieldKey: string,
+            target: SidebarPropertyDefinitionTarget,
+            offset: number
+        ) => ({ propertyFieldKey, target, offset, requestId: uuid() }),
+        loadPropertyDefinitionsSuccess: (
+            propertyFieldKey: string,
+            search: string,
+            offset: number,
+            requestId: string,
+            response: { count: number; results: EnterprisePropertyDefinitionApi[] }
+        ) => ({ propertyFieldKey, search, offset, requestId, response }),
+        loadPropertyDefinitionsFailure: (propertyFieldKey: string, search: string, requestId: string) => ({
+            propertyFieldKey,
+            search,
+            requestId,
+        }),
+        openPropertyDefinitionEditor: (propertyDefinition: EnterprisePropertyDefinitionApi) => ({
+            propertyDefinition,
+        }),
+        closePropertyDefinitionEditor: true,
+        updatePropertyDefinition: (propertyDefinition: EnterprisePropertyDefinitionApi) => ({ propertyDefinition }),
         clearSearch: true,
         clearTableToLocate: true,
         locateTable: (tableName: string) => ({ tableName }),
@@ -2115,6 +2462,8 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
             ['dataWarehouseSources'],
             featureFlagLogic,
             ['featureFlags'],
+            teamLogic,
+            ['currentProjectId'],
             userLogic,
             ['user'],
         ],
@@ -2141,6 +2490,14 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
             null as string | null,
             {
                 setEditingDraft: (_, { draftId }) => draftId,
+            },
+        ],
+        editingPropertyDefinition: [
+            null as EnterprisePropertyDefinitionApi | null,
+            {
+                openPropertyDefinitionEditor: (_, { propertyDefinition }) => propertyDefinition,
+                closePropertyDefinitionEditor: () => null,
+                updatePropertyDefinition: () => null,
             },
         ],
         selectedSchema: [
@@ -2193,6 +2550,107 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
             {
                 setSearchTerm: (_, { searchTerm }) => searchTerm,
                 clearSearch: () => '',
+            },
+        ],
+        propertyDefinitionLists: [
+            {} as Record<string, SidebarPropertyDefinitionList>,
+            {
+                setPropertyDefinitionSearch: (state, { propertyFieldKey, search }) => ({
+                    ...state,
+                    [propertyFieldKey]: {
+                        activeRequestId: null,
+                        count: 0,
+                        definitions: [],
+                        error: false,
+                        loading: true,
+                        search,
+                    },
+                }),
+                loadPropertyDefinitions: (state, { propertyFieldKey, offset, requestId }) => {
+                    const current = state[propertyFieldKey] ?? {
+                        activeRequestId: null,
+                        count: 0,
+                        definitions: [],
+                        error: false,
+                        loading: false,
+                        search: '',
+                    }
+
+                    return {
+                        ...state,
+                        [propertyFieldKey]: {
+                            ...current,
+                            activeRequestId: requestId,
+                            definitions: offset === 0 ? [] : current.definitions,
+                            error: false,
+                            loading: true,
+                        },
+                    }
+                },
+                loadPropertyDefinitionsSuccess: (state, { propertyFieldKey, search, offset, requestId, response }) => {
+                    const current = state[propertyFieldKey]
+                    if (!current || current.search !== search || current.activeRequestId !== requestId) {
+                        return state
+                    }
+
+                    const definitions = offset === 0 ? response.results : [...current.definitions, ...response.results]
+                    return {
+                        ...state,
+                        [propertyFieldKey]: {
+                            ...current,
+                            activeRequestId: null,
+                            count: response.count,
+                            definitions: Array.from(
+                                new Map(definitions.map((definition) => [definition.id, definition])).values()
+                            ),
+                            error: false,
+                            loading: false,
+                        },
+                    }
+                },
+                loadPropertyDefinitionsFailure: (state, { propertyFieldKey, search, requestId }) => {
+                    const current = state[propertyFieldKey]
+                    if (!current || current.search !== search || current.activeRequestId !== requestId) {
+                        return state
+                    }
+
+                    return {
+                        ...state,
+                        [propertyFieldKey]: {
+                            ...current,
+                            activeRequestId: null,
+                            error: true,
+                            loading: false,
+                        },
+                    }
+                },
+                updatePropertyDefinition: (state, { propertyDefinition }) =>
+                    Object.fromEntries(
+                        Object.entries(state).map(([propertyFieldKey, propertyDefinitionList]) => {
+                            const includesPropertyDefinition = propertyDefinitionList.definitions.some(
+                                (definition) => definition.id === propertyDefinition.id
+                            )
+                            const definitions = propertyDefinition.hidden
+                                ? propertyDefinitionList.definitions.filter(
+                                      (definition) => definition.id !== propertyDefinition.id
+                                  )
+                                : propertyDefinitionList.definitions.map((definition) =>
+                                      definition.id === propertyDefinition.id ? propertyDefinition : definition
+                                  )
+
+                            return [
+                                propertyFieldKey,
+                                {
+                                    ...propertyDefinitionList,
+                                    count:
+                                        propertyDefinition.hidden && includesPropertyDefinition
+                                            ? Math.max(0, propertyDefinitionList.count - 1)
+                                            : propertyDefinitionList.count,
+                                    definitions,
+                                },
+                            ]
+                        })
+                    ),
             },
         ],
         syncMoreNoticeDismissed: [
@@ -2279,6 +2737,28 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
         },
         updateDataWarehouseSavedQueryFailure: () => {
             actions.clearPendingViewFolderOverrides()
+        },
+        setPropertyDefinitionSearch: async ({ propertyFieldKey, target }, breakpoint) => {
+            await breakpoint(250)
+            actions.loadPropertyDefinitions(propertyFieldKey, target, 0)
+        },
+        loadPropertyDefinitions: async ({ propertyFieldKey, target, offset, requestId }) => {
+            const search = values.propertyDefinitionLists[propertyFieldKey]?.search ?? ''
+
+            try {
+                const response = await propertyDefinitionsList(String(values.currentProjectId), {
+                    exclude_hidden: true,
+                    exclude_restricted: true,
+                    group_type_index: target.groupTypeIndex,
+                    limit: PROPERTY_DEFINITIONS_PAGE_SIZE,
+                    offset,
+                    search: search.trim() || undefined,
+                    type: target.type,
+                })
+                actions.loadPropertyDefinitionsSuccess(propertyFieldKey, search, offset, requestId, response)
+            } catch {
+                actions.loadPropertyDefinitionsFailure(propertyFieldKey, search, requestId)
+            }
         },
     })),
     listeners(({ actions, values }) => {
@@ -2569,6 +3049,7 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
                 s.featureFlags,
                 s.expandedSearchFolders,
                 s.materializingViewIds,
+                s.propertyDefinitionLists,
             ],
             (
                 searchTreeSourceContext: SearchTreeSourceContext,
@@ -2576,7 +3057,8 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
                 searchTerm: string,
                 featureFlags: FeatureFlagsSet,
                 expandedSearchFolders: string[],
-                materializingViewIds: string[]
+                materializingViewIds: string[],
+                propertyDefinitionLists: Record<string, SidebarPropertyDefinitionList>
             ): TreeDataItem[] => {
                 if (!searchTerm) {
                     return []
@@ -2613,7 +3095,11 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
                 const expandedLazyNodeIds = new Set(expandedSearchFolders.filter(isLazyNodeId))
                 const sourcesChildren: TreeDataItem[] = []
                 const expandedIds: string[] = []
-                const tableNodeOptions = { expandedLazyNodeIds }
+                const tableNodeOptions: FieldTraversalOptions = {
+                    expandedLazyNodeIds,
+                    propertyDefinitionLists,
+                    loadPropertyDefinitions: actions.loadPropertyDefinitions,
+                }
 
                 // Add PostHog tables
                 if (relevantPosthogTables.length > 0) {
@@ -2811,6 +3297,7 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
                 s.queryTabState,
                 s.expandedFolders,
                 s.materializingViewIds,
+                s.propertyDefinitionLists,
                 s.databaseFieldsComplete,
                 s.tableFieldsStatus,
             ],
@@ -2826,6 +3313,7 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
                 queryTabState: QueryTabState | null,
                 expandedFolders: string[],
                 materializingViewIds: string[],
+                propertyDefinitionLists: Record<string, SidebarPropertyDefinitionList>,
                 databaseFieldsComplete: boolean,
                 tableFieldsStatus: TableFieldsStatus
             ): TreeDataItem[] => {
@@ -2851,7 +3339,12 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
                 })
                 const expandedLazyNodeIds = new Set(expandedFolders.filter(isLazyNodeId))
                 const hydration: TableFieldsHydration = { databaseFieldsComplete, tableFieldsStatus }
-                const tableNodeOptions = { expandedLazyNodeIds, hydration }
+                const tableNodeOptions: FieldTraversalOptions = {
+                    expandedLazyNodeIds,
+                    propertyDefinitionLists,
+                    loadPropertyDefinitions: actions.loadPropertyDefinitions,
+                    hydration,
+                }
                 const schemaFailedWithNoTables =
                     !!databaseLoadError && !databaseLoading && Object.keys(allTablesMap).length === 0
 
@@ -3302,6 +3795,17 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
         toggleFolderOpen: ({ folderId, isExpanded }) => {
             const expandedFolders = values.searchTerm ? values.expandedSearchFolders : values.expandedFolders
 
+            if (!isExpanded) {
+                const request = getUnloadedPropertyDefinitionRequest(
+                    values.displayedTreeData,
+                    folderId,
+                    values.propertyDefinitionLists
+                )
+                if (request) {
+                    actions.loadPropertyDefinitions(request.propertyFieldKey, request.target, 0)
+                }
+            }
+
             if (isExpanded) {
                 if (values.searchTerm) {
                     actions.setExpandedSearchFolders(expandedFolders.filter((f) => f !== folderId))
@@ -3356,10 +3860,21 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
         },
     })),
     subscriptions(({ actions, values }) => ({
-        // Hydrate fields for every visible "Loading..." placeholder. Covers expansion restored from
-        // persisted state and nodes that were expanded before the shallow schema arrived; the
-        // hydrate action itself dedupes tables that are already loading or settled.
         displayedTreeData: (displayedTreeData: TreeDataItem[]) => {
+            for (const folderId of values.expandedItemIds) {
+                const request = getUnloadedPropertyDefinitionRequest(
+                    displayedTreeData,
+                    folderId,
+                    values.propertyDefinitionLists
+                )
+                if (request) {
+                    actions.loadPropertyDefinitions(request.propertyFieldKey, request.target, 0)
+                }
+            }
+
+            // Hydrate fields for every visible "Loading..." placeholder. Covers expansion restored from
+            // persisted state and nodes that were expanded before the shallow schema arrived; the
+            // hydrate action itself dedupes tables that are already loading or settled.
             const expanded = new Set(values.searchTerm ? values.expandedSearchFolders : values.expandedFolders)
             const pendingTableNames = new Set<string>()
             const collect = (nodes: TreeDataItem[]): void => {

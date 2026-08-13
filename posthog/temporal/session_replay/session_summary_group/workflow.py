@@ -427,6 +427,8 @@ class SummarizeSessionGroupWorkflow(PostHogWorkflow):
     async def run(self, inputs: SessionGroupSummaryInputs) -> str:
         start_time = temporalio.workflow.now()
         self._total_sessions = len(inputs.session_ids)
+        for pre_run_failed_session in inputs.pre_run_failed_sessions:
+            self._failed_sessions[pre_run_failed_session.session_id] = pre_run_failed_session
         # Get events data from the DB (or cache)
         self._current_phase = "fetching_data"
         self._current_status.append("Fetching session data from the database")
@@ -661,6 +663,7 @@ async def execute_summarize_session_group(
     local_reads_prod: bool = False,
     video_based: bool = False,
     trigger_session_id: str | None = None,
+    pre_run_failed_sessions: list[FailedSessionInfo] | None = None,
 ) -> AsyncGenerator[
     tuple[
         SessionSummaryStreamUpdate,
@@ -688,6 +691,7 @@ async def execute_summarize_session_group(
         local_reads_prod=local_reads_prod,
         video_based=video_based,
         trigger_session_id=trigger_session_id,
+        pre_run_failed_sessions=pre_run_failed_sessions or [],
     )
     # Connect to Temporal and execute the workflow
     workflow_id = f"session-summary:group:{user.id}-{team.id}:{shared_id}:{uuid.uuid4()}"
