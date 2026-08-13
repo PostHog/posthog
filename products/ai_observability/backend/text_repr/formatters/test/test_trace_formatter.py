@@ -8,6 +8,7 @@ from typing import Any
 
 from posthog.schema import LLMTrace, LLMTraceEvent
 
+from ..constants import MAX_TREE_DEPTH
 from ..message_formatter import truncate_content
 from ..trace_formatter import (
     _format_cost,
@@ -721,7 +722,7 @@ class TestLLMTraceToFormatterFormat:
 
         assert [node["event"]["id"] for node in hierarchy] == ["span-1"]
 
-    def test_survives_a_parent_cycle(self):
+    def test_preserves_events_in_a_parent_cycle(self) -> None:
         trace = self._trace(
             self._event("span-1", {"$ai_span_id": "span-1", "$ai_parent_id": "span-2"}),
             self._event("span-2", {"$ai_span_id": "span-2", "$ai_parent_id": "span-1"}),
@@ -729,7 +730,39 @@ class TestLLMTraceToFormatterFormat:
 
         _, hierarchy = llm_trace_to_formatter_format(trace, nest_children=True)
 
-        assert isinstance(hierarchy, list)
+        assert [node["event"]["id"] for node in hierarchy] == ["span-1"]
+        assert [node["event"]["id"] for node in hierarchy[0]["children"]] == ["span-2"]
+
+    def test_emits_duplicate_node_ids_once_under_the_retained_parent(self) -> None:
+        trace = self._trace(
+            self._event("root-1", {"$ai_span_id": "root-1", "$ai_trace_id": self.TRACE_ID}),
+            self._event("root-2", {"$ai_span_id": "root-2", "$ai_trace_id": self.TRACE_ID}),
+            self._event("shared-old", {"$ai_span_id": "shared", "$ai_parent_id": "root-1"}),
+            self._event("shared-duplicate", {"$ai_span_id": "shared", "$ai_parent_id": "root-2"}),
+            self._event("shared-retained", {"$ai_span_id": "shared", "$ai_parent_id": "root-2"}),
+        )
+
+        _, hierarchy = llm_trace_to_formatter_format(trace, nest_children=True)
+
+        assert [node["event"]["id"] for node in hierarchy] == ["root-1", "root-2"]
+        assert hierarchy[0]["children"] == []
+        assert [node["event"]["id"] for node in hierarchy[1]["children"]] == ["shared-retained"]
+
+    def test_splits_overdeep_branches_into_additional_roots(self) -> None:
+        events = [self._event("span-0", {"$ai_span_id": "span-0", "$ai_trace_id": self.TRACE_ID})]
+        events.extend(
+            self._event(
+                f"span-{index}",
+                {"$ai_span_id": f"span-{index}", "$ai_parent_id": f"span-{index - 1}"},
+            )
+            for index in range(1, MAX_TREE_DEPTH + 3)
+        )
+        trace = self._trace(*events)
+
+        _, hierarchy = llm_trace_to_formatter_format(trace, nest_children=True)
+
+        assert [node["event"]["id"] for node in hierarchy] == ["span-0", f"span-{MAX_TREE_DEPTH + 1}"]
+        assert [node["event"]["id"] for node in hierarchy[1]["children"]] == [f"span-{MAX_TREE_DEPTH + 2}"]
 
     def test_orders_siblings_by_when_their_operation_began(self):
         # Captured on completion, so the event that finished first is not the one that started first.

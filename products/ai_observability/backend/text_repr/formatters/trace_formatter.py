@@ -70,7 +70,6 @@ def _to_formatter_event(event: LLMTraceEvent) -> dict[str, Any]:
 def _nest_events(llm_trace: LLMTrace) -> list[dict[str, Any]]:
     """Rebuild the parent/child hierarchy the trace view shows, following `$ai_parent_id` links."""
     events_by_node_id: dict[Any, LLMTraceEvent] = {}
-    child_ids: dict[Any, list[Any]] = {}
 
     for event in llm_trace.events:
         if event.event in FEEDBACK_EVENT_TYPES:
@@ -79,6 +78,9 @@ def _nest_events(llm_trace: LLMTrace) -> list[dict[str, Any]]:
         if node_id is None:
             node_id = event.id
         events_by_node_id[node_id] = event
+
+    child_ids: dict[Any, list[Any]] = {}
+    for node_id, event in events_by_node_id.items():
         parent_id = _first_set_property(event.properties, "$ai_parent_id", "$ai_trace_id")
         if parent_id is not None:
             child_ids.setdefault(parent_id, []).append(node_id)
@@ -88,16 +90,17 @@ def _nest_events(llm_trace: LLMTrace) -> list[dict[str, Any]]:
         # Siblings that began together are ordered longest first, matching the timeline.
         return (_operation_start_ms(event), -_latency_ms(event))
 
-    def build(node_id: Any, ancestors: frozenset[Any]) -> dict[str, Any] | None:
+    emitted_node_ids: set[Any] = set()
+
+    def build(node_id: Any, depth: int) -> dict[str, Any] | None:
         event = events_by_node_id.get(node_id)
-        if event is None or node_id in ancestors:
+        if event is None or node_id in emitted_node_ids or depth > MAX_TREE_DEPTH:
             return None
+        emitted_node_ids.add(node_id)
         children = sorted(child_ids.get(node_id, []), key=sort_key)
         return {
             "event": _to_formatter_event(event),
-            "children": [
-                node for node in (build(child_id, ancestors | {node_id}) for child_id in children) if node is not None
-            ],
+            "children": [node for node in (build(child_id, depth + 1) for child_id in children) if node is not None],
         }
 
     # An event whose parent never made it into the trace still has to be rendered, so it becomes a root.
@@ -109,7 +112,14 @@ def _nest_events(llm_trace: LLMTrace) -> list[dict[str, Any]]:
         and parent_id not in events_by_node_id
     ]
     root_ids = sorted([*child_ids.get(llm_trace.id, []), *orphan_ids], key=sort_key)
-    return [node for node in (build(root_id, frozenset()) for root_id in root_ids) if node is not None]
+    hierarchy = [node for node in (build(root_id, 0) for root_id in root_ids) if node is not None]
+
+    # Start unvisited components at a new root so cycles and depth-limited branches still render once.
+    remaining_root_ids = sorted(
+        (node_id for node_id in events_by_node_id if node_id not in emitted_node_ids), key=sort_key
+    )
+    hierarchy.extend(node for node in (build(root_id, 0) for root_id in remaining_root_ids) if node is not None)
+    return hierarchy
 
 
 def llm_trace_to_formatter_format(
