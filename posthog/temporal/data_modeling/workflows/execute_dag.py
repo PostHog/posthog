@@ -39,6 +39,8 @@ from products.data_quality.backend.facade.enums import SuiteRunTrigger
 
 MAX_CONCURRENT_CHILDREN = 10
 
+NODE_AUDIT_PATCH = "data-quality-node-audit-2026-08"
+
 
 class EmptyDAGOrCycleError(Exception):
     """Raised when the DAG is empty or contains a cycle according to _dag_execution_levels."""
@@ -508,11 +510,17 @@ class ExecuteDAGWorkflow(PostHogWorkflow):
         of which need the database. Asking first keeps a team with no checks, or an org that never
         opted in, from paying for a child workflow and a suite row on every materialization.
         """
-        checkable_node_ids = [
-            result.node_id
-            for result in node_results
-            if result.success and not result.skipped and not result.quality_audited
-        ]
+        # Filtering can empty the list and skip the commands below, so an old history that recorded
+        # them has to keep taking the old path. A rolling deploy reaches this: an old worker can
+        # record those commands against a new child's quality_audited result.
+        if temporalio.workflow.patched(NODE_AUDIT_PATCH):
+            checkable_node_ids = [
+                result.node_id
+                for result in node_results
+                if result.success and not result.skipped and not result.quality_audited
+            ]
+        else:
+            checkable_node_ids = [result.node_id for result in node_results if result.success and not result.skipped]
         if not checkable_node_ids:
             return
 

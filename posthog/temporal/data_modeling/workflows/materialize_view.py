@@ -65,6 +65,8 @@ from products.data_quality.backend.facade.contracts import (
 )
 from products.data_quality.backend.facade.enums import SuiteRunTrigger
 
+GATE_PATCH = "data-quality-staged-gate-2026-08"
+
 # these indicate problems with the query or data, not transient issues
 NON_RETRYABLE_ERRORS = [
     "CHQueryErrorMemoryLimitExceeded",
@@ -246,6 +248,7 @@ class MaterializeViewWorkflow(PostHogWorkflow):
                 # zero-row results — it falls back to _write_empty_parquet_for_zero_rows
                 # so prepare_s3_files_for_querying has something to list.
                 quality_audit = self._audit_mode(materialize_result, inputs)
+                staged_verdict: int | None = None
                 prepare_inputs = PrepareQueryableTableInputs(
                     team_id=inputs.team_id,
                     job_id=job_id,
@@ -254,17 +257,20 @@ class MaterializeViewWorkflow(PostHogWorkflow):
                     file_uris=materialize_result.file_uris,
                     row_count=materialize_result.row_count,
                 )
-                if quality_audit == QUALITY_AUDIT_GATE:
+                # A rolling deploy can pair an old workflow worker with a new activity worker, so a
+                # history can carry "gate" and still have recorded the ungated command. The marker
+                # is what says this code wrote the history, which the result field alone cannot.
+                if quality_audit == QUALITY_AUDIT_GATE and temporalio.workflow.patched(GATE_PATCH):
                     stage_result: StageQueryableFilesResult = await temporalio.workflow.execute_activity(
                         stage_queryable_files_activity,
                         prepare_inputs,
                         start_to_close_timeout=dt.timedelta(minutes=5),
                         retry_policy=temporalio.common.RetryPolicy(maximum_attempts=3),
                     )
-                    blocking_failures = await self._count_blocking_failures_on_staged_data(
+                    staged_verdict = await self._staged_audit_verdict(
                         inputs, job_id, materialize_result, stage_result.staged_folder_path
                     )
-                    if blocking_failures > 0:
+                    if staged_verdict:
                         await temporalio.workflow.execute_activity(
                             quality_block_materialization_activity,
                             QualityBlockMaterializationInputs(
@@ -272,19 +278,28 @@ class MaterializeViewWorkflow(PostHogWorkflow):
                                 node_id=inputs.node_id,
                                 dag_id=inputs.dag_id,
                                 job_id=job_id,
-                                blocking_failures=blocking_failures,
+                                blocking_failures=staged_verdict,
                             ),
                             start_to_close_timeout=dt.timedelta(minutes=5),
                             retry_policy=temporalio.common.RetryPolicy(maximum_attempts=3),
                         )
                         get_node_finished_metric("quality_blocked").add(1)
                         end_time = temporalio.workflow.now()
+                        blocked_duration_seconds = (end_time - start_time).total_seconds()
+                        if duckgres_shadow_handle is not None:
+                            await self._collect_shadow_comparison(
+                                duckgres_shadow_handle,
+                                duckgres_job_id,
+                                materialize_result.row_count,
+                                blocked_duration_seconds,
+                                inputs,
+                            )
                         return MaterializeViewWorkflowResult(
                             job_id=job_id,
                             node_id=inputs.node_id,
                             rows_materialized=materialize_result.row_count,
-                            duration_seconds=(end_time - start_time).total_seconds(),
-                            quality_blocking_failures=blocking_failures,
+                            duration_seconds=blocked_duration_seconds,
+                            quality_blocking_failures=staged_verdict,
                             quality_audited=True,
                         )
                     storage_result: PrepareQueryableTableResult = await temporalio.workflow.execute_activity(
@@ -330,7 +345,7 @@ class MaterializeViewWorkflow(PostHogWorkflow):
                 # None for in-flight runs on the pre-deploy activity version — treat that as "not needed".
                 await self._maybe_enrich_view_semantics(inputs, succeed_result)
 
-                quality_audited = quality_audit == QUALITY_AUDIT_GATE
+                quality_audited = staged_verdict is not None
                 if quality_audit == QUALITY_AUDIT_WARN:
                     quality_audited = await self._start_suite_on_published_data(inputs, job_id, materialize_result)
 
@@ -367,7 +382,7 @@ class MaterializeViewWorkflow(PostHogWorkflow):
                     node_id=inputs.node_id,
                     rows_materialized=materialize_result.row_count,
                     duration_seconds=duration_seconds,
-                    quality_blocking_failures=0 if quality_audit == QUALITY_AUDIT_GATE else None,
+                    quality_blocking_failures=staged_verdict,
                     quality_audited=quality_audited,
                 )
             except Exception as e:
@@ -433,16 +448,18 @@ class MaterializeViewWorkflow(PostHogWorkflow):
             duration_seconds=result.duration_seconds if result else 0,
         )
 
-    async def _count_blocking_failures_on_staged_data(
+    async def _staged_audit_verdict(
         self,
         inputs: MaterializeViewWorkflowInputs,
         job_id: str,
         materialize_result: MaterializeViewResult,
         staged_folder_path: str,
-    ) -> int:
-        """A suite that errors returns zero, because a broken check pipeline is not a data verdict.
+    ) -> int | None:
+        """The blocking-failure count, or None when the audit reached no verdict.
 
-        Cancellation is not such a case, so it propagates rather than publishing unaudited data.
+        None still publishes, because a broken check pipeline is not a verdict on the data, and it
+        leaves the node to the DAG's sweep so the checks get another chance. Cancellation is not
+        such a case, so it propagates rather than publishing unaudited data.
         """
         try:
             result = await temporalio.workflow.execute_child_workflow(
@@ -467,10 +484,10 @@ class MaterializeViewWorkflow(PostHogWorkflow):
                 "Staged data quality audit did not complete; publishing without a verdict",
                 extra={"error": str(e), **inputs.properties_to_log},
             )
-            return 0
+            return None
         if isinstance(result, dict):
             return int(result.get("checks_failed_blocking") or 0)
-        return 0
+        return None
 
     async def _start_suite_on_published_data(
         self,

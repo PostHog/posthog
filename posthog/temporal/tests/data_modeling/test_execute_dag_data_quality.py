@@ -2,8 +2,10 @@ import uuid
 import datetime as dt
 
 import pytest
+from unittest.mock import patch
 
 import temporalio.worker
+import temporalio.workflow
 from temporalio import (
     activity as temporal_activity,
     workflow as temporal_workflow,
@@ -135,6 +137,18 @@ class TestPostMaterializationChecks:
 
         assert result.successful_nodes == 1
         assert result.failed_nodes == 0
+
+    async def test_a_history_without_the_patch_marker_still_sweeps_every_node(self, ateam) -> None:
+        # An old DAG worker records the gate activity and suite child against a new child's
+        # quality_audited result. Filtering on replay would omit commands that history already has.
+        audited = str(uuid.uuid4())
+        _mock_workflow_should_self_audit.add(audited)
+
+        with patch.object(temporalio.workflow, "patched", return_value=False):
+            await self._run_dag(ateam.pk, [audited])
+
+        assert len(_suite_runs_started) == 1
+        assert _suite_runs_started[0]["node_ids"] == [audited]
 
     async def test_a_node_that_audited_itself_is_not_swept_again(self, ateam) -> None:
         audited, unaudited = str(uuid.uuid4()), str(uuid.uuid4())
