@@ -635,7 +635,18 @@ def email_inbound_handler(request: HttpRequest) -> HttpResponse:
         if config.connection_status != EmailChannelConnectionStatus.ACTIVE:
             return HttpResponse(status=200)
 
-        result = ingest_customer_email(team_id=config.team_id, channel=config, email=email)
+        try:
+            result = ingest_customer_email(team_id=config.team_id, channel=config, email=email)
+        except ValueError as error:
+            # A misconfigured channel (e.g. a dangling owner) can't be fixed by redelivery, so log
+            # and ack rather than 500 into a Mailgun retry loop.
+            logger.warning(
+                "customer_email_channel_misconfigured",
+                team_id=config.team_id,
+                config_id=str(config.id),
+                error=str(error),
+            )
+            return HttpResponse(status=200)
         logger.info(
             "customer_email_inbound_processed",
             team_id=config.team_id,

@@ -273,6 +273,17 @@ class TestCustomerEmailIngestion(BaseTest):
             == 1
         )
 
+    def test_dangling_owner_is_acked_without_a_server_error(self) -> None:
+        # owner is a db_constraint=False FK, so a deleted owner leaves owner_id pointing at a missing
+        # user while satisfying the not-null check constraint; channel.owner then resolves to None and
+        # ingestion raises. The webhook must ack (200) rather than 500 into a Mailgun retry loop.
+        EmailChannel.objects.filter(id=self.channel.id).update(owner_id=987654321)
+
+        response = self._post_email(message_id="<dangling-owner@customer.example>")
+
+        assert response.status_code == 200
+        assert not EmailThread.objects.for_team(self.team.id).exists()
+
 
 class TestParseAddresses(SimpleTestCase):
     def test_recipient_count_is_capped(self) -> None:
