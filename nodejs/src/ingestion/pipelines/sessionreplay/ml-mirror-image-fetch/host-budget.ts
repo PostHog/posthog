@@ -138,9 +138,9 @@ export class HostBudget {
         // The configured rate is the ceiling, so a recovery never sends faster than an operator set.
         const step = this.options.requestsPerSecond / 8
         state.requestsPerSecond = Math.min(this.options.requestsPerSecond, state.requestsPerSecond + step)
-        // The doubling ladder is cleared only once the rate is fully back, so a site that fails,
-        // recovers for one request, and fails again keeps escalating rather than restarting at the
-        // base cooldown every time.
+        // The doubling ladder is cleared only once the rate is fully back. A site that fails,
+        // recovers for one request, and fails again therefore keeps escalating. It does not restart
+        // at the base cooldown every time.
         if (state.requestsPerSecond >= this.options.requestsPerSecond) {
             state.cooldownMs = 0
         }
@@ -194,8 +194,8 @@ export class HostBudget {
     /**
      * Hold the domain for the period a `Retry-After` header asked for.
      *
-     * The header is clamped, because it is a value from a site that can name any period, and an
-     * unclamped one would hold a domain in this pod's memory for as long as the pod lives.
+     * The header is clamped. A site can name any period, and an unclamped one would hold a domain
+     * in this pod's memory for as long as the pod lives.
      */
     public recordRetryAfter(domain: string, nowMs: number, retryAfterMs: number): void {
         const state = this.stateFor(domain, nowMs)
@@ -278,8 +278,8 @@ export class HostBudget {
         }
         if (oldest) {
             // Counted only when the entry really was blocked. The scan above also skips a domain
-            // that merely has connections open, and evicting one of those loses a count rather than
-            // a hold, which is a different fault and must not read as this one.
+            // with connections open. Evicting one of those loses a count rather than a hold, which
+            // is a different fault and must not read as this one.
             const evicted = this.domains.get(oldest)
             this.domains.delete(oldest)
             if (evicted && evicted.blockedUntilMs > nowMs) {

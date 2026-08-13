@@ -245,9 +245,9 @@ export function parseRetryAfterMs(value: string | undefined): number | undefined
  * The rules a redirect target must pass, beyond the SSRF checks every hop re-enters.
  *
  * The first candidate passed all of these in the collector before it reached the topic. A redirect
- * target has passed none of them, so a hop could otherwise reach a host the collector itself would
- * have refused: a single-label name, or one under a suffix that resolves only inside a network.
- * Requirement 8.
+ * target has passed none of them. A hop could otherwise reach a host the collector would have
+ * refused, such as a single-label name, or a name under a suffix that resolves only inside a
+ * network. Requirement 8.
  */
 export interface RedirectPolicy {
     maxUrlLength: number

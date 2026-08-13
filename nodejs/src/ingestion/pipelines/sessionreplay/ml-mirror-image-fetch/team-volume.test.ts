@@ -1,10 +1,11 @@
 import { TeamVolume } from './team-volume'
 
 /**
- * These pin the bound, the accounting, and the estimate. They do not pin the inheritance on
- * eviction, which is what gives Space-Saving its guarantee that a team above total over capacity is
- * always held: dropping it turns the structure into a random-eviction cache, which still finds a
- * heavy team often enough that no small test fails reliably.
+ * These pin the bound, the accounting, and the estimate.
+ *
+ * They do not pin the inheritance on eviction. That step is what gives Space-Saving its guarantee
+ * that a team above total over capacity is always held. Dropping it turns the structure into a
+ * random-eviction cache, which still finds a heavy team often enough that no small test fails.
  */
 describe('TeamVolume', () => {
     it('names the busiest teams and sums the rest into one bucket (requirement 29)', () => {

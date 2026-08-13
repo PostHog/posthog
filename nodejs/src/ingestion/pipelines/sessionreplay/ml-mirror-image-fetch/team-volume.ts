@@ -6,10 +6,11 @@ const DEFAULT_TOP_N = 20
 /**
  * Counters held to find those teams.
  *
- * Wider than the reported list so the reported list is right: Space-Saving is exact for any team
- * whose share is above one over this number, which at 200 means anything above half a percent of
- * the lane's volume cannot be missed. Bounded because the team ID space is in the low millions and
- * a map of every team ever seen is the unbounded growth this class exists to avoid.
+ * Wider than the reported list, so the reported list is right. Space-Saving holds any team whose
+ * share is above one over this number. At 200 counters that is half a percent of the lane's volume.
+ *
+ * It is bounded because the team ID space is in the low millions. A map of every team ever seen is
+ * the unbounded growth this class exists to avoid.
  */
 const TRACKED_MULTIPLE = 10
 

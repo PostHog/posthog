@@ -35,12 +35,12 @@ export interface FetchRunnerOptions {
     /**
      * Requests open across every domain at once.
      *
-     * Politeness is per domain and needs no cap here: the topic keys by registrable domain, so one
-     * domain lands on one partition and one pod, and its rate and connection limits are held in
-     * memory by that pod. Capping domains would only make unrelated sites wait for each other.
+     * Politeness needs no cap here. The topic keys by registrable domain, so one domain lands on
+     * one partition and one pod. That pod holds its rate and connection limits in memory. A cap on
+     * domains would only make unrelated sites wait for each other.
      *
-     * What this bounds is the pod: a body is read into a buffer, so the peak is roughly this many
-     * times the byte limit, and the sockets and DNS lookups come with it.
+     * What this bounds is the pod. A body is read into a buffer, so the peak memory is roughly this
+     * number times the byte limit. The sockets and the DNS lookups come with it.
      */
     maxInFlightRequests: number
     /** Wall time the whole pass may take. What it does not reach is shed and fetched again the next time a session refers to it. */

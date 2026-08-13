@@ -151,10 +151,11 @@ export class UrlFetchConsumer {
     /**
      * The URLs this lane knows nothing about yet.
      *
-     * A URL whose read failed is left out rather than treated as new. Treating it as new would
-     * fetch it, and a store outage would then turn every batch into the full un-deduped request
-     * volume aimed at customer sites, over and over, because our own store is down. Leaving it out
-     * costs one delay: the next session that refers to the URL offers it again.
+     * A URL whose read failed is left out rather than treated as new.
+     *
+     * Treating it as new would fetch it. A store outage would then send the full un-deduped volume
+     * at customer sites, in every batch, because our own store is down. Leaving it out costs one
+     * delay: the next session that refers to the URL offers it again.
      */
     private async removeAlreadySeen(candidates: FetchCandidate[]): Promise<FetchCandidate[]> {
         if (candidates.length === 0) {
@@ -179,10 +180,11 @@ export class UrlFetchConsumer {
     }
 
     /**
-     * The pod cache is marked only for a URL whose crawl history entry was stored. A URL held locally but
-     * absent from the shared store is invisible to every other pod and to this one after a restart,
-     * so marking it before the write is confirmed would drop it from the measurement and, later,
-     * from fetching.
+     * The pod cache is marked only for a URL whose crawl history entry was stored.
+     *
+     * A URL held only in this pod is invisible to every other pod, and to this one after a restart.
+     * Marking it before the write is confirmed would drop it from the measurement, and later from
+     * fetching.
      */
     private async recordFetched(candidates: FetchCandidate[], nowMs: number): Promise<void> {
         const keys = candidates.map((candidate) => crawlHistoryKey(candidate.pseudoTeam, candidate.urlHash))

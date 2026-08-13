@@ -276,8 +276,8 @@ export class RetryDelayMetrics {
  * How the lane's work divides between teams, without an unbounded label.
  *
  * The team ID space is in the low millions, so `pseudo_team` is bounded here rather than at the
- * database: the busiest teams are named, everything else is one `other` row, and the count of
- * distinct teams is an estimate in a single series. Requirements 29, 30, and 31.
+ * database. The busiest teams are named. Everything else is one `other` row. The count of distinct
+ * teams is an estimate in a single series. Requirements 29, 30, and 31.
  *
  * The label is the pseudonym the topic carries, not the team ID. Nothing on this path has the team
  * ID, and putting one here would need the mirror to send it.

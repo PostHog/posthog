@@ -68,8 +68,9 @@ Each of these is numbered so a test can name the one it covers.
 
 ### Hops and retries share one budget
 
-11. Every message carries a hop budget. A same-domain redirect, a republish, and a retry each spend
-    one.
+11. Every message carries a hop budget. A republish and a retry each spend one. A redirect that
+    stays on the same domain is bounded separately, by the redirect limit of one fetch, so a chain
+    is bounded by the two limits together rather than by the budget alone.
 12. When the budget reaches zero, the lane writes the crawl history and stops.
 13. Only a transient failure spends a hop on a retry: a timeout, a connection error, a 429, a 503,
     or a refusal by the budget. A 404 and a 403 are answers.
@@ -167,6 +168,7 @@ carry robots rules and breaker state between pods, does not exist.
 **The team label is the pseudonym, not the team.** Nothing on this path has the team ID. Naming a
 team on a dashboard needs the mirror to send it, which is a change to the producer.
 
-**Offsets commit before the work is durable.** Requirement 21 wants the opposite. The consumer uses
-`autoCommit`, so a crash between reading a batch and republishing its retries loses them. They come
-back only when a session refers to them again.
+**Offsets commit before the work is durable.** Requirement 21 wants the opposite. Both consumers
+use `autoCommit`, so a crash between reading a batch and republishing its retries loses them, and a
+delay consumer killed mid-wait may have already committed the record it was holding. They come back
+only when a session refers to them again.
