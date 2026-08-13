@@ -621,10 +621,16 @@ class ReplayScannerSerializer(UserAccessControlSerializerMixin, serializers.Mode
         # The UI PATCHes the whole form on save, so edits are detected by comparing values, not keys.
         before = {field: getattr(instance, field) for field in validated_data}
         was_enabled = instance.enabled
+        limit_changed = "credit_limit" in validated_data and validated_data["credit_limit"] != instance.credit_limit
         try:
             scanner = super().update(instance, validated_data)
         except IntegrityError as e:
             self._reraise_unique_name_violation(e)
+        if limit_changed:
+            # A changed limit starts a fresh notification cycle: reaching the new limit is news.
+            # Targeted update because the model save deliberately never writes this sweep-owned column.
+            ReplayScanner.objects.filter(pk=scanner.pk).update(limit_notified_period_start=None)
+            scanner.limit_notified_period_start = None
         # Model save clears `estimated_at` when volume inputs change. Re-enables only refresh inline when
         # the background refresher has fallen behind, so a stale number never enters the quota sum.
         needs_refresh = scanner.estimated_at is None or (

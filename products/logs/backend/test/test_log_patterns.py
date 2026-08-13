@@ -136,6 +136,15 @@ class TestMinePatterns(TestCase):
                 "<host>",
                 "example",
             ),
+            (
+                "timestamp_klog",
+                [
+                    "I0812 15:41:23.951822 12 proxier.go:99] synced",
+                    "I0813 16:02:11.112233 12 proxier.go:99] synced",
+                ],
+                "<klogtime>",
+                "0812",
+            ),
         ]
     )
     def test_masking_collapses_variable_tokens(
@@ -297,13 +306,29 @@ class TestMinePatterns(TestCase):
         for example in patterns[0].examples:
             assert compiled.search(example.body)
 
-    def test_same_statement_on_different_dates_shares_fingerprint(self) -> None:
+    @parameterized.expand(
+        [
+            (
+                "iso",
+                "2026-08-12T08:10:43.397557Z task_retrying attempt=3",
+                "2026-08-19T09:04:17.112233Z task_retrying attempt=7",
+            ),
+            (
+                "klog",
+                "I0812 08:10:43.397557 12 worker.go:31] task_retrying",
+                "I0819 09:04:17.112233 12 worker.go:31] task_retrying",
+            ),
+        ]
+    )
+    def test_same_statement_on_different_dates_shares_fingerprint(
+        self, _name: str, monday_body: str, week_later_body: str
+    ) -> None:
         # The patterns diff compares fingerprints across two windows (default: one week
         # apart). A timestamp fragment surviving masking becomes a literal run, so the
         # same log statement would fingerprint differently and show up as a false
         # new/gone pair.
-        monday = mine_patterns([_sample("2026-08-12T08:10:43.397557Z task_retrying attempt=3")])
-        week_later = mine_patterns([_sample("2026-08-19T09:04:17.112233Z task_retrying attempt=7")])
+        monday = mine_patterns([_sample(monday_body)])
+        week_later = mine_patterns([_sample(week_later_body)])
 
         assert pattern_fingerprint(monday[0].pattern) == pattern_fingerprint(week_later[0].pattern)
 
@@ -330,6 +355,7 @@ class TestCompileMatchRegex(TestCase):
             ("agent Chrome/<version> connected", "agent Chrome/139.0.0.0 connected"),
             ("path /api/v1/users?id=<num> hit", "path /api/v1/users?id=42 hit"),
             ("job <timestamp> finished", "job 2026-08-12T08:10:43.397557Z finished"),
+            ("I<klogtime> synced iptables", "I0812 15:41:23.951822 synced iptables"),
         ]
     )
     def test_compiled_regex_matches_raw_bodies(self, template: str, raw_body: str) -> None:
@@ -540,6 +566,15 @@ _versioned_quad_st = st.tuples(_product_st, _ipv4_st).map(lambda t: f"{t[0]}/{t[
 _plain_decimal_st = st.tuples(st.integers(min_value=0, max_value=9999), st.integers(min_value=0, max_value=999)).map(
     lambda t: f"{t[0]}.{t[1]}"
 )
+
+
+@st.composite
+def _bare_klog_st(draw: st.DrawFn) -> str:
+    # A klog date-time with no severity letter in front. The klog mask requires that
+    # letter, so this stays literal and must not be pulled into an ISO timestamp pivot.
+    return draw(_klog_header_st())[1:]
+
+
 # One row per (masked kind, confusable neighbor). Both halves of the row matter: the mask
 # has to tell the pair apart, and so does the pivot regex the mask produces. A single
 # union-of-everything property dilutes each pair to a fraction of the example budget, so
@@ -555,6 +590,7 @@ _CONFUSABLE_PAIRS = [
     ("ip_vs_versioned_quad", _ipv4_st, _versioned_quad_st),
     ("version_vs_plain_decimal", _slash_version_st, _plain_decimal_st),
     ("host_vs_dotted_code_path", _fqdn_st(), _dotted_code_path_st()),
+    ("timestamp_vs_bare_klog_form", _timestamp_st(), _bare_klog_st()),
 ]
 
 
@@ -704,3 +740,62 @@ class TestHostMaskProperties(TestCase):
         b = mine_patterns([_sample(line.format(host_b))])
 
         assert pattern_fingerprint(a[0].pattern) == pattern_fingerprint(b[0].pattern)
+
+
+@st.composite
+def _klog_header_st(draw: st.DrawFn, severity: str | None = None) -> str:
+    """A klog / glog header: severity letter, MMDD, HH:MM:SS, optional microseconds."""
+    severity = severity or draw(st.sampled_from("IWEF"))
+    month = draw(st.integers(min_value=1, max_value=12))
+    day = draw(st.integers(min_value=1, max_value=31))
+    hour = draw(st.integers(min_value=0, max_value=23))
+    minute = draw(st.integers(min_value=0, max_value=59))
+    second = draw(st.integers(min_value=0, max_value=59))
+    micros = draw(st.one_of(st.none(), st.integers(min_value=0, max_value=999999)))
+    header = f"{severity}{month:02d}{day:02d} {hour:02d}:{minute:02d}:{second:02d}"
+    return header if micros is None else f"{header}.{micros:06d}"
+
+
+@st.composite
+def _klog_header_pair_st(draw: st.DrawFn) -> tuple[str, str]:
+    """Two headers sharing a severity letter, which is content rather than a variable."""
+    severity = draw(st.sampled_from("IWEF"))
+    return draw(_klog_header_st(severity)), draw(_klog_header_st(severity))
+
+
+class TestKlogTimestampProperties(TestCase):
+    """The cases above pin two dates; these hold the invariants over every date and time.
+
+    A klog template has to stop moving when the clock moves, so both properties compare the
+    same statement logged at two different instants.
+    """
+
+    @given(header=_klog_header_st())
+    @settings(max_examples=400, deadline=None)
+    def test_any_klog_header_collapses_to_a_severity_and_a_placeholder(self, header: str) -> None:
+        patterns = mine_patterns([_sample(f"{header} 12 worker.go:31] task_retrying")])
+
+        # exact template: the date is fully consumed and the severity letter survives
+        assert patterns[0].pattern == f"{header[0]}<klogtime> <num> worker.go:<num>] task_retrying"
+
+    @given(headers=_klog_header_pair_st())
+    @settings(max_examples=400, deadline=None)
+    def test_klog_lines_at_different_instants_share_a_fingerprint(self, headers: tuple[str, str]) -> None:
+        # The patterns diff compares fingerprints across windows a week apart, so a date left
+        # in the template turns one statement into a new/gone pair every day.
+        line = "{} 12 worker.go:31] task_retrying"
+        first = mine_patterns([_sample(line.format(headers[0]))])
+        second = mine_patterns([_sample(line.format(headers[1]))])
+
+        assert pattern_fingerprint(first[0].pattern) == pattern_fingerprint(second[0].pattern)
+
+    @given(headers=_klog_header_pair_st())
+    @settings(max_examples=400, deadline=None)
+    def test_klog_match_regex_matches_a_sibling_at_another_instant(self, headers: tuple[str, str]) -> None:
+        # The <klogtime> fragment has to cover every klog instant, or the
+        # pivot from a klog pattern to its logs returns only the minute it was mined from.
+        line = "{} 12 worker.go:31] task_retrying"
+        patterns = mine_patterns([_sample(line.format(headers[0]))])
+
+        assert patterns[0].match_regex is not None
+        assert re.search(patterns[0].match_regex, line.format(headers[1]))
