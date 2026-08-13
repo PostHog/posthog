@@ -4,7 +4,7 @@ import {
   buildCspMetaTag,
   buildCspString,
   escapeAttr,
-} from "./mcpAppCsp";
+} from "./csp";
 
 describe("declared origins", () => {
   it.each([
