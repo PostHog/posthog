@@ -1,5 +1,6 @@
 import { useActions, useValues } from 'kea'
-import { combineUrl, router } from 'kea-router'
+import { combineUrl } from 'kea-router'
+import type { ReactNode } from 'react'
 
 import { IconCalendar, IconQuestion, IconUser, IconWarning } from '@posthog/icons'
 import {
@@ -17,9 +18,11 @@ import { MCPUseCaseCard } from 'lib/components/MCPHint/MCPUseCaseCard'
 import { TZLabel } from 'lib/components/TZLabel'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
+import type { LemonCollapsePanel } from 'lib/lemon-ui/LemonCollapse'
 import { LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { Link } from 'lib/lemon-ui/Link'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { newInternalTab } from 'lib/utils/newInternalTab'
 import { urls } from 'scenes/urls'
 
 import type { InsightShortId } from '~/types'
@@ -39,6 +42,7 @@ import {
 } from './aiObservabilityScoutTemplates'
 import {
     AI_OBSERVABILITY_SELF_DRIVING_SECTIONS,
+    type AIObservabilitySelfDrivingSection,
     aiObservabilitySelfDrivingLogic,
 } from './aiObservabilitySelfDrivingLogic'
 
@@ -52,6 +56,40 @@ function evaluationEditUrl(evaluationId: string): string {
     return combineUrl(urls.aiObservabilityEvaluation(evaluationId), {
         evaluation_tab: 'configuration',
     }).url
+}
+
+function sectionPanel({
+    key,
+    dataAttr,
+    title,
+    count,
+    content,
+}: {
+    key: AIObservabilitySelfDrivingSection
+    dataAttr: string
+    title: string
+    count: number | null
+    content: ReactNode
+}): LemonCollapsePanel<AIObservabilitySelfDrivingSection> {
+    return {
+        key,
+        dataAttr,
+        bodyClassName: '!border-t-0',
+        header: {
+            className: '!bg-transparent hover:!bg-surface-secondary',
+            children: (
+                <div className="flex w-full items-center gap-2">
+                    <span className="text-base font-semibold">{title}</span>
+                    {count !== null ? (
+                        <LemonTag type="muted" size="small">
+                            {count}
+                        </LemonTag>
+                    ) : null}
+                </div>
+            ),
+        },
+        content,
+    }
 }
 
 const anomalyAlertColumns: LemonTableColumns<AlertApi> = [
@@ -312,23 +350,11 @@ export function AIObservabilitySelfDriving(): JSX.Element {
                 activeKeys={expandedSections}
                 onChange={setExpandedSections}
                 panels={[
-                    {
+                    sectionPanel({
                         key: AI_OBSERVABILITY_SELF_DRIVING_SECTIONS.SCOUTS,
                         dataAttr: 'ai-observability-scouts-collapse',
-                        bodyClassName: '!border-t-0',
-                        header: {
-                            className: '!bg-transparent hover:!bg-surface-secondary',
-                            children: (
-                                <div className="flex w-full items-center gap-2">
-                                    <span className="text-base font-semibold">Scouts</span>
-                                    {scoutConfigs !== null ? (
-                                        <LemonTag type="muted" size="small">
-                                            {aiObservabilityScouts.length}
-                                        </LemonTag>
-                                    ) : null}
-                                </div>
-                            ),
-                        },
+                        title: 'Scouts',
+                        count: scoutConfigs !== null ? aiObservabilityScouts.length : null,
                         content: (
                             <div className="flex flex-col gap-6">
                                 <section className="flex flex-col gap-2">
@@ -371,24 +397,12 @@ export function AIObservabilitySelfDriving(): JSX.Element {
                                 </section>
                             </div>
                         ),
-                    },
-                    {
+                    }),
+                    sectionPanel({
                         key: AI_OBSERVABILITY_SELF_DRIVING_SECTIONS.EVAL_REPORTS,
                         dataAttr: 'ai-observability-eval-reports-collapse',
-                        bodyClassName: '!border-t-0',
-                        header: {
-                            className: '!bg-transparent hover:!bg-surface-secondary',
-                            children: (
-                                <div className="flex w-full items-center gap-2">
-                                    <span className="text-base font-semibold">Eval reports</span>
-                                    {!evaluationsLoading && !evaluationsLoadFailed ? (
-                                        <LemonTag type="muted" size="small">
-                                            {evaluations.length}
-                                        </LemonTag>
-                                    ) : null}
-                                </div>
-                            ),
-                        },
+                        title: 'Eval reports',
+                        count: !evaluationsLoading && !evaluationsLoadFailed ? evaluations.length : null,
                         content: (
                             <div className="flex flex-col gap-2">
                                 <p className="m-0 text-sm text-muted">
@@ -464,31 +478,19 @@ export function AIObservabilitySelfDriving(): JSX.Element {
                                                 ) {
                                                     return
                                                 }
-                                                router.actions.push(evaluationEditUrl(evaluation.id))
+                                                newInternalTab(evaluationEditUrl(evaluation.id))
                                             },
                                         })}
                                     />
                                 )}
                             </div>
                         ),
-                    },
-                    {
+                    }),
+                    sectionPanel({
                         key: AI_OBSERVABILITY_SELF_DRIVING_SECTIONS.ANOMALY_ALERT_INVESTIGATIONS,
                         dataAttr: 'ai-observability-anomaly-investigations-collapse',
-                        bodyClassName: '!border-t-0',
-                        header: {
-                            className: '!bg-transparent hover:!bg-surface-secondary',
-                            children: (
-                                <div className="flex w-full items-center gap-2">
-                                    <span className="text-base font-semibold">Anomaly alert investigations</span>
-                                    {anomalyAlertInvestigations !== null ? (
-                                        <LemonTag type="muted" size="small">
-                                            {anomalyAlertInvestigations.length}
-                                        </LemonTag>
-                                    ) : null}
-                                </div>
-                            ),
-                        },
+                        title: 'Anomaly alert investigations',
+                        count: anomalyAlertInvestigations !== null ? anomalyAlertInvestigations.length : null,
                         content: (
                             <div className="flex flex-col gap-2">
                                 <p className="m-0 text-sm text-muted">
@@ -556,14 +558,14 @@ export function AIObservabilitySelfDriving(): JSX.Element {
                                                 ) {
                                                     return
                                                 }
-                                                router.actions.push(urls.alert(alert.id))
+                                                newInternalTab(urls.alert(alert.id))
                                             },
                                         })}
                                     />
                                 )}
                             </div>
                         ),
-                    },
+                    }),
                 ]}
             />
         </div>

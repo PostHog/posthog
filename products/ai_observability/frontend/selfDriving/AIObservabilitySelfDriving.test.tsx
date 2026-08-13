@@ -3,11 +3,11 @@ import '@testing-library/jest-dom'
 import { cleanup, render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { Provider } from 'kea'
-import { router } from 'kea-router'
 import type { ReactNode } from 'react'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { newInternalTab } from 'lib/utils/newInternalTab'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
@@ -26,6 +26,8 @@ jest.mock('../generated/api', () => ({
 jest.mock('products/alerts/frontend/generated/api', () => ({
     alertsList: jest.fn(),
 }))
+
+jest.mock('lib/utils/newInternalTab')
 
 jest.mock('products/signals/frontend/generated/api', () => ({
     signalsScoutConfigList: jest.fn(() => new Promise(() => {})),
@@ -54,6 +56,7 @@ describe('AIObservabilitySelfDriving', () => {
         featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.LLM_ANALYTICS_EVALUATIONS_START_WITH_AI], {
             [FEATURE_FLAGS.LLM_ANALYTICS_EVALUATIONS_START_WITH_AI]: true,
         })
+        jest.mocked(newInternalTab).mockReset()
         jest.mocked(aiObservabilityApi.evaluationDirectoriesList).mockResolvedValue([])
         jest.mocked(aiObservabilityApi.evaluationsList).mockResolvedValue({
             count: 2,
@@ -308,8 +311,12 @@ describe('AIObservabilitySelfDriving', () => {
         expect(anomalyEditLinks[1]).toHaveAttribute('target', '_blank')
 
         await userEvent.click(screen.getByText('Correctness check'))
-        expect(router.values.location.pathname).toBe('/project/997/ai-evals/evaluations/evaluation-enabled')
-        expect(router.values.searchParams).toEqual(expect.objectContaining({ evaluation_tab: 'configuration' }))
+        expect(newInternalTab).toHaveBeenLastCalledWith(
+            '/ai-evals/evaluations/evaluation-enabled?evaluation_tab=configuration'
+        )
+
+        await userEvent.click(anomalyTableQueries.getByText('Unexpected AI cost'))
+        expect(newInternalTab).toHaveBeenLastCalledWith('/alerts?alert_type=insights&alert_id=alert-investigated')
     })
 
     it('sorts eval and anomaly alert columns', async () => {
