@@ -149,15 +149,31 @@ describe("activity timeline", () => {
     expect(rows.filter((row) => row.kind === "event")).toHaveLength(1);
   });
 
-  it("ignores events it doesn't know, so the backend can ship first", () => {
-    const rows = build({
-      messages: [
-        eventMessage("m1", "checks_failed_someday", {}, "2026-08-01T10:30:00Z"),
-      ],
-    });
+  it.each([
+    ["an agent", "agent" as const],
+    ["a human", "human" as const],
+    ["an unattributed author", undefined],
+  ])(
+    "ignores an unknown event from %s, so the backend can ship first",
+    (_name, authorKind) => {
+      // A human-authored announcement the client can't parse must not surface as a reply
+      // typed by that person; the content is a fixed server string.
+      const rows = build({
+        messages: [
+          {
+            id: "m1",
+            content: "Commented",
+            created_at: "2026-08-01T10:30:00Z",
+            ...(authorKind ? { author_kind: authorKind } : {}),
+            event: "checks_failed_someday",
+            payload: {},
+          },
+        ],
+      });
 
-    expect(rows.map((row) => row.kind)).toEqual(["task_created"]);
-  });
+      expect(rows.map((row) => row.kind)).toEqual(["task_created"]);
+    },
+  );
 
   it("numbers runs over the feed, since the backend cannot number them", () => {
     // Counting runs server-side races two concurrent creations onto one number; the ordered

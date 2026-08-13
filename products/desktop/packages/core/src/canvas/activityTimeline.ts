@@ -115,7 +115,9 @@ export function buildActivityTimeline<
   for (const message of messages) {
     const event = parseActivityEvent(message);
     if (!event) {
-      if ((message.author_kind ?? "human") === "human") {
+      // A message carrying an event we couldn't parse is a future event kind, not a human
+      // reply; drawing it as one would misattribute a server announcement to the person.
+      if (!message.event && (message.author_kind ?? "human") === "human") {
         rows.push({
           kind: "human_message",
           key: `message-${message.id}`,
