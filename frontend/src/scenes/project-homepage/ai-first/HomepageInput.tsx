@@ -565,11 +565,10 @@ export function HomepageInput(): JSX.Element {
                                 selectedKey={selectedCapability}
                                 onSelect={setSelectedCapability}
                             />
-                            {/* Single fixed-height swap area — the cards and the recents grid both fill
-                                it (h-full), so switching never changes height. */}
+                            {/* Keep the cards at their baseline height, but let the grid grow for longer lists. */}
                             <div
                                 className="w-full shrink-0 overflow-hidden"
-                                style={{ height: CAPABILITY_CARDS_HEIGHT_PX }}
+                                style={{ minHeight: CAPABILITY_CARDS_HEIGHT_PX }}
                             >
                                 {selectedCapabilityData ? (
                                     <CapabilitySuggestions
