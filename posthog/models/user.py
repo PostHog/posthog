@@ -62,10 +62,7 @@ class Notifications(TypedDict, total=False):
 
 
 NOTIFICATION_DEFAULTS: Notifications = {
-    # Gates every pipeline failure email, and reads backwards: True notifies, despite the name.
-    # Covers legacy plugins and batch exports. Not hog functions yet - send_hog_function_disabled
-    # is written against this setting but its caller is commented out in tasks/plugin_server.py.
-    "plugin_disabled": True,
+    "plugin_disabled": True,  # Catch all for any Pipeline destination issue (plugins, hog functions, batch exports)
     "error_tracking_issue_assigned": True,  # Error tracking issue assignment
     "error_tracking_weekly_digest": True,  # Error tracking weekly digest enabled by default
     "discussions_mentioned": True,  # Mentions in comments enabled by default

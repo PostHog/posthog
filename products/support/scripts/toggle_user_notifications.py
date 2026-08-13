@@ -892,6 +892,14 @@ def main() -> int:
     if not args.output:
         log("  (pass --output <file>.json next time to save the full per-user list)")
 
+    # The only key that can run this holds All access, so it outlives its purpose the moment the run
+    # ends. Prompt here rather than only in the docs: this is the point where the operator is done
+    # and about to close the terminal. Printed even after failures, since the key was still used.
+    log("")
+    log("NEXT: revoke the All access personal API key used for this run - it can act on every")
+    log("organization you belong to, and this run is finished with it.")
+    log(f"  {args.host}/settings/user-api-keys")
+
     if failures or unresolved:
         return 1
     return 0
