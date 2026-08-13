@@ -81,9 +81,9 @@ class Command(BaseCommand):
         Processes insights in small batches to minimize memory usage.
         Uses proper row locking to prevent race conditions.
         """
-        # Build base query
+        # Regenerate when metadata is missing entirely or predates the properties key
         base_query = Insight.objects_including_soft_deleted.filter(
-            Q(query_metadata__isnull=True) | Q(query_metadata={})
+            Q(query_metadata__isnull=True) | Q(query_metadata={}) | Q(query_metadata__properties__isnull=True)
         )
 
         if team_id:
@@ -132,8 +132,12 @@ class Command(BaseCommand):
                 insights_to_update = []
 
                 for insight in insights:
-                    # Skip insights that already have metadata
-                    if insight.query_metadata and insight.query_metadata != {}:
+                    # Skip insights whose metadata is already current (carries the properties key)
+                    if (
+                        insight.query_metadata
+                        and insight.query_metadata != {}
+                        and "properties" in insight.query_metadata
+                    ):
                         continue
 
                     # Generate metadata

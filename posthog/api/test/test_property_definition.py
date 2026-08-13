@@ -4,6 +4,7 @@ from typing import Any, Optional, Union, cast
 from posthog.test.base import APIBaseTest
 from unittest.mock import ANY, patch
 
+from django.core.cache import cache
 from django.db import OperationalError
 from django.test import SimpleTestCase
 
@@ -14,6 +15,7 @@ from posthog.models import ActivityLog, EventDefinition, EventProperty, Organiza
 from posthog.taxonomy.property_definition_api import (
     PropertyDefinitionQuerySerializer,
     PropertyDefinitionViewSet,
+    PropertyUsageMetricsRequestSerializer,
     QueryContext,
     is_query_canceled,
 )
@@ -1116,3 +1118,57 @@ class TestPropertyDefinitionQuerySerializer(SimpleTestCase):
     )
     def test_invalid_query(self, _name: str, data: dict[str, Any]) -> None:
         assert not PropertyDefinitionQuerySerializer(data=data).is_valid()
+
+
+class TestPropertyUsageMetricsRequestSerializer(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ["empty list", {"properties": []}],
+            ["too many properties", {"properties": [{"name": f"p{i}"} for i in range(101)]}],
+            ["missing name", {"properties": [{"type": "event"}]}],
+            ["invalid type", {"properties": [{"type": "insight", "name": "$browser"}]}],
+        ]
+    )
+    def test_invalid_payload(self, _name: str, data: dict[str, Any]) -> None:
+        assert not PropertyUsageMetricsRequestSerializer(data=data).is_valid()
+
+    def test_type_defaults_to_event(self) -> None:
+        serializer = PropertyUsageMetricsRequestSerializer(data={"properties": [{"name": "$browser"}]})
+        assert serializer.is_valid()
+        assert serializer.validated_data["properties"] == [{"type": "event", "name": "$browser"}]
+
+
+class TestPropertyUsageMetricsAPI(APIBaseTest):
+    def setUp(self):
+        super().setUp()
+        cache.clear()
+
+    @patch("posthog.taxonomy.property_definition_api.sync_execute")
+    def test_returns_counts_zero_fills_and_caches(self, mock_sync_execute) -> None:
+        mock_sync_execute.return_value = [("property:event:$browser", 42)]
+        payload = {"properties": [{"type": "event", "name": "$browser"}, {"name": "$os"}]}
+
+        response = self.client.post(
+            f"/api/projects/{self.team.pk}/property_definitions/usage_metrics/", payload, format="json"
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json() == {
+            "results": [
+                {"type": "event", "name": "$browser", "query_usage_30_day": 42},
+                {"type": "event", "name": "$os", "query_usage_30_day": 0},
+            ]
+        }
+
+        response = self.client.post(
+            f"/api/projects/{self.team.pk}/property_definitions/usage_metrics/", payload, format="json"
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        assert mock_sync_execute.call_count == 1
+
+    def test_rejects_empty_property_list(self) -> None:
+        response = self.client.post(
+            f"/api/projects/{self.team.pk}/property_definitions/usage_metrics/", {"properties": []}, format="json"
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
