@@ -1,7 +1,6 @@
-import posthog from 'posthog-js'
-
 import { CompatMessage, CompatToolCall, MultiModalContentItem } from '../../../types'
-import { normalizeRole } from '../../../utils'
+import { normalizeRole } from '../../roles'
+import { emitNormalizerTelemetry } from '../../telemetry'
 import { Expr } from '../ast/expr'
 import { Scope } from '../scope'
 import { EmitSpec, RoleTag } from '../spec/emitSpec'
@@ -118,7 +117,7 @@ export class SlotCoercer {
         // Reaching here is a recipe bug or coverage gap (recipes opt into rendering
         // arbitrary values with `stringify`); surface '' rather than plausible-looking
         // JSON, and log type only since the value may be sensitive.
-        posthog.capture('llma recipe produced non-text content', { content_type: typeof value })
+        emitNormalizerTelemetry('llma recipe produced non-text content', { content_type: typeof value })
         return ''
     }
 

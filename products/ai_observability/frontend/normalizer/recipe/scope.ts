@@ -1,7 +1,7 @@
 // Per-dispatch context. The role is the only thing that flows parent → child;
 // everything else a rule needs comes from `input`.
 
-import { normalizeRole, roleMap } from '../../utils'
+import { normalizeRole, roleMap } from '../roles'
 
 export class Scope {
     private constructor(
@@ -28,7 +28,7 @@ function resolveRole(input: unknown, inheritedRole: string): string {
     if (typeof obj.role === 'string') {
         return normalizeRole(obj.role, inheritedRole)
     }
-    if (typeof obj.type === 'string' && Object.hasOwn(roleMap, obj.type)) {
+    if (typeof obj.type === 'string' && Object.prototype.hasOwnProperty.call(roleMap, obj.type)) {
         return normalizeRole(obj.type, inheritedRole)
     }
     return inheritedRole

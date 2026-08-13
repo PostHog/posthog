@@ -135,11 +135,12 @@ function compilePredicate(raw: unknown): Predicate {
             throw new Error(`predicate has multiple verbs (${verbs.join(', ')}); use one verb per field`)
         }
         if (verbs.length === 1) {
+            const verb = verbs[0]!
             if (keys.length > 1) {
                 const fields = keys.filter((k) => !PREDICATE_VERBS.has(k))
-                throw new Error(`predicate verb '${verbs[0]}' cannot be mixed with field keys (${fields.join(', ')})`)
+                throw new Error(`predicate verb '${verb}' cannot be mixed with field keys (${fields.join(', ')})`)
             }
-            return buildPredicateFromVerb(verbs[0], raw[verbs[0]])
+            return buildPredicateFromVerb(verb, raw[verb])
         }
         return new ShapePredicate(compilePattern(raw))
     }
@@ -232,7 +233,7 @@ function compileValue(raw: unknown): Expr {
     if (isObject(raw)) {
         const keys = Object.keys(raw)
         if (keys.length === 1) {
-            const key = keys[0]
+            const key = keys[0]!
             if (OPERATORS.has(key)) {
                 return compileOperator(key, raw[key])
             }
@@ -284,7 +285,7 @@ function compileInterp(s: string): Expr {
         if (m.index > cursor) {
             parts.push(s.slice(cursor, m.index))
         }
-        parts.push(new PathExpr(m[1].split('.')))
+        parts.push(new PathExpr(m[1]!.split('.')))
         cursor = m.index + m[0].length
     }
     if (cursor < s.length) {

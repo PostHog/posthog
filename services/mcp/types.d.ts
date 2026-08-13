@@ -14,3 +14,10 @@ declare namespace Cloudflare {
         MCP_HONO_URL: string | undefined
     }
 }
+
+// YAML imports resolve to the file's raw text (esbuild `.yaml` text loader,
+// wrangler `Text` rule, vitest raw-text transform).
+declare module '*.yaml' {
+    const content: string
+    export default content
+}
