@@ -4,6 +4,7 @@ import posthog from 'posthog-js'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import type { Dayjs } from 'lib/dayjs'
 import { now } from 'lib/dayjs'
+import type { IntegrationConnectSurface } from 'lib/integrations/utils'
 import { TimeToSeeDataPayload } from 'lib/internalMetrics'
 import { preflightLogic } from 'lib/logic/preflightLogic'
 import { objectClean } from 'lib/utils/objects'
@@ -1537,10 +1538,12 @@ export interface eventUsageLogicActions {
     }
     reportIntegrationConnectClicked: (
         integration: string,
-        kind: string
+        kind: string,
+        surface: IntegrationConnectSurface
     ) => {
         integration: string
         kind: string
+        surface: IntegrationConnectSurface
     }
     reportInviteMembersButtonClicked: () => {
         value: true
@@ -2107,7 +2110,11 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         // timing
         reportTimeToSeeData: (payload: TimeToSeeDataPayload) => ({ payload }),
         reportGroupTypeDetailDashboardCreated: () => ({}),
-        reportIntegrationConnectClicked: (integration: string, kind: string) => ({ integration, kind }),
+        reportIntegrationConnectClicked: (integration: string, kind: string, surface: IntegrationConnectSurface) => ({
+            integration,
+            kind,
+            surface,
+        }),
         reportPersonalIntegrationConnectClicked: (kind: string) => ({ kind }),
         reportGroupPropertyUpdated: (
             action: 'added' | 'updated' | 'removed',
@@ -2992,8 +2999,8 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         reportInstanceSettingChange: ({ name, value }) => {
             posthog.capture('instance setting change', { name, value })
         },
-        reportIntegrationConnectClicked: ({ integration, kind }) => {
-            posthog.capture('integration_connect_clicked', { integration, integration_kind: kind })
+        reportIntegrationConnectClicked: ({ integration, kind, surface }) => {
+            posthog.capture('integration_connect_clicked', { integration, integration_kind: kind, surface })
         },
         // Personal integrations are a separate table with their own connect surface, so they get
         // their own event: saved insights already count `integration_connect_clicked` unfiltered and

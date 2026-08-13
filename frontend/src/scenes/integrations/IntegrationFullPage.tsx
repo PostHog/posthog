@@ -77,7 +77,7 @@ function ConnectView({
     })
 
     const onConnectClick = (): void => {
-        reportIntegrationConnectClicked(definition.slug, definition.kind)
+        reportIntegrationConnectClicked(definition.slug, definition.kind, 'integration_landing_page')
     }
 
     return (
