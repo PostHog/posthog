@@ -9,7 +9,7 @@ import { urls } from 'scenes/urls'
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 
-import { DEFAULT_SKILLS_TAB_KEY, llmSkillsLogic, skillTabUrl } from './llmSkillsLogic'
+import { DEFAULT_SKILLS_TAB_KEY, skillTabUrl, skillTabsLogic, visibleCategoryTabs } from './skillTabsLogic'
 
 /** Tab key for the Community scene, which lives at its own URL rather than under /skills. */
 export const COMMUNITY_SKILLS_TAB_KEY = 'community'
@@ -39,18 +39,22 @@ export function SkillsSceneShell({
     content: JSX.Element
 }): JSX.Element {
     const { featureFlags } = useValues(featureFlagLogic)
-    // Read from the skills logic even on the Community scene, so the category tabs don't disappear
-    // from the row when you switch to Community.
-    const { visibleCategoryTabs } = useValues(llmSkillsLogic)
+    // Mounted on the Community scene too, so switching to Community doesn't drop the category tabs
+    // out of the row. It only probes the per-category counts, not the skills list.
+    const { categoryCounts } = useValues(skillTabsLogic)
     const communityEnabled = !!featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_COMMUNITY_SKILLS]
 
     const tabs: LemonTab<string>[] = [
         { key: DEFAULT_SKILLS_TAB_KEY, label: 'Skills', link: skillTabUrl(DEFAULT_SKILLS_TAB_KEY) },
-        ...visibleCategoryTabs.map((tab) => ({ key: tab.key, label: tab.label, link: skillTabUrl(tab.key) })),
+        ...visibleCategoryTabs(categoryCounts, activeTabKey).map((tab) => ({
+            key: tab.key,
+            label: tab.label,
+            link: skillTabUrl(tab.key),
+        })),
         ...(communityEnabled || activeTabKey === COMMUNITY_SKILLS_TAB_KEY
             ? [{ key: COMMUNITY_SKILLS_TAB_KEY, label: 'Community', link: urls.communitySkills() }]
             : []),
-    ].map((tab) => ({ ...tab, content: tab.key === activeTabKey ? content : <></> }))
+    ]
 
     return (
         <SceneContent>
@@ -60,13 +64,11 @@ export function SkillsSceneShell({
                 resourceType={{ type: 'llm_analytics' }}
                 actions={actions}
             />
-            {/* Only surface the tab bar once there's somewhere else to go — otherwise the lone
-                "Skills" tab is noise, so those users see the plain Skills scene exactly as before. */}
-            {tabs.length > 1 ? (
-                <LemonTabs activeKey={activeTabKey} data-attr="skills-tabs" tabs={tabs} sceneInset />
-            ) : (
-                content
-            )}
+            {/* The bar carries no tab content, so `content` keeps its place in the tree when the
+                category counts land and the bar appears. Only surface the bar once there's
+                somewhere else to go — otherwise the lone "Skills" tab is noise. */}
+            {tabs.length > 1 && <LemonTabs activeKey={activeTabKey} data-attr="skills-tabs" tabs={tabs} sceneInset />}
+            {content}
         </SceneContent>
     )
 }
