@@ -1,6 +1,6 @@
 import { InsightType } from '~/types'
 
-import { shouldShowDashboardInsightRefreshHint } from './InsightVizDisplay'
+import { resolveInFlightQueryState, shouldShowDashboardInsightRefreshHint } from './InsightVizDisplay'
 
 const ALL_INSIGHT_TYPES = Object.values(InsightType) as InsightType[]
 /** Insight types that use the dashboard refresh hint (excludes web analytics — separate UX). */
@@ -84,5 +84,35 @@ describe('InsightVizDisplay', () => {
         },
     ])('shouldShowDashboardInsightRefreshHint: $name', ({ params, expected }) => {
         expect(shouldShowDashboardInsightRefreshHint(params)).toBe(expected)
+    })
+
+    it.each([
+        {
+            name: 'current query failed — surface the error, not loading',
+            params: { erroredQueryId: 'q1', queryId: 'q1', isFunnels: true, hasFunnelResults: false },
+            expected: { displayErroredQueryId: 'q1', funnelResultsStale: false },
+        },
+        {
+            name: 'superseded query failed after a newer one started — drop the stale error, keep loading',
+            params: { erroredQueryId: 'old', queryId: 'new', isFunnels: true, hasFunnelResults: false },
+            expected: { displayErroredQueryId: null, funnelResultsStale: true },
+        },
+        {
+            name: 'late failure lands after the newer query already returned results — show the chart',
+            params: { erroredQueryId: 'old', queryId: 'new', isFunnels: true, hasFunnelResults: true },
+            expected: { displayErroredQueryId: null, funnelResultsStale: false },
+        },
+        {
+            name: 'no failure — nothing to drop',
+            params: { erroredQueryId: null, queryId: 'q1', isFunnels: true, hasFunnelResults: false },
+            expected: { displayErroredQueryId: null, funnelResultsStale: false },
+        },
+        {
+            name: 'stale failure on a non-funnel insight — no funnel-specific loading gap',
+            params: { erroredQueryId: 'old', queryId: 'new', isFunnels: false, hasFunnelResults: false },
+            expected: { displayErroredQueryId: null, funnelResultsStale: false },
+        },
+    ])('resolveInFlightQueryState: $name', ({ params, expected }) => {
+        expect(resolveInFlightQueryState(params)).toEqual(expected)
     })
 })

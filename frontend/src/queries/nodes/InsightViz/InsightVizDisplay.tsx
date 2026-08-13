@@ -101,6 +101,30 @@ function DashboardInsightRefreshHintOrLoading({
     return <InsightRefreshDataHint onRetry={onRetry} insightProps={insightProps} />
 }
 
+/**
+ * A superseded query can fail after the user has moved on to a newer one. Its late failure carries
+ * the old query id and clears the loading flag, which would otherwise paint a false "Query failed"
+ * box or a false "no data" empty state over the query still in flight. Trust the error only when its
+ * id matches the query now in flight, and treat a resultless funnel in that gap as still loading.
+ */
+export function resolveInFlightQueryState({
+    erroredQueryId,
+    queryId,
+    isFunnels,
+    hasFunnelResults,
+}: {
+    erroredQueryId: string | null
+    queryId: string | null
+    isFunnels: boolean
+    hasFunnelResults: boolean
+}): { displayErroredQueryId: string | null; funnelResultsStale: boolean } {
+    const isStaleFailure = !!erroredQueryId && erroredQueryId !== queryId
+    return {
+        displayErroredQueryId: erroredQueryId && !isStaleFailure ? erroredQueryId : null,
+        funnelResultsStale: isFunnels && !hasFunnelResults && isStaleFailure,
+    }
+}
+
 /** Dashboard tile: show refresh when merged `result` is still nullish (empty success is `[]`, not `null`). */
 export function shouldShowDashboardInsightRefreshHint({
     isInDashboardContext,
@@ -177,9 +201,16 @@ export function InsightVizDisplay({
     const isFlowViz = funnelsFilter?.funnelVizType === FunnelVizType.Flow
     const actionable = !embedded && editMode
 
+    const { displayErroredQueryId, funnelResultsStale } = resolveInFlightQueryState({
+        erroredQueryId,
+        queryId,
+        isFunnels,
+        hasFunnelResults,
+    })
+
     // Empty states that completely replace the graph
     const BlockingEmptyState = (() => {
-        if (insightDataLoading) {
+        if (insightDataLoading || funnelResultsStale) {
             return (
                 <InsightLoadingState
                     queryId={queryId}
@@ -265,11 +296,11 @@ export function InsightVizDisplay({
         }
 
         // Insight agnostic empty states
-        if (erroredQueryId) {
+        if (displayErroredQueryId) {
             return (
                 <InsightErrorState
                     query={query}
-                    queryId={erroredQueryId}
+                    queryId={displayErroredQueryId}
                     onRetry={() => {
                         loadData(query && shouldQueryBeAsync(query) ? 'force_async' : 'force_blocking')
                     }}
@@ -309,7 +340,7 @@ export function InsightVizDisplay({
         }
 
         if (activeView === InsightType.FUNNELS && !isFlowViz) {
-            if (!hasFunnelResults && !erroredQueryId && !insightDataLoading) {
+            if (!hasFunnelResults && !displayErroredQueryId && !insightDataLoading) {
                 return (
                     <InsightEmptyState
                         heading={context?.emptyStateHeading}
@@ -394,7 +425,7 @@ export function InsightVizDisplay({
     function renderTable(): JSX.Element | null {
         if (
             isFunnels &&
-            erroredQueryId === null &&
+            displayErroredQueryId === null &&
             timedOutQueryId === null &&
             isFunnelWithEnoughSteps &&
             hasFunnelResults &&
