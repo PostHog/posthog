@@ -325,9 +325,12 @@ export function ConversationView({
   const handleJumpToMessage = useCallback(
     (id: string) => {
       const message = userMessages.find((entry) => entry.id === id);
-      if (!message) return;
+      // Reported, not swallowed: a request for a message this list has not built yet is
+      // retried by the caller rather than dropped.
+      if (!message) return false;
       setKeyboardFocusedMessageId(id);
       scrollToUserMessage(id, message.index);
+      return true;
     },
     [userMessages, scrollToUserMessage],
   );
