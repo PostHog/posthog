@@ -7,29 +7,32 @@ import { RetryDelayConsumer } from './retry-delay-consumer'
 const DELAY_MS = 60_000
 const FRONTIER = 'session_replay_image_fetch'
 
-function message(writtenAtMs: number, key = 'example.com'): Message {
+function message(writtenAtMs: number, overrides: Partial<Message> = {}): Message {
     return {
         value: Buffer.from('{"v":1}'),
-        key: Buffer.from(key),
+        key: Buffer.from('example.com'),
         size: 7,
         topic: 'session_replay_image_fetch_retry_1m',
         partition: 0,
         offset: 0,
         timestamp: writtenAtMs,
+        ...overrides,
     }
 }
 
-function build(overrides: { isStopping?: () => boolean } = {}): {
+function build(overrides: { isStopping?: () => boolean; produce?: () => Promise<void> } = {}): {
     consumer: RetryDelayConsumer
     published: string[]
+    stored: number[]
     beats: () => number
 } {
     const published: string[] = []
+    const stored: number[] = []
     let beats = 0
     const producer = {
-        produce: ({ topic }: { topic: string }) => {
+        produce: async ({ topic }: { topic: string }) => {
+            await (overrides.produce?.() ?? Promise.resolve())
             published.push(topic)
-            return Promise.resolve()
         },
     } as unknown as KafkaProducerWrapper
     const consumer = new RetryDelayConsumer(producer, {
@@ -37,18 +40,20 @@ function build(overrides: { isStopping?: () => boolean } = {}): {
         delayMs: DELAY_MS,
         heartbeat: () => beats++,
         heartbeatIntervalMs: 1,
-        ...overrides,
+        storeOffset: (m) => stored.push(m.offset),
+        isStopping: overrides.isStopping,
     })
-    return { consumer, published, beats: () => beats }
+    return { consumer, published, stored, beats: () => beats }
 }
 
 describe('RetryDelayConsumer', () => {
     it('publishes a record whose period has already passed, without waiting', async () => {
-        const { consumer, published } = build()
+        const { consumer, published, stored } = build()
 
         await consumer.handleBatch([message(Date.now() - DELAY_MS - 1000)])
 
         expect(published).toEqual([FRONTIER])
+        expect(stored).toEqual([0])
     })
 
     it('waits out what is left of the period, measured from when the record was written', async () => {
@@ -64,11 +69,12 @@ describe('RetryDelayConsumer', () => {
     })
 
     it('abandons a record when the pod is shutting down before the wait starts', async () => {
-        const { consumer, published } = build({ isStopping: () => true })
+        const { consumer, published, stored } = build({ isStopping: () => true })
 
         await consumer.handleBatch([message(Date.now())])
 
         expect(published).toEqual([])
+        expect(stored).toEqual([])
     })
 
     it('gives up a wait in progress rather than finishing it', async () => {
@@ -76,7 +82,7 @@ describe('RetryDelayConsumer', () => {
         // deploy for that period, until Kubernetes killed the pod. The offset is uncommitted, so
         // the next pod reads it and waits out whatever remains.
         let stopping = false
-        const { consumer, published } = build({ isStopping: () => stopping })
+        const { consumer, published, stored } = build({ isStopping: () => stopping })
         setTimeout(() => (stopping = true), 20)
 
         const startedAt = Date.now()
@@ -84,8 +90,49 @@ describe('RetryDelayConsumer', () => {
         const elapsed = Date.now() - startedAt
 
         expect(published).toEqual([])
+        expect(stored).toEqual([])
         // The record had the whole period left. Returning anywhere near it means the wait ran on.
         expect(elapsed).toBeLessThan(DELAY_MS / 10)
+    })
+
+    it('stores no offset for a record it could not publish, so the record is read again', async () => {
+        const { consumer, published, stored } = build({
+            produce: () => Promise.reject(new Error('broker down')),
+        })
+
+        await consumer.handleBatch([message(Date.now() - DELAY_MS - 1000)])
+
+        expect(published).toEqual([])
+        expect(stored).toEqual([])
+    })
+
+    it('stores the offset of a record it can never publish, so the partition still moves', async () => {
+        const { consumer, published, stored } = build()
+
+        await consumer.handleBatch([message(Date.now() - DELAY_MS - 1000, { offset: 7, value: null })])
+
+        expect(published).toEqual([])
+        expect(stored).toEqual([7])
+    })
+
+    it('stores each offset as it goes, so a shutdown keeps only the records it did not reach', async () => {
+        // Requirement 21. The consumer that owns this one stores offsets for a whole batch once the
+        // handler returns, so anything left unstored here must stay unstored there.
+        let releasedSoFar = 0
+        const { consumer, published, stored } = build({
+            produce: () => Promise.resolve(releasedSoFar++).then(() => {}),
+            isStopping: () => releasedSoFar >= 2,
+        })
+        const ripe = Date.now() - DELAY_MS - 1000
+
+        await consumer.handleBatch([
+            message(ripe, { offset: 4 }),
+            message(ripe, { offset: 5 }),
+            message(ripe, { offset: 6 }),
+        ])
+
+        expect(published).toEqual([FRONTIER, FRONTIER])
+        expect(stored).toEqual([4, 5])
     })
 
     it.each([[0], [-1], [NaN]])('refuses to start with a delay of %p', (delayMs) => {
@@ -97,6 +144,7 @@ describe('RetryDelayConsumer', () => {
                     frontierTopic: FRONTIER,
                     delayMs,
                     heartbeat: () => {},
+                    storeOffset: () => {},
                 })
         ).toThrow('positive delay')
     })

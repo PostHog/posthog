@@ -199,23 +199,21 @@ history, does not come back until that entry leaves the cache.
 
 An earlier version of this lane treated an absent crawl history entry as a retry. It is a loss.
 
-## What is not built
+## Dry run
 
-The requirements above are the target. These parts have no implementation yet, and the code is the
-authority until they do.
+The lane runs every decision, and sends no request. It parses the records, applies the age limit and
+all three layers of dedup, and writes the crawl history. What it would have fetched is counted as
+`fetchable`, which is the offered request rate.
 
-**The lane cannot leave dry run.** It reads no robots.txt, and it produces no image to the scrub
-topic, so the bytes are counted and dropped. The server refuses to start with the flag cleared, and
-names both.
+This is the mode phase 0 measures in. The server refuses to start with the flag cleared until it can
+read robots.txt and produce the image to the scrub topic, and it names both.
 
-**Nothing is shared across pods.** A rebalance can put two pods on one domain for a few seconds,
-and the rate doubles for that long. The per-origin record of section 4.4 of the plan, which would
-carry robots rules and breaker state between pods, does not exist.
+## Two things the requirements do not promise
 
-**The team label is the pseudonym, not the team.** Nothing on this path has the team ID. Naming a
-team on a dashboard needs the mirror to send it, which is a change to the producer.
+**A team on a dashboard is a pseudonym.** Nothing on this path holds the team ID. Requirements 29 and
+30 are written against the pseudonym for that reason.
 
-**Offsets commit before the work is durable.** Requirement 21 wants the opposite. Both consumers
-use `autoCommit`, so a crash between reading a batch and republishing its retries loses them, and a
-delay consumer killed mid-wait may have already committed the record it was holding. They come back
-only when a session refers to them again.
+**A defect in the fetch pass costs a batch.** The pass answers with an outcome for every URL, so a
+throw out of it is a defect in our own code. The consumer counts that throw, drops the batch, and
+commits it. A replay would meet the same defect on every read and stop the partition rather than
+recover it. Requirement 21 covers the URLs the lane handled, not the ones a defect hid from it.

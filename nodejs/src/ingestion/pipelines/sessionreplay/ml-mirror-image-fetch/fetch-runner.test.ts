@@ -265,6 +265,36 @@ describe('FetchRunner', () => {
         expect(attempts[0].finished).toBe(false)
     })
 
+    it.each([
+        ['a retry', { outcome: 'timeout' as const }],
+        [
+            'a redirect',
+            {
+                outcome: 'redirect_offsite' as const,
+                redirectTarget: { url: 'https://cdn.other.com/i.png', host: 'cdn.other.com' },
+            },
+        ],
+    ])(
+        'reports %s the publisher could not send, so the batch does not commit past it (requirement 21)',
+        async (_name, result) => {
+            const publisher = { republish: () => Promise.resolve(false) } as unknown as FrontierPublisher
+            const fetcher = new FakeFetcher(() => result)
+
+            const attempts = await runner(fetcher, {}, defaultBudget(), publisher).run([candidate('example.com', 0)])
+
+            expect(attempts[0]).toMatchObject({ finished: false, lost: true })
+        }
+    )
+
+    it('reports nothing lost when the publisher sent the URL', async () => {
+        const publisher = { republish: () => Promise.resolve(true) } as unknown as FrontierPublisher
+        const fetcher = new FakeFetcher(() => ({ outcome: 'timeout' as const }))
+
+        const attempts = await runner(fetcher, {}, defaultBudget(), publisher).run([candidate('example.com', 0)])
+
+        expect(attempts[0]).toMatchObject({ finished: false, lost: false })
+    })
+
     it('gives up and records a URL with no hops left (requirement 12)', async () => {
         const publisher = { republish: () => Promise.resolve(true) } as unknown as FrontierPublisher
         const fetcher = new FakeFetcher(() => ({ outcome: 'timeout' }))

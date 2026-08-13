@@ -113,9 +113,9 @@ export class UrlFetchConsumer {
         if (fetchable.length > 0) {
             ImageFetchConsumerMetrics.incFetchable(fetchable.length)
         }
-        const handled = this.runner ? await this.fetchAll(this.runner, fetchable) : fetchable
-        if (handled.length > 0) {
-            await this.recordFetched(handled, nowMs)
+        const pass = this.runner ? await this.fetchAll(this.runner, fetchable) : { finished: fetchable, lost: 0 }
+        if (pass.finished.length > 0) {
+            await this.recordFetched(pass.finished, nowMs)
         }
 
         if (dedupedInBatch > 0) {
@@ -128,10 +128,29 @@ export class UrlFetchConsumer {
             ImageFetchConsumerMetrics.incDropped(reason, count)
         }
         ImageFetchConsumerMetrics.observeBatch(domains.size, Number(process.hrtime.bigint() - startedAt) / 1e9)
+
+        if (pass.lost > 0) {
+            // Thrown last, so the counts above are published first. The consumer stores offsets only
+            // after this returns, so throwing replays the batch on the pod that takes the partition
+            // next. Requirement 21.
+            //
+            // The replay costs little: the URLs already fetched carry a crawl history entry now, and
+            // the read at the top of the batch removes them. A URL is a duplicate at worst, which
+            // requirement 22 allows, and the alternative is losing it.
+            throw new Error(`the image fetch lane could not republish ${pass.lost} URLs`)
+        }
     }
 
-    /** Send the requests, and report the URLs this lane is finished with. Nothing here re-reads a Kafka offset, so the URLs it leaves out are retried only when a session refers to them again. */
-    private async fetchAll(runner: FetchPass, candidates: FetchCandidate[]): Promise<FetchCandidate[]> {
+    /**
+     * Send the requests. Report the URLs this lane is finished with, and how many it could not put back.
+     *
+     * A URL left out of `finished` and not counted in `lost` is on its way back through Kafka, so
+     * nothing here has to hold it.
+     */
+    private async fetchAll(
+        runner: FetchPass,
+        candidates: FetchCandidate[]
+    ): Promise<{ finished: FetchCandidate[]; lost: number }> {
         let attempts
         try {
             attempts = await runner.run(candidates)
@@ -143,9 +162,14 @@ export class UrlFetchConsumer {
                 count: candidates.length,
                 error: error instanceof Error ? error.name : 'unknown',
             })
-            return []
+            // Committed rather than replayed, unlike a failed republish. A defect here is the same
+            // on every read, so replaying it would stop the partition rather than recover it.
+            return { finished: [], lost: 0 }
         }
-        return attempts.filter((attempt) => attempt.finished).map((attempt) => attempt.candidate)
+        return {
+            finished: attempts.filter((attempt) => attempt.finished).map((attempt) => attempt.candidate),
+            lost: attempts.filter((attempt) => attempt.lost).length,
+        }
     }
 
     /**

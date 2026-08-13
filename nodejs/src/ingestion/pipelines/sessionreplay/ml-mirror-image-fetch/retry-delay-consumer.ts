@@ -17,6 +17,14 @@ export interface RetryDelayConsumerOptions {
     heartbeatIntervalMs?: number
     /** True once the pod is shutting down. A wait of an hour would otherwise hold the rolling deploy until Kubernetes killed it. */
     isStopping?: () => boolean
+    /**
+     * Marks one record as done, so its offset commits and the next poll starts after it.
+     *
+     * Called only for a record this consumer finished with. The consumer that owns this one stores
+     * offsets for a whole batch once the handler returns, whatever the handler did with the
+     * records, so a record abandoned mid-wait would commit and never be seen again. Requirement 21.
+     */
+    storeOffset: (message: Message) => void
 }
 
 const DEFAULT_HEARTBEAT_INTERVAL_MS = 10_000
@@ -50,10 +58,9 @@ export class RetryDelayConsumer {
     public async handleBatch(messages: Message[]): Promise<void> {
         for (const message of messages) {
             if (this.stopping()) {
-                // The consumer stores offsets for the whole batch once this returns, so a record
-                // left here is lost rather than held. That is the lesser cost: the alternative is
-                // making a rolling deploy wait out a whole tier period. Requirement 21 would fix
-                // it, and the README says it is not built.
+                // Left where it is, with no offset stored. The next pod to own this partition reads
+                // it again and waits out whatever is left of its period, measured from when it was
+                // written. Requirement 21.
                 RetryDelayMetrics.incReleased('abandoned')
                 return
             }
@@ -65,7 +72,9 @@ export class RetryDelayConsumer {
                     return
                 }
             }
-            await this.release(message)
+            if (await this.release(message)) {
+                this.options.storeOffset(message)
+            }
         }
     }
 
@@ -101,15 +110,17 @@ export class RetryDelayConsumer {
     }
 
     /**
-     * A record that cannot be published is dropped rather than retried here.
+     * True when this consumer is finished with the record, whether it went out or can never go out.
      *
-     * Retrying inside this consumer would hold every record behind it for another period. The URL
-     * has no crawl history entry, so the next session that refers to the image offers it again.
+     * A produce that failed returns false and stores no offset, so the record is read again. That is
+     * the only way it comes back: the URL has no crawl history entry, and nothing else is holding it.
      */
-    private async release(message: Message): Promise<void> {
+    private async release(message: Message): Promise<boolean> {
         if (!message.value || !message.key) {
+            // Stored anyway. This record can never be released, and holding its offset would stop
+            // the partition rather than fix it.
             RetryDelayMetrics.incReleased('malformed')
-            return
+            return true
         }
         try {
             await this.producer.produce({
@@ -122,8 +133,9 @@ export class RetryDelayConsumer {
                 error: error instanceof Error ? error.name : 'unknown',
             })
             RetryDelayMetrics.incReleased('failed')
-            return
+            return false
         }
         RetryDelayMetrics.incReleased('released')
+        return true
     }
 }

@@ -23,10 +23,17 @@ export interface FetchAttempt {
      * True when the lane is done with this URL and must write it to the crawl history.
      *
      * False means the URL is coming back: it was republished to the frontier or to a delay topic,
-     * or the republish failed and the next session that refers to it will offer it again. Writing
-     * the crawl history for one of those would stop it ever being fetched. Requirements 12 and 24.
+     * or the republish failed. Writing the crawl history for one of those would stop it ever being
+     * fetched. Requirements 12 and 24.
      */
     finished: boolean
+    /**
+     * True when the URL was meant to go back to Kafka and did not.
+     *
+     * Nothing else holds it. Its offset must not commit, or the URL is gone until a session refers
+     * to the same image again. Requirement 21.
+     */
+    lost: boolean
 }
 
 export interface FetchRunnerOptions {
@@ -358,7 +365,7 @@ export class FetchRunner implements FetchPass {
         }
         if (isTerminal(result.outcome)) {
             ImageFetchRequestMetrics.observeHops(MAX_HOPS - candidate.hopsRemaining)
-            return { candidate, outcome: result.outcome, finished: true }
+            return { candidate, outcome: result.outcome, finished: true, lost: false }
         }
         return await this.reschedule(
             candidate,
@@ -412,9 +419,6 @@ export class FetchRunner implements FetchPass {
      * A URL with no hops left is recorded, so it stops coming back and the lane stops spending
      * requests on it. Requirement 12. Anything else goes to the delay topic whose period covers the
      * wait, and is not recorded, because it has not been answered yet. Requirements 13 to 15.
-     *
-     * Without a publisher the URL is simply left unrecorded. The next session that refers to it
-     * offers it again, which the mirror's ref cache delays by however long that ref stays cached.
      */
     private async reschedule(
         candidate: FetchCandidate,
@@ -424,11 +428,11 @@ export class FetchRunner implements FetchPass {
         if (candidate.hopsRemaining <= 1) {
             ImageFetchRequestMetrics.incOutcome(HOPS_EXHAUSTED)
             ImageFetchRequestMetrics.observeHops(MAX_HOPS)
-            return { candidate, outcome: HOPS_EXHAUSTED, finished: true }
+            return { candidate, outcome: HOPS_EXHAUSTED, finished: true, lost: false }
         }
         const target = { url: candidate.url, host: candidate.host, domain: candidate.domain }
-        await this.publisher.republish(candidate, target, 'retry', waitMs)
-        return { candidate, outcome, finished: false }
+        const republished = await this.publisher.republish(candidate, target, 'retry', waitMs)
+        return { candidate, outcome, finished: false, lost: !republished }
     }
 
     /**
@@ -441,11 +445,11 @@ export class FetchRunner implements FetchPass {
     private async handOff(candidate: FetchCandidate, target: { url: string; host: string }): Promise<FetchAttempt> {
         if (candidate.hopsRemaining <= 1) {
             ImageFetchRequestMetrics.incOutcome(HOPS_EXHAUSTED)
-            return { candidate, outcome: HOPS_EXHAUSTED, finished: true }
+            return { candidate, outcome: HOPS_EXHAUSTED, finished: true, lost: false }
         }
         const domain = getPolitenessKey()(target.host)
-        await this.publisher.republish(candidate, { ...target, domain }, 'redirect')
-        return { candidate, outcome: 'redirect_offsite', finished: false }
+        const republished = await this.publisher.republish(candidate, { ...target, domain }, 'redirect')
+        return { candidate, outcome: 'redirect_offsite', finished: false, lost: !republished }
     }
 
     private async authorizeRedirect(

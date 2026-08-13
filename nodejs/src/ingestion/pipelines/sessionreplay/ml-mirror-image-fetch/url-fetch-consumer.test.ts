@@ -267,6 +267,31 @@ describe('UrlFetchConsumer', () => {
         await expect(consumer.handleBatch([record([url('a')])], NOW)).resolves.toBeUndefined()
     })
 
+    it('replays the batch when the pass could not put a URL back, rather than committing past it', async () => {
+        // Requirement 21. Nothing else holds a URL whose republish failed, so its offset must not
+        // commit. The consumer stores offsets only after this resolves, so a throw replays the batch.
+        const runner: FetchPass = {
+            run: (candidates: FetchCandidate[]) =>
+                Promise.resolve(
+                    candidates.map((candidate) => ({
+                        candidate,
+                        outcome: 'timeout' as AttemptOutcome,
+                        finished: false,
+                        lost: true,
+                    }))
+                ),
+        }
+        const fetching = new UrlFetchConsumer(
+            crawlHistory,
+            { maxAgeMs: 6 * 60 * 60 * 1000, dedupMaxRefs: 1000, dryRun: false },
+            runner
+        )
+
+        await expect(fetching.handleBatch([record([url('lost')])], NOW)).rejects.toThrow('could not republish 1')
+        // Left out of the crawl history, so the replay fetches it rather than skipping it.
+        expect(crawlHistory.stored.size).toBe(0)
+    })
+
     it('refuses to leave dry run without a way to send the requests', () => {
         expect(() => new UrlFetchConsumer(crawlHistory, { maxAgeMs: 1000, dedupMaxRefs: 10, dryRun: false })).toThrow(
             'fetch runner'
@@ -287,6 +312,7 @@ describe('UrlFetchConsumer', () => {
                         candidate,
                         outcome: outcomes[candidate.urlHash],
                         finished: isTerminal(outcomes[candidate.urlHash]),
+                        lost: false,
                     }))
                 ),
         }

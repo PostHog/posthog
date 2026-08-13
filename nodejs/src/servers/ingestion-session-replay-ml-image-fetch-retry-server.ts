@@ -73,7 +73,9 @@ export class IngestionSessionReplayMlImageFetchRetryServer implements NodeServer
             topic,
             groupId: `${this.config.SESSION_RECORDING_ML_IMAGE_FETCH_GROUP_ID}-retry-${delayMs}`,
             autoCommit: true,
-            autoOffsetStore: true,
+            // Stored per record by the consumer rather than for the whole batch, so a record it
+            // abandoned mid-wait is read again instead of being committed and lost. Requirement 21.
+            autoOffsetStore: false,
             fetchBatchSize: this.config.SESSION_RECORDING_ML_IMAGE_FETCH_RETRY_BATCH_SIZE,
         }
         // Set here rather than left to the deployment. This consumer sleeps for the period of its
@@ -92,6 +94,11 @@ export class IngestionSessionReplayMlImageFetchRetryServer implements NodeServer
         let stopping = false
         const delayConsumer = new RetryDelayConsumer(producer, {
             isStopping: () => stopping,
+            storeOffset: (message) =>
+                consumer.offsetsStore([
+                    // The next offset to read, which is what librdkafka stores.
+                    { topic: message.topic, partition: message.partition, offset: message.offset + 1 },
+                ]),
             frontierTopic: KAFKA_SESSION_REPLAY_IMAGE_FETCH,
             delayMs,
             heartbeat: () => consumer.reportDeliberateWait(),
