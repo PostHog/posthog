@@ -64,4 +64,10 @@ export class InvocationResultsService {
         await this.queueInvocationResults(results)
         await this.flush()
     }
+
+    async stop(): Promise<void> {
+        // Only the conversion-watcher sink owns a resource to release (its own pg pool); the other
+        // sinks write through the shared Kafka outputs the server tears down separately.
+        await this.conversionWatchersService.stop()
+    }
 }

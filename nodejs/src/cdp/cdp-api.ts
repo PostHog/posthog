@@ -235,6 +235,8 @@ export class CdpApi {
             this.cdpSourceWebhooksConsumer.stop(),
             this.batchExportHogFunctionService.stop(),
             this.rerunJobManager?.disconnect() ?? Promise.resolve(),
+            // CdpApi doesn't extend CdpConsumerBase, so close its conversion-watcher pool directly.
+            this.invocationResultsService.stop(),
         ])
     }
 

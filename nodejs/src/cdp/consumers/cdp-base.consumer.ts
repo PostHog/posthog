@@ -129,11 +129,13 @@ export abstract class CdpConsumerBase<TConfig extends CdpConsumerBaseConfig = Cd
         // through `cdpProducerRegistry.disconnectAll()`.
     }
 
-    public stop(): Promise<void> {
+    public async stop(): Promise<void> {
         logger.info('🔁', `${this.name} - stopping`)
         this.isStopping = true
+        // Release the per-consumer conversion-watcher pool created in createCdpCoreServices, so
+        // graceful shutdown frees its cyclotron connections like the other cyclotron pools do.
+        await this.invocationResultsService.stop()
         logger.info('👍', `${this.name} - stopped!`)
-        return Promise.resolve()
     }
 
     public abstract isHealthy(): HealthCheckResult
