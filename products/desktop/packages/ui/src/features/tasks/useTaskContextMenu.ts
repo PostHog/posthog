@@ -88,7 +88,11 @@ export function useTaskContextMenu() {
           isInCommandCenter,
           hasEmptyCommandCenterCell,
           showArchivePrior,
-          channels: channels.map(({ id, name }) => ({ id, name })),
+          channels: channels.map(({ id, name, starred }) => ({
+            id,
+            name,
+            starred,
+          })),
         });
 
         if (!result.action) return;

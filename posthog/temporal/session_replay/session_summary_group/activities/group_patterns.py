@@ -192,25 +192,25 @@ async def split_session_summaries_into_chunks_for_patterns_extraction_activity(
 async def extract_session_group_patterns_activity(inputs: SessionGroupSummaryOfSummariesInputs) -> str:
     """Extract patterns for a group of sessions and store them in Redis."""
     session_ids = _get_session_ids_from_inputs(inputs)
-    redis_client, _, redis_output_key = get_redis_state_client(
+    redis_state = get_redis_state_client(
         key_base=inputs.redis_key_base,
         output_label=StateActivitiesEnum.SESSION_GROUP_EXTRACTED_PATTERNS,
         state_id=generate_state_id_from_session_ids(session_ids),
     )
-    if redis_output_key is None:
+    if redis_state.output_key is None:
         msg = f"Failed to generate Redis output key for extracted patterns for sessions: {','.join(session_ids)}"
         temporalio.activity.logger.error(msg, extra={"signals_type": "session-summaries"})
         raise ValueError(msg)
     # Check if patterns extracted are already in Redis. If it is and matched the target class - it's within TTL, so no need to re-fetch them from LLM
     success = await get_data_class_from_redis(
-        redis_client=redis_client,
-        redis_key=redis_output_key,
+        redis_client=redis_state.client,
+        redis_key=redis_state.output_key,
         label=StateActivitiesEnum.SESSION_GROUP_EXTRACTED_PATTERNS,
         target_class=RawSessionGroupSummaryPatternsList,
     )
     if success is not None:
         # Cached successfully
-        return redis_output_key
+        return redis_state.output_key
     # Get ready session summaries from DB
     # Disable thread-sensitive as the call is heavy (N summaries through pagination)
     ready_summaries = await database_sync_to_async(get_ready_summaries_from_db, thread_sensitive=False)(
@@ -239,12 +239,12 @@ async def extract_session_group_patterns_activity(inputs: SessionGroupSummaryOfS
     patterns_extraction_str = patterns_extraction.model_dump_json(exclude_none=True)
     # Store the extracted patterns in Redis
     await store_data_in_redis(
-        redis_client=redis_client,
-        redis_key=redis_output_key,
+        redis_client=redis_state.client,
+        redis_key=redis_state.output_key,
         data=patterns_extraction_str,
         label=StateActivitiesEnum.SESSION_GROUP_EXTRACTED_PATTERNS,
     )
-    return redis_output_key
+    return redis_state.output_key
 
 
 async def _generate_patterns_assignments_per_chunk(
@@ -363,7 +363,7 @@ async def assign_events_to_patterns_activity(
     """Summarize a group of sessions in one call. Returns session_group_summary_id."""
     session_ids = _get_session_ids_from_inputs(inputs)
     # Not checking for existing summary in the DB, as the input of `~300 exactly the same ids + context` seems highly unlikely
-    redis_client, redis_input_key, _ = get_redis_state_client(
+    redis_state = get_redis_state_client(
         key_base=inputs.redis_key_base,
         input_label=StateActivitiesEnum.SESSION_GROUP_EXTRACTED_PATTERNS,
         output_label=StateActivitiesEnum.SESSION_GROUP_PATTERNS_ASSIGNMENTS,
@@ -371,8 +371,8 @@ async def assign_events_to_patterns_activity(
     )
     # Get extracted patterns from Redis to be able to assign events to them
     patterns_extraction_raw = await get_data_class_from_redis(
-        redis_client=redis_client,
-        redis_key=redis_input_key,
+        redis_client=redis_state.client,
+        redis_key=redis_state.input_key,
         label=StateActivitiesEnum.SESSION_GROUP_EXTRACTED_PATTERNS,
         target_class=RawSessionGroupSummaryPatternsList,
     )
@@ -503,7 +503,7 @@ async def _store_session_group_summary(
 async def combine_patterns_from_chunks_activity(inputs: SessionGroupSummaryPatternsExtractionChunksInputs) -> None:
     """Combine patterns from multiple chunks using LLM and store in Redis."""
     redis_client = get_async_client()
-    _, _, redis_output_key = get_redis_state_client(
+    redis_state = get_redis_state_client(
         key_base=inputs.redis_key_base,
         output_label=StateActivitiesEnum.SESSION_GROUP_EXTRACTED_PATTERNS,
         state_id=generate_state_id_from_session_ids(inputs.session_ids),
@@ -511,7 +511,7 @@ async def combine_patterns_from_chunks_activity(inputs: SessionGroupSummaryPatte
     # Check if combined patterns are already in Redis (for all the sessions at once)
     success = await get_data_class_from_redis(
         redis_client=redis_client,
-        redis_key=redis_output_key,
+        redis_key=redis_state.output_key,
         label=StateActivitiesEnum.SESSION_GROUP_EXTRACTED_PATTERNS,
         target_class=RawSessionGroupSummaryPatternsList,
     )
@@ -576,7 +576,7 @@ async def combine_patterns_from_chunks_activity(inputs: SessionGroupSummaryPatte
     combined_patterns_str = combined_patterns.model_dump_json(exclude_none=True)
     await store_data_in_redis(
         redis_client=redis_client,
-        redis_key=redis_output_key,
+        redis_key=redis_state.output_key,
         data=combined_patterns_str,
         label=StateActivitiesEnum.SESSION_GROUP_EXTRACTED_PATTERNS,
     )

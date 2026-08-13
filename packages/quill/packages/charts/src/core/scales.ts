@@ -119,6 +119,9 @@ export function niceLogDomain(minPositive: number, max: number): [number, number
     return [niceMin, niceMax]
 }
 
+/** Point scale keyed by label string. d3 ordinal domains keep only the first occurrence of a
+ *  value, so duplicate labels collapse onto one position and a series drawn through them runs
+ *  backwards. Callers must pass unique labels (ISO dates for time series, not display text). */
 export function createXScale(labels: string[], dimensions: ChartDimensions): ScalePoint<string> {
     return scalePoint<string>()
         .domain(labels)

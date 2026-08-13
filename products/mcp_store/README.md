@@ -37,7 +37,7 @@ The standalone gateway routes under `/mcp-servers` use the same data and page co
 When `MCP_GATEWAY` is off, the top-level scene renders a "not enabled" banner in place, while the detail routes (wrapped in `GatewayRouteGuard`) redirect to the Settings page.
 Server details are available to members, while agent and member details require project admin access — the guard sends non-admins back to the gateway home.
 The flag gates the frontend only: the gateway REST API has no flag check and stays reachable when the flag is off.
-Settings supplies its own navigation shell so the gateway workflows fit the main PostHog application without importing the PostHog Code layout.
+Settings supplies its own navigation shell so the gateway workflows fit the main PostHog application without importing the PostHog Desktop layout.
 
 ## How the catalog works
 
@@ -120,12 +120,13 @@ To show brand icons on a self-hosted instance, create a logo.dev account, genera
 There are two ways a caller uses a connection, and they differ in who speaks MCP.
 
 - **`POST .../mcp_server_installations/:id/proxy/`** is a transparent JSON-RPC passthrough.
-  The caller is an MCP client that runs its own `initialize` handshake and holds the session — PostHog Code points a sandbox at this URL as if it were the vendor's server.
+  The caller is an MCP client that runs its own `initialize` handshake and holds the session — PostHog Desktop points a sandbox at this URL as if it were the vendor's server.
   Built-in agents get the equivalent root-level route with a signed token (see `backend/facade/api.py`).
 - **`POST .../mcp_server_installations/:id/call_tool/`** takes `{tool_name, arguments}` and returns one tool result.
   The caller wants a result, not a transport, so PostHog runs the handshake server-side (`call_upstream_tool` in `backend/tools.py`).
   This is what the PostHog MCP's `exec` uses, so an external agent (Claude Code, Codex) can call a connected server's tools through its existing PostHog connection instead of authenticating each vendor separately.
   Discovery for that path is `GET .../mcp_server_installations/available_tools/`, which returns every callable tool across the caller's connections in one request, each namespaced by a server slug (`linear__create_issue`).
+  When two connections share a display name, both slugs carry a fragment of their installation id (`linear-a1b2c3`), and that ambiguity is decided over every connection the caller can address rather than only the reachable ones — otherwise an expiring token could re-point a tool name at a different connection between refreshes.
   The `exec` side lives in `services/mcp/src/lib/gateway-tools.ts` and is gated on the `mcp-gateway` flag.
 
 Both paths resolve policy through the same `resolve_call_decision` / `_gateway_decision` in `backend/proxy.py` and write the same `MCPAuditEvent` rows, so approval state and the audit trail cannot diverge between them.

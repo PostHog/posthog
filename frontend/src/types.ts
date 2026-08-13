@@ -83,6 +83,7 @@ import { QueryContext } from '~/queries/types'
 import { AlertType } from 'products/alerts/frontend/types'
 import type { DataWarehouseSavedQueryApiSuspended } from 'products/data_warehouse/frontend/generated/api.schemas'
 import type { ExperimentFeatureFlagInputApi } from 'products/experiments/frontend/generated/api.schemas'
+import type { CommentSlackThreadRefApi } from 'products/platform_features/frontend/generated/api.schemas'
 import type { InsightFilterOverrideContextApi } from 'products/product_analytics/frontend/generated/api.schemas'
 import type { AIPromptConfigApi } from 'products/subscriptions/frontend/generated/api.schemas'
 import type { RuntimeEnumApi } from 'products/tasks/frontend/generated/api.schemas'
@@ -449,6 +450,8 @@ export interface NotificationSettings {
     data_pipeline_error_threshold?: number
     project_api_key_exposed?: boolean
     materialized_view_sync_failed?: boolean
+    materialized_view_sync_failed_daily?: boolean
+    materialized_view_sync_failed_immediate?: boolean
     web_analytics_weekly_digest: boolean
     web_analytics_weekly_digest_project_enabled?: Record<string, boolean>
     organization_member_join_email_disabled?: Record<string, boolean>
@@ -1032,6 +1035,11 @@ export interface ToolbarProps extends ToolbarParams {
 }
 
 export type PathCleaningFilter = {
+    /**
+     * The replacement for the matched path. Use angle-bracket placeholders (`<id>`, `<uuid>`, `<slug>`)
+     * by convention, or reuse a capture group from the regex with ClickHouse `replaceRegexpAll`
+     * replacement syntax: `\1` to `\9` for a group and `\0` for the whole match.
+     */
     alias?: string
     regex?: string
     order?: number
@@ -1087,6 +1095,7 @@ export enum SavedInsightsTabs {
     Yours = 'yours',
     History = 'history',
     Alerts = 'alerts',
+    Notifications = 'notifications',
 }
 
 export enum ReplayTabs {
@@ -1456,6 +1465,7 @@ export enum SessionRecordingSidebarTab {
     NETWORK_WATERFALL = 'network-waterfall',
     LINKED_ISSUES = 'linked-issues',
     SESSIONS = 'sessions',
+    OBSERVATIONS = 'observations',
 }
 
 export enum SessionRecordingSidebarStacking {
@@ -1607,6 +1617,8 @@ export interface ActionFilter extends EntityFilter {
     days?: string[] // TODO: why was this added here?
     operator?: FilterLogicalOperator | null
     nestedFilters?: EntityFilter[] | null
+    /** Replay-only. When true, matches sessions that do NOT contain any event matching this entity */
+    negation?: boolean
 }
 
 export const isGroupFilter = (filter: EntityFilter): filter is ActionFilter => filter.type === EntityTypes.GROUPS
@@ -2643,6 +2655,10 @@ export interface DashboardBasicType extends WithAccessControl {
     tags?: string[]
     /** Project-tree folder the dashboard is filed under, e.g. 'Unfiled/Dashboards'. Empty string is the project root; null means no file system entry. */
     folder?: string | null
+    /** Null when the dashboard was never filed, which is the case that cannot be moved. */
+    file_system_id?: string | null
+    /** Unlike `folder`, keeps the dashboard's own name as the last segment, which a move needs to compute the destination. */
+    file_system_path?: string | null
     /** Purely local value to determine whether the dashboard should be highlighted, e.g. as a fresh duplicate. */
     _highlight?: boolean
     /**
@@ -4363,7 +4379,7 @@ export interface FeatureFlagType extends Omit<FeatureFlagBasicType, 'id' | 'team
     can_edit: boolean
     tags: string[]
     evaluation_contexts: string[]
-    usage_dashboard?: number
+    usage_dashboard?: number | null
     has_enriched_analytics?: boolean
     is_remote_configuration: boolean
     has_encrypted_payloads: boolean
@@ -4371,7 +4387,6 @@ export interface FeatureFlagType extends Omit<FeatureFlagBasicType, 'id' | 'team
     _create_in_folder?: string | null
     evaluation_runtime: FeatureFlagEvaluationRuntime
     bucketing_identifier?: FeatureFlagBucketingIdentifier | null
-    _should_create_usage_dashboard?: boolean
     last_called_at?: string | null
     is_used_in_replay_settings?: boolean
 }
@@ -5312,6 +5327,8 @@ export enum HogQLMathType {
 }
 export enum GroupMathType {
     UniqueGroup = 'unique_group',
+    FirstTimeForGroup = 'first_time_for_group',
+    FirstMatchingEventForGroup = 'first_matching_event_for_group',
 }
 
 export enum ExperimentMetricMathType {
@@ -5458,6 +5475,7 @@ export const INTEGRATION_KINDS = [
     'google-cloud-storage',
     'google-ads',
     'google-analytics',
+    'google-calendar',
     'google-search-console',
     'google-sheets',
     'linkedin-ads',
@@ -5470,6 +5488,7 @@ export const INTEGRATION_KINDS = [
     'github',
     'gitlab',
     'meta-ads',
+    'instagram',
     'clickup',
     'reddit-ads',
     'databricks',
@@ -5916,8 +5935,17 @@ export interface EffectiveAccessControlEntry {
     effective_access_level: AccessControlLevel | null
     inherited_access_level: AccessControlLevel | null
     inherited_access_level_reason: InheritedAccessLevelReason | null
+    /** What applies when no rule exists anywhere. Only returned by the defaults endpoint. */
+    system_default_access_level?: AccessControlLevel
     minimum: AccessControlLevel
     maximum: AccessControlLevel
+}
+
+export interface ObjectRuleResource {
+    resource: APIScopeObject
+    available_access_levels: AccessControlLevel[]
+    /** Levels below this are rejected by the backend, so the pickers offer them disabled. */
+    minimum_access_level: AccessControlLevel
 }
 
 export interface AccessControlDefaultsResponse {
@@ -5926,6 +5954,9 @@ export interface AccessControlDefaultsResponse {
     can_edit: boolean
     project_access_level: AccessControlLevel
     resource_access_levels: Record<string, EffectiveAccessControlEntry>
+    /** Resources supporting object-level rules, derived server-side from viewset registration,
+     * each with the levels a rule on it accepts. */
+    object_rule_resources: ObjectRuleResource[]
 }
 
 export interface AccessControlRolesResponse {
@@ -6000,6 +6031,7 @@ export enum ActivityScope {
     EVENT_DEFINITION = 'EventDefinition',
     PROPERTY_DEFINITION = 'PropertyDefinition',
     NOTEBOOK = 'Notebook',
+    CANVAS = 'Canvas',
     DASHBOARD = 'Dashboard',
     REPLAY = 'Replay',
     // TODO: doh! we don't need replay and recording
@@ -6017,6 +6049,7 @@ export enum ActivityScope {
     OAUTH_APPLICATION = 'OAuthApplication',
     LEGAL_DOCUMENT = 'LegalDocument',
     ERROR_TRACKING_ISSUE = 'ErrorTrackingIssue',
+    DATA_WAREHOUSE_EXPRESSION = 'DataWarehouseExpression',
     DATA_WAREHOUSE_SAVED_QUERY = 'DataWarehouseSavedQuery',
     USER_INTERVIEW = 'UserInterview',
     TAG = 'Tag',
@@ -6055,6 +6088,8 @@ export type CommentType = {
     is_task: boolean
     completed_at: string | null
     completed_by: UserBasicType | null
+    /** The Slack thread this comment's discussion is mirrored to (read-only); set only on a tracked thread root. */
+    slack_thread?: CommentSlackThreadRefApi | null
 }
 
 export type CommentCreationParams = { mentions?: number[]; slug?: string }
@@ -6083,7 +6118,7 @@ export interface DataWarehouseTable {
 
 export type DataWarehouseTableTypes = 'CSV' | 'Parquet' | 'JSON' | 'CSVWithNames'
 
-export type DataModelingJobStatus = 'Running' | 'Completed' | 'Failed' | 'Cancelled'
+export type DataModelingJobStatus = 'Running' | 'Completed' | 'Failed' | 'Cancelled' | 'Skipped'
 
 export interface DataWarehouseSavedQueryRunHistory {
     status: DataModelingJobStatus
@@ -6325,12 +6360,16 @@ export interface WebhookInfo {
     external_status?: WebhookExternalStatus | null
     // Desired provider events not yet on the webhook (manual setup, or created before a new table).
     missing_events?: string[]
+    // Set when the connection's credentials can never create the webhook, so only manual setup is
+    // left. Null means "not known to be blocked", which is the answer for any credential whose
+    // grants can't be introspected.
+    auto_creation_blocked_reason?: string | null
 }
 
 export interface DataModelingJob {
     id: string
     saved_query_id: string
-    status: 'Running' | 'Completed' | 'Failed' | 'Cancelled'
+    status: DataModelingJobStatus
     rows_materialized: number
     rows_expected: number | null
     error: string | null
@@ -7036,6 +7075,8 @@ export enum SidePanelTab {
     Discussion = 'discussion',
     Exports = 'exports',
     AccessControl = 'access-control',
+    /** Access detail for one member or role. Opened programmatically from access control settings. */
+    AccessDetail = 'access-detail',
     Info = 'info',
 }
 
@@ -7255,11 +7296,13 @@ export type HogFunctionConfigurationContextId =
     | 'experiment-alerts'
     | 'logs-alerting'
     | 'health-alerts'
+    | 'batch-export-alerts'
 
 export type HogFunctionSubTemplateIdType =
     | 'early-access-feature-enrollment'
     | 'survey-response'
     | 'mcp-tool-error'
+    | 'pa-rageclick'
     | 'activity-log'
     | 'feature-flag-change'
     | 'error-tracking-issue-created'
@@ -7274,6 +7317,7 @@ export type HogFunctionSubTemplateIdType =
     | 'logs-alert-errored'
     | 'health-check-firing'
     | 'health-check-resolved'
+    | 'batch-export-run-failed'
 
 export type HogFunctionConfigurationType = Omit<
     HogFunctionType,

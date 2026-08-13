@@ -115,11 +115,15 @@ rules:
                               |DashboardWidget
                               |DataColorTheme
                               |DataModelingJob
+                              |DataQualityCheck
+                              |DataQualityCheckRun
+                              |DataQualitySuiteRun
                               |Dataset
                               |DatasetItem
                               |DatasetItemVersion
                               |DatasetRevision
                               |DataWarehouseCredential
+                              |DataWarehouseExpression
                               |DataWarehouseJoin
                               |DataWarehouseManagedViewSet
                               |DataWarehouseModelPath
@@ -168,6 +172,10 @@ rules:
                               |ExternalDataSchemaOOMEvent
                               |ExternalDataSource
                               |FeatureFlag
+                              |FeatureRequest
+                              |FeatureRequestAccountLink
+                              |FeatureRequestProductArea
+                              |FeatureRequestProductAreaLink
                               |TeamExperimentsConfig
                               |TeamFeatureFlagDefaultsConfig
                               |TeamMCPGatewayConfig
@@ -219,6 +227,8 @@ rules:
                               |ManagedWarehouseBackfillPartition
                               |ManagedWarehouseSourceJob
                               |MarketingAnalyticsGoalMapping
+                              |Meeting
+                              |MeetingParticipant
                               |MessageCategory
                               |MessageRecipientPreference
                               |MessageSuppression
@@ -258,6 +268,7 @@ rules:
                               |ReplayObservationLabel
                               |ReplayObservationUsage
                               |ReplayScanner
+                              |ReplayScannerBackfill
                               |ReplayScannerPromptSuggestion
                               |Repo
                               |RepoRoutingRule
@@ -278,6 +289,7 @@ rules:
                               |SharingConfiguration
                               |SignalEmissionRecord
                               |SignalReport
+                              |SignalReportAction
                               |SignalReportArtefact
                               |SignalReportRefund
                               |SignalReportTask
@@ -294,8 +306,6 @@ rules:
                               |SingleSessionSummary
                               |SlackThreadTaskMapping
                               |SourceBatch
-                              |SourceBatchDuckgresApply
-                              |SourceDuckgresGroupLease
                               |SourceGroupLease
                               |StreamlitApp
                               |Subscription
@@ -312,6 +322,7 @@ rules:
                               |TaskAutomation
                               |TaskPresence
                               |TaskRun
+                              |TaskSearchDocument
                               |TaskSession
                               |TaskThreadMessage
                               |TaskThreadMessageMention
@@ -462,11 +473,15 @@ rules:
                         |DashboardWidget
                         |DataColorTheme
                         |DataModelingJob
+                        |DataQualityCheck
+                        |DataQualityCheckRun
+                        |DataQualitySuiteRun
                         |Dataset
                         |DatasetItem
                         |DatasetItemVersion
                         |DatasetRevision
                         |DataWarehouseCredential
+                        |DataWarehouseExpression
                         |DataWarehouseJoin
                         |DataWarehouseManagedViewSet
                         |DataWarehouseModelPath
@@ -515,6 +530,10 @@ rules:
                         |ExternalDataSchemaOOMEvent
                         |ExternalDataSource
                         |FeatureFlag
+                        |FeatureRequest
+                        |FeatureRequestAccountLink
+                        |FeatureRequestProductArea
+                        |FeatureRequestProductAreaLink
                         |TeamExperimentsConfig
                         |TeamFeatureFlagDefaultsConfig
                         |TeamMCPGatewayConfig
@@ -561,6 +580,8 @@ rules:
                         |ManagedWarehouseBackfillPartition
                         |ManagedWarehouseSourceJob
                         |MarketingAnalyticsGoalMapping
+                        |Meeting
+                        |MeetingParticipant
                         |MessageCategory
                         |MessageRecipientPreference
                         |MessageSuppression
@@ -599,6 +620,7 @@ rules:
                         |ReplayObservationLabel
                         |ReplayObservationUsage
                         |ReplayScanner
+                        |ReplayScannerBackfill
                         |ReplayScannerPromptSuggestion
                         |Repo
                         |RepoRoutingRule
@@ -619,6 +641,7 @@ rules:
                         |SharingConfiguration
                         |SignalEmissionRecord
                         |SignalReport
+                        |SignalReportAction
                         |SignalReportArtefact
                         |SignalReportRefund
                         |SignalReportTask
@@ -635,8 +658,6 @@ rules:
                         |SingleSessionSummary
                         |SlackThreadTaskMapping
                         |SourceBatch
-                        |SourceBatchDuckgresApply
-                        |SourceDuckgresGroupLease
                         |SourceGroupLease
                         |StreamlitApp
                         |Subscription

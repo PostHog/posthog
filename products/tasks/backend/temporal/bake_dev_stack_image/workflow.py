@@ -25,7 +25,7 @@ class BakeDevStackImageWorkflow(PostHogWorkflow):
     @staticmethod
     def parse_inputs(inputs: list[str]) -> BakeDevStackImageInput:
         loaded = json.loads(inputs[0])
-        return BakeDevStackImageInput(**{k: v for k, v in loaded.items() if k == "publish_name"})
+        return BakeDevStackImageInput(**{k: v for k, v in loaded.items() if k in ("publish_name", "trigger")})
 
     @workflow.run
     async def run(self, input: BakeDevStackImageInput) -> str:

@@ -7,7 +7,7 @@ export {
 
 export const SELF_DRIVING_SETUP_TASK_FLAG =
   "posthog-code-self-driving-setup-task";
-export const BRANCH_PREFIX = "posthog-code/";
+export const BRANCH_PREFIX = "posthog/";
 export const POSTHOG_CODE_INTERNAL_CHILD_ENV = "POSTHOG_CODE_INTERNAL_CHILD";
 
 // Mirrors --color-background (dark) in packages/ui globals.css, for surfaces

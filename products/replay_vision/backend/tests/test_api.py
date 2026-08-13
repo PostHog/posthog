@@ -25,6 +25,7 @@ from products.replay_vision.backend.models.replay_observation import (
     ReplayObservation,
 )
 from products.replay_vision.backend.models.replay_observation_label import ReplayObservationLabel
+from products.replay_vision.backend.models.replay_observation_usage import ReplayObservationUsage
 from products.replay_vision.backend.models.replay_scanner import (
     ReplayScanner,
     ScannerModel,
@@ -32,7 +33,9 @@ from products.replay_vision.backend.models.replay_scanner import (
     ScannerProvider,
     ScannerType,
 )
+from products.replay_vision.backend.models.replay_scanner_backfill import ReplayScannerBackfill
 from products.replay_vision.backend.models.vision_action import VisionAction
+from products.replay_vision.backend.queries import SAVE_ESTIMATE_BUDGET
 from products.replay_vision.backend.queries.scanner_candidate_query import SETTLE_INTERVAL
 from products.replay_vision.backend.quota import BillingPeriod, _current_period_bounds
 from products.replay_vision.backend.temporal.constants import (
@@ -40,25 +43,22 @@ from products.replay_vision.backend.temporal.constants import (
     APPLY_SCANNER_WORKFLOW_NAME,
     build_apply_scanner_workflow_id,
 )
-from products.replay_vision.backend.tests.helpers import snapshot_for as _snapshot_for
+from products.replay_vision.backend.tests.helpers import (
+    create_experiment,
+    snapshot_for as _snapshot_for,
+)
 from products.signals.backend.models import SignalSourceConfig
 
 
 class _VisionAPITestCase(APIBaseTest):
     def setUp(self) -> None:
         super().setUp()
-        self.flag_patcher = patch(
-            "products.replay_vision.backend.feature_flag.posthoganalytics.feature_enabled",
-            return_value=True,
-        )
-        self.flag_patcher.start()
         # Scanner saves recompute the volume estimate against ClickHouse; keep CRUD tests off that path.
         self.refresh_estimate_patcher = patch("products.replay_vision.backend.api.scanners.refresh_scanner_estimate")
         self.mock_refresh_estimate = self.refresh_estimate_patcher.start()
 
     def tearDown(self) -> None:
         self.refresh_estimate_patcher.stop()
-        self.flag_patcher.stop()
         super().tearDown()
 
     @property
@@ -451,7 +451,14 @@ class TestReplayScannerViewSet(_VisionAPITestCase):
         self.assertNotIn("date_to", body_query)
         self.assertEqual(body_query["filter_test_accounts"], True)
 
-    def test_create_rejects_invalid_query(self) -> None:
+    @parameterized.expand(
+        [
+            ("unknown_field", {"this_field_does_not_exist": True}),
+            # An oversized query is copied into every observation's snapshot, so it is capped on save.
+            ("oversized", {"distinct_ids": ["x" * 1_000 for _ in range(100)]}),
+        ]
+    )
+    def test_create_rejects_invalid_query(self, _name: str, query: dict) -> None:
         resp = self.client.post(
             self.scanners_url,
             data={
@@ -459,7 +466,7 @@ class TestReplayScannerViewSet(_VisionAPITestCase):
                 "scanner_type": ScannerType.MONITOR,
                 "scanner_config": {"prompt": "p"},
                 "model": ScannerModel.GEMINI_3_6_FLASH,
-                "query": {"this_field_does_not_exist": True},
+                "query": query,
             },
             format="json",
         )
@@ -686,6 +693,104 @@ class TestReplayScannerViewSet(_VisionAPITestCase):
         self.assertIn("cohort", resp.json()["detail"])
 
 
+class TestScannerExperimentTargeting(_VisionAPITestCase):
+    def setUp(self) -> None:
+        super().setUp()
+        self.experiment = create_experiment(self.team, "checkout-redesign")
+        self.targeting = {
+            "experiment_id": self.experiment.id,
+            "variant_keys": ["test"],
+            "use_exposure_fallback": False,
+        }
+
+    def _create_payload(self, name: str, **extra: Any) -> dict[str, Any]:
+        return {
+            "name": name,
+            "scanner_type": ScannerType.MONITOR,
+            "scanner_config": {"prompt": "p"},
+            "model": ScannerModel.GEMINI_3_6_FLASH,
+            **extra,
+        }
+
+    def test_experiment_targeting_round_trips_and_clears(self) -> None:
+        resp = self.client.post(
+            self.scanners_url, data=self._create_payload("ctx", experiment_targeting=self.targeting), format="json"
+        )
+        self.assertEqual(resp.status_code, 201, resp.json())
+        self.assertEqual(resp.json()["experiment_targeting"], self.targeting)
+
+        scanner_id = resp.json()["id"]
+        resp = self.client.patch(
+            f"{self.scanners_url}{scanner_id}/", data={"experiment_targeting": None}, format="json"
+        )
+        self.assertEqual(resp.status_code, 200, resp.json())
+        self.assertIsNone(resp.json()["experiment_targeting"])
+
+    @parameterized.expand(
+        [
+            ("missing_experiment", {"variant_keys": [], "use_exposure_fallback": False}),
+            ("bad_experiment_id", {"experiment_id": 0, "variant_keys": [], "use_exposure_fallback": False}),
+            (
+                "variant_keys_not_a_list",
+                {"experiment_id": 9, "variant_keys": "not-a-list", "use_exposure_fallback": False},
+            ),
+            ("blank_variant_key", {"experiment_id": 9, "variant_keys": [""], "use_exposure_fallback": False}),
+            (
+                "too_many_variant_keys",
+                {"experiment_id": 9, "variant_keys": [f"v{i}" for i in range(51)], "use_exposure_fallback": False},
+            ),
+        ]
+    )
+    def test_experiment_targeting_rejects_malformed(self, _name: str, targeting: dict[str, Any]) -> None:
+        resp = self.client.post(
+            self.scanners_url, data=self._create_payload("bad-ctx", experiment_targeting=targeting), format="json"
+        )
+        self.assertEqual(resp.status_code, 400, resp.json())
+        # The field's nested validation reports the exact offending key (e.g.
+        # experiment_targeting__variant_keys__0), so match on the prefix rather than the exact attr.
+        self.assertTrue(resp.json()["attr"].startswith("experiment_targeting"), resp.json())
+
+    def test_partial_update_cannot_save_a_half_filled_targeting(self) -> None:
+        # PATCH makes the parent serializer partial; the custom field validates every write through
+        # a fresh non-partial serializer, so a half-filled object can't persist.
+        scanner = self._create_scanner(name="patch-me", experiment_targeting=self.targeting)
+        resp = self.client.patch(
+            f"{self.scanners_url}{scanner.id}/",
+            data={"experiment_targeting": {"variant_keys": ["control"]}},
+            format="json",
+        )
+        self.assertEqual(resp.status_code, 400)
+        scanner.refresh_from_db()
+        self.assertEqual(scanner.experiment_targeting, self.targeting)
+
+    def test_rejects_an_experiment_from_another_team(self) -> None:
+        other_team = Team.objects.create(organization=self.organization, name="other")
+        foreign = create_experiment(other_team, "foreign-flag")
+        resp = self.client.post(
+            self.scanners_url,
+            data=self._create_payload(
+                "cross-team", experiment_targeting={**self.targeting, "experiment_id": foreign.id}
+            ),
+            format="json",
+        )
+        self.assertEqual(resp.status_code, 400)
+
+    def test_list_filters_by_experiment_id(self) -> None:
+        other = create_experiment(self.team, "other-flag")
+        self._create_scanner(name="for-exp", experiment_targeting=self.targeting)
+        self._create_scanner(name="for-other-exp", experiment_targeting={**self.targeting, "experiment_id": other.id})
+        self._create_scanner(name="no-context")
+
+        resp = self.client.get(f"{self.scanners_url}?experiment_id={self.experiment.id}")
+        self.assertEqual(resp.status_code, 200, resp.json())
+        self.assertEqual([row["name"] for row in resp.json()["results"]], ["for-exp"])
+
+    @parameterized.expand([("superscript", "\u00b2"), ("zero", "0"), ("negative", "-1"), ("word", "abc")])
+    def test_list_filter_rejects_non_positive_integers(self, _name: str, value: str) -> None:
+        resp = self.client.get(f"{self.scanners_url}?experiment_id={value}")
+        self.assertEqual(resp.status_code, 400)
+
+
 class TestScannerLifecycleTelemetry(_VisionAPITestCase):
     def test_create_reports_config_choices(self) -> None:
         # Launch dashboards read these config choices, so a dropped property or a silent non-fire
@@ -711,6 +816,8 @@ class TestScannerLifecycleTelemetry(_VisionAPITestCase):
         self.assertEqual(len(created), 1)
         properties = created[0].kwargs["properties"]
         self.assertEqual(properties["scanner_type"], ScannerType.MONITOR)
+        self.assertEqual(properties["model"], ScannerModel.GEMINI_3_6_FLASH)
+        self.assertEqual(properties["credits_per_observation"], 15)
         self.assertEqual(properties["sampling_rate"], 0.25)
         self.assertTrue(properties["has_filters"])
         self.assertTrue(properties["enabled"])
@@ -783,16 +890,6 @@ class TestScannerDigestProvisioning(_VisionAPITestCase):
         self.assertEqual(digest.created_by_id, self.user.id)
         self.assertTrue(digest.enabled)
 
-    def test_no_digest_when_actions_flag_off(self) -> None:
-        # Teams without the actions feature must not accrue billable synthesis runs they can't see.
-        with patch(
-            "products.replay_vision.backend.feature_flag.posthoganalytics.feature_enabled",
-            side_effect=lambda key, *args, **kwargs: key != "replay-vision-actions",
-        ):
-            resp = self.client.post(self.scanners_url, data=self._CREATE_BODY, format="json")
-        self.assertEqual(resp.status_code, 201, resp.json())
-        self.assertFalse(VisionAction.objects.for_team(self.team.id).filter(scanner_id=resp.json()["id"]).exists())
-
     def test_scanner_creation_survives_digest_failure(self) -> None:
         with patch("products.replay_vision.backend.digest.digest_name_for_scanner", side_effect=RuntimeError("boom")):
             resp = self.client.post(self.scanners_url, data=self._CREATE_BODY, format="json")
@@ -816,6 +913,9 @@ class TestScannerEstimatePersistence(_VisionAPITestCase):
         self.assertEqual(resp.status_code, 201, resp.json())
         self.mock_refresh_estimate.assert_called_once()
         self.assertEqual(str(self.mock_refresh_estimate.call_args.args[0].id), resp.json()["id"])
+        # A save blocks the request, so it takes the tighter clock, and it persists the number, so it
+        # keeps the full week.
+        self.assertEqual(self.mock_refresh_estimate.call_args.kwargs["budget"], SAVE_ESTIMATE_BUDGET)
 
     def test_create_succeeds_when_estimate_refresh_fails(self) -> None:
         self.mock_refresh_estimate.side_effect = RuntimeError("clickhouse down")
@@ -909,27 +1009,6 @@ class TestScannerSignalSourceEnablement(_VisionAPITestCase):
         resp = self.client.patch(f"{self.scanners_url}{scanner.id}/", data={"emits_signals": True}, format="json")
         self.assertEqual(resp.status_code, 200, resp.json())
         assert not self._has_source_config()
-
-
-class TestReplayScannerViewSetFeatureFlag(APIBaseTest):
-    @property
-    def scanners_url(self) -> str:
-        return f"/api/environments/{self.team.id}/vision/scanners/"
-
-    @patch("products.replay_vision.backend.feature_flag.posthoganalytics.feature_enabled", return_value=False)
-    def test_flag_off_returns_404_on_list(self, _flag_mock) -> None:
-        resp = self.client.get(self.scanners_url)
-        self.assertEqual(resp.status_code, 404)
-
-    @patch("products.replay_vision.backend.feature_flag.posthoganalytics.feature_enabled", return_value=False)
-    def test_flag_off_returns_404_on_create(self, _flag_mock) -> None:
-        resp = self.client.post(self.scanners_url, data={"name": "x"}, format="json")
-        self.assertEqual(resp.status_code, 404)
-
-    @patch("products.replay_vision.backend.feature_flag.posthoganalytics.feature_enabled", return_value=False)
-    def test_flag_off_returns_404_on_estimate(self, _flag_mock) -> None:
-        resp = self.client.post(f"{self.scanners_url}estimate/", data={}, format="json")
-        self.assertEqual(resp.status_code, 404)
 
 
 class TestReplayObservationViewSet(_VisionAPITestCase):
@@ -1422,6 +1501,8 @@ class TestReplayObservationViewSet(_VisionAPITestCase):
             ("status=bogus", "status"),
             ("triggered_by=hack", "triggered_by"),
             ("verdict=maybe", "verdict"),
+            ("min_score=low", "min_score"),
+            ("max_score=high", "max_score"),
             ("order_by=garbage", "order_by"),
             ("order_by=-result_score_typo", "order_by"),
         ]
@@ -1483,6 +1564,72 @@ class TestReplayObservationViewSet(_VisionAPITestCase):
         resp = self.client.get(f"{self.observations_url(str(scorer.id))}?order_by=-result_score")
         sessions = [r["session_id"] for r in resp.json()["results"]]
         self.assertEqual(sessions, ["sess-1", "sess-0", "sess-2"])
+
+    def _create_scorer_with_scores(self, scores: list[Any]) -> ReplayScanner:
+        scorer = self._create_scanner(
+            name="frustration",
+            scanner_type=ScannerType.SCORER,
+            scanner_config={"prompt": "p", "scale": {"min": 0, "max": 10}},
+        )
+        for idx, score in enumerate(scores):
+            ReplayObservation.objects.create(
+                scanner=scorer,
+                session_id=f"sess-{idx}",
+                scanner_snapshot=_snapshot_for(scorer),
+                triggered_by=ObservationTrigger.SCHEDULE,
+                status=ObservationStatus.SUCCEEDED,
+                completed_at=timezone.now(),
+                scanner_result={
+                    "model_output": {"scanner_type": "scorer", "score": score, "reasoning": "r", "confidence": 0.5},
+                    "signals_count": 0,
+                },
+            )
+        return scorer
+
+    @parameterized.expand(
+        [
+            ("at_least", "min_score=7", ["sess-1", "sess-3"]),
+            ("at_most", "max_score=3", ["sess-0", "sess-2"]),
+            ("range", "min_score=3&max_score=7", ["sess-0", "sess-3"]),
+            # Bounds are inclusive, and 10 must not lose to a lexicographic comparison against 7.
+            ("boundary", "min_score=10", ["sess-1"]),
+        ]
+    )
+    def test_filterset_score_bounds(self, _name: str, query: str, expected: list[str]) -> None:
+        scorer = self._create_scorer_with_scores([3.0, 10.0, 0.5, 7.0])
+        resp = self.client.get(f"{self.observations_url(str(scorer.id))}?{query}")
+        self.assertEqual(resp.status_code, 200, resp.json())
+        self.assertEqual(sorted(r["session_id"] for r in resp.json()["results"]), expected)
+
+    def test_filterset_score_bounds_exclude_rows_without_a_numeric_score(self) -> None:
+        # A pending run has no result at all, and schema drift can leave `score` a string; neither may 500 or match.
+        scorer = self._create_scorer_with_scores([5.0, "not-a-number"])
+        ReplayObservation.objects.create(
+            scanner=scorer,
+            session_id="sess-pending",
+            scanner_snapshot=_snapshot_for(scorer),
+            triggered_by=ObservationTrigger.SCHEDULE,
+        )
+        resp = self.client.get(f"{self.observations_url(str(scorer.id))}?min_score=0&max_score=10")
+        self.assertEqual(resp.status_code, 200, resp.json())
+        self.assertEqual([r["session_id"] for r in resp.json()["results"]], ["sess-0"])
+
+    def test_filterset_score_bounds_combine_with_ordering(self) -> None:
+        # Both annotate the score off the same JSONB path; applying them together must not collide.
+        scorer = self._create_scorer_with_scores([3.0, 10.0, 0.5, 7.0])
+        resp = self.client.get(f"{self.observations_url(str(scorer.id))}?min_score=3&order_by=-result_score")
+        self.assertEqual(resp.status_code, 200, resp.json())
+        self.assertEqual([r["session_id"] for r in resp.json()["results"]], ["sess-1", "sess-3", "sess-0"])
+
+    def test_stats_respect_score_bounds(self) -> None:
+        # The scorer stats embed the filtered queryset into raw SQL, so the annotation-based
+        # filter must survive that path, not just the plain list.
+        scorer = self._create_scorer_with_scores([3.0, 10.0, 0.5, 7.0])
+        resp = self.client.get(f"{self.observations_url(str(scorer.id))}stats/?min_score=7")
+        self.assertEqual(resp.status_code, 200, resp.json())
+        body = resp.json()
+        self.assertEqual(body["status_counts"]["total"], 2)
+        self.assertEqual(body["status_counts"]["succeeded"], 2)
 
     def test_order_by_scanner_version_numeric(self) -> None:
         snap_v1 = {**_snapshot_for(self.scanner), "scanner_version": 1}
@@ -1597,6 +1744,28 @@ class TestObserveAction(_VisionAPITestCase):
 
     def observe_url(self, scanner_id: str) -> str:
         return f"{self.scanners_url}{scanner_id}/observe/"
+
+    def test_no_scan_entrypoint_starts_without_ai_consent(
+        self, mock_sync_connect: MagicMock, mock_async_to_sync: MagicMock
+    ) -> None:
+        # This gate went in per-endpoint and was missed twice, on bulk_observe and then observe. Both
+        # returned 202 for a scan that never ran, because create_observation fails closed on consent
+        # once the workflow is already going. Covering all of them together is what stops a third.
+        # Plain loop, not @parameterized: class-level @patch mis-orders expanded args.
+        mock_sync_connect.return_value = MagicMock()
+        start_workflow = MagicMock()
+        mock_async_to_sync.return_value = start_workflow
+        self.organization.is_ai_data_processing_approved = False
+        self.organization.save()
+        cases = [
+            (f"{self.scanners_url}{self.scanner.id}/observe/", {"session_id": "s1"}),
+            (f"{self.scanners_url}{self.scanner.id}/bulk_observe/", {"session_ids": ["s1"]}),
+            (f"{self.scanners_url}inline_scan/", {"session_ids": ["s1"], "prompt": "did it fail?"}),
+        ]
+        for url, body in cases:
+            resp = self.client.post(url, data=body, format="json")
+            self.assertEqual(resp.status_code, 400, f"{url}: {resp.json()}")
+        start_workflow.assert_not_called()
 
     def test_a_settled_session_returns_the_existing_observation_and_starts_nothing(
         self, mock_sync_connect: MagicMock, mock_async_to_sync: MagicMock
@@ -1852,7 +2021,7 @@ class TestObserveAction(_VisionAPITestCase):
         mock_async_to_sync.return_value = MagicMock()
 
         exhausted = MagicMock(credit_limit=500, period_end=timezone.now())
-        with patch("products.replay_vision.backend.api.trigger.compute_quota_snapshot", return_value=exhausted):
+        with patch("products.replay_vision.backend.api.trigger.quota_state", return_value=exhausted):
             with patch("products.replay_vision.backend.api.scanners.report_user_action") as report:
                 resp = self.client.post(
                     self.observe_url(str(self.scanner.id)), data={"session_id": "sess-quota"}, format="json"
@@ -2031,29 +2200,6 @@ class TestBulkObserveAction(_VisionAPITestCase):
 
 @patch("products.replay_vision.backend.api.trigger.async_to_sync")
 @patch("products.replay_vision.backend.api.trigger.sync_connect")
-class TestObserveActionFeatureFlag(APIBaseTest):
-    def test_flag_off_returns_404(self, _mock_sync_connect: MagicMock, _mock_async_to_sync: MagicMock) -> None:
-        with patch(
-            "products.replay_vision.backend.feature_flag.posthoganalytics.feature_enabled",
-            return_value=False,
-        ):
-            scanner = ReplayScanner.objects.create(
-                team=self.team,
-                name="off",
-                scanner_type=ScannerType.MONITOR,
-                scanner_config={"prompt": "p"},
-                model=ScannerModel.GEMINI_3_6_FLASH,
-            )
-            resp = self.client.post(
-                f"/api/environments/{self.team.id}/vision/scanners/{scanner.id}/observe/",
-                data={"session_id": "s"},
-                format="json",
-            )
-            self.assertEqual(resp.status_code, 404)
-
-
-@patch("products.replay_vision.backend.api.trigger.async_to_sync")
-@patch("products.replay_vision.backend.api.trigger.sync_connect")
 class TestRetryActions(_VisionAPITestCase):
     def setUp(self) -> None:
         super().setUp()
@@ -2188,7 +2334,7 @@ class TestRetryActions(_VisionAPITestCase):
         observation = self._create_failed("sess-quota")
 
         exhausted = MagicMock(exhausted=True, credit_limit=500, period_end=timezone.now())
-        with patch("products.replay_vision.backend.api.trigger.compute_quota_snapshot", return_value=exhausted):
+        with patch("products.replay_vision.backend.api.trigger.quota_state", return_value=exhausted):
             resp = self.client.post(self.retry_url(str(observation.id)))
         self.assertEqual(resp.status_code, 402, resp.json())
         self.assertTrue(ReplayObservation.objects.filter(id=observation.id).exists())
@@ -2467,6 +2613,36 @@ class TestSessionReplayObservationViewSet(_VisionAPITestCase):
         self.assertEqual(filtered["next_observation_id"], str(old.id))
         self.assertIsNone(filtered["previous_observation_id"])
 
+    def test_retrieve_neighbors_honor_score_bounds(self) -> None:
+        scorer = self._create_scanner(
+            name="frustration",
+            scanner_type=ScannerType.SCORER,
+            scanner_config={"prompt": "p", "scale": {"min": 0, "max": 10}},
+        )
+        now = timezone.now()
+        ids = []
+        # created_at ascends with idx, so the default -created_at listing is sess-2, sess-1, sess-0.
+        for idx, score in enumerate([9.0, 2.0, 8.0]):
+            obs = self._create_observation(scorer, f"sess-{idx}")
+            ReplayObservation.objects.filter(pk=obs.id).update(
+                created_at=now - timedelta(minutes=2 - idx),
+                status=ObservationStatus.SUCCEEDED,
+                completed_at=now,
+                scanner_result={
+                    "model_output": {"scanner_type": "scorer", "score": score, "reasoning": "r", "confidence": 0.5},
+                    "signals_count": 0,
+                },
+            )
+            ids.append(obs.id)
+
+        unfiltered = self.client.get(f"{self.session_observations_url}{ids[2]}/").json()
+        self.assertEqual(unfiltered["next_observation_id"], str(ids[1]))
+
+        # min_score=7 drops the 2.0 row, so next skips to the 9.0 row.
+        filtered = self.client.get(f"{self.session_observations_url}{ids[2]}/?min_score=7").json()
+        self.assertEqual(filtered["next_observation_id"], str(ids[0]))
+        self.assertIsNone(filtered["previous_observation_id"])
+
     def test_retrieve_neighbors_honor_order_by(self) -> None:
         now = timezone.now()
         old = self._create_observation(self.scanner_a, "s-old")
@@ -2588,6 +2764,35 @@ class TestReplayScannerEstimateAction(ClickhouseTestMixin, _VisionAPITestCase):
         edit_body = self.client.post(self.estimate_url, data={"scanner_id": str(a.id)}, format="json").json()
         self.assertEqual(edit_body["other_enabled_scanners_monthly_credits"], 250 * 15)
 
+    def test_estimate_reports_active_backfill_commitment(self) -> None:
+        # The editor replaces the fleet total with `others + this scanner`, which drops the backfill credits the
+        # quota snapshot carries. Without this field the forecast understates period-end spend while one runs.
+        scanner = ReplayScanner.objects.create(
+            team=self.team,
+            name="backfilled",
+            scanner_type=ScannerType.MONITOR,
+            scanner_config={"prompt": "p"},
+            model=ScannerModel.GEMINI_3_6_FLASH,
+        )
+        ReplayScannerBackfill.objects.for_team(self.team.id).create(
+            scanner=scanner,
+            team=self.team,
+            window_start=timezone.now() - timedelta(days=5),
+            window_end=timezone.now(),
+            scanner_snapshot={},
+            credits_per_observation=5,
+            total_count=100,
+            dispatched_count=40,
+        )
+
+        body = self.client.post(self.estimate_url, data={}, format="json").json()
+
+        assert body["active_backfill_credits"] == 60 * 5
+
+    def test_estimate_reports_no_backfill_commitment_when_none_are_active(self) -> None:
+        body = self.client.post(self.estimate_url, data={}, format="json").json()
+        assert body["active_backfill_credits"] == 0
+
     def test_estimate_rejects_scanner_id_outside_the_request_team(self) -> None:
         # A scanner_id from another team (even same org) must be rejected, not silently excluded from the others-sum.
         other_team = Team.objects.create(organization=self.team.organization, name="sibling")
@@ -2656,6 +2861,25 @@ class TestScannerSpend(_VisionAPITestCase):
         displayed = [row["credits_this_month"] for row in rows]
         self.assertEqual(displayed, sorted(displayed, reverse=True))
         self.assertEqual([row["name"] for row in rows[:2]], ["high", "low"])
+
+    def test_receipts_without_a_scanner_do_not_zero_the_displayed_credits(self) -> None:
+        # Receipts are never backfilled with a scanner_id, so the displayed column and its sort read
+        # observation rows. Pointing either at the ledger silently zeroes both for a whole period.
+        spender = self._create_scanner(name="spender")
+        observation = self._succeeded_observation(spender, "unattributed")
+        ReplayObservationUsage.objects.create(
+            observation_id=observation.id,
+            organization_id=self.team.organization_id,
+            team_id=self.team.pk,
+            scanner_id=None,
+            observation_created_at=observation.created_at,
+            model=spender.model,
+            credits=observation_credits_for_model(spender.model),
+        )
+
+        resp = self.client.get(f"{self.scanners_url}?order_by=-credits_this_month")
+        self.assertEqual(resp.status_code, 200, resp.json())
+        self.assertEqual(self._credits_by_name(resp.json())["spender"], observation_credits_for_model(spender.model))
 
 
 class TestCurrentPeriodBounds(SimpleTestCase):

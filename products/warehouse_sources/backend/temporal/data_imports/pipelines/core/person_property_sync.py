@@ -56,6 +56,13 @@ EVENT_SOURCE = "customer_analytics_person_property_sync"
 # customer_analytics config models, matching the isolation the hooks already preserve).
 _GROUP_TARGET = "group"
 
+# Identifiers per existence-lookup call. Both personhog helpers return whole Person/Group models,
+# properties included, and accumulate every model before returning. This activity only needs the
+# identifier back, so chunking here caps peak memory at one chunk's models instead of the entire
+# changed set — an organization group carries tens of KB of properties, so a six-figure changed set
+# would otherwise materialize gigabytes and get the worker OOM-killed.
+_EXISTENCE_LOOKUP_CHUNK_SIZE = 1_000
+
 
 @dataclasses.dataclass
 class PerSourceResult:
@@ -286,14 +293,26 @@ def _get_schema(team_id: int, schema_id: str) -> ExternalDataSchema | None:
 
 def _filter_existing_ids(team_id: int, source: PersonPropertySyncSource, ids: list[str]) -> set[str]:
     """The subset of ``ids`` that resolve to an existing person (or group, for group targets). We only
-    enrich entities that already exist — the same rule for both, just a different lookup."""
+    enrich entities that already exist — the same rule for both, just a different lookup.
+
+    Chunked so only one chunk's models are alive at a time (see ``_EXISTENCE_LOOKUP_CHUNK_SIZE``);
+    each chunk's identifiers are kept and its models dropped before the next call."""
     if not ids:
         return set()
-    if source.target == _GROUP_TARGET:
-        if source.group_type_index is None:
-            return set()
-        return {group.group_key for group in get_groups_by_identifiers(team_id, source.group_type_index, ids)}
-    return set(get_persons_mapped_by_distinct_id(team_id, ids).keys())
+    # Stays None for person targets, so the loop below picks its lookup off this alone.
+    is_group = source.target == _GROUP_TARGET
+    group_type_index = source.group_type_index if is_group else None
+    if is_group and group_type_index is None:
+        return set()
+
+    existing: set[str] = set()
+    for start in range(0, len(ids), _EXISTENCE_LOOKUP_CHUNK_SIZE):
+        chunk = ids[start : start + _EXISTENCE_LOOKUP_CHUNK_SIZE]
+        if group_type_index is not None:
+            existing.update(group.group_key for group in get_groups_by_identifiers(team_id, group_type_index, chunk))
+        else:
+            existing.update(get_persons_mapped_by_distinct_id(team_id, chunk).keys())
+    return existing
 
 
 def _group_type_name(team_id: int, group_type_index: int) -> str | None:

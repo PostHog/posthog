@@ -18,6 +18,7 @@ import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { pluralize } from 'lib/utils/strings'
 import { SessionRecordingsPlaylist } from 'scenes/session-recordings/playlist/SessionRecordingsPlaylist'
+import { sessionRecordingsPlaylistLogic } from 'scenes/session-recordings/playlist/sessionRecordingsPlaylistLogic'
 
 import { Experiment } from '~/types'
 
@@ -25,6 +26,7 @@ import { SummarizeSessionReplaysButton } from '../components/SummarizeSessionRep
 import { isLaunched } from '../experimentStatus'
 import { NOT_A_FUNNEL_REASON } from '../utils'
 import { EXPOSURE_FALLBACK_NOTICE, EXPOSURE_UNLINKABLE_REASON } from '../viewRecordingsLinkabilityLogic'
+import { ExperimentBehaviorComparison, ExperimentBehaviorComparisonToggle } from './ExperimentBehaviorComparison'
 import {
     ExperimentReplayMetricFilterMode,
     ExperimentReplayMetricOption,
@@ -185,6 +187,22 @@ export function ExperimentReplayTab({ experiment }: { experiment: Experiment }):
         recordingOpened,
     } = useActions(logic)
 
+    // One object feeds both the playlist below and the findMounted lookup, because the logic's
+    // kea key is derived from these props: hand-duplicating them at the two sites would let the
+    // keys drift apart, and a drifted key turns every highlight click into a silent no-op.
+    const playlistLogicProps = { logicKey: `experiment-${experiment.id}`, updateSearchParams: false }
+    // `findMounted` rather than building the logic: the playlist below owns it and passes props
+    // this call doesn't have, so building it from here first would leave it mounted with a
+    // half-built set of them. Before the playlist has rendered there is nothing to select anyway.
+    const watchRecording = (sessionId: string): boolean => {
+        const playlist = sessionRecordingsPlaylistLogic.findMounted(playlistLogicProps)
+        if (!playlist) {
+            return false
+        }
+        playlist.actions.setSelectedRecordingId(sessionId)
+        return true
+    }
+
     if (!isLaunched(experiment)) {
         return <LemonBanner type="info">Launch the experiment to see recordings of participants.</LemonBanner>
     }
@@ -301,6 +319,7 @@ export function ExperimentReplayTab({ experiment }: { experiment: Experiment }):
                         </DropdownMenuContent>
                     </DropdownMenu>
                 )}
+                <ExperimentBehaviorComparisonToggle experiment={experiment} />
                 <div className="ml-auto">
                     <SummarizeSessionReplaysButton experiment={experiment} />
                 </div>
@@ -325,13 +344,14 @@ export function ExperimentReplayTab({ experiment }: { experiment: Experiment }):
                     )}
                 </div>
             )}
+            <ExperimentBehaviorComparison experiment={experiment} onWatchRecording={watchRecording} />
             <div className="SessionRecordingPlaylistHeightWrapper">
                 <SessionRecordingsPlaylist
-                    logicKey={`experiment-${experiment.id}`}
+                    {...playlistLogicProps}
+                    analyticsSource="experiment-recordings-tab"
                     filters={recordingsFilters}
-                    updateSearchParams={false}
                     onFiltersChange={(filters) => playlistFiltersChanged(filters)}
-                    onRecordingsLoaded={(recordings) => recordingsLoaded(recordings.map((recording) => recording.id))}
+                    onRecordingsLoaded={(recordings) => recordingsLoaded(recordings)}
                     onRecordingSelected={(recordingId) => recordingOpened(recordingId)}
                 />
             </div>

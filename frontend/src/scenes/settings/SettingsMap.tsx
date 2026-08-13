@@ -53,6 +53,7 @@ import {
     WarehouseGroupPropertiesSetting,
     WarehousePersonPropertiesSetting,
 } from 'products/customer_analytics/frontend/scenes/CustomerAnalyticsConfigurationScene/account/WarehousePersonPropertiesSetting'
+import { CalendarSyncConfig } from 'products/customer_analytics/frontend/scenes/CustomerAnalyticsConfigurationScene/calendar/CalendarSyncConfig'
 import { CustomerAnalyticsDashboardEvents } from 'products/customer_analytics/frontend/scenes/CustomerAnalyticsConfigurationScene/events/CustomerAnalyticsDashboardEvents'
 import { ExceptionAutocaptureToggle } from 'products/error_tracking/frontend/scenes/ErrorTrackingConfigurationScene/exception_autocapture/ExceptionAutocaptureSettings'
 import { SuppressionRules } from 'products/error_tracking/frontend/scenes/ErrorTrackingConfigurationScene/suppression_rules/SuppressionRules'
@@ -452,6 +453,15 @@ export const SETTINGS_MAP: SettingSection[] = [
                 component: <CustomerAnalyticsAccountConfig />,
                 flag: ['CUSTOMER_ANALYTICS', 'CUSTOMER_ANALYTICS_CSP'],
                 keywords: ['accounts', 'group', 'b2b'],
+            },
+            {
+                id: 'customer-analytics-calendar-sync',
+                title: 'Calendar sync',
+                description:
+                    'Connect your Google Calendar to sync meetings with customers into their accounts. Each team member connects their own calendar.',
+                component: <CalendarSyncConfig />,
+                flag: ['CUSTOMER_ANALYTICS', 'CUSTOMER_ANALYTICS_CSP'],
+                keywords: ['calendar', 'meetings', 'google', 'sync', 'accounts'],
             },
             {
                 id: 'customer-analytics-event-stream',
@@ -1570,7 +1580,7 @@ export const SETTINGS_MAP: SettingSection[] = [
                 title: 'GitHub integration',
                 description: 'Connect GitHub to link issues and pull requests with PostHog insights.',
                 docsUrl: 'https://posthog.com/docs/error-tracking/integrations',
-                component: <GitHub.SettingsSection />,
+                component: <GitHub.SettingsSection connectSurface="settings" />,
                 keywords: ['github', 'git', 'repository', 'issue', 'pr'],
             },
             {
