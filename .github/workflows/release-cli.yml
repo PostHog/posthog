@@ -546,6 +546,8 @@ jobs:
                   dist build ${{ needs.plan-release.outputs.tag-flag }} --output-format=json "--artifacts=global" > dist-manifest.json
                   echo "dist ran successfully"
 
+                  node .github/scripts/patch-cli-npm-installer.mjs target/distrib dist-manifest.json
+
                   # Parse out what we just built and upload it to scratch storage
                   echo "paths<<EOF" >> "$GITHUB_OUTPUT"
                   jq --raw-output ".upload_files[]" dist-manifest.json >> "$GITHUB_OUTPUT"
