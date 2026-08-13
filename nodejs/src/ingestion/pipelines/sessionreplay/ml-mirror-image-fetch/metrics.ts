@@ -137,7 +137,7 @@ export class ImageFetchRequestMetrics {
         buckets: [0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10, 30],
     })
     /**
-     * A rising tail means one domain offers more URLs than its rate carries. Past the batch budget
+     * A rising tail means one domain offers more URLs than its rate carries. Past the pass deadline
      * the wait becomes a `deadline` shed, so read this against that outcome: a growing wait with no
      * sheds is headroom, and a growing wait with sheds is a domain the lane cannot keep up with.
      */

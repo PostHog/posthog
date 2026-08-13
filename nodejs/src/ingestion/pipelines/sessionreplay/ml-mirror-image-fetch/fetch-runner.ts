@@ -301,7 +301,7 @@ export class FetchRunner implements FetchPass {
     }
 
     /**
-     * The request keeps its whole configured timeout even when the batch deadline is closer.
+     * The request keeps its whole configured timeout even when the pass deadline is closer.
      *
      * A request that the batch clock cut short would time out through no fault of the site, and the
      * budget would read that as the site failing. So the deadline decides whether a request starts,

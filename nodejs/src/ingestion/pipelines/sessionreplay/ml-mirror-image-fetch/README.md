@@ -8,15 +8,16 @@ code is written against. Where the code and this file disagree, one of them is a
 
 ## The model
 
-| Part               | What it is                                                                                                                                  |
-| ------------------ | ------------------------------------------------------------------------------------------------------------------------------------------- |
-| Frontier           | The topic `session_replay_image_fetch`. It holds the URLs waiting to be fetched.                                                            |
-| Back queue         | The URLs of one registrable domain. The topic key is the domain, so a partition holds whole back queues.                                    |
-| Pass               | The fetching for one Kafka poll batch. Every back queue in the batch runs at the same time, and wall time bounds the pass rather than work. |
-| Crawl history      | The Redis record of the URLs this lane has finished with, whatever the outcome. It answers the URL-seen test.                               |
-| Host budget        | The rate limit, connection limit, and circuit breaker for one registrable domain.                                                           |
-| Hop budget         | The number of moves one URL may make before the lane gives up.                                                                              |
-| Registrable domain | The operator boundary, from the public suffix list. `example.com` for `img1.cdn.example.com`, but `myapp.vercel.app` for itself.            |
+| Part               | What it is                                                                                                                                                                                                                        |
+| ------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Frontier           | The topic `session_replay_image_fetch`. It holds the URLs waiting to be fetched.                                                                                                                                                  |
+| Back queue         | The URLs of one registrable domain. The topic key is the domain, so a partition holds whole back queues.                                                                                                                          |
+| Pass               | The fetching for one Kafka poll batch. Every back queue in the batch runs at the same time, and wall time bounds the pass rather than work.                                                                                       |
+| Crawl history      | The Redis record of the URLs this lane has finished with, whatever the outcome. It answers the URL-seen test.                                                                                                                     |
+| Host budget        | The rate limit, connection limit, and circuit breaker for one registrable domain.                                                                                                                                                 |
+| Hop                | One trip a URL makes back through Kafka. The lane spends a hop when it puts a URL back: a retry, a redirect that left the domain, or a URL that arrived before its wait ended. A redirect the lane follows in place costs no hop. |
+| Hop budget         | The number of hops one URL may make before the lane gives up.                                                                                                                                                                     |
+| Registrable domain | The operator boundary, from the public suffix list. `example.com` for `img1.cdn.example.com`, but `myapp.vercel.app` for itself.                                                                                                  |
 
 A redirect to another domain is a new candidate URL. It goes back through the frontier rather than
 being fetched in place, because the budget that governs it belongs to whichever consumer owns that
@@ -62,7 +63,7 @@ Each of these is numbered so a test can name the one it covers.
 3. Requests to one domain never exceed its rate.
 4. A redirect is not a way around either limit.
 5. After any wait, a request checks again before it goes out. The domain must not be blocked, and
-   the batch deadline must not have passed. A grant that went stale during the wait is returned,
+   the pass deadline must not have passed. A grant that went stale during the wait is returned,
    not sent.
 
 ### Redirects
