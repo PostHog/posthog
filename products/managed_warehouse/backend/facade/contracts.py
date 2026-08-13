@@ -71,15 +71,12 @@ class ServiceCredential:
     short-lived, scoped, disposable — see duckgres/CLAUDE.md "Service
     Credentials").
 
-    Each minted credential is its own server-side grant row — NOT a rewrite
-    of a shared team login's hash, so minting never disturbs sessions other
-    mints created. ``credential_id`` is the CP-generated identifier
-    (``svc_<24 random hex>``); it is NOT a secret and may be logged.
-    ``credential_secret`` is empty when the CP REUSED a still-valid grant for
-    the same (org, principal) (`rotated` is False): callers that already
-    hold the secret keep using it; callers that don't must re-mint with
-    ``force_rotate=True``, or call ``refresh_service_credential`` with the
-    ``credential_id`` (refresh always rotates).
+    Each mint creates its own server-side grant row, so minting never
+    disturbs sessions created by other mints. ``principal`` is audit metadata
+    and does not select an existing grant. ``credential_id`` is the
+    CP-generated identifier (``svc_<24 random hex>``); it is not a secret and
+    may be logged. Callers retain it to refresh the credential they minted.
+    Every successful mint and refresh includes ``credential_secret``.
 
     ``connect`` carries the CP-issued dial target for the credential and is
     REQUIRED on every successful mint — a mint response without it is an
@@ -91,7 +88,6 @@ class ServiceCredential:
     # pytest assertion diff, or log line that stringifies the object.
     credential_secret: str = field(repr=False)
     expires_at: datetime
-    rotated: bool
     connect: ServiceCredentialConnect
 
 
