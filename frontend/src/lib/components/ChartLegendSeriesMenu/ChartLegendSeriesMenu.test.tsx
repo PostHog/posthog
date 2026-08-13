@@ -17,12 +17,14 @@ const BASE: Omit<ChartLegendSeriesMenuProps, 'children'> = {
 }
 
 function openMenu(props: Partial<ChartLegendSeriesMenuProps> = {}): void {
-    render(
+    const { container } = render(
         <ChartLegendSeriesMenu {...BASE} {...props}>
-            <button type="button">Pageviews</button>
+            <button type="button" data-attr="legend-row">
+                Pageviews
+            </button>
         </ChartLegendSeriesMenu>
     )
-    fireEvent.contextMenu(screen.getByRole('button', { name: 'Pageviews' }))
+    fireEvent.contextMenu(container.querySelector('[data-attr="legend-row"]')!)
 }
 
 describe('ChartLegendSeriesMenu', () => {

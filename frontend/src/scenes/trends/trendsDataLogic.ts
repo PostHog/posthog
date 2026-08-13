@@ -253,15 +253,15 @@ export interface trendsDataLogicActions {
     setHoveredDatasetIndex: (index: number | null) => {
         index: number | null
     }
+    setResultsHidden: (hiddenIds: string[]) => {
+        hiddenIds: string[]
+    }
     toggleAllResultsHidden: (
         datasets: IndexedTrendResult[],
         hidden: boolean
     ) => {
         datasets: IndexedTrendResult[]
         hidden: boolean
-    }
-    setResultsHidden: (hiddenIds: string[]) => {
-        hiddenIds: string[]
     }
     toggleOtherSeriesHidden: (dataset: IndexedTrendResult) => {
         dataset: IndexedTrendResult
@@ -389,7 +389,7 @@ export interface trendsDataLogicMeta {
                 | Record<string, ResultCustomizationByValue>
                 | Record<number, ResultCustomizationByPosition>
                 | undefined,
-            getTheme: (themeId: number | string | null | undefined) => DataColorTheme | null,
+            getTheme: (themeId: number | string | null | undefined) => DataColorTheme | null, // insightVizDataLogic
             breakdownFilter: BreakdownFilter | null | undefined,
             querySource:
                 | FunnelsQuery
