@@ -212,6 +212,9 @@ describe('DelayHandler with delay_until', () => {
     it.each([
         ['the property is missing', {}],
         ['the property is not a date', { trial_expiration_at: 'whenever' }],
+        // A millisecond timestamp read as seconds lands in the year 58970; rejecting it stops the clamp from
+        // silently turning it into a 30-day wait.
+        ['the property is a unix millisecond timestamp', { trial_expiration_at: 1798761600000 }],
     ])('fails when %s', async (_label, personProperties) => {
         await expect(runDelay(delayUntil(), personProperties)).rejects.toThrow(
             'The date to wait for did not evaluate to a date'

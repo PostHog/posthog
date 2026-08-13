@@ -41,6 +41,10 @@ const OFFSET_REGEX = /^(-?)(\d*\.?\d+)([dhms])$/
 
 const DEFAULT_MAX_DELAY_UNTIL = '30d'
 
+// The last second luxon (and JS Date) can represent as a real date, end of year 9999. A numeric value larger
+// than this is a millisecond timestamp mislabelled as seconds, not a plausible date to wait for.
+const MAX_UNIX_SECONDS = 253402300799
+
 /** Seconds for a duration string, using the same units and per-unit ceilings as a fixed delay. */
 function durationSeconds(value: string): number | null {
     const match = OFFSET_REGEX.exec(value)
@@ -60,8 +64,13 @@ function instantFromHogValue(value: unknown): DateTime | null {
         return typeof seconds === 'number' ? DateTime.fromSeconds(seconds, { zone: 'UTC' }) : null
     }
     if (typeof value === 'number') {
-        // Unix seconds, matching toUnixTimestamp(). Milliseconds would put the instant ~50,000 years out,
-        // which the max-delay clamp would swallow silently, so reject rather than guess the unit.
+        // Unix seconds, matching toUnixTimestamp(). A millisecond timestamp — what Date.now() and most SDKs
+        // produce — is ~1000x too large and lands tens of thousands of years out, where the max-delay clamp
+        // would swallow it silently. luxon still calls that instant valid, so reject anything past the last
+        // representable second rather than guess the unit.
+        if (value > MAX_UNIX_SECONDS) {
+            return null
+        }
         const asSeconds = DateTime.fromSeconds(value, { zone: 'UTC' })
         return asSeconds.isValid ? asSeconds : null
     }
