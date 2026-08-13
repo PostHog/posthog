@@ -224,24 +224,9 @@ class ServicesQueryRunner(AnalyticsQueryRunner[LogsQueryResponse], LogsQueryRunn
             sparkline_rows = sparkline_response.results
 
         # True distinct-service count, unaffected by SERVICES_LIMIT — the UI
-        # uses it to disclose truncation. An aggregates result under the cap is
-        # already the complete distinct set, so only run the extra count when
-        # the cap was actually hit.
-        if len(aggregates_response.results) < SERVICES_LIMIT:
-            total_services = len(aggregates_response.results)
-        else:
-            total_response = execute_hogql_query(
-                query_type="LogsQuery",
-                query=self._total_services_query(),
-                modifiers=self.modifiers,
-                team=self.team,
-                workload=Workload.LOGS,
-                timings=self.timings,
-                limit_context=self.limit_context,
-                filters=self.query_date_range.to_hogql_filters(),
-                settings=self.settings,
-            )
-            total_services = int(total_response.results[0][0]) if total_response.results else 0
+        # uses it to disclose truncation. The window function counts the groups
+        # before LIMIT applies, so every row carries the same total.
+        total_services = int(aggregates_response.results[0][6]) if aggregates_response.results else 0
 
         enabled_rules = list(
             LogsExclusionRule.objects.filter(team_id=self.team.pk, enabled=True).order_by("priority", "created_at")
@@ -335,14 +320,6 @@ class ServicesQueryRunner(AnalyticsQueryRunner[LogsQueryResponse], LogsQueryRunn
         )
         return ast.And(exprs=[base, search])
 
-    def _total_services_query(self) -> ast.SelectQuery:
-        query = parse_select(
-            "SELECT uniq(service_name) FROM logs WHERE {where}",
-            placeholders={"where": self._where_with_search},
-        )
-        assert isinstance(query, ast.SelectQuery)
-        return query
-
     def _aggregates_query(self) -> ast.SelectQuery:
         query = parse_select(
             """
@@ -352,7 +329,10 @@ class ServicesQueryRunner(AnalyticsQueryRunner[LogsQueryResponse], LogsQueryRunn
                 sumIf(cnt, in(severity_text, tuple('error', 'fatal'))) AS error_count,
                 sumIf(cnt, in(severity_text, tuple('trace', 'debug'))) AS severity_debug,
                 sumIf(cnt, severity_text = 'info') AS severity_info,
-                sumIf(cnt, in(severity_text, tuple('warn', 'warning'))) AS severity_warn
+                sumIf(cnt, in(severity_text, tuple('warn', 'warning'))) AS severity_warn,
+                -- Counts the grouped rows before LIMIT, so the caller learns the
+                -- true service count without a second scan of the window.
+                count() OVER () AS total_services
             FROM (
                 SELECT
                     service_name,
