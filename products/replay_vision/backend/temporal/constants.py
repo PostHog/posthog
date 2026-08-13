@@ -47,6 +47,15 @@ def build_process_vision_action_workflow_id(vision_action_id: UUID) -> str:
 
 SCANNER_SCHEDULE_INTERVAL = dt.timedelta(minutes=5)
 
+# Minimum age of the deep-sweep watermark before a sweep tick runs the full-events-lookback catch-up
+# pass that picks up sessions whose matching events were older than the fast pass's narrow window.
+# Paired with SWEEP_EVENTS_LOOKBACK: that sets what the fast pass can miss, this sets how long a miss
+# waits, so tuning either one moves the same cost-against-latency tradeoff.
+DEEP_SWEEP_INTERVAL = dt.timedelta(hours=6)
+# The deep pass shares the sweep activity's time budget with the fast query, so it gets the smaller
+# share: it is catch-up work, and a tick that overruns retries both queries.
+DEEP_SWEEP_MAX_EXECUTION_SECONDS = 60
+
 # Children are ABANDONed and don't count against this budget, but activities do: this must cover the
 # prompt-suggestion refresh worst case plus the candidate scan, or a slow refresh kills the whole sweep.
 # Overlap SKIP means a slow run absorbs later ticks instead of stacking.
