@@ -98,7 +98,9 @@ DAY_6_END = dt.datetime(2026, 7, 6, 23, 59, 59, tzinfo=dt.UTC)
 
 # ORM access from the async test bodies must hop to a sync thread.
 usage_count = sync_to_async(lambda: DuckgresDailyUsage.objects.count())
-cursor_exists = sync_to_async(lambda: DuckgresUsageCursor.objects.exists())
+# The cursor row exists after any applied poll (it tracks the applied watermark for
+# staleness), so "nothing was acked" is about the acked field, not row existence.
+ack_recorded = sync_to_async(lambda: DuckgresUsageCursor.objects.filter(last_acked_watermark__isnull=False).exists())
 get_cursor_watermark = sync_to_async(lambda: DuckgresUsageCursor.objects.get(singleton=1).last_acked_watermark)
 usage_dates = sync_to_async(lambda: sorted(DuckgresDailyUsage.objects.values_list("date", flat=True)))
 usage_team_ids = sync_to_async(lambda: sorted(DuckgresDailyUsage.objects.values_list("team_id", flat=True)))
@@ -182,7 +184,7 @@ async def test_no_ack_watermark_when_nothing_closed(activity_environment) -> Non
 
     assert await usage_count() == 1
     assert result.ack_watermark is None
-    assert not await cursor_exists()
+    assert not await ack_recorded()
 
 
 @pytest.mark.django_db(transaction=True)
@@ -231,7 +233,7 @@ async def test_withholds_ack_and_alerts_on_parse_failure(activity_environment) -
     assert result.ack_watermark is None  # withheld despite a closed day
     assert await usage_count() == 1  # the good row persisted
     mock_capture.assert_called_once()
-    assert not await cursor_exists()  # nothing acked, nothing recorded
+    assert not await ack_recorded()  # nothing acked, nothing recorded
 
 
 @pytest.mark.django_db(transaction=True)
@@ -249,7 +251,7 @@ async def test_withholds_ack_and_alerts_on_out_of_window_rows(activity_environme
     assert await usage_count() == 1  # only the in-window day 6 row persisted
     assert await usage_dates() == [dt.date(2026, 7, 6)]
     mock_capture.assert_called_once()
-    assert not await cursor_exists()
+    assert not await ack_recorded()
 
 
 @pytest.mark.django_db(transaction=True)
@@ -398,7 +400,7 @@ async def test_conflicting_rows_withhold_the_ack_and_alert(activity_environment)
 
     assert result.rows_written == 1  # kept the larger, not both
     assert result.ack_watermark is None  # WITHHELD despite a closed day
-    assert not await cursor_exists()  # nothing acked, nothing recorded
+    assert not await ack_recorded()  # nothing acked, nothing recorded
     captured = [type(c.args[0]).__name__ for c in mock_capture.call_args_list]
     assert "DuckgresConflictingRows" in captured
 
@@ -484,7 +486,7 @@ async def test_missing_usage_withholds_ack_and_alerts(activity_environment) -> N
 
     assert await usage_count() == 0
     assert result.ack_watermark is None  # withheld
-    assert not await cursor_exists()
+    assert not await ack_recorded()
     captured = [type(c.args[0]).__name__ for c in mock_capture.call_args_list]
     assert "DuckgresMissingUsage" in captured
 
@@ -501,9 +503,47 @@ async def test_malformed_storage_withholds_ack_and_alerts(activity_environment) 
 
     assert await usage_count() == 1  # the compute row still persisted
     assert result.ack_watermark is None  # withheld
-    assert not await cursor_exists()
+    assert not await ack_recorded()
     captured = [type(c.args[0]).__name__ for c in mock_capture.call_args_list]
     assert "DuckgresMalformedStorage" in captured
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
+async def test_stale_zombie_response_cannot_overwrite_newer_applied_window(activity_environment) -> None:
+    # The zombie interleaving: attempt 1 fetches at 23:58 (day-6 partials), stalls past
+    # its heartbeat timeout, and attempt 2 fetches after midnight, persists day 6's
+    # FINAL totals, records the cursor, and the day is acked (duckgres deletes the
+    # source). The zombie's write then lands LAST. It must be refused — the replace is
+    # monotone in the served watermark_high — or the acked day's final totals would be
+    # silently replaced by the 23:58 partials, forever (the source is already deleted).
+    fresh = UsageResponse(
+        # Attempt 2's post-midnight fetch: day 6 closed with its final totals.
+        watermark_low=dt.datetime(2026, 7, 5, 23, 59, 59, tzinfo=dt.UTC),
+        watermark_high=dt.datetime(2026, 7, 7, 0, 0, 30, tzinfo=dt.UTC),
+        rows=[_row(dt.date(2026, 7, 6), cpu_seconds=250), _row(dt.date(2026, 7, 7), cpu_seconds=50)],
+    )
+    stale = UsageResponse(
+        # The zombie's 23:58 fetch: same window start, older high, day-6 partials only.
+        watermark_low=dt.datetime(2026, 7, 5, 23, 59, 59, tzinfo=dt.UTC),
+        watermark_high=dt.datetime(2026, 7, 6, 23, 58, 0, tzinfo=dt.UTC),
+        rows=[_row(dt.date(2026, 7, 6), cpu_seconds=100)],
+    )
+
+    is_conf, fetch, cap, log = _patched(fresh)
+    with is_conf, fetch, cap, log:
+        first = await activity_environment.run(poll_duckgres_usage, PollDuckgresUsageInputs())
+    assert first.ack_watermark == DAY_6_END.isoformat()  # day 6 acked — source deleted upstream
+
+    is_conf, fetch, cap, log = _patched(stale)
+    with is_conf, fetch, cap, log:
+        second = await activity_environment.run(poll_duckgres_usage, PollDuckgresUsageInputs())
+
+    day6 = sync_to_async(lambda: DuckgresDailyUsage.objects.get(date=dt.date(2026, 7, 6)).cpu_seconds)
+    assert await day6() == 250  # the acked day keeps its FINAL totals — the stale write was refused
+    assert second.rows_written == 0  # nothing replaced
+    assert second.ack_watermark is None  # a refused write never acks
+    assert await get_cursor_watermark() == DAY_6_END  # cursor untouched
 
 
 @pytest.mark.django_db(transaction=True)
@@ -523,6 +563,6 @@ async def test_storage_conflicting_rows_withhold_the_ack_and_alert(activity_envi
 
     assert result.rows_written == 1  # kept the larger storage row, not both
     assert result.ack_watermark is None  # WITHHELD despite a closed day
-    assert not await cursor_exists()
+    assert not await ack_recorded()
     captured = [type(c.args[0]).__name__ for c in mock_capture.call_args_list]
     assert "DuckgresConflictingRows" in captured

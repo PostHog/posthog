@@ -320,11 +320,41 @@ def _persist(response: UsageResponse, resolution: ResolvedTeams, watermark_to_re
     # resolve_billing_teams, up in the activity where the ack decision needs its
     # counts). Swap the resolved rows onto the response, replace the open window, and
     # — record-before-ack — write the watermark in the same transaction.
+    #
+    # The replace is MONOTONE in the served watermark_high: a response at or below
+    # the last applied one never replaces rows. This is what stops a zombie poll
+    # attempt (timed out on heartbeat, but its process and DB connection survived)
+    # from landing a stale pre-midnight snapshot AFTER a newer attempt already
+    # applied the day's final totals and acked — an acked day is deleted upstream,
+    # so a stale overwrite would be permanent and silent. The row lock makes the
+    # compare-and-replace atomic: a concurrent writer blocks here, then re-reads the
+    # committed watermark and refuses.
+    #
+    # The ack path is deliberately NOT gated on freshness: a skipped response's
+    # ack boundary is at or below what the mirror already reflects, so acking it is
+    # a safe idempotent re-ack — refusing it could strand duckgres behind forever
+    # when it re-serves an identical window after a lost ack. The cursor write only
+    # ever advances, which closes the long-stall variant (a zombie recording an
+    # older watermark computed before its stall).
     resolved = dataclasses.replace(response, rows=resolution.compute_rows, storage_rows=resolution.storage_rows)
     with transaction.atomic():
-        rows_written = replace_window(resolved)
-        if watermark_to_record is not None:
-            DuckgresUsageCursor.objects.update_or_create(
-                singleton=1, defaults={"last_acked_watermark": watermark_to_record}
+        cursor, _ = DuckgresUsageCursor.objects.select_for_update().get_or_create(singleton=1)
+        stale = cursor.last_applied_watermark is not None and response.watermark_high <= cursor.last_applied_watermark
+        if stale:
+            rows_written = 0
+            logger.warning(
+                "duckgres_usage_stale_response_skipped",
+                response_watermark_high=response.watermark_high.isoformat(),
+                last_applied_watermark=cursor.last_applied_watermark.isoformat()
+                if cursor.last_applied_watermark
+                else None,
             )
+        else:
+            rows_written = replace_window(resolved)
+            cursor.last_applied_watermark = response.watermark_high
+        if watermark_to_record is not None and (
+            cursor.last_acked_watermark is None or watermark_to_record > cursor.last_acked_watermark
+        ):
+            cursor.last_acked_watermark = watermark_to_record
+        cursor.save(update_fields=["last_applied_watermark", "last_acked_watermark", "updated_at"])
     return rows_written

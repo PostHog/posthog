@@ -144,17 +144,29 @@ class DuckgresDailyStorageUsage(UUIDModel):
 
 
 class DuckgresUsageCursor(UUIDModel):
-    """Single-row record of the last watermark the poller acked to duckgres.
+    """Single-row record of the poller's progress against duckgres.
 
-    Load-bearing: the poller cross-checks this against duckgres's own cursor
-    (`watermark_low`) each pull and refuses to ack when duckgres is ahead of it
-    (a possible hole in billable usage). Written in the same transaction as the
-    mirror rows, before the ack. One row per deployment — `singleton` is a
-    unique constant so it's addressable without relying on a magic pk.
+    Two watermarks, protecting two different things:
+
+    - ``last_acked_watermark`` — the last watermark the poller acked. Load-bearing
+      for custody: the poller cross-checks it against duckgres's own cursor
+      (`watermark_low`) each pull and refuses to ack when duckgres is ahead of it
+      (a possible hole in billable usage). Null until the first ack.
+    - ``last_applied_watermark`` — the ``watermark_high`` of the last response whose
+      rows were applied to the mirror. Load-bearing for the mirror: the replace is
+      monotone in this value, so a stale response (a timed-out poll attempt whose
+      late write lands after a newer attempt already applied and acked) can never
+      overwrite newer data — an acked day is deleted upstream and would otherwise
+      stay wrong forever.
+
+    Written in the same transaction as the mirror rows, before the ack. One row per
+    deployment — `singleton` is a unique constant so it's addressable without
+    relying on a magic pk.
     """
 
     singleton = models.PositiveSmallIntegerField(default=1, unique=True)
-    last_acked_watermark = models.DateTimeField()
+    last_acked_watermark = models.DateTimeField(null=True, blank=True)
+    last_applied_watermark = models.DateTimeField(null=True, blank=True)
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
