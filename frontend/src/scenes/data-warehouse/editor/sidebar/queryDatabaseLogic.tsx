@@ -25,7 +25,7 @@ import { FeatureFlagsSet, featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { uuid } from 'lib/utils/dom'
 import { createFuse, IFuseOptions } from 'lib/utils/fuseSearch'
 import { newInternalTab } from 'lib/utils/newInternalTab'
-import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
+import { TableFieldsStatus, databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
 import { POSTHOG_WAREHOUSE } from 'scenes/data-warehouse/editor/connectionSelectorLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
@@ -160,6 +160,38 @@ type FieldTraversalOptions = {
     allowPropertyDefinitionExpansion?: boolean
     visitedColumnPaths?: Set<string>
     depth?: number
+    hydration?: TableFieldsHydration
+}
+
+// With a shallow (lazy) schema load, tables arrive without fields; this tracks which tables'
+// fields the store actually holds so the tree can show spinners and request the missing ones.
+type TableFieldsHydration = {
+    databaseFieldsComplete: boolean
+    tableFieldsStatus: TableFieldsStatus
+}
+
+type TableFieldsState = 'ready' | 'pending' | 'error'
+
+const getTableFieldsState = (
+    tableName: string,
+    fields: Record<string, DatabaseSchemaField> | undefined,
+    hydration?: TableFieldsHydration
+): TableFieldsState => {
+    const status = hydration?.tableFieldsStatus[tableName]
+    if (status === 'error') {
+        return 'error'
+    }
+    if (!hydration || hydration.databaseFieldsComplete) {
+        return 'ready'
+    }
+    if (fields && Object.keys(fields).length > 0) {
+        return 'ready'
+    }
+    if (status === 'loaded') {
+        // Hydrated and the table genuinely has no fields.
+        return 'ready'
+    }
+    return 'pending'
 }
 
 export type SidebarPropertyDefinitionTarget = {
@@ -258,6 +290,41 @@ const normalizeTableLookupKey = (tableName?: string | null): string | null => {
     }
 
     return tableName.replaceAll('`', '')
+}
+
+const findTreeItemById = (nodes: TreeDataItem[], id: string): TreeDataItem | null => {
+    for (const node of nodes) {
+        if (node.id === id) {
+            return node
+        }
+        if (node.children) {
+            const found = findTreeItemById(node.children, id)
+            if (found) {
+                return found
+            }
+        }
+    }
+    return null
+}
+
+// Which table's fields a tree node needs once expanded: the table itself, or for join/traverser
+// nodes the joined table on the other side.
+const getHydrationTableNamesForNode = (node: TreeDataItem): string[] => {
+    const record = node.record as Record<string, any> | undefined
+    if (!record) {
+        return []
+    }
+    if ((record.type === 'table' || record.type === 'endpoint') && record.table?.name) {
+        return [record.table.name]
+    }
+    if ((record.type === 'lazy-table' || record.type === 'field-traverser') && record.referencedTable) {
+        const name = normalizeTableLookupKey(record.referencedTable)
+        return name ? [name] : []
+    }
+    if (record.type === 'managed-view' && record.view?.name) {
+        return [record.view.name]
+    }
+    return []
 }
 
 const getPrimaryKeyName = (tableName: string, fields: DatabaseSchemaField[]): string | null => {
@@ -593,6 +660,37 @@ const createLazyTablePlaceholderNode = (lazyNodeId: string): TreeDataItem => {
     }
 }
 
+// Placeholder shown while a table's fields are being lazy loaded. `pendingTableName` marks the
+// table to hydrate; the tree subscription collects these for every visible placeholder.
+const createPendingFieldsNode = (nodeId: string, pendingTableName: string): TreeDataItem => {
+    return {
+        id: `${nodeId}-fields-pending/`,
+        name: 'Loading...',
+        displayName: <>Loading...</>,
+        icon: <Spinner />,
+        disableSelect: true,
+        type: 'loading-indicator',
+        record: {
+            type: 'pending-fields',
+            pendingTableName,
+        },
+    }
+}
+
+const createFieldsErrorNode = (nodeId: string): TreeDataItem => {
+    return {
+        id: `${nodeId}-fields-error/`,
+        name: "Couldn't load columns",
+        displayName: <span className="text-danger">Couldn't load columns</span>,
+        icon: <IconWarning className="text-danger" />,
+        disableSelect: true,
+        type: 'node',
+        record: {
+            type: 'fields-load-error',
+        },
+    }
+}
+
 // A failed schema load must not look like an empty project: say it failed and offer the retry.
 const createSchemaErrorNodes = (prefix: string, onRetry: () => void): TreeDataItem[] => [
     {
@@ -726,6 +824,39 @@ const createLazyTableChildren = (
         )
 }
 
+// Children of an expanded lazy-join node. When the joined table exists but its fields haven't been
+// lazy loaded yet, show a hydration placeholder instead of a false "Empty folder".
+const createExpandedLazyTableChildren = (
+    lazyNodeId: string,
+    tableName: string,
+    field: DatabaseSchemaField,
+    isSearch: boolean,
+    columnPath: string,
+    tableLookup: TableLookup | undefined,
+    options: FieldTraversalOptions | undefined
+): TreeDataItem[] => {
+    const normalizedTableName = normalizeTableLookupKey(field.table)
+    const referencedTable = field.table
+        ? (tableLookup?.[field.table] ?? (normalizedTableName ? tableLookup?.[normalizedTableName] : undefined))
+        : undefined
+
+    if (referencedTable) {
+        const state = getTableFieldsState(referencedTable.name, referencedTable.fields, options?.hydration)
+        if (state === 'pending') {
+            return [createPendingFieldsNode(lazyNodeId, referencedTable.name)]
+        }
+        if (state === 'error') {
+            return [createFieldsErrorNode(lazyNodeId)]
+        }
+    }
+
+    const lazyChildren = createLazyTableChildren(tableName, field, isSearch, columnPath, tableLookup, {
+        ...options,
+        expandedLazyNodeIds: options?.expandedLazyNodeIds ?? new Set<string>(),
+    })
+    return lazyChildren.length > 0 ? lazyChildren : [createLazyTableEmptyNode(lazyNodeId)]
+}
+
 const createViewTableChildren = (
     tableName: string,
     field: DatabaseSchemaField,
@@ -811,13 +942,16 @@ const createTraversedLazyTableNode = (
 ): TreeDataItem => {
     const lazyNodeId = `${isSearch ? 'search-' : ''}lazy-traverser-${tableName}-${columnPath}`
     const isExpanded = options?.expandedLazyNodeIds?.has(lazyNodeId)
-    const lazyChildren = isExpanded
-        ? createLazyTableChildren(tableName, traversedField, isSearch, columnPath, tableLookup, options)
-        : []
     const children = isExpanded
-        ? lazyChildren.length > 0
-            ? lazyChildren
-            : [createLazyTableEmptyNode(lazyNodeId)]
+        ? createExpandedLazyTableChildren(
+              lazyNodeId,
+              tableName,
+              traversedField,
+              isSearch,
+              columnPath,
+              tableLookup,
+              options
+          )
         : [createLazyTablePlaceholderNode(lazyNodeId)]
 
     return {
@@ -905,6 +1039,7 @@ const createFieldNode = (
         allowPropertyDefinitionExpansion: options?.allowPropertyDefinitionExpansion,
         visitedColumnPaths: nextVisitedColumnPaths,
         depth: depth + 1,
+        hydration: options?.hydration,
     }
     const propertyDefinitionTarget = options?.allowPropertyDefinitionExpansion
         ? getSidebarPropertyDefinitionTarget(tableName, columnPath, field)
@@ -1003,18 +1138,16 @@ const createFieldNode = (
     if (field.type === 'lazy_table') {
         const lazyNodeId = `${isSearch ? 'search-' : ''}lazy-${tableName}-${columnPath}`
         const isExpanded = expandedLazyNodeIds ? expandedLazyNodeIds.has(lazyNodeId) : false
-        const lazyExpandedIds = expandedLazyNodeIds ?? new Set<string>()
-        const lazyChildren = isExpanded
-            ? createLazyTableChildren(tableName, field, isSearch, columnPath, tableLookup, {
-                  ...nextOptions,
-                  expandedLazyNodeIds: lazyExpandedIds,
-              })
-            : []
-
         const children = isExpanded
-            ? lazyChildren.length > 0
-                ? lazyChildren
-                : [createLazyTableEmptyNode(lazyNodeId)]
+            ? createExpandedLazyTableChildren(
+                  lazyNodeId,
+                  tableName,
+                  field,
+                  isSearch,
+                  columnPath,
+                  tableLookup,
+                  nextOptions
+              )
             : [createLazyTablePlaceholderNode(lazyNodeId)]
 
         return {
@@ -1082,24 +1215,32 @@ const createTableNode = (
     tableLookup?: TableLookup,
     options?: FieldTraversalOptions
 ): TreeDataItem => {
+    const tableId = `${isSearch ? 'search-' : ''}table-${table.name}`
     const tableChildren: TreeDataItem[] = []
 
     if ('fields' in table) {
-        sortFieldsWithPrimary(table.name, Object.values(table.fields))
-            .filter((field) => !shouldHideField(field))
-            .forEach((field: DatabaseSchemaField) => {
-                tableChildren.push(
-                    createFieldNode(table.name, field, isSearch, field.name, tableLookup, {
-                        expandedLazyNodeIds: options?.expandedLazyNodeIds,
-                        propertyDefinitionLists: options?.propertyDefinitionLists,
-                        loadPropertyDefinitions: options?.loadPropertyDefinitions,
-                        allowPropertyDefinitionExpansion: table.type === 'posthog',
-                    })
-                )
-            })
+        const fieldsState = getTableFieldsState(table.name, table.fields, options?.hydration)
+        if (fieldsState === 'pending') {
+            tableChildren.push(createPendingFieldsNode(tableId, table.name))
+        } else if (fieldsState === 'error') {
+            tableChildren.push(createFieldsErrorNode(tableId))
+        } else {
+            sortFieldsWithPrimary(table.name, Object.values(table.fields))
+                .filter((field) => !shouldHideField(field))
+                .forEach((field: DatabaseSchemaField) => {
+                    tableChildren.push(
+                        createFieldNode(table.name, field, isSearch, field.name, tableLookup, {
+                            expandedLazyNodeIds: options?.expandedLazyNodeIds,
+                            propertyDefinitionLists: options?.propertyDefinitionLists,
+                            loadPropertyDefinitions: options?.loadPropertyDefinitions,
+                            allowPropertyDefinitionExpansion: table.type === 'posthog',
+                            hydration: options?.hydration,
+                        })
+                    )
+                })
+        }
     }
 
-    const tableId = `${isSearch ? 'search-' : ''}table-${table.name}`
     return {
         id: tableId,
         name: table.name,
@@ -1173,6 +1314,7 @@ const createViewNode = (
     tableLookup?: TableLookup,
     options?: {
         expandedLazyNodeIds?: Set<string>
+        hydration?: TableFieldsHydration
     },
     schemaTable?: DatabaseSchemaTable,
     isMaterializing = false
@@ -1190,6 +1332,7 @@ const createViewNode = (
             viewChildren.push(
                 createFieldNode(view.name, column, isSearch, column.name, tableLookup, {
                     expandedLazyNodeIds: options?.expandedLazyNodeIds,
+                    hydration: options?.hydration,
                 })
             )
         })
@@ -1227,21 +1370,29 @@ const createManagedViewNode = (
     tableLookup?: TableLookup,
     options?: {
         expandedLazyNodeIds?: Set<string>
+        hydration?: TableFieldsHydration
     }
 ): TreeDataItem => {
+    const managedViewId = `${isSearch ? 'search-' : ''}managed-view-${managedView.id}`
     const viewChildren: TreeDataItem[] = []
 
-    sortFieldsWithPrimary(managedView.name, Object.values(managedView.fields))
-        .filter((field) => !shouldHideField(field))
-        .forEach((field: DatabaseSchemaField) => {
-            viewChildren.push(
-                createFieldNode(managedView.name, field, isSearch, field.name, tableLookup, {
-                    expandedLazyNodeIds: options?.expandedLazyNodeIds,
-                })
-            )
-        })
-
-    const managedViewId = `${isSearch ? 'search-' : ''}managed-view-${managedView.id}`
+    const fieldsState = getTableFieldsState(managedView.name, managedView.fields, options?.hydration)
+    if (fieldsState === 'pending') {
+        viewChildren.push(createPendingFieldsNode(managedViewId, managedView.name))
+    } else if (fieldsState === 'error') {
+        viewChildren.push(createFieldsErrorNode(managedViewId))
+    } else {
+        sortFieldsWithPrimary(managedView.name, Object.values(managedView.fields))
+            .filter((field) => !shouldHideField(field))
+            .forEach((field: DatabaseSchemaField) => {
+                viewChildren.push(
+                    createFieldNode(managedView.name, field, isSearch, field.name, tableLookup, {
+                        expandedLazyNodeIds: options?.expandedLazyNodeIds,
+                        hydration: options?.hydration,
+                    })
+                )
+            })
+    }
 
     return {
         id: managedViewId,
@@ -1262,23 +1413,32 @@ const createEndpointNode = (
     matches: FuseSearchMatch[] | null = null,
     isSearch = false,
     tableLookup?: TableLookup,
-    options?: { expandedLazyNodeIds?: Set<string> }
+    options?: { expandedLazyNodeIds?: Set<string>; hydration?: TableFieldsHydration }
 ): TreeDataItem => {
+    const endpointNodeId = `${isSearch ? 'search-' : ''}endpoint-${endpointTable.id}`
     const children: TreeDataItem[] = []
-    sortFieldsWithPrimary(endpointTable.name, Object.values(endpointTable.fields))
-        .filter((column) => !shouldHideField(column))
-        .forEach((column) => {
-            children.push(
-                createFieldNode(endpointTable.name, column, isSearch, column.name, tableLookup, {
-                    expandedLazyNodeIds: options?.expandedLazyNodeIds,
-                })
-            )
-        })
+    const fieldsState = getTableFieldsState(endpointTable.name, endpointTable.fields, options?.hydration)
+    if (fieldsState === 'pending') {
+        children.push(createPendingFieldsNode(endpointNodeId, endpointTable.name))
+    } else if (fieldsState === 'error') {
+        children.push(createFieldsErrorNode(endpointNodeId))
+    } else {
+        sortFieldsWithPrimary(endpointTable.name, Object.values(endpointTable.fields))
+            .filter((column) => !shouldHideField(column))
+            .forEach((column) => {
+                children.push(
+                    createFieldNode(endpointTable.name, column, isSearch, column.name, tableLookup, {
+                        expandedLazyNodeIds: options?.expandedLazyNodeIds,
+                        hydration: options?.hydration,
+                    })
+                )
+            })
+    }
 
     const displayName = endpointTable.name.replace(/_v\d+$/, '')
 
     return {
-        id: `${isSearch ? 'search-' : ''}endpoint-${endpointTable.id}`,
+        id: endpointNodeId,
         name: displayName,
         type: 'node',
         icon: <IconEndpoints />,
@@ -1697,6 +1857,7 @@ export interface queryDatabaseLogicValues {
     connectionId: string | null // databaseTableListLogic
     dataWarehouseTables: DatabaseSchemaDataWarehouseTable[] // databaseTableListLogic
     dataWarehouseTablesMap: Record<string, DatabaseSchemaDataWarehouseTable | DatabaseSchemaViewTable> // databaseTableListLogic
+    databaseFieldsComplete: boolean // databaseTableListLogic
     databaseLoadError: string | null // databaseTableListLogic
     databaseLoading: boolean // databaseTableListLogic
     latestEndpointTables: DatabaseSchemaEndpointTable[] // databaseTableListLogic
@@ -1705,6 +1866,7 @@ export interface queryDatabaseLogicValues {
     posthogTablesMap: Record<string, DatabaseSchemaTable> // databaseTableListLogic
     systemTables: DatabaseSchemaTable[] // databaseTableListLogic
     systemTablesMap: Record<string, DatabaseSchemaTable> // databaseTableListLogic
+    tableFieldsStatus: TableFieldsStatus // databaseTableListLogic
     viewsMapById: Record<string, DatabaseSchemaEndpointTable | DatabaseSchemaManagedViewTable | DatabaseSchemaViewTable> // databaseTableListLogic
     drafts: DataWarehouseSavedQueryDraft[] // draftsLogic
     draftsResponseLoading: boolean // draftsLogic
@@ -1834,6 +1996,12 @@ export interface queryDatabaseLogicActions {
             types?: string[][]
         }
     } // dataWarehouseViewsLogic
+    ensureAllTableFields: () => {
+        value: true
+    } // databaseTableListLogic
+    hydrateTableFields: (tableNames: string[]) => {
+        tableNames: string[]
+    } // databaseTableListLogic
     refreshDatabaseSchema: () => {
         value: true
     } // databaseTableListLogic
@@ -2147,7 +2315,9 @@ export interface queryDatabaseLogicMeta {
             queryTabState: QueryTabState | null,
             expandedFolders: string[],
             materializingViewIds: string[],
-            propertyDefinitionLists: Record<string, SidebarPropertyDefinitionList>
+            propertyDefinitionLists: Record<string, SidebarPropertyDefinitionList>,
+            databaseFieldsComplete: boolean,
+            tableFieldsStatus: TableFieldsStatus
         ) => TreeDataItem[]
         displayedTreeData: (
             searchTerm: string,
@@ -2275,6 +2445,8 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
                 'allTablesMap',
                 'latestEndpointTables',
                 'connectionId',
+                'databaseFieldsComplete',
+                'tableFieldsStatus',
             ],
             dataWarehouseViewsLogic,
             [
@@ -2310,7 +2482,7 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
             draftsLogic,
             ['loadDrafts', 'renameDraft', 'loadMoreDrafts'],
             databaseTableListLogic,
-            ['refreshDatabaseSchema'],
+            ['refreshDatabaseSchema', 'hydrateTableFields', 'ensureAllTableFields'],
         ],
     })),
     reducers({
@@ -3126,6 +3298,8 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
                 s.expandedFolders,
                 s.materializingViewIds,
                 s.propertyDefinitionLists,
+                s.databaseFieldsComplete,
+                s.tableFieldsStatus,
             ],
             (
                 treeDataContext: TreeDataContext,
@@ -3139,7 +3313,9 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
                 queryTabState: QueryTabState | null,
                 expandedFolders: string[],
                 materializingViewIds: string[],
-                propertyDefinitionLists: Record<string, SidebarPropertyDefinitionList>
+                propertyDefinitionLists: Record<string, SidebarPropertyDefinitionList>,
+                databaseFieldsComplete: boolean,
+                tableFieldsStatus: TableFieldsStatus
             ): TreeDataItem[] => {
                 const {
                     allPosthogTables,
@@ -3162,10 +3338,12 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
                     savedQuerySchemaTables: allTablesMap,
                 })
                 const expandedLazyNodeIds = new Set(expandedFolders.filter(isLazyNodeId))
+                const hydration: TableFieldsHydration = { databaseFieldsComplete, tableFieldsStatus }
                 const tableNodeOptions: FieldTraversalOptions = {
                     expandedLazyNodeIds,
                     propertyDefinitionLists,
                     loadPropertyDefinitions: actions.loadPropertyDefinitions,
+                    hydration,
                 }
                 const schemaFailedWithNoTables =
                     !!databaseLoadError && !databaseLoading && Object.keys(allTablesMap).length === 0
@@ -3643,6 +3821,27 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
                 } else {
                     actions.setExpandedFolders([...expandedFolders, folderId], values.connectionId)
                 }
+                // With a lazy-loaded schema, expanding a node is what triggers fetching its columns.
+                // Going through the tree node (rather than parsing the id) also retries failed loads.
+                const node = findTreeItemById(values.displayedTreeData, folderId)
+                if (node) {
+                    const tableNames = getHydrationTableNamesForNode(node)
+                    if (tableNames.length > 0) {
+                        actions.hydrateTableFields(tableNames)
+                    }
+                }
+            }
+        },
+        selectSchema: ({ schema }) => {
+            // The sidebar overlay lists the selected table's columns, so make sure they're loaded.
+            if (schema && 'name' in schema && schema.name) {
+                actions.hydrateTableFields([schema.name])
+            }
+        },
+        setSearchTerm: ({ searchTerm }) => {
+            // Search matches on column names too, which a lazy-loaded schema doesn't have yet.
+            if (searchTerm) {
+                actions.ensureAllTableFields()
             }
         },
         selectSourceTable: ({ tableName }) => {
@@ -3671,6 +3870,28 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
                 if (request) {
                     actions.loadPropertyDefinitions(request.propertyFieldKey, request.target, 0)
                 }
+            }
+
+            // Hydrate fields for every visible "Loading..." placeholder. Covers expansion restored from
+            // persisted state and nodes that were expanded before the shallow schema arrived; the
+            // hydrate action itself dedupes tables that are already loading or settled.
+            const expanded = new Set(values.searchTerm ? values.expandedSearchFolders : values.expandedFolders)
+            const pendingTableNames = new Set<string>()
+            const collect = (nodes: TreeDataItem[]): void => {
+                for (const node of nodes) {
+                    const record = node.record as Record<string, any> | undefined
+                    if (record?.type === 'pending-fields' && record.pendingTableName) {
+                        pendingTableNames.add(record.pendingTableName)
+                        continue
+                    }
+                    if (node.children && expanded.has(node.id)) {
+                        collect(node.children)
+                    }
+                }
+            }
+            collect(displayedTreeData)
+            if (pendingTableNames.size > 0) {
+                actions.hydrateTableFields(Array.from(pendingTableNames))
             }
 
             if (values.searchTerm || !shouldUseDirectConnectionTree(values.connectionId)) {

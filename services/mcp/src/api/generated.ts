@@ -19804,10 +19804,14 @@ export namespace Schemas {
     export interface DatabaseSchemaQuery {
       /** Optional direct external data source id for schema introspection */
       connectionId?: string | null;
+      /** When false, skip serializing each table's fields (`fields` comes back empty). Defaults to true. */
+      includeFields?: boolean | null;
       kind?: 'DatabaseSchemaQuery';
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
       response?: DatabaseSchemaQueryResponse | null;
+      /** Only serialize these tables (keys as returned in the response, e.g. `events` or `zendesk.groups`). Omit for all tables. */
+      tables?: string[] | null;
       tags?: QueryLogTags | null;
       /** version of the node, used for schema migrations */
       version?: number | null;
