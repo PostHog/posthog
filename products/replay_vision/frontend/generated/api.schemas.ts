@@ -164,6 +164,8 @@ export interface AlertConfigApi {
      * * `14` - 14 days
      * * `30` - 30 days */
     window_days?: WindowDaysEnumApi
+    /** When true, each example line in the alert message includes the scanner's full reasoning for that observation, not just its verdict/score/tags. Useful when piping the message somewhere else to read or act on. Defaults to false. */
+    include_reasoning?: boolean
 }
 
 /**
@@ -1046,8 +1048,9 @@ export interface BulkObserveRequestApi {
  * * `started` - Started
  * * `already_running` - Already running
  * * `already_scanned` - Already scanned
- * * `skipped_limit` - Skipped - in-flight limit reached
- * * `skipped_quota` - Skipped - monthly credit quota reached
+ * * `skipped_limit` - Skipped, in-flight limit reached
+ * * `skipped_quota` - Skipped, the org's credit quota for this period was reached
+ * * `skipped_scanner_limit` - Skipped, scanner's own credit limit reached
  * * `failed` - Failed to start
  */
 export type ScanOutcomeEnumApi = (typeof ScanOutcomeEnumApi)[keyof typeof ScanOutcomeEnumApi]
@@ -1058,6 +1061,7 @@ export const ScanOutcomeEnumApi = {
     AlreadyScanned: 'already_scanned',
     SkippedLimit: 'skipped_limit',
     SkippedQuota: 'skipped_quota',
+    SkippedScannerLimit: 'skipped_scanner_limit',
     Failed: 'failed',
 } as const
 
@@ -1067,13 +1071,14 @@ export const ScanOutcomeEnumApi = {
 export interface BulkObserveResultApi {
     /** The session recording this outcome is for. */
     session_id: string
-    /** 'started' - a scan workflow was kicked off; 'already_running' - a scan for this session is already in flight (no-op, not recharged); 'already_scanned' - this scanner already has a finished observation for this session, so nothing was started and nothing was charged (read it back, or use the retry action to run it again); 'skipped_limit' - the in-flight cap was reached before this session; 'skipped_quota' - the monthly credit quota would be exceeded; 'failed' - the workflow failed to start.
+    /** 'started' - a scan workflow was kicked off; 'already_running' - a scan for this session is already in flight (no-op, not recharged); 'already_scanned' - this scanner already has a finished observation for this session, so nothing was started and nothing was charged (read it back, or use the retry action to run it again); 'skipped_limit' - the in-flight cap was reached before this session; 'skipped_quota' - the org's credit quota for this period would be exceeded; 'skipped_scanner_limit' - this scanner's own credit limit would be exceeded; 'failed' - the workflow failed to start.
      *
      * * `started` - Started
      * * `already_running` - Already running
      * * `already_scanned` - Already scanned
-     * * `skipped_limit` - Skipped - in-flight limit reached
-     * * `skipped_quota` - Skipped - monthly credit quota reached
+     * * `skipped_limit` - Skipped, in-flight limit reached
+     * * `skipped_quota` - Skipped, the org's credit quota for this period was reached
+     * * `skipped_scanner_limit` - Skipped, scanner's own credit limit reached
      * * `failed` - Failed to start */
     scan_outcome: ScanOutcomeEnumApi
 }
@@ -1254,6 +1259,38 @@ export interface ObservationVersionMarkerApi {
     prompt: string
     /** The full type-specific config this version ran with (prompt plus, depending on scanner type, allow_inconclusive, tags, scale, or length), taken from the observation run snapshots. */
     scanner_config: unknown
+    /**
+     * The scanner type this version ran as.
+     * @nullable
+     */
+    scanner_type: string | null
+    /**
+     * The model this version ran on.
+     * @nullable
+     */
+    model: string | null
+    /**
+     * The provider this version ran on.
+     * @nullable
+     */
+    provider: string | null
+    /**
+     * Whether this version emitted signals.
+     * @nullable
+     */
+    emits_signals: boolean | null
+    /** The `RecordingsQuery` recording filters this version ran with. */
+    query: unknown
+    /**
+     * The 0..1 downsample this version ran with.
+     * @nullable
+     */
+    sampling_rate: number | null
+    /**
+     * The session-coverage pre-filter this version ran with.
+     * @nullable
+     */
+    sampling_mode: string | null
     /** Thumbs-up ratings on this version's observations. */
     up: number
     /** Thumbs-down ratings on this version's observations. */
@@ -1271,7 +1308,7 @@ export interface ObservationLabelStatsApi {
     by_day: ObservationLabelDayCountApi[]
     /** Daily label counts over the last `recent_days` days, bucketed by the day the rating was last set or changed: the team's rating activity. Days without rating changes are omitted. */
     by_rating_day: ObservationLabelDayCountApi[]
-    /** Each scanner (prompt) version that produced observations (all-time), with its first day, prompt, and rating counts, for chart markers and the prompt version history. */
+    /** Each scanner version that produced observations (all-time), with its first day, the config it ran with, and rating counts, for chart markers and the config version history. */
     version_markers: ObservationVersionMarkerApi[]
 }
 
@@ -1786,6 +1823,14 @@ export type VisionObservationsRetrieveParams = {
      */
     labeled?: string
     /**
+     * Filter scorer observations to those scoring at or below this value. Rows with no numeric score (other scanner types, failed or in-flight runs) are excluded.
+     */
+    max_score?: number
+    /**
+     * Filter scorer observations to those scoring at or above this value. Rows with no numeric score (other scanner types, failed or in-flight runs) are excluded.
+     */
+    min_score?: number
+    /**
      * Sort observations. Plain keys: created_at, started_at, completed_at, status, recording_subject_email. JSONB keys: result_score (scorer), result_verdict (monitor), result_confidence, scanner_version. Prefix with `-` for descending; nullable keys sort nulls last either way.
      */
     order_by?: string
@@ -1912,6 +1957,14 @@ export type VisionScannersObservationsListParams = {
      */
     limit?: number
     /**
+     * Filter scorer observations to those scoring at or below this value. Rows with no numeric score (other scanner types, failed or in-flight runs) are excluded.
+     */
+    max_score?: number
+    /**
+     * Filter scorer observations to those scoring at or above this value. Rows with no numeric score (other scanner types, failed or in-flight runs) are excluded.
+     */
+    min_score?: number
+    /**
      * The initial index from which to return the results.
      */
     offset?: number
@@ -1963,6 +2016,14 @@ export type VisionScannersObservationsRetrieveParams = {
      */
     labeled?: string
     /**
+     * Filter scorer observations to those scoring at or below this value. Rows with no numeric score (other scanner types, failed or in-flight runs) are excluded.
+     */
+    max_score?: number
+    /**
+     * Filter scorer observations to those scoring at or above this value. Rows with no numeric score (other scanner types, failed or in-flight runs) are excluded.
+     */
+    min_score?: number
+    /**
      * Sort observations. Plain keys: created_at, started_at, completed_at, status, recording_subject_email. JSONB keys: result_score (scorer), result_verdict (monitor), result_confidence, scanner_version. Prefix with `-` for descending; nullable keys sort nulls last either way.
      */
     order_by?: string
@@ -2009,6 +2070,14 @@ export type VisionScannersObservationsStatsRetrieveParams = {
      * When true, return only observations that have a shared label (thumbs up or down); when false, only unlabeled observations.
      */
     labeled?: string
+    /**
+     * Filter scorer observations to those scoring at or below this value. Rows with no numeric score (other scanner types, failed or in-flight runs) are excluded.
+     */
+    max_score?: number
+    /**
+     * Filter scorer observations to those scoring at or above this value. Rows with no numeric score (other scanner types, failed or in-flight runs) are excluded.
+     */
+    min_score?: number
     /**
      * Window size in days for the coverage `recent_sessions` count. Clamped to [1, 365]. Defaults to 14 when omitted.
      */

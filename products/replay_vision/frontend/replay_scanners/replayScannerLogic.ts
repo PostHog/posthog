@@ -18,6 +18,7 @@ import { loaders } from 'kea-loaders'
 import { actionToUrl, beforeUnload, router, urlToAction } from 'kea-router'
 import { CombinedLocation } from 'kea-router/lib/utils'
 
+import api from 'lib/api'
 import { scrollToFormError } from 'lib/forms/scrollToFormError'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
@@ -52,8 +53,20 @@ import { OBSERVE_POLL_GRACE_MS, scheduleObservationPoll, shouldPollObservations 
 import { requestObservationRetry } from '../logics/observationRetry'
 import { refreshVisionQuota } from '../logics/visionQuotaLogic'
 import { observationClipboardText } from '../utils/observation'
-import { type UrlSorting, parseCsvParam, parseSortParam, serializeSortParam } from '../utils/urlParams'
+import {
+    type UrlSorting,
+    parseCsvParam,
+    parseNumericParam,
+    parseSortParam,
+    serializeSortParam,
+} from '../utils/urlParams'
 import { clampDurationFilter, durationFilterError } from './durationBounds'
+import {
+    ExperimentScannerContext,
+    parseExperimentScannerParams,
+    prefillScannerForExperiment,
+    reconcileVariantKeys,
+} from './experimentTargeting'
 import { clearScannerDraft, readScannerDraft, writeScannerDraft } from './scannerDraft'
 import {
     SCANNER_EDITOR_STEPS,
@@ -126,6 +139,8 @@ interface ObservationListParams {
     backfill_id?: string
     verdict?: string
     tags?: string
+    min_score?: number
+    max_score?: number
     recording_subject?: string
     date_from?: string
     date_to?: string
@@ -158,23 +173,31 @@ interface ObservationFilterValues {
     observationTriggeredByFilter: ObservationTriggeredByValue[]
     observationVerdictFilter: ObservationVerdictValue[]
     observationTagFilter: string[]
+    observationMinScoreFilter: number | null
+    observationMaxScoreFilter: number | null
     observationSubjectFilter: string
     observationDateFrom: string | null
     observationDateTo: string | null
     observationBackfillFilter: string | null
 }
 
+type ObservationFilterParamKeys =
+    | 'status'
+    | 'triggered_by'
+    | 'verdict'
+    | 'tags'
+    | 'min_score'
+    | 'max_score'
+    | 'recording_subject'
+    | 'date_from'
+    | 'date_to'
+    | 'backfill_id'
+
 /** The filter (non-pagination, non-sort) params shared by the list/stats endpoints and the URL query string. */
 function observationFilterParams(
     values: ObservationFilterValues
-): Pick<
-    ObservationListParams,
-    'status' | 'triggered_by' | 'verdict' | 'tags' | 'recording_subject' | 'date_from' | 'date_to' | 'backfill_id'
-> {
-    const params: Pick<
-        ObservationListParams,
-        'status' | 'triggered_by' | 'verdict' | 'tags' | 'recording_subject' | 'date_from' | 'date_to' | 'backfill_id'
-    > = {}
+): Pick<ObservationListParams, ObservationFilterParamKeys> {
+    const params: Pick<ObservationListParams, ObservationFilterParamKeys> = {}
     if (values.observationStatusFilter.length > 0) {
         params.status = values.observationStatusFilter.join(',')
     }
@@ -186,6 +209,12 @@ function observationFilterParams(
     }
     if (values.observationTagFilter.length > 0) {
         params.tags = values.observationTagFilter.join(',')
+    }
+    if (values.observationMinScoreFilter !== null) {
+        params.min_score = values.observationMinScoreFilter
+    }
+    if (values.observationMaxScoreFilter !== null) {
+        params.max_score = values.observationMaxScoreFilter
     }
     if (values.observationSubjectFilter.trim()) {
         params.recording_subject = values.observationSubjectFilter.trim()
@@ -239,6 +268,7 @@ export interface replayScannerLogicValues {
     copyingAllObservations: boolean
     durationValidationError: string | null
     estimateRequestVersion: number
+    experimentContext: ExperimentScannerContext | null
     hasActiveObservationFilters: boolean
     hasObservationsInFlight: boolean
     hasUnsavedChanges: boolean
@@ -248,7 +278,9 @@ export interface replayScannerLogicValues {
     observationBackfillFilter: string | null
     observationDateFrom: string | null
     observationDateTo: string | null
-    observationDetailLinkParams: Record<string, string>
+    observationDetailLinkParams: Record<string, number | string>
+    observationMaxScoreFilter: number | null
+    observationMinScoreFilter: number | null
     observationStats: ObservationStatusStats
     observationStatsApi: ObservationStatsApi | null
     observationStatsApiLoading: boolean
@@ -384,6 +416,8 @@ export interface replayScannerLogicActions {
         backfillId: string | null
         dateFrom: string | null
         dateTo: string | null
+        maxScore: number | null
+        minScore: number | null
         page: number
         sort: ObservationsSorting | null
         status: ObservationStatusValue[]
@@ -395,6 +429,8 @@ export interface replayScannerLogicActions {
         backfillId: string | null
         dateFrom: string | null
         dateTo: string | null
+        maxScore: number | null
+        minScore: number | null
         page: number
         sort: ObservationsSorting | null
         status: ObservationStatusEnumApi[]
@@ -447,6 +483,9 @@ export interface replayScannerLogicActions {
         dateFrom: string | null
         dateTo: string | null
     }
+    setExperimentContext: (context: ExperimentScannerContext | null) => {
+        context: ExperimentScannerContext | null
+    }
     setObservationBackfillFilter: (value: string | null) => {
         value: string | null
     }
@@ -456,6 +495,13 @@ export interface replayScannerLogicActions {
     ) => {
         dateFrom: string | null
         dateTo: string | null
+    }
+    setObservationScoreRange: (
+        minScore: number | null,
+        maxScore: number | null
+    ) => {
+        maxScore: number | null
+        minScore: number | null
     }
     setObservationStatusFilter: (values: ObservationStatusValue[]) => {
         values: ObservationStatusEnumApi[]
@@ -559,6 +605,8 @@ export interface replayScannerLogicMeta {
             observationTriggeredByFilter: ObservationTriggerEnumApi[],
             observationVerdictFilter: ObservationVerdictValue[],
             observationTagFilter: string[],
+            observationMinScoreFilter: number | null,
+            observationMaxScoreFilter: number | null,
             observationSubjectFilter: string,
             observationDateFrom: string | null,
             observationDateTo: string | null,
@@ -569,13 +617,15 @@ export interface replayScannerLogicMeta {
             observationTriggeredByFilter: ObservationTriggerEnumApi[],
             observationVerdictFilter: ObservationVerdictValue[],
             observationTagFilter: string[],
+            observationMinScoreFilter: number | null,
+            observationMaxScoreFilter: number | null,
             observationSubjectFilter: string,
             observationDateFrom: string | null,
             observationDateTo: string | null,
             observationBackfillFilter: string | null,
             observationsSort: ObservationsSorting | null,
             scanner: ReplayScanner
-        ) => Record<string, string>
+        ) => Record<string, number | string>
         availableTags: (observationStatsApi: ObservationStatsApi | null) => string[]
         observationStats: (observationStatsApi: ObservationStatsApi | null) => ObservationStatusStats
         sidePanelContext: (scanner: ReplayScanner, isNew: boolean) => SidePanelSceneContext | null
@@ -598,6 +648,7 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
         loadScanner: true,
         loadScannerSuccess: (scanner: ReplayScanner) => ({ scanner }),
         loadScannerFailure: true,
+        setExperimentContext: (context: ExperimentScannerContext | null) => ({ context }),
         saveAffectedCohort: (tag?: string) => ({ tag }),
         setScannerType: (scannerType: ScannerType) => ({ scannerType }),
         startFromTemplate: (templateKey: string | null) => ({ templateKey }),
@@ -625,6 +676,7 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
         setObservationTriggeredByFilter: (values: ObservationTriggeredByValue[]) => ({ values }),
         setObservationVerdictFilter: (values: ObservationVerdictValue[]) => ({ values }),
         setObservationTagFilter: (values: string[]) => ({ values }),
+        setObservationScoreRange: (minScore: number | null, maxScore: number | null) => ({ minScore, maxScore }),
         setObservationSubjectFilter: (value: string) => ({ value }),
         setObservationDateRange: (dateFrom: string | null, dateTo: string | null) => ({ dateFrom, dateTo }),
         setObservationBackfillFilter: (value: string | null) => ({ value }),
@@ -636,6 +688,8 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
             triggeredBy: ObservationTriggeredByValue[]
             verdict: ObservationVerdictValue[]
             tags: string[]
+            minScore: number | null
+            maxScore: number | null
             subject: string
             dateFrom: string | null
             dateTo: string | null
@@ -819,6 +873,12 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                 saveAffectedCohortFailure: () => null,
             },
         ],
+        experimentContext: [
+            null as ExperimentScannerContext | null,
+            {
+                setExperimentContext: (_, { context }) => context,
+            },
+        ],
         originalScanner: [
             null as ReplayScanner | null,
             {
@@ -920,6 +980,7 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                 setObservationTriggeredByFilter: () => 1,
                 setObservationVerdictFilter: () => 1,
                 setObservationTagFilter: () => 1,
+                setObservationScoreRange: () => 1,
                 setObservationSubjectFilter: () => 1,
                 setObservationDateRange: () => 1,
                 setObservationsSort: () => 1,
@@ -1019,6 +1080,22 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                 restoreObservationsTableState: (_, { tags }) => tags,
             },
         ],
+        observationMinScoreFilter: [
+            null as number | null,
+            {
+                setObservationScoreRange: (_, { minScore }) => minScore,
+                clearObservationFilters: () => null,
+                restoreObservationsTableState: (_, { minScore }) => minScore,
+            },
+        ],
+        observationMaxScoreFilter: [
+            null as number | null,
+            {
+                setObservationScoreRange: (_, { maxScore }) => maxScore,
+                clearObservationFilters: () => null,
+                restoreObservationsTableState: (_, { maxScore }) => maxScore,
+            },
+        ],
         observationSubjectFilter: [
             '' as string,
             {
@@ -1088,6 +1165,8 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                 s.observationTriggeredByFilter,
                 s.observationVerdictFilter,
                 s.observationTagFilter,
+                s.observationMinScoreFilter,
+                s.observationMaxScoreFilter,
                 s.observationSubjectFilter,
                 s.observationDateFrom,
                 s.observationDateTo,
@@ -1098,6 +1177,8 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                 triggeredByFilter: ObservationTriggeredByValue[],
                 verdictFilter: ObservationVerdictValue[],
                 tagFilter: string[],
+                minScore: number | null,
+                maxScore: number | null,
                 subjectFilter: string,
                 dateFrom: string | null,
                 dateTo: string | null,
@@ -1107,6 +1188,8 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                 triggeredByFilter.length > 0 ||
                 verdictFilter.length > 0 ||
                 tagFilter.length > 0 ||
+                minScore !== null ||
+                maxScore !== null ||
                 subjectFilter.trim().length > 0 ||
                 dateFrom !== null ||
                 dateTo !== null ||
@@ -1119,6 +1202,8 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                 s.observationTriggeredByFilter,
                 s.observationVerdictFilter,
                 s.observationTagFilter,
+                s.observationMinScoreFilter,
+                s.observationMaxScoreFilter,
                 s.observationSubjectFilter,
                 s.observationDateFrom,
                 s.observationDateTo,
@@ -1131,25 +1216,29 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                 observationTriggeredByFilter: ObservationTriggeredByValue[],
                 observationVerdictFilter: ObservationVerdictValue[],
                 observationTagFilter: string[],
+                observationMinScoreFilter: number | null,
+                observationMaxScoreFilter: number | null,
                 observationSubjectFilter: string,
                 observationDateFrom: string | null,
                 observationDateTo: string | null,
                 observationBackfillFilter: string | null,
                 observationsSort: ObservationsSorting | null,
                 scanner: ReplayScanner | null
-            ): Record<string, string> =>
+            ): Record<string, string | number> =>
                 buildObservationListParams({
                     observationStatusFilter,
                     observationTriggeredByFilter,
                     observationVerdictFilter,
                     observationTagFilter,
+                    observationMinScoreFilter,
+                    observationMaxScoreFilter,
                     observationSubjectFilter,
                     observationDateFrom,
                     observationDateTo,
                     observationBackfillFilter,
                     observationsSort,
                     scanner,
-                }) as Record<string, string>,
+                }) as Record<string, string | number>,
         ],
         // Tag options for the observations-list Tag filter pill. Wrapped in an inline arrow with an
         // explicit return type so kea-typegen can infer it (it can't from bare function references).
@@ -1238,9 +1327,49 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                     // strip the param so the URL matches what the user actually gets.
                     const templateKey =
                         !draft && urlTemplateKey && findScannerTemplate(urlTemplateKey) ? urlTemplateKey : null
+                    const experimentParams = parseExperimentScannerParams(router.values.searchParams)
+                    // Strip the params the wizard has now consumed so a reload doesn't re-run the prefill
+                    // over the user's edits: an unknown template that fell back to from-scratch (a valid
+                    // template stays), and the experiment deep-link params. One replace covers both and
+                    // preserves the URL hash, which a second back-to-back replace would drop.
+                    const nextParams = { ...router.values.searchParams }
                     if (urlTemplateKey && !templateKey) {
-                        const { template: _drop, ...rest } = router.values.searchParams
-                        router.actions.replace(router.values.location.pathname, rest)
+                        delete nextParams.template
+                    }
+                    if (experimentParams) {
+                        delete nextParams.experiment
+                        delete nextParams.variants
+                        delete nextParams.exposure
+                    }
+                    if (Object.keys(nextParams).length !== Object.keys(router.values.searchParams).length) {
+                        router.actions.replace(router.values.location.pathname, nextParams, router.values.hashParams)
+                    }
+                    if (experimentParams) {
+                        // An experiment deep link expresses fresh intent, so it outranks a saved
+                        // draft; restoringDraft guards persistDraft so the prefill can't clobber the
+                        // draft this user may already have for the next plain entry.
+                        cache.restoringDraft = true
+                        try {
+                            const experiment = await api.experiments.get(experimentParams.experimentId)
+                            const context: ExperimentScannerContext = {
+                                experiment,
+                                variantKeys: reconcileVariantKeys(experiment, experimentParams.variantKeys),
+                                useExposureFallback: experimentParams.useExposureFallback,
+                            }
+                            const prefilled = prefillScannerForExperiment(newScanner(templateKey), context)
+                            // Set the context only after the prefill is built, so a throw inside it
+                            // doesn't leave a dangling context that the next startFromTemplate re-applies.
+                            actions.setExperimentContext(context)
+                            actions.loadScannerSuccess(prefilled)
+                        } catch {
+                            // Clear any context a partial run left set before surfacing the failure.
+                            actions.setExperimentContext(null)
+                            lemonToast.error("Couldn't load the experiment. Set recording filters manually instead.")
+                            actions.loadScannerSuccess(newScanner(templateKey))
+                        } finally {
+                            cache.restoringDraft = false
+                        }
+                        return
                     }
                     cache.restoringDraft = true
                     try {
@@ -1278,6 +1407,8 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                 }
             },
 
+            // Changing type keeps the rest of the form: it spreads `current`, so an experiment
+            // prefill's name and query carry over untouched. Only the config is reset for the new type.
             setScannerType: ({ scannerType }) => {
                 const current = values.scanner
                 if (!current) {
@@ -1332,7 +1463,11 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
             startFromTemplate: ({ templateKey }) => {
                 clearScannerDraft()
                 actions.setScannerDraftSavedAt(null)
-                actions.resetScanner(newScanner(templateKey))
+                // An experiment prefill (targeted query, scoped name) has to survive the template
+                // reset, so re-apply it when the wizard was entered from an experiment.
+                const base = newScanner(templateKey)
+                const context = values.experimentContext
+                actions.resetScanner(context ? prefillScannerForExperiment(base, context) : base)
             },
             discardScannerDraft: () => {
                 // Storage holds one draft, and it belongs to the new-scanner wizard.
@@ -1340,6 +1475,8 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                     clearScannerDraft()
                     actions.setScannerDraftSavedAt(null)
                 }
+                // Discarding ends the experiment flow; a scanner started next must not inherit it.
+                actions.setExperimentContext(null)
                 actions.resetScanner(values.originalScanner ?? newScanner(null))
             },
             scannerSaved: () => {
@@ -1349,6 +1486,9 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                 if (props.id === 'new') {
                     clearScannerDraft()
                     actions.setScannerDraftSavedAt(null)
+                    // The saved scanner's experiment association ends here; a new scanner started in
+                    // the same session must not re-apply this experiment's query and name.
+                    actions.setExperimentContext(null)
                 }
             },
 
@@ -1535,6 +1675,11 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
             setObservationTriggeredByFilter: () => reloadObservationsAndStats(),
             setObservationVerdictFilter: () => reloadObservationsAndStats(),
             setObservationTagFilter: () => reloadObservationsAndStats(),
+            setObservationScoreRange: async (_, breakpoint) => {
+                // Typed into number inputs; debounce so each keystroke of "10" does not fire its own request.
+                await breakpoint(300)
+                reloadObservationsAndStats()
+            },
             setObservationBackfillFilter: () => reloadObservationsAndStats(),
             setObservationDateRange: () => reloadObservationsAndStats(),
             setObservationSubjectFilter: async (_, breakpoint) => {
@@ -1615,6 +1760,7 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
             setObservationTriggeredByFilter: writeUrl,
             setObservationVerdictFilter: writeUrl,
             setObservationTagFilter: writeUrl,
+            setObservationScoreRange: writeUrlReplace,
             setObservationDateRange: writeUrl,
             setObservationBackfillFilter: writeUrl,
             setObservationSubjectFilter: writeUrlReplace,
@@ -1635,6 +1781,8 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
             )
             const verdict = parseCsvParam<ObservationVerdictValue>(searchParams.verdict, OBSERVATION_VERDICT_VALUES)
             const tags = parseCsvParam<string>(searchParams.tags)
+            const minScore = parseNumericParam(searchParams.min_score)
+            const maxScore = parseNumericParam(searchParams.max_score)
             const subjectRaw = searchParams.recording_subject
             // String() so a numeric-looking subject (`?recording_subject=12345`) survives the router's coercion.
             const subject =
@@ -1650,6 +1798,8 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                 objectsEqual(triggeredBy, values.observationTriggeredByFilter) &&
                 objectsEqual(verdict, values.observationVerdictFilter) &&
                 objectsEqual(tags, values.observationTagFilter) &&
+                minScore === values.observationMinScoreFilter &&
+                maxScore === values.observationMaxScoreFilter &&
                 subject === values.observationSubjectFilter &&
                 dateFrom === values.observationDateFrom &&
                 dateTo === values.observationDateTo &&
@@ -1662,6 +1812,8 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                     triggeredBy,
                     verdict,
                     tags,
+                    minScore,
+                    maxScore,
                     subject,
                     dateFrom,
                     dateTo,
@@ -1718,6 +1870,8 @@ const TABLE_URL_PARAM_KEYS = [
     'triggered_by',
     'verdict',
     'tags',
+    'min_score',
+    'max_score',
     'recording_subject',
     'date_from',
     'date_to',

@@ -8,7 +8,7 @@ import { urls } from 'scenes/urls'
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
-import { parseCsvParam, parseSortParam } from '../utils/urlParams'
+import { parseCsvParam, parseNumericParam, parseSortParam } from '../utils/urlParams'
 import {
     buildObservationListParams,
     ObservationStatusValue,
@@ -322,6 +322,27 @@ describe('replayScannerLogic', () => {
             expect(readScannerDraft(teamId)?.scanner.name).toBe('Drafted')
         })
 
+        it('preserves an existing draft when the wizard is entered from an experiment deep link', async () => {
+            // A deep link prefills a fresh scanner but must not wipe the draft the user already has;
+            // the prefill runs under restoringDraft so persistDraft can't clear it.
+            useMocks({
+                get: {
+                    '/api/projects/:team/experiments/:id/': () => [200, { id: 7, name: 'Checkout redesign' }],
+                },
+            })
+            const teamId = teamLogic.values.currentTeamId!
+            logic.actions.setScannerValues({ name: 'Drafted' })
+            expect(readScannerDraft(teamId)?.scanner.name).toBe('Drafted')
+            logic.unmount()
+
+            router.actions.push(urls.replayVisionScannerConfigure('new'), { experiment: '7' })
+            logic = replayScannerLogic({ id: 'new' })
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(readScannerDraft(teamId)?.scanner.name).toBe('Drafted')
+        })
+
         it('discards back to the loaded baseline, so the leave guard stays disarmed', async () => {
             router.actions.push(urls.replayVisionScannerTemplate('new'), { template: 'dead_end' })
             logic.unmount()
@@ -512,6 +533,8 @@ describe('replayScannerLogic', () => {
             observationTriggeredByFilter: [] as ObservationTriggeredByValue[],
             observationVerdictFilter: [] as ObservationVerdictValue[],
             observationTagFilter: [] as string[],
+            observationMinScoreFilter: null as number | null,
+            observationMaxScoreFilter: null as number | null,
             observationSubjectFilter: '',
             observationDateFrom: null as string | null,
             observationDateTo: null as string | null,
@@ -547,6 +570,19 @@ describe('replayScannerLogic', () => {
             expect(params.triggered_by).toBe('on_demand')
             expect(params.verdict).toBe('yes,inconclusive')
             expect(params.tags).toBe('onboarding,support')
+        })
+
+        it('passes score bounds only when set, including a zero bound', () => {
+            expect(buildObservationListParams({ ...emptyValues, observationMinScoreFilter: 7 })).toEqual({
+                min_score: 7,
+            })
+            expect(
+                buildObservationListParams({
+                    ...emptyValues,
+                    observationMinScoreFilter: 0,
+                    observationMaxScoreFilter: 3.5,
+                })
+            ).toEqual({ min_score: 0, max_score: 3.5 })
         })
 
         it('passes date range only when set', () => {
@@ -644,6 +680,21 @@ describe('replayScannerLogic', () => {
         })
     })
 
+    describe('parseNumericParam', () => {
+        it.each([
+            [undefined, null],
+            // Number('') is 0, so an absent bound must be rejected before the cast.
+            ['', null],
+            ['   ', null],
+            ['abc', null],
+            ['0', 0],
+            ['3.5', 3.5],
+            [7, 7],
+        ])('parses %p as %p', (input, expected) => {
+            expect(parseNumericParam(input)).toBe(expected)
+        })
+    })
+
     describe('observationsPage / sort URL sync', () => {
         let scannedLogic: ReturnType<typeof replayScannerLogic.build>
 
@@ -709,6 +760,19 @@ describe('replayScannerLogic', () => {
             }).toFinishAllListeners()
             expect(router.values.searchParams.status).toBe('failed,succeeded')
             expect(String(router.values.searchParams.page)).toBe('3')
+        })
+
+        it('round-trips score bounds through the URL without swapping min and max', async () => {
+            await expectLogic(scannedLogic, () => {
+                scannedLogic.actions.setObservationScoreRange(3, 8)
+            }).toFinishAllListeners()
+            expect(String(router.values.searchParams.min_score)).toBe('3')
+            expect(String(router.values.searchParams.max_score)).toBe('8')
+
+            router.actions.push(urls.replayVision('sid'), { min_score: 7, max_score: 9 })
+            await expectLogic(scannedLogic).toFinishAllListeners()
+            expect(scannedLogic.values.observationMinScoreFilter).toBe(7)
+            expect(scannedLogic.values.observationMaxScoreFilter).toBe(9)
         })
 
         it('drops default state from the URL', async () => {

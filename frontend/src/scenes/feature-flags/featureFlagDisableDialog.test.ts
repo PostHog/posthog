@@ -59,8 +59,11 @@ describe('openFeatureFlagDisableDialog', () => {
             open()
 
             expect(openControlDialog).not.toHaveBeenCalled()
-            expect(openDialog.mock.calls[0][0].primaryButton.children).toBe('Disable and archive')
-            expect(openDialog.mock.calls[0][0].secondaryButton.children).toBe('Disable only')
+            expect(openDialog.mock.calls[0][0].primaryButton.children).toBe('Disable only')
+            expect(openDialog.mock.calls[0][0].secondaryButton).toMatchObject({
+                children: 'Disable and archive',
+                status: 'danger',
+            })
         })
 
         it.each<[string, string | boolean]>([
@@ -79,8 +82,8 @@ describe('openFeatureFlagDisableDialog', () => {
     describe('option telemetry', () => {
         // A fresh dialog per case, so each one can assert the other callback stayed untouched.
         it.each<[FeatureFlagDisableDialogOption, 'primaryButton' | 'secondaryButton' | 'tertiaryButton']>([
-            ['disable_and_archive', 'primaryButton'],
-            ['disable', 'secondaryButton'],
+            ['disable', 'primaryButton'],
+            ['disable_and_archive', 'secondaryButton'],
             ['cancel', 'tertiaryButton'],
         ])('reports %s and runs only its own callback', (option, button) => {
             setVariant('test')

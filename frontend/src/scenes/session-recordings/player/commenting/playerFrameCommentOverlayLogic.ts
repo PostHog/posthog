@@ -66,6 +66,9 @@ export interface playerCommentOverlayLogicActions {
     ensureAllMembersLoaded: () => {
         value: true
     } // membersLogic
+    commentEdited: (recordingId: string) => {
+        recordingId: string
+    } // playerCommentModel
     setIsCommenting: (isCommenting: boolean) => {
         isCommenting: boolean
     } // sessionRecordingPlayerLogic
@@ -154,7 +157,15 @@ export const playerCommentOverlayLogic = kea<playerCommentOverlayLogicType>([
     props({} as PlayerCommentOverlayLogicProps),
     connect((props: PlayerCommentOverlayLogicProps) => ({
         values: [sessionRecordingPlayerLogic(props), ['currentPlayerTime', 'currentTimestamp', 'sessionPlayerData']],
-        actions: [sessionRecordingPlayerLogic(props), ['setIsCommenting'], membersLogic, ['ensureAllMembersLoaded']],
+        actions: [
+            sessionRecordingPlayerLogic(props),
+            ['setIsCommenting'],
+            membersLogic,
+            ['ensureAllMembersLoaded'],
+            // bound at build time, so notifying the bus can't depend on it still being mounted
+            playerCommentModel,
+            ['commentEdited'],
+        ],
     })),
     actions({
         editComment: (comment: RecordingCommentForm) => ({ comment }),
@@ -290,7 +301,7 @@ export const playerCommentOverlayLogic = kea<playerCommentOverlayLogicType>([
                     },
                     slug: `/replay/${props.recordingId}#panel=discussion`,
                 })
-                playerCommentModel.actions.commentEdited(props.recordingId)
+                actions.commentEdited(props.recordingId)
             } catch (e) {
                 lemonToast.error(`Could not save your comment: ${(e as Error).message}`)
             } finally {
@@ -348,7 +359,7 @@ export const playerCommentOverlayLogic = kea<playerCommentOverlayLogicType>([
                     await api.comments.create({ ...apiPayload, is_task: values.asTask })
                 }
 
-                playerCommentModel.actions.commentEdited(props.recordingId)
+                actions.commentEdited(props.recordingId)
                 actions.resetRecordingComment()
                 actions.setAsTask(false)
                 actions.setIsCommenting(false)

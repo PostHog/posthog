@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import AsyncIterator, Awaitable, Callable
-from typing import Any
+from typing import Any, Final
 
 import litellm
 from fastapi import HTTPException
@@ -24,7 +24,8 @@ BASETEN_MODELS = {
     BASETEN_DEEPSEEK_PUBLIC_MODEL: BASETEN_DEEPSEEK_MODEL,
 }
 # Models with no Cloudflare/Modal fallback — always routed to Baseten.
-BASETEN_EXCLUSIVE_MODELS: frozenset[str] = frozenset({BASETEN_DEEPSEEK_PUBLIC_MODEL})
+BASETEN_EXCLUSIVE_COST_MODELS: Final[dict[str, str]] = {BASETEN_DEEPSEEK_PUBLIC_MODEL: BASETEN_DEEPSEEK_METRIC_MODEL}
+BASETEN_EXCLUSIVE_MODELS: frozenset[str] = frozenset(BASETEN_EXCLUSIVE_COST_MODELS)
 
 
 def is_baseten_configured(settings: Settings) -> bool:

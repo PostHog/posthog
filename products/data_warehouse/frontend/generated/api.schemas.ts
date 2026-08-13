@@ -1658,7 +1658,8 @@ export interface CredentialApi {
  * * `Pingdom` - Pingdom
  * * `Cloudflare` - Cloudflare
  * * `CosmosDB` - CosmosDB
- * * `PlanetScale` - PlanetScale
+ * * `PlanetScaleMySQL` - PlanetScaleMySQL
+ * * `PlanetScalePostgres` - PlanetScalePostgres
  * * `SapHana` - SapHana
  * * `Rippling` - Rippling
  * * `HiBob` - HiBob
@@ -2744,11 +2745,21 @@ export interface CredentialApi {
  * * `Snovio` - Snovio
  * * `GoogleMerchantCenter` - GoogleMerchantCenter
  * * `Raisely` - Raisely
+ * * `RakutenAdvertising` - RakutenAdvertising
+ * * `Zitadel` - Zitadel
+ * * `DeelFlows` - DeelFlows
  * * `WindsorAi` - WindsorAi
  * * `Wix` - Wix
  * * `Sevalla` - Sevalla
  * * `Motion` - Motion
  * * `ImpactPartner` - ImpactPartner
+ * * `Cloudinary` - Cloudinary
+ * * `Uploadcare` - Uploadcare
+ * * `WHMCS` - WHMCS
+ * * `MSG91` - MSG91
+ * * `Depot` - Depot
+ * * `Schematic` - Schematic
+ * * `Dokploy` - Dokploy
  */
 export type ExternalDataSourceTypeEnumApi =
     (typeof ExternalDataSourceTypeEnumApi)[keyof typeof ExternalDataSourceTypeEnumApi]
@@ -2947,7 +2958,8 @@ export const ExternalDataSourceTypeEnumApi = {
     Pingdom: 'Pingdom',
     Cloudflare: 'Cloudflare',
     CosmosDB: 'CosmosDB',
-    PlanetScale: 'PlanetScale',
+    PlanetScaleMySQL: 'PlanetScaleMySQL',
+    PlanetScalePostgres: 'PlanetScalePostgres',
     SapHana: 'SapHana',
     Rippling: 'Rippling',
     HiBob: 'HiBob',
@@ -4033,11 +4045,21 @@ export const ExternalDataSourceTypeEnumApi = {
     Snovio: 'Snovio',
     GoogleMerchantCenter: 'GoogleMerchantCenter',
     Raisely: 'Raisely',
+    RakutenAdvertising: 'RakutenAdvertising',
+    Zitadel: 'Zitadel',
+    DeelFlows: 'DeelFlows',
     WindsorAi: 'WindsorAi',
     Wix: 'Wix',
     Sevalla: 'Sevalla',
     Motion: 'Motion',
     ImpactPartner: 'ImpactPartner',
+    Cloudinary: 'Cloudinary',
+    Uploadcare: 'Uploadcare',
+    Whmcs: 'WHMCS',
+    Msg91: 'MSG91',
+    Depot: 'Depot',
+    Schematic: 'Schematic',
+    Dokploy: 'Dokploy',
 } as const
 
 export interface SimpleExternalDataSourceSerializersApi {

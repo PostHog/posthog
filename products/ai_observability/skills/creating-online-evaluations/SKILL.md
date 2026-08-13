@@ -357,3 +357,9 @@ creating so the user can review and toggle it in the UI.
 - **`bytecode` is server-written** for hog evals — never pass it; send only `evaluation_config.source`.
 - For cluster-scoped evals, identify the cluster with `exploring-llm-clusters`, then translate its event
   filter into `conditions`.
+
+## Related skills
+
+- **`exploring-ai-failures`** — find and rank the failure modes worth evaluating — do this first
+- **`exploring-llm-evaluations`** — debug and manage evaluations that already exist
+- **`exploring-llm-clusters`** — identify a cluster to scope cluster-targeted eval conditions

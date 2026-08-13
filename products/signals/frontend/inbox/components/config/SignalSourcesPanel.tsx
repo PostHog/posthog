@@ -19,7 +19,7 @@ function BackLink({ onClick }: { onClick: () => void }): JSX.Element {
 
 /**
  * Signal sources management: the per-source roster (each source watches for signals and
- * spins up work when something matters), plus the session-analysis and data-source setup
+ * spins up an agent to look into them), plus the session-analysis and data-source setup
  * sub-flows that render inline (replacing the roster) when their flow is open. Hosted in
  * the Signal sources setup modal.
  */
@@ -28,6 +28,7 @@ export function SignalSourcesPanel(): JSX.Element {
     const {
         loadSources,
         loadSourceConfigs,
+        loadVisionScanners,
         loadToolDataEvents,
         closeSessionAnalysisSetup,
         closeDataSourceSetup,
@@ -37,6 +38,7 @@ export function SignalSourcesPanel(): JSX.Element {
     useEffect(() => {
         loadSources()
         loadSourceConfigs()
+        loadVisionScanners()
         loadToolDataEvents()
     }, []) // eslint-disable-line react-hooks/exhaustive-deps
 

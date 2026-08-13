@@ -1,5 +1,5 @@
 import type {
-  AgentSessionEvent,
+  JsonAgentSessionEvent,
   RpcClient,
   RpcCommand,
   RpcResponse,
@@ -50,7 +50,7 @@ export function parsePiRpcResponse(value: unknown): RpcResponse {
 
 export interface PiRpcTransport {
   request(command: RpcCommand): Promise<unknown>;
-  onEvent?(listener: (event: AgentSessionEvent) => void): () => void;
+  onEvent?(listener: (event: JsonAgentSessionEvent) => void): () => void;
   start?(): Promise<void>;
   stop?(): Promise<void>;
 }
