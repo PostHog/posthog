@@ -7359,34 +7359,51 @@ def post_canvas_error_thread_update(
 def request_canvas_fix(task_id: str | UUID, team_id: int, *, prompt: str, acting_user_id: int | None) -> str:
     """Wake a task's agent to fix a canvas: signal the live run, else seed a fresh run with ``prompt``.
 
-    The fresh-run path mirrors ``run_task_automation``: create the run inside a
-    transaction and dispatch its processing workflow on commit with
-    ``skip_user_check`` (the run is server-originated; ``acting_user_id`` is
-    attribution, not authorization — callers gate access to the canvas).
-    Returns ``signaled`` / ``new_run`` / ``not_found`` / ``quota_exhausted``.
+    Creator-only, like every run-driving surface (``forward_thread_message``,
+    ``task_control_q``): the dispatched run executes with the task creator's
+    credentials, so nobody else may start or steer it. The task row is locked
+    for the duration so overlapping fix requests serialize instead of each
+    creating a paid run. The fresh-run path mirrors ``run_task_automation``:
+    create the run inside the transaction and dispatch its processing workflow
+    on commit with ``skip_user_check``.
+    Returns ``signaled`` / ``new_run`` / ``already_queued`` / ``not_found`` /
+    ``forbidden`` / ``quota_exhausted``.
     """
     from products.tasks.backend.exceptions import (
         ComputeBillingLimitError,  # noqa: PLC0415 — keep temporalio off the api import path
     )
     from products.tasks.backend.logic.services.compute_quota import is_compute_quota_exhausted  # noqa: PLC0415
 
-    task = Task.objects.select_related("team", "created_by").filter(id=task_id, team_id=team_id).first()
-    if task is None:
-        return "not_found"
-    if is_compute_quota_exhausted(task):
-        return "quota_exhausted"
-    run = task.latest_run
-    if run is not None and not run.is_terminal:
-        try:
-            if signal_task_run_user_message(
-                run.id, task.id, team_id, content=prompt, artifact_ids=[], actor_user_id=acting_user_id
-            ):
-                return "signaled"
-        except ComputeBillingLimitError:
-            return "quota_exhausted"
-        # The workflow is gone despite the non-terminal row (evicted or stale); fall
-        # through to a fresh run rather than reporting a dead end.
     with transaction.atomic():
+        # of=("self",): FOR UPDATE cannot span the nullable created_by join.
+        task = (
+            Task.objects.select_for_update(of=("self",))
+            .select_related("team", "created_by")
+            .filter(id=task_id, team_id=team_id)
+            .first()
+        )
+        if task is None:
+            return "not_found"
+        if acting_user_id is None or task.created_by_id != acting_user_id:
+            return "forbidden"
+        if is_compute_quota_exhausted(task):
+            return "quota_exhausted"
+        run = task.latest_run
+        if run is not None and not run.is_terminal:
+            try:
+                if signal_task_run_user_message(
+                    run.id, task.id, team_id, content=prompt, artifact_ids=[], actor_user_id=acting_user_id
+                ):
+                    return "signaled"
+            except ComputeBillingLimitError:
+                return "quota_exhausted"
+            if run.status == TaskRun.Status.QUEUED and (run.state or {}).get("pending_user_message"):
+                # A queued, prompt-seeded run whose workflow hasn't registered yet
+                # is a fix run a just-committed request dispatched (creation is
+                # serialized on this row lock). Another run would double-bill.
+                return "already_queued"
+            # The workflow is gone despite the non-terminal row (evicted or stale); fall
+            # through to a fresh run rather than reporting a dead end.
         task_run = task.create_run(mode="background", extra_state={"pending_user_message": prompt})
         transaction.on_commit(
             lambda: _dispatch_server_run(

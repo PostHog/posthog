@@ -406,7 +406,8 @@ export const CanvasesReportErrorCreateBody = /* @__PURE__ */ zod
  * Starts (or signals) an agent run on the authoring task, instructed to
  * stage the fix as a draft the user reviews and promotes. This is the
  * human-initiated dispatch step behind error reports; it spends agent
- * compute, so it never fires automatically.
+ * compute, so it never fires automatically, and only the authoring
+ * task's creator may dispatch — the run executes with their credentials.
  */
 export const canvasesRequestFixCreateBodyErrorTypeMax = 64
 

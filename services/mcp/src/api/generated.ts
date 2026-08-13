@@ -14542,6 +14542,7 @@ export namespace Schemas {
     /**
      * * `signaled` - signaled
      * * `new_run` - new_run
+     * * `already_queued` - already_queued
      */
     export type DispatchOutcomeEnum = typeof DispatchOutcomeEnum[keyof typeof DispatchOutcomeEnum];
 
@@ -14549,16 +14550,18 @@ export namespace Schemas {
     export const DispatchOutcomeEnum = {
       Signaled: 'signaled',
       NewRun: 'new_run',
+      AlreadyQueued: 'already_queued',
     } as const;
 
     /**
      * Outcome of dispatching a canvas fix to the authoring agent.
      */
     export interface CanvasFixRequestResult {
-      /** signaled: the task's live run received the request. new_run: a fresh agent run was started.
+      /** signaled: the task's live run received the request. new_run: a fresh agent run was started. already_queued: a fix run was already starting, so no new run was created.
        *
        * * `signaled` - signaled
-       * * `new_run` - new_run */
+       * * `new_run` - new_run
+       * * `already_queued` - already_queued */
       dispatch_outcome: DispatchOutcomeEnum;
       /** The authoring task the fix was routed to. */
       task_id: string;

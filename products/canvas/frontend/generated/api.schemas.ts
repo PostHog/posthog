@@ -694,22 +694,25 @@ export interface CanvasRequestFixApi {
 /**
  * * `signaled` - signaled
  * * `new_run` - new_run
+ * * `already_queued` - already_queued
  */
 export type DispatchOutcomeEnumApi = (typeof DispatchOutcomeEnumApi)[keyof typeof DispatchOutcomeEnumApi]
 
 export const DispatchOutcomeEnumApi = {
     Signaled: 'signaled',
     NewRun: 'new_run',
+    AlreadyQueued: 'already_queued',
 } as const
 
 /**
  * Outcome of dispatching a canvas fix to the authoring agent.
  */
 export interface CanvasFixRequestResultApi {
-    /** signaled: the task's live run received the request. new_run: a fresh agent run was started.
+    /** signaled: the task's live run received the request. new_run: a fresh agent run was started. already_queued: a fix run was already starting, so no new run was created.
      *
      * * `signaled` - signaled
-     * * `new_run` - new_run */
+     * * `new_run` - new_run
+     * * `already_queued` - already_queued */
     dispatch_outcome: DispatchOutcomeEnumApi
     /** The authoring task the fix was routed to. */
     task_id: string

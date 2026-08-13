@@ -1295,6 +1295,34 @@ class TestCanvasErrorReports(CanvasAPIBaseTest):
         assert signal.call_count == 1
         assert TaskRun.objects.filter(task=task).count() == 1
 
+    def test_request_fix_requires_the_task_creator(self):
+        # The dispatched run executes with the task creator's credentials, so a
+        # teammate who can merely see the canvas must not be able to start it.
+        canvas_id, build_id, _ = self._authored_canvas()
+        teammate = self._create_user("fix-teammate@example.com")
+        self.client.force_login(teammate)
+
+        response = self._request_fix(canvas_id, build_id)
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        assert not TaskRun.objects.exists()
+
+    def test_request_fix_does_not_duplicate_a_queued_fix_run(self):
+        # A queued, prompt-seeded run means a concurrent request just dispatched
+        # this repair; its workflow isn't signalable yet, and before creation was
+        # serialized this path minted a second paid run.
+        canvas_id, build_id, task = self._authored_canvas()
+        TaskRun.objects.create(
+            task=task, team=self.team, status=TaskRun.Status.QUEUED, state={"pending_user_message": "fix it"}
+        )
+
+        with patch("products.tasks.backend.facade.api.signal_task_run_user_message", return_value=False):
+            response = self._request_fix(canvas_id, build_id)
+
+        assert response.status_code == status.HTTP_202_ACCEPTED, response.json()
+        assert response.json()["dispatch_outcome"] == "already_queued"
+        assert TaskRun.objects.filter(task=task).count() == 1
+
     def test_request_fix_rejects_sandbox_callers(self):
         # An agent dispatching fixes to itself is a paid-run loop; the wake is
         # human-initiated only.

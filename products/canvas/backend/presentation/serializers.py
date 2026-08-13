@@ -630,7 +630,10 @@ class CanvasFixRequestResultSerializer(serializers.Serializer):
     """Outcome of dispatching a canvas fix to the authoring agent."""
 
     dispatch_outcome = serializers.ChoiceField(
-        choices=["signaled", "new_run"],
-        help_text="signaled: the task's live run received the request. new_run: a fresh agent run was started.",
+        choices=["signaled", "new_run", "already_queued"],
+        help_text=(
+            "signaled: the task's live run received the request. new_run: a fresh agent run was started. "
+            "already_queued: a fix run was already starting, so no new run was created."
+        ),
     )
     task_id = serializers.UUIDField(help_text="The authoring task the fix was routed to.")

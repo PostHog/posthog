@@ -882,7 +882,12 @@ class CanvasViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         request=CanvasRequestFixSerializer,
         responses={
             202: CanvasFixRequestResultSerializer,
-            403: OpenApiResponse(description="Fix requests are human-initiated; agents stage fixes directly."),
+            403: OpenApiResponse(
+                description=(
+                    "The caller is a sandbox (agents stage fixes directly as drafts), or is not the "
+                    "authoring task's creator (only the creator can dispatch a run under their credentials)."
+                )
+            ),
             404: OpenApiResponse(description="Build not found for this canvas."),
             409: OpenApiResponse(description="The canvas has no authoring task to route the fix to."),
             429: OpenApiResponse(description="The team's compute quota is exhausted; retry later."),
@@ -895,7 +900,8 @@ class CanvasViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         Starts (or signals) an agent run on the authoring task, instructed to
         stage the fix as a draft the user reviews and promotes. This is the
         human-initiated dispatch step behind error reports; it spends agent
-        compute, so it never fires automatically.
+        compute, so it never fires automatically, and only the authoring
+        task's creator may dispatch — the run executes with their credentials.
         """
         canvas = self.get_object()
         if self._is_sandbox_authenticated(request):
@@ -930,6 +936,11 @@ class CanvasViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         outcome = tasks_facade.request_canvas_fix(
             task_id, self.team_id, prompt=prompt, acting_user_id=user.id if user else None
         )
+        if outcome == "forbidden":
+            return Response(
+                {"detail": "Only the authoring task's creator can dispatch a fix."},
+                status=status.HTTP_403_FORBIDDEN,
+            )
         if outcome == "not_found":
             return Response(
                 {"detail": "The authoring task for this canvas no longer exists."},
