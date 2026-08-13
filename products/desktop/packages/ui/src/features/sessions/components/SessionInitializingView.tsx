@@ -1,5 +1,8 @@
 import { Spinner } from "@phosphor-icons/react";
-import type { TaskRunStatus } from "@posthog/shared/domain-types";
+import {
+  isTerminalStatus,
+  type TaskRunStatus,
+} from "@posthog/shared/domain-types";
 import { Flex, Text } from "@radix-ui/themes";
 import { useEffect, useState } from "react";
 import zenHedgehog from "../../../assets/images/zen.png";
@@ -21,6 +24,13 @@ function copyFor(
     return {
       heading: "Starting Pi…",
       subtitle: "Connecting to Pi on this device.",
+    };
+  }
+
+  if (isTerminalStatus(cloudStatus)) {
+    return {
+      heading: "Loading the conversation…",
+      subtitle: "Fetching the transcript for this run.",
     };
   }
 

@@ -95,6 +95,8 @@ export interface AgentSession {
   editingQueuedId?: string;
   isCloud?: boolean;
   cloudStatus?: TaskRunStatus;
+  /** A cloud transcript fetch is in flight for this session. */
+  isHydrating?: boolean;
   cloudStage?: string | null;
   cloudOutput?: Record<string, unknown> | null;
   cloudArtifacts?: TaskRunArtifact[];

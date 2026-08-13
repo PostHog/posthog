@@ -6209,9 +6209,16 @@ export class SessionService {
       return undefined;
     });
     this.cloudHydrationPromises.set(hydrationKey, hydration);
+    this.d.store.updateSession(taskRunId, { isHydrating: true });
     void hydration.finally(() => {
       if (this.cloudHydrationPromises.get(hydrationKey) === hydration) {
         this.cloudHydrationPromises.delete(hydrationKey);
+      }
+      const stillHydrating = [...this.cloudHydrationPromises.keys()].some(
+        (key) => key.startsWith(`${taskRunId}:`),
+      );
+      if (!stillHydrating) {
+        this.d.store.updateSession(taskRunId, { isHydrating: false });
       }
     });
     return hydration;

@@ -84,4 +84,31 @@ describe("deriveSessionViewState", () => {
     expect(state.isCloudRunTerminal).toBe(false);
     expect(state.isInitializing).toBe(true);
   });
+
+  it("keeps a hydrating terminal run initializing until events land", () => {
+    const state = deriveSessionViewState(
+      { ...makeSession("completed"), isHydrating: true },
+      makeTask("completed"),
+      null,
+      true,
+    );
+
+    expect(state.isInitializing).toBe(true);
+  });
+
+  it("shows the thread once hydration lands events, even mid-fetch", () => {
+    const event = {
+      type: "acp_message" as const,
+      ts: 1,
+      message: { jsonrpc: "2.0" as const, method: "session/update" },
+    };
+    const state = deriveSessionViewState(
+      { ...makeSession("completed"), isHydrating: true, events: [event] },
+      makeTask("completed"),
+      null,
+      true,
+    );
+
+    expect(state.isInitializing).toBe(false);
+  });
 });

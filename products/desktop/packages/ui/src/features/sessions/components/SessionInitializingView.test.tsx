@@ -25,6 +25,12 @@ describe("SessionInitializingView", () => {
       heading: "Starting the sandbox…",
       subtitle: "Connecting to your cloud runner.",
     },
+    {
+      executionTarget: "cloud" as const,
+      cloudStatus: "completed" as const,
+      heading: "Loading the conversation…",
+      subtitle: "Fetching the transcript for this run.",
+    },
   ])(
     "shows $executionTarget connection copy",
     ({ executionTarget, cloudStatus, heading, subtitle }) => {
