@@ -1,7 +1,6 @@
 import copy
 import json
 from collections.abc import Callable, Iterable, Mapping, Sequence
-from dataclasses import dataclass
 from datetime import datetime, timedelta
 from enum import Enum
 from time import time
@@ -20,6 +19,7 @@ import posthoganalytics
 from posthog.cache_utils import cache_for
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 from posthog.constants import FlagRequestType
+from posthog.dataclasses import frozen
 from posthog.event_usage import report_organization_action
 from posthog.exceptions_capture import capture_exception
 from posthog.models.organization import Organization, OrganizationUsageInfo
@@ -1038,7 +1038,7 @@ def _timed_query(name, fn, *args, **kwargs):
     return result
 
 
-@dataclass(frozen=True, kw_only=True, slots=True)
+@frozen
 class QuotaLimitingRunResult:
     quota_limited_orgs: dict[str, dict[str, int]]
     quota_limiting_suspended_orgs: dict[str, dict[str, int]]
