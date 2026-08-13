@@ -1,5 +1,7 @@
 from typing import Any
 
+from django.conf import settings
+
 from rest_framework import serializers
 
 from posthog.api.shared import UserBasicSerializer
@@ -10,6 +12,17 @@ from products.canvas.backend.models import Canvas
 # Base64 expands 3 source bytes into 4 characters (padded); size the asset field
 # from the contract's total-source cap rather than restating the number.
 _MAX_ASSET_BASE64_LENGTH = (contract_limits()["maxSourceTotalBytes"] + 2) // 3 * 4
+
+_CANVAS_URL_HELP_TEXT = (
+    "Canonical link to the canvas in the PostHog app. The only valid way to link to a canvas — "
+    "share this when pointing a user at it; never construct a canvas URL."
+)
+
+
+def canvas_url(canvas: Canvas) -> str:
+    # The same shape the thread-message announcements use; the route deep-links
+    # into the desktop app and renders in the web app.
+    return f"{settings.SITE_URL}/code/canvas/{canvas.channel_id}/{canvas.id}"
 
 
 class CanvasSerializer(serializers.ModelSerializer):
@@ -29,6 +42,7 @@ class CanvasSerializer(serializers.ModelSerializer):
     )
     created_by = UserBasicSerializer(read_only=True)
     pinned = serializers.SerializerMethodField(help_text="Whether the canvas is pinned to its channel.")
+    url = serializers.SerializerMethodField(help_text=_CANVAS_URL_HELP_TEXT)
 
     class Meta:
         model = Canvas
@@ -46,11 +60,15 @@ class CanvasSerializer(serializers.ModelSerializer):
             "created_by",
             "created_at",
             "updated_at",
+            "url",
         ]
         read_only_fields = fields
 
     def get_pinned(self, canvas: Canvas) -> bool:
         return canvas.pinned_at is not None
+
+    def get_url(self, canvas: Canvas) -> str:
+        return canvas_url(canvas)
 
 
 class CanvasCreateSerializer(serializers.Serializer):
@@ -209,6 +227,10 @@ class CanvasSummarySerializer(serializers.Serializer):
         help_text="Id of the canvas's live (last successful, still-eligible) build. Null until a build completes.",
     )
     created_at = serializers.DateTimeField(help_text="When the canvas was created.")
+    url = serializers.SerializerMethodField(help_text=_CANVAS_URL_HELP_TEXT)
+
+    def get_url(self, canvas: Canvas) -> str:
+        return canvas_url(canvas)
 
 
 class CanvasVersionSerializer(serializers.Serializer):
