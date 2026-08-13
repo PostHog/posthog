@@ -1650,6 +1650,26 @@ class TestWatchedModelsAllowance:
                 ["backend/facade/**", "backend/models/**", "backend/migrations/**", "!backend/models/secret.py"],
                 {"backend/models/"},
             ),
+            # ./-prefixed negations normalize the same way — no bypass
+            (
+                ["backend/facade/**", "backend/models/**", "backend/migrations/**", "!./backend/models/secret.py"],
+                {"backend/models/"},
+            ),
+            # a wildcard negation that could match inside the surface is rejected conservatively
+            (
+                ["backend/facade/**", "backend/models/**", "backend/migrations/**", "!backend/**/secret.py"],
+                {"backend/migrations/", "backend/models/"},
+            ),
+            # a wildcard negation provably outside the surface stays allowed
+            (
+                [
+                    "backend/facade/**",
+                    "backend/models/**",
+                    "backend/migrations/**",
+                    "!backend/temporal/data_imports/sources/mysql/tests/**",
+                ],
+                set(),
+            ),
         ],
     )
     def test_model_surface_coverage(self, tmp_path: Path, turbo_inputs: list[str], expected: set[str]) -> None:
@@ -1666,6 +1686,39 @@ class TestWatchedModelsAllowance:
         product_dir, _ = _write_facade_product(tmp_path, turbo_inputs=inputs)
         assert has_narrowed_turbo_inputs(product_dir) is False
         assert has_narrowed_turbo_inputs(product_dir, model_surface=MODEL_SURFACE_PREFIXES) is True
+
+    def _allowance_ctx(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, turbo_inputs: list[str]) -> CheckContext:
+        # end-to-end through IsolationChainCheck: guards the status wiring and the checks.py
+        # branches, which the helper tests above cannot see
+        import hogli_commands.product.isolation as isolation_module
+
+        _seal_externally(monkeypatch)
+        monkeypatch.setattr(isolation_module, "MODEL_CROSSING_PRODUCTS", frozenset({"my_product"}))
+        ctx = _make_product(tmp_path, scripts=_WITH_SCRIPT, isolated=True)
+        (ctx.backend_dir / "facade" / "models.py").write_text("from ..models.table import Table\n__all__ = ['Table']\n")
+        (ctx.backend_dir / "models").mkdir()
+        (ctx.backend_dir / "models" / "table.py").write_text("class Table:\n    pass\n")
+        (ctx.backend_dir / "migrations").mkdir()
+        (ctx.product_dir / "turbo.json").write_text(
+            json.dumps({"tasks": {"backend:contract-check": {"inputs": turbo_inputs}}})
+        )
+        return ctx
+
+    def test_chain_check_narrows_with_standing_warning_when_surface_watched(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        ctx = self._allowance_ctx(
+            tmp_path, monkeypatch, ["backend/facade/**", "backend/models/**", "backend/migrations/**"]
+        )
+        result = chain_check.run(ctx)
+        assert not result.issues
+        assert any("watched-models allowance" in w for w in result.warnings)
+
+    def test_chain_check_blocks_when_surface_omitted(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        ctx = self._allowance_ctx(tmp_path, monkeypatch, ["backend/facade/**", "backend/models/**"])
+        result = chain_check.run(ctx)
+        assert any("watched-models surface" in i and "backend/migrations/" in i for i in result.issues)
+        assert result.file == "products/my_product/turbo.json"
 
 
 class TestUnwatchedGarages:
