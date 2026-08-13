@@ -11,11 +11,14 @@ import {
     LemonSwitch,
     LemonTable,
     LemonTabs,
+    LemonTag,
     Link,
     Spinner,
+    Tooltip,
 } from '@posthog/lemon-ui'
 
 import { pngHoggie } from 'lib/brand/hoggies'
+import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { LemonTableColumns } from 'lib/lemon-ui/LemonTable'
@@ -40,6 +43,7 @@ import { creditsToUsd, formatCreditCount } from '../utils/credits'
 import { VisionMetrics } from './components/VisionMetrics'
 import { VisionUsageTab } from './components/VisionUsageTab'
 import { type ScannersSorting, SCANNERS_PAGE_SIZE, replayScannersLogic } from './replayScannersLogic'
+import { LIMIT_REACHED_TOOLTIP } from './scannerCopy'
 import { ENABLED_OPTIONS, EnabledFilter, SCANNER_TYPE_OPTIONS, ScannerType, ReplayScanner } from './types'
 
 const HedgehogXRay = pngHoggie(xRayPng)
@@ -124,6 +128,8 @@ export function ReplayScannersScene(): JSX.Element {
         scannerTypeFilter,
         createdByFilter,
         createdByOptions,
+        tagsFilter,
+        tagOptions,
         hasActiveFilters,
         scannerStats,
         scannerStatsLoading,
@@ -169,6 +175,11 @@ export function ReplayScannersScene(): JSX.Element {
                     <span className={`inline-block min-w-[4.5rem] ${scanner.enabled ? 'text-success' : 'text-muted'}`}>
                         {scanner.enabled ? 'Enabled' : 'Disabled'}
                     </span>
+                    {scanner.limit_reached && (
+                        <Tooltip title={LIMIT_REACHED_TOOLTIP}>
+                            <LemonTag type="danger">Limit reached</LemonTag>
+                        </Tooltip>
+                    )}
                 </div>
             ),
             sorter: true,
@@ -178,6 +189,21 @@ export function ReplayScannersScene(): JSX.Element {
             key: 'scanner_type',
             render: (_, scanner) => <ScannerTypeBadge scannerType={scanner.scanner_type} />,
             sorter: true,
+        },
+        {
+            title: 'Tags',
+            key: 'tags',
+            render: (_, scanner) =>
+                scanner.tags.length > 0 ? (
+                    <ObjectTags
+                        tags={scanner.tags}
+                        staticOnly
+                        onTagClick={(tag) => setScannersFilters({ tagsFilter: [tag] })}
+                        data-attr="vision-scanner-row-tags"
+                    />
+                ) : (
+                    <span className="text-muted">—</span>
+                ),
         },
         {
             title: 'Sampling',
@@ -346,6 +372,13 @@ export function ReplayScannersScene(): JSX.Element {
                                     options={createdByOptions}
                                     value={createdByFilter}
                                     onChange={(v) => setScannersFilters({ createdByFilter: v })}
+                                />
+                                <FilterPill<string>
+                                    label="Tags"
+                                    searchable
+                                    options={tagOptions}
+                                    value={tagsFilter}
+                                    onChange={(v) => setScannersFilters({ tagsFilter: v })}
                                 />
                                 {hasActiveFilters && (
                                     <LemonButton type="tertiary" size="small" onClick={() => clearFilters()}>

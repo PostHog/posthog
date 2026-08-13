@@ -14268,6 +14268,8 @@ export namespace Schemas {
       readonly created_by: UserBasic;
       readonly created_at: string;
       readonly updated_at: string;
+      /** Canonical link to the canvas in the PostHog app. The only valid way to link to a canvas — share this when pointing a user at it; never construct a canvas URL. */
+      readonly url: string;
     }
 
     /**
@@ -14509,6 +14511,63 @@ export namespace Schemas {
     }
 
     /**
+     * * `filed` - filed
+     * * `duplicate` - duplicate
+     * * `no_authoring_task` - no_authoring_task
+     * * `skipped` - skipped
+     */
+    export type ReportOutcomeEnum = typeof ReportOutcomeEnum[keyof typeof ReportOutcomeEnum];
+
+
+    export const ReportOutcomeEnum = {
+      Filed: 'filed',
+      Duplicate: 'duplicate',
+      NoAuthoringTask: 'no_authoring_task',
+      Skipped: 'skipped',
+    } as const;
+
+    /**
+     * Outcome of filing a canvas error report.
+     */
+    export interface CanvasErrorReportResult {
+      /** filed: a new report row was written. duplicate: this build and error type were already reported. no_authoring_task: the canvas has no linked task to notify. skipped: thread updates are unavailable.
+       *
+       * * `filed` - filed
+       * * `duplicate` - duplicate
+       * * `no_authoring_task` - no_authoring_task
+       * * `skipped` - skipped */
+      report_outcome: ReportOutcomeEnum;
+    }
+
+    /**
+     * * `signaled` - signaled
+     * * `new_run` - new_run
+     * * `already_queued` - already_queued
+     */
+    export type DispatchOutcomeEnum = typeof DispatchOutcomeEnum[keyof typeof DispatchOutcomeEnum];
+
+
+    export const DispatchOutcomeEnum = {
+      Signaled: 'signaled',
+      NewRun: 'new_run',
+      AlreadyQueued: 'already_queued',
+    } as const;
+
+    /**
+     * Outcome of dispatching a canvas fix to the authoring agent.
+     */
+    export interface CanvasFixRequestResult {
+      /** signaled: the task's live run received the request. new_run: a fresh agent run was started. already_queued: a fix run was already starting, so no new run was created.
+       *
+       * * `signaled` - signaled
+       * * `new_run` - new_run
+       * * `already_queued` - already_queued */
+      dispatch_outcome: DispatchOutcomeEnum;
+      /** The authoring task the fix was routed to. */
+      task_id: string;
+    }
+
+    /**
      * Payload for promoting a draft version to the canvas's live head.
      */
     export interface CanvasPromote {
@@ -14539,6 +14598,32 @@ export namespace Schemas {
     export interface CanvasPublishCurrentVersion {
       /** Current source version to publish. A changed head returns a 409 version_conflict. */
       expected_current_version_id: string;
+    }
+
+    /**
+     * Payload for reporting a runtime error observed while rendering a canvas build.
+     */
+    export interface CanvasReportError {
+      /** Id of the build that was rendering when the error occurred. */
+      build_id: string;
+      /**
+         * Error class name only, for example TypeError. Values that are not a plain class-name identifier are recorded as 'unknown'. Full error messages and stack traces must stay client-side.
+         * @maxLength 64
+         */
+      error_type: string;
+    }
+
+    /**
+     * Payload for asking the canvas's authoring agent to fix a failing build or runtime error.
+     */
+    export interface CanvasRequestFix {
+      /** Id of the failing or erroring build the fix should address. */
+      build_id: string;
+      /**
+         * Error class from the runtime report, when fixing a runtime error. Omit for a failed build; its diagnostics are read server-side.
+         * @maxLength 64
+         */
+      error_type?: string;
     }
 
     /**
@@ -14746,6 +14831,8 @@ export namespace Schemas {
       published_build_id: string | null;
       /** When the canvas was created. */
       created_at: string;
+      /** Canonical link to the canvas in the PostHog app. The only valid way to link to a canvas — share this when pointing a user at it; never construct a canvas URL. */
+      readonly url: string;
     }
 
     /**
@@ -36132,6 +36219,18 @@ export namespace Schemas {
     }
 
     /**
+     * * `personal` - Personal
+     * * `team` - Team
+     */
+    export type MCPAgentGrantScopeEnum = typeof MCPAgentGrantScopeEnum[keyof typeof MCPAgentGrantScopeEnum];
+
+
+    export const MCPAgentGrantScopeEnum = {
+      Personal: 'personal',
+      Team: 'team',
+    } as const;
+
+    /**
      * * `active` - Active
      * * `paused` - Paused
      */
@@ -36151,6 +36250,11 @@ export namespace Schemas {
       service_account_id: string;
       /** The member whose connection the agent uses. */
       user: UserBasic;
+      /** 'personal' lets the agent use this connection only when working for the member who shared it. 'team' lets it use the connection for the whole project's agent runs.
+       *
+       * * `personal` - Personal
+       * * `team` - Team */
+      scope: MCPAgentGrantScopeEnum;
       /** Agent display name. */
       name: string;
       /** Agent identity handle, e.g. posthog-support. */
@@ -39469,6 +39573,13 @@ export namespace Schemas {
       version?: number | null;
     }
 
+    export interface RecordingsQueryExperimentExposureFilter {
+      /** Experiment whose exposed persons' sessions to show. Must belong to the environment the query runs in. */
+      experiment_id: number;
+      /** Narrow to persons exposed to this variant. Defaults to all of the experiment's variants. */
+      variant?: string | null;
+    }
+
     export type RecordingOrder = typeof RecordingOrder[keyof typeof RecordingOrder];
 
 
@@ -39633,6 +39744,8 @@ export namespace Schemas {
       date_to?: string | null;
       distinct_ids?: string[] | null;
       events?: RecordingsQueryEvents;
+      /** Only sessions of persons exposed to this experiment, each ending at or after the person's first exposure as the experiment's exposure criteria count it. Resolved server-side from the experiment, so it links sessions even when the exposure events themselves carry no session id (e.g. server-side SDKs). Composes with the query's date range like any other filter, so set date_from to the experiment's start (or earlier) to cover the full run: the default window only reaches back a few days. */
+      experiment_exposure?: RecordingsQueryExperimentExposureFilter | null;
       filter_test_accounts?: boolean | null;
       having_predicates?: (EventPropertyFilter | PersonPropertyFilter | PersonMetadataPropertyFilter | ElementPropertyFilter | EventMetadataPropertyFilter | SessionPropertyFilter | CohortPropertyFilter | RecordingPropertyFilter | LogEntryPropertyFilter | GroupPropertyFilter | FeaturePropertyFilter | FlagPropertyFilter | HogQLPropertyFilter | EmptyPropertyFilter | DataWarehousePropertyFilter | DataWarehousePersonPropertyFilter | ErrorTrackingIssueFilter | LogPropertyFilter | MetricPropertyFilter | SpanPropertyFilter | RevenueAnalyticsPropertyFilter | AccountCustomPropertyFilter | WorkflowVariablePropertyFilter)[] | null;
       /** Exclude recordings already viewed by the current user ('current-user'), by any team member ('any-user'), or none (default). Applied server-side so pagination and the result cursor operate on the filtered set. */
@@ -42445,6 +42558,7 @@ export namespace Schemas {
       company_name: string;
       representative_email: string;
       status: string;
+      signed_pdf_stored: boolean;
       created_by: LegalDocumentCreator | null;
       created_at: string;
     }
@@ -44141,6 +44255,7 @@ export namespace Schemas {
       Blocked: 'blocked',
     } as const;
 
+    export const MCPAuditEventGrantScope = {...MCPAgentGrantScopeEnum,...BlankEnum,} as const
     export interface MCPAuditEvent {
       readonly id: string;
       readonly created_at: string;
@@ -44161,6 +44276,13 @@ export namespace Schemas {
       readonly actor_service_account: AuditActorServiceAccount | null;
       /** Denormalized actor label (email or handle) that survives deletion. */
       readonly actor_label: string;
+      /** Member whose connection an agent call used. Null for member calls and for owners whose account has since been deleted. */
+      readonly credential_owner: UserBasic | null;
+      /** Scope of the agent grant the call used. Blank for member calls.
+       *
+       * * `personal` - Personal
+       * * `team` - Team */
+      readonly grant_scope: typeof MCPAuditEventGrantScope[keyof typeof MCPAuditEventGrantScope];
     }
 
     /**
@@ -44809,6 +44931,11 @@ export namespace Schemas {
       id: string;
       /** The member whose connection the agent uses. */
       shared_by: UserBasic;
+      /** 'personal' lets the agent use this connection only when working for the member who shared it. 'team' lets it use the connection for the whole project's agent runs.
+       *
+       * * `personal` - Personal
+       * * `team` - Team */
+      scope: MCPAgentGrantScopeEnum;
       /** Server display name. */
       name: string;
       /** Server description. */
@@ -49541,6 +49668,12 @@ export namespace Schemas {
          * @maxLength 1000
          */
       description?: string;
+      /**
+         * Organizational tags for this scanner. Distinct from a classifier's tag vocabulary in scanner_config. Tags cannot contain commas.
+         * @maxItems 32
+         * @items.maxLength 255
+         */
+      tags?: string[];
       /** What the scanner does: monitor, classifier, scorer, or summarizer.
        *
        * * `monitor` - Monitor
@@ -49564,6 +49697,13 @@ export namespace Schemas {
        * * `balanced` - Balanced
        * * `comprehensive` - Comprehensive */
       sampling_mode?: SamplingModeEnum;
+      /**
+         * Optional cap on this scanner's own credit spend per billing period. Null means no scanner-level cap. When reached, this scanner stops scanning until the period resets. It stays enabled and does not scan the sessions it skipped.
+         * @minimum 1
+         * @maximum 2147483647
+         * @nullable
+         */
+      credit_limit?: number | null;
       /** LLM provider. v1 is Google-only.
        *
        * * `google` - Google */
@@ -49598,6 +49738,10 @@ export namespace Schemas {
       readonly credits_this_month: number;
       /** Succeeded observations this scanner produced in the current billing period. */
       readonly observations_this_month: number;
+      /** Credits counted against `credit_limit` for the current billing period: settled receipts plus in-flight observations and running prompt tests, priced from their frozen snapshot model. This is what the limit gate measures, so it includes work still in progress. It is not the same as `credits_this_month`, which counts only succeeded observations. */
+      readonly credits_used_against_limit: number;
+      /** Whether this scanner has stopped because of its own credit limit. True when `credit_limit` is set and the budget left cannot cover one more observation, which is the same test the scanner's enforcement gates apply. Always false when no limit is set. */
+      readonly limit_reached: boolean;
       /** Watermark for the scanner's last scheduled fire. Mirrors Temporal schedule state for recovery. */
       readonly last_swept_at: string;
       readonly created_at: string;
@@ -58739,6 +58883,12 @@ export namespace Schemas {
          * @maxLength 1000
          */
       description?: string;
+      /**
+         * Organizational tags for this scanner. Distinct from a classifier's tag vocabulary in scanner_config. Tags cannot contain commas.
+         * @maxItems 32
+         * @items.maxLength 255
+         */
+      tags?: string[];
       /** What the scanner does: monitor, classifier, scorer, or summarizer.
        *
        * * `monitor` - Monitor
@@ -58762,6 +58912,13 @@ export namespace Schemas {
        * * `balanced` - Balanced
        * * `comprehensive` - Comprehensive */
       sampling_mode?: SamplingModeEnum;
+      /**
+         * Optional cap on this scanner's own credit spend per billing period. Null means no scanner-level cap. When reached, this scanner stops scanning until the period resets. It stays enabled and does not scan the sessions it skipped.
+         * @minimum 1
+         * @maximum 2147483647
+         * @nullable
+         */
+      credit_limit?: number | null;
       /** LLM provider. v1 is Google-only.
        *
        * * `google` - Google */
@@ -58796,6 +58953,10 @@ export namespace Schemas {
       readonly credits_this_month?: number;
       /** Succeeded observations this scanner produced in the current billing period. */
       readonly observations_this_month?: number;
+      /** Credits counted against `credit_limit` for the current billing period: settled receipts plus in-flight observations and running prompt tests, priced from their frozen snapshot model. This is what the limit gate measures, so it includes work still in progress. It is not the same as `credits_this_month`, which counts only succeeded observations. */
+      readonly credits_used_against_limit?: number;
+      /** Whether this scanner has stopped because of its own credit limit. True when `credit_limit` is set and the budget left cannot cover one more observation, which is the same test the scanner's enforcement gates apply. Always false when no limit is set. */
+      readonly limit_reached?: boolean;
       /** Watermark for the scanner's last scheduled fire. Mirrors Temporal schedule state for recovery. */
       readonly last_swept_at?: string;
       readonly created_at?: string;
@@ -59286,6 +59447,11 @@ export namespace Schemas {
          * @maxItems 10
          */
       tags?: string[];
+      /**
+         * MCP gateway servers (by id) this scout's runs may use, chosen from the connections members shared to the whole team. Selection is per scout: an empty list gives the scout no MCP servers. Applies from the scout's next run.
+         * @maxItems 100
+         */
+      mcp_gateway_server_ids?: string[];
     }
 
     export interface PatchedSignalSourceConfig {
@@ -69113,6 +69279,11 @@ export namespace Schemas {
       gateway_server_id: string;
       /** True shares the caller's own connection with the agent, false removes the caller's share. */
       enabled: boolean;
+      /** Applies to the caller's own share, and only alongside enabled=true. 'personal' lets the agent use the connection when it works for the caller. 'team' lets it use the connection for the whole project's agent runs, including runs nobody started. It never lets another person use the connection. Defaults to personal, so re-sharing without this field resets the caller's share to personal.
+       *
+       * * `personal` - Personal
+       * * `team` - Team */
+      scope?: MCPAgentGrantScopeEnum;
       /** Only valid with enabled=false. Removes every member's share of this server with this agent, along with the agent's tool policies for it. Project admins only. */
       all?: boolean;
       /**
@@ -69628,6 +69799,11 @@ export namespace Schemas {
          */
       readonly model: string | null;
       /**
+         * MCP gateway servers (by id) this scout's runs may use, chosen from the connections members shared to the whole team. Selection is per scout: an empty list gives the scout no MCP servers. Applies from the scout's next run.
+         * @maxItems 100
+         */
+      readonly mcp_gateway_server_ids: readonly string[];
+      /**
          * When the coordinator last dispatched this scout. Null if it has never run.
          * @nullable
          */
@@ -69701,6 +69877,11 @@ export namespace Schemas {
          */
       structured_output_schema?: SignalScoutConfigCreateStructuredOutputSchema;
       /**
+         * MCP gateway servers (by id) this scout's runs may use, chosen from the connections members shared to the whole team. Selection is per scout: an empty list gives the scout no MCP servers. Applies from the scout's next run.
+         * @maxItems 100
+         */
+      mcp_gateway_server_ids?: string[];
+      /**
          * The `signals-scout-*` skill to register a config for. The skill must already exist on this project — author it via the skills store first.
          * @maxLength 200
          */
@@ -69758,6 +69939,11 @@ export namespace Schemas {
          * @nullable
          */
       structured_output_schema?: SignalScoutConfigOptionsStructuredOutputSchema;
+      /**
+         * MCP gateway servers (by id) this scout's runs may use, chosen from the connections members shared to the whole team. Selection is per scout: an empty list gives the scout no MCP servers. Applies from the scout's next run.
+         * @maxItems 100
+         */
+      mcp_gateway_server_ids?: string[];
     }
 
     /**
@@ -89883,6 +90069,10 @@ export namespace Schemas {
      * Case-insensitive substring match across name, description, and the prompt in scanner_config.
      */
     search?: string;
+    /**
+     * Filter to scanners carrying at least one of the given tags (comma-separated).
+     */
+    tags?: string;
     };
 
     export type VisionScannersImpactRetrieveParams = {

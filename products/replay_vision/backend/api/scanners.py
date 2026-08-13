@@ -1,8 +1,9 @@
 import json
 from typing import Any, NoReturn, cast
+from uuid import UUID
 
-from django.db import IntegrityError
-from django.db.models import CharField, Count, F, IntegerField, OuterRef, Q, QuerySet, Subquery, Sum, Value
+from django.db import IntegrityError, transaction
+from django.db.models import CharField, Count, F, IntegerField, OuterRef, Prefetch, Q, QuerySet, Subquery, Sum, Value
 from django.db.models.functions import Coalesce, NullIf
 from django.utils import timezone
 
@@ -27,8 +28,11 @@ from posthog.schema import RecordingsQuery
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
+from posthog.api.tagged_item import TaggedItemSerializerMixin
 from posthog.event_usage import report_user_action
 from posthog.exceptions import QuotaLimitExceeded
+from posthog.models.tag import tagify
+from posthog.models.tagged_item import TaggedItem
 from posthog.models.user import User
 from posthog.rate_limit import ReplayVisionEstimateBurstRateThrottle, ReplayVisionEstimateSustainedRateThrottle
 from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
@@ -80,7 +84,9 @@ from products.replay_vision.backend.queries import (
     refresh_scanner_estimate,
 )
 from products.replay_vision.backend.quota import (
+    ScannerBudget,
     ScannerSpend,
+    compute_scanner_budgets,
     credits_used_by_scanner,
     current_period_bounds,
     spend_projection,
@@ -102,6 +108,9 @@ _QUERY_FIELDS_TO_STRIP = ("date_from", "date_to")
 # Size caps enforced at the write boundary; scanner_config and query are copied into every observation's snapshot.
 _MAX_DESCRIPTION_LENGTH = 1_000
 _MAX_QUERY_BYTES = 50_000
+
+# Each tag costs get_or_create round trips in set_tags_on_object, so cap the list.
+_MAX_TAGS = 32
 
 logger = structlog.get_logger(__name__)
 
@@ -220,7 +229,7 @@ class ScannerExperimentTargetingField(serializers.JSONField):
         return dict(nested.validated_data)
 
 
-class ReplayScannerSerializer(UserAccessControlSerializerMixin, serializers.ModelSerializer):
+class ReplayScannerSerializer(TaggedItemSerializerMixin, UserAccessControlSerializerMixin, serializers.ModelSerializer):
     """A Replay Vision scanner: its type, targeting query, and AI configuration."""
 
     experiment_targeting = ScannerExperimentTargetingField(
@@ -240,6 +249,16 @@ class ReplayScannerSerializer(UserAccessControlSerializerMixin, serializers.Mode
         allow_blank=True,
         max_length=_MAX_DESCRIPTION_LENGTH,
         help_text="Free-form description shown in the scanner management UI.",
+    )
+    # Redeclared over the mixin's bare ListField so the generated types get string[] instead of unknown[].
+    tags = serializers.ListField(
+        child=serializers.CharField(max_length=255),  # Tag.name column limit.
+        required=False,
+        max_length=_MAX_TAGS,
+        help_text=(
+            "Organizational tags for this scanner. Distinct from a classifier's tag vocabulary in scanner_config. "
+            "Tags cannot contain commas."
+        ),
     )
     scanner_type = serializers.ChoiceField(
         choices=ScannerType.choices,
@@ -274,6 +293,18 @@ class ReplayScannerSerializer(UserAccessControlSerializerMixin, serializers.Mode
         choices=SamplingMode.choices,
         required=False,
         help_text="Quality pre-filter applied before random sampling. focused = top sessions only, balanced = drops the lowest-quality, comprehensive = no filter (default).",
+    )
+    credit_limit = serializers.IntegerField(
+        required=False,
+        allow_null=True,
+        min_value=1,
+        # int4 bound: DRF never runs full_clean, so an over-int4 value would 500 in Postgres, not 400.
+        max_value=2147483647,
+        help_text=(
+            "Optional cap on this scanner's own credit spend per billing period. Null means no scanner-level "
+            "cap. When reached, this scanner stops scanning until the period resets. It stays enabled and "
+            "does not scan the sessions it skipped."
+        ),
     )
     provider = serializers.ChoiceField(
         choices=ScannerProvider.choices,
@@ -317,6 +348,21 @@ class ReplayScannerSerializer(UserAccessControlSerializerMixin, serializers.Mode
     observations_this_month = serializers.SerializerMethodField(
         help_text="Succeeded observations this scanner produced in the current billing period.",
     )
+    credits_used_against_limit = serializers.SerializerMethodField(
+        help_text=(
+            "Credits counted against `credit_limit` for the current billing period: settled receipts plus "
+            "in-flight observations and running prompt tests, priced from their frozen snapshot model. This "
+            "is what the limit gate measures, so it includes work still in progress. It is not the same as "
+            "`credits_this_month`, which counts only succeeded observations."
+        ),
+    )
+    limit_reached = serializers.SerializerMethodField(
+        help_text=(
+            "Whether this scanner has stopped because of its own credit limit. True when `credit_limit` is "
+            "set and the budget left cannot cover one more observation, which is the same test the scanner's "
+            "enforcement gates apply. Always false when no limit is set."
+        ),
+    )
     last_swept_at = serializers.DateTimeField(
         read_only=True,
         help_text="Watermark for the scanner's last scheduled fire. Mirrors Temporal schedule state for recovery.",
@@ -350,11 +396,13 @@ class ReplayScannerSerializer(UserAccessControlSerializerMixin, serializers.Mode
             "id",
             "name",
             "description",
+            "tags",
             "scanner_type",
             "scanner_config",
             "query",
             "sampling_rate",
             "sampling_mode",
+            "credit_limit",
             "provider",
             "model",
             "enabled",
@@ -366,6 +414,8 @@ class ReplayScannerSerializer(UserAccessControlSerializerMixin, serializers.Mode
             "estimated_monthly_credits",
             "credits_this_month",
             "observations_this_month",
+            "credits_used_against_limit",
+            "limit_reached",
             "last_swept_at",
             "created_at",
             "created_by",
@@ -381,6 +431,8 @@ class ReplayScannerSerializer(UserAccessControlSerializerMixin, serializers.Mode
             "estimated_monthly_credits",
             "credits_this_month",
             "observations_this_month",
+            "credits_used_against_limit",
+            "limit_reached",
             "last_swept_at",
             "created_at",
             "created_by",
@@ -399,16 +451,40 @@ class ReplayScannerSerializer(UserAccessControlSerializerMixin, serializers.Mode
             return None
         return scanner.estimated_monthly_observations * observation_credits_for_model(scanner.model)
 
+    def _page_scanner_ids(self, scanner: ReplayScanner) -> list[UUID]:
+        root = self.root
+        instance = root.instance if isinstance(root, serializers.ListSerializer) else None
+        return [s.id for s in instance] if instance is not None else [scanner.id]
+
     def _scanner_spend(self, scanner: ReplayScanner) -> ScannerSpend:
         # The context dict is shared across the list's children, so the page's totals are computed once.
         totals = self.context.get("_scanner_credits_used")
         if totals is None:
-            root = self.root
-            instance = root.instance if isinstance(root, serializers.ListSerializer) else None
-            scanner_ids = [s.id for s in instance] if instance is not None else [scanner.id]
-            totals = credits_used_by_scanner(self.context["get_team"]().organization_id, scanner_ids)
+            totals = credits_used_by_scanner(
+                self.context["get_team"]().organization_id, self._page_scanner_ids(scanner)
+            )
             self.context["_scanner_credits_used"] = totals
         return totals.get(scanner.id, ScannerSpend(0, 0))
+
+    def _scanner_budget(self, scanner: ReplayScanner) -> ScannerBudget:
+        """The limit-facing figure. Separate from `_scanner_spend` on purpose: that one is the displayed
+        spend read from observation rows, this one is the delete-proof ledger draw the cap is enforced on."""
+        budgets = self.context.get("_scanner_budgets")
+        if budgets is None:
+            budgets = compute_scanner_budgets(
+                self.context["get_team"]().organization_id, self._page_scanner_ids(scanner)
+            )
+            self.context["_scanner_budgets"] = budgets
+        # Indexed, not `.get(default)` like `_scanner_spend`: a missing entry means the page id list didn't
+        # cover this scanner, and defaulting a limit figure to zero would report a blocked scanner as fine.
+        # Displayed spend can safely fall back to zero; this cannot.
+        try:
+            return budgets[scanner.id]
+        except KeyError:
+            raise KeyError(
+                f"Scanner {scanner.id} missing from the page's budget batch; the serializer ran outside "
+                f"the list context that precomputes _page_scanner_ids"
+            ) from None
 
     @extend_schema_field(serializers.IntegerField())
     def get_credits_this_month(self, scanner: ReplayScanner) -> int:
@@ -417,6 +493,17 @@ class ReplayScannerSerializer(UserAccessControlSerializerMixin, serializers.Mode
     @extend_schema_field(serializers.IntegerField())
     def get_observations_this_month(self, scanner: ReplayScanner) -> int:
         return self._scanner_spend(scanner).observations
+
+    @extend_schema_field(serializers.IntegerField())
+    def get_credits_used_against_limit(self, scanner: ReplayScanner) -> int:
+        return self._scanner_budget(scanner).credits_used
+
+    @extend_schema_field(serializers.BooleanField())
+    def get_limit_reached(self, scanner: ReplayScanner) -> bool:
+        # `blocked`, not `exhausted`: the enforcement gates admit an observation only when its full cost
+        # fits, so a scanner with under one observation of headroom is already stopped. Reporting
+        # `exhausted` here would tell the user a blocked scanner is fine.
+        return self._scanner_budget(scanner).blocked
 
     def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
         # Surface the (team_id, name) uniqueness as a 400 instead of letting the DB raise 500.
@@ -456,6 +543,13 @@ class ReplayScannerSerializer(UserAccessControlSerializerMixin, serializers.Mode
             raise serializers.ValidationError(
                 f"Sampling rate must be 0 (paused) or at least {MIN_SAMPLING_RATE} (0.01%)."
             )
+        return value
+
+    def validate_tags(self, value: list[str]) -> list[str]:
+        # The list endpoint's tags filter is comma-separated, so a comma inside a tag name
+        # would make the tag impossible to filter on.
+        if any("," in tag for tag in value):
+            raise serializers.ValidationError("Tags cannot contain commas.")
         return value
 
     def _reject_scanner_type_change(self, attrs: dict[str, Any]) -> None:
@@ -530,11 +624,16 @@ class ReplayScannerSerializer(UserAccessControlSerializerMixin, serializers.Mode
             raise serializers.ValidationError(
                 "Your organization needs to allow AI analysis before you can create a Replay Vision scanner."
             )
-        try:
-            # last_swept_at is seeded a settle-interval back by the model default (initial_watermark) to avoid a cold start.
-            scanner = ReplayScanner.objects.create(team=team, created_by=user, **validated_data)
-        except IntegrityError as e:
-            self._reraise_unique_name_violation(e)
+        # Tags become TaggedItem rows below, not a scanner column.
+        tags = validated_data.pop("tags", None)
+        # One transaction so a failed tag write can't leave an untagged scanner behind. Side effects stay outside.
+        with transaction.atomic():
+            try:
+                # last_swept_at is seeded a settle-interval back by the model default (initial_watermark) to avoid a cold start.
+                scanner = ReplayScanner.objects.create(team=team, created_by=user, **validated_data)
+            except IntegrityError as e:
+                self._reraise_unique_name_violation(e)
+            self._attempt_set_tags(tags, scanner)
         _refresh_estimate_fail_soft(scanner)
         # Every scanner starts with a built-in daily digest so the overview has a summary to show.
         provision_scanner_digest(scanner, user)
@@ -548,13 +647,28 @@ class ReplayScannerSerializer(UserAccessControlSerializerMixin, serializers.Mode
         return scanner
 
     def update(self, instance: ReplayScanner, validated_data: dict[str, Any]) -> ReplayScanner:
+        # Tags are not a scanner column: keep them out of the before/after getattr diff below.
+        # The mixin's update (reached via super()) persists them as TaggedItem rows.
+        tags = validated_data.pop("tags", None)
+        # Compared as tagify()d names, since that is what set_tags_on_object stores.
+        tags_changed = tags is not None and {tagify(t) for t in tags} != set(
+            instance.tagged_items.values_list("tag__name", flat=True)
+        )
         # The UI PATCHes the whole form on save, so edits are detected by comparing values, not keys.
         before = {field: getattr(instance, field) for field in validated_data}
         was_enabled = instance.enabled
-        try:
-            scanner = super().update(instance, validated_data)
-        except IntegrityError as e:
-            self._reraise_unique_name_violation(e)
+        limit_changed = "credit_limit" in validated_data and validated_data["credit_limit"] != instance.credit_limit
+        # One transaction so a failed tag write can't leave the columns updated with stale tags. Side effects stay outside.
+        with transaction.atomic():
+            try:
+                scanner = super().update(instance, validated_data)
+            except IntegrityError as e:
+                self._reraise_unique_name_violation(e)
+        if limit_changed:
+            # A changed limit starts a fresh notification cycle: reaching the new limit is news.
+            # Targeted update because the model save deliberately never writes this sweep-owned column.
+            ReplayScanner.objects.filter(pk=scanner.pk).update(limit_notified_period_start=None)
+            scanner.limit_notified_period_start = None
         # Model save clears `estimated_at` when volume inputs change. Re-enables only refresh inline when
         # the background refresher has fallen behind, so a stale number never enters the quota sum.
         needs_refresh = scanner.estimated_at is None or (
@@ -563,6 +677,8 @@ class ReplayScannerSerializer(UserAccessControlSerializerMixin, serializers.Mode
         if needs_refresh:
             _refresh_estimate_fail_soft(scanner)
         changed_fields = sorted(field for field, value in before.items() if getattr(scanner, field) != value)
+        if tags_changed:
+            changed_fields = sorted([*changed_fields, "tags"])
         request = self.context.get("request")
         user = acting_user(self.context)
         team = self.context["get_team"]()
@@ -676,13 +792,17 @@ class ReplayScannerFilter(django_filters.FilterSet):
         method="_filter_experiment_id",
         help_text="Filter to scanners whose targeting watches the given experiment.",
     )
+    tags = django_filters.CharFilter(
+        method="_filter_tags",
+        help_text="Filter to scanners carrying at least one of the given tags (comma-separated).",
+    )
     order_by = _ScannerOrderByFilter(
         help_text=f"Sort scanners by {', '.join(SCANNER_ORDER_FIELDS)}. Prefix with `-` for descending.",
     )
 
     class Meta:
         model = ReplayScanner
-        fields = ["enabled", "scanner_type", "emits_signals", "created_by", "search", "experiment_id"]
+        fields = ["enabled", "scanner_type", "emits_signals", "created_by", "search", "experiment_id", "tags"]
 
     @staticmethod
     def _filter_enabled(queryset: QuerySet[ReplayScanner], _name: str, value: str) -> QuerySet[ReplayScanner]:
@@ -743,6 +863,15 @@ class ReplayScannerFilter(django_filters.FilterSet):
         return queryset.filter(
             Q(name__icontains=q) | Q(description__icontains=q) | Q(scanner_config__prompt__icontains=q)
         )
+
+    @staticmethod
+    def _filter_tags(queryset: QuerySet[ReplayScanner], _name: str, value: str) -> QuerySet[ReplayScanner]:
+        # Writes normalize tag names through tagify(), so filter values must be normalized the same way.
+        tags = [tagify(tag) for tag in split_csv(value)]
+        if not tags:
+            return queryset
+        # distinct(): a scanner matching several requested tags would otherwise appear once per match.
+        return queryset.filter(tagged_items__tag__name__in=tags).distinct()
 
 
 class ObserveRequestSerializer(serializers.Serializer):
@@ -1249,7 +1378,19 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vi
         # `queryset` comes off the fail-closed default manager, so every action here — list, retrieve,
         # update, destroy — is configured-only. An inline scan's id is not a scanner id as far as this
         # viewset is concerned; its results are read through the observations endpoint instead.
-        return queryset.filter(team_id=self.team_id).select_related("created_by").order_by("name", "id")
+        return (
+            queryset.filter(team_id=self.team_id)
+            .select_related("created_by")
+            # prefetched_tags feeds the tags in to_representation; without it list serialization is N+1.
+            .prefetch_related(
+                Prefetch(
+                    "tagged_items",
+                    queryset=TaggedItem.objects.select_related("tag"),
+                    to_attr="prefetched_tags",
+                )
+            )
+            .order_by("name", "id")
+        )
 
     def retrieve(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         response = super().retrieve(request, *args, **kwargs)

@@ -403,7 +403,9 @@ export type BaseReplayScanner = Omit<
     ReplayScannerApi,
     'scanner_type' | 'scanner_config' | 'query' | 'created_by' | 'user_access_level'
 > &
-    Required<Pick<ReplayScannerApi, 'sampling_rate' | 'enabled' | 'emits_signals' | 'provider'>> & {
+    Required<
+        Pick<ReplayScannerApi, 'sampling_rate' | 'enabled' | 'emits_signals' | 'provider' | 'credit_limit' | 'tags'>
+    > & {
         query: RecordingsQuery | null
         created_by: ScannerCreatedBy | null
         sampling_mode: SamplingMode
@@ -431,6 +433,13 @@ export interface ScorerScanner extends BaseReplayScanner {
 }
 
 export type ReplayScanner = MonitorScanner | SummarizerScanner | ClassifierScanner | ScorerScanner
+
+// The editor form's values: the API scanner plus UI-only state that is stripped before every API write.
+// `credit_limit_enabled` keeps "limit toggle on, amount still empty" representable so it can block the save.
+export type ScannerFormValues = ReplayScanner & { credit_limit_enabled?: boolean }
+
+// Mirrors the API's int4 bound on credit_limit (visionScannersCreateBodyCreditLimitMax in generated/api.zod.ts).
+export const MAX_CREDIT_LIMIT = 2147483647
 
 /** Narrow a snapshot's untyped scanner_config at one boundary; pair with the snapshot's scanner_type to pick the variant. */
 export function configFromSnapshot(snapshot: { scanner_config?: unknown } | null | undefined): ScannerConfig | null {

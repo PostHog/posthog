@@ -231,10 +231,19 @@ ACTIONS_COLUMNS = (
     "first_create_pr_clicked_at",
     "discuss_count",
     "snooze_count",
+    "reviewer_add_count",
+    "first_reviewer_added_at",
+    "reviewer_remove_count",
+    "first_reviewer_removed_at",
 )
 # Bulk action rows carry no report_id and are excluded; bulk dismissals are recovered from the
 # server-side status stream instead. minIf misses fill non-nullable datetimes with epoch 0, hence
 # the nullIf(..., fromUnixTimestamp(0)) wraps here and below.
+#
+# The reviewer actions edit the report's suggested-reviewer list: adding one is a mild positive
+# engagement signal, removing one plausibly means the suggested-reviewer heuristic mis-routed the
+# report, which is useful to the policy layer even if never a model head. `click_suggested_reviewer`
+# also exists but is deliberately not aggregated: it fires so rarely it carries no signal.
 ACTIONS_SQL = """
 SELECT
     toString(properties.report_id) AS report_id,
@@ -243,7 +252,11 @@ SELECT
     countIf(toString(properties.action_type) = 'create_pr') AS create_pr_click_count,
     nullIf(minIf(timestamp, toString(properties.action_type) = 'create_pr'), fromUnixTimestamp(0)) AS first_create_pr_clicked_at,
     countIf(toString(properties.action_type) = 'discuss') AS discuss_count,
-    countIf(toString(properties.action_type) = 'snooze') AS snooze_count
+    countIf(toString(properties.action_type) = 'snooze') AS snooze_count,
+    countIf(toString(properties.action_type) = 'add_suggested_reviewer') AS reviewer_add_count,
+    nullIf(minIf(timestamp, toString(properties.action_type) = 'add_suggested_reviewer'), fromUnixTimestamp(0)) AS first_reviewer_added_at,
+    countIf(toString(properties.action_type) = 'remove_suggested_reviewer') AS reviewer_remove_count,
+    nullIf(minIf(timestamp, toString(properties.action_type) = 'remove_suggested_reviewer'), fromUnixTimestamp(0)) AS first_reviewer_removed_at
 FROM events
 WHERE event = 'Inbox report action'
   AND timestamp >= toDateTime({labels_epoch}) AND timestamp < toDateTime({snapshot_end})
@@ -460,6 +473,10 @@ LABEL_DEFAULTS: dict[str, Any] = {
     "refund_reason": None,
     "refund_billing_path": None,
     "refund_credits": None,
+    "reviewer_add_count": 0,
+    "first_reviewer_added_at": None,
+    "reviewer_remove_count": 0,
+    "first_reviewer_removed_at": None,
 }
 
 _TIMESTAMP_LABEL_COLUMNS = frozenset(name for name in LABEL_DEFAULTS if name.endswith("_at"))
