@@ -5,6 +5,7 @@ from uuid import UUID
 
 from django.core.files.uploadedfile import UploadedFile
 from django.db import IntegrityError, transaction
+from django.db.models.functions import Lower
 
 from posthog.models.comment import Comment
 from posthog.models.organization import OrganizationMembership
@@ -140,14 +141,15 @@ def _upsert_participants(
         if current is None or (not current.name and address.name):
             addresses_by_email[normalized_email] = EmailAddress(name=address.name[:400], email=normalized_email)
 
-    organization_member_emails = {
-        member_email.lower()
-        for member_email in OrganizationMembership.objects.filter(
+    organization_member_emails = set(
+        OrganizationMembership.objects.filter(
             organization_id=channel.team.organization_id,
-            user__email__in=list(addresses_by_email),
             user__is_active=True,
-        ).values_list("user__email", flat=True)
-    }
+        )
+        .annotate(normalized_member_email=Lower("user__email"))
+        .filter(normalized_member_email__in=list(addresses_by_email))
+        .values_list("normalized_member_email", flat=True)
+    )
     organization_member_emails.update({channel.from_email.lower(), owner.email.lower()})
 
     for address in addresses_by_email.values():
