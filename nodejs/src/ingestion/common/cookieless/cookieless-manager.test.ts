@@ -4,6 +4,7 @@ import path from 'path'
 
 import { cookielessRedisErrorCounter } from '~/common/metrics'
 import { RedisOperationError } from '~/common/utils/db/error'
+import { PostgresUse } from '~/common/utils/db/postgres'
 import { parseJSON } from '~/common/utils/json-parse'
 import { UUID7 } from '~/common/utils/utils'
 import { PipelineResultType, isOkResult } from '~/ingestion/framework/results'
@@ -11,7 +12,7 @@ import type { PluginEvent } from '~/plugin-scaffold'
 import { createTestEventHeaders } from '~/tests/helpers/event-headers'
 import { IngestionTestInfra, createIngestionTestInfra } from '~/tests/helpers/ingestion-e2e'
 import { createOrganization, createTeam, getTeam } from '~/tests/helpers/sql'
-import { EventHeaders, PipelineEvent, Team } from '~/types'
+import { CookielessServerHashMode, EventHeaders, PipelineEvent, Team } from '~/types'
 
 import {
     COOKIELESS_MODE_FLAG_PROPERTY,
@@ -214,11 +215,21 @@ describe('CookielessManager', () => {
             await infra.redisPool.release(client)
         }
 
+        const setModeForTeam = async (mode: CookielessServerHashMode) => {
+            await infra.postgres.query(
+                PostgresUse.COMMON_WRITE,
+                `UPDATE posthog_team SET cookieless_server_hash_mode = $1 WHERE id = $2`,
+                [mode, teamId],
+                'set team to cookieless'
+            )
+            team = (await getTeam(infra.postgres, teamId))!
+        }
+
         beforeEach(async () => {
             await clearRedis()
             infra.cookielessManager.deleteAllLocalSalts()
             teamId = await createTeam(infra.postgres, organizationId)
-            team = (await getTeam(infra.postgres, teamId))!
+            await setModeForTeam(CookielessServerHashMode.Stateful)
             event = deepFreeze({
                 event: 'test event',
                 distinct_id: COOKIELESS_SENTINEL_VALUE,
@@ -349,8 +360,6 @@ describe('CookielessManager', () => {
             }
         }
 
-        // NOTE: cookieless_server_hash_mode team setting has been deprecated.
-        // All cookieless events are now processed as STATEFUL.
         describe('common behavior', () => {
             it('should give an event a distinct id and session id ', async () => {
                 const actual = await processEvent(event)
@@ -786,6 +795,45 @@ describe('CookielessManager', () => {
                         distinctId: eventWithOldTimestamp.distinct_id,
                     })
                 }
+            })
+        })
+        describe('disabled', () => {
+            beforeEach(async () => {
+                await setModeForTeam(CookielessServerHashMode.Disabled)
+            })
+            it('should drop all cookieless events', async () => {
+                const actual1 = await processEvent(event)
+                expect(actual1).toBeUndefined()
+            })
+            it('should pass through non-cookieless events', async () => {
+                const actual1 = await processEvent(nonCookielessEvent)
+                expect(actual1).toBe(nonCookielessEvent)
+            })
+            it('should not return dropped cookieless events but should not throw', async () => {
+                const testHeaders = createTestEventHeaders({
+                    token: 'test-token',
+                    distinct_id: 'test-distinct-id',
+                    timestamp: '1234567890',
+                })
+
+                const result = await processEventWithHeaders(event, testHeaders)
+
+                // Dropped events are not returned in the response array
+                expect(result.event).toBeUndefined()
+                expect(result.headers).toEqual(createTestEventHeaders())
+            })
+        })
+        describe('legacy stateless value', () => {
+            beforeEach(async () => {
+                await setModeForTeam(CookielessServerHashMode.Stateless)
+            })
+            it('should process events as stateful, including $identify', async () => {
+                const actual = await processEvent(event)
+                expect(actual?.distinct_id).toMatch(/^cookieless_/)
+
+                // stateless mode used to drop $identify events; sunset means stateful handling
+                const identified = await processEvent(identifyEvent)
+                expect(identified).toBeDefined()
             })
         })
         describe('ingestion warnings', () => {

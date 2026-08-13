@@ -23,6 +23,7 @@ import { DefaultMinimumDetectableEffect } from 'scenes/experiments/DefaultMinimu
 import { GitHub, Linear, Slack } from 'scenes/integrations/definitions'
 import { BounceRateDurationSetting } from 'scenes/settings/environment/BounceRateDuration'
 import { BounceRatePageViewModeSetting } from 'scenes/settings/environment/BounceRatePageViewMode'
+import { CookielessServerHashModeSetting } from 'scenes/settings/environment/CookielessServerHashMode'
 import { CustomChannelTypes } from 'scenes/settings/environment/CustomChannelTypes'
 import { DeadClicksAutocaptureSettings } from 'scenes/settings/environment/DeadClicksAutocaptureSettings'
 import { MaxChangelogSettings } from 'scenes/settings/environment/MaxChangelogSettings'
@@ -1309,6 +1310,15 @@ export const SETTINGS_MAP: SettingSection[] = [
                 docsUrl: 'https://posthog.com/docs/data/channel-type',
                 component: <CustomChannelTypes />,
                 keywords: ['utm', 'source', 'medium', 'referrer', 'attribution'],
+            },
+            {
+                id: 'cookieless-server-hash-mode',
+                title: 'Cookieless tracking',
+                description:
+                    'Count unique users with a privacy-preserving hash instead of cookies. Enable this here, then enable cookieless mode in posthog-js.',
+                docsUrl: 'https://posthog.com/tutorials/cookieless-tracking',
+                component: <CookielessServerHashModeSetting />,
+                keywords: ['cookie', 'privacy', 'gdpr', 'tracking', 'consent'],
             },
             {
                 id: 'bounce-rate-duration',

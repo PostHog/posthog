@@ -424,9 +424,7 @@ TEAM_CONFIG_FIELDS = (
     "primary_dashboard",
     "live_events_columns",
     "recording_domains",
-    # NOTE: cookieless_server_hash_mode has been deprecated - the field is kept in the database
-    # for rollback safety but is no longer exposed via the API. All cookieless events are
-    # processed as STATEFUL when the SDK sends them.
+    "cookieless_server_hash_mode",
     "human_friendly_comparison_periods",
     "inject_web_apps",
     "extra_settings",

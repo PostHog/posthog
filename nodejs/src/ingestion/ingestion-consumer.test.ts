@@ -11,6 +11,7 @@ import { template as geoipTemplate } from '~/cdp/templates/_transformations/geoi
 import { compileHog } from '~/cdp/templates/compiler'
 import { HogFunctionType } from '~/cdp/types'
 import { ClickhouseGroupRepository } from '~/common/groups/repositories/clickhouse-group-repository'
+import { PostgresUse } from '~/common/utils/db/postgres'
 import { parseJSON } from '~/common/utils/json-parse'
 import { logger } from '~/common/utils/logger'
 import { UUIDT } from '~/common/utils/utils'
@@ -25,7 +26,7 @@ import { IngestionTestInfra, createIngestionTestInfra } from '~/tests/helpers/in
 import { createTestIngestionOutputs, createTestMonitoringOutputs } from '~/tests/helpers/ingestion-outputs'
 import { forSnapshot } from '~/tests/helpers/snapshots'
 import { createTeam, fetchPostgresPersons, getFirstTeam, getTeam, resetTestDatabase } from '~/tests/helpers/sql'
-import { PipelineEvent, Team } from '~/types'
+import { CookielessServerHashMode, PipelineEvent, Team } from '~/types'
 
 import { IngestionConsumer } from './ingestion-consumer'
 
@@ -226,6 +227,18 @@ describe('IngestionConsumer', () => {
             await ingester.handleKafkaBatch(createKafkaMessages([createCookielessEvent()]))
 
             expect(forSnapshot(mockProducerObserver.getProducedKafkaMessages())).toMatchSnapshot()
+        })
+
+        it('should drop a cookieless event if the team has cookieless disabled', async () => {
+            await infra.postgres.query(
+                PostgresUse.COMMON_WRITE,
+                `UPDATE posthog_team SET cookieless_server_hash_mode = $1 WHERE id = $2`,
+                [CookielessServerHashMode.Disabled, team.id],
+                'set cookieless to disabled'
+            )
+            await ingester.handleKafkaBatch(createKafkaMessages([createCookielessEvent()]))
+
+            expect(mockProducerObserver.getProducedKafkaMessages()).toHaveLength(0)
         })
 
         it('should not blend person properties from 2 different cookieless users', async () => {

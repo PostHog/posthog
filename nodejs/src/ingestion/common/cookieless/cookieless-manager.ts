@@ -21,7 +21,7 @@ import { toStartOfDayInTimezone, toYearMonthDayInTimezone } from '~/ingestion/co
 import { IngestionConsumerConfig } from '~/ingestion/config'
 import { PipelineResult, dlq, drop, isOkResult, ok } from '~/ingestion/framework/results'
 import { PluginEvent, Properties } from '~/plugin-scaffold'
-import { EventHeaders, IncomingEventWithTeam, PipelineEvent, RedisPool, Team } from '~/types'
+import { CookielessServerHashMode, EventHeaders, IncomingEventWithTeam, PipelineEvent, RedisPool, Team } from '~/types'
 
 import { RedisHelpers } from './redis-helpers'
 
@@ -346,6 +346,15 @@ export class CookielessManager {
             if (event.event === '$create_alias' || event.event === '$merge_dangerously') {
                 // $alias and $merge events are not supported in cookieless mode, drop them
                 results[i] = drop('cookieless_unsupported_event')
+                continue
+            }
+
+            if (
+                team.cookieless_server_hash_mode == null ||
+                team.cookieless_server_hash_mode === CookielessServerHashMode.Disabled
+            ) {
+                // if the specific team doesn't have cookieless enabled, drop the event
+                results[i] = drop('cookieless_team_disabled')
                 continue
             }
 
