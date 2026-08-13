@@ -54,9 +54,6 @@ class TestStagedAudit(BaseTest):
         return [str(value) for value in context.values.values()]
 
     def test_the_audit_reads_the_staged_folder_not_the_published_one(self) -> None:
-        # The write-audit-publish gate is only real if the compiled check actually reads the staged
-        # files; silently falling back to the published folder would audit the previous version and
-        # wave bad data through.
         view = self._materialized_view()
 
         urls = self._compiled_check_urls(view, STAGED_FOLDER)
@@ -65,7 +62,6 @@ class TestStagedAudit(BaseTest):
         assert not any(PUBLISHED_FOLDER in url for url in urls)
 
     def test_a_view_with_no_backing_table_gets_no_override(self) -> None:
-        # First materialization: nothing to repoint, the caller audits the live view instead.
         view = DataWarehouseSavedQuery.objects.create(
             team=self.team,
             name="orders",

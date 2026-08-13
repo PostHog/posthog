@@ -1,10 +1,4 @@
-"""Point a subject's table at staged (unpublished) files, for write-audit-publish check runs.
-
-A matview refresh stages its output into a new timestamped queryable folder before anything is
-published; the publish is just repointing ``queryable_folder`` on the subject's warehouse table.
-The audit therefore builds the team's HogQL database and swaps that one field on the in-memory
-table object, so compiled checks read the staged version while every other table resolves normally.
-"""
+"""Point a subject's table at staged (unpublished) files, for write-audit-publish check runs."""
 
 from typing import TYPE_CHECKING
 from uuid import UUID
@@ -22,10 +16,8 @@ if TYPE_CHECKING:
 def build_staged_database(team: "Team", saved_query_id: str | UUID, staged_queryable_folder: str) -> Database | None:
     """A database whose subject table reads the staged folder instead of the published one.
 
-    Returns None when there is no materialized table to repoint -- the first materialization, or a
-    subject that no longer resolves. The caller must not fall back to the unmodified database: that
-    reads the live view, which recomputes from upstreams that may have moved since the refresh, so
-    its verdict describes data the publish would not produce.
+    None means there is no materialized table to repoint. Callers must not fall back to the
+    unmodified database, which reads the live view and so rules on data the publish would not write.
     """
     summary = data_modeling_facade.get_saved_query_summary(team.pk, saved_query_id)
     if summary is None:

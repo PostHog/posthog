@@ -137,8 +137,6 @@ class TestPostMaterializationChecks:
         assert result.failed_nodes == 0
 
     async def test_a_node_that_audited_itself_is_not_swept_again(self, ateam) -> None:
-        # The child already ran this node's checks. Handing it to the sweep too runs every check a
-        # second time, against data the gate has already passed.
         audited, unaudited = str(uuid.uuid4()), str(uuid.uuid4())
         _mock_workflow_should_self_audit.add(audited)
 
@@ -148,8 +146,6 @@ class TestPostMaterializationChecks:
         assert _suite_runs_started[0]["node_ids"] == [unaudited]
 
     async def test_a_blocked_publish_stops_its_descendants_and_leaves_the_sweep(self, ateam) -> None:
-        # The blocked node's table still serves the previous version, so a child that runs anyway
-        # publishes a model built on data its parent refused to publish.
         blocked, downstream = str(uuid.uuid4()), str(uuid.uuid4())
         _mock_workflow_should_block_on_quality.add(blocked)
 

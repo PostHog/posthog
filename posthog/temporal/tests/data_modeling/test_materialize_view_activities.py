@@ -491,8 +491,6 @@ class TestQualityBlockMaterializationActivity:
     async def test_a_blocked_publish_fails_the_node_and_job_but_starts_no_recovery(
         self, activity_environment, ateam, anode, asaved_query, adag
     ):
-        # Routing this through fail_materialization_activity would be the tempting simplification,
-        # and it would start suspending a node over data its own query produced correctly.
         job = await _make_job(ateam, asaved_query, DataModelingJob.Status.RUNNING)
         inputs = QualityBlockMaterializationInputs(
             team_id=ateam.pk,

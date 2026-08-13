@@ -59,15 +59,13 @@ class PrepareQueryableTableResult:
 
 @dataclasses.dataclass(frozen=False)
 class StageQueryableFilesResult:
-    # The staged (not yet published) timestamped queryable folder.
-    folder_path: str
+    staged_folder_path: str
 
 
-# Not frozen: a dataclass cannot be, while the one it extends is not.
+# Not frozen because a dataclass cannot be, while the one it extends is not.
 @dataclasses.dataclass(frozen=False)
 class PublishQueryableTableInputs(PrepareQueryableTableInputs):
-    # The folder a prior stage activity produced; publishing repoints the table at it.
-    folder_path: str
+    staged_folder_path: str
 
 
 async def _stage_files(inputs: PrepareQueryableTableInputs, saved_query: DataWarehouseSavedQuery, logger) -> str:
@@ -122,24 +120,24 @@ async def prepare_queryable_table_activity(inputs: PrepareQueryableTableInputs) 
 
 @activity.defn
 async def stage_queryable_files_activity(inputs: PrepareQueryableTableInputs) -> StageQueryableFilesResult:
-    """The write half of write-audit-publish: copy files into a new queryable folder, publish nothing.
+    """Copy files into a new queryable folder and publish nothing.
 
-    Until ``publish_queryable_table_activity`` repoints the table, queries keep reading the
-    previous folder, so a failed audit leaves the old data serving untouched.
+    Queries keep reading the previous folder until publish_queryable_table_activity repoints the
+    table, so a failed audit leaves the old data serving untouched.
     """
     bind_data_modeling_log_context(inputs.team_id, inputs.saved_query_id)
     logger = LOGGER.bind()
 
     saved_query = await _get_saved_query_with_table(inputs)
     folder_path = await _stage_files(inputs, saved_query, logger)
-    return StageQueryableFilesResult(folder_path=folder_path)
+    return StageQueryableFilesResult(staged_folder_path=folder_path)
 
 
 @activity.defn
 async def publish_queryable_table_activity(inputs: PublishQueryableTableInputs) -> PrepareQueryableTableResult:
-    """The publish half of write-audit-publish: repoint the table at an already-staged folder."""
+    """Repoint the table at a folder stage_queryable_files_activity already wrote."""
     bind_data_modeling_log_context(inputs.team_id, inputs.saved_query_id)
     logger = LOGGER.bind()
 
     saved_query = await _get_saved_query_with_table(inputs)
-    return await _publish_table(inputs, saved_query, inputs.folder_path, logger)
+    return await _publish_table(inputs, saved_query, inputs.staged_folder_path, logger)

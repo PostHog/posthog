@@ -5,7 +5,7 @@ import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import temporalio.workflow
-from temporalio.exceptions import WorkflowAlreadyStartedError
+from temporalio.exceptions import CancelledError, ChildWorkflowError, WorkflowAlreadyStartedError
 
 from posthog.temporal.data_modeling.activities import (
     FailMaterializationInputs,
@@ -21,7 +21,7 @@ from posthog.temporal.data_modeling.workflows.materialize_view import (
     MaterializeViewWorkflowInputs,
 )
 
-from products.data_quality.backend.facade.contracts import QualityAuditMode
+from products.data_quality.backend.facade.contracts import CHECK_SUITE_WORKFLOW_NAME, QualityAuditMode
 
 pytestmark = pytest.mark.asyncio
 
@@ -74,7 +74,7 @@ class TestQualityGateBranching:
             False,  # duckgres shadow check
             "job-1",  # create job
             _materialize_result("gate"),
-            StageQueryableFilesResult(folder_path="staged_1"),
+            StageQueryableFilesResult(staged_folder_path="staged_1"),
             None,  # quality_block_materialization
         ]
 
@@ -92,7 +92,7 @@ class TestQualityGateBranching:
             False,
             "job-1",
             _materialize_result("gate"),
-            StageQueryableFilesResult(folder_path="staged_1"),
+            StageQueryableFilesResult(staged_folder_path="staged_1"),
             PrepareQueryableTableResult(storage_delta_mib=None, total_storage_mib=None),  # publish
             None,  # succeed (pre-deploy shape is fine, enrichment skipped)
         ]
@@ -117,8 +117,6 @@ class TestWarnSuite:
     async def test_a_suite_that_never_started_sends_the_node_back_to_the_sweep(
         self, start_child, expected_audited
     ) -> None:
-        # quality_audited is what removes a node from the DAG's post-run sweep. Reporting it off
-        # the configured mode rather than the outcome loses the node's checks for that refresh.
         activity_results = [
             False,  # duckgres shadow check
             "job-1",  # create job
@@ -150,12 +148,31 @@ class TestWarnSuite:
         assert result.quality_blocking_failures is None
 
 
-class TestRunStagedAudit:
+def _cancelled_child_error() -> ChildWorkflowError:
+    error = ChildWorkflowError(
+        "child cancelled",
+        namespace="default",
+        workflow_id="data-quality-gate-job-1",
+        run_id="run-1",
+        workflow_type=CHECK_SUITE_WORKFLOW_NAME,
+        initiated_event_id=1,
+        started_event_id=2,
+        retry_state=None,
+    )
+    error.__cause__ = CancelledError("cancelled")
+    return error
+
+
+class TestStagedAudit:
+    async def _count_blocking_failures(self, workflow: MaterializeViewWorkflow) -> int:
+        return await workflow._count_blocking_failures_on_staged_data(
+            _inputs(), "job-1", _materialize_result("gate"), "staged_1"
+        )
+
     async def test_reads_the_blocking_count_from_the_suite_result(self):
-        workflow = MaterializeViewWorkflow()
         child = AsyncMock(return_value={"suite_run_id": "s-1", "status": "completed", "checks_failed_blocking": 3})
         with patch.object(temporalio.workflow, "execute_child_workflow", new=child):
-            blocking = await workflow._run_staged_audit(_inputs(), "job-1", _materialize_result("gate"), "staged_1")
+            blocking = await self._count_blocking_failures(MaterializeViewWorkflow())
 
         assert blocking == 3
         assert child.await_args is not None
@@ -164,9 +181,6 @@ class TestRunStagedAudit:
         assert payload["staged_queryable_folder"] == "staged_1"
 
     async def test_fails_open_when_the_suite_errors(self):
-        # An audit that cannot run is an operational problem, not a data verdict: the publish
-        # must proceed rather than wedging every refresh on a broken check pipeline.
-        workflow = MaterializeViewWorkflow()
         with (
             patch.object(
                 temporalio.workflow, "execute_child_workflow", new=AsyncMock(side_effect=RuntimeError("timeout"))
@@ -174,9 +188,22 @@ class TestRunStagedAudit:
             patch.object(temporalio.workflow, "logger"),
             patch(f"{WORKFLOW_MODULE}.capture_exception"),
         ):
-            blocking = await workflow._run_staged_audit(_inputs(), "job-1", _materialize_result("gate"), "staged_1")
+            blocking = await self._count_blocking_failures(MaterializeViewWorkflow())
 
         assert blocking == 0
+
+    @pytest.mark.parametrize(
+        "cancellation",
+        [CancelledError("cancelled"), _cancelled_child_error()],
+    )
+    async def test_cancellation_is_not_a_verdict_to_fail_open_on(self, cancellation):
+        with (
+            patch.object(temporalio.workflow, "execute_child_workflow", new=AsyncMock(side_effect=cancellation)),
+            patch.object(temporalio.workflow, "logger"),
+            patch(f"{WORKFLOW_MODULE}.capture_exception"),
+        ):
+            with pytest.raises(type(cancellation)):
+                await self._count_blocking_failures(MaterializeViewWorkflow())
 
 
 class TestFinalizeOrphanedDuckgresJob:

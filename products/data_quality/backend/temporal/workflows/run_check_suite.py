@@ -75,7 +75,6 @@ class RunCheckSuiteWorkflow(PostHogWorkflow):
 
     async def _run_batches(self, inputs: RunCheckSuiteInputs, prepared: PreparedSuite) -> list[BatchOutcome]:
         semaphore = asyncio.Semaphore(MAX_CONCURRENT_BATCHES)
-        # A staged audit is only well-defined for a single subject; anything else runs published data.
         staged_saved_query_id = (
             inputs.saved_query_ids[0] if inputs.staged_queryable_folder and len(inputs.saved_query_ids) == 1 else None
         )

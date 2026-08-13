@@ -31,11 +31,7 @@ def _record_unaudited_batch(
     suite_run: DataQualitySuiteRun,
     team: Team,
 ) -> BatchOutcome:
-    """Error every check in the batch, leaving ``failed_blocking`` at zero.
-
-    A gate reading this outcome publishes: an audit that could not run is an operational problem,
-    not a verdict on the data. The errored runs are what says so.
-    """
+    """Error every check in the batch, leaving ``failed_blocking`` at zero so a gate publishes."""
     errored = 0
     for check in checks:
         record_unrunnable_check(check, suite_run, team, STAGED_FILES_UNREADABLE)
@@ -59,17 +55,12 @@ def _run_batch(inputs: RunCheckBatchInputs) -> BatchOutcome:
     if inputs.staged_queryable_folder and inputs.staged_saved_query_id:
         staged_database = build_staged_database(team, inputs.staged_saved_query_id, inputs.staged_queryable_folder)
         if staged_database is None:
-            # Running these checks unmodified would read the live view, whose upstreams may have
-            # moved since the refresh. The gate would then act on a verdict about data the publish
-            # is not about to write, in either direction.
             return _record_unaudited_batch(checks, suite_run, team)
 
     counts: Counter[str] = Counter()
     failed_blocking = 0
     newly_failing: list[str] = []
     for check in checks:
-        # run_check records a compile or query failure as an errored run rather than raising: one
-        # broken check must not fail the activity and take its whole batch down with it.
         result = run_check(check, suite_run, team, database=staged_database)
         counts[result.status] += 1
         if result.status is CheckRunStatus.FAILED and check.severity == CheckSeverity.ERROR:

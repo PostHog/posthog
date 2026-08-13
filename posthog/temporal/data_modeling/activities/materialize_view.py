@@ -91,8 +91,7 @@ class MaterializeViewResult:
     table_uri: str
     file_uris: list[str]
     saved_query_id: str
-    # How the workflow should treat this view's data quality checks. The default routes in-flight
-    # pre-deploy runs down the old path.
+    # Defaulted so an in-flight run whose history predates the gate takes the old path.
     quality_audit: QualityAuditMode = QUALITY_AUDIT_SKIP
 
 

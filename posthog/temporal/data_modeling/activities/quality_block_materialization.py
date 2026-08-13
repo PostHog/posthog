@@ -1,3 +1,4 @@
+import datetime as dt
 import dataclasses
 
 from django.db import transaction
@@ -61,6 +62,7 @@ def _block_node_and_job(inputs: QualityBlockMaterializationInputs) -> None:
         return
     job.status = DataModelingJobStatus.FAILED
     job.error = error
+    job.last_run_at = dt.datetime.now(dt.UTC)
     job.save()
 
 

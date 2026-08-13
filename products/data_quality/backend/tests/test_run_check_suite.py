@@ -173,9 +173,6 @@ class TestCheckSuiteActivities(BaseTest):
         assert list(runs.values_list("quality_check_id", flat=True)) == [stays.id]
 
     def test_a_staged_audit_that_cannot_reach_the_staged_files_runs_no_check(self) -> None:
-        # Falling back to the unmodified database reads the live view, which recomputes from
-        # upstreams that may have moved. The gate would then block, or publish, on a verdict about
-        # data this refresh is not about to write.
         check = self._check()
         prepared = self._prepare()
 

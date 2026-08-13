@@ -89,13 +89,9 @@ class TestTriggerGates(BaseTest):
         ]
     )
     def test_audit_mode(self, _name, check_kwargs, gate_setting, flag_on, expected) -> None:
-        # The mode decides whether a refresh publishes before or after its checks, so each branch
-        # that reads warn instead of gate silently publishes data the team asked to have gated.
         if check_kwargs is not None:
             self._check(**check_kwargs)
         if gate_setting is None:
-            # Creating the extension row alongside the team is best effort, so a team can reach
-            # this code without one.
             TeamDataQualityConfig.objects.filter(team_id=self.team.id).delete()
         else:
             TeamDataQualityConfig.objects.update_or_create(
