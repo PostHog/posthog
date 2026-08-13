@@ -130,7 +130,10 @@ describe('FetchRunner', () => {
         })
         const fetcher = new FakeFetcher(() => ({ outcome: 'ok' }))
 
-        const attempts = await runner(fetcher, { maxConcurrentPerDomain: 1, batchBudgetMs: 0 }, budget).run(
+        // Long enough that the first URL is granted whatever the machine is doing, and far shorter
+        // than the second's wait. A budget of zero would make the first grant depend on less than a
+        // millisecond passing between two clock reads, which is a race a loaded runner loses.
+        const attempts = await runner(fetcher, { maxConcurrentPerDomain: 1, batchBudgetMs: 50 }, budget).run(
             [0, 1, 2].map((index) => candidate('slow.com', index))
         )
 
@@ -164,6 +167,9 @@ describe('FetchRunner', () => {
         const fetcher = new FakeFetcher(() => ({ outcome: 'ok' }))
         const many = Array.from({ length: 130_000 }, (_value, index) => candidate('big.com', index))
 
+        // A zero budget is safe here because the count below is the same whether or not the first
+        // URL wins its grant. Do not copy it into a test that asserts how many requests went out:
+        // that turns on less than a millisecond passing between two clock reads.
         const attempts = await runner(fetcher, { maxConcurrentPerDomain: 1, batchBudgetMs: 0 }, budget).run(many)
 
         expect(attempts).toHaveLength(many.length)
