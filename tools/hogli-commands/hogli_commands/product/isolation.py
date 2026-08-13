@@ -758,6 +758,12 @@ def uncovered_carveout_modules(product_dir: Path, carveout_modules: frozenset[st
     return _uncovered_locations(product_dir, {m: (m,) for m in carveout_modules})
 
 
+def _literal_prefix_overlaps(glob: str, prefix: str) -> bool:
+    """Whether a glob could reach inside `prefix`, judged only by its literal part."""
+    literal = glob.split("*", 1)[0]
+    return literal.startswith(prefix) or prefix.startswith(literal)
+
+
 def unwatched_model_surface(product_dir: Path) -> set[str]:
     """Model-surface locations present in the product but not wholly watched by its (narrowed)
     contract-check inputs. Only meaningful for a product whose facade hands out model classes under
@@ -765,19 +771,22 @@ def unwatched_model_surface(product_dir: Path) -> set[str]:
 
     Stricter than the garage check on purpose: the allowance requires the WHOLE surface watched, so
     a directory location needs its full glob (backend/models/**) — an input inside it, or a negation
-    carving files out of it, does not count. A garage may be watched piecemeal; the model surface
-    may not, because any unwatched model file is a class core can observe without re-running the
-    suite."""
-    inputs = [i.removeprefix("./") for i in contract_check_inputs(product_dir)]
-    if not inputs:
+    that may carve files out of it, does not count. A garage may be watched piecemeal; the model
+    surface may not, because any unwatched model file is a class core can observe without re-running
+    the suite. There is no glob engine here, so a negation only passes when its literal prefix (up
+    to the first wildcard) is provably disjoint from the surface — `!backend/**/x.py` could match a
+    model file and is rejected."""
+    raw = contract_check_inputs(product_dir)
+    if not raw:
         return set()
+    positive = [i.removeprefix("./") for i in raw if not i.startswith("!")]
+    negations = [i.removeprefix("!").removeprefix("./") for i in raw if i.startswith("!")]
     uncovered = set()
     for p in MODEL_SURFACE_PREFIXES:
         if not (product_dir / p.rstrip("/")).exists():
             continue
-        whole = location_input_glob(p)
-        negated_inside = any(i.startswith("!") and i.removeprefix("!").startswith(p) for i in inputs)
-        if whole not in inputs or negated_inside:
+        negation_may_touch = any(_literal_prefix_overlaps(n, p) for n in negations)
+        if location_input_glob(p) not in positive or negation_may_touch:
             uncovered.add(p)
     return uncovered
 
