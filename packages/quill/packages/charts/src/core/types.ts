@@ -341,11 +341,17 @@ export interface ChartLegendConfig {
     defaultHiddenKeys?: string[]
     /** Called whenever a series is toggled, with its key and resulting hidden state. */
     onToggleSeries?: (key: string, hidden: boolean) => void
-    /** Called with the whole next hidden set when a bulk action runs — double-click to isolate a
+    /** Called with the whole next hidden set when a bulk action runs — a plain click isolating a
      *  series, or a row menu's isolate / hide-all. A controlled legend must handle this for those
      *  actions to work at all; `onToggleSeries` fires one key at a time and can't express them as a
      *  single update. Uncontrolled legends update their own state and don't need it. */
     onSetHiddenSeries?: (hiddenKeys: string[]) => void
+    /** Maps a legend row's key to the identity its visibility is actually stored against. Rows that
+     *  map to the same group share one visibility bit, so isolating keeps the whole group visible,
+     *  "only this one is visible" is judged per group, and a legend with one group has nothing to
+     *  isolate. Trends needs this: comparing to the previous period puts a series' current and
+     *  previous rows on one `resultCustomizations` key. Defaults to the row's own key. */
+    visibilityGroupKey?: (rowKey: string) => string
     /** Wrap each rendered legend row — receives the default row node, its item, and that row's
      *  {@link LegendItemControls} (visibility state plus toggle/isolate/hide-all actions), and
      *  returns the node to render. Lets consumers augment rows (e.g. a right-click context menu)

@@ -20,13 +20,13 @@ export function applyHiddenSeries<Meta>(series: Series<Meta>[], hiddenKeys: Read
 export interface LegendItemControls {
     /** This row's series is toggled off. */
     isHidden: boolean
-    /** This row's series is the only visible one — i.e. it is currently isolated. */
+    /** This row's group is the only visible one — i.e. it is currently isolated. */
     isOnlyVisible: boolean
     /** No row is toggled off. */
     areAllVisible: boolean
-    /** Whether isolating does anything: it needs more than one row, an interactive legend, and —
-     *  when the legend is controlled — an `onSetHiddenSeries` to write through. When false, a plain
-     *  click falls back to toggling this one series. */
+    /** Whether isolating does anything: it needs more than one visibility group, an interactive
+     *  legend, and — when the legend is controlled — an `onSetHiddenSeries` to write through. When
+     *  false, a plain click falls back to toggling this one series. */
     canIsolate: boolean
     /** Add or remove just this series, as a ⌘/Ctrl-click does. */
     toggle: () => void
@@ -92,6 +92,17 @@ export function useChartLegend<Meta>(
     // `series`, which also carries derived overlays (CI bands, trend lines) that get no legend row.
     const rowKeys = useMemo(() => derivedItems.map((item) => item.key), [derivedItems])
 
+    // "The others" is a question about visibility, not about rows, and a consumer can store one
+    // visibility bit for several rows (see `visibilityGroupKey`). Resolve every row to its group
+    // once so isolating, `canIsolate`, and `isOnlyVisible` all agree on what a distinct series is.
+    const visibilityGroupKey = config?.visibilityGroupKey
+    const groupByRow = useMemo(() => {
+        const groups = new Map<string, string>()
+        rowKeys.forEach((key) => groups.set(key, visibilityGroupKey?.(key) ?? key))
+        return groups
+    }, [rowKeys, visibilityGroupKey])
+    const groupCount = useMemo(() => new Set(groupByRow.values()).size, [groupByRow])
+
     // Isolating and hiding-all replace the whole hidden set in one go, so a controlled legend needs
     // `onSetHiddenSeries`: the per-series `onToggleSeries` can't express it as a single update.
     const onSetHiddenSeries = config?.onSetHiddenSeries
@@ -106,15 +117,16 @@ export function useChartLegend<Meta>(
     )
 
     const canSetBulk = controlledKeys === undefined || onSetHiddenSeries !== undefined
-    const canIsolate = interactive && canSetBulk && rowKeys.length > 1
+    const canIsolate = interactive && canSetBulk && groupCount > 1
 
     const isolate = useCallback(
         (key: string) => {
-            const others = rowKeys.filter((k) => k !== key)
+            const group = groupByRow.get(key)
+            const others = rowKeys.filter((k) => groupByRow.get(k) !== group)
             const alreadyIsolated = others.length > 0 && !hiddenSet.has(key) && others.every((k) => hiddenSet.has(k))
             setHidden(alreadyIsolated ? [] : others)
         },
-        [rowKeys, hiddenSet, setHidden]
+        [rowKeys, groupByRow, hiddenSet, setHidden]
     )
 
     const toggleAll = useCallback(() => {
@@ -141,18 +153,19 @@ export function useChartLegend<Meta>(
         if (!consumerRenderItem) {
             return undefined
         }
-        const visibleCount = rowKeys.filter((k) => !hiddenSet.has(k)).length
+        const visibleRows = rowKeys.filter((k) => !hiddenSet.has(k))
+        const visibleGroups = new Set(visibleRows.map((k) => groupByRow.get(k)))
         return (defaultNode: ReactNode, item: LegendItem): ReactNode =>
             consumerRenderItem(defaultNode, item, {
                 isHidden: hiddenSet.has(item.key),
-                isOnlyVisible: rowKeys.length > 1 && visibleCount === 1 && !hiddenSet.has(item.key),
-                areAllVisible: visibleCount === rowKeys.length,
+                isOnlyVisible: groupCount > 1 && visibleGroups.size === 1 && !hiddenSet.has(item.key),
+                areAllVisible: visibleRows.length === rowKeys.length,
                 canIsolate,
                 toggle: () => toggle(item.key),
                 isolate: () => isolate(item.key),
                 toggleAll,
             })
-    }, [consumerRenderItem, rowKeys, hiddenSet, canIsolate, toggle, isolate, toggleAll])
+    }, [consumerRenderItem, rowKeys, groupByRow, groupCount, hiddenSet, canIsolate, toggle, isolate, toggleAll])
 
     return {
         visibleSeries,

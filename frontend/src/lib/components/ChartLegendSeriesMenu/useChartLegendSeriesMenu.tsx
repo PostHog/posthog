@@ -28,6 +28,7 @@ export function useChartLegendSeriesMenu({
                 isOnlyVisible={controls.isOnlyVisible}
                 areAllVisible={controls.areAllVisible}
                 canIsolate={controls.canIsolate}
+                showGestureHints
                 onToggle={() => {
                     captureLegendMenuAction({
                         action: controls.isHidden ? 'show_series' : 'hide_series',

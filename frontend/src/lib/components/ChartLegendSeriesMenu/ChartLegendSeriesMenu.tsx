@@ -28,6 +28,9 @@ export interface ChartLegendSeriesMenuProps {
     onToggle: () => void
     onIsolate: () => void
     onToggleAll: () => void
+    /** Advertise the click gestures that reach these actions without the menu. Only true for the
+     *  in-chart quill legend — the legend table's rows are checkboxes with no isolate gesture. */
+    showGestureHints?: boolean
     children: ReactNode
 }
 
@@ -47,6 +50,7 @@ export function ChartLegendSeriesMenu({
     onToggle,
     onIsolate,
     onToggleAll,
+    showGestureHints = false,
     children,
 }: ChartLegendSeriesMenuProps): JSX.Element {
     // Hiding all series is offered as its counterpart, "show all", once anything is hidden — but an
@@ -55,7 +59,10 @@ export function ChartLegendSeriesMenu({
 
     return (
         <ContextMenu>
-            <Tooltip title={<ChartLegendSeriesMenuHint canIsolate={canIsolate} />} delayMs={500}>
+            <Tooltip
+                title={<ChartLegendSeriesMenuHint canIsolate={canIsolate} showGestureHints={showGestureHints} />}
+                delayMs={500}
+            >
                 <ContextMenuTrigger asChild>{children}</ContextMenuTrigger>
             </Tooltip>
             <ContextMenuContent className="click-outside-block w-fit max-w-[260px] min-w-[180px] rounded-sm bg-surface-popover text-xs">
@@ -85,7 +92,7 @@ export function ChartLegendSeriesMenu({
                             >
                                 <IconTarget />
                                 {isOnlyVisible ? 'Show all series' : 'Show only this series'}
-                                <MenuItemGesture>click</MenuItemGesture>
+                                {showGestureHints && <MenuItemGesture>click</MenuItemGesture>}
                             </ButtonPrimitive>
                         </ContextMenuItem>
                     )}
@@ -99,7 +106,7 @@ export function ChartLegendSeriesMenu({
                         >
                             {isHidden ? <IconEye /> : <IconHide />}
                             {isHidden ? 'Show this series' : 'Hide this series'}
-                            {canIsolate && (
+                            {showGestureHints && canIsolate && (
                                 <MenuItemGesture>
                                     <KeyboardShortcut command minimal />
                                     click
@@ -130,10 +137,26 @@ export function ChartLegendSeriesMenu({
 /** Right-aligned muted note showing the gesture that runs a menu item, so the menu teaches the
  *  click shortcuts instead of being the only way to reach them. */
 function MenuItemGesture({ children }: { children: ReactNode }): JSX.Element {
-    return <span className="ml-auto flex shrink-0 items-center gap-0.5 pl-2 text-secondary">{children}</span>
+    return (
+        <span
+            className="ml-auto flex shrink-0 items-center gap-0.5 pl-2 text-secondary"
+            data-attr="chart-legend-menu-gesture"
+        >
+            {children}
+        </span>
+    )
 }
 
-function ChartLegendSeriesMenuHint({ canIsolate }: { canIsolate: boolean }): JSX.Element {
+function ChartLegendSeriesMenuHint({
+    canIsolate,
+    showGestureHints,
+}: {
+    canIsolate: boolean
+    showGestureHints: boolean
+}): JSX.Element {
+    if (!showGestureHints) {
+        return <>Right-click for options.</>
+    }
     if (!canIsolate) {
         return <>Click to hide this series. Right-click for options.</>
     }

@@ -5,6 +5,7 @@ import type { ChartLegendConfig } from '@posthog/quill-charts'
 
 import { useChartLegendSeriesMenu } from 'lib/components/ChartLegendSeriesMenu/useChartLegendSeriesMenu'
 import { insightLogic } from 'scenes/insights/insightLogic'
+import { getTrendResultCustomizationKey } from 'scenes/insights/utils'
 import { trendsDataLogic } from 'scenes/trends/trendsDataLogic'
 import type { IndexedTrendResult } from 'scenes/trends/types'
 
@@ -23,7 +24,9 @@ export function useInsightsLegendConfig({
     inSharedMode = false,
 }: UseInsightsLegendConfigOptions): ChartLegendConfig {
     const { canEditInsight } = useValues(insightLogic)
-    const { indexedResults, getTrendsHidden, showLegend, legendPosition } = useValues(trendsDataLogic(insightProps))
+    const { indexedResults, getTrendsHidden, showLegend, legendPosition, resultCustomizationBy } = useValues(
+        trendsDataLogic(insightProps)
+    )
     const { toggleResultHidden, setResultsHidden } = useActions(trendsDataLogic(insightProps))
 
     const resultById = useMemo(() => {
@@ -51,6 +54,13 @@ export function useInsightsLegendConfig({
             // Isolating and hide-all rewrite the whole hidden set, so they land as one
             // resultCustomizations update rather than a toggle per series.
             onSetHiddenSeries: setResultsHidden,
+            // Hidden state is stored per customization key, and comparing to the previous period puts
+            // a series' two rows on one key — so quill has to treat them as one series when it
+            // isolates, or the twin row it deliberately leaves visible would read as "not isolated".
+            visibilityGroupKey: (key: string) => {
+                const result = resultById.get(key)
+                return result ? getTrendResultCustomizationKey(resultCustomizationBy, result) : key
+            },
             renderItem: legendInteractive ? renderItem : undefined,
         }
     }, [
@@ -62,6 +72,7 @@ export function useInsightsLegendConfig({
         resultById,
         toggleResultHidden,
         setResultsHidden,
+        resultCustomizationBy,
         renderItem,
     ])
 }

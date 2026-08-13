@@ -132,6 +132,7 @@ export function InsightLegendRow({ item, readOnly = false }: InsightLegendRowPro
             isOnlyVisible={isOnlyThisVisible}
             areAllVisible={areAllSeriesVisible}
             canIsolate={legendSeriesIsolationMenuEligible}
+            showGestureHints={false}
             onToggle={() => {
                 captureLegendMenuAction({
                     action: isHidden ? 'show_series' : 'hide_series',

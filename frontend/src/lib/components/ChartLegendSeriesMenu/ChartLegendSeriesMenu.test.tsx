@@ -27,11 +27,24 @@ function openMenu(props: Partial<ChartLegendSeriesMenuProps> = {}): void {
     fireEvent.contextMenu(container.querySelector('[data-attr="legend-row"]')!)
 }
 
+function menuRowText(): (string | null)[] {
+    return screen.getAllByRole('menuitem').map((item) => item.textContent)
+}
+
+/** Text of every row carrying a gesture hint, so a hint that vanishes or lands on the wrong row shows up. */
+function gestureRowText(): (string | null)[] {
+    return Array.from(document.querySelectorAll('[data-attr="chart-legend-menu-gesture"]')).map(
+        (hint) => hint.closest('[role="menuitem"]')!.textContent
+    )
+}
+
 describe('ChartLegendSeriesMenu', () => {
     // The menu content renders in a portal, so an unmounted case would otherwise leave its rows
     // behind and the next one would match both.
     afterEach(cleanup)
 
+    // Gesture hints are off by default here, so a row's text is exactly its label; the cases below
+    // that turn them on assert the appended hint.
     it.each([
         {
             name: 'offers isolating and hiding when every series is visible',
@@ -56,13 +69,20 @@ describe('ChartLegendSeriesMenu', () => {
     ])('$name', ({ props, expected }) => {
         openMenu(props)
 
-        expect(
-            screen
-                .getAllByRole('menuitem')
-                .map((item) => item.textContent)
-                // Rows carry a trailing gesture hint ("click", "⌘click") that isn't part of the label.
-                .map((text) => expected.find((label) => text?.startsWith(label)) ?? text)
-        ).toEqual(expected)
+        expect(menuRowText()).toEqual(expected)
+    })
+
+    it('teaches the click gestures, on the rows those gestures reach', () => {
+        openMenu({ showGestureHints: true })
+
+        // KeyboardShortcut renders the platform modifier, which is `ctrl` under jsdom.
+        expect(gestureRowText()).toEqual(['Show only this seriesclick', 'Hide this seriesctrlclick'])
+    })
+
+    it('advertises no gesture on a legend whose rows only toggle', () => {
+        openMenu()
+
+        expect(gestureRowText()).toEqual([])
     })
 
     it('names the series the menu acts on, since rows sit close together', () => {
@@ -83,5 +103,6 @@ describe('ChartLegendSeriesMenu', () => {
         fireEvent.click(item)
 
         expect(handlers[handler]).toHaveBeenCalledTimes(1)
+        expect(Object.values(handlers).filter((fn) => fn.mock.calls.length > 0)).toHaveLength(1)
     })
 })

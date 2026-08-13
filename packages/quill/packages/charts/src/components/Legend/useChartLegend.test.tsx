@@ -121,6 +121,51 @@ describe('useChartLegend', () => {
         expect(result.current.legendProps.hiddenKeys).toEqual(['a'])
     })
 
+    describe('rows that share a visibility group', () => {
+        // Trends' compare mode: 'a' and 'b' are one series' current and previous rows, so they share
+        // one stored visibility bit and must count as one series to isolate against.
+        const visibilityGroupKey = (key: string): string => (key === 'b' ? 'a' : key)
+
+        it('keeps the whole group visible when one of its rows is isolated', () => {
+            const { result } = renderHook(() => useChartLegend(SERIES, THEME, { show: true, visibilityGroupKey }))
+
+            act(() => result.current.legendProps.onItemClick!('a', PLAIN))
+            expect(result.current.legendProps.hiddenKeys).toEqual(['c'])
+        })
+
+        it('restores every series when the isolated group is clicked again', () => {
+            const { result } = renderHook(() => useChartLegend(SERIES, THEME, { show: true, visibilityGroupKey }))
+
+            act(() => result.current.legendProps.onItemClick!('a', PLAIN))
+            act(() => result.current.legendProps.onItemClick!('a', PLAIN))
+            expect(result.current.legendProps.hiddenKeys).toEqual([])
+        })
+
+        it('reads the isolated group as the only visible one', () => {
+            const seen: Record<string, LegendItemControls> = {}
+            const renderItem = (node: ReactNode, item: LegendItem, controls: LegendItemControls): ReactNode => {
+                seen[item.key] = controls
+                return node
+            }
+            const { result } = renderHook(() =>
+                useChartLegend(SERIES, THEME, { show: true, visibilityGroupKey, defaultHiddenKeys: ['c'], renderItem })
+            )
+
+            result.current.legendProps.items.forEach((item) => result.current.legendProps.renderItem!(null, item))
+
+            expect([seen.a.isOnlyVisible, seen.b.isOnlyVisible, seen.c.isOnlyVisible]).toEqual([true, true, false])
+        })
+
+        it('falls back to toggling when every row is in one group', () => {
+            const { result } = renderHook(() =>
+                useChartLegend(SERIES, THEME, { show: true, visibilityGroupKey: () => 'only' })
+            )
+
+            act(() => result.current.legendProps.onItemClick!('a', PLAIN))
+            expect(result.current.legendProps.hiddenKeys).toEqual(['a'])
+        })
+    })
+
     it('reports the whole next hidden set through onSetHiddenSeries when controlled', () => {
         const onSetHiddenSeries = jest.fn()
         const { result } = renderHook(() =>
