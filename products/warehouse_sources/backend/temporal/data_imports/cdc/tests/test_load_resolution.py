@@ -11,6 +11,7 @@ from products.warehouse_sources.backend.temporal.data_imports.cdc.batcher import
     DELETED_COLUMN,
 )
 from products.warehouse_sources.backend.temporal.data_imports.cdc.load_resolution import (
+    LOAD_POSITION_CONFIG_KEY,
     MAX_VERIFIED_DELETE_ROWS,
     SCD2_APPEND_MODE,
     batch_max_seq,
@@ -18,6 +19,8 @@ from products.warehouse_sources.backend.temporal.data_imports.cdc.load_resolutio
     drop_superseded_rows,
     has_engine_seq,
     is_cdc_write_resolution_enabled,
+    persist_load_position,
+    read_load_position,
     resolve_batch,
     verify_delete_enrichment,
 )
@@ -259,6 +262,55 @@ class TestVerifyDeleteEnrichment:
         report = verify_delete_enrichment(table, ["id"], _existing(ids, [f"name{i}" for i in ids]))
 
         assert report.delete_rows_checked == MAX_VERIFIED_DELETE_ROWS
+
+
+class TestLoadPosition:
+    @parameterized.expand(
+        [
+            ("absent_config", None, None),
+            ("empty_config", {}, None),
+            ("other_lane_only", {LOAD_POSITION_CONFIG_KEY: {"users_cdc": 99}}, None),
+            ("int_value", {LOAD_POSITION_CONFIG_KEY: {"users": 42}}, 42),
+            # JSON round-trips can hand back strings; a bad value must read as "unknown", not 0.
+            ("string_value", {LOAD_POSITION_CONFIG_KEY: {"users": "42"}}, 42),
+            ("garbage_value", {LOAD_POSITION_CONFIG_KEY: {"users": "not-a-number"}}, None),
+            ("null_value", {LOAD_POSITION_CONFIG_KEY: {"users": None}}, None),
+        ]
+    )
+    def test_read(self, _name, config, expected):
+        assert read_load_position(config, "users") == expected
+
+    def test_persist_creates_the_key_and_leaves_siblings_alone(self):
+        config = {"cdc_last_log_position": "0/ABC"}
+        captured = dict(config)
+
+        def fake_update(schema_id, team_id, *, mutate=None, **kwargs):
+            mutate(captured)
+
+        with patch(
+            "products.warehouse_sources.backend.models.external_data_schema.update_sync_type_config_keys",
+            side_effect=fake_update,
+        ):
+            persist_load_position("schema-1", 2, "users", 100)
+
+        assert captured[LOAD_POSITION_CONFIG_KEY] == {"users": 100}
+        # Capture's own position lives in the same JSON column and must survive.
+        assert captured["cdc_last_log_position"] == "0/ABC"
+
+    @parameterized.expand([("advances", 50, 100, 100), ("never_rewinds", 100, 50, 100), ("equal", 100, 100, 100)])
+    def test_persist_is_monotonic(self, _name, existing, incoming, expected):
+        captured = {LOAD_POSITION_CONFIG_KEY: {"users": existing}}
+
+        def fake_update(schema_id, team_id, *, mutate=None, **kwargs):
+            mutate(captured)
+
+        with patch(
+            "products.warehouse_sources.backend.models.external_data_schema.update_sync_type_config_keys",
+            side_effect=fake_update,
+        ):
+            persist_load_position("schema-1", 2, "users", incoming)
+
+        assert captured[LOAD_POSITION_CONFIG_KEY]["users"] == expected
 
 
 class TestIsCdcWriteResolutionEnabled:

@@ -585,35 +585,6 @@ class DeltaWriter:
 
         return False
 
-    async def latest_commit_metadata_value(self, key: str, *, scan_limit: int = 50) -> str | None:
-        """Value of `key` from the most recent commit that carries it, or None.
-
-        Same history scan and both-layouts handling as `has_commit_with_metadata`, but reading a
-        value rather than matching one — used for watermarks, where the caller needs to know how far
-        a previous run got rather than whether a specific commit exists.
-        """
-        delta_table = await self._table.get_delta_table()
-        if delta_table is None:
-            return None
-
-        history = await asyncio.to_thread(delta_table.history, limit=scan_limit)
-
-        for commit in history:
-            value = commit.get(key)
-            if value is not None:
-                return str(value)
-
-            raw = commit.get("userMetadata")
-            if isinstance(raw, str):
-                try:
-                    raw = json.loads(raw)
-                except (json.JSONDecodeError, ValueError):
-                    continue
-            if isinstance(raw, dict) and raw.get(key) is not None:
-                return str(raw[key])
-
-        return None
-
     async def has_batch_been_committed(self, run_uuid: str, batch_index: int) -> bool:
         """Check whether a specific (run_uuid, batch_index) has already been committed to delta.
 

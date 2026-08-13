@@ -23,6 +23,7 @@ lane strips it), so these helpers no-op on today's traffic.
 from __future__ import annotations
 
 from functools import lru_cache
+from typing import Any
 
 import pyarrow as pa
 
@@ -37,9 +38,11 @@ from products.warehouse_sources.backend.temporal.data_imports.cdc.batcher import
 
 WRITE_RESOLUTION_FLAG = "dwh-cdc-write-resolution"
 
-# Commit-metadata key holding the highest position committed to a table. Read back as the
-# watermark for the next batch, so replayed or resurrected buffer files cannot re-apply.
-SEQ_WATERMARK_METADATA_KEY = "cdc_max_seq"
+# `sync_type_config` key holding, per lane resource name, the highest position already applied to
+# that lane's table. Read back on the next batch so replayed or resurrected buffer files cannot
+# re-apply. Sibling of `cdc_last_log_position`, which records how far *capture* read — buffered
+# ingress lets the two diverge, since capture runs ahead of load by design.
+LOAD_POSITION_CONFIG_KEY = "cdc_load_position"
 
 # Verification walks DELETE rows in Python. The count is already bounded by the batch, but cap it
 # so a pathological delete-only batch cannot dominate the write path.
@@ -48,10 +51,6 @@ MAX_VERIFIED_DELETE_ROWS = 1_000
 # Enough to identify which columns regressed without unbounded log lines.
 MAX_REPORTED_COLUMNS = 10
 
-# How far back to look for the watermark tag. A CDC table takes a couple of commits per run plus
-# maintenance, so the default 50 only reaches ~an hour of history — and the guard matters most
-# exactly when a consumer is further behind than that.
-WATERMARK_COMMIT_SCAN_LIMIT = 500
 
 # The companion (_cdc) lane's write mode. Its table is append-only history, so it is the one lane
 # where collapsing to a single row per key would destroy data rather than resolve a conflict.
@@ -163,6 +162,36 @@ def dedupe_keep_highest_seq(table: pa.Table, primary_keys: list[str]) -> tuple[p
         return table, 0
     keep = sorted(best.values())
     return table.take(pa.array(keep, type=pa.int64())), table.num_rows - len(keep)
+
+
+def read_load_position(sync_type_config: dict | None, resource_name: str) -> int | None:
+    """Highest position already applied to `resource_name`'s table, or None if never recorded."""
+    positions = (sync_type_config or {}).get(LOAD_POSITION_CONFIG_KEY) or {}
+    value = positions.get(resource_name)
+    return int(value) if isinstance(value, int) or (isinstance(value, str) and value.isdigit()) else None
+
+
+def persist_load_position(schema_id: Any, team_id: int, resource_name: str, position: int) -> None:
+    """Record how far this lane's table has been loaded — call ONLY after the commit lands.
+
+    Ordering is the whole safety argument. Persisting after a confirmed commit means this value can
+    only lag the table, never lead it: lagging re-applies rows, which the primary-key upsert makes a
+    no-op, whereas leading would skip rows that were never written. That is why the position does
+    not need to be atomic with the write, and so does not need to live in the Delta commit.
+
+    Goes through the locked-merge helper because capture writes `cdc_last_log_position` to the same
+    JSON column concurrently; a read-modify-write off a stale copy would drop one of the two.
+    """
+    from products.warehouse_sources.backend.models.external_data_schema import update_sync_type_config_keys
+
+    def _merge(config: dict[str, Any]) -> None:
+        positions = config.setdefault(LOAD_POSITION_CONFIG_KEY, {})
+        current = positions.get(resource_name)
+        # Monotonic: a retried older batch must not rewind the guard for later ones.
+        if current is None or int(current) < position:
+            positions[resource_name] = position
+
+    update_sync_type_config_keys(schema_id, team_id, mutate=_merge)
 
 
 def resolve_batch(

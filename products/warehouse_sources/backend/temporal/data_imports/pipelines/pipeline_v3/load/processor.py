@@ -34,11 +34,11 @@ from products.warehouse_sources.backend.temporal.data_imports.cdc.batcher import
     enrich_toast_omitted_rows,
 )
 from products.warehouse_sources.backend.temporal.data_imports.cdc.load_resolution import (
-    SEQ_WATERMARK_METADATA_KEY,
-    WATERMARK_COMMIT_SCAN_LIMIT,
     batch_max_seq,
     has_engine_seq,
     is_cdc_write_resolution_enabled,
+    persist_load_position,
+    read_load_position,
     resolve_batch,
     verify_delete_enrichment,
 )
@@ -234,30 +234,25 @@ def _enrich_cdc_rows(
 def _resolve_cdc_positions(
     pa_table: pa.Table,
     *,
-    delta_table_ref: DeltaTableRef,
+    sync_type_config: dict | None,
+    resource_name: str,
     primary_keys: list[str],
     cdc_write_mode: str | None,
-    commit_metadata: dict[str, str],
     team_id: str,
     batch_index: int,
-) -> pa.Table:
-    """Drop already-applied rows and tag the commit with how far this batch got.
+) -> tuple[pa.Table, int | None]:
+    """Drop rows this lane's table has already applied.
 
-    Dormant until batches carry an engine-stamped position — the legacy lane strips it — so this
-    returns immediately, without the history read, on today's traffic. Mutates `commit_metadata`,
-    which the caller passes to the write.
+    Returns the resolved batch and the position to record once the write commits — the caller
+    persists it, because a position written before the commit could skip rows that never landed.
+
+    Dormant until batches carry an engine-stamped position (the legacy lane strips it), so this
+    returns immediately on today's traffic.
     """
     if not has_engine_seq(pa_table):
-        return pa_table
+        return pa_table, None
 
-    raw_watermark = async_to_sync(DeltaWriter(delta_table_ref).latest_commit_metadata_value)(
-        SEQ_WATERMARK_METADATA_KEY, scan_limit=WATERMARK_COMMIT_SCAN_LIMIT
-    )
-    watermark = int(raw_watermark) if raw_watermark is not None and raw_watermark.isdigit() else None
-    if watermark is None:
-        # Fails open: every row is kept, so replay protection is simply absent rather than wrong.
-        # Worth knowing about — the usual cause is the tag ageing out behind maintenance commits.
-        logger.info("cdc_seq_guard_no_watermark", batch_index=batch_index, scan_limit=WATERMARK_COMMIT_SCAN_LIMIT)
+    watermark = read_load_position(sync_type_config, resource_name)
 
     pa_table, stats = resolve_batch(
         pa_table,
@@ -276,11 +271,7 @@ def _resolve_cdc_positions(
                 batch_index=batch_index,
             )
 
-    max_seq = batch_max_seq(pa_table)
-    if max_seq is not None:
-        commit_metadata[SEQ_WATERMARK_METADATA_KEY] = str(max_seq)
-
-    return pa_table
+    return pa_table, batch_max_seq(pa_table)
 
 
 def _apply_partitioning(
@@ -907,13 +898,14 @@ def _process_message_reported(
             team_id=team_id_str,
         )
 
+        pending_load_position: int | None = None
         if resolution_enabled:
-            pa_table = _resolve_cdc_positions(
+            pa_table, pending_load_position = _resolve_cdc_positions(
                 pa_table,
-                delta_table_ref=delta_table_ref,
+                sync_type_config=schema.sync_type_config,
+                resource_name=export_signal.resource_name,
                 primary_keys=primary_keys or [],
                 cdc_write_mode=cdc_write_mode,
-                commit_metadata=commit_metadata,
                 team_id=team_id_str,
                 batch_index=export_signal.batch_index,
             )
@@ -971,6 +963,17 @@ def _process_message_reported(
                 )
 
         DELTA_ROWS_WRITTEN_TOTAL.labels(team_id=team_id_str, schema_id=schema_id_str).inc(pa_table.num_rows)
+
+        if pending_load_position is not None:
+            # Strictly after the commit: a position ahead of the table would skip rows that never
+            # landed. Best-effort, because failing here would fail a batch whose data is already
+            # written — the cost of losing it is re-applying rows next time, which is a no-op.
+            try:
+                persist_load_position(
+                    schema.id, export_signal.team_id, export_signal.resource_name, pending_load_position
+                )
+            except Exception:  # noqa: BLE001 - bookkeeping must never fail a committed write
+                logger.warning("cdc_load_position_persist_failed", exc_info=True)
 
         internal_schema = HogQLSchema()
         # Build from the Delta table schema first to cover all columns from
