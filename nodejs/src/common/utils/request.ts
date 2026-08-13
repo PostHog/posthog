@@ -185,7 +185,13 @@ function isIPv4(addr: ipaddr.IPv4 | ipaddr.IPv6): addr is ipaddr.IPv4 {
     return addr.kind().toLowerCase() === 'ipv4'
 }
 
-async function staticLookupAsync(hostname: string): Promise<LookupAddress[]> {
+/**
+ * `allowPrivate` exists for local development, where a caller may need to reach a service on this
+ * machine. It defaults to the environment, which reads DEBUG as well as NODE_ENV, so a pod that
+ * runs with DEBUG set answers Development and turns this check off. A caller whose safety depends
+ * on the check must pass `false` rather than rely on the default.
+ */
+async function staticLookupAsync(hostname: string, allowPrivate = !isProdEnv()): Promise<LookupAddress[]> {
     let addrinfo: LookupAddress[]
     const validAddrinfo: LookupAddress[] = []
     try {
@@ -205,8 +211,7 @@ async function staticLookupAsync(hostname: string): Promise<LookupAddress[]> {
             ipv4 = parsed.toIPv4Address()
         } else {
             // Pure IPv6 — validate directly
-            const allowUnsafe = !isProdEnv()
-            if (!allowUnsafe && !isGlobalIPv6(parsed)) {
+            if (!allowPrivate && !isGlobalIPv6(parsed)) {
                 unsafeRequestCounter.inc({ reason: 'internal_hostname' })
                 logBlockedUrlValidation(hostname, resolvedIps)
                 throw new SecureRequestError('Hostname is not allowed')
@@ -215,11 +220,8 @@ async function staticLookupAsync(hostname: string): Promise<LookupAddress[]> {
             continue
         }
 
-        // TRICKY: We need this for tests and local dev
-        const allowUnsafe = !isProdEnv()
-
         // Check if the IPv4 address is global
-        if (!allowUnsafe && !isGlobalIPv4(ipv4)) {
+        if (!allowPrivate && !isGlobalIPv4(ipv4)) {
             unsafeRequestCounter.inc({ reason: 'internal_hostname' })
             logBlockedUrlValidation(hostname, resolvedIps)
             throw new SecureRequestError('Hostname is not allowed')
@@ -244,6 +246,15 @@ export const httpStaticLookup: net.LookupFunction = async (hostname, _options, c
     }
 }
 
+/** Refuses a private address in every environment, for a caller that has no reason to reach one. */
+const strictStaticLookup: net.LookupFunction = async (hostname, _options, cb) => {
+    try {
+        cb(null, await staticLookupAsync(hostname, false))
+    } catch (err) {
+        cb(err as Error, '', 4)
+    }
+}
+
 /**
  * Legacy function used by parts of the codebase. Generally speaking this should be replaced with secureFetch.
  */
@@ -254,12 +265,12 @@ export async function raiseIfUserProvidedUrlUnsafe(url: string): Promise<void> {
 }
 
 class SecureAgent extends Agent {
-    constructor() {
+    constructor(lookup: net.LookupFunction = httpStaticLookup) {
         super({
             keepAliveTimeout: Number(requestConfig.EXTERNAL_REQUEST_KEEP_ALIVE_TIMEOUT_MS),
             connections: requestConfig.EXTERNAL_REQUEST_CONNECTIONS,
             connect: {
-                lookup: httpStaticLookup,
+                lookup,
                 timeout: requestConfig.EXTERNAL_REQUEST_CONNECT_TIMEOUT_MS,
             },
         })
@@ -297,7 +308,28 @@ function makeSecureDispatcher(): Dispatcher {
     return new SecureAgent()
 }
 
+/**
+ * The dispatcher for a caller that must never reach a private address, whatever the environment.
+ *
+ * The proxy branch is the same, because smokescreen refuses a private address on its own and does
+ * not read our environment to decide. Only the direct branch needs the stricter lookup.
+ */
+function makeStrictDispatcher(): Dispatcher {
+    const proxyUrl =
+        process.env.HTTPS_PROXY || process.env.HTTP_PROXY || process.env.https_proxy || process.env.http_proxy
+    if (proxyUrl) {
+        return new ProxyAgent({
+            uri: proxyUrl,
+            keepAliveTimeout: requestConfig.EXTERNAL_REQUEST_KEEP_ALIVE_TIMEOUT_MS,
+            connections: requestConfig.EXTERNAL_REQUEST_CONNECTIONS,
+            requestTls: {},
+        })
+    }
+    return new SecureAgent(strictStaticLookup)
+}
+
 const sharedSecureAgent = makeSecureDispatcher()
+const sharedStrictAgent = makeStrictDispatcher()
 // Unlike `makeSecureDispatcher`, this agent deliberately skips the ProxyAgent branch: CDP workers don't
 // set the proxy env vars, and SSRF stays covered via `httpStaticLookup`. If CDP egress ever moves behind
 // the proxy (see #49170), swap this for a `ProxyAgent` — undici's `ProxyAgent` supports `allowH2` — so
@@ -329,9 +361,12 @@ function destroyBody(body: Dispatcher.ResponseData['body']): void {
 function flattenHeaders(raw: Dispatcher.ResponseData['headers']): Record<string, string> {
     const headers: Record<string, string> = Object.create(null)
     for (const [key, value] of Object.entries(raw)) {
-        const singleValue = Array.isArray(value) ? value[0] : value
-        if (singleValue) {
-            headers[key] = singleValue
+        // Repeated field lines join with a comma, which RFC 9110 section 5.3 allows for every field
+        // except `set-cookie`. Taking the first line alone loses the rest, and a sender is free to
+        // split a list-valued field such as `x-robots-tag` across as many lines as it likes.
+        const joined = Array.isArray(value) ? (key === 'set-cookie' ? value[0] : value.join(', ')) : value
+        if (joined) {
+            headers[key] = joined
         }
     }
     return headers
@@ -492,7 +527,10 @@ async function readCappedBody(
  */
 export async function fetchStreamed(url: string, options: StreamedFetchOptions): Promise<StreamedResponse> {
     const parsed = validateUrl(url)
-    validateHostnameIPLiteral(parsed.hostname, !isProdEnv())
+    // `false` rather than the environment default. This reads content a customer's page named, so
+    // there is no environment in which it should reach a private address, and the default answers
+    // Development whenever DEBUG is set.
+    validateHostnameIPLiteral(parsed.hostname, false)
 
     inflightExternalRequests.inc()
     let result: Dispatcher.ResponseData
@@ -500,7 +538,7 @@ export async function fetchStreamed(url: string, options: StreamedFetchOptions):
         result = await request(parsed.toString(), {
             method: 'GET',
             headers: options.headers,
-            dispatcher: sharedSecureAgent,
+            dispatcher: sharedStrictAgent,
             signal: AbortSignal.timeout(options.timeoutMs),
         })
     } catch (error) {

@@ -20,6 +20,21 @@ function respond(chunks: Buffer[], headers: Record<string, string> = {}): void {
 }
 
 describe('fetchStreamed', () => {
+    it('refuses a private address even when the environment would allow one', async () => {
+        // `determineNodeEnv` answers Development whenever DEBUG is set, whatever NODE_ENV says, and
+        // `.env` in this repo sets DEBUG=1. A lane that reads URLs off a customer's page must not
+        // inherit that, so this call passes the check explicitly rather than taking the default.
+        const originalDebug = process.env.DEBUG
+        process.env.DEBUG = '1'
+        try {
+            await expect(fetchStreamed('https://127.0.0.1/a.png', { headers: {}, timeoutMs: 100 })).rejects.toThrow(
+                'Hostname is not allowed'
+            )
+        } finally {
+            process.env.DEBUG = originalDebug
+        }
+    })
+
     beforeEach(() => {
         requestMock.mockReset()
     })
