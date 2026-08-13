@@ -1,8 +1,3 @@
-import importlib
-import importlib.util
-
-from django.apps import apps
-
 from rest_framework import decorators, exceptions
 
 # Preload to work around circular imports in `ee.hogai.{core.agent_modes,chat_agent,tools}`.
@@ -15,10 +10,10 @@ from posthog.api.query_performance_proxy import QueryPerformanceProxyViewSet
 from posthog.api.routing import DefaultRouterPlusPlus, RouterRegistry
 from posthog.api.sdk_health import SdkHealthViewSet
 from posthog.api.wizard import http as wizard
+from posthog.products import load_product_modules
 from posthog.settings import EE_AVAILABLE
 
 from ee.api.quota_limits import QuotaLimitsViewSet
-from ee.api.session_summaries import SessionGroupSummaryViewSet, SingleSessionSummaryViewSet
 from ee.api.vercel import vercel_installation, vercel_product, vercel_proxy, vercel_resource
 
 from ..session_recordings.session_recording_api import SessionRecordingViewSet
@@ -53,6 +48,7 @@ from . import (
     organization_member,
     organization_personal_api_key,
     personal_api_key,
+    posthog_connection,
     project_secret_api_key,
     proxy_record,
     query,
@@ -120,7 +116,7 @@ projects_router.register(
 
 # Tasks endpoints
 
-# PostHog Code invites (not project-scoped)
+# PostHog Desktop invites (not project-scoped)
 
 # Seats (proxied to billing service)
 
@@ -171,6 +167,12 @@ projects_router.register(
 
 projects_router.register(r"integrations", integration.IntegrationViewSet, "project_integrations", ["team_id"])
 projects_router.register(
+    r"posthog_connections",
+    posthog_connection.PostHogConnectionViewSet,
+    "project_posthog_connections",
+    ["team_id"],
+)
+projects_router.register(
     r"ingestion_warnings",
     ingestion_warnings.IngestionWarningsViewSet,
     "project_ingestion_warnings",
@@ -203,23 +205,9 @@ projects_router.register(
 projects_router.register(r"file_system", file_system.FileSystemViewSet, "project_file_system", ["team_id"])
 
 projects_router.register(
-    r"desktop_file_system",
-    file_system.DesktopFileSystemViewSet,
-    "project_desktop_file_system",
-    ["team_id"],
-)
-
-projects_router.register(
     r"file_system_shortcut",
     file_system_shortcut.FileSystemShortcutViewSet,
     "project_file_system_shortcut",
-    ["team_id"],
-)
-
-projects_router.register(
-    r"desktop_file_system_shortcut",
-    file_system_shortcut.DesktopFileSystemShortcutViewSet,
-    "project_desktop_file_system_shortcut",
     ["team_id"],
 )
 
@@ -489,20 +477,6 @@ legacy_project_session_recordings_router.register(
 )
 
 projects_router.register(
-    r"session_group_summaries",
-    SessionGroupSummaryViewSet,
-    "project_session_group_summaries",
-    ["project_id"],
-)
-
-projects_router.register(
-    r"single_session_summaries",
-    SingleSessionSummaryViewSet,
-    "project_single_session_summaries",
-    ["project_id"],
-)
-
-projects_router.register(
     r"quick_filters",
     quick_filters.QuickFilterViewSet,
     "project_quick_filters",
@@ -601,14 +575,7 @@ projects_router.register(
 # Accepted cost: routes are imported dynamically here, so the core->product import edges
 # are not statically visible to import tooling (tach/grimp). Accepted on purpose — it
 # removes the hand-maintained product list that duplicated PRODUCTS_APPS.
-for _app_config in apps.get_app_configs():
-    if not _app_config.name.startswith("products."):
-        continue
-    _routes_module = f"{_app_config.name}.routes"
-    # find_spec (not try/except ImportError) so a real ImportError inside a routes.py
-    # surfaces instead of being silently swallowed as "no routes module".
-    if importlib.util.find_spec(_routes_module) is None:
-        continue
-    _register_routes = getattr(importlib.import_module(_routes_module), "register_routes", None)
+for _routes_module in load_product_modules("routes"):
+    _register_routes = getattr(_routes_module, "register_routes", None)
     if callable(_register_routes):
         _register_routes(routers)

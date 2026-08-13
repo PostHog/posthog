@@ -149,13 +149,15 @@ class PersonPropertySyncSource:
     the sync job (owned by warehouse_sources) never imports the customer_analytics config models.
     ``source_id``/``definition_id`` identify the source for provenance stamping; ``key_column`` holds
     the identifier (a person's distinct_id, or a group's key) and ``column_property_map`` maps
-    warehouse column -> property name. ``target`` is "person" or "group"; ``group_type_index`` is the
+    warehouse column -> property name. ``property_descriptions`` maps property name -> description
+    (only the properties given one). ``target`` is "person" or "group"; ``group_type_index`` is the
     group type (0-4) for group targets, else None."""
 
     source_id: str
     definition_id: str
     key_column: str
     column_property_map: dict[str, str]
+    property_descriptions: dict[str, str] = dataclasses.field(default_factory=dict)
     target: str = "person"
     group_type_index: int | None = None
 
@@ -227,6 +229,46 @@ class PersonPropertyBackfillActivityInputs:
             "source_type": self.source_type,
             "schema_name": self.schema_name,
             "trigger": self.trigger,
+        }
+
+
+# --- Data-quality checks gate ---------------------------------------------------------
+
+DataQualityChecksGate = Callable[[int, "str | uuid.UUID"], bool]
+_data_quality_checks_gate: Optional[DataQualityChecksGate] = None
+
+
+def register_data_quality_checks_gate(fn: DataQualityChecksGate) -> None:
+    global _data_quality_checks_gate
+    _data_quality_checks_gate = fn
+
+
+def data_quality_checks_needed_for(team_id: int, table_id: "str | uuid.UUID | None") -> bool:
+    if _data_quality_checks_gate is None or table_id is None:
+        return False
+    return _data_quality_checks_gate(team_id, table_id)
+
+
+@dataclasses.dataclass(frozen=True)
+class DataQualitySuiteTriggerInputs:
+    """Payload the import pipeline sends to the data-quality suite workflow.
+
+    Field names mirror data_quality's ``RunCheckSuiteInputs`` (the workflow is started by
+    registered name, so nothing here imports that product); omitted selector fields fall back to
+    the workflow input's defaults. ``trigger`` stays a plain string for the same reason: the
+    ``SuiteRunTrigger`` enum it decodes into lives on the other side of a one-way dependency.
+    """
+
+    team_id: int
+    trigger: str
+    table_ids: list[str]
+
+    @property
+    def properties_to_log(self) -> dict[str, Any]:
+        return {
+            "team_id": self.team_id,
+            "trigger": self.trigger,
+            "table_ids": self.table_ids,
         }
 
 

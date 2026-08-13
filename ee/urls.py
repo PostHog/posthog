@@ -18,7 +18,6 @@ from products.cdp.backend.api import hooks
 from ee.admin.loginas_views import loginas_user, upgrade_impersonation
 from ee.admin.oauth_views import admin_auth_check, admin_oauth_success
 from ee.api import integration
-from ee.api.agentic_provisioning import views as agentic_provisioning_views
 from ee.api.vercel import vercel_connect, vercel_sso, vercel_webhooks
 from ee.middleware import admin_oauth2_callback
 from ee.support_sidebar_max.views import MaxChatViewSet
@@ -35,7 +34,7 @@ def extend_api_router() -> None:
         router as root_router,
     )
 
-    from ee.api import hands_free, max_tools, session_summaries
+    from ee.api import hands_free, max_tools
 
     root_router.register(r"billing", billing.BillingViewset, "billing")
     root_router.register(r"license", license.LicenseViewSet)
@@ -72,10 +71,6 @@ def extend_api_router() -> None:
 
     projects_router.register(r"max_hands_free", hands_free.MaxHandsFreeViewSet, "project_max_hands_free", ["team_id"])
 
-    projects_router.register(
-        r"session_summaries", session_summaries.SessionSummariesViewSet, "project_session_summaries", ["team_id"]
-    )
-
 
 # The admin interface is disabled on self-hosted instances, as its misuse can be unsafe
 if settings.ADMIN_PORTAL_ENABLED:
@@ -86,10 +81,6 @@ if settings.ADMIN_PORTAL_ENABLED:
         except NotRegistered:
             pass
 
-    from posthog.admin.admins.backfill_precalculated_events_admin import backfill_precalculated_events_view
-    from posthog.admin.admins.backfill_precalculated_person_properties_admin import (
-        backfill_precalculated_person_properties_view,
-    )
     from posthog.admin.admins.code_based_verification_bypass_admin import (
         CodeBasedVerificationBypassViewSet,
         CodeBasedVerificationGlobalDisableViewSet,
@@ -107,7 +98,6 @@ if settings.ADMIN_PORTAL_ENABLED:
         notebook_markdown_migration_view,
     )
     from posthog.admin.admins.radar_bypass_admin import RadarBypassViewSet, radar_bypass_view
-    from posthog.admin.admins.realtime_cohort_calculation_admin import analyze_realtime_cohort_calculation_view
     from posthog.admin.admins.resave_cohorts_admin import resave_cohorts_view
     from posthog.admin.admins.tophog_admin import tophog_dashboard_view, tophog_restrictions_view
 
@@ -120,11 +110,6 @@ if settings.ADMIN_PORTAL_ENABLED:
         path("admin/redisvalues", redis_values_view, name="redis_values"),
         path("admin/redis/edit-ttl", redis_edit_ttl_view, name="redis_edit_ttl"),
         path("admin/apikeysearch", api_key_search_view, name="api_key_search"),
-        path(
-            "admin/realtime-cohorts-calculation/",
-            admin.site.admin_view(analyze_realtime_cohort_calculation_view),
-            name="realtime-cohorts-calculation",
-        ),
         path(
             "admin/radar-bypass/",
             admin.site.admin_view(radar_bypass_view),
@@ -164,16 +149,6 @@ if settings.ADMIN_PORTAL_ENABLED:
             "admin/resave-cohorts/",
             admin.site.admin_view(resave_cohorts_view),
             name="resave-cohorts",
-        ),
-        path(
-            "admin/backfill-precalculated-events/",
-            admin.site.admin_view(backfill_precalculated_events_view),
-            name="backfill-precalculated-events",
-        ),
-        path(
-            "admin/backfill-precalculated-person-properties/",
-            admin.site.admin_view(backfill_precalculated_person_properties_view),
-            name="backfill-precalculated-person-properties",
         ),
         path(
             "admin/distinct-id-usage/",
@@ -227,6 +202,19 @@ if settings.ADMIN_PORTAL_ENABLED:
         ),
         path("admin/login/user/<str:user_id>/", loginas_user, name="loginas-user-login"),
         path("admin/impersonation/upgrade/", upgrade_impersonation, name="impersonation-upgrade"),
+        # Temporary compatibility aliases for stable DuckgresServer admin URLs.
+        path(
+            "admin/posthog/duckgresserver/",
+            RedirectView.as_view(url="/admin/managed_warehouse/duckgresserver/", permanent=False, query_string=True),
+        ),
+        path(
+            "admin/posthog/duckgresserver/<path:url_suffix>",
+            RedirectView.as_view(
+                url="/admin/managed_warehouse/duckgresserver/%(url_suffix)s",
+                permanent=False,
+                query_string=True,
+            ),
+        ),
         path("admin/", include("loginas.urls")),
         path("admin/", admin.site.urls),
     ]
@@ -252,200 +240,32 @@ urlpatterns: list[Any] = [
         vercel_connect.VercelConnectLinkViewSet.as_view({"get": "session_info"}),
     ),
     path("webhooks/vercel", csrf_exempt(vercel_webhooks.vercel_webhook), name="vercel_webhooks"),
-    path("scim/v2/<uuid:domain_id>/Users", csrf_exempt(scim_views.SCIMUsersView.as_view()), name="scim_users"),
+    path("scim/v2/<str:scim_slug>/Users", csrf_exempt(scim_views.SCIMUsersView.as_view()), name="scim_users"),
     path(
-        "scim/v2/<uuid:domain_id>/Users/<int:user_id>",
+        "scim/v2/<str:scim_slug>/Users/<int:user_id>",
         csrf_exempt(scim_views.SCIMUserDetailView.as_view()),
         name="scim_user_detail",
     ),
-    path("scim/v2/<uuid:domain_id>/Groups", csrf_exempt(scim_views.SCIMGroupsView.as_view()), name="scim_groups"),
+    path("scim/v2/<str:scim_slug>/Groups", csrf_exempt(scim_views.SCIMGroupsView.as_view()), name="scim_groups"),
     path(
-        "scim/v2/<uuid:domain_id>/Groups/<uuid:group_id>",
+        "scim/v2/<str:scim_slug>/Groups/<uuid:group_id>",
         csrf_exempt(scim_views.SCIMGroupDetailView.as_view()),
         name="scim_group_detail",
     ),
     path(
-        "scim/v2/<uuid:domain_id>/ServiceProviderConfig",
+        "scim/v2/<str:scim_slug>/ServiceProviderConfig",
         csrf_exempt(scim_views.SCIMServiceProviderConfigView.as_view()),
         name="scim_service_provider_config",
     ),
     path(
-        "scim/v2/<uuid:domain_id>/ResourceTypes",
+        "scim/v2/<str:scim_slug>/ResourceTypes",
         csrf_exempt(scim_views.SCIMResourceTypesView.as_view()),
         name="scim_resource_types",
     ),
-    path("scim/v2/<uuid:domain_id>/Schemas", csrf_exempt(scim_views.SCIMSchemasView.as_view()), name="scim_schemas"),
-    # Stripe Projects provisioning (APP 0.1d) — the namespace the Stripe app
-    # manifest points at (provisioning.base_url = .../api/partners/stripe/)
+    path("scim/v2/<str:scim_slug>/Schemas", csrf_exempt(scim_views.SCIMSchemasView.as_view()), name="scim_schemas"),
+    # Stripe Projects provisioning (APP 0.1d)
     path("api/partners/stripe/", include("ee.partners.stripe.api.provisioning.urls")),
-    # Account Provisioning
-    # TODO(migration): the Stripe-only routes below (health, services,
-    # update_service) and Stripe's use of the rest are served by
-    # /api/partners/stripe/ - remove the Stripe-only ones once Stripe traffic
-    # has fully moved (watch path_namespace on agentic_provisioning events).
-    path(
-        "api/agentic/provisioning/health",
-        csrf_exempt(agentic_provisioning_views.provisioning_health),
-        name="agentic_provisioning_health",
-    ),
-    path(
-        "api/agentic/provisioning/services",
-        csrf_exempt(agentic_provisioning_views.provisioning_services),
-        name="agentic_provisioning_services",
-    ),
-    path(
-        "api/agentic/provisioning/account_requests",
-        csrf_exempt(agentic_provisioning_views.account_requests),
-        name="agentic_provisioning_account_requests",
-    ),
-    path(
-        "api/agentic/authorize",
-        agentic_provisioning_views.agentic_authorize,
-        name="agentic_authorize",
-    ),
-    path(
-        "api/agentic/authorize/pending/",
-        agentic_provisioning_views.agentic_authorize_pending,
-        name="agentic_authorize_pending",
-    ),
-    path(
-        "api/agentic/authorize/confirm/",
-        agentic_provisioning_views.agentic_authorize_confirm,
-        name="agentic_authorize_confirm",
-    ),
-    path(
-        "api/agentic/oauth/token",
-        csrf_exempt(agentic_provisioning_views.oauth_token),
-        name="agentic_provisioning_oauth_token",
-    ),
-    path(
-        "api/agentic/provisioning/resources",
-        csrf_exempt(agentic_provisioning_views.provisioning_resources_create),
-        name="agentic_provisioning_resources_create",
-    ),
-    path(
-        "api/agentic/provisioning/resources/<str:resource_id>/rotate_credentials",
-        csrf_exempt(agentic_provisioning_views.provisioning_rotate_credentials),
-        name="agentic_provisioning_rotate_credentials",
-    ),
-    path(
-        "api/agentic/provisioning/resources/<str:resource_id>/update_service",
-        csrf_exempt(agentic_provisioning_views.provisioning_update_service),
-        name="agentic_provisioning_update_service",
-    ),
-    path(
-        "api/agentic/provisioning/resources/<str:resource_id>/remove",
-        csrf_exempt(agentic_provisioning_views.provisioning_resource_remove),
-        name="agentic_provisioning_resource_remove",
-    ),
-    path(
-        "api/agentic/provisioning/resources/<str:resource_id>/github_integration",
-        csrf_exempt(agentic_provisioning_views.provisioning_github_integration),
-        name="agentic_provisioning_github_integration",
-    ),
-    path(
-        "api/agentic/provisioning/resources/<str:resource_id>/wizard_runs",
-        csrf_exempt(agentic_provisioning_views.provisioning_wizard_runs),
-        name="agentic_provisioning_wizard_runs",
-    ),
-    path(
-        "api/agentic/provisioning/resources/<str:resource_id>",
-        csrf_exempt(agentic_provisioning_views.provisioning_resource_detail),
-        name="agentic_provisioning_resource_detail",
-    ),
-    path(
-        "api/agentic/provisioning/deep_links",
-        csrf_exempt(agentic_provisioning_views.deep_links),
-        name="agentic_provisioning_deep_links",
-    ),
-    path(
-        "api/agentic/provisioning/github/grants",
-        csrf_exempt(agentic_provisioning_views.github_grants_create),
-        name="agentic_provisioning_github_grants_create",
-    ),
-    path(
-        "api/agentic/provisioning/github/grants/<str:grant_id>/repositories",
-        csrf_exempt(agentic_provisioning_views.github_grant_repositories),
-        name="agentic_provisioning_github_grant_repositories",
-    ),
-    path(
-        "agentic/login",
-        agentic_provisioning_views.agentic_login,
-        name="agentic_login",
-    ),
-    # Generic provisioning URL aliases (keep /api/agentic/... for backward compat)
-    # TODO(migration): health, services, and update_service in this block are
-    # Stripe-only — remove them once Stripe traffic has fully moved to
-    # /api/partners/stripe/, unless another partner adopts them.
-    path(
-        "api/provisioning/health",
-        csrf_exempt(agentic_provisioning_views.provisioning_health),
-        name="provisioning_health",
-    ),
-    path(
-        "api/provisioning/services",
-        csrf_exempt(agentic_provisioning_views.provisioning_services),
-        name="provisioning_services",
-    ),
-    path(
-        "api/provisioning/account_requests",
-        csrf_exempt(agentic_provisioning_views.account_requests),
-        name="provisioning_account_requests",
-    ),
-    path(
-        "api/provisioning/oauth/token",
-        csrf_exempt(agentic_provisioning_views.oauth_token),
-        name="provisioning_oauth_token",
-    ),
-    path(
-        "api/provisioning/resources",
-        csrf_exempt(agentic_provisioning_views.provisioning_resources_create),
-        name="provisioning_resources_create",
-    ),
-    path(
-        "api/provisioning/resources/<str:resource_id>/rotate_credentials",
-        csrf_exempt(agentic_provisioning_views.provisioning_rotate_credentials),
-        name="provisioning_rotate_credentials",
-    ),
-    path(
-        "api/provisioning/resources/<str:resource_id>/update_service",
-        csrf_exempt(agentic_provisioning_views.provisioning_update_service),
-        name="provisioning_update_service",
-    ),
-    path(
-        "api/provisioning/resources/<str:resource_id>/remove",
-        csrf_exempt(agentic_provisioning_views.provisioning_resource_remove),
-        name="provisioning_resource_remove",
-    ),
-    path(
-        "api/provisioning/resources/<str:resource_id>/github_integration",
-        csrf_exempt(agentic_provisioning_views.provisioning_github_integration),
-        name="provisioning_github_integration",
-    ),
-    path(
-        "api/provisioning/resources/<str:resource_id>/wizard_runs",
-        csrf_exempt(agentic_provisioning_views.provisioning_wizard_runs),
-        name="provisioning_wizard_runs",
-    ),
-    path(
-        "api/provisioning/resources/<str:resource_id>",
-        csrf_exempt(agentic_provisioning_views.provisioning_resource_detail),
-        name="provisioning_resource_detail",
-    ),
-    path(
-        "api/provisioning/deep_links",
-        csrf_exempt(agentic_provisioning_views.deep_links),
-        name="provisioning_deep_links",
-    ),
-    path(
-        "api/provisioning/github/grants",
-        csrf_exempt(agentic_provisioning_views.github_grants_create),
-        name="provisioning_github_grants_create",
-    ),
-    path(
-        "api/provisioning/github/grants/<str:grant_id>/repositories",
-        csrf_exempt(agentic_provisioning_views.github_grant_repositories),
-        name="provisioning_github_grant_repositories",
-    ),
+    # Agentic provisioning (partner account/resource provisioning + deep-link login)
+    path("", include("ee.api.agentic_provisioning.urls")),
     *admin_urlpatterns,
 ]

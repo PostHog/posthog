@@ -29,25 +29,28 @@ from posthog.schema import DateRange, LLMTrace, QueryLogTags, TraceQuery
 from posthog.hogql import ast
 from posthog.hogql.parser import parse_select
 
-from posthog.api.capture import capture_internal
+from posthog.api.capture import CaptureInternalError
 from posthog.hogql_queries.ai.ai_table_resolver import query_ai_events
 from posthog.hogql_queries.ai.trace_query_runner import TraceQueryRunner
 from posthog.models.team import Team
 from posthog.sync import database_sync_to_async
-from posthog.temporal.ai_observability.evaluation_errors import (
-    is_terminal_user_error_result,
-    require_user_error_spec,
-    status_reason_detail_for_terminal_user_error,
-)
+from posthog.temporal.ai_observability.evaluation_errors import is_terminal_user_error_result
+from posthog.temporal.ai_observability.evaluation_event_io import extract_event_io
 from posthog.temporal.ai_observability.evaluation_hog import (
     build_hog_event_global,
     execute_hog_eval_bytecode,
+    finalize_hog_eval_result,
     hog_bytecode_references_global,
 )
 from posthog.temporal.ai_observability.evaluation_llm_judge import (
     LLM_JUDGE_RETRY_POLICY,
     call_llm_judge,
     get_output_type_config,
+)
+from posthog.temporal.ai_observability.evaluation_payload import (
+    PAYLOAD_BYTES_EXPR,
+    payload_budget_bytes,
+    should_skip_for_payload,
 )
 from posthog.temporal.ai_observability.evaluation_types import EvaluationActivityResult
 from posthog.temporal.ai_observability.evaluation_workflow_activities import (
@@ -57,16 +60,19 @@ from posthog.temporal.ai_observability.evaluation_workflow_activities import (
     emit_internal_telemetry_activity,
     fetch_evaluation_activity,
 )
+from posthog.temporal.ai_observability.message_utils import extract_text_from_messages
 from posthog.temporal.ai_observability.metrics import increment_emit_event_outcome, increment_errors
 from posthog.temporal.ai_observability.run_evaluation import (
     WorkflowResult,
     handle_llm_judge_activity_error,
     handle_terminal_user_error_result,
 )
+from posthog.temporal.ai_observability.team_capture import capture_internal_for_team
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.utils import close_db_connections
 
 from products.ai_observability.backend.models.evaluation_configs import (
+    EVALUATION_TEST_LOOKBACK_DAYS,
     TRACE_EVAL_DEFAULT_WINDOW_SECONDS,
     TRACE_EVAL_MAX_WINDOW_SECONDS,
 )
@@ -172,18 +178,51 @@ def _count_trace_events(team: Team, trace_id: str, date_from: datetime, date_to:
     return int(result.results[0][0])
 
 
-def fetch_trace_for_evaluation(team_id: int, trace_id: str, window_start: datetime) -> TraceFetchOutcome:
-    """Fetch the full trace from ClickHouse, with a cheap count preflight so degenerate
-    traces are skipped before pulling their payload."""
-    team = Team.objects.get(id=team_id)
-    date_from = window_start - TRACE_EVENTS_LOOKBACK
-    date_to = datetime.now(UTC)
+_TRACE_PAYLOAD_BYTES_SQL = f"""
+SELECT {PAYLOAD_BYTES_EXPR} AS payload_bytes
+FROM posthog.ai_events AS ai_events
+WHERE event IN ('$ai_span', '$ai_generation', '$ai_embedding', '$ai_metric', '$ai_feedback', '$ai_trace')
+  AND trace_id = {{trace_id}}
+  AND timestamp >= {{date_from}}
+  AND timestamp <= {{date_to}}
+"""
 
+
+def _sum_trace_payload_bytes(team: Team, trace_id: str, date_from: datetime, date_to: datetime) -> int:
+    result = query_ai_events(
+        query=parse_select(_TRACE_PAYLOAD_BYTES_SQL),
+        placeholders={
+            "trace_id": ast.Constant(value=trace_id),
+            "date_from": ast.Constant(value=date_from),
+            "date_to": ast.Constant(value=date_to),
+        },
+        team=team,
+        query_type="TraceEvaluationPayloadBytes",
+        fall_back_to_events=False,
+    )
+    if not result.results:
+        return 0
+    return int(result.results[0][0] or 0)
+
+
+def _fetch_trace(team: Team, trace_id: str, date_from: datetime, date_to: datetime) -> TraceFetchOutcome:
+    """Fetch a single full trace from ClickHouse over an explicit window, with a cheap count
+    preflight so degenerate traces are skipped before pulling their payload."""
     event_count = _count_trace_events(team, trace_id, date_from, date_to)
     if event_count == 0:
         return TraceFetchOutcome(trace=None, skip_reason="trace_not_found", event_count=0)
     if event_count > MAX_TRACE_EVAL_EVENTS:
         return TraceFetchOutcome(trace=None, skip_reason="trace_too_large", event_count=event_count)
+
+    # Log-only for trace. `should_skip_for_payload` returns False for this target by design: trace
+    # evaluations already run in production, and enforcing a brand-new dimension on them would start
+    # skipping units that grade fine today. The metric supplies the distribution needed to set a
+    # trace budget with evidence, and flipping it to enforcing is a deliberate follow-up.
+    should_skip_for_payload(
+        target="trace",
+        payload_bytes=_sum_trace_payload_bytes(team, trace_id, date_from, date_to),
+        budget_bytes=payload_budget_bytes(JUDGE_TRACE_MAX_CHARS),
+    )
 
     runner = TraceQueryRunner(
         team=team,
@@ -197,6 +236,183 @@ def fetch_trace_for_evaluation(team_id: int, trace_id: str, window_start: dateti
     if not response.results:
         return TraceFetchOutcome(trace=None, skip_reason="trace_not_found", event_count=event_count)
     return TraceFetchOutcome(trace=response.results[0], skip_reason=None, event_count=event_count)
+
+
+def fetch_trace_for_evaluation(team_id: int, trace_id: str, window_start: datetime) -> TraceFetchOutcome:
+    """Fetch the full trace for an online evaluation run, looking back from the workflow start."""
+    team = Team.objects.get(id=team_id)
+    date_from = window_start - TRACE_EVENTS_LOOKBACK
+    date_to = datetime.now(UTC)
+    return _fetch_trace(team, trace_id, date_from, date_to)
+
+
+@dataclass
+class TraceHogTestResult:
+    """One trace's outcome from `run_hog_eval_over_recent_traces`, shaped for the editor test
+    endpoint and Max's authoring tool rather than for online emission."""
+
+    trace_id: str
+    verdict: bool | None
+    reasoning: str
+    error: str | None
+    input_preview: str
+    output_preview: str
+
+
+@dataclass(frozen=True)
+class TraceHogTestSample:
+    trace_id: str
+    trigger_timestamp: datetime
+
+
+def _coerce_trace_test_timestamp(value: Any) -> datetime:
+    if isinstance(value, datetime):
+        timestamp = value
+    elif isinstance(value, str):
+        timestamp = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    else:
+        raise TypeError(f"Unexpected trace sample timestamp type: {type(value).__name__}")
+
+    return timestamp if timestamp.tzinfo is not None else timestamp.replace(tzinfo=UTC)
+
+
+def _sample_recent_traces(
+    team: Team,
+    condition_filter: ast.Expr | None,
+    sample_count: int,
+    date_from: datetime,
+    date_to: datetime,
+) -> list[TraceHogTestSample]:
+    """Pick the most recent distinct trace ids whose *triggering* generation matches the
+    evaluation's conditions — mirroring the online scheduler, which starts a trace-eval run
+    from the first matching `$ai_generation`. Historical previews use that event timestamp as
+    the closest available proxy for the workflow start time."""
+    where_exprs: list[ast.Expr] = [
+        ast.CompareOperation(
+            op=ast.CompareOperationOp.In,
+            left=ast.Field(chain=["event"]),
+            right=ast.Constant(value=["$ai_generation"]),
+        ),
+        ast.CompareOperation(
+            op=ast.CompareOperationOp.NotEq,
+            left=ast.Field(chain=["trace_id"]),
+            right=ast.Constant(value=""),
+        ),
+        ast.CompareOperation(
+            op=ast.CompareOperationOp.GtEq,
+            left=ast.Field(chain=["timestamp"]),
+            right=ast.Constant(value=date_from),
+        ),
+        ast.CompareOperation(
+            op=ast.CompareOperationOp.LtEq,
+            left=ast.Field(chain=["timestamp"]),
+            right=ast.Constant(value=date_to),
+        ),
+    ]
+    if condition_filter is not None:
+        where_exprs.append(condition_filter)
+
+    query = ast.SelectQuery(
+        select=[
+            ast.Field(chain=["trace_id"]),
+            ast.Alias(alias="trigger_timestamp", expr=ast.Call(name="min", args=[ast.Field(chain=["timestamp"])])),
+            ast.Alias(alias="latest", expr=ast.Call(name="max", args=[ast.Field(chain=["timestamp"])])),
+        ],
+        select_from=ast.JoinExpr(table=ast.Field(chain=["posthog", "ai_events"]), alias="ai_events"),
+        where=ast.Placeholder(expr=ast.Field(chain=["where_clause"])),
+        group_by=[ast.Field(chain=["trace_id"])],
+        order_by=[ast.OrderExpr(expr=ast.Field(chain=["latest"]), order="DESC")],
+        limit=ast.Constant(value=sample_count),
+    )
+    response = query_ai_events(
+        query=query,
+        placeholders={"where_clause": ast.And(exprs=where_exprs)},
+        team=team,
+        query_type="EvaluationTestHogTraceSample",
+        fall_back_to_events=True,
+    )
+    return [
+        TraceHogTestSample(trace_id=str(row[0]), trigger_timestamp=_coerce_trace_test_timestamp(row[1]))
+        for row in (response.results or [])
+    ]
+
+
+def _trace_io_preview(trace: LLMTrace) -> tuple[str, str]:
+    """First non-empty input and last non-empty output across the trace's events, for a compact
+    preview. The Hog body still sees the full trace globals; this is only for display."""
+    input_preview = ""
+    output_preview = ""
+    for event in trace.events or []:
+        io = extract_event_io(event.event, event.properties)
+        if not input_preview:
+            input_preview = extract_text_from_messages(io.input_raw)[:200]
+        output_text = extract_text_from_messages(io.output_raw)[:200]
+        if output_text:
+            output_preview = output_text
+    return input_preview, output_preview
+
+
+def run_hog_eval_over_recent_traces(
+    *,
+    team: Team,
+    bytecode: list[Any],
+    condition_filter: ast.Expr | None,
+    sample_count: int,
+    allows_na: bool,
+    window_seconds: int = TRACE_EVAL_DEFAULT_WINDOW_SECONDS,
+    lookback_days: int = EVALUATION_TEST_LOOKBACK_DAYS,
+) -> list[TraceHogTestResult]:
+    """Sample recent traces matching the conditions and run trace-level Hog bytecode against each.
+
+    Shared by the editor `test_hog` endpoint and Max's authoring tool so a trace-target eval is
+    previewed the same way it runs online — whole trace, trace globals — instead of against a
+    single generation.
+    """
+    now = datetime.now(UTC)
+    window = timedelta(seconds=window_seconds)
+    # Only sample triggers whose full aggregation window has elapsed.
+    sample_date_to = now - window
+    sample_date_from = sample_date_to - timedelta(days=lookback_days)
+    trace_samples = _sample_recent_traces(
+        team,
+        condition_filter,
+        sample_count,
+        sample_date_from,
+        sample_date_to,
+    )
+
+    results: list[TraceHogTestResult] = []
+    for sample in trace_samples:
+        trace_date_from = sample.trigger_timestamp - TRACE_EVENTS_LOOKBACK
+        trace_date_to = sample.trigger_timestamp + window
+        outcome = _fetch_trace(team, sample.trace_id, trace_date_from, trace_date_to)
+        if outcome.skip_reason or outcome.trace is None:
+            results.append(
+                TraceHogTestResult(
+                    trace_id=sample.trace_id,
+                    verdict=None,
+                    reasoning="",
+                    error=_SKIP_REASONING.get(outcome.skip_reason or "trace_not_found", "Evaluation skipped."),
+                    input_preview="",
+                    output_preview="",
+                )
+            )
+            continue
+
+        globals_dict = build_trace_hog_globals(outcome.trace, sample.trace_id, bytecode=bytecode)
+        result = execute_hog_eval_bytecode(bytecode, globals_dict, allows_na=allows_na)
+        input_preview, output_preview = _trace_io_preview(outcome.trace)
+        results.append(
+            TraceHogTestResult(
+                trace_id=sample.trace_id,
+                verdict=result["verdict"],
+                reasoning=result["reasoning"],
+                error=result["error"],
+                input_preview=input_preview,
+                output_preview=output_preview,
+            )
+        )
+    return results
 
 
 def _build_trace_skip_result(allows_na: bool, skip_reason: str) -> EvaluationActivityResult:
@@ -370,44 +586,7 @@ async def execute_trace_hog_eval_activity(inputs: ExecuteTraceEvaluationInputs) 
     if skip_reason or result is None:
         return _build_trace_skip_result(allows_na, skip_reason or "trace_not_found")
 
-    if result["error"]:
-        if result.get("unexpected"):
-            # A genuine bug in our evaluation code (not the user's Hog). Raise so the Temporal
-            # interceptor reports it to error tracking and we get paged to investigate.
-            raise ApplicationError(
-                f"Hog evaluation error: {result['error']}",
-                non_retryable=True,
-            )
-
-        # The user's Hog source itself errored — an expected outcome of running customer-authored
-        # code, recorded as a skipped evaluation rather than raised (which would flood error
-        # tracking with one event per trace). Marked terminal so the workflow disables the broken
-        # eval instead of re-running it against every matching trace (mirrors the generation path).
-        spec = require_user_error_spec("hog_error")
-        error_detail = status_reason_detail_for_terminal_user_error(spec, result["error"]) or spec.safe_message
-        errored_result: EvaluationActivityResult = {
-            "result_type": "boolean",
-            "verdict": None if allows_na else False,
-            "reasoning": error_detail,
-            "allows_na": allows_na,
-            "skipped": True,
-            "skip_reason": "hog_error",
-            "terminal_user_error": True,
-            "status_reason": spec.status_reason,
-        }
-        if allows_na:
-            errored_result["applicable"] = False
-        return errored_result
-
-    activity_result: EvaluationActivityResult = {
-        "result_type": "boolean",
-        "verdict": result["verdict"],
-        "reasoning": result["reasoning"],
-        "allows_na": allows_na,
-    }
-    if allows_na:
-        activity_result["applicable"] = result.get("applicable", True)
-    return activity_result
+    return finalize_hog_eval_result(result, evaluation=evaluation, allows_na=allows_na, unit_label="trace")
 
 
 @dataclass
@@ -419,6 +598,8 @@ class EmitTraceEvaluationEventInputs:
     session_id: str | None
     result: EvaluationActivityResult
     start_time: datetime
+    target: str = "trace"
+    ai_session_id: str | None = None
 
     @property
     def properties_to_log(self) -> dict[str, Any]:
@@ -426,6 +607,7 @@ class EmitTraceEvaluationEventInputs:
             "team_id": self.team_id,
             "evaluation_id": self.evaluation.get("id"),
             "trace_id": self.trace_id,
+            "target": self.target,
         }
 
 
@@ -434,39 +616,51 @@ async def emit_trace_evaluation_event_activity(inputs: EmitTraceEvaluationEventI
     """Emit the $ai_evaluation event for a trace-level run, targeting the trace id."""
 
     def _emit():
-        try:
-            team = Team.objects.get(id=inputs.team_id)
-        except Team.DoesNotExist:
-            logger.exception("Team not found", team_id=inputs.team_id)
-            raise ValueError(f"Team {inputs.team_id} not found")
-
         # No single source event to inherit from, so SOURCE_AI_PROPERTIES_TO_COPY (span/parent
         # linkage copied in the generation path) intentionally does not apply here.
         properties = build_evaluation_event_properties(inputs.evaluation, inputs.result, inputs.start_time)
-        properties.update(
-            {
-                "$ai_target_id": inputs.trace_id,
-                "$ai_target_type": "trace_id",
-                # The eval event carries the trace id itself so it shows up inside the trace view.
-                "$ai_trace_id": inputs.trace_id,
-                "$session_id": inputs.session_id,
-            }
-        )
+        if inputs.target == "session" and inputs.ai_session_id:
+            properties.update(
+                {
+                    "$ai_target_id": inputs.ai_session_id,
+                    "$ai_target_type": "session_id",
+                    # Makes the verdict session-scoped so the session view can read it. No
+                    # $ai_trace_id: the verdict belongs to the session, not to any one trace, and
+                    # inventing a trace id would make it render as that trace's verdict.
+                    "$ai_session_id": inputs.ai_session_id,
+                    "$session_id": inputs.session_id,
+                }
+            )
+        else:
+            properties.update(
+                {
+                    "$ai_target_id": inputs.trace_id,
+                    "$ai_target_type": "trace_id",
+                    # The eval event carries the trace id itself so it shows up inside the trace view.
+                    "$ai_trace_id": inputs.trace_id,
+                    "$session_id": inputs.session_id,
+                }
+            )
 
-        capture_result = capture_internal(
-            token=team.api_token,
+        capture_internal_for_team(
+            team_id=inputs.team_id,
             event_name="$ai_evaluation",
             event_source="llm_analytics_evaluation",
             distinct_id=inputs.distinct_id,
             timestamp=datetime.now(UTC),
             properties=properties,
-            process_person_profile=True,
         )
-        capture_result.raise_for_status()
 
     try:
         await database_sync_to_async(_emit, thread_sensitive=False)()
         increment_emit_event_outcome("success")
+    except CaptureInternalError as e:
+        if e.is_billing_limit_exceeded:
+            increment_emit_event_outcome("dropped_billing_limited")
+            logger.info("Skipping eval event emission; team over billing quota", team_id=inputs.team_id)
+            return
+        increment_emit_event_outcome("failed")
+        raise
     except Exception:
         increment_emit_event_outcome("failed")
         raise

@@ -9,11 +9,8 @@ from posthog.models.activity_logging.activity_log import ActivityLog
 from products.cdp.backend.api.test.test_hog_function_templates import MOCK_NODE_TEMPLATES
 from products.workflows.backend.api.hog_flow import DRAFT_CONTENT_FIELDS
 from products.workflows.backend.models.hog_flow.hog_flow import HogFlow
-from products.workflows.backend.models.hog_flow_revision import HogFlowRevision
 
 webhook_template = MOCK_NODE_TEMPLATES[0]
-
-FLAG_PATH = "products.workflows.backend.api.hog_flow.use_workflows_revisions"
 
 
 def _trigger_action() -> dict:
@@ -76,9 +73,19 @@ class TestHogFlowRevisions(APIBaseTest):
         )
 
     def _stage_draft(self, flow_id: str, url: str = "https://changed.example.com"):
+        # Graph content edits over MCP go through the surgical graph endpoint (a plain update
+        # rejects actions/edges outright), so drafts are staged the way real agents stage them.
         response = self.client.patch(
-            f"/api/projects/{self.team.id}/hog_flows/{flow_id}",
-            {"actions": [_trigger_action(), _webhook_action(url=url)]},
+            f"/api/projects/{self.team.id}/hog_flows/{flow_id}/graph",
+            {
+                "operations": [
+                    {
+                        "op": "update_action",
+                        "id": "action_1",
+                        "patch": {"config": {"inputs": {"url": {"value": url}}}},
+                    }
+                ]
+            },
             HTTP_X_POSTHOG_CLIENT="mcp",
         )
         assert response.status_code == 200, response.json()
@@ -99,7 +106,7 @@ class TestHogFlowRevisions(APIBaseTest):
 
     def _list_revisions(self, flow_id: str) -> list[dict]:
         # Assert through the endpoint, not the ORM, so these exercise its team scoping, ordering
-        # (newest-first), and serialization (content omitted). Requires the flag on for a 200.
+        # (newest-first), and serialization (content omitted).
         response = self.client.get(f"/api/projects/{self.team.id}/hog_flows/{flow_id}/revisions")
         assert response.status_code == 200, response.json()
         return response.json()["results"]
@@ -111,8 +118,7 @@ class TestHogFlowRevisions(APIBaseTest):
 
     # ── Appending on live-content writes ─────────────────────────────
 
-    @patch(FLAG_PATH, return_value=True)
-    def test_publish_appends_revision_and_bumps_version(self, _flag):
+    def test_publish_appends_revision_and_bumps_version(self):
         flow_id = self._create_active_flow()
         self._stage_draft(flow_id)
         published = self._publish(flow_id)
@@ -136,16 +142,14 @@ class TestHogFlowRevisions(APIBaseTest):
         # Content is exactly the draft-cycle content fields — no system bookkeeping
         assert set(v2_content.keys()) == set(DRAFT_CONTENT_FIELDS)
 
-    @patch(FLAG_PATH, return_value=True)
-    def test_web_live_edit_appends_revision(self, _flag):
+    def test_web_live_edit_appends_revision(self):
         flow_id = self._create_active_flow()
         response = self._live_edit(flow_id)
         assert response.status_code == 200, response.json()
         assert response.json()["version"] == 2
         assert [r["version"] for r in self._list_revisions(flow_id)] == [2, 1]
 
-    @patch(FLAG_PATH, return_value=True)
-    def test_graph_live_edit_appends_revision(self, _flag):
+    def test_graph_live_edit_appends_revision(self):
         flow_id = self._create_active_three_step_flow()
         response = self.client.patch(
             f"/api/projects/{self.team.id}/hog_flows/{flow_id}/graph",
@@ -158,22 +162,34 @@ class TestHogFlowRevisions(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("draft_staging", {"actions": [_trigger_action(), _webhook_action(url="https://d.example.com")]}, "mcp"),
-            ("metadata_only", {"name": "Renamed"}, None),
-            ("status_only", {"status": "draft"}, None),
+            # MCP graph edits go through the graph endpoint (a plain update rejects actions/edges)
+            (
+                "draft_staging",
+                "/graph",
+                {
+                    "operations": [
+                        {
+                            "op": "update_action",
+                            "id": "action_1",
+                            "patch": {"config": {"inputs": {"url": {"value": "https://d.example.com"}}}},
+                        }
+                    ]
+                },
+                "mcp",
+            ),
+            ("metadata_only", "", {"name": "Renamed"}, None),
+            ("status_only", "", {"status": "draft"}, None),
         ]
     )
-    def test_non_content_writes_do_not_append_revisions(self, _name, payload, client_header):
+    def test_non_content_writes_do_not_append_revisions(self, _name, path_suffix, payload, client_header):
         flow_id = self._create_active_flow()
-        with patch(FLAG_PATH, return_value=True):
-            extra = {"HTTP_X_POSTHOG_CLIENT": client_header} if client_header else {}
-            response = self.client.patch(f"/api/projects/{self.team.id}/hog_flows/{flow_id}", payload, **extra)
-            assert response.status_code == 200, response.json()
-            assert self._list_revisions(flow_id) == []
+        extra = {"HTTP_X_POSTHOG_CLIENT": client_header} if client_header else {}
+        response = self.client.patch(f"/api/projects/{self.team.id}/hog_flows/{flow_id}{path_suffix}", payload, **extra)
+        assert response.status_code == 200, response.json()
+        assert self._list_revisions(flow_id) == []
         assert response.json()["version"] == 1
 
-    @patch(FLAG_PATH, return_value=True)
-    def test_no_op_live_edit_does_not_append_revision(self, _flag):
+    def test_no_op_live_edit_does_not_append_revision(self):
         # Two identical saves in a row: the first may change stored shape (create vs update
         # serializer defaults differ), but the second must not append a junk revision.
         flow_id = self._create_active_flow()
@@ -191,20 +207,9 @@ class TestHogFlowRevisions(APIBaseTest):
         assert second.status_code == 200, second.json()
         assert [r["version"] for r in self._list_revisions(flow_id)] == revisions_after_first
 
-    @patch(FLAG_PATH, return_value=False)
-    def test_flag_off_appends_no_revisions(self, _flag):
-        flow_id = self._create_active_flow()
-        response = self._live_edit(flow_id)
-        assert response.status_code == 200, response.json()
-        assert response.json()["version"] == 1
-        # Flag off: the list endpoint is rejected (see test_flag_off_rejects_revision_endpoints), so
-        # assert directly that nothing was persisted.
-        assert not HogFlowRevision.objects.for_team(self.team.id).filter(hog_flow_id=flow_id).exists()
-
     # ── Listing and fetching ─────────────────────────────────────────
 
-    @patch(FLAG_PATH, return_value=True)
-    def test_list_and_retrieve_revisions(self, _flag):
+    def test_list_and_retrieve_revisions(self):
         flow_id = self._create_active_flow()
         self._live_edit(flow_id)
 
@@ -225,16 +230,14 @@ class TestHogFlowRevisions(APIBaseTest):
         ]
         assert urls == ["https://example.com"]
 
-    @patch(FLAG_PATH, return_value=True)
-    def test_retrieve_missing_revision_404s(self, _flag):
+    def test_retrieve_missing_revision_404s(self):
         flow_id = self._create_active_flow()
         response = self.client.get(f"/api/projects/{self.team.id}/hog_flows/{flow_id}/revisions/99")
         assert response.status_code == 404, response.json()
 
     # ── Restore (rollback) ───────────────────────────────────────────
 
-    @patch(FLAG_PATH, return_value=True)
-    def test_restore_copies_revision_into_draft_without_touching_live(self, _flag):
+    def test_restore_copies_revision_into_draft_without_touching_live(self):
         flow_id = self._create_active_flow()
         self._live_edit(flow_id)
         live_actions = HogFlow.objects.get(pk=flow_id).actions
@@ -253,8 +256,7 @@ class TestHogFlowRevisions(APIBaseTest):
         entry = ActivityLog.objects.filter(scope="HogFlow", item_id=flow_id).order_by("-created_at").first()
         assert entry is not None and entry.activity == "revision_restored"
 
-    @patch(FLAG_PATH, return_value=True)
-    def test_rollback_round_trip_restores_live_and_prunes_redirects(self, _flag):
+    def test_rollback_round_trip_restores_live_and_prunes_redirects(self):
         # Publish v2 deleting a step (parked runs get a redirect), then roll back to v1: the step
         # comes back, its redirect entry is pruned, and the rollback is recorded as a new revision.
         flow_id = self._create_active_three_step_flow()
@@ -275,17 +277,13 @@ class TestHogFlowRevisions(APIBaseTest):
 
     def _stage_draft_delete_action_1(self, flow_id: str) -> None:
         response = self.client.patch(
-            f"/api/projects/{self.team.id}/hog_flows/{flow_id}",
-            {
-                "actions": [_trigger_action(), _webhook_action("action_2")],
-                "edges": [{"from": "trigger_node", "to": "action_2", "type": "continue"}],
-            },
+            f"/api/projects/{self.team.id}/hog_flows/{flow_id}/graph",
+            {"operations": [{"op": "remove_action", "id": "action_1"}]},
             HTTP_X_POSTHOG_CLIENT="mcp",
         )
         assert response.status_code == 200, response.json()
 
-    @patch(FLAG_PATH, return_value=True)
-    def test_restore_with_open_draft_conflicts_unless_overwrite(self, _flag):
+    def test_restore_with_open_draft_conflicts_unless_overwrite(self):
         flow_id = self._create_active_flow()
         self._live_edit(flow_id)
         self._stage_draft(flow_id, url="https://staged.example.com")
@@ -305,12 +303,3 @@ class TestHogFlowRevisions(APIBaseTest):
         assert flow.draft is not None
         draft_urls = [a["config"]["inputs"]["url"]["value"] for a in flow.draft["actions"] if a["type"] == "function"]
         assert draft_urls == ["https://example.com"]
-
-    @parameterized.expand([("list", "GET", "revisions"), ("restore", "POST", "revisions/1/restore")])
-    def test_flag_off_rejects_revision_endpoints(self, _name, method, path):
-        flow_id = self._create_active_flow()
-        with patch(FLAG_PATH, return_value=False):
-            response = getattr(self.client, method.lower())(
-                f"/api/projects/{self.team.id}/hog_flows/{flow_id}/{path}", {} if method == "POST" else None
-            )
-        assert response.status_code == 400, response.json()

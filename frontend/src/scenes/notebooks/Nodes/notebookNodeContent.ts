@@ -1,7 +1,7 @@
 import { parseMarkdownNotebook } from 'lib/components/MarkdownNotebook/markdown'
 import { JSONContent } from 'lib/components/RichContentEditor/types'
 
-import { NOTEBOOK_NODE_TYPE_TO_MARKDOWN_TAG } from '../Notebook/markdownNotebookV2'
+import { NOTEBOOK_NODE_TYPE_TO_MARKDOWN_TAG, getSqlV2PropsFromQueryProp } from '../Notebook/markdownNotebookV2'
 import { NotebookNodeType } from '../types'
 
 export type PythonNodeSummary = {
@@ -54,6 +54,10 @@ export type NotebookDependencyNode = {
     uses: string[]
     code?: string
     returnVariable?: string
+    // SQLV2 only: the data source the cell runs against, so a chain-dispatched run targets the
+    // same one its own Run button would.
+    connectionId?: string | null
+    sendRawQuery?: boolean
 }
 
 export type NotebookDependencyGraph = {
@@ -351,6 +355,7 @@ const expandMarkdownNotebookNodesOfTypes = (node: any, nodeTypes: NotebookNodeTy
                 type: nodeType,
                 attrs: {
                     ...block.props,
+                    ...(nodeType === NotebookNodeType.SQLV2 ? getSqlV2PropsFromQueryProp(block.props) : null),
                     // Prefer the persisted nodeId prop: the parsed block id is a content
                     // fingerprint, which drifts from the live cell id as soon as any prop
                     // changes (running a cell writes runId/result into its props).
@@ -498,10 +503,10 @@ export const collectNotebookFrameNodes = (content?: JSONContent | null): Noteboo
         if (node.type === NotebookNodeType.SQLV2 || node.type === NotebookNodeType.PythonV2) {
             const attrs = node.attrs ?? {}
             const isSql = node.type === NotebookNodeType.SQLV2
-            // A missing SQL attribute predates the optional name (legacy 'sql_df' default);
+            // A missing attribute predates the optional name (legacy 'sql_df'/'df' defaults);
             // an explicit blank or invalid one binds no dataframe — nothing to browse.
             const rawReturnVariable =
-                typeof attrs.returnVariable === 'string' ? attrs.returnVariable : isSql ? 'sql_df' : ''
+                typeof attrs.returnVariable === 'string' ? attrs.returnVariable : isSql ? 'sql_df' : 'df'
             let name: string | null
             if (isSql) {
                 name = isReferenceableSqlV2FrameName(rawReturnVariable)
@@ -511,7 +516,7 @@ export const collectNotebookFrameNodes = (content?: JSONContent | null): Noteboo
                     usedReturnVariables.add(normalizeSqlIdentifier(name))
                 }
             } else {
-                name = rawReturnVariable.trim() || 'df'
+                name = rawReturnVariable.trim()
             }
             if (name) {
                 const result = attrs.result ?? null
@@ -546,8 +551,10 @@ export type PythonKernelNodeSummary = {
 // Kernel-run Python cells (revamped notebooks): each binds its result to `returnVariable` in
 // the kernel namespace. Unlike the SQL collectors the names are NOT disambiguated — they are
 // exactly the kernel variables, so a duplicated returnVariable means last-run-wins, matching
-// kernel semantics. Markdown-aware (unlike the legacy collectPythonNodes) because revamped
-// markdown notebooks store their cells as `<PythonV2 …/>` component tags.
+// kernel semantics. A blank name is a display-only cell that binds nothing (see the SQLV2
+// collector); only a missing attribute takes the legacy 'df' default. Markdown-aware (unlike
+// the legacy collectPythonNodes) because revamped markdown notebooks store their cells as
+// `<PythonV2 …/>` component tags.
 export const collectPythonKernelNodes = (content?: JSONContent | null): PythonKernelNodeSummary[] => {
     if (!content || typeof content !== 'object') {
         return []
@@ -561,10 +568,7 @@ export const collectPythonKernelNodes = (content?: JSONContent | null): PythonKe
         }
         if (node.type === NotebookNodeType.PythonV2) {
             const attrs = node.attrs ?? {}
-            const returnVariable =
-                typeof attrs.returnVariable === 'string' && attrs.returnVariable.trim()
-                    ? attrs.returnVariable.trim()
-                    : 'df'
+            const returnVariable = typeof attrs.returnVariable === 'string' ? attrs.returnVariable.trim() : 'df'
             nodes.push({ nodeId: attrs.nodeId ?? '', returnVariable })
         }
         if (node.type === NotebookNodeType.MarkdownNotebook) {
@@ -811,6 +815,8 @@ export const buildNotebookDependencyGraph = (content?: JSONContent | null): Note
                 usedSqlV2ReturnVariables.add(normalizeSqlIdentifier(returnVariable))
             }
             const code = typeof attrs.code === 'string' ? attrs.code : ''
+            const connectionId =
+                typeof attrs.connectionId === 'string' && attrs.connectionId ? attrs.connectionId : null
             nodes.push({
                 nodeId: attrs.nodeId ?? '',
                 nodeType: NotebookNodeType.SQLV2,
@@ -820,6 +826,8 @@ export const buildNotebookDependencyGraph = (content?: JSONContent | null): Note
                 uses: extractDuckSqlTables(code),
                 code,
                 returnVariable,
+                connectionId,
+                sendRawQuery: !!connectionId && !!attrs.sendRawQuery,
             })
         }
 
@@ -827,11 +835,8 @@ export const buildNotebookDependencyGraph = (content?: JSONContent | null): Note
             const attrs = node.attrs ?? {}
             pythonV2Index += 1
             // The returnVariable IS the kernel variable, never disambiguated — the same
-            // last-write-wins semantics as collectPythonKernelNodes.
-            const returnVariable =
-                typeof attrs.returnVariable === 'string' && attrs.returnVariable.trim()
-                    ? attrs.returnVariable.trim()
-                    : 'df'
+            // last-write-wins semantics as collectPythonKernelNodes. Blank = exports nothing.
+            const returnVariable = typeof attrs.returnVariable === 'string' ? attrs.returnVariable.trim() : 'df'
             const code = typeof attrs.code === 'string' ? attrs.code : ''
             nodes.push({
                 nodeId: attrs.nodeId ?? '',

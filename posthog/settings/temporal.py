@@ -49,6 +49,13 @@ SANDBOX_PROVIDER: str | None = get_from_env(
 )  # When not set: defaults to "docker" in DEBUG mode, "modal" in production
 SANDBOX_API_URL: str | None = get_from_env("SANDBOX_API_URL", None, optional=True)
 SANDBOX_LLM_GATEWAY_URL: str | None = get_from_env("SANDBOX_LLM_GATEWAY_URL", None, optional=True)
+# The Go ai-gateway runs on its own host (ai-gateway.*, vs the Python gateway.*), so the
+# base URL is what selects it: no product slug on the path, attribution as one
+# X-PostHog-Properties blob. SANDBOX_AI_GATEWAY_PRODUCTS limits the switch to named
+# ai_product values so one product migrates without moving every other sandbox caller.
+# Both must be set; clearing either rolls back to the Python gateway.
+SANDBOX_AI_GATEWAY_URL: str | None = get_from_env("SANDBOX_AI_GATEWAY_URL", None, optional=True)
+SANDBOX_AI_GATEWAY_PRODUCTS: str | None = get_from_env("SANDBOX_AI_GATEWAY_PRODUCTS", None, optional=True)
 SANDBOX_MCP_URL: str | None = get_from_env("SANDBOX_MCP_URL", None, optional=True)
 
 # OTLP destinations for agent-server run telemetry (PostHog Logs/APM).
@@ -84,6 +91,12 @@ TASKS_CONTINUE_AS_NEW_ENABLED: bool = get_from_env(
     type_cast=str_to_bool,
 )
 
+TASKS_COMPUTE_QUOTA_ENFORCEMENT_ENABLED: bool = get_from_env(
+    "TASKS_COMPUTE_QUOTA_ENFORCEMENT_ENABLED",
+    False,
+    type_cast=str_to_bool,
+)
+
 # Event-count threshold for the above; 0 relies on Temporal's is_continue_as_new_suggested().
 TASKS_CONTINUE_AS_NEW_HISTORY_THRESHOLD: int = get_from_env(
     "TASKS_CONTINUE_AS_NEW_HISTORY_THRESHOLD", 4000, type_cast=int
@@ -94,6 +107,13 @@ TASKS_CONTINUE_AS_NEW_HISTORY_THRESHOLD: int = get_from_env(
 # set, the CI-follow-up floor is also bypassed so the timer actually fires
 # fast.
 TASKS_INACTIVITY_TIMEOUT_SECONDS: int = get_from_env("TASKS_INACTIVITY_TIMEOUT_SECONDS", 0, type_cast=int)
+
+# Hard wall-clock cap on a process_task run, measured from the start of the
+# continue_as_new chain and never reset by heartbeats, so it bounds total run time even
+# while a wedged agent keeps heartbeating. Interactive sessions are exempt at the call
+# site. Set low (e.g. 60) for local testing; 0 or negative disables the cap entirely,
+# matching TASKS_INACTIVITY_TIMEOUT_SECONDS above.
+TASKS_MAX_RUN_DURATION_SECONDS: int = get_from_env("TASKS_MAX_RUN_DURATION_SECONDS", 3 * 60 * 60, type_cast=int)
 
 # Override the delay before the first in-sandbox credential refresh (default 20
 # minutes). Set this low (e.g. 30) for local testing so the refresh loop fires
@@ -106,10 +126,9 @@ TASKS_CREDENTIAL_REFRESH_INITIAL_DELAY_SECONDS: int = get_from_env(
 # Entries appended to a run's S3 JSONL log are also emitted as structured stdout log lines;
 # the per-cluster OTel collector already ships container stdout into the region's internal
 # PostHog project's Logs, so no transport or credentials are needed here. Only runs whose
-# task origin_product is in this list are mirrored — scoped to signals scouts for now;
-# widen the list to cover more task origins, or set it empty to disable.
+# task origin_product is in this list are mirrored. Set it empty to disable.
 TASK_RUN_LOGS_MIRROR_ORIGIN_PRODUCTS: list[str] = get_list(
-    os.getenv("TASK_RUN_LOGS_MIRROR_ORIGIN_PRODUCTS", "signals_scout")
+    os.getenv("TASK_RUN_LOGS_MIRROR_ORIGIN_PRODUCTS", "signals_scout,user_created")
 )
 
 # Direct OTLP delivery for the mirror above. The token pins the destination: scout runs
@@ -170,7 +189,6 @@ STAMPHOG_TASK_QUEUE = _set_temporal_task_queue("stamphog-task-queue")
 TEST_TASK_QUEUE = _set_temporal_task_queue("test-task-queue")
 BILLING_TASK_QUEUE = _set_temporal_task_queue("billing-task-queue")
 VIDEO_EXPORT_TASK_QUEUE = _set_temporal_task_queue("video-export-task-queue")
-MESSAGING_TASK_QUEUE = _set_temporal_task_queue("messaging-task-queue")
 ANALYTICS_PLATFORM_TASK_QUEUE = _set_temporal_task_queue("analytics-platform-task-queue")
 SESSION_REPLAY_TASK_QUEUE = _set_temporal_task_queue("session-replay-task-queue")
 REPLAY_VISION_TASK_QUEUE = _set_temporal_task_queue("replay-vision-task-queue")
@@ -183,11 +201,19 @@ SURFACING_SCORING_SWEEP_TASK_QUEUE = SESSION_REPLAY_TASK_QUEUE
 WEEKLY_DIGEST_TASK_QUEUE = _set_temporal_task_queue("weekly-digest-task-queue")
 LLMA_EVALS_TASK_QUEUE = _set_temporal_task_queue("llm-analytics-evals-task-queue")
 LLMA_TASK_QUEUE = _set_temporal_task_queue("llm-analytics-task-queue")
-MCPA_TASK_QUEUE = _set_temporal_task_queue("mcp-analytics-task-queue")
+# Defaults to the general-purpose fleet so dispatch always has a live worker; set the env to
+# "mcp-analytics-task-queue" to route MCP analytics clustering to a dedicated, separately-scalable
+# worker once one is deployed.
+MCPA_TASK_QUEUE = _set_temporal_task_queue(os.getenv("MCPA_TASK_QUEUE", "general-purpose-task-queue"))
 ERROR_TRACKING_TASK_QUEUE = _set_temporal_task_queue("error-tracking-task-queue")
 ERROR_TRACKING_LIFECYCLE_TASK_QUEUE = _set_temporal_task_queue("error-tracking-lifecycle-task-queue")
 EVENT_SCREENSHOTS_TASK_QUEUE = _set_temporal_task_queue("event-screenshots-task-queue")
 LOGS_ALERTING_TASK_QUEUE = _set_temporal_task_queue("logs-alerting-task-queue")
+# Dedicated queue: the tick becomes the scan-heavy rollup writer, and it must not
+# share pods with the latency-sensitive alerting workers.
+LOGS_VOLUME_TICK_TASK_QUEUE = _set_temporal_task_queue(
+    os.getenv("LOGS_VOLUME_TICK_TASK_QUEUE", "logs-volume-tick-task-queue")
+)
 RASTERIZATION_TASK_QUEUE = "rasterization-task-queue"  # Not collapsed in dev — separate Node.js worker process
 
 # Error tracking

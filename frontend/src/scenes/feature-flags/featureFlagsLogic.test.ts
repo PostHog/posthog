@@ -1,7 +1,11 @@
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
+import posthog from 'posthog-js'
 
 import api from 'lib/api'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
+import { featureFlagLogic as enabledFeaturesLogic } from 'lib/logic/featureFlagLogic'
 import { showApprovalRequiredToast } from 'scenes/approvals/ApprovalRequiredBanner'
 import { NEW_FLAG } from 'scenes/feature-flags/featureFlagLogic'
 import {
@@ -23,6 +27,11 @@ import { FeatureFlagType } from '~/types'
 jest.mock('scenes/approvals/ApprovalRequiredBanner', () => ({
     showApprovalRequiredToast: jest.fn(),
 }))
+jest.mock('posthog-js')
+
+function capturesOf(event: string): any[][] {
+    return (posthog.capture as jest.Mock).mock.calls.filter(([name]) => name === event)
+}
 
 describe('flagMatchesSearch', () => {
     const flag = { ...NEW_FLAG, id: 1, key: 'my-feature', name: 'My Feature Flag' } as FeatureFlagType
@@ -330,13 +339,14 @@ describe('updateFeatureFlag 409 handling', () => {
     ])(
         'shows approval toast with "$expected" when toggling active=$active gets a 409',
         async ({ active, expected }) => {
-            const error = { status: 409, data: { change_request_id: 'cr-123' } }
+            const error = { status: 409, data: { change_request_id: 'cr-123', code: 'approval_required' } }
             jest.spyOn(api, 'update').mockRejectedValueOnce(error)
 
             logic.actions.updateFeatureFlag({ id: 1, payload: { active } })
             await expectLogic(logic).toFinishAllListeners()
 
-            expect(showApprovalRequiredToast).toHaveBeenCalledWith('cr-123', expected)
+            expect(showApprovalRequiredToast).toHaveBeenCalledWith('cr-123', expected, 'approval_required')
+            expect(posthog.captureException).not.toHaveBeenCalled()
         }
     )
 
@@ -358,5 +368,197 @@ describe('updateFeatureFlag 409 handling', () => {
         await expectLogic(logic).toFinishAllListeners()
 
         expect(showApprovalRequiredToast).not.toHaveBeenCalled()
+        // A non-approval 409 stays visible to error tracking; only approval-shaped ones are suppressed
+        expect(posthog.captureException).toHaveBeenCalledWith(error)
+    })
+})
+
+describe('updateFeatureFlagArchived', () => {
+    let logic: ReturnType<typeof featureFlagsLogic.build>
+
+    // One test here rejects the archive request on purpose; kea-loaders would log the failure
+    beforeEach(silenceKeaLoadersErrors)
+    afterEach(resumeKeaLoadersErrors)
+
+    beforeEach(() => {
+        useMocks({
+            get: {
+                '/api/projects/:projectId/feature_flags/': () => [
+                    200,
+                    {
+                        results: [{ id: 1, key: 'test-flag', active: true }],
+                        count: 1,
+                    },
+                ],
+            },
+        })
+        initKeaTests()
+        logic = featureFlagsLogic()
+        logic.mount()
+        ;(posthog.capture as jest.Mock).mockClear()
+    })
+
+    afterEach(() => {
+        logic?.unmount()
+        jest.restoreAllMocks()
+    })
+
+    it('captures "feature flag archived" only after the archive succeeds', async () => {
+        jest.spyOn(api, 'update').mockResolvedValueOnce({ id: 1, key: 'test-flag', archived: true, active: false })
+
+        logic.actions.updateFeatureFlagArchived({ id: 1, archived: true, via: 'archive-dialog' })
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(capturesOf('feature flag archived')).toEqual([['feature flag archived', { via: 'archive-dialog' }]])
+    })
+
+    it('does not capture "feature flag archived" when the archive request fails', async () => {
+        jest.spyOn(api, 'update').mockRejectedValueOnce({ status: 409, data: { detail: 'Conflict' } })
+
+        logic.actions.updateFeatureFlagArchived({ id: 1, archived: true, via: 'archive-dialog' })
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(capturesOf('feature flag archived')).toHaveLength(0)
+    })
+
+    it('marks the row as updating until the archive resolves', async () => {
+        jest.spyOn(api, 'update').mockResolvedValueOnce({ id: 1, key: 'test-flag', archived: true, active: false })
+
+        logic.actions.updateFeatureFlagArchived({ id: 1, archived: true, via: 'archive-dialog' })
+        expect(logic.values.featureFlagsUpdating[1]).toBe(true)
+
+        await expectLogic(logic).toFinishAllListeners()
+        expect(logic.values.featureFlagsUpdating[1]).toBeUndefined()
+    })
+
+    // The list arm of the disable-and-archive experiment: the row toggle has to reach
+    // updateFeatureFlagArchived with the list's own via, not the archive dialog's.
+    it('archives via the disable confirmation when the test variant picks it', async () => {
+        const openDialog = jest.spyOn(LemonDialog, 'open').mockImplementation(() => {})
+        jest.spyOn(api, 'update').mockResolvedValueOnce({ id: 1, key: 'test-flag', archived: true, active: false })
+        const flagsLogic = enabledFeaturesLogic()
+        flagsLogic.mount()
+        flagsLogic.actions.setFeatureFlags([FEATURE_FLAGS.FEATURE_FLAG_DISABLE_AND_ARCHIVE_EXPERIMENT], {
+            [FEATURE_FLAGS.FEATURE_FLAG_DISABLE_AND_ARCHIVE_EXPERIMENT]: 'test',
+        })
+
+        logic.actions.toggleFeatureFlagActive(1, false)
+        expect(openDialog.mock.calls[0][0].secondaryButton?.children).toBe('Disable and archive')
+
+        openDialog.mock.calls[0][0].secondaryButton?.onClick?.(undefined as any)
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(capturesOf('feature flag archived')).toEqual([
+            ['feature flag archived', { via: 'disable-confirmation' }],
+        ])
+    })
+
+    it('leaves other rows spinning when one archive fails', async () => {
+        jest.spyOn(api, 'update').mockRejectedValueOnce({ status: 409, data: { detail: 'Conflict' } })
+        logic.actions.setFeatureFlagUpdating(2, true)
+
+        logic.actions.updateFeatureFlagArchived({ id: 1, archived: true, via: 'archive-dialog' })
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(logic.values.featureFlagsUpdating[1]).toBeUndefined()
+        expect(logic.values.featureFlagsUpdating[2]).toBe(true)
+    })
+})
+
+describe('displayedFlags stability while a load is in flight', () => {
+    let logic: ReturnType<typeof featureFlagsLogic.build>
+
+    beforeEach(() => {
+        useMocks({
+            get: {
+                '/api/projects/:projectId/feature_flags/': () => [
+                    200,
+                    {
+                        results: [
+                            { id: 1, key: 'alpha', active: true },
+                            { id: 2, key: 'beta', active: true },
+                        ],
+                        count: 2,
+                    },
+                ],
+            },
+        })
+        initKeaTests()
+        logic = featureFlagsLogic()
+        logic.mount()
+    })
+
+    afterEach(() => {
+        logic?.unmount()
+    })
+
+    // Regression guard: displayedFlags must filter the loaded page by the filters it was loaded under, not
+    // the just-changed live filters. Filtering the previous page against a new search before the refetch
+    // lands used to empty the list, which flashed LemonTable's skeleton rows over a table that had data.
+    it('keeps the loaded rows until the refetch lands when a non-matching search is typed', async () => {
+        logic.actions.loadFeatureFlags()
+        await expectLogic(logic).toDispatchActions(['loadFeatureFlagsSuccess'])
+        expect(logic.values.displayedFlags.map((f) => f.key)).toEqual(['alpha', 'beta'])
+
+        await expectLogic(logic, () => {
+            logic.actions.setFeatureFlagsFilters({ search: 'no-such-flag' })
+        })
+            // setFeatureFlagsFilters debounces the refetch, so this asserts the pre-refetch render.
+            .toMatchValues({
+                filters: expect.objectContaining({ search: 'no-such-flag' }),
+                displayedFlags: [expect.objectContaining({ key: 'alpha' }), expect.objectContaining({ key: 'beta' })],
+            })
+            .toDispatchActions(['loadFeatureFlagsSuccess'])
+
+        // The mock ignores `search`, so the refetch returns alpha and beta again: only the client-side
+        // filter, now stamped with the new search, can empty the list. Asserted outside the expectLogic
+        // chain because a failing toMatchValues there times the test out instead of reporting a diff.
+        expect(logic.values.displayedFlags).toEqual([])
+    })
+
+    // Regression guard: the loader reads `values` live, so reading the filters after its await stamped the
+    // response with whatever had been typed since. displayedFlags then filtered a page against filters it
+    // was never requested under, emptying the list and flashing skeletons over data that had just landed.
+    it('stamps the response with the filters it was requested under, not ones typed while it was in flight', async () => {
+        logic.actions.loadFeatureFlags()
+        // The refetch is debounced 300ms, so this only mutates `filters` while the first request is open.
+        logic.actions.setFeatureFlagsFilters({ search: 'typed-while-loading' })
+
+        await expectLogic(logic).toDispatchActions(['loadFeatureFlagsSuccess'])
+
+        expect(logic.values.featureFlags.filters?.search).toBeUndefined()
+        expect(logic.values.displayedFlags.map((f) => f.key)).toEqual(['alpha', 'beta'])
+    })
+
+    // Regression guard: the 300ms debounce spaces out dispatches, not requests, so two loads can be open
+    // at once. Without a breakpoint the slower, older response resolved last and replaced the newer page.
+    it('discards a superseded response that resolves after a newer one', async () => {
+        let releaseStaleResponse = (): void => {}
+        const staleResponseReleased = new Promise<void>((resolve) => {
+            releaseStaleResponse = resolve
+        })
+        let requestCount = 0
+        useMocks({
+            get: {
+                '/api/projects/:projectId/feature_flags/': async () => {
+                    requestCount += 1
+                    if (requestCount === 1) {
+                        await staleResponseReleased
+                        return [200, { results: [{ id: 1, key: 'stale', active: true }], count: 1 }]
+                    }
+                    return [200, { results: [{ id: 2, key: 'fresh', active: true }], count: 1 }]
+                },
+            },
+        })
+
+        logic.actions.loadFeatureFlags()
+        logic.actions.loadFeatureFlags()
+        await expectLogic(logic).toDispatchActions(['loadFeatureFlagsSuccess'])
+        expect(logic.values.displayedFlags.map((f) => f.key)).toEqual(['fresh'])
+
+        releaseStaleResponse()
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(logic.values.displayedFlags.map((f) => f.key)).toEqual(['fresh'])
     })
 })

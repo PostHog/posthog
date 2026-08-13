@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 
 import type { GroupType } from '@/api/client'
+import { MCP_INSTRUCTIONS_CHAR_BUDGET } from '@/lib/constants'
 import { buildToolDomainsCompact, type QueryToolInfo } from '@/lib/instructions'
 import { InstructionsFormatter, type InstructionsContext } from '@/lib/instructions-formatter'
 
@@ -97,17 +98,21 @@ describe('InstructionsFormatter', () => {
             // query-* tools surface as the single `query` domain, not a separate catalog line
             expect(result).toContain('dashboard|execute-sql|feature-flag|query')
             expect(result).not.toContain('query-*:')
-            expect(result).toContain('Defined group types: organization')
-            expect(result).toContain("The user's name is Jane Doe")
+            // Env context is not here — it rides the exec command description, which has no
+            // truncation cap, leaving this payload's whole budget to the domain index.
+            expect(result).not.toContain('Defined group types: organization')
+            expect(result).not.toContain("The user's name is Jane Doe")
             expect(result).not.toMatch(
                 /\{tool_domains\}|\{query_tools\}|\{metadata\}|\{defined_groups\}|\{guidelines\}/
             )
         })
 
-        // Claude Code caps MCP `instructions` at 2048 chars — stay under the budget with
-        // a realistic-ish tool count so this asserts something meaningful. 60 domains +
-        // 12 query tools ≈ today's v2 deployment.
-        it('stays under the 2048-character budget at realistic tool counts', () => {
+        // Synthetic fixture: 60 uniform `domain-N-get` names collapse to short domains and
+        // cost ~1/3 of what the live catalog does, which is how a 2,923-char payload shipped
+        // past a passing 2048 assertion. Kept for the placeholder wiring it exercises; the
+        // assertion that actually guards the cap runs the real catalog, in
+        // `instructions-formatter-snapshot.test.ts`.
+        it('stays under the character budget at synthetic tool counts', () => {
             const manyTools = Array.from({ length: 60 }, (_, i) => ({
                 name: `domain-${i}-get`,
                 category: `Category ${i % 6}`,
@@ -125,7 +130,21 @@ describe('InstructionsFormatter', () => {
                 tools: manyTools,
                 queryTools: manyQueryTools,
             })
-            expect(result.length).toBeLessThanOrEqual(2048)
+            expect(result.length).toBeLessThanOrEqual(MCP_INSTRUCTIONS_CHAR_BUDGET)
+        })
+
+        // The domain index names PostHog resources, not callable tools, so without this
+        // line the payload never states what can actually be called. `render-ui` is only
+        // mounted on MCP Apps hosts — naming it elsewhere advertises a tool that isn't there.
+        it('names the callable tools, gating render-ui on the host mounting it', () => {
+            const formatter = new InstructionsFormatter()
+            const withUi = formatter.buildExecInstructions({ ...fullCtx, renderUiEnabled: true })
+            const withoutUi = formatter.buildExecInstructions({ ...fullCtx, renderUiEnabled: false })
+
+            expect(withUi).toContain('exec – run any PostHog command')
+            expect(withUi).toContain('render-ui – show a tool result as an interactive app.')
+            expect(withoutUi).toContain('exec – run any PostHog command')
+            expect(withoutUi).not.toContain('render-ui')
         })
 
         it('does not bleed the full command reference into the compact instructions', () => {
@@ -227,7 +246,7 @@ describe('InstructionsFormatter', () => {
     })
 
     describe('Claude web/desktop exec guidance', () => {
-        it('keeps routine guidance inline and advertises learn guides and skill syntax', () => {
+        it('keeps routine guidance inline and advertises optional topics', () => {
             const formatter = new InstructionsFormatter()
             const result = formatter.buildClaudeExecCommandReference(fullCtx)
 
@@ -246,9 +265,7 @@ describe('InstructionsFormatter', () => {
             )
             expect(result).toContain('- analytics:')
             expect(result).toContain('- visualizations:')
-            expect(result).toContain('- urls:')
             expect(result).toContain('- feedback:')
-            expect(result).toContain('(posthog|project):<skill> [path...]')
             expect(result).toContain('SCHEMA DRILL-DOWN RULE')
             expect(result).toContain('**Data discovery:**')
             expect(result).toContain('**CORRECT usage pattern:**')
@@ -263,27 +280,27 @@ describe('InstructionsFormatter', () => {
             expect(result).not.toContain('### Retrieving data')
             expect(result).not.toContain('### Examples')
             expect(result).not.toContain('### Rendering visualizations')
-            expect(result).not.toContain('### URL patterns')
             expect(result).not.toContain('### Sharing feedback on PostHog')
             expect(result).not.toContain('- `query-trends` — time series')
-            expect(result).not.toMatch(
-                /\{learn_guides\}|\{query_tools\}|\{metadata\}|\{defined_groups\}|\{guidelines\}/
-            )
+            expect(result).not.toMatch(/\{help_topics\}|\{query_tools\}|\{metadata\}|\{defined_groups\}|\{guidelines\}/)
         })
 
         it('combines analytics guidance and examples in one learning topic', () => {
             const formatter = new InstructionsFormatter()
-            const entries = formatter.buildClaudeExecLearnGuides(fullCtx)
+            const entries = formatter.buildClaudeExecHelpEntries(fullCtx)
             const analytics = entries.find((entry) => entry.id === 'analytics')
 
-            expect(entries.map(({ id }) => id)).toEqual(['analytics', 'visualizations', 'urls', 'feedback'])
+            expect(entries.map(({ id, kind }) => ({ id, kind }))).toEqual([
+                { id: 'analytics', kind: 'guide' },
+                { id: 'visualizations', kind: 'guide' },
+                { id: 'feedback', kind: 'guide' },
+            ])
             expect(analytics?.content).toContain('### Retrieving data')
             expect(analytics?.content).toContain('### Examples')
             expect(analytics?.content).toContain('- `query-trends` — time series')
             expect(entries.find((entry) => entry.id === 'visualizations')?.content).toContain(
                 '### Rendering visualizations'
             )
-            expect(entries.find((entry) => entry.id === 'urls')?.content).toContain('### URL patterns')
             expect(entries.find((entry) => entry.id === 'feedback')?.content).toContain(
                 '### Sharing feedback on PostHog'
             )
@@ -296,36 +313,14 @@ describe('InstructionsFormatter', () => {
                 renderUiEnabled: false,
             }
 
-            expect(formatter.buildClaudeExecLearnGuides(ctx).map((entry) => entry.id)).toEqual([
+            expect(formatter.buildClaudeExecHelpEntries(ctx).map((entry) => entry.id)).toEqual([
                 'analytics',
-                'urls',
                 'feedback',
             ])
             const result = formatter.buildClaudeExecCommandReference(ctx)
             expect(result).toContain('- analytics:')
             expect(result).not.toContain('- visualizations:')
             expect(result).toContain('- feedback:')
-        })
-
-        it('keeps built-in topics but omits skill commands when skills are disabled', () => {
-            const formatter = new InstructionsFormatter()
-            const result = formatter.buildClaudeExecCommandReference(fullCtx, { skillsEnabled: false })
-
-            expect(result).toContain('- analytics:')
-            expect(result).toContain('learn <topic...> - load one or more learning topics')
-            expect(result).not.toContain('learn skills')
-            expect(result).not.toContain('learn posthog:<skill>')
-        })
-
-        it('keeps URL patterns inline when learn is unavailable', () => {
-            const formatter = new InstructionsFormatter()
-            const result = formatter.buildClaudeExecCommandReference(fullCtx, {
-                learnEnabled: false,
-                skillsEnabled: false,
-            })
-
-            expect(result).toContain('### URL patterns')
-            expect(result).not.toContain('- urls:')
         })
     })
 
@@ -343,7 +338,7 @@ describe('InstructionsFormatter', () => {
             {
                 name: 'analytics learn topic content',
                 render: (formatter, ctx) =>
-                    formatter.buildClaudeExecLearnGuides(ctx).find((entry) => entry.id === 'analytics')!.content,
+                    formatter.buildClaudeExecHelpEntries(ctx).find((entry) => entry.id === 'analytics')!.content,
                 mustPrecede: ['### Retrieving data', '#### Schema-first workflow'],
             },
             {
@@ -377,18 +372,18 @@ describe('InstructionsFormatter', () => {
         it('advertises governed metrics in the analytics topic description only when the catalog exists', () => {
             const formatter = new InstructionsFormatter()
             const analyticsDescription = (ctx: InstructionsContext): string =>
-                formatter.buildClaudeExecLearnGuides(ctx).find((entry) => entry.id === 'analytics')!.description
+                formatter.buildClaudeExecHelpEntries(ctx).find((entry) => entry.id === 'analytics')!.description
             expect(analyticsDescription({ ...fullCtx, dataCatalogEnabled: true })).toContain('governed metrics')
             expect(analyticsDescription(fullCtx)).toBe('Query or analyze PostHog data, metrics, and events.')
         })
     })
 
     // Mirrors the single-exec wiring in `src/mcp.ts`. When the client honors the MCP
-    // `instructions` field, env-context moves out of the `command` description and into
-    // `instructions`: tool domains (including the `query` domain), user preferences
-    // (timezone/name via `{metadata}`), and defined group types. The query-tool catalog
-    // stays on the `command` description. Codex (no `instructions` support) keeps today's
-    // behavior: empty `instructions`, everything inlined in the `command` description.
+    // `instructions` field, that payload carries exactly one thing — the tool-domain index
+    // (including the `query` domain) — because clients hard-truncate it. Everything else,
+    // env-context and the query-tool catalog included, stays on the `command` description,
+    // which has no cap. Codex (no `instructions` support) keeps today's behavior: empty
+    // `instructions`, everything inlined in the `command` description.
     describe('exec mode wiring', () => {
         it.each([
             { name: 'supportsInstructions=true (Claude Code etc.)', supportsInstructions: true },
@@ -398,6 +393,7 @@ describe('InstructionsFormatter', () => {
             const instructions = supportsInstructions ? formatter.buildExecInstructions(fullCtx) : ''
             const commandReference = formatter.buildExecCommandReference(fullCtx, {
                 stripEnvContext: supportsInstructions,
+                keepEnvContext: true,
             })
 
             expect(commandReference).toContain('SCHEMA DRILL-DOWN RULE')
@@ -409,10 +405,10 @@ describe('InstructionsFormatter', () => {
                 // queries surface in instructions only as the `query` tool domain
                 expect(instructions).toContain('dashboard|execute-sql|feature-flag|query')
                 expect(instructions).not.toContain('- `query-trends` — time series')
-                expect(instructions).toContain("The user's name is Jane Doe")
-                expect(instructions).toContain('Defined group types: organization')
-                expect(commandReference).not.toContain("The user's name is Jane Doe")
-                expect(commandReference).not.toContain('Defined group types: organization')
+                expect(instructions).not.toContain("The user's name is Jane Doe")
+                expect(instructions).not.toContain('Defined group types: organization')
+                expect(commandReference).toContain("The user's name is Jane Doe")
+                expect(commandReference).toContain('Defined group types: organization')
                 expect(commandReference).not.toContain('dashboard|execute-sql')
             } else {
                 expect(instructions).toBe('')

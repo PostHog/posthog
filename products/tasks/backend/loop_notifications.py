@@ -8,7 +8,8 @@ Celery task and Temporal activity contexts alike, no request assumed.
 ``payload`` carries event-specific detail from the caller. Recognized keys
 (all optional): ``title`` / ``body`` override the generated copy, ``url``
 links to the run or PR, ``task_id`` / ``task_run_id`` identify the run for
-push deep-linking and email idempotency.
+push deep-linking and email idempotency, ``report`` is the run's final agent
+message, delivered in email and Slack bodies.
 """
 
 from typing import Any
@@ -18,7 +19,7 @@ from django.db import transaction
 import structlog
 from slack_sdk.errors import SlackApiError
 
-from posthog.email import EmailMessage, is_email_available
+from posthog.email import EmailMessage, get_email_team_and_org_context, is_email_available
 from posthog.models.integration import Integration, SlackIntegration
 from posthog.redis import get_client
 from posthog.tasks.push_notifications import send_user_push
@@ -34,7 +35,7 @@ from products.tasks.backend.models import Loop
 
 logger = structlog.get_logger(__name__)
 
-PUSH_TITLE = "PostHog Code"
+PUSH_TITLE = "PostHog Desktop"
 
 _COOLDOWN_EVENTS = frozenset({"run_failed", "needs_attention"})
 _COOLDOWN_TTL_SECONDS = 300
@@ -65,7 +66,7 @@ def dispatch_loop_event(loop: Loop, event: str, payload: dict[str, Any]) -> None
     config = loop.notifications if isinstance(loop.notifications, dict) else {}
     _send_push(loop, event, title, payload, config.get("push") or {})
     _send_email(loop, event, title, body, payload, config.get("email") or {})
-    _send_slack(loop, event, title, body, config.get("slack") or {})
+    _send_slack(loop, event, title, body, payload, config.get("slack") or {})
 
 
 def _event_copy(loop: Loop, event: str, payload: dict[str, Any]) -> tuple[str, str]:
@@ -159,6 +160,8 @@ def _send_email(
             "event_title": title,
             "event_body": body,
             "run_url": str(payload.get("url") or ""),
+            "report": str(payload.get("report") or ""),
+            **get_email_team_and_org_context(team=loop.team),
         }
         message = EmailMessage(
             campaign_key=campaign_key,
@@ -173,7 +176,9 @@ def _send_email(
         logger.warning("loop_notifications.email_failed", loop_id=str(loop.id), loop_event=event, exc_info=True)
 
 
-def _send_slack(loop: Loop, event: str, title: str, body: str, channel_config: dict[str, Any]) -> None:
+def _send_slack(
+    loop: Loop, event: str, title: str, body: str, payload: dict[str, Any], channel_config: dict[str, Any]
+) -> None:
     if not _channel_enabled(channel_config, event):
         return
     params = channel_config.get("params") or {}
@@ -188,7 +193,9 @@ def _send_slack(loop: Loop, event: str, title: str, body: str, channel_config: d
                 "loop_notifications.slack_integration_missing", loop_id=str(loop.id), integration_id=integration_id
             )
             return
-        text = _truncate(f"*{title}*\n{body}", _SLACK_BODY_MAX_CHARS)
+        report = payload.get("report")
+        slack_body = str(report) if report else body
+        text = _truncate(f"*{_escape_slack_mrkdwn(title)}*\n{_escape_slack_mrkdwn(slack_body)}", _SLACK_BODY_MAX_CHARS)
         SlackIntegration(integration).client.chat_postMessage(
             channel=channel, text=text, unfurl_links=False, unfurl_media=False
         )
@@ -243,3 +250,7 @@ def _truncate(text: str, limit: int) -> str:
     if len(text) <= limit:
         return text
     return text[: limit - 1] + "…"
+
+
+def _escape_slack_mrkdwn(text: str) -> str:
+    return text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")

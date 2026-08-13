@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 
-import { IconPlus, IconRefresh, IconTrash } from '@posthog/icons'
+import { IconInfo, IconPlus, IconRefresh, IconTrash } from '@posthog/icons'
 import {
     LemonBanner,
     LemonButton,
@@ -15,6 +15,7 @@ import {
     LemonTag,
     LemonTextArea,
     Link,
+    Tooltip,
 } from '@posthog/lemon-ui'
 
 import type { DataColorToken } from 'lib/colors'
@@ -30,6 +31,7 @@ import { groupsModel } from '~/models/groupsModel'
 import type { CustomPropertyOptionApi } from 'products/customer_analytics/frontend/generated/api.schemas'
 
 import {
+    ColumnPropertyMapping,
     CustomPropertySourceMode,
     CustomPropertyTargetType,
     customPropertyDefinitionsLogic,
@@ -53,6 +55,81 @@ const TARGET_TYPE_OPTIONS: { value: CustomPropertyTargetType; label: string }[] 
     { value: 'group', label: 'Group' },
 ]
 
+// The table an existing source reads, shown as text because the binding is create-only. Links to the
+// table's own page, where its sync history and import errors are.
+function ReadOnlyWarehouseTable({
+    entityPlural,
+    tableName,
+    schemaUrl,
+}: {
+    entityPlural: string
+    tableName: string | null
+    schemaUrl: string | null
+}): JSX.Element {
+    return (
+        <div className="flex flex-col gap-1">
+            <LemonLabel>Warehouse table</LemonLabel>
+            {tableName ? (
+                schemaUrl ? (
+                    <Link to={schemaUrl} target="_blank" targetBlankIcon>
+                        <code>{tableName}</code>
+                    </Link>
+                ) : (
+                    <code>{tableName}</code>
+                )
+            ) : (
+                <span className="text-secondary">
+                    This table isn't available. It may have been deleted, or you may not have access to the source it
+                    belongs to.
+                </span>
+            )}
+            <span className="text-secondary text-xs">
+                Rows from this table update matching {entityPlural} on every sync. You can't change the table after the
+                property is created.
+            </span>
+        </div>
+    )
+}
+
+// An existing source's column mappings. Create-only on the backend, so they're listed rather than
+// edited: what a property reads is the thing you open the modal to check.
+function ReadOnlyColumnMappings({
+    entityLabel,
+    mappings,
+}: {
+    entityLabel: string
+    mappings: ColumnPropertyMapping[]
+}): JSX.Element {
+    const mapped = mappings.filter((mapping) => mapping.column && mapping.property)
+    return (
+        <div className="flex flex-col gap-2">
+            <LemonLabel>Column mappings</LemonLabel>
+            {mapped.length ? (
+                <div className="flex flex-col gap-1">
+                    {mapped.map((mapping) => (
+                        <div key={mapping.column} className="flex flex-col border rounded px-2 py-1">
+                            <span className="flex items-center gap-2">
+                                <code>{mapping.column}</code>
+                                <span className="text-secondary">→</span>
+                                <code>{mapping.property}</code>
+                            </span>
+                            {mapping.description && (
+                                <span className="text-secondary text-xs">{mapping.description}</span>
+                            )}
+                        </div>
+                    ))}
+                </div>
+            ) : (
+                <span className="text-secondary">This source has no column mappings.</span>
+            )}
+            <span className="text-secondary text-xs">
+                Which warehouse column sets which {entityLabel} property. You can't change the mappings after the
+                property is created. To change them, delete this property and create a new one.
+            </span>
+        </div>
+    )
+}
+
 // Warehouse-profile editor (person or group target): pick a synced warehouse table, the key column
 // (a person's distinct_id or a group's key), and the column → property mappings. For group targets it
 // also picks which group type. The binding + mappings are create-only on the backend, so they're
@@ -66,17 +143,36 @@ function PersonSourceEditor(): JSX.Element {
         columnMappingWarnings,
         selectedTableColumns,
         selectedTableColumnsLoading,
+        hasSyncedWarehouseTables,
     } = useValues(customPropertyDefinitionsLogic)
-    const { setCustomPropertyFormValue, loadSelectedTableColumns } = useActions(customPropertyDefinitionsLogic)
+    const { setCustomPropertyFormValue, loadSelectedTableColumns, loadWarehouseTables } =
+        useActions(customPropertyDefinitionsLogic)
     const { groupTypes } = useValues(groupsModel)
 
     const isGroup = customPropertyForm.targetType === 'group'
     const entityLabel = isGroup ? 'group' : 'person'
-    const hasExistingSource = !!editingDefinition?.source
-    const noTables = !warehouseTablesLoading && warehouseTables.length === 0
+    const entityPlural = isGroup ? 'groups' : 'people'
+    const existingSource = editingDefinition?.source
+    const hasExistingSource = !!existingSource
+    // Deliberately not derived from `warehouseTables` — the picker's search narrows that list, and a
+    // search with no matches would otherwise collapse the whole editor into the empty-state banner,
+    // taking the search box with it. The picker shows its own "no options matching" instead.
+    const noTables = hasSyncedWarehouseTables === false
     const mappings = customPropertyForm.columnMappings
     const setMappings = (next: typeof mappings): void => setCustomPropertyFormValue('columnMappings', next)
-    const columnOptions = selectedTableColumns.map((column) => ({ key: column, label: column }))
+    const columnByName = new Map(selectedTableColumns.map((column) => [column.name, column]))
+    // Each column option renders its name with a tag for its warehouse type, so a picker shows what
+    // kind of value it holds without leaving the modal.
+    const columnOptions = selectedTableColumns.map((column) => ({
+        key: column.name,
+        label: column.name,
+        labelComponent: (
+            <span className="flex items-center gap-2">
+                <span>{column.name}</span>
+                <LemonTag type="muted">{column.type}</LemonTag>
+            </span>
+        ),
+    }))
     const groupTypeOptions = Array.from(groupTypes.values()).map((groupType) => ({
         value: groupType.group_type_index,
         label: groupType.name_singular || groupType.group_type,
@@ -109,35 +205,48 @@ function PersonSourceEditor(): JSX.Element {
                 </LemonField>
             )}
             {hasExistingSource ? (
-                <LemonBanner type="info">
-                    The warehouse table and column mappings are fixed once a source is created. To change them, delete
-                    this property and create a new one. You can still update the {isGroup ? 'group key' : 'distinct ID'}{' '}
-                    column and toggle syncing.
-                </LemonBanner>
+                <ReadOnlyWarehouseTable
+                    entityPlural={entityPlural}
+                    tableName={existingSource?.table_name ?? null}
+                    schemaUrl={
+                        existingSource?.external_data_source && existingSource.external_data_schema
+                            ? urls.dataWarehouseSourceSchema(
+                                  existingSource.external_data_source,
+                                  existingSource.external_data_schema
+                              )
+                            : null
+                    }
+                />
             ) : (
                 <LemonField
                     name="warehouseTable"
                     label="Warehouse table"
-                    help={`Rows from this synced table are upserted onto matching ${entityLabel}s.`}
+                    help={`Rows from this synced table are upserted onto matching ${entityLabel}s. Type to search all synced tables.`}
                 >
                     {({ value, onChange }) => (
-                        <LemonSearchableSelect
-                            value={value}
-                            onChange={(newValue) => {
+                        <LemonInputSelect
+                            mode="single"
+                            value={value ? [value] : []}
+                            onChange={(newValues) => {
+                                const newValue = newValues[0] ?? null
                                 onChange(newValue)
                                 // Columns are table-specific, so a table change invalidates the picks and
                                 // loads the new table's columns for the pickers below.
                                 setCustomPropertyFormValue('keyColumn', null)
-                                setMappings(mappings.map((mapping) => ({ ...mapping, column: '' })))
+                                setMappings(mappings.map((mapping) => ({ ...mapping, column: '', description: '' })))
+                                // Also load on clear (tableId null) so the pickers below drop the previous
+                                // table's stale columns; the loader returns an empty list for null.
                                 loadSelectedTableColumns({ tableId: newValue })
                             }}
+                            // Search runs on the backend so the whole synced catalog is reachable, not just
+                            // the first page loaded into the picker.
+                            onInputChange={(search) => loadWarehouseTables({ search })}
                             options={warehouseTables.map((table) => ({
-                                value: table.id,
+                                key: table.id,
                                 label: table.hogql_name || table.name,
                             }))}
                             loading={warehouseTablesLoading}
                             placeholder="Select a warehouse table"
-                            fullWidth
                         />
                     )}
                 </LemonField>
@@ -161,7 +270,9 @@ function PersonSourceEditor(): JSX.Element {
                     />
                 )}
             </LemonField>
-            {!hasExistingSource && (
+            {hasExistingSource ? (
+                <ReadOnlyColumnMappings entityLabel={entityLabel} mappings={mappings} />
+            ) : (
                 <div className="flex flex-col gap-2">
                     <LemonLabel>Column mappings</LemonLabel>
                     <span className="text-secondary text-xs">
@@ -175,13 +286,29 @@ function PersonSourceEditor(): JSX.Element {
                                         mode="single"
                                         allowCustomValues
                                         value={mapping.column ? [mapping.column] : []}
-                                        onChange={(newValues) =>
+                                        onChange={(newValues) => {
+                                            const column = newValues[0] ?? ''
+                                            const columnMeta = columnByName.get(column)
                                             setMappings(
                                                 mappings.map((m, i) =>
-                                                    i === index ? { ...m, column: newValues[0] ?? '' } : m
+                                                    i === index
+                                                        ? {
+                                                              ...m,
+                                                              column,
+                                                              // Seed the property name and description from the
+                                                              // column when they're still empty, so a mapping is
+                                                              // one click when the warehouse names are good. The
+                                                              // description has no input here — it rides along
+                                                              // from the warehouse column's own description.
+                                                              property: m.property.trim() ? m.property : column,
+                                                              description: m.description.trim()
+                                                                  ? m.description
+                                                                  : (columnMeta?.description ?? ''),
+                                                          }
+                                                        : m
                                                 )
                                             )
-                                        }
+                                        }}
                                         options={columnOptions}
                                         loading={selectedTableColumnsLoading}
                                         placeholder="Warehouse column"
@@ -216,15 +343,32 @@ function PersonSourceEditor(): JSX.Element {
                     <LemonButton
                         type="secondary"
                         icon={<IconPlus />}
-                        onClick={() => setMappings([...mappings, { column: '', property: '' }])}
+                        onClick={() => setMappings([...mappings, { column: '', property: '', description: '' }])}
                     >
                         Add mapping
                     </LemonButton>
                 </div>
             )}
-            <LemonField name="isEnabled">
+            <LemonField
+                name="isEnabled"
+                help={`When on, this table's syncs update the mapped ${entityLabel} properties, and each sync backfills changed rows. Turn it off to stop updating those properties without deleting the mapping; values already synced stay.`}
+            >
                 {({ value, onChange }) => (
-                    <LemonSwitch checked={value} onChange={onChange} label="Sync enabled" bordered />
+                    <LemonSwitch
+                        checked={value}
+                        onChange={onChange}
+                        label={
+                            <span className="flex items-center gap-1">
+                                Sync enabled
+                                <Tooltip
+                                    title={`Keeps the mapped ${entityLabel} properties updated from this warehouse table on every sync. Disabling stops updates; it doesn't remove values already written.`}
+                                >
+                                    <IconInfo className="text-secondary" />
+                                </Tooltip>
+                            </span>
+                        }
+                        bordered
+                    />
                 )}
             </LemonField>
         </>
@@ -304,6 +448,7 @@ export function CustomPropertyModal(): JSX.Element {
         definitionsLoading,
         editingReferences,
         newWorkflowUrlLoading,
+        targetTypeLocked,
     } = useValues(customPropertyDefinitionsLogic)
     const {
         closeModal,
@@ -391,7 +536,7 @@ export function CustomPropertyModal(): JSX.Element {
                 <LemonField name="description" label="Description">
                     <LemonTextArea placeholder="Optional description" minRows={2} />
                 </LemonField>
-                {profileTargetAvailable && (
+                {profileTargetAvailable && !targetTypeLocked && (
                     <LemonField
                         name="targetType"
                         label="Attach to"

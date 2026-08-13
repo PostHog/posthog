@@ -44,11 +44,63 @@ SHUTDOWN_DRAIN_TIMEOUT_SECONDS = 30.0
 # whole fleet hammer a degraded queue DB in lockstep.
 POLL_BACKOFF_MAX_SECONDS = 30.0
 
+# Ceiling on the backoff exponent. A prolonged queue-DB outage drives the failure
+# count into the thousands, and 2 ** (failures - 1) then overflows float when
+# multiplied by the interval, before min() can clamp to POLL_BACKOFF_MAX_SECONDS.
+# 2 ** 32 already dwarfs the cap for any real poll interval, so doubling past here
+# only risks the overflow without changing the (already saturated) result.
+POLL_BACKOFF_MAX_DOUBLINGS = 32
+
 # Per-poll fetch cap multiplier: fetch at most (free slots x this) batches so a poll
 # never leases far more groups than it can dispatch. Runs average ~2 batches per
 # group (batch 0 + final), so x3 gives headroom for multi-batch runs without
 # re-creating the over-claim problem.
 BATCHES_PER_GROUP_FETCH_FACTOR = 3
+
+
+# EAI_AGAIN ("Temporary failure in name resolution") means the resolver itself is
+# briefly unavailable, not that the queue DB's hostname is invalid — the next
+# connection attempt succeeds once resolution recovers. Self-healing, like the
+# queue DB's own startup/failover connection refusals, so it shouldn't page anyone.
+_DNS_RESOLUTION_TRANSIENT_MARKER = "temporary failure in name resolution"
+
+
+def _is_dns_resolution_transient_error(error: BaseException) -> bool:
+    if not isinstance(error, psycopg.OperationalError):
+        return False
+    return _DNS_RESOLUTION_TRANSIENT_MARKER in str(error).lower()
+
+
+# Connect-time "server not ready" refusals: PostgreSQL rejects a new connection with SQLSTATE
+# 57P03 while it is still coming up (starting up, replaying WAL after a crash — "the database
+# system is in recovery mode" — or not yet at a consistent recovery point) or shutting down.
+# All are transient: the queue DB begins accepting connections again within seconds, so this is
+# a self-healing blip, not a bug to report. Mirrors the source-side `_is_server_starting_up_error`
+# in sources/postgres/postgres.py, for the queue DB connection itself.
+_SERVER_NOT_READY_ERROR_SUBSTRINGS = (
+    "the database system is starting up",
+    "the database system is not yet accepting connections",
+    "the database system is in recovery mode",
+    "the database system is shutting down",
+)
+
+
+def _is_server_not_ready_error(error: BaseException) -> bool:
+    if not isinstance(error, psycopg.OperationalError):
+        return False
+    message = " ".join(str(arg) for arg in error.args).lower()
+    return any(substring in message for substring in _SERVER_NOT_READY_ERROR_SUBSTRINGS)
+
+
+# psycopg raises ConnectionTimeout only while *establishing* a connection, never mid-query. Every
+# caller here reconnects to a queue DB it (or a sibling pod) was already talking to moments earlier,
+# so a connect-time timeout is the queue DB being momentarily slow to accept, not a config problem —
+# the same self-healing shape as the DNS and server-not-ready refusals above. Mirrors the source-side
+# `_is_dropped_or_connect_timeout` in sources/postgres/postgres.py, which treats a connect timeout on
+# its read/sync path the same way (as opposed to schema discovery, where a timeout usually means a
+# now-unreachable host and is deliberately left to fail fast).
+def _is_connect_timeout_error(error: BaseException) -> bool:
+    return isinstance(error, psycopg.errors.ConnectionTimeout)
 
 
 class OwnershipLostError(Exception):
@@ -360,6 +412,18 @@ class BatchConsumer:
         except TimeoutError:
             pass
 
+    async def _handle_poll_timeout(self, poll_start: float) -> None:
+        # error, not exception: the timeout is the designed recovery
+        # path and its traceback carries no diagnostic value.
+        logger.error(  # noqa: TRY400
+            self._event("poll_timed_out"),
+            timeout_seconds=self._config.poll_timeout_seconds,
+            consecutive_failures=self._consecutive_poll_failures + 1,
+        )
+        self._note_poll_failure("timeout", duration=time.monotonic() - poll_start)
+        await self._drop_conn("_poll_conn")
+        await self._wait_or_shutdown(self._poll_retry_delay())
+
     async def run(self) -> None:
         self._install_signal_handlers()
 
@@ -399,25 +463,35 @@ class BatchConsumer:
                     continue
 
                 poll_start = time.monotonic()
+                poll_timeout_ctx = asyncio.timeout(self._config.poll_timeout_seconds)
                 try:
                     conn = await self._ensure_poll_conn()
-                    async with asyncio.timeout(self._config.poll_timeout_seconds):
+                    async with poll_timeout_ctx:
                         batches = await self._fetch_batches(conn, available=available)
                 except TimeoutError:
-                    # error, not exception: the timeout is the designed recovery
-                    # path and its traceback carries no diagnostic value.
-                    logger.error(  # noqa: TRY400
-                        self._event("poll_timed_out"),
-                        timeout_seconds=self._config.poll_timeout_seconds,
-                        consecutive_failures=self._consecutive_poll_failures + 1,
-                    )
-                    self._note_poll_failure("timeout", duration=time.monotonic() - poll_start)
-                    await self._drop_conn("_poll_conn")
-                    await self._wait_or_shutdown(self._poll_retry_delay())
+                    await self._handle_poll_timeout(poll_start)
                     continue
                 except psycopg.OperationalError as e:
-                    logger.exception(self._event("poll_failed_queue_db_unreachable"))
-                    capture_exception(e)
+                    if poll_timeout_ctx.expired():
+                        # asyncio.timeout() cancels the in-flight query on expiry, but
+                        # psycopg's async wait loop can catch that cancellation and
+                        # re-raise it as a generic OperationalError ("consuming input
+                        # failed: server closed the connection unexpectedly") instead
+                        # of letting a bare TimeoutError propagate. Timeout.expired()
+                        # reflects whether this context's own deadline fired regardless
+                        # of the exception type, so this is still the designed timeout
+                        # path above, not a real queue-DB outage.
+                        await self._handle_poll_timeout(poll_start)
+                        continue
+                    if _is_dns_resolution_transient_error(e):
+                        logger.warning(self._event("poll_failed_queue_db_dns_unavailable"), error=str(e))
+                    elif _is_server_not_ready_error(e):
+                        logger.warning(self._event("poll_failed_queue_db_starting_up"), error=str(e))
+                    elif _is_connect_timeout_error(e):
+                        logger.warning(self._event("poll_failed_queue_db_connect_timeout"), error=str(e))
+                    else:
+                        logger.exception(self._event("poll_failed_queue_db_unreachable"))
+                        capture_exception(e)
                     self._note_poll_failure("db_unreachable", duration=time.monotonic() - poll_start)
                     await self._wait_or_shutdown(self._poll_retry_delay())
                     continue
@@ -1007,6 +1081,16 @@ class BatchConsumer:
 
             try:
                 await self._recovery_sweep_with_timeout()
+            except psycopg.OperationalError as e:
+                if _is_dns_resolution_transient_error(e):
+                    logger.warning(self._event("recovery_sweep_dns_unavailable"), error=str(e))
+                elif _is_server_not_ready_error(e):
+                    logger.warning(self._event("recovery_sweep_db_starting_up"), error=str(e))
+                elif _is_connect_timeout_error(e):
+                    logger.warning(self._event("recovery_sweep_connect_timeout"), error=str(e))
+                else:
+                    logger.exception(self._event("recovery_sweep_error"))
+                    capture_exception(e)
             except Exception as e:
                 logger.exception(self._event("recovery_sweep_error"))
                 capture_exception(e)
@@ -1023,6 +1107,16 @@ class BatchConsumer:
                         timeout_seconds=self._config.sweep_timeout_seconds,
                     )
                     await self._drop_conn("_recovery_conn")
+                except psycopg.OperationalError as e:
+                    if _is_dns_resolution_transient_error(e):
+                        logger.warning(self._event("reconcile_sweep_dns_unavailable"), error=str(e))
+                    elif _is_server_not_ready_error(e):
+                        logger.warning(self._event("reconcile_sweep_db_starting_up"), error=str(e))
+                    elif _is_connect_timeout_error(e):
+                        logger.warning(self._event("reconcile_sweep_connect_timeout"), error=str(e))
+                    else:
+                        logger.exception(self._event("reconcile_sweep_error"))
+                        capture_exception(e)
                 except Exception as e:
                     logger.exception(self._event("reconcile_sweep_error"))
                     capture_exception(e)
@@ -1062,7 +1156,8 @@ class BatchConsumer:
         gets exponentially less pressure and the fleet's retries desynchronize."""
         base = self._config.poll_interval_seconds
         failures = max(self._consecutive_poll_failures, 1)
-        backoff = min(base * 2 ** (failures - 1), POLL_BACKOFF_MAX_SECONDS)
+        exponent = min(failures - 1, POLL_BACKOFF_MAX_DOUBLINGS)
+        backoff = min(base * 2**exponent, POLL_BACKOFF_MAX_SECONDS)
         return backoff + random.uniform(0, base)
 
     def _report_health(self) -> None:

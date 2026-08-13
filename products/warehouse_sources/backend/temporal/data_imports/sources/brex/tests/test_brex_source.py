@@ -33,6 +33,14 @@ class TestBrexSource:
         assert self.source.resolve_api_version(None) == BREX_API_VERSION_V2
         assert self.source.resolve_api_version(BREX_API_VERSION_V1) == BREX_API_VERSION_V1
 
+    def test_v1_is_deprecated_without_sunset_and_v2_is_not(self):
+        # Brex announced no sunset date, so v1 is flagged deprecated with sunset_at=None; the default
+        # v2 must never be deprecated.
+        deprecation = self.source.get_version_deprecation(BREX_API_VERSION_V1)
+        assert deprecation is not None
+        assert deprecation.sunset_at is None
+        assert self.source.get_version_deprecation(BREX_API_VERSION_V2) is None
+
     def test_get_source_config(self):
         config = self.source.get_source_config
 

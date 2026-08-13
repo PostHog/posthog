@@ -31,8 +31,6 @@ export type State = {
     mcpProtocolVersion: string | undefined
     mcpConsumer: string | undefined
     mcpVendorClient: string | undefined
-    skillsLearnedAt: number | undefined
-    skillsNoSkillsAckAt: number | undefined
 } & Record<PrefixedString<'session'>, SessionState> &
     Record<PrefixedString<'groupTypes'>, GroupType[] | undefined> &
     Record<PrefixedString<'groupTypesFetchedAt'>, number | undefined> &
@@ -41,7 +39,9 @@ export type State = {
     Record<PrefixedString<'cachedOrg'>, CachedOrg | undefined> &
     Record<PrefixedString<'cachedOrgFetchedAt'>, number | undefined> &
     Record<PrefixedString<'cachedProject'>, CachedProject | undefined> &
-    Record<PrefixedString<'cachedProjectFetchedAt'>, number | undefined>
+    Record<PrefixedString<'cachedProjectFetchedAt'>, number | undefined> &
+    Record<PrefixedString<'gatewayTools'>, Schemas.AvailableToolsResponse | undefined> &
+    Record<PrefixedString<'gatewayToolsFetchedAt'>, number | undefined>
 
 export type Env = {
     /**
@@ -87,8 +87,6 @@ export type Env = {
      * Falls back to the production US host if not set.
      */
     POSTHOG_ANALYTICS_HOST: string | undefined
-    /** Override the published product skills archive, primarily for local development. */
-    POSTHOG_MCP_SKILLS_URL?: string | undefined
 }
 
 export type Context = {
@@ -111,6 +109,16 @@ export type Context = {
      * stateManager when not provided.
      */
     trackEvent: (event: AnalyticsEvent, properties?: Record<string, unknown>) => Promise<void>
+    /**
+     * Which PostHog connection this context runs through, when it runs through one at all. Set only
+     * by the forwarded context (see lib/connection-forwarding.ts); absent on a local call.
+     */
+    connection?: {
+        /** Project on this side that owns the connection. */
+        localProjectId: string
+        /** Integration id of the connection. */
+        connectionId: string
+    }
 }
 
 export type Tool<TSchema extends z.ZodType = z.ZodType, TResult = unknown> = {
@@ -118,6 +126,13 @@ export type Tool<TSchema extends z.ZodType = z.ZodType, TResult = unknown> = {
     title: string
     description: string
     schema: TSchema
+    /**
+     * JSON Schema to advertise instead of deriving one from `schema`. Set for proxied
+     * third-party tools, whose contract is defined upstream as JSON Schema: their `schema`
+     * is permissive (the upstream server validates), so deriving from it would describe
+     * nothing. PostHog's own tools leave this unset and stay Zod-derived.
+     */
+    rawInputSchema?: Record<string, unknown>
     handler: (context: Context, params: z.infer<TSchema>) => Promise<TResult>
     scopes: string[]
     annotations: {

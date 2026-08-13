@@ -4,6 +4,7 @@ import products.tasks.backend.presentation.views.api as tasks
 import products.tasks.backend.presentation.views.loops as loops
 import products.tasks.backend.presentation.views.seat_api as seats
 import products.tasks.backend.presentation.views.channels_api as channels
+import products.tasks.backend.presentation.views.sandbox_pricing_api as sandbox_pricing
 
 
 def register_routes(routers: RouterRegistry) -> None:
@@ -30,6 +31,7 @@ def register_routes(routers: RouterRegistry) -> None:
         ["team_id", "channel_id"],
     )
     routers.projects.register(r"task_mentions", channels.TaskMentionViewSet, "project_task_mentions", ["team_id"])
+    routers.projects.register(r"task_activity", channels.TaskActivityViewSet, "project_task_activity", ["team_id"])
     routers.projects.register(r"task_automations", tasks.TaskAutomationViewSet, "project_task_automations", ["team_id"])
     routers.projects.register(r"loops", loops.LoopViewSet, "project_loops", ["team_id"])
     routers.projects.register(
@@ -39,4 +41,7 @@ def register_routes(routers: RouterRegistry) -> None:
         r"sandbox_custom_images", tasks.SandboxCustomImageViewSet, "project_sandbox_custom_images", ["team_id"]
     )
     routers.root.register(r"code/invites", tasks.CodeInviteViewSet, "code_invites")
+    routers.root.register(
+        r"code/sandbox-pricing", sandbox_pricing.SandboxComputePricingViewSet, "sandbox_compute_pricing"
+    )
     routers.root.register(r"seats", seats.SeatViewSet, "seats")

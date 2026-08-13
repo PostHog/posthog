@@ -13,7 +13,7 @@ import {
     checkConditionMatch,
     checkRolloutPercentage,
     eachBatchEvaluationScheduler,
-    extractTraceContext,
+    extractEvaluationContext,
     filterAndParseMessages,
     groupEventsByTeam,
     unwrapOrLog,
@@ -440,13 +440,21 @@ describe('Evaluation Scheduler', () => {
         })
     })
 
-    describe('extractTraceContext', () => {
-        it('extracts string trace and session ids', () => {
+    describe('extractEvaluationContext', () => {
+        it('extracts string trace, session, and ai session ids', () => {
             const event = createAiGenerationEvent(teamId, {
-                properties: JSON.stringify({ $ai_trace_id: 'trace-1', $session_id: 'session-1' }),
+                properties: JSON.stringify({
+                    $ai_trace_id: 'trace-1',
+                    $session_id: 'session-1',
+                    $ai_session_id: 'ai-session-1',
+                }),
             })
 
-            expect(extractTraceContext(event)).toEqual({ traceId: 'trace-1', sessionId: 'session-1' })
+            expect(extractEvaluationContext(event)).toEqual({
+                traceId: 'trace-1',
+                sessionId: 'session-1',
+                aiSessionId: 'ai-session-1',
+            })
         })
 
         it('coerces numeric trace ids to strings', () => {
@@ -454,7 +462,7 @@ describe('Evaluation Scheduler', () => {
                 properties: JSON.stringify({ $ai_trace_id: 0 }),
             })
 
-            expect(extractTraceContext(event)).toEqual({ traceId: '0', sessionId: null })
+            expect(extractEvaluationContext(event)).toEqual({ traceId: '0', sessionId: null, aiSessionId: null })
         })
 
         it('returns nulls for missing or empty ids', () => {
@@ -462,13 +470,13 @@ describe('Evaluation Scheduler', () => {
                 properties: JSON.stringify({ $ai_trace_id: '', $ai_input: 'hi' }),
             })
 
-            expect(extractTraceContext(event)).toEqual({ traceId: null, sessionId: null })
+            expect(extractEvaluationContext(event)).toEqual({ traceId: null, sessionId: null, aiSessionId: null })
         })
 
         it('returns nulls on malformed properties JSON', () => {
             const event = createAiGenerationEvent(teamId, { properties: 'not json{' })
 
-            expect(extractTraceContext(event)).toEqual({ traceId: null, sessionId: null })
+            expect(extractEvaluationContext(event)).toEqual({ traceId: null, sessionId: null, aiSessionId: null })
         })
     })
 
@@ -522,51 +530,88 @@ describe('Evaluation Scheduler', () => {
             } as unknown as import('~/ai-observability/services/tagger-manager.service').TaggerManagerService
             temporalService = {
                 startEvaluationRunWorkflow: jest.fn().mockResolvedValue(undefined),
-                startTraceEvaluationRunWorkflow: jest.fn().mockResolvedValue(undefined),
+                startAggregateEvaluationWorkflow: jest.fn().mockResolvedValue(undefined),
                 startTaggerRunWorkflow: jest.fn().mockResolvedValue(undefined),
             } as unknown as import('~/ai-observability/services/temporal.service').TemporalService
         })
 
-        it('dispatches the trace workflow with trace context and the config window', async () => {
+        it('starts the aggregate workflow with trace context and the resolved fixed-window settle config', async () => {
             const event = createAiGenerationEvent(teamId, {
-                properties: JSON.stringify({ $ai_trace_id: 'trace-1', $session_id: 'session-1' }),
+                properties: JSON.stringify({ $ai_trace_id: 'trace-abc', $session_id: null }),
             })
             const evaluation = createEvaluation({
+                id: 'eval-1',
                 team_id: teamId,
                 target: 'trace',
-                target_config: { window_seconds: 90 },
+                target_config: { window_seconds: 900 },
                 conditions: [createEvaluationCondition({ bytecode: ['_H', 1, 32, true], rollout_percentage: 100 })],
             })
             ;(evaluationManager.getEvaluationsForTeams as jest.Mock).mockResolvedValue({ [teamId]: [evaluation] })
 
             await eachBatchEvaluationScheduler([messageFor(event)], evaluationManager, taggerManager, temporalService)
 
-            expect(temporalService.startTraceEvaluationRunWorkflow).toHaveBeenCalledWith(
-                evaluation.id,
-                event,
-                'trace-1',
-                'session-1',
-                90
+            expect(temporalService.startAggregateEvaluationWorkflow).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    evaluationId: 'eval-1',
+                    event: expect.objectContaining({ uuid: event.uuid }),
+                    target: 'trace',
+                    traceId: 'trace-abc',
+                    sessionId: null,
+                    settle: { strategy: 'fixed_window', window_seconds: 900 },
+                })
             )
             expect(temporalService.startEvaluationRunWorkflow).not.toHaveBeenCalled()
         })
 
         it('falls back to the default window when target_config has none', async () => {
             const event = createAiGenerationEvent(teamId, {
-                properties: JSON.stringify({ $ai_trace_id: 'trace-1' }),
+                properties: JSON.stringify({ $ai_trace_id: 'trace-abc', $session_id: null }),
             })
             const evaluation = createEvaluation({
+                id: 'eval-1',
                 team_id: teamId,
                 target: 'trace',
-                target_config: {},
                 conditions: [createEvaluationCondition({ bytecode: ['_H', 1, 32, true], rollout_percentage: 100 })],
             })
             ;(evaluationManager.getEvaluationsForTeams as jest.Mock).mockResolvedValue({ [teamId]: [evaluation] })
 
             await eachBatchEvaluationScheduler([messageFor(event)], evaluationManager, taggerManager, temporalService)
 
-            const call = (temporalService.startTraceEvaluationRunWorkflow as jest.Mock).mock.calls[0]
-            expect(call[4]).toBe(30 * 60)
+            expect(temporalService.startAggregateEvaluationWorkflow).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    evaluationId: 'eval-1',
+                    event: expect.objectContaining({ uuid: event.uuid }),
+                    target: 'trace',
+                    traceId: 'trace-abc',
+                    sessionId: null,
+                    settle: { strategy: 'fixed_window', window_seconds: 1800 },
+                })
+            )
+            expect(temporalService.startEvaluationRunWorkflow).not.toHaveBeenCalled()
+        })
+
+        it('passes the resolved inactivity settle config for inactivity evals', async () => {
+            const event = createAiGenerationEvent(teamId, {
+                properties: JSON.stringify({ $ai_trace_id: 'trace-xyz' }),
+            })
+            const evaluation = createEvaluation({
+                team_id: teamId,
+                target: 'trace',
+                target_config: { strategy: 'inactivity', quiet_period_seconds: 120 },
+                conditions: [createEvaluationCondition({ bytecode: ['_H', 1, 32, true], rollout_percentage: 100 })],
+            })
+            ;(evaluationManager.getEvaluationsForTeams as jest.Mock).mockResolvedValue({ [teamId]: [evaluation] })
+
+            await eachBatchEvaluationScheduler([messageFor(event)], evaluationManager, taggerManager, temporalService)
+
+            expect(temporalService.startAggregateEvaluationWorkflow).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    evaluationId: evaluation.id,
+                    target: 'trace',
+                    sessionId: null,
+                    settle: { strategy: 'inactivity', quiet_period_seconds: 120, max_age_seconds: 7200 },
+                })
+            )
         })
 
         it('skips trace-target evaluations when the event carries no trace id', async () => {
@@ -582,7 +627,7 @@ describe('Evaluation Scheduler', () => {
 
             await eachBatchEvaluationScheduler([messageFor(event)], evaluationManager, taggerManager, temporalService)
 
-            expect(temporalService.startTraceEvaluationRunWorkflow).not.toHaveBeenCalled()
+            expect(temporalService.startAggregateEvaluationWorkflow).not.toHaveBeenCalled()
             expect(temporalService.startEvaluationRunWorkflow).not.toHaveBeenCalled()
         })
 
@@ -604,7 +649,97 @@ describe('Evaluation Scheduler', () => {
                 event,
                 evaluation.evaluation_type
             )
-            expect(temporalService.startTraceEvaluationRunWorkflow).not.toHaveBeenCalled()
+            expect(temporalService.startAggregateEvaluationWorkflow).not.toHaveBeenCalled()
+        })
+
+        it('dispatches a session evaluation keyed on $ai_session_id', async () => {
+            const event = createAiGenerationEvent(teamId, {
+                properties: JSON.stringify({
+                    $ai_trace_id: 'trace-abc',
+                    $ai_session_id: 'ai-session-9',
+                    $session_id: 'ph-session-1',
+                }),
+            })
+            const evaluation = createEvaluation({
+                id: 'eval-1',
+                team_id: teamId,
+                target: 'session',
+                target_config: { strategy: 'inactivity', quiet_period_seconds: 3600, max_age_seconds: 86400 },
+                conditions: [createEvaluationCondition({ bytecode: ['_H', 1, 32, true], rollout_percentage: 100 })],
+            })
+            ;(evaluationManager.getEvaluationsForTeams as jest.Mock).mockResolvedValue({ [teamId]: [evaluation] })
+
+            await eachBatchEvaluationScheduler([messageFor(event)], evaluationManager, taggerManager, temporalService)
+
+            expect(temporalService.startAggregateEvaluationWorkflow).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    evaluationId: 'eval-1',
+                    target: 'session',
+                    aiSessionId: 'ai-session-9',
+                    sessionId: 'ph-session-1',
+                })
+            )
+        })
+
+        it('skips a session evaluation when the generation carries no $ai_session_id', async () => {
+            const event = createAiGenerationEvent(teamId, {
+                // $session_id is present and $ai_session_id is not. This is the common case: 100% of
+                // measured generations carry $session_id, only 7.4% carry $ai_session_id, and the two
+                // are never equal.
+                properties: JSON.stringify({ $ai_trace_id: 'trace-abc', $session_id: 'ph-session-1' }),
+            })
+            const evaluation = createEvaluation({
+                id: 'eval-1',
+                team_id: teamId,
+                target: 'session',
+                target_config: { strategy: 'inactivity', quiet_period_seconds: 3600, max_age_seconds: 86400 },
+                conditions: [createEvaluationCondition({ bytecode: ['_H', 1, 32, true], rollout_percentage: 100 })],
+            })
+            ;(evaluationManager.getEvaluationsForTeams as jest.Mock).mockResolvedValue({ [teamId]: [evaluation] })
+
+            await eachBatchEvaluationScheduler([messageFor(event)], evaluationManager, taggerManager, temporalService)
+
+            expect(temporalService.startAggregateEvaluationWorkflow).not.toHaveBeenCalled()
+            expect(temporalService.startEvaluationRunWorkflow).not.toHaveBeenCalled()
+        })
+
+        it('samples a session atomically across its traces, keyed on the ai session id', async () => {
+            // A rollout below 100 must decide once per session, not once per trace. Driving two
+            // different session ids through a fixed 50% rollout and checking that every trace of
+            // a given session lands on the same in/out decision catches per-trace sampling: with
+            // per-trace sampling, checkRolloutPercentage would be called with each trace id
+            // individually and could split a single session's traces across both outcomes.
+            const evaluation = createEvaluation({
+                id: 'eval-1',
+                team_id: teamId,
+                target: 'session',
+                target_config: { strategy: 'inactivity', quiet_period_seconds: 3600, max_age_seconds: 86400 },
+                conditions: [createEvaluationCondition({ bytecode: ['_H', 1, 32, true], rollout_percentage: 50 })],
+            })
+            ;(evaluationManager.getEvaluationsForTeams as jest.Mock).mockResolvedValue({ [teamId]: [evaluation] })
+
+            const sessionIds = ['ai-session-in', 'ai-session-out']
+            const [includedSessionId, excludedSessionId] = sessionIds
+                .map((id) => [id, checkRolloutPercentage(id, 50)] as const)
+                .sort(([, aIncluded], [, bIncluded]) => Number(bIncluded) - Number(aIncluded))
+                .map(([id]) => id)
+
+            const messages = ['trace-1', 'trace-2', 'trace-3'].map((traceId, i) =>
+                messageFor(
+                    createAiGenerationEvent(teamId, {
+                        properties: JSON.stringify({
+                            $ai_trace_id: traceId,
+                            $ai_session_id: i < 2 ? includedSessionId : excludedSessionId,
+                        }),
+                    })
+                )
+            )
+            await eachBatchEvaluationScheduler(messages, evaluationManager, taggerManager, temporalService)
+
+            const calls = (temporalService.startAggregateEvaluationWorkflow as jest.Mock).mock.calls
+            const dispatchedSessionIds = calls.map(([options]) => options.aiSessionId)
+
+            expect(dispatchedSessionIds).toEqual([includedSessionId, includedSessionId])
         })
     })
 

@@ -14,6 +14,7 @@ import time
 import threading
 import urllib.error
 import urllib.request
+from dataclasses import dataclass
 from typing import Any
 
 import pyarrow as pa
@@ -34,6 +35,15 @@ _POLL_MAX_INTERVAL_SECONDS = 2.0
 
 class DataPlaneError(Exception):
     """A query the data plane rejected or failed to run; message is user-facing."""
+
+    def __init__(self, message: str, delivery: str | None = None) -> None:
+        super().__init__(message)
+        # The transport the server said it was serving this fetch with, when it is already
+        # known at the point of failure. A failure after the accept must still attribute to
+        # its transport: otherwise every failed run lands in the unlabeled bucket and the
+        # per-transport failure ratio reads near zero however badly a transport is doing.
+        # None means the request failed before any transport was chosen.
+        self.delivery = delivery
 
 
 class DataPlaneInterrupted(DataPlaneError):
@@ -58,6 +68,31 @@ class _NoRedirectHandler(urllib.request.HTTPRedirectHandler):
 _no_redirect_opener = urllib.request.build_opener(_NoRedirectHandler)
 
 
+@dataclass(frozen=True, kw_only=True)
+class _FetchedTable:
+    """One data-plane fetch: the rows plus how they got here."""
+
+    table: "pa.Table"
+    # Truncated presigned-URL preview when the rows came from an object download, else None.
+    source: str | None
+    # Wall time of the presigned download alone, 0.0 when the rows arrived inline.
+    download_s: float
+    # The transport the server reported serving this fetch with. Opaque here on purpose: the
+    # sandbox echoes it into the envelope and the backend validates it against its own
+    # allowlist, so a new server-side mode needs no sandbox release to be reported.
+    delivery: str | None
+
+
+@dataclass(frozen=True, kw_only=True)
+class MaterializedFrame:
+    """The outcome of writing one referenced frame to a local Arrow file."""
+
+    row_count: int
+    source: str | None
+    download_s: float
+    delivery: str | None
+
+
 # How much of a presigned frame URL may be surfaced for observability. The URL is a
 # bearer secret; the first 30 characters cover scheme + host (which store served the
 # frame) and never reach the signature query parameters.
@@ -73,8 +108,8 @@ def fetch_query_page(
     cancel_event: "threading.Event | None" = None,
 ) -> tuple[list[str], list[tuple[Any, ...]], list[list[str]]]:
     """Run `query` through the data plane; return (columns, rows, types) of the capped page."""
-    table, _source = _request_table(url, token, query, limit, offset, cancel_event=cancel_event)
-    return _table_to_rows_and_types(table)
+    fetched = _request_table(url, token, query, limit, offset, cancel_event=cancel_event)
+    return _table_to_rows_and_types(fetched.table)
 
 
 def materialize_query_to_file(
@@ -85,24 +120,29 @@ def materialize_query_to_file(
     limit: int,
     offset: int = 0,
     cancel_event: "threading.Event | None" = None,
-) -> tuple[int, str | None]:
+) -> MaterializedFrame:
     """Fetch the full result of `query` and write it as a local Arrow IPC file for a Python/DuckDB node.
 
-    Returns (row count, truncated frame-store URL preview) — the preview is set only when
-    the frame actually came from a presigned object download (None on the inline fallback),
-    so callers can surface which store served the frame. Requests object delivery: the poll
-    answers with a 302 to a presigned object-store URL carrying the same Arrow bytes
-    (falling back to the inline body when the backend's frame store is unavailable). The
-    file is written to a temp name and renamed on success so a torn write (e.g. a
-    mid-stream failure) never leaves a half-frame the kernel could read.
+    The returned `source` preview is set only when the frame actually came from a presigned
+    object download (None on the inline fallback, with 0.0 download seconds), so callers can
+    surface which store served the frame. Requests object delivery: the poll answers with a
+    302 to a presigned object-store URL carrying the same Arrow bytes (falling back to the
+    inline body when the backend's frame store is unavailable). The file is written to a temp
+    name and renamed on success so a torn write (e.g. a mid-stream failure) never leaves
+    a half-frame the kernel could read.
     """
-    table, source = _request_table(url, token, query, limit, offset, delivery="object", cancel_event=cancel_event)
+    fetched = _request_table(url, token, query, limit, offset, delivery="object", cancel_event=cancel_event)
     temp_path = f"{dest_path}.partial"
     with pa.OSFile(temp_path, "wb") as sink:
-        with pa.ipc.new_file(sink, table.schema) as writer:
-            writer.write_table(table)
+        with pa.ipc.new_file(sink, fetched.table.schema) as writer:
+            writer.write_table(fetched.table)
     os.replace(temp_path, dest_path)
-    return table.num_rows, source
+    return MaterializedFrame(
+        row_count=fetched.table.num_rows,
+        source=fetched.source,
+        download_s=fetched.download_s,
+        delivery=fetched.delivery,
+    )
 
 
 def _check_cancelled(cancel_event: "threading.Event | None") -> None:
@@ -118,12 +158,8 @@ def _request_table(
     offset: int,
     delivery: str = "inline",
     cancel_event: "threading.Event | None" = None,
-) -> tuple["pa.Table", str | None]:
-    """POST the query and (once the async manager finishes) return the raw Arrow table.
-
-    The second element is a truncated presigned-URL preview when the rows came from an
-    object download, else None.
-    """
+) -> _FetchedTable:
+    """POST the query and (once the async manager finishes) return the raw Arrow table."""
     _check_cancelled(cancel_event)
     body: dict[str, Any] = {"query": query, "limit": limit, "offset": offset}
     if delivery != "inline":
@@ -141,7 +177,7 @@ def _request_table(
         with urllib.request.urlopen(request, timeout=_REQUEST_TIMEOUT_SECONDS) as response:
             if _is_arrow(response):
                 # A pre-async-manager backend answers the POST with the rows directly.
-                return _read_table(response), None
+                return _FetchedTable(table=_read_table(response), source=None, download_s=0.0, delivery=None)
             body = json.loads(response.read() or b"{}")
     except urllib.error.HTTPError as exc:
         raise DataPlaneError(_error_detail(exc)) from exc
@@ -153,8 +189,26 @@ def _request_table(
     query_id = body.get("query_id")
     if not query_id:
         raise DataPlaneError("Data plane did not accept the query")
-    return _poll_for_table(
-        f"{url.rstrip('/')}/{query_id}/", token, expect_object=delivery == "object", cancel_event=cancel_event
+    # The accept body names the transport the server actually chose, which is not always the
+    # one requested: an object request falls back to inline when the frame store is
+    # unconfigured or the user is outside the rollout. A backend predating this field leaves
+    # it None rather than guessing.
+    served_by = body.get("delivery") if isinstance(body.get("delivery"), str) else None
+    try:
+        fetched = _poll_for_table(
+            f"{url.rstrip('/')}/{query_id}/", token, expect_object=delivery == "object", cancel_event=cancel_event
+        )
+    except DataPlaneError as exc:
+        # Polling, the presigned download, and Arrow decoding all raise from below here,
+        # where the transport is not known. Stamp it on the way out so the failed run keeps
+        # its attribution.
+        exc.delivery = served_by
+        raise
+    return _FetchedTable(
+        table=fetched.table,
+        source=fetched.source,
+        download_s=fetched.download_s,
+        delivery=served_by,
     )
 
 
@@ -163,7 +217,7 @@ def _poll_for_table(
     token: str,
     expect_object: bool = False,
     cancel_event: "threading.Event | None" = None,
-) -> tuple["pa.Table", str | None]:
+) -> _FetchedTable:
     request = urllib.request.Request(status_url, headers={"Authorization": f"Bearer {token}"}, method="GET")
     # Only object-delivery polls intercept the completion 302 (a presigned frame handoff).
     # Inline polls keep urllib's transparent redirect-following, so an infrastructure
@@ -180,7 +234,7 @@ def _poll_for_table(
             # nosemgrep: python.lang.security.audit.dynamic-urllib-use-detected.dynamic-urllib-use-detected
             with opener(request, timeout=_REQUEST_TIMEOUT_SECONDS) as response:
                 if _is_arrow(response):
-                    return _read_table(response), None
+                    return _FetchedTable(table=_read_table(response), source=None, download_s=0.0, delivery=None)
                 # 202 — still running.
         except urllib.error.HTTPError as exc:
             if expect_object and exc.code == 302:
@@ -199,24 +253,30 @@ def _poll_for_table(
     raise DataPlaneError("Timed out waiting for the query to finish")
 
 
-def _fetch_presigned_table(presigned_url: str) -> tuple["pa.Table", str]:
+def _fetch_presigned_table(presigned_url: str) -> _FetchedTable:
     """Download the frame object from the presigned URL — deliberately credential-free.
 
     The URL is its own short-lived authorization; the data-plane token must never reach
     the object-store host. Range-based resume of an interrupted download is deferred.
-    Returns the table plus a truncated URL preview — never the full URL, which is a
-    bearer secret and must not travel beyond this fetch.
+    The reported source is a truncated preview, never the full URL, which is a bearer
+    secret and must not travel beyond this fetch.
     """
     if not presigned_url:
         raise DataPlaneError("Data plane redirect carried no download URL")
     source_preview = presigned_url[:_FRAME_SOURCE_PREVIEW_CHARS]
     request = urllib.request.Request(presigned_url, method="GET")
+    started = time.monotonic()
     try:
         # The URL comes from our own backend's redirect (minted after token verification),
         # never from user input.
         # nosemgrep: python.lang.security.audit.dynamic-urllib-use-detected.dynamic-urllib-use-detected
         with urllib.request.urlopen(request, timeout=_REQUEST_TIMEOUT_SECONDS) as response:
-            return _read_table(response), source_preview
+            return _FetchedTable(
+                table=_read_table(response),
+                source=source_preview,
+                download_s=time.monotonic() - started,
+                delivery=None,
+            )
     except urllib.error.HTTPError as exc:
         raise DataPlaneError(f"Frame download failed with HTTP {exc.code}") from exc
     except urllib.error.URLError as exc:

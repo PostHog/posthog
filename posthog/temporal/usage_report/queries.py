@@ -56,8 +56,10 @@ from posthog.tasks.usage_report import (
     get_teams_with_ai_credits_used_in_period,
     get_teams_with_ai_event_count_in_period,
     get_teams_with_api_queries_metrics,
+    get_teams_with_apm_tracing_usage_in_period,
     get_teams_with_billable_enhanced_persons_event_count_in_period,
     get_teams_with_billable_event_count_in_period,
+    get_teams_with_billable_sandbox_compute_usage_in_period,
     get_teams_with_cdp_billable_invocations_in_period,
     get_teams_with_dwh_mat_views_storage_in_s3,
     get_teams_with_dwh_tables_storage_in_s3,
@@ -78,6 +80,7 @@ from posthog.tasks.usage_report import (
     get_teams_with_recording_bytes_in_period,
     get_teams_with_recording_count_in_period,
     get_teams_with_replay_vision_credits_used_in_period,
+    get_teams_with_replay_vision_observation_count_in_period,
     get_teams_with_rows_exported_in_period,
     get_teams_with_rows_synced_in_period,
     get_teams_with_sdk_logs_records_in_period,
@@ -94,6 +97,7 @@ from posthog.tasks.usage_report import (
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.error_tracking.backend.facade import api as error_tracking_api
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
+from products.replay_vision.backend.models.replay_scanner import ReplayScanner
 from products.surveys.backend.models import Survey
 
 # ---- Postgres ORM / API helpers ---------------------------------------------
@@ -150,6 +154,16 @@ def _survey_count() -> list[dict[str, int]]:
     return list(Survey.objects.values("team_id").annotate(total=Count("id")).order_by("team_id"))
 
 
+def _replay_vision_scanner_count() -> list[dict[str, int]]:
+    return list(ReplayScanner.objects.values("team_id").annotate(total=Count("id")).order_by("team_id"))
+
+
+def _replay_vision_scanner_active_count() -> list[dict[str, int]]:
+    return list(
+        ReplayScanner.objects.filter(enabled=True).values("team_id").annotate(total=Count("id")).order_by("team_id")
+    )
+
+
 def _issues_created_total() -> list[dict[str, int]]:
     return [{"team_id": team_id, "total": total} for team_id, total in error_tracking_api.get_issue_counts_by_team()]
 
@@ -200,6 +214,15 @@ def _task_sandbox_usage(begin: datetime, end: datetime) -> dict[str, list[tuple[
         "seconds": usage.seconds,
         "cpu_core_seconds": usage.cpu_core_seconds,
         "memory_gib_seconds": usage.memory_gib_seconds,
+    }
+
+
+def _sandbox_compute_usage(begin: datetime, end: datetime) -> dict[str, list[tuple[int, int]]]:
+    usage = get_teams_with_billable_sandbox_compute_usage_in_period(begin, end)
+    return {
+        "credits": usage.credits,
+        "cpu_millicore_seconds": usage.cpu_millicore_seconds,
+        "memory_mib_seconds": usage.memory_mib_seconds,
     }
 
 
@@ -256,6 +279,13 @@ QUERIES: list[QuerySpec] = [
             "web_lite_events": "teams_with_web_lite_events_count_in_period",
             "node_events": "teams_with_node_events_count_in_period",
             "mcp_tool_call_events": "teams_with_mcp_tool_call_events_count_in_period",
+            "mcp_missing_capability_events": "teams_with_mcp_missing_capability_events_count_in_period",
+            "mcp_initialize_events": "teams_with_mcp_initialize_events_count_in_period",
+            "mcp_tools_list_events": "teams_with_mcp_tools_list_events_count_in_period",
+            "mcp_resource_read_events": "teams_with_mcp_resource_read_events_count_in_period",
+            "mcp_resources_list_events": "teams_with_mcp_resources_list_events_count_in_period",
+            "mcp_prompt_get_events": "teams_with_mcp_prompt_get_events_count_in_period",
+            "mcp_prompts_list_events": "teams_with_mcp_prompts_list_events_count_in_period",
             "openclaw_events": "teams_with_openclaw_events_count_in_period",
             "posthog_pi_events": "teams_with_posthog_pi_events_count_in_period",
             "posthog_ai_events": "teams_with_posthog_ai_events_count_in_period",
@@ -310,6 +340,10 @@ QUERIES: list[QuerySpec] = [
     QuerySpec(
         name="teams_with_replay_vision_credits_used_in_period",
         fn=get_teams_with_replay_vision_credits_used_in_period,
+    ),
+    QuerySpec(
+        name="teams_with_replay_vision_observation_count_in_period",
+        fn=get_teams_with_replay_vision_observation_count_in_period,
     ),
     # ---- ClickHouse: feature flag requests -----------------------------------
     QuerySpec(
@@ -471,6 +505,16 @@ QUERIES: list[QuerySpec] = [
             "memory_gib_seconds": "teams_with_task_sandbox_memory_gib_seconds_in_period",
         },
     ),
+    QuerySpec(
+        name="sandbox_compute_usage",
+        fn=_sandbox_compute_usage,
+        output="multi",
+        multi_keys_mapping={
+            "credits": "teams_with_sandbox_compute_credits_used_in_period",
+            "cpu_millicore_seconds": "teams_with_sandbox_compute_cpu_millicore_seconds_in_period",
+            "memory_mib_seconds": "teams_with_sandbox_compute_memory_mib_seconds_in_period",
+        },
+    ),
     # ---- ClickHouse: workflows / messaging ----------------------------------
     QuerySpec(
         name="teams_with_workflow_emails_sent_in_period",
@@ -518,6 +562,16 @@ QUERIES: list[QuerySpec] = [
             "14d": "teams_with_logs_retention_14d_bytes_in_period",
             "30d": "teams_with_logs_retention_30d_bytes_in_period",
             "90d": "teams_with_logs_retention_90d_bytes_in_period",
+        },
+    ),
+    # ---- ClickHouse: APM tracing ---------------------------------------------
+    QuerySpec(
+        name="apm_tracing_usage",
+        fn=get_teams_with_apm_tracing_usage_in_period,
+        output="multi",
+        multi_keys_mapping={
+            "bytes": "teams_with_apm_tracing_bytes_in_period",
+            "spans": "teams_with_apm_tracing_spans_in_period",
         },
     ),
     # ---- Snapshot queries (kind="snapshot") ---------------------------------
@@ -611,6 +665,18 @@ QUERIES: list[QuerySpec] = [
     QuerySpec(
         name="teams_with_survey_count",
         fn=_survey_count,
+        timeout_minutes=5,
+        kind="snapshot",
+    ),
+    QuerySpec(
+        name="teams_with_replay_vision_scanner_count",
+        fn=_replay_vision_scanner_count,
+        timeout_minutes=5,
+        kind="snapshot",
+    ),
+    QuerySpec(
+        name="teams_with_replay_vision_scanner_active_count",
+        fn=_replay_vision_scanner_active_count,
         timeout_minutes=5,
         kind="snapshot",
     ),

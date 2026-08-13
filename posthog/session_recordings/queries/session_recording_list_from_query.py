@@ -6,7 +6,6 @@ from dateutil.relativedelta import relativedelta
 from opentelemetry import trace
 
 from posthog.schema import (
-    FilterLogicalOperator,
     HogQLQueryModifiers,
     PropertyOperator,
     RecordingOrder,
@@ -22,6 +21,7 @@ from posthog.hogql.property import property_to_expr
 from posthog.exceptions_capture import capture_exception
 from posthog.hogql_queries.insights.paginators import HogQLCursorPaginator, HogQLHasMorePaginator
 from posthog.models import Team, User
+from posthog.session_recordings.models.metadata import ONGOING_SESSION_WINDOW_MINUTES
 from posthog.session_recordings.queries.sub_queries.base_query import SessionRecordingsListingBaseQuery
 from posthog.session_recordings.queries.sub_queries.cohort_subquery import CohortPropertyGroupsSubQuery
 from posthog.session_recordings.queries.sub_queries.events_subquery import ReplayFiltersEventsSubQuery
@@ -33,11 +33,17 @@ from posthog.session_recordings.queries.utils import (
     _strip_person_and_event_and_cohort_properties,
     expand_test_account_filters,
     is_session_property,
+    test_account_scoped_query,
 )
 from posthog.types import AnyPropertyFilter
 
 logger = structlog.get_logger(__name__)
 tracer = trace.get_tracer(__name__)
+
+
+# Neutral mid-pack score for sessions the surfacing scorer has not reached; shared with the
+# replay-vision sweep so list eligibility and sweep eligibility agree on unscored sessions.
+UNSCORED_SURFACING_SCORE = 0.36
 
 
 class SessionRecordingListFromQuery(SessionRecordingsListingBaseQuery):
@@ -72,7 +78,7 @@ class SessionRecordingListFromQuery(SessionRecordingsListingBaseQuery):
             ((sum(s.mouse_activity_count) + dateDiff('SECOND', start_time, end_time) + sum(s.console_error_count) + sum(s.console_log_count) + sum(s.console_warn_count)))
             * 100
             ), 2) as activity_score,
-            coalesce(max(s.surfacing_score), 0.36) as surfacing_score
+            coalesce(max(s.surfacing_score), {unscored_surfacing_score}) as surfacing_score
         FROM raw_session_replay_events s
         WHERE {where_predicates}
         GROUP BY session_id
@@ -126,11 +132,21 @@ class SessionRecordingListFromQuery(SessionRecordingsListingBaseQuery):
         max_execution_time: int | None = None,
         extra_having_predicates: list[ast.Expr] | None = None,
         session_ids_to_exclude: list[str] | None = None,
+        # For callers that evaluate negative filters themselves against the fetched rows.
+        skip_negative_blocklists: bool = False,
         bypass_date_window_for_session_ids: bool = False,
         user: User | None = None,
+        events_sample_factor: float | None = None,
+        events_timestamp_floor: datetime | None = None,
         **_,
     ):
         self._user = user
+        # Storage-level SAMPLE on any events subqueries; opt-in for estimates.
+        self._events_sample_factor = events_sample_factor
+        # Extra lower bound on positive events subqueries, for callers that re-run often over a wide
+        # session window and do not need each run to re-scan the whole range.
+        self._events_timestamp_floor = events_timestamp_floor
+        self.events_subqueries_sampled = False
         self._bypass_date_window_for_session_ids = bypass_date_window_for_session_ids
         # TRICKY: we need to make sure we init test account filters only once,
         # otherwise we'll end up with a lot of duplicated test account filters in the query
@@ -195,6 +211,7 @@ class SessionRecordingListFromQuery(SessionRecordingsListingBaseQuery):
         self._max_execution_time = max_execution_time
         self._extra_having_predicates = extra_having_predicates or []
         self._session_ids_to_exclude = session_ids_to_exclude
+        self._skip_negative_blocklists = skip_negative_blocklists
 
     @tracer.start_as_current_span("SessionRecordingListFromQuery.run")
     def run(self) -> SessionRecordingQueryResult:
@@ -214,6 +231,18 @@ class SessionRecordingListFromQuery(SessionRecordingsListingBaseQuery):
                     ),
                 ),
             )
+
+        # After the results are in, check whether the exclusion blocklist hit its row cap,
+        # because past the cap the query silently under-excludes. No-op without negated entities, and
+        # nothing to probe when the caller excluded against its own rows instead, where the scoped
+        # query is bounded by the ids it was given rather than by the cap.
+        if not self._skip_negative_blocklists:
+            ReplayFiltersEventsSubQuery(
+                self._team,
+                self._query,
+                self._allow_event_property_expansion,
+                hogql_query_modifiers=self._hogql_query_modifiers,
+            ).check_negative_blocklist_truncation()
 
         with tracer.start_as_current_span("SessionRecordingListFromQuery._data_to_return"):
             next_cursor = None
@@ -240,7 +269,7 @@ class SessionRecordingListFromQuery(SessionRecordingsListingBaseQuery):
                         left=ast.Call(name="max", args=[ast.Field(chain=["s", "_timestamp"])]),
                         right=ast.Constant(
                             # provided in a placeholder, so we can pass now from python to make tests easier 🙈
-                            value=datetime.now(UTC) - timedelta(minutes=5),
+                            value=datetime.now(UTC) - timedelta(minutes=ONGOING_SESSION_WINDOW_MINUTES),
                         ),
                         op=ast.CompareOperationOp.GtEq,
                     ),
@@ -248,6 +277,7 @@ class SessionRecordingListFromQuery(SessionRecordingsListingBaseQuery):
                 "where_predicates": self._where_predicates(),
                 "having_predicates": self._having_predicates() or ast.Constant(value=True),
                 "python_now": ast.Constant(value=datetime.now(UTC)),
+                "unscored_surfacing_score": ast.Constant(value=UNSCORED_SURFACING_SCORE),
             },
         )
         if isinstance(parsed_query, ast.SelectSetQuery):
@@ -272,6 +302,30 @@ class SessionRecordingListFromQuery(SessionRecordingsListingBaseQuery):
         return ast.OrderExpr(expr=ast.Field(chain=[order_by]), order=direction)
 
     @tracer.start_as_current_span("SessionRecordingListFromQuery._where_predicates")
+    def excluded_sessions_queries(self, session_ids: list[str]) -> list[ast.SelectQuery]:
+        """The scoped counterpart to `skip_negative_blocklists`: which of `session_ids` are excluded.
+
+        A caller that turns the in-query blocklists off must run these and drop what they return.
+        They are built from the same preprocessed query this class filters with, so the two forms
+        cannot answer for different windows or different property sets.
+
+        Empty when nothing is excluded, which is also how a caller can tell it has nothing to run.
+        """
+        return [q for b in self._negative_filter_builders() if (q := b.get_excluded_sessions_query(session_ids))]
+
+    def _negative_filter_builders(self) -> list[ReplayFiltersEventsSubQuery]:
+        """Every builder that can contribute a negative blocklist: the query's own, plus test accounts."""
+        builders = [ReplayFiltersEventsSubQuery(self._team, self._query, self._allow_event_property_expansion)]
+        if self._test_account_filters:
+            builders.append(
+                ReplayFiltersEventsSubQuery(
+                    self._team,
+                    test_account_scoped_query(self._query, self._test_account_filters),
+                    self._allow_event_property_expansion,
+                )
+            )
+        return builders
+
     def _where_predicates(self) -> Union[ast.And, ast.Or]:
         exprs: list[ast.Expr] = []
 
@@ -365,7 +419,11 @@ class SessionRecordingListFromQuery(SessionRecordingsListingBaseQuery):
 
         # if in PoE mode then we should be pushing person property queries into here
         events_sub_query_builder = ReplayFiltersEventsSubQuery(
-            self._team, self._query, self._allow_event_property_expansion
+            self._team,
+            self._query,
+            self._allow_event_property_expansion,
+            sample_factor=self._events_sample_factor,
+            events_timestamp_floor=self._events_timestamp_floor,
         )
         events_sub_queries = events_sub_query_builder.get_queries_for_session_id_matching()
         for events_sub_query in events_sub_queries:
@@ -383,7 +441,10 @@ class SessionRecordingListFromQuery(SessionRecordingsListingBaseQuery):
         # Negative property filters (NOT_ICONTAINS, IS_NOT, etc.) are handled via a blocklist:
         # find the small set of sessions that MATCH the positive form, then exclude them.
         # This avoids scanning all event-sessions which can exceed the LIMIT on high-traffic teams.
-        negative_blocklist = events_sub_query_builder.get_negative_blocklist_query()
+        negative_blocklist = (
+            None if self._skip_negative_blocklists else events_sub_query_builder.get_negative_blocklist_query()
+        )
+        self.events_subqueries_sampled |= events_sub_query_builder.emitted_sampled_subquery
         if negative_blocklist:
             exprs.append(
                 ast.CompareOperation(
@@ -429,13 +490,40 @@ class SessionRecordingListFromQuery(SessionRecordingsListingBaseQuery):
             optional_exprs.append(property_to_expr(remaining_properties, team=self._team, scope="replay"))
 
         if self._query.console_log_filters:
+            console_logs_where_exprs: list[ast.Expr] = [
+                property_to_expr(
+                    self.property_group_with_operand(self._query.console_log_filters),
+                    team=self._team,
+                )
+            ]
+
+            # Clamp the console logs subquery to the query's date range so we don't scan
+            # the entire table (console logs are message-content filters, not key lookups,
+            # and older partitions are tiered to object storage). Mirrors the ±1 day
+            # buffer used by ReplayFiltersEventsSubQuery: logs can be emitted slightly
+            # before a session's min_first_timestamp lands in the window and up to almost
+            # 24 hours after a session that started within it.
+            if self._query.date_from:
+                console_logs_where_exprs.append(
+                    ast.CompareOperation(
+                        op=ast.CompareOperationOp.GtEq,
+                        left=ast.Field(chain=["timestamp"]),
+                        right=ast.Constant(value=self.query_date_range.date_from() - timedelta(days=1)),
+                    )
+                )
+            if self._query.date_to:
+                console_logs_where_exprs.append(
+                    ast.CompareOperation(
+                        op=ast.CompareOperationOp.LtEq,
+                        left=ast.Field(chain=["timestamp"]),
+                        right=ast.Constant(value=self.query_date_range.date_to() + timedelta(days=1)),
+                    )
+                )
+
             console_logs_subquery = ast.SelectQuery(
                 select=[ast.Field(chain=["log_source_id"])],
                 select_from=ast.JoinExpr(table=ast.Field(chain=["console_logs_log_entries"])),
-                where=property_to_expr(
-                    self.property_group_with_operand(self._query.console_log_filters),
-                    team=self._team,
-                ),
+                where=ast.And(exprs=console_logs_where_exprs),
             )
 
             optional_exprs.append(
@@ -454,15 +542,14 @@ class SessionRecordingListFromQuery(SessionRecordingsListingBaseQuery):
         # a person sub-query, event props need an events sub-query, etc.), so we
         # build a minimal query with just the test account filters and AND operand.
         if self._test_account_filters:
-            test_account_query = self._query.model_copy(deep=True)
-            test_account_query.properties = list(self._test_account_filters)
-            test_account_query.operand = FilterLogicalOperator.AND_
-            test_account_query.events = None
-            test_account_query.actions = None
-            test_account_query.console_log_filters = None
+            test_account_query = test_account_scoped_query(self._query, self._test_account_filters)
 
             test_account_events_builder = ReplayFiltersEventsSubQuery(
-                self._team, test_account_query, self._allow_event_property_expansion
+                self._team,
+                test_account_query,
+                self._allow_event_property_expansion,
+                sample_factor=self._events_sample_factor,
+                events_timestamp_floor=self._events_timestamp_floor,
             )
             for sub_q in test_account_events_builder.get_queries_for_session_id_matching():
                 exprs.append(
@@ -470,7 +557,10 @@ class SessionRecordingListFromQuery(SessionRecordingsListingBaseQuery):
                         op=ast.CompareOperationOp.GlobalIn, left=ast.Field(chain=["s", "session_id"]), right=sub_q
                     )
                 )
-            test_account_negative_blocklist = test_account_events_builder.get_negative_blocklist_query()
+            test_account_negative_blocklist = (
+                None if self._skip_negative_blocklists else test_account_events_builder.get_negative_blocklist_query()
+            )
+            self.events_subqueries_sampled |= test_account_events_builder.emitted_sampled_subquery
             if test_account_negative_blocklist:
                 exprs.append(
                     ast.CompareOperation(

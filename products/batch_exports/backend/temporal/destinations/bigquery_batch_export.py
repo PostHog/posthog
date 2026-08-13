@@ -33,7 +33,7 @@ from google.cloud import bigquery, iam_admin_v1
 from google.cloud.bigquery.table import RowIterator, _EmptyRowIterator
 from google.oauth2 import service_account
 from structlog.contextvars import bind_contextvars
-from temporalio import activity, workflow
+from temporalio import activity, exceptions, workflow
 from temporalio.common import RetryPolicy
 
 from posthog.models.integration import GoogleCloudServiceAccountIntegration, Integration
@@ -50,10 +50,10 @@ from products.batch_exports.backend.service import (
     BigQueryBatchExportInputs,
 )
 from products.batch_exports.backend.temporal.batch_exports import (
-    OverBillingLimitError,
     StartBatchExportRunInputs,
     default_fields,
     get_data_interval,
+    is_over_billing_limit_error,
     start_batch_export_run,
 )
 from products.batch_exports.backend.temporal.pipeline.consumer import Consumer
@@ -67,7 +67,7 @@ from products.batch_exports.backend.temporal.pipeline.transformer import (
     SchemaTransformer,
 )
 from products.batch_exports.backend.temporal.pipeline.types import BatchExportResult, reduce_batch_export_results
-from products.batch_exports.backend.temporal.spmc import (
+from products.batch_exports.backend.temporal.queue import (
     RecordBatchQueue,
     raise_on_task_failure,
     wait_for_schema_or_producer,
@@ -433,12 +433,36 @@ class GoogleCloudCredentialsError(Exception):
 
 
 async def ensure_our_google_cloud_credentials_are_valid():
-    """Raise `InvalidCredentialsError` if we cannot refresh our credentials."""
+    """Raise `GoogleCloudCredentialsError` if we cannot refresh our credentials."""
+
     our_credentials = get_our_google_cloud_credentials()
+    session = _make_requests_session()
     try:
-        await asyncio.to_thread(our_credentials.refresh, google.auth.transport.requests.Request())
+        await asyncio.to_thread(our_credentials.refresh, google.auth.transport.requests.Request(session=session))
     except Exception as e:
         raise GoogleCloudCredentialsError from e
+
+
+def _make_requests_session() -> "requests.Session":
+    """Make a requests.Session for Google credentials refresh requests."""
+    import requests
+    from requests.adapters import HTTPAdapter
+    from urllib3.util.retry import Retry
+
+    retry = Retry(
+        backoff_factor=1.0,  # 0s, 2s, 4s, 6s, ...
+        connect=5,  # Retry on connection errors
+        status=5,  # Retry on statuses matching the ones below
+        status_forcelist=[429, 500, 502, 503],
+        allowed_methods=(*Retry.DEFAULT_ALLOWED_METHODS, "POST"),
+    )
+
+    session = requests.Session()
+    adapter = HTTPAdapter(max_retries=retry)
+    session.mount("https://", adapter)
+    session.mount("http://", adapter)
+
+    return session
 
 
 async def get_service_account_description(
@@ -1586,16 +1610,14 @@ class BigQueryBatchExportWorkflow(PostHogWorkflow):
         """Workflow implementation to export data to BigQuery."""
         is_backfill = inputs.get_is_backfill()
         is_earliest_backfill = inputs.get_is_earliest_backfill()
-        data_interval_start, data_interval_end = get_data_interval(
-            inputs.interval, inputs.data_interval_end, inputs.timezone
-        )
+        data_interval = get_data_interval(inputs.interval, inputs.data_interval_end, inputs.timezone)
         should_backfill_from_beginning = is_backfill and is_earliest_backfill
 
         start_batch_export_run_inputs = StartBatchExportRunInputs(
             team_id=inputs.team_id,
             batch_export_id=inputs.batch_export_id,
-            data_interval_start=data_interval_start.isoformat() if not should_backfill_from_beginning else None,
-            data_interval_end=data_interval_end.isoformat(),
+            data_interval_start=data_interval.start.isoformat() if not should_backfill_from_beginning else None,
+            data_interval_end=data_interval.end.isoformat(),
             exclude_events=inputs.exclude_events,
             include_events=inputs.include_events,
             backfill_id=inputs.backfill_details.backfill_id if inputs.backfill_details else None,
@@ -1612,8 +1634,10 @@ class BigQueryBatchExportWorkflow(PostHogWorkflow):
                     non_retryable_error_types=["NotNullViolation", "IntegrityError", "OverBillingLimitError"],
                 ),
             )
-        except OverBillingLimitError:
-            return
+        except exceptions.ActivityError as e:
+            if is_over_billing_limit_error(e):
+                return
+            raise
 
         insert_inputs = BigQueryInsertInputs(
             team_id=inputs.team_id,
@@ -1624,8 +1648,8 @@ class BigQueryBatchExportWorkflow(PostHogWorkflow):
             private_key_id=inputs.private_key_id,
             token_uri=inputs.token_uri,
             client_email=inputs.client_email,
-            data_interval_start=data_interval_start.isoformat() if not should_backfill_from_beginning else None,
-            data_interval_end=data_interval_end.isoformat(),
+            data_interval_start=data_interval.start.isoformat() if not should_backfill_from_beginning else None,
+            data_interval_end=data_interval.end.isoformat(),
             exclude_events=inputs.exclude_events,
             include_events=inputs.include_events,
             use_json_type=inputs.use_json_type,

@@ -5,7 +5,7 @@ from django.http.response import JsonResponse
 
 import structlog
 from rest_framework import status
-from rest_framework.exceptions import APIException
+from rest_framework.exceptions import APIException, ValidationError
 from rest_framework.response import Response
 
 from posthog.clickhouse.query_tagging import get_query_tags
@@ -60,6 +60,15 @@ class Conflict(APIException):
     default_code = "conflict"
 
 
+class DatabaseSchemaUnavailable(APIException):
+    # The schema request backs the SQL editor's table list, so a bare 500 leaves the sidebar looking
+    # like an empty project. A stable code lets the client tell "we couldn't read your schema" apart
+    # from any other server error.
+    status_code = 503
+    default_detail = "Couldn't load your project's schema. Try again, and if it keeps happening contact support."
+    default_code = "database_schema_unavailable"
+
+
 class ClickHouseAtCapacity(APIException):
     status_code = 503
     default_detail = (
@@ -74,6 +83,12 @@ class ClickHouseEstimatedQueryExecutionTimeTooLong(APIException):
 
 class ClickHouseQuerySizeExceeded(APIException):
     default_detail = "Query size exceeded."
+
+
+class ClickHouseBytesLimitExceeded(ValidationError):
+    # A fresh TOO_MANY_BYTES surfaces as ValidationError(str(error), "too_many_bytes") in the
+    # query API, so the breaker's replay must produce the same status and machine code.
+    default_code = "too_many_bytes"
 
 
 class ClickHouseQueryTimeOut(APIException):
@@ -91,6 +106,9 @@ class ClickHouseQueryMemoryLimitExceeded(APIException):
     # CLICKHOUSE_MEMORY_LIMIT_ERROR_CODE constant.
     default_code = "clickhouse_memory_limit_exceeded"
     default_detail = "This query ran out of memory before it could finish, usually because it's scanning too much data. Try a shorter date range or narrower filters, or see our docs for more ways to speed it up: https://posthog.com/docs/product-analytics/troubleshooting#how-do-i-speed-up-my-insights-and-queries"
+    # True only when ClickHouse hit this query's own memory ceiling, meaning a retry will fail
+    # the same way. Server-wide and per-user limits are transient cluster pressure.
+    is_per_query_limit = False
 
 
 class ExceptionContext(TypedDict):

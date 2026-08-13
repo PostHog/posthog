@@ -9,7 +9,7 @@ from typing import TYPE_CHECKING, TypeVar
 
 from pydantic import BaseModel
 
-from products.tasks.backend.models import Task, TaskRun
+from products.tasks.backend.models import MCPBuiltInAgentKey, Task, TaskRun
 
 if TYPE_CHECKING:
     from temporalio.client import WorkflowHandle
@@ -67,6 +67,8 @@ class MultiTurnSession:
         max_poll_seconds: int | None = None,
         fallback_from_text: Callable[[str], _ModelT] | None = None,
         workflow_id_prefix: str | None = None,
+        mcp_builtin_agent_key: MCPBuiltInAgentKey | None = None,
+        mcp_credential_owner_id: int | None = None,
     ) -> tuple[MultiTurnSession, _ModelT]:
         """Start a multi-turn sandbox session and wait for the first structured response.
 
@@ -100,6 +102,8 @@ class MultiTurnSession:
             on_task_run_created=on_task_run_created,
             max_poll_seconds=max_poll_seconds,
             workflow_id_prefix=workflow_id_prefix,
+            mcp_builtin_agent_key=mcp_builtin_agent_key,
+            mcp_credential_owner_id=mcp_credential_owner_id,
         )
         try:
             parsed = cls._parse_and_validate(last_message, model, label="initial turn")
@@ -154,6 +158,8 @@ class MultiTurnSession:
         on_task_run_created: Callable[[TaskRun], Awaitable[None]] | None = None,
         max_poll_seconds: int | None = None,
         workflow_id_prefix: str | None = None,
+        mcp_builtin_agent_key: MCPBuiltInAgentKey | None = None,
+        mcp_credential_owner_id: int | None = None,
     ) -> tuple[MultiTurnSession, str]:
         """Start a multi-turn sandbox session and return the first raw agent response.
 
@@ -161,6 +167,10 @@ class MultiTurnSession:
         BEFORE the agent's first turn runs — see `start` for the rationale.
 
         `max_poll_seconds` caps each turn's poll budget — see the field docstring.
+
+        `mcp_credential_owner_id` names the person whose MCP Store grants the run may
+        mount. It is separate from the acting user in `context`: the sandbox still acts
+        as the acting user, but grants are personal, so a run with no owner mounts none.
         """
         task, task_run = await create_task_and_trigger(
             prompt,
@@ -172,6 +182,8 @@ class MultiTurnSession:
             ai_stage=ai_stage,
             internal=internal,
             workflow_id_prefix=workflow_id_prefix,
+            mcp_builtin_agent_key=mcp_builtin_agent_key,
+            mcp_credential_owner_id=mcp_credential_owner_id,
         )
         logger.info("multi_turn: started task=%s run=%s step=%s", task.id, task_run.id, step_name or "unknown")
         # Get session's parent workflow to send heartbeats to keep the agent alive while waiting for turns.

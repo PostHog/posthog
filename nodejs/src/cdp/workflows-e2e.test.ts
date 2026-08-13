@@ -45,7 +45,7 @@ import { getFirstTeam, resetTestDatabase } from '~/tests/helpers/sql'
 import { Hub, Team } from '../../src/types'
 import { createRedisV2PoolFromConfig } from '../common/redis/redis-v2'
 import { FixtureHogFlowBuilder } from './_tests/builders/hogflow.builder'
-import { HOG_FILTERS_EXAMPLES } from './_tests/examples'
+import { HOG_FILTERS_EXAMPLES, HOG_FLOW_MASK_EXAMPLES } from './_tests/examples'
 import { createHogExecutionGlobals, insertHogFunctionTemplate, insertIntegration } from './_tests/fixtures'
 import { insertHogFlow } from './_tests/fixtures-hogflows'
 import { CdpApi } from './cdp-api'
@@ -57,6 +57,7 @@ import { CdpEventsConsumer } from './consumers/cdp-events.consumer'
 import { CdpHogflowSubscriptionMatcherConsumer } from './consumers/cdp-hogflow-subscription-matcher.consumer'
 import { createCdpOutputsRegistry } from './outputs/registry'
 import {
+    CyclotronV2DequeuedJob,
     CyclotronV2Janitor,
     CyclotronV2Manager,
     CyclotronV2Worker,
@@ -69,7 +70,6 @@ import {
 } from './services/hogflows/batch-resolver.types'
 import { HogFlowBatchPersonQueryService } from './services/hogflows/hogflow-batch-person-query.service'
 import { CyclotronJobQueueKafka } from './services/job-queue/job-queue-kafka'
-import { CyclotronJobQueuePostgres } from './services/job-queue/job-queue-postgres'
 import { CyclotronJobQueuePostgresV2 } from './services/job-queue/job-queue-postgres-v2'
 import { CyclotronJobQueueRateLimitedPostgresV2 } from './services/job-queue/job-queue-rate-limited-postgres-v2'
 import { JobQueue } from './services/job-queue/job-queue.interface'
@@ -100,10 +100,8 @@ jest.mock('node:dns/promises', () => ({
 // Use the same env vars as config.ts (lines 221-229) so cleanup pools and hub target the same DBs
 const CYCLOTRON_NODE_DB_URL =
     process.env.CYCLOTRON_NODE_DATABASE_URL ?? 'postgres://posthog:posthog@localhost:5432/test_cyclotron_node'
-const CYCLOTRON_DB_URL =
-    process.env.CYCLOTRON_DATABASE_URL ?? 'postgres://posthog:posthog@localhost:5432/test_cyclotron'
 
-describe.each(['postgres-v2' as const, 'postgres' as const])('Workflows E2E (%s)', (mode) => {
+describe('Workflows E2E (postgres-v2)', () => {
     jest.setTimeout(30000)
 
     let eventsConsumer: CdpEventsConsumer
@@ -122,7 +120,7 @@ describe.each(['postgres-v2' as const, 'postgres' as const])('Workflows E2E (%s)
 
     beforeAll(() => {
         cyclotronPool = new Pool({
-            connectionString: mode === 'postgres-v2' ? CYCLOTRON_NODE_DB_URL : CYCLOTRON_DB_URL,
+            connectionString: CYCLOTRON_NODE_DB_URL,
         })
     })
 
@@ -177,12 +175,7 @@ describe.each(['postgres-v2' as const, 'postgres' as const])('Workflows E2E (%s)
 
         const kafkaQueue = new CyclotronJobQueueKafka(hub.KAFKA_CLIENT_RACK, hub, hub.CONSUMER_BATCH_SIZE)
 
-        // Build the hogflow queue for the current mode
-        if (mode === 'postgres-v2') {
-            hogflowQueue = new CyclotronJobQueuePostgresV2(hub.CONSUMER_BATCH_SIZE, hub)
-        } else {
-            hogflowQueue = new CyclotronJobQueuePostgres(hub.CONSUMER_BATCH_SIZE, hub)
-        }
+        hogflowQueue = new CyclotronJobQueuePostgresV2(hub.CONSUMER_BATCH_SIZE, hub)
 
         // Events consumer — only start as producer (skip Kafka consumer connection).
         // We call processBatch() directly so the Kafka consumer is not needed.
@@ -198,7 +191,7 @@ describe.each(['postgres-v2' as const, 'postgres' as const])('Workflows E2E (%s)
         })
         await Promise.all([kafkaQueue.startAsProducer(), hogflowQueue.startAsProducer()])
 
-        // Start hogflow worker (consumer side — polls from the mode's backend)
+        // Start hogflow worker (consumer side — polls the postgres-v2 backend)
         hogflowWorker = new CdpCyclotronWorkerHogFlow(hub, deps, hogflowQueue)
         await hogflowWorker.start()
 
@@ -239,15 +232,11 @@ describe.each(['postgres-v2' as const, 'postgres' as const])('Workflows E2E (%s)
         })
     }
 
-    // v1 stores lifecycle in `state` (and vm payload in `vm_state`);
-    // v2 stores lifecycle in `status` (and state payload in `state`).
-    // Normalize so tests can use `.status` regardless of mode.
-    const statusColumn = mode === 'postgres-v2' ? 'status' : 'state'
+    // v2 stores job lifecycle in the `status` column.
+    const statusColumn = 'status'
 
     async function queryCyclotronJobs(): Promise<any[]> {
-        const result = await cyclotronPool.query(
-            `SELECT *, ${statusColumn} AS status FROM cyclotron_jobs ORDER BY created ASC`
-        )
+        const result = await cyclotronPool.query(`SELECT * FROM cyclotron_jobs ORDER BY created ASC`)
         return result.rows
     }
 
@@ -397,8 +386,10 @@ describe.each(['postgres-v2' as const, 'postgres' as const])('Workflows E2E (%s)
     })
 
     describe('simple workflow: trigger → function → exit', () => {
+        let workflowId: string
+
         beforeEach(async () => {
-            await createWorkflow({
+            workflowId = await createWorkflow({
                 actions: {
                     trigger: trigger(),
                     function_1: fetchAction('https://example.com/webhook'),
@@ -426,7 +417,9 @@ describe.each(['postgres-v2' as const, 'postgres' as const])('Workflows E2E (%s)
 
             // Verify metrics were produced to Kafka
             await waitForExpect(() => {
-                const metrics = mockProducerObserver.getProducedKafkaMessagesForTopic(KAFKA_APP_METRICS_2)
+                const metrics = mockProducerObserver
+                    .getProducedKafkaMessagesForTopic(KAFKA_APP_METRICS_2)
+                    .filter((m: any) => m.value.app_source === 'hog_flow')
                 expect(metrics.length).toBeGreaterThanOrEqual(1)
             }, 5000)
 
@@ -435,6 +428,24 @@ describe.each(['postgres-v2' as const, 'postgres' as const])('Workflows E2E (%s)
                 const logs = mockProducerObserver.getProducedKafkaMessagesForTopic(KAFKA_LOG_ENTRIES)
                 expect(logs.length).toBeGreaterThanOrEqual(1)
             }, 5000)
+        })
+
+        it('mirrors every metric of the run under the workflow version that produced it', async () => {
+            await triggerWorkflow(globals)
+
+            const namesFor = (appSource: string, appSourceId: string): string[] =>
+                mockProducerObserver
+                    .getProducedKafkaMessagesForTopic(KAFKA_APP_METRICS_2)
+                    .filter((m: any) => m.value.app_source === appSource && m.value.app_source_id === appSourceId)
+                    .map((m: any) => m.value.metric_name)
+                    .sort()
+
+            // The version-scoped series has to carry the whole run, not just the run-level outcome —
+            // a per-version step funnel is only readable if every step's metric is mirrored.
+            await waitForExpect(() => {
+                expect(namesFor('hog_flow', workflowId)).toContain('succeeded')
+                expect(namesFor('hog_flow_version', `${workflowId}/1`)).toEqual(namesFor('hog_flow', workflowId))
+            }, 10000)
         })
     })
 
@@ -742,6 +753,7 @@ describe.each(['postgres-v2' as const, 'postgres' as const])('Workflows E2E (%s)
             await waitForExpect(() => {
                 const metricNames = mockProducerObserver
                     .getProducedKafkaMessagesForTopic(KAFKA_APP_METRICS_2)
+                    .filter((m: any) => m.value.app_source === 'hog_flow')
                     .map((m: any) => m.value.metric_name)
                 expect(metricNames).toContain('exited_workflow_changed')
                 expect(metricNames).not.toContain('failed')
@@ -880,11 +892,7 @@ describe.each(['postgres-v2' as const, 'postgres' as const])('Workflows E2E (%s)
         })
     })
 
-    // The matcher reads parked jobs via `CYCLOTRON_NODE_DATABASE_URL` (the postgres-v2 backend).
-    // In legacy `postgres` mode the worker parks the job in a different DB the matcher cannot see,
-    // so wakes are postgres-v2-only.
-    const describeMatcher = mode === 'postgres-v2' ? describe : describe.skip
-    describeMatcher('wait_until_condition: subscription matcher wakes parked jobs', () => {
+    describe('wait_until_condition: subscription matcher wakes parked jobs', () => {
         let matcher: CdpHogflowSubscriptionMatcherConsumer
 
         // trigger → wait_condition → (matched branch | timeout continue) → exit
@@ -1266,6 +1274,339 @@ describe.each(['postgres-v2' as const, 'postgres' as const])('Workflows E2E (%s)
             expect(mockFetch).toHaveBeenCalledWith('https://example.com/condition-matched', expect.anything())
         })
 
+        // Wait conditions authored as HogQL expressions must be woken by the streams, not only by the
+        // 10-minute poll — otherwise removing the poll would silently strand them. These three cover
+        // the distinct HogQL condition shapes real production flows use; each bytecode is exactly what
+        // the Django serializer compiles for that expression (verified via compile_filters_bytecode).
+        // If HogQL compilation changes, or a stream stops carrying what the bytecode reads (e.g. the
+        // person wake dropping properties), one of these fails.
+        it('wakes a HogQL event-name wait condition via the events stream', async () => {
+            // HogQL: event = 'billing_added'
+            await createWaitUntilWorkflow({
+                condition: {
+                    filters: {
+                        bytecode: ['_H', 1, 32, 'billing_added', 32, 'event', 1, 1, 11],
+                        properties: [{ type: 'hogql', key: "event = 'billing_added'" }],
+                    },
+                },
+                max_wait_duration: '5m',
+            })
+            await triggerWorkflow(createGlobals({ event: 'custom_trigger', properties: {} }))
+            await expectParked()
+            await matcher.processBatch([createGlobals({ event: 'billing_added', properties: {} })])
+            await waitForExpect(() => {
+                expect(mockFetch).toHaveBeenCalledTimes(1)
+            }, 10000)
+            expect(mockFetch).toHaveBeenCalledWith('https://example.com/condition-matched', expect.anything())
+        })
+
+        it('wakes a HogQL event+property wait condition only on the matching event and property', async () => {
+            // HogQL: event = 'cal_booking' and properties.trigger_event = 'BOOKING_CREATED'
+            await createWaitUntilWorkflow({
+                condition: {
+                    filters: {
+                        bytecode: [
+                            '_H',
+                            1,
+                            32,
+                            'cal_booking',
+                            32,
+                            'event',
+                            1,
+                            1,
+                            11,
+                            32,
+                            'BOOKING_CREATED',
+                            32,
+                            'trigger_event',
+                            32,
+                            'properties',
+                            1,
+                            2,
+                            11,
+                            3,
+                            2,
+                        ],
+                        properties: [
+                            {
+                                type: 'hogql',
+                                key: "event = 'cal_booking' and properties.trigger_event = 'BOOKING_CREATED'",
+                            },
+                        ],
+                    },
+                },
+                max_wait_duration: '5m',
+            })
+            await triggerWorkflow(createGlobals({ event: 'custom_trigger', properties: {} }))
+            await expectParked()
+            // Right event, wrong property — must not wake.
+            await matcher.processBatch([
+                createGlobals({ event: 'cal_booking', properties: { trigger_event: 'OTHER' } }),
+            ])
+            await new Promise((r) => setTimeout(r, 500))
+            expect(mockFetch).not.toHaveBeenCalled()
+            // Right event and property — wakes.
+            await matcher.processBatch([
+                createGlobals({ event: 'cal_booking', properties: { trigger_event: 'BOOKING_CREATED' } }),
+            ])
+            await waitForExpect(() => {
+                expect(mockFetch).toHaveBeenCalledTimes(1)
+            }, 10000)
+            expect(mockFetch).toHaveBeenCalledWith('https://example.com/condition-matched', expect.anything())
+        })
+
+        it('wakes a HogQL dynamic-key person-property wait condition via the person stream', async () => {
+            // HogQL: person.properties[concat(toString(person.properties.shop_id), '_billing_status')] = 'active'
+            await createWaitUntilWorkflow({
+                condition: {
+                    filters: {
+                        bytecode: [
+                            '_H',
+                            1,
+                            32,
+                            'active',
+                            32,
+                            'properties',
+                            32,
+                            'person',
+                            1,
+                            2,
+                            32,
+                            'shop_id',
+                            32,
+                            'properties',
+                            32,
+                            'person',
+                            1,
+                            3,
+                            2,
+                            'toString',
+                            1,
+                            32,
+                            '_billing_status',
+                            2,
+                            'concat',
+                            2,
+                            45,
+                            11,
+                        ],
+                        properties: [
+                            {
+                                type: 'hogql',
+                                key: "person.properties[concat(toString(person.properties.shop_id), '_billing_status')] = 'active'",
+                            },
+                        ],
+                    },
+                },
+                max_wait_duration: '5m',
+            })
+            // Parked person has shop_id but no billing status yet, so the condition is false and it parks.
+            mockPersonRepo.fetchPersonsByDistinctIds.mockResolvedValue([
+                {
+                    id: '1',
+                    uuid: 'uuid',
+                    team_id: team.id,
+                    properties: { shop_id: '42' },
+                    properties_last_updated_at: {},
+                    properties_last_operation: null,
+                    created_at: DateTime.utc(),
+                    version: 1,
+                    is_identified: true,
+                    is_user_id: null,
+                    last_seen_at: null,
+                    distinct_id: 'distinct_id',
+                },
+            ])
+            await triggerWorkflow(createGlobals())
+            await expectParked()
+            // clickhouse_person mutation sets 42_billing_status = 'active' with no analytics event.
+            const personMessage = {
+                value: Buffer.from(
+                    JSON.stringify({
+                        id: 'uuid',
+                        team_id: team.id,
+                        properties: JSON.stringify({ shop_id: '42', '42_billing_status': 'active' }),
+                        is_deleted: 0,
+                        is_identified: 1,
+                        created_at: '2024-09-03 09:00:00.000',
+                        timestamp: '2024-09-03 09:00:00.000',
+                        version: 2,
+                    })
+                ),
+            }
+            const personGlobals = await matcher._parsePersonBatch([personMessage as any])
+            await matcher.processBatch(personGlobals)
+            await waitForExpect(() => {
+                expect(mockFetch).toHaveBeenCalledTimes(1)
+            }, 10000)
+            expect(mockFetch).toHaveBeenCalledWith('https://example.com/condition-matched', expect.anything())
+        })
+
+        // A parked wait keyed on an anonymous person can't be woken by the survivor's updates after a
+        // merge — the survivor's person/event updates arrive under a new person_id the wait doesn't
+        // reference. The matcher re-keys the wait off the clickhouse_person_distinct_id repoint so it
+        // follows the survivor. These two tests cover the re-key and the wake it enables.
+        // Factories (not eager consts): they read `team`, which is only assigned in beforeEach.
+        const anonPersonRow = (): any => ({
+            id: '1',
+            uuid: 'old-uuid',
+            team_id: team.id,
+            properties: { email: 'test@posthog.com' },
+            properties_last_updated_at: {},
+            properties_last_operation: null,
+            created_at: DateTime.utc(),
+            version: 1,
+            is_identified: true,
+            is_user_id: null,
+            last_seen_at: null,
+            distinct_id: 'distinct_id',
+        })
+        const distinctIdMoveMessage = (overrides: Record<string, any> = {}): any => ({
+            value: Buffer.from(
+                JSON.stringify({
+                    team_id: team.id,
+                    distinct_id: 'distinct_id',
+                    person_id: 'new-uuid',
+                    version: 2,
+                    is_deleted: 0,
+                    ...overrides,
+                })
+            ),
+        })
+        // The post-merge survivor the repoint points at, now carrying the merged plan=enterprise. The
+        // re-keyed job resolves by this survivor personId (personIdRepointed), not the repointed distinct_id.
+        const survivorPersonRow = (): any => ({
+            id: '2',
+            uuid: 'new-uuid',
+            team_id: team.id,
+            properties: { email: 'test@posthog.com', plan: 'enterprise' },
+            properties_last_updated_at: {},
+            properties_last_operation: null,
+            created_at: DateTime.utc(),
+            version: 2,
+            is_identified: true,
+            is_user_id: null,
+            last_seen_at: null,
+        })
+
+        it('re-keys a wait onto the survivor after a merge repoints its distinct_id, so the survivor wakes it', async () => {
+            await createWaitUntilWorkflow({
+                condition: { filters: personPropertyConditionFilters('plan', 'enterprise') },
+                max_wait_duration: '5m',
+            })
+            // Parked keyed on the anon person ('old-uuid'), which has no `plan`, so the wait parks on entry.
+            mockPersonRepo.fetchPersonsByDistinctIds.mockResolvedValue([anonPersonRow()])
+            await triggerWorkflow(createGlobals())
+            await expectParked()
+
+            // The merge repoints 'distinct_id' onto survivor 'new-uuid' (version > 0). The matcher re-keys the
+            // parked wait onto the survivor and wakes it (scheduled = now). The worker then resolves the job by
+            // the survivor personId — not the repointed distinct_id — re-checks the condition against the
+            // survivor's plan=enterprise, and advances down the matched branch, firing the fetch.
+            mockPersonRepo.fetchPersonsByPersonIds.mockResolvedValue([survivorPersonRow()])
+            await matcher.processMoveBatch(matcher._parsePersonDistinctIdBatch([distinctIdMoveMessage() as any]))
+
+            await waitForExpect(() => {
+                expect(mockFetch).toHaveBeenCalledTimes(1)
+            }, 10000)
+            expect(mockFetch).toHaveBeenCalledWith('https://example.com/condition-matched', expect.anything())
+        })
+
+        it('anchors and wakes a wait that parked before its distinct_id had a person', async () => {
+            // Production shape: an event arrives for a distinct_id with no person yet, so the wait parks
+            // with person_id NULL. Person wakes are keyed on person_id alone, so nothing can address that
+            // job — before this was fixed, only the 10-minute polling re-check ever advanced it.
+            await createWaitUntilWorkflow({
+                condition: { filters: personPropertyConditionFilters('plan', 'enterprise') },
+                max_wait_duration: '5m',
+            })
+            mockPersonRepo.fetchPersonsByDistinctIds.mockResolvedValue([])
+            await triggerWorkflow(createGlobals())
+            await expectParked()
+
+            // The premise of the test: no anchor to wake.
+            const parked = await cyclotronPool.query(
+                `SELECT person_id FROM cyclotron_jobs WHERE ${statusColumn} = 'available'`
+            )
+            expect(parked.rows).toHaveLength(1)
+            expect(parked.rows[0].person_id).toBeNull()
+
+            // The distinct_id acquires a person for the first time (version 0), and that person already
+            // satisfies the condition. The matcher fills the missing anchor and wakes the wait, which then
+            // resolves by personId and advances down the matched branch.
+            mockPersonRepo.fetchPersonsByPersonIds.mockResolvedValue([survivorPersonRow()])
+            await matcher.processMoveBatch(
+                matcher._parsePersonDistinctIdBatch([distinctIdMoveMessage({ version: 0 }) as any])
+            )
+
+            await waitForExpect(() => {
+                expect(mockFetch).toHaveBeenCalledTimes(1)
+            }, 10000)
+            expect(mockFetch).toHaveBeenCalledWith('https://example.com/condition-matched', expect.anything())
+        })
+
+        it('anchors a wait whose condition is still false, so a later person update can wake it', async () => {
+            // The shape the affected production runs actually take, and the one the test above does not
+            // cover: the person exists by the time the anchor is filled, but does not satisfy the condition
+            // yet. So the fill wakes the wait, the re-check fails, and it re-parks — this time WITH an
+            // anchor. The property is then set, and that person update has to be able to find the job.
+            // Without the anchor there is no key for the person stream to match on and only the polling
+            // re-check would ever advance it.
+            await createWaitUntilWorkflow({
+                condition: { filters: personPropertyConditionFilters('plan', 'enterprise') },
+                max_wait_duration: '5m',
+            })
+            mockPersonRepo.fetchPersonsByDistinctIds.mockResolvedValue([])
+            await triggerWorkflow(createGlobals())
+            await expectParked()
+
+            const beforeFill = await cyclotronPool.query(
+                `SELECT person_id FROM cyclotron_jobs WHERE ${statusColumn} = 'available'`
+            )
+            expect(beforeFill.rows[0].person_id).toBeNull()
+
+            // First mapping arrives. The person exists now but has no `plan`, so the condition is false.
+            const personWithoutPlan = { ...survivorPersonRow(), properties: { email: 'test@posthog.com' } }
+            mockPersonRepo.fetchPersonsByPersonIds.mockResolvedValue([personWithoutPlan])
+            await matcher.processMoveBatch(
+                matcher._parsePersonDistinctIdBatch([distinctIdMoveMessage({ version: 0 }) as any])
+            )
+
+            // It re-parked rather than advancing, and it now carries the anchor.
+            await waitForExpect(async () => {
+                const afterFill = await cyclotronPool.query(
+                    `SELECT person_id FROM cyclotron_jobs WHERE ${statusColumn} = 'available'`
+                )
+                expect(afterFill.rows).toHaveLength(1)
+                expect(afterFill.rows[0].person_id).toBe('new-uuid')
+            }, 10000)
+            expect(mockFetch).not.toHaveBeenCalled()
+
+            // Now the property is set. This is a person mutation with no analytics event, so it can only be
+            // matched on person_id — the anchor written above is what makes it findable.
+            const personMessage = {
+                value: Buffer.from(
+                    JSON.stringify({
+                        id: 'new-uuid',
+                        team_id: team.id,
+                        properties: JSON.stringify({ email: 'test@posthog.com', plan: 'enterprise' }),
+                        is_deleted: 0,
+                        is_identified: 1,
+                        created_at: '2024-09-03 09:00:00.000',
+                        timestamp: '2024-09-03 09:00:00.000',
+                        version: 3,
+                    })
+                ),
+            }
+            mockPersonRepo.fetchPersonsByPersonIds.mockResolvedValue([survivorPersonRow()])
+            await matcher.processBatch(await matcher._parsePersonBatch([personMessage as any]))
+
+            await waitForExpect(() => {
+                expect(mockFetch).toHaveBeenCalledTimes(1)
+            }, 10000)
+            expect(mockFetch).toHaveBeenCalledWith('https://example.com/condition-matched', expect.anything())
+        })
+
         it('wakes a parked wait from a cdp_internal_events signal with no analytics event', async () => {
             // CDP-generated signals (e.g. $insight_alert_firing) arrive on cdp_internal_events and never
             // hit the analytics events topic. The matcher parses them via _parseInternalEventsBatch and
@@ -1338,6 +1679,7 @@ describe.each(['postgres-v2' as const, 'postgres' as const])('Workflows E2E (%s)
             const conversionCount = (): number =>
                 mockProducerObserver
                     .getProducedKafkaMessagesForTopic(KAFKA_APP_METRICS_2)
+                    .filter((m: any) => m.value.app_source === 'hog_flow')
                     .filter((m: any) => m.value.metric_name === 'conversion')
                     .reduce((sum: number, m: any) => sum + m.value.count, 0)
 
@@ -1865,106 +2207,100 @@ describe.each(['postgres-v2' as const, 'postgres' as const])('Workflows E2E (%s)
         })
     })
 
-    // Heartbeat + janitor is postgres-v2-only. Skipping on the legacy postgres
-    // mode where the heartbeat wrapper is a no-op.
-    if (mode === 'postgres-v2') {
-        describe('heartbeat during long batches', () => {
-            let janitor: CyclotronV2Janitor
+    describe('heartbeat during long batches', () => {
+        let janitor: CyclotronV2Janitor
 
-            beforeEach(async () => {
-                // Restart the worker with a short heartbeat interval so the
-                // interval fires several times inside the test's ~1s fetch delay.
-                // Default is 10s — nothing would fire in a test.
-                await hogflowWorker.stop()
-                hub.CDP_CYCLOTRON_HEARTBEAT_INTERVAL_MS = 100
-                hogflowWorker = new CdpCyclotronWorkerHogFlow(hub, deps, hogflowQueue)
-                await hogflowWorker.start()
+        beforeEach(async () => {
+            // Restart the worker with a short heartbeat interval so the
+            // interval fires several times inside the test's ~1s fetch delay.
+            // Default is 10s — nothing would fire in a test.
+            await hogflowWorker.stop()
+            hub.CDP_CYCLOTRON_HEARTBEAT_INTERVAL_MS = 100
+            hogflowWorker = new CdpCyclotronWorkerHogFlow(hub, deps, hogflowQueue)
+            await hogflowWorker.start()
 
-                // Aggressive stall/poison thresholds so the test observes the
-                // exact regression the heartbeat guards against: without heartbeats
-                // firing, a 1.2s fetch would exceed the 300ms stall window and
-                // the janitor would reset the row on the very first runOnce().
-                // cleanupGraceMs is huge so terminal jobs stay queryable after
-                // completion — we assert on their final janitor_touch_count.
-                janitor = new CyclotronV2Janitor({
-                    pool: { dbUrl: CYCLOTRON_NODE_DB_URL },
-                    stallTimeoutMs: 300,
-                    maxTouchCount: 2,
-                    cleanupGraceMs: 99_999_000,
-                    cleanupBatchSize: 100,
-                    cleanupIntervalMs: 60_000,
-                })
-
-                await createWorkflow({
-                    actions: {
-                        trigger: trigger(),
-                        slow_fetch: fetchAction('https://example.com/slow'),
-                        exit: exitAction(),
-                    },
-                    edges: [
-                        { from: 'trigger', to: 'slow_fetch', type: 'continue' },
-                        { from: 'slow_fetch', to: 'exit', type: 'continue' },
-                    ],
-                })
-                globals = createGlobals()
+            // Aggressive stall/poison thresholds so the test observes the
+            // exact regression the heartbeat guards against: without heartbeats
+            // firing, a 1.2s fetch would exceed the 300ms stall window and
+            // the janitor would reset the row on the very first runOnce().
+            // cleanupGraceMs is huge so terminal jobs stay queryable after
+            // completion — we assert on their final janitor_touch_count.
+            janitor = new CyclotronV2Janitor({
+                pool: { dbUrl: CYCLOTRON_NODE_DB_URL },
+                stallTimeoutMs: 300,
+                maxTouchCount: 2,
+                cleanupGraceMs: 99_999_000,
+                cleanupBatchSize: 100,
+                cleanupIntervalMs: 60_000,
             })
 
-            afterEach(async () => {
-                await janitor?.stop()
+            await createWorkflow({
+                actions: {
+                    trigger: trigger(),
+                    slow_fetch: fetchAction('https://example.com/slow'),
+                    exit: exitAction(),
+                },
+                edges: [
+                    { from: 'trigger', to: 'slow_fetch', type: 'continue' },
+                    { from: 'slow_fetch', to: 'exit', type: 'continue' },
+                ],
             })
-
-            it('heartbeats keep janitor_touch_count at 0 during a slow batch', async () => {
-                // Fetch takes 1.2s — 4x the stallTimeoutMs. The heartbeat
-                // interval firing every 100ms is the only thing preventing
-                // last_heartbeat from going stale.
-                mockFetch.mockImplementation(
-                    () =>
-                        new Promise((resolve) =>
-                            setTimeout(
-                                () =>
-                                    resolve({
-                                        status: 200,
-                                        headers: { 'Content-Type': 'application/json' },
-                                        json: () => Promise.resolve({ ok: true }),
-                                        text: () => Promise.resolve(JSON.stringify({ ok: true })),
-                                        dump: () => Promise.resolve(),
-                                    }),
-                                1200
-                            )
-                        )
-                )
-
-                await triggerWorkflow(globals)
-
-                // Wait long enough for the worker to dequeue and start the fetch,
-                // then check the janitor mid-flight. Without heartbeats,
-                // last_heartbeat would be ~700ms old (> 300ms cutoff) → stalled.
-                await new Promise((r) => setTimeout(r, 700))
-                const midResult = await janitor.runOnce()
-                expect(midResult.stalled).toBe(0)
-                expect(midResult.poisoned).toBe(0)
-
-                // Wait for the workflow to complete
-                await waitForExpect(async () => {
-                    const jobs = await queryCyclotronJobs()
-                    expect(jobs.some((j) => j.status === 'completed')).toBe(true)
-                }, 10000)
-
-                // Final check: no row ever accumulated a touch. This is the
-                // load-bearing assertion — regressions to the setInterval or
-                // its cleanup would flip this to >= 1.
-                const jobs = await queryCyclotronJobs()
-                for (const row of jobs) {
-                    expect(row.janitor_touch_count).toBe(0)
-                }
-            })
+            globals = createGlobals()
         })
-    }
+
+        afterEach(async () => {
+            await janitor?.stop()
+        })
+
+        it('heartbeats keep janitor_touch_count at 0 during a slow batch', async () => {
+            // Fetch takes 1.2s — 4x the stallTimeoutMs. The heartbeat
+            // interval firing every 100ms is the only thing preventing
+            // last_heartbeat from going stale.
+            mockFetch.mockImplementation(
+                () =>
+                    new Promise((resolve) =>
+                        setTimeout(
+                            () =>
+                                resolve({
+                                    status: 200,
+                                    headers: { 'Content-Type': 'application/json' },
+                                    json: () => Promise.resolve({ ok: true }),
+                                    text: () => Promise.resolve(JSON.stringify({ ok: true })),
+                                    dump: () => Promise.resolve(),
+                                }),
+                            1200
+                        )
+                    )
+            )
+
+            await triggerWorkflow(globals)
+
+            // Wait long enough for the worker to dequeue and start the fetch,
+            // then check the janitor mid-flight. Without heartbeats,
+            // last_heartbeat would be ~700ms old (> 300ms cutoff) → stalled.
+            await new Promise((r) => setTimeout(r, 700))
+            const midResult = await janitor.runOnce()
+            expect(midResult.stalled).toBe(0)
+            expect(midResult.poisoned).toBe(0)
+
+            // Wait for the workflow to complete
+            await waitForExpect(async () => {
+                const jobs = await queryCyclotronJobs()
+                expect(jobs.some((j) => j.status === 'completed')).toBe(true)
+            }, 10000)
+
+            // Final check: no row ever accumulated a touch. This is the
+            // load-bearing assertion — regressions to the setInterval or
+            // its cleanup would flip this to >= 1.
+            const jobs = await queryCyclotronJobs()
+            for (const row of jobs) {
+                expect(row.janitor_touch_count).toBe(0)
+            }
+        })
+    })
 })
 
-// Email queue routing is postgres-v2 only — the email worker reschedules jobs
-// between queue names on the same v2 backend. We keep this block outside the
-// `describe.each` so the legacy postgres mode doesn't also try to exercise it.
+// Email queue routing: the email worker reschedules jobs between queue names on the same v2 backend.
 describe('Workflows E2E (email queue)', () => {
     jest.setTimeout(30000)
 
@@ -2175,6 +2511,7 @@ describe('Workflows E2E (email queue)', () => {
             const sumCounts = (filter: (m: any) => boolean) =>
                 mockProducerObserver
                     .getProducedKafkaMessagesForTopic(KAFKA_APP_METRICS_2)
+                    .filter((m: any) => m.value.app_source === 'hog_flow')
                     .filter(filter)
                     .reduce((sum: number, m: any) => sum + m.value.count, 0)
 
@@ -2246,6 +2583,7 @@ describe('Workflows E2E (email queue)', () => {
             const sumCounts = (filter: (m: any) => boolean) =>
                 mockProducerObserver
                     .getProducedKafkaMessagesForTopic(KAFKA_APP_METRICS_2)
+                    .filter((m: any) => m.value.app_source === 'hog_flow')
                     .filter(filter)
                     .reduce((sum: number, m: any) => sum + m.value.count, 0)
 
@@ -2459,6 +2797,7 @@ describe('Workflows E2E (email queue)', () => {
             const sumCounts = (filter: (m: any) => boolean) =>
                 mockProducerObserver
                     .getProducedKafkaMessagesForTopic(KAFKA_APP_METRICS_2)
+                    .filter((m: any) => m.value.app_source === 'hog_flow')
                     .filter(filter)
                     .reduce((sum: number, m: any) => sum + m.value.count, 0)
 
@@ -2567,6 +2906,7 @@ describe('Workflows E2E (email queue)', () => {
             const sumCounts = (filter: (m: any) => boolean) =>
                 mockProducerObserver
                     .getProducedKafkaMessagesForTopic(KAFKA_APP_METRICS_2)
+                    .filter((m: any) => m.value.app_source === 'hog_flow')
                     .filter(filter)
                     .reduce((sum: number, m: any) => sum + m.value.count, 0)
 
@@ -2678,6 +3018,7 @@ describe('Workflows E2E (email queue)', () => {
             const sumCounts = (filter: (m: any) => boolean) =>
                 mockProducerObserver
                     .getProducedKafkaMessagesForTopic(KAFKA_APP_METRICS_2)
+                    .filter((m: any) => m.value.app_source === 'hog_flow')
                     .filter(filter)
                     .reduce((sum: number, m: any) => sum + m.value.count, 0)
             expect(sumCounts((m) => m.value.metric_name === 'email_sent')).toBe(1)
@@ -2770,6 +3111,7 @@ describe('Workflows E2E (email queue)', () => {
         const emailsSent = () =>
             mockProducerObserver
                 .getProducedKafkaMessagesForTopic(KAFKA_APP_METRICS_2)
+                .filter((m: any) => m.value.app_source === 'hog_flow')
                 .filter((m: any) => m.value.metric_name === 'email_sent')
                 .reduce((sum: number, m: any) => sum + m.value.count, 0)
 
@@ -2879,6 +3221,7 @@ describe('Workflows E2E (email queue)', () => {
         await waitForExpect(() => {
             const emailSentCount = mockProducerObserver
                 .getProducedKafkaMessagesForTopic(KAFKA_APP_METRICS_2)
+                .filter((m: any) => m.value.app_source === 'hog_flow')
                 .filter((m: any) => m.value.metric_name === 'email_sent')
                 .reduce((sum: number, m: any) => sum + m.value.count, 0)
             expect(emailSentCount).toBe(1)
@@ -2985,6 +3328,7 @@ describe('Workflows E2E (email queue)', () => {
         await waitForExpect(() => {
             const emailSentCount = mockProducerObserver
                 .getProducedKafkaMessagesForTopic(KAFKA_APP_METRICS_2)
+                .filter((m: any) => m.value.app_source === 'hog_flow')
                 .filter((m: any) => m.value.metric_name === 'email_sent')
                 .reduce((sum: number, m: any) => sum + m.value.count, 0)
             expect(emailSentCount).toBe(3)
@@ -3131,6 +3475,7 @@ describe('Workflows E2E (email queue)', () => {
         await waitForExpect(() => {
             const emailSentCount = mockProducerObserver
                 .getProducedKafkaMessagesForTopic(KAFKA_APP_METRICS_2)
+                .filter((m: any) => m.value.app_source === 'hog_flow')
                 .filter((m: any) => m.value.metric_name === 'email_sent')
                 .reduce((sum: number, m: any) => sum + m.value.count, 0)
             expect(emailSentCount).toBe(1)
@@ -3148,7 +3493,7 @@ describe('Workflows E2E (email queue)', () => {
     //
     // Email assets used to be produced one-at-a-time via a fire-and-forget Kafka call
     // from `email.service.ts → MessageAssetsService.captureSentEmail`. We've moved that
-    // to a buffer-then-flush pattern that drains `result.emailAssets` at the batch
+    // to a buffer-then-flush pattern that drains `result.messageAssets` at the batch
     // boundary and bulk-produces, gated on broker ack before the consumer commits
     // offsets. These tests pin the end-to-end behavior: one workflow → one asset row in
     // the `message_assets` Kafka topic with the right metadata, and a single batch with
@@ -3367,21 +3712,34 @@ describe('Workflows E2E: batch resolver dispatch via cdp-api', () => {
 
     // Fresh worker per test — stop() disconnects the underlying Postgres pool,
     // so a shared instance can't survive past the first test's afterEach.
-    function buildResolverConsumer(): CdpCyclotronWorkerBatchResolve {
+    // `wrapJob` lets a test intercept a dequeued job's methods (e.g. fail a commit once).
+    function buildResolverConsumer(
+        wrapJob?: (job: CyclotronV2DequeuedJob) => CyclotronV2DequeuedJob
+    ): CdpCyclotronWorkerBatchResolve {
         const cyclotronWorker = new CyclotronV2Worker({
             pool: { dbUrl: CYCLOTRON_NODE_DB_URL, maxConnections: 10 },
             queueName: HOGFLOW_BATCH_RESOLVE_QUEUE,
             pollDelayMs: 100,
         })
+        // The consumer only calls connect/disconnect/isHealthy on the worker.
+        const workerForConsumer = wrapJob
+            ? ({
+                  connect: (callback: (jobs: CyclotronV2DequeuedJob[]) => Promise<void>) =>
+                      cyclotronWorker.connect((jobs) => callback(jobs.map(wrapJob))),
+                  disconnect: () => cyclotronWorker.disconnect(),
+                  isHealthy: () => cyclotronWorker.isHealthy(),
+              } as unknown as CyclotronV2Worker)
+            : cyclotronWorker
         const internalFetchService = new InternalFetchService(hub.INTERNAL_API_BASE_URL, hub.INTERNAL_API_SECRET)
         const queryService = new HogFlowBatchPersonQueryService(internalFetchService)
-        return new CdpCyclotronWorkerBatchResolve(hub, deps, cyclotronWorker, queryService, internalFetchService)
+        return new CdpCyclotronWorkerBatchResolve(hub, deps, workerForConsumer, queryService, internalFetchService)
     }
 
-    async function insertActiveBatchFlow(): Promise<HogFlow> {
+    async function insertActiveBatchFlow(triggerMasking?: HogFlow['trigger_masking']): Promise<HogFlow> {
         const flow = new FixtureHogFlowBuilder()
             .withTeamId(team.id)
             .withStatus('active')
+            .withTriggerMasking(triggerMasking)
             .withWorkflow({
                 actions: {
                     trigger: {
@@ -3557,6 +3915,171 @@ describe('Workflows E2E: batch resolver dispatch via cdp-api', () => {
             [parentRunId]
         )
         expect(children.rows).toHaveLength(personIds.length)
+    })
+
+    // Regression test: batch-resolved invocations used to skip trigger_masking entirely
+    // (only the event-triggered pipeline applied it), so a scheduled batch workflow with
+    // a masking TTL re-enrolled the same audience on every run.
+    it('trigger_masking suppresses re-enrolling the same person across two batch runs', async () => {
+        const flow = await insertActiveBatchFlow(HOG_FLOW_MASK_EXAMPLES.oncePerTimePeriod.trigger_masking)
+        const personId = new UUIDT().toString()
+        const statusPuts: Array<{ status: string }> = []
+
+        mockInternalFetch.mockImplementation((url: string, opts: any) => {
+            if (url.includes('/user_blast_radius_persons')) {
+                return Promise.resolve({
+                    status: 200,
+                    headers: {},
+                    json: () => Promise.resolve({}),
+                    text: () =>
+                        Promise.resolve(JSON.stringify({ users_affected: [personId], cursor: null, has_more: false })),
+                    dump: () => Promise.resolve(),
+                })
+            }
+            if (url.includes('/batch_jobs/') && url.endsWith('/status')) {
+                statusPuts.push(parseJSON(opts.body) as { status: string })
+                return Promise.resolve({
+                    status: 200,
+                    headers: {},
+                    json: () => Promise.resolve({}),
+                    text: () => Promise.resolve('{}'),
+                    dump: () => Promise.resolve(),
+                })
+            }
+            return Promise.reject(new Error(`Unexpected internalFetch call to ${url}`))
+        })
+
+        resolverWorker = buildResolverConsumer()
+        await resolverWorker.start()
+
+        // First run: the person hasn't been masked yet, so they get enrolled.
+        const firstRunId = new UUIDT().toString()
+        await supertest(app)
+            .post(`/api/projects/${team.id}/hog_flows/${flow.id}/batch_invocations/${firstRunId}`)
+            .send({ filters: { filter_test_accounts: false }, max_audience_size: 1000 })
+            .expect(200)
+
+        await waitForExpect(() => {
+            expect(statusPuts).toHaveLength(1)
+        }, 20000)
+
+        const firstRunChildren = await cyclotronPool.query(
+            `SELECT id FROM cyclotron_jobs WHERE queue_name = 'hogflow' AND parent_run_id = $1`,
+            [firstRunId]
+        )
+        expect(firstRunChildren.rows).toHaveLength(1)
+
+        // Second run (simulating the next scheduled re-enrollment): the same person is
+        // masked, so no child invocation should be enqueued this time.
+        const secondRunId = new UUIDT().toString()
+        await supertest(app)
+            .post(`/api/projects/${team.id}/hog_flows/${flow.id}/batch_invocations/${secondRunId}`)
+            .send({ filters: { filter_test_accounts: false }, max_audience_size: 1000 })
+            .expect(200)
+
+        await waitForExpect(() => {
+            expect(statusPuts).toHaveLength(2)
+        }, 20000)
+
+        const secondRunChildren = await cyclotronPool.query(
+            `SELECT id FROM cyclotron_jobs WHERE queue_name = 'hogflow' AND parent_run_id = $1`,
+            [secondRunId]
+        )
+        expect(secondRunChildren.rows).toHaveLength(0)
+    })
+
+    // The mask claims land in Redis before the page commits to Postgres. If the commit
+    // fails without releasing them, the stall-recovery replay of the same cursor sees
+    // the whole page as already-masked and silently drops every enrollment in it.
+    it('failed page commit releases mask claims, so the stall-recovery replay still enrolls', async () => {
+        const flow = await insertActiveBatchFlow(HOG_FLOW_MASK_EXAMPLES.oncePerTimePeriod.trigger_masking)
+        const personId = new UUIDT().toString()
+        const statusPuts: Array<{ status: string }> = []
+
+        mockInternalFetch.mockImplementation((url: string, opts: any) => {
+            if (url.includes('/user_blast_radius_persons')) {
+                return Promise.resolve({
+                    status: 200,
+                    headers: {},
+                    json: () => Promise.resolve({}),
+                    text: () =>
+                        Promise.resolve(JSON.stringify({ users_affected: [personId], cursor: null, has_more: false })),
+                    dump: () => Promise.resolve(),
+                })
+            }
+            if (url.includes('/batch_jobs/') && url.endsWith('/status')) {
+                statusPuts.push(parseJSON(opts.body) as { status: string })
+                return Promise.resolve({
+                    status: 200,
+                    headers: {},
+                    json: () => Promise.resolve({}),
+                    text: () => Promise.resolve('{}'),
+                    dump: () => Promise.resolve(),
+                })
+            }
+            return Promise.reject(new Error(`Unexpected internalFetch call to ${url}`))
+        })
+
+        let commitFailuresLeft = 1
+        resolverWorker = buildResolverConsumer((job) => ({
+            ...job,
+            bulkCreateAndCheckIn: (input) => {
+                if (commitFailuresLeft > 0) {
+                    commitFailuresLeft--
+                    return Promise.reject(new Error('injected commit failure'))
+                }
+                return job.bulkCreateAndCheckIn(input)
+            },
+        }))
+        await resolverWorker.start()
+
+        const parentRunId = new UUIDT().toString()
+        await supertest(app)
+            .post(`/api/projects/${team.id}/hog_flows/${flow.id}/batch_invocations/${parentRunId}`)
+            .send({ filters: { filter_test_accounts: false }, max_audience_size: 1000 })
+            .expect(200)
+
+        // The first attempt claims the person's mask slot, then hits the injected commit
+        // failure. Wait until the resolver has released the claim (counter back to 0) —
+        // only then is the job's parked state the same as a real stall.
+        const maskRedis = createRedisV2PoolFromConfig({
+            connection: hub.CDP_REDIS_HOST
+                ? {
+                      url: hub.CDP_REDIS_HOST,
+                      options: { port: hub.CDP_REDIS_PORT, password: hub.CDP_REDIS_PASSWORD },
+                  }
+                : { url: hub.REDIS_URL },
+            poolMinSize: hub.REDIS_POOL_MIN_SIZE,
+            poolMaxSize: hub.REDIS_POOL_MAX_SIZE,
+        })
+        await waitForExpect(async () => {
+            expect(commitFailuresLeft).toBe(0)
+            const maskCounters = await maskRedis.useClient({ name: 'mask-peek' }, async (client) => {
+                const keys = await client.keys(`@posthog-test/hog-masker/mask/${flow.id}/*`)
+                return Promise.all(keys.map((key) => client.get(key)))
+            })
+            expect(maskCounters).toEqual(['0'])
+        }, 20000)
+
+        // What the janitor's stall recovery does to the parked job, without waiting
+        // out the stall timeout.
+        await cyclotronPool.query(
+            `UPDATE cyclotron_jobs SET status = 'available', lock_id = NULL, last_heartbeat = NULL
+             WHERE queue_name = $1 AND parent_run_id = $2`,
+            [HOGFLOW_BATCH_RESOLVE_QUEUE, parentRunId]
+        )
+
+        await waitForExpect(() => {
+            expect(statusPuts).toEqual([{ status: 'completed' }])
+        }, 20000)
+
+        // The replay re-evaluated masking against the released claim and enrolled the
+        // person — without the release it would classify them as masked and enqueue nothing.
+        const children = await cyclotronPool.query(
+            `SELECT id FROM cyclotron_jobs WHERE queue_name = 'hogflow' AND parent_run_id = $1`,
+            [parentRunId]
+        )
+        expect(children.rows).toHaveLength(1)
     })
 
     it('failed lifecycle: workflow deleted before processing → resolver transitions to failed → Django PUT status=failed', async () => {

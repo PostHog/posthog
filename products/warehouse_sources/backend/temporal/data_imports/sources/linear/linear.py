@@ -5,9 +5,9 @@ import requests
 from structlog.types import FilteringBoundLogger
 from tenacity import RetryCallState, retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.linear.queries import QUERIES, VIEWER_QUERY
 from products.warehouse_sources.backend.temporal.data_imports.sources.linear.settings import (
     LINEAR_API_URL,
@@ -67,6 +67,12 @@ def _wait_strategy(retry_state: RetryCallState) -> float:
 _FLOAT_FIELDS: dict[str, tuple[str, ...]] = {
     "cycles": ("progress",),
     "projects": ("progress",),
+    # `progress`, `sortOrder` and `position` are all GraphQL Floats that routinely hold whole
+    # values, so they hit the same int64-inference trap as `progress` above.
+    "workflow_states": ("position",),
+    "project_milestones": ("progress", "sortOrder"),
+    "initiatives": ("sortOrder",),
+    "team_memberships": ("sortOrder",),
 }
 
 
@@ -158,6 +164,11 @@ def _make_paginated_request(
                 raise LinearRetryableError(f"Linear: rate limited - {joined}")
             if not response.ok:
                 raise Exception(f"{response.status_code} Client Error: {response.reason} (Linear API: {joined})")
+            # Linear's GraphQL layer sometimes wraps a resolver-side blip as a 200 with a generic
+            # "Internal server error" message instead of an HTTP 5xx. Treat it the same as the
+            # status-code case above rather than failing the activity outright.
+            if any("internal server error" in message.lower() for message in error_messages):
+                raise LinearRetryableError(f"Linear: internal server error - {joined}")
             raise Exception(f"Linear GraphQL error: {joined}")
 
         if not response.ok:

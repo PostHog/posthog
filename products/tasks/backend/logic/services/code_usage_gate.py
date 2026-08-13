@@ -12,7 +12,7 @@ from posthog.models import OAuthAccessToken
 from posthog.temporal.oauth import create_oauth_access_token_for_user
 from posthog.utils import get_instance_region
 
-from products.tasks.backend.access import has_tasks_access
+from products.tasks.backend.logic.services.compute_quota import COMPUTE_QUOTA_DENIAL_CODE
 from products.tasks.backend.metrics import observe_code_usage_gate_check
 from products.tasks.backend.presentation.serializers import TaskRunErrorResponseSerializer
 
@@ -119,7 +119,7 @@ def get_posthog_code_usage(user, team_id: int) -> CodeUsageStatus | None:
 
 
 def rate_limit_error_payload(usage: CodeUsageStatus) -> dict[str, Any]:
-    """Structured 429 body the PostHog Code client parses into its upgrade prompt.
+    """Structured 429 body the PostHog Desktop client parses into its upgrade prompt.
 
     Omits unknown bucket/reset fields so they don't render as null in the shared
     error serializer (which other error responses reuse).
@@ -127,7 +127,7 @@ def rate_limit_error_payload(usage: CodeUsageStatus) -> dict[str, Any]:
     payload: dict[str, Any] = {
         "type": "rate_limited",
         "code": "usage_limit_exceeded",
-        "error": "You've reached your PostHog Code usage limit.",
+        "error": "You've reached your PostHog Desktop usage limit.",
         "is_pro": usage.is_pro,
     }
     if usage.limit_type is not None:
@@ -137,31 +137,27 @@ def rate_limit_error_payload(usage: CodeUsageStatus) -> dict[str, Any]:
     return payload
 
 
-def code_access_required_response(user) -> Response | None:
-    if has_tasks_access(user):
-        return None
+def compute_quota_limit_response() -> Response:
     return Response(
         TaskRunErrorResponseSerializer(
             {
-                "type": "permission_denied",
-                "code": "code_access_required",
-                "error": "PostHog Code access is required to run tasks in the cloud.",
+                "type": "billing_limit",
+                "code": COMPUTE_QUOTA_DENIAL_CODE,
+                "error": "Your organization reached its PostHog Desktop usage limit.",
             }
         ).data,
-        status=status.HTTP_403_FORBIDDEN,
+        status=status.HTTP_429_TOO_MANY_REQUESTS,
     )
 
 
-def cloud_usage_limit_response(user, team_id: int) -> Response | None:
-    """Return a blocking response when Code access or usage limits deny a cloud run, else None.
+def usage_limit_response(user, team_id: int) -> Response | None:
+    """Return a 429 when the team is over its PostHog Desktop usage limit, else None.
 
-    Entitlement checks fail closed. Usage checks fail open when the gateway can't be reached.
-    Every usage check is counted by outcome (`checked_allowed` / `checked_blocked` / `fail_open`)
-    so a degraded gateway silently removing this cost backstop is visible, not just logged.
+    Since Desktop moved to usage-based billing, this is the whole cost control on cloud runs —
+    no waitlist check is involved. Fails open when the gateway can't be reached, so every check
+    is counted by outcome (`checked_allowed` / `checked_blocked` / `fail_open`) and a degraded
+    gateway silently removing the backstop is visible, not just logged.
     """
-    if response := code_access_required_response(user):
-        return response
-
     usage = get_posthog_code_usage(user, team_id)
     if usage is None:
         observe_code_usage_gate_check(outcome="fail_open")

@@ -16,13 +16,19 @@ import logging
 from datetime import timedelta
 from typing import Any
 
+from django.conf import settings
 from django.db.models import Q
 from django.utils import timezone
 
 from posthog.models.integration import GitHubIntegration
 
 from products.review_hog.backend.models import ReviewReport
-from products.review_hog.backend.reviewer.constants import effective_priority, published_priorities_for
+from products.review_hog.backend.reviewer.constants import (
+    PRIORITIES_BY_URGENCY,
+    PRIORITY_LABELS,
+    effective_priority,
+    published_priorities_for,
+)
 from products.review_hog.backend.reviewer.models.issues_review import IssuePriority
 from products.review_hog.backend.reviewer.persistence import load_findings_bundle, load_valid_findings
 from products.review_hog.backend.reviewer.progress import (
@@ -36,6 +42,7 @@ from products.review_hog.backend.reviewer.tools.github_client import (
     GitHubAPIError,
     github_api_get_paginated,
     github_api_request,
+    is_app_bot_author,
 )
 
 logger = logging.getLogger(__name__)
@@ -63,11 +70,18 @@ _THRESHOLD_LABELS = {
     IssuePriority.MUST_FIX: "Must fix",
 }
 
-_PRIORITY_LABELS = {
-    IssuePriority.MUST_FIX: "must fix",
-    IssuePriority.SHOULD_FIX: "should fix",
-    IssuePriority.CONSIDER: "consider",
+# Whose threshold gated publishing, keyed by how the acting user resolved (`resolved_from`): the PR
+# author's own settings, the requester's ("requester wins" when someone else triggers the review),
+# or the built-in default when the author has no linked PostHog user. The default variant is
+# defensive — a default-resolved run gates at "All issues", so nothing can be held back — but the
+# comment must never blame a settings page that played no part.
+_THRESHOLD_ATTRIBUTIONS = {
+    "author": "the author's",
+    "override": "the requester's",
+    "default": "the default",
 }
+# Only personal thresholds live in someone's ReviewHog settings; the default variant has no page to point at.
+_PERSONAL_THRESHOLD_SOURCES = frozenset({"author", "override"})
 
 # A clean review deserves a reward, not a bare "nothing here". We still post the comment (so "no
 # comment" can never be mistaken for "the run broke"), but swap the flat sign-off for calming media.
@@ -94,6 +108,16 @@ _NO_ISSUES_MEDIA = (
 def status_marker(report_id: str) -> str:
     """The hidden marker identifying the report's status comment across turns and crashed runs."""
     return f"<!-- reviewhog:status:{report_id} -->"
+
+
+def report_deep_link(team_id: int, report_id: str) -> str:
+    """The app URL opening this report's review drawer — the held-back "View them in PostHog" target.
+
+    `?review=<report id>` is a permanent public contract (baked into GitHub comments that never get
+    re-edited); the frontend's Code review URL sync accepts exactly this param, so the two must keep
+    agreeing. Auth-gated like any app link — the same posture as posting Slack links publicly.
+    """
+    return f"{settings.SITE_URL}/project/{team_id}/code-review?review={report_id}"
 
 
 def _plural(count: int, noun: str) -> str:
@@ -130,16 +154,20 @@ def render_final_body(
     held_back_count: int,
     threshold: IssuePriority,
     review_url: str | None,
+    resolved_from: str = "author",
+    report_url: str | None = None,
 ) -> str:
     """The completed-state body: the full found counts, and how many the threshold held back.
 
     The counts always show everything the run found, even when only a subset was published, so
-    two inline comments on the PR never read as "the review only found two things".
+    two inline comments on the PR never read as "the review only found two things". The held-back
+    sentence attributes the gating threshold to whoever it actually belonged to (`resolved_from`)
+    and links to the report in PostHog (`report_url`, auth-gated) — the PR is otherwise the only
+    place the author hears about held-back findings, so the comment must not dead-end.
     """
     found_total = sum(counts.values())
     found_line = "Found " + ", ".join(
-        f"**{counts[priority]} {_PRIORITY_LABELS[priority]}**"
-        for priority in (IssuePriority.MUST_FIX, IssuePriority.SHOULD_FIX, IssuePriority.CONSIDER)
+        f"**{counts[priority]} {PRIORITY_LABELS[priority]}**" for priority in PRIORITIES_BY_URGENCY
     )
     lines = ["### \U0001f994 ReviewHog reviewed this pull request", ""]
     if found_total == 0:
@@ -160,11 +188,18 @@ def render_final_body(
                 published_line += f" ([view the review]({review_url}))"
             lines.append(published_line + ".")
         if held_back_count > 0:
-            lines.append(
-                f"{_plural(held_back_count, 'finding')} stayed below the author's "
-                f'"{_THRESHOLD_LABELS[threshold]}" urgency threshold in their ReviewHog settings, '
-                "so they were not published."
+            # An unrecognized resolved_from reads as "author" throughout (attribution AND suffix).
+            source = resolved_from if resolved_from in _THRESHOLD_ATTRIBUTIONS else "author"
+            sentence = (
+                f"{_plural(held_back_count, 'finding')} stayed below {_THRESHOLD_ATTRIBUTIONS[source]} "
+                f'"{_THRESHOLD_LABELS[threshold]}" urgency threshold'
             )
+            if source in _PERSONAL_THRESHOLD_SOURCES:
+                sentence += " in their ReviewHog settings"
+            sentence += ", so they were not published."
+            if report_url:
+                sentence += f" [View them in PostHog]({report_url})."
+            lines.append(sentence)
     lines.extend(["", status_marker(report_id)])
     return "\n".join(lines)
 
@@ -204,9 +239,10 @@ def _find_marker_comment(
         installation_id=installation_id,
         endpoint="/repos/{owner}/{repo}/issues/{issue_number}/comments",
     ):
-        # Adopt only app-bot comments: anyone can paste the marker on a public repo, and the
-        # returned id gets PATCHed — matching a stranger's comment would overwrite it.
-        if (comment.get("user") or {}).get("type") != "Bot":
+        # Adopt only our own app-bot's comments (`is_app_bot_author`): anyone can paste the marker
+        # on a public repo, and the returned id gets PATCHed — matching a stranger's comment would
+        # overwrite it.
+        if not is_app_bot_author(comment.get("user")):
             continue
         if marker in (comment.get("body") or ""):
             return comment.get("id")
@@ -342,6 +378,7 @@ def finalize_status_comment(
     run_index: int,
     urgency_threshold: str,
     review_url: str | None,
+    resolved_from: str = "author",
 ) -> None:
     """Rewrite the status comment with the turn's outcome: everything found vs. what was published."""
     try:
@@ -362,6 +399,8 @@ def finalize_status_comment(
             held_back_count=held_back_count,
             threshold=threshold,
             review_url=review_url,
+            resolved_from=resolved_from,
+            report_url=report_deep_link(team_id, report_id),
         )
         _edit_and_stamp(team_id, report, body)
     except Exception:

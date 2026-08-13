@@ -73,7 +73,7 @@ from posthog.hogql_queries.insights.utils.breakdowns import (
     has_breakdown_filter,
 )
 from posthog.hogql_queries.insights.utils.utils import get_response_hogql
-from posthog.hogql_queries.query_runner import AnalyticsQueryRunner
+from posthog.hogql_queries.query_runner import AnalyticsQueryRunner, resolve_series_custom_name
 from posthog.hogql_queries.utils.formula_ast import FormulaAST
 from posthog.hogql_queries.utils.query_compare_to_date_range import QueryCompareToDateRange
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
@@ -534,27 +534,12 @@ class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):
                 final_result = [item for item in final_result if not self._is_other_breakdown(item["breakdown_value"])]
             has_more = True
 
-        # Hiding weekends is purely a display concern: we keep weekend events in the aggregation
-        # (so windowed math like WAU/MAU, cumulative, and smoothing stay correct) and only drop the
-        # weekend date buckets from the response so the chart x-axis shows weekdays.
-        # For week and longer intervals we keep all buckets since they span multiple days.
-        # For hour/minute intervals we skip bucket removal to avoid discarding all data on weekends.
-        allowed_days: Optional[set[int]] = None
-        if (
-            self.query.trendsFilter
-            and self.query.trendsFilter.hideWeekends
-            and self.query_date_range.interval_name not in ("hour", "minute", "week", "month", "quarter", "year")
-        ):
-            allowed_days = {1, 2, 3, 4, 5}
-
         # daysOfWeek filters events at the query level; for day interval also drop the
-        # deselected day buckets so the chart doesn't show a row of zeros for them
+        # deselected day buckets so the chart doesn't show a row of zeros for them.
+        # Longer intervals span multiple days, so their buckets are kept.
         days_of_week = self.query_date_range.days_of_week()
         if days_of_week and self.query_date_range.interval_name == "day":
-            allowed_days = set(days_of_week) if allowed_days is None else allowed_days & set(days_of_week)
-
-        if allowed_days is not None:
-            final_result = self._filter_buckets_to_days(final_result, allowed_days)
+            final_result = self._filter_buckets_to_days(final_result, set(days_of_week))
 
         return final_result, has_more
 
@@ -608,7 +593,7 @@ class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):
                         "type": "events",
                         "order": series.series_order,
                         "name": series_label or "All events",
-                        "custom_name": series.series.custom_name,
+                        "custom_name": resolve_series_custom_name(series.series, series_label),
                         "math": series.series.math,
                         "math_property": series.series.math_property,
                         "math_hogql": series.series.math_hogql,
@@ -645,7 +630,7 @@ class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):
                         "type": "events",
                         "order": series.series_order,
                         "name": series_label or "All events",
-                        "custom_name": series.series.custom_name,
+                        "custom_name": resolve_series_custom_name(series.series, series_label),
                         "math": series.series.math,
                         "math_property": series.series.math_property,
                         "math_hogql": series.series.math_hogql,

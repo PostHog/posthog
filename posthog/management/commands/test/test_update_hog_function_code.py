@@ -189,6 +189,63 @@ class TestUpdateHogFunctionCode(BaseTest):
         self.assertIn("Update completed", output)
 
     @patch("posthog.management.commands.update_hog_function_code.compile_hog")
+    def test_update_google_ads_api_version_bumps_v19_to_v23_and_excludes_v18(self, mock_compile_hog):
+        mock_compile_hog.return_value = "compiled_bytecode"
+        base = (
+            "let res := fetch(f'https://googleads.googleapis.com/{version}/customers/1:uploadClickConversions', {{}})"
+        )
+        with patch("products.cdp.backend.models.hog_functions.hog_function.reload_hog_functions_on_workers"):
+            g_v18 = HogFunction.objects.create(
+                team=self.team,
+                name="G v18",
+                type="destination",
+                template_id="template-google-ads",
+                hog=base.replace("{version}", "v18"),
+                enabled=True,
+            )
+            g_v19 = HogFunction.objects.create(
+                team=self.team,
+                name="G v19",
+                type="destination",
+                template_id="template-google-ads",
+                hog=base.replace("{version}", "v19"),
+                enabled=True,
+            )
+            g_v21 = HogFunction.objects.create(
+                team=self.team,
+                name="G v21",
+                type="destination",
+                template_id="template-google-ads",
+                hog=base.replace("{version}", "v21"),
+                enabled=True,
+            )
+            g_v24 = HogFunction.objects.create(
+                team=self.team,
+                name="G v24",
+                type="destination",
+                template_id="template-google-ads",
+                hog=base.replace("{version}", "v24"),
+                enabled=True,
+            )
+
+        out = StringIO()
+        call_command("update_hog_function_code", replace_key="google-ads-api-version-update", stdout=out)
+
+        g_v18.refresh_from_db()
+        g_v19.refresh_from_db()
+        g_v21.refresh_from_db()
+        g_v24.refresh_from_db()
+        # v18 is deliberately excluded: Google already removed it, so bumping would revive dead destinations
+        assert g_v18.hog == base.replace("{version}", "v18")
+        assert "googleads.googleapis.com/v24/" in g_v19.hog and "/v19/" not in g_v19.hog
+        assert "googleads.googleapis.com/v24/" in g_v21.hog and "/v21/" not in g_v21.hog
+        assert g_v24.hog == base.replace("{version}", "v24")  # unchanged
+
+        output = out.getvalue()
+        self.assertIn("Found 4 destinations to process", output)
+        self.assertIn("Updated: 2", output)
+
+    @patch("posthog.management.commands.update_hog_function_code.compile_hog")
     def test_update_skips_destinations_that_fail_to_compile(self, mock_compile_hog):
         """A destination with uncompilable hog is skipped and logged, not fatal to the whole run."""
         with patch("products.cdp.backend.models.hog_functions.hog_function.reload_hog_functions_on_workers"):

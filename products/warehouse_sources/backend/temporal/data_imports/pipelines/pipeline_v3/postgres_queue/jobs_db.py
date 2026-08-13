@@ -36,6 +36,16 @@ LEASE_TABLE = "sourcegrouplease"
 # sweep fire together.
 LEASE_TTL_SECONDS = 300
 
+# Sentinel lease row that single-flights the reconcile sweep across the fleet.
+# Real groups have team_id >= 1 and UUID schema ids, so this key can never
+# collide with (or be claimed/unlocked as) an actual group. The slot TTL sits
+# just under the engine's 300s reconcile interval so single-flighting never
+# makes reconcile latency worse than the old every-pod cadence: the first pod
+# whose timer fires after expiry wins the next sweep.
+RECONCILE_SWEEP_LEASE_TEAM_ID = 0
+RECONCILE_SWEEP_LEASE_SCHEMA_ID = "__reconcile-sweep__"
+RECONCILE_SWEEP_SLOT_TTL_SECONDS = 240
+
 # Partition pruning hint: only scan partitions within this window.
 # Set to 2x the retention period so the planner can skip dropped
 # partitions. Not a correctness filter -- older partitions are already
@@ -49,8 +59,7 @@ PARTITION_PRUNING_INTERVAL = "14 days"
 # margin absorbs clock skew and sweep timing. Applies only to the outer claim
 # candidates and the recovery sweep — never to the head-of-line/failed-run/
 # schema-busy gates, which must keep seeing rows aged past this window for as
-# long as they exist. The duckgres claim path (duckgres/jobs_db.py) has a
-# similar exposure but is deliberately out of scope here.
+# long as they exist.
 CLAIM_ELIGIBILITY_INTERVAL = "6 days 12 hours"
 
 # Quiet time (no batch inserts or status writes) before lock takeover treats a run as
@@ -302,16 +311,16 @@ def _state_claim_candidates_sql(sync_type_scope: str = "") -> str:
     lost its parquet to retention, so it must never be claimed. The gates keep
     ``PARTITION_PRUNING_INTERVAL`` for the same reason the sync-type scope
     stays out of them — they must see every row that still exists.
+
+    Selects only the join-back keys ``(id, created_at)``. The caller's fairness
+    ranking sorts the entire claimable set before its LIMIT can apply, so the
+    sort input must stay narrow: selecting the wide row here (``metadata``
+    alone is ~1 KB per batch) made every poll sort megabytes-to-gigabytes of
+    payload to keep ~50 rows, spilling past ``work_mem`` to disk once a backlog
+    built up and degrading the whole fleet's polls with it.
     """
     return f"""
-        SELECT
-            b.id, b.team_id, b.schema_id, b.source_id, b.job_id,
-            b.run_uuid, b.batch_index, b.s3_path, b.row_count, b.byte_size,
-            b.is_final_batch, b.total_batches, b.total_rows, b.sync_type,
-            b.cumulative_row_count, b.resource_name, b.is_resume,
-            b.is_first_ever_sync, b.metadata,
-            b.latest_attempt,
-            b.created_at
+        SELECT b.id, b.created_at
         FROM {BATCH_TABLE} b
         WHERE
             b.created_at > now() - interval '{CLAIM_ELIGIBILITY_INTERVAL}'
@@ -389,21 +398,6 @@ def _stale_executing_sql(scope_sql: str = "") -> str:
     """
 
 
-# Retained for the duckgres sink, which still coordinates via session advisory
-# locks (see duckgres/jobs_db.py). The delta queue now uses leases instead.
-async def unlock_advisory_locks(
-    conn: psycopg.AsyncConnection[Any],
-    *,
-    batches: list[PendingBatch],
-    namespace: int,
-) -> None:
-    for batch in batches:
-        await conn.execute(
-            "SELECT pg_advisory_unlock(%(ns)s, hashtext(%(key)s))",
-            {"ns": namespace, "key": f"{batch.team_id}:{batch.schema_id}"},
-        )
-
-
 @dataclass(frozen=True, slots=True)
 class PendingBatch:
     """A batch row fetched from the queue, ready to be processed by the consumer."""
@@ -478,6 +472,23 @@ class FailedRunRef:
     schema_id: str
     workflow_run_id: str | None
     reason: str | None
+
+
+@dataclass(frozen=True, slots=True)
+class StrandedRunRef:
+    """Identity of a run the loader abandoned: non-terminal batches, no live lease, no recent progress.
+
+    Unlike ``FailedRunRef`` there is no ``failed`` queue batch — the extraction ended (workflow died
+    or errored out) before a final batch, so nothing finalizes the run and ``get_failed_runs`` never
+    sees it. The reconcile sweep fails these so they don't strand until the retention prune.
+    """
+
+    run_uuid: str
+    job_id: str
+    team_id: int
+    schema_id: str
+    workflow_run_id: str | None
+    non_terminal_batches: int
 
 
 @dataclass(frozen=True, slots=True)
@@ -622,6 +633,13 @@ class BatchQueue:
         dropped by the ``JOIN claimed``. This replaces the old session advisory
         lock so an abandoned group simply expires rather than wedging the fleet.
 
+        Ranking runs over narrow ``(id, created_at)`` candidates and the wide
+        rows are fetched only for the LIMIT winners (the ``candidates``
+        join-back, ~LIMIT primary-key probes): the fairness sort has to process
+        the whole claimable set, so its input must stay narrow or a backlog
+        turns every poll into a disk-spilling sort of full rows (see
+        :func:`_state_claim_candidates_sql`).
+
         Uses a MATERIALIZED CTE so that candidate selection (with LIMIT) is
         fully resolved before the lease claim runs. ``candidate_groups`` is
         ``SELECT DISTINCT`` because ``INSERT ... ON CONFLICT DO UPDATE`` cannot
@@ -670,7 +688,7 @@ class BatchQueue:
         async with conn.cursor(row_factory=dict_row) as cur:
             await cur.execute(
                 f"""
-                WITH candidates AS MATERIALIZED (
+                WITH narrow AS MATERIALIZED (
                     {candidates_sql}
                         AND NOT EXISTS (
                             SELECT 1
@@ -687,6 +705,18 @@ class BatchQueue:
                         b.created_at ASC,
                         b.batch_index ASC
                     LIMIT %(limit)s
+                ),
+                candidates AS MATERIALIZED (
+                    SELECT
+                        b.id, b.team_id, b.schema_id, b.source_id, b.job_id,
+                        b.run_uuid, b.batch_index, b.s3_path, b.row_count, b.byte_size,
+                        b.is_final_batch, b.total_batches, b.total_rows, b.sync_type,
+                        b.cumulative_row_count, b.resource_name, b.is_resume,
+                        b.is_first_ever_sync, b.metadata,
+                        b.latest_attempt,
+                        b.created_at
+                    FROM {BATCH_TABLE} b
+                    JOIN narrow n ON n.id = b.id AND n.created_at = b.created_at
                 ),
                 candidate_groups AS (
                     SELECT DISTINCT team_id, schema_id FROM candidates
@@ -793,6 +823,46 @@ class BatchQueue:
         return bool(row and row[0])
 
     @staticmethod
+    async def try_acquire_reconcile_sweep_slot(
+        conn: psycopg.AsyncConnection[Any],
+        *,
+        owner_token: str,
+        ttl_seconds: int = RECONCILE_SWEEP_SLOT_TTL_SECONDS,
+    ) -> bool:
+        """Claim the fleet-wide reconcile-sweep slot; True means this pod runs the sweep.
+
+        A sentinel row in the group-lease table, CAS-acquired only when expired.
+        There is deliberately no release and no same-owner re-entrancy clause:
+        the TTL *is* the fleet-wide sweep cadence, so at most one sweep starts
+        per TTL no matter how many pods (or how many startup sweeps after a
+        restart wave) race for it. A lease row rather than a session advisory
+        lock for the same reason as group claiming: a lingering pgbouncer
+        session must not be able to hold the slot forever — a crashed winner's
+        slot frees itself at expiry.
+        """
+        async with conn.cursor() as cur:
+            await cur.execute(
+                f"""
+                INSERT INTO {LEASE_TABLE} (team_id, schema_id, owner_token, expires_at, acquired_at, updated_at)
+                VALUES (%(team_id)s, %(schema_id)s, %(owner)s, now() + make_interval(secs => %(ttl)s), now(), now())
+                ON CONFLICT (team_id, schema_id) DO UPDATE
+                    SET owner_token = excluded.owner_token,
+                        expires_at = excluded.expires_at,
+                        acquired_at = now(),
+                        updated_at = now()
+                    WHERE {LEASE_TABLE}.expires_at <= now()
+                RETURNING id
+                """,
+                {
+                    "team_id": RECONCILE_SWEEP_LEASE_TEAM_ID,
+                    "schema_id": RECONCILE_SWEEP_LEASE_SCHEMA_ID,
+                    "owner": owner_token,
+                    "ttl": ttl_seconds,
+                },
+            )
+            return await cur.fetchone() is not None
+
+    @staticmethod
     async def renew_lease(
         conn: psycopg.AsyncConnection[Any],
         *,
@@ -851,9 +921,8 @@ class BatchQueue:
     ) -> bool:
         """Check whether ``owner_token`` still holds a live group lease for (team_id, schema_id).
 
-        Named ``verify_advisory_lock`` for interface continuity with the
-        consumer engine and the duckgres sink; ownership is now a lease row, not
-        a session advisory lock.
+        Named ``verify_advisory_lock`` for interface continuity with the consumer engine;
+        ownership is a lease row, not a session advisory lock.
         """
         async with conn.cursor() as cur:
             await cur.execute(
@@ -999,13 +1068,43 @@ class BatchQueue:
         *,
         job_id: str,
         current_run_uuid: str,
+        progress_stale_seconds: int = TAKEOVER_STALE_THRESHOLD_SECONDS,
     ) -> int:
-        """Mark non-terminal batches from older runs of the same job as superseded."""
+        """Mark non-terminal batches from *stalled* older runs of the same job as superseded.
+
+        A run the loader is still working through is spared: any batch whose latest
+        state is 'executing', 'succeeded', or 'waiting_retry' with ``state_changed_at``
+        within ``progress_stale_seconds`` counts as loader progress. Superseding such a
+        run destroys partially loaded work and, repeated on a timer, can re-enqueue a
+        large table from zero forever while flooding the queue with failed rows. A run
+        with no such write is genuinely stalled and still gets superseded, so dead runs
+        recover here on the same clock as the stranded-run reconcile sweep.
+
+        Progress is judged on active-state transitions only: 'pending'/'waiting' rows
+        are producer output the loader never touched (superseding an unstarted backlog
+        loses nothing, since this run re-enqueues equivalent data), and 'failed' is
+        terminal. Heartbeats refresh only the status log, not ``state_changed_at``, so
+        a wedged-but-heartbeating loader cannot keep a run unsupersedable forever.
+
+        A spared run that stalls later is not re-checked here (this fires once, at the
+        new run's first batch); the reconcile sweep's stranded-run pass owns that case.
+        """
         cursor = conn.execute(
-            _bulk_fail_dual_write_sql("b.job_id = %(job_id)s AND b.run_uuid != %(current_run_uuid)s"),
+            _bulk_fail_dual_write_sql(
+                f"""b.job_id = %(job_id)s AND b.run_uuid != %(current_run_uuid)s
+                AND NOT EXISTS (
+                    SELECT 1
+                    FROM {BATCH_TABLE} b_live
+                    WHERE b_live.run_uuid = b.run_uuid
+                        AND b_live.created_at > now() - interval '{PARTITION_PRUNING_INTERVAL}'
+                        AND b_live.latest_state IN ('executing', 'succeeded', 'waiting_retry')
+                        AND b_live.state_changed_at > now() - make_interval(secs => %(progress_stale)s)
+                )"""
+            ),
             {
                 "job_id": job_id,
                 "current_run_uuid": current_run_uuid,
+                "progress_stale": progress_stale_seconds,
                 "error_response": json.dumps({"error": "superseded by newer attempt", "superseded": True}),
             },
         )
@@ -1039,6 +1138,20 @@ class BatchQueue:
                     WHERE
                         b.created_at > now() - interval '{PARTITION_PRUNING_INTERVAL}'
                         AND b.latest_state = 'failed'
+                        -- Implied by the s.created_at lower bound (the denormalizing
+                        -- status CTEs set state_changed_at to exactly the terminal
+                        -- status row's created_at), so it changes no semantics: it
+                        -- exists purely to prune the outer scan BEFORE the DISTINCT ON
+                        -- sort and the per-row lateral probes. Without it the sort
+                        -- input is every failed batch in the pruning window — 1.36M
+                        -- rows during the 2026-08 failure storm, a minutes-long disk
+                        -- spill at work_mem=4MB that, run by every pod concurrently,
+                        -- starved the claim path (the 2026-08-09 loader stall).
+                        -- state_changed_at is nullable; NULL rows must stay visible or a
+                        -- failed run could strand until the retention prune (the stranded
+                        -- sweep skips runs that have a failed batch).
+                        AND (b.state_changed_at IS NULL
+                             OR b.state_changed_at >= now() - make_interval(secs => %(lookback)s))
                         AND s.job_state = 'failed'
                         AND s.created_at <= now() - make_interval(secs => %(grace)s)
                         AND s.created_at >= now() - make_interval(secs => %(lookback)s)
@@ -1060,6 +1173,91 @@ class BatchQueue:
                 schema_id=row["schema_id"],
                 workflow_run_id=(row["metadata"] or {}).get("workflow_run_id"),
                 reason=(row["error_response"] or {}).get("error"),
+            )
+            for row in rows
+        ]
+
+    @staticmethod
+    async def get_stale_stranded_runs(
+        conn: psycopg.AsyncConnection[Any],
+        *,
+        stale_seconds: int,
+        limit: int,
+    ) -> list[StrandedRunRef]:
+        """Runs the loader abandoned: non-terminal batches, no live lease, no loader progress for ``stale_seconds``.
+
+        Complements ``get_failed_runs``, which only sees runs with a ``failed`` batch. When an
+        extraction workflow dies mid-run its batches are left non-terminal with no failed batch and
+        the ExternalDataJob stuck RUNNING; lock takeover only fires on the next scheduled run, so
+        without this the batches strand until the retention prune (days later).
+
+        Staleness is *loader progress only*: the newest status write across the run, or — when the
+        loader never claimed anything — the oldest batch's age. Batch inserts (producer activity)
+        deliberately do not reset the clock, mirroring ``get_run_activity_summary``, so a live producer
+        streaming into a dead loader still reads as stale. A live group lease means a pod is actively
+        working the group (making progress, or the recovery sweep reclaims it on lease expiry), so those
+        are excluded. Runs with a ``failed`` batch are excluded — ``get_failed_runs`` owns those.
+
+        Seeded from the cheap denormalized-state index (oldest-batch-first, so the bounded candidate
+        window always holds the longest-stranded runs rather than an arbitrary set), then the full-run
+        lateral confirms staleness, so a slow-but-live run (recent success, momentarily between lease
+        renewals) is not swept.
+        """
+        async with conn.cursor(row_factory=dict_row) as cur:
+            await cur.execute(
+                f"""
+                WITH candidates AS (
+                    SELECT b.run_uuid, b.team_id, b.schema_id
+                    FROM {BATCH_TABLE} b
+                    WHERE b.created_at > now() - interval '{PARTITION_PRUNING_INTERVAL}'
+                      AND b.created_at <= now() - make_interval(secs => %(stale)s)
+                      AND b.latest_state IN ('pending', 'waiting', 'waiting_retry', 'executing')
+                      AND NOT EXISTS (
+                          SELECT 1 FROM {LEASE_TABLE} l
+                          WHERE l.team_id = b.team_id AND l.schema_id = b.schema_id
+                            AND l.expires_at > now()
+                      )
+                      AND NOT EXISTS (
+                          SELECT 1 FROM {BATCH_TABLE} bf
+                          WHERE bf.run_uuid = b.run_uuid
+                            AND bf.created_at > now() - interval '{PARTITION_PRUNING_INTERVAL}'
+                            AND bf.latest_state = 'failed'
+                      )
+                    -- Oldest-batch-first, so the window can't be starved by an arbitrary set of
+                    -- not-yet-stale runs the outer HAVING later rejects: the longest-stranded runs
+                    -- always land in it, and successive sweeps make deterministic forward progress.
+                    GROUP BY b.run_uuid, b.team_id, b.schema_id
+                    ORDER BY MIN(b.created_at) ASC
+                    LIMIT %(limit)s
+                )
+                SELECT
+                    b.run_uuid,
+                    b.team_id,
+                    b.schema_id,
+                    MAX(b.job_id) AS job_id,
+                    MAX(b.metadata->>'workflow_run_id') AS workflow_run_id,
+                    COUNT(*) FILTER (WHERE {pending_batch_predicate("s")}) AS non_terminal_batches
+                FROM {BATCH_TABLE} b
+                JOIN candidates c
+                    ON c.run_uuid = b.run_uuid AND c.team_id = b.team_id AND c.schema_id = b.schema_id
+                {latest_status_lateral("b", "s")}
+                WHERE b.created_at > now() - interval '{PARTITION_PRUNING_INTERVAL}'
+                GROUP BY b.run_uuid, b.team_id, b.schema_id
+                HAVING COALESCE(MAX(s.created_at), MIN(b.created_at)) <= now() - make_interval(secs => %(stale)s)
+                ORDER BY MIN(b.created_at) ASC
+                """,
+                {"stale": stale_seconds, "limit": limit},
+            )
+            rows = await cur.fetchall()
+
+        return [
+            StrandedRunRef(
+                run_uuid=row["run_uuid"],
+                job_id=row["job_id"],
+                team_id=row["team_id"],
+                schema_id=row["schema_id"],
+                workflow_run_id=row["workflow_run_id"],
+                non_terminal_batches=row["non_terminal_batches"],
             )
             for row in rows
         ]

@@ -114,7 +114,7 @@ def _mint_reviewer_gateway_token(run: ReviewRun) -> str:
     tasks uses with ``task.created_by``), under the shared sandbox OAuth app, carrying only
     ``llm_gateway:read`` plus the ``internal_run:read`` provenance marker — the gateway's stamphog
     route sets ``requires_server_credential`` and refuses OAuth tokens without the marker, so a
-    user's own Code OAuth token can't reach the route. The marker is passed explicitly instead of
+    user's own Desktop OAuth token can't reach the route. The marker is passed explicitly instead of
     ``include_internal_scopes=True`` to keep the rest of the internal bundle (``task:write``) out of
     a sandbox that runs an LLM over untrusted PR content. If that PR coaxes the reviewer into
     leaking the token, it buys a few hours of stamphog-route LLM calls and nothing else — the
@@ -166,14 +166,16 @@ def _reviewer_environment(run: ReviewRun) -> dict[str, str]:
         value = os.environ.get(key)
         if value:
             env[key] = value
-    env["STAMPHOG_EXTRA_PROPERTIES"] = json.dumps(
-        {
-            "stamphog_runtime": "hosted",
-            "stamphog_team_id": run.team_id,
-            "stamphog_review_run_id": str(run.id),
-        },
-        separators=(",", ":"),
-    )
+    extra_properties: dict[str, object] = {
+        "stamphog_runtime": "hosted",
+        "stamphog_team_id": run.team_id,
+        "stamphog_review_run_id": str(run.id),
+    }
+    # Marks self-driving inbox reviews (never set for human PRs) so analytics can tell the engine's
+    # completed events and LLM traces apart from reviews of human PRs.
+    if (run.output or {}).get("inbox_review"):
+        extra_properties["stamphog_self_driving_review"] = True
+    env["STAMPHOG_EXTRA_PROPERTIES"] = json.dumps(extra_properties, separators=(",", ":"))
     return env
 
 
@@ -229,7 +231,11 @@ def fetch_review_context(input: StamphogReviewInput) -> dict:
     check_runs = client.get_check_runs(repo, run.head_sha)
 
     author = (pr.get("user") or {}).get("login") or pull_request.author_login
-    author_pr_numbers = client.get_author_merged_pr_numbers(repo, author) if author else []
+    # Self-driving runs skip this fetch: the author is the App machine user, so blame familiarity
+    # from its merged PRs would read to the engine as human trust. An empty list only omits the
+    # familiarity section from the reviewer prompt; the review itself proceeds normally.
+    is_inbox_review = bool((run.output or {}).get("inbox_review"))
+    author_pr_numbers = client.get_author_merged_pr_numbers(repo, author) if author and not is_inbox_review else []
 
     policy_files: dict[str, str] = {}
     for path in (*STAMPHOG_POLICY_PATHS, *STAMPHOG_OPTIONAL_POLICY_PATHS):
@@ -439,6 +445,9 @@ def run_review_in_sandbox(input: StamphogReviewInput) -> dict:
         repo=repo,
         engine_dir=STAMPHOG_SANDBOX_ENGINE_DIR,
         context_path=STAMPHOG_SANDBOX_CONTEXT_PATH,
+        # The engine's carve-out for bot-authored drafts keys off this flag alone. It comes only
+        # from the run's inbox provenance, stamped after the PR is linked to a signals run.
+        self_driving_review=bool(output.get("inbox_review")),
     )
 
     sandbox_class = get_sandbox_class_for_backend(_resolve_sandbox_backend())

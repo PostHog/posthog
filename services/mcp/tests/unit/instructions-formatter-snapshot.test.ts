@@ -5,14 +5,13 @@ import { describe, expect, it } from 'vitest'
 import { PostHogMCP } from '@posthog/mcp-analytics'
 
 import type { GroupType } from '@/api/client'
-import { MCP_EXEC_SKILLS_FEATURE_FLAG } from '@/hono/constants'
 import { InstructionsBuilder } from '@/hono/instructions'
 import type { ResolvedState } from '@/hono/request-state-resolver'
 import { MCPClientProfile } from '@/lib/client-detection'
-import { PRODUCT_DATA_CATALOG_FLAG } from '@/lib/constants'
-import { buildActiveEnvironmentContextPrompt, type QueryToolInfo } from '@/lib/instructions'
+import { MCP_INSTRUCTIONS_CHAR_BUDGET, PRODUCT_DATA_CATALOG_FLAG } from '@/lib/constants'
+import { buildActiveEnvironmentContextPrompt, buildToolDomainsCompact, type QueryToolInfo } from '@/lib/instructions'
 import { InstructionsFormatter, type InstructionsContext } from '@/lib/instructions-formatter'
-import { getToolDefinitions } from '@/tools/toolDefinitions'
+import { getToolCategory, getToolDefinitions } from '@/tools/toolDefinitions'
 import type { CachedOrg, CachedProject, CachedUser } from '@/tools/types'
 
 // Static, deterministic context shared by all snapshots — mirrors the realistic
@@ -52,6 +51,13 @@ const STATIC_CTX: InstructionsContext = {
     queryTools: STATIC_QUERY_TOOLS,
     renderUiEnabled: true,
 }
+
+/** The domain index is the only pipe-delimited line in the compact payload. */
+const domainsIn = (payload: string): string[] =>
+    payload
+        .split('\n')
+        .find((line) => line.includes('|'))
+        ?.split('|') ?? []
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const SNAPSHOT_DIR = path.resolve(__dirname, '__snapshots__', 'instructions')
@@ -100,12 +106,10 @@ describe('InstructionsFormatter prompt snapshots', () => {
         const state = {
             allTools: STATIC_TOOLS.map(({ name }) => ({ name })),
             clientProfile: new MCPClientProfile({ vendorClient: 'ClaudeAI' }),
-            toolFeatureFlags: { [MCP_EXEC_SKILLS_FEATURE_FLAG]: true },
+            toolFeatureFlags: {},
             renderUiEnabled: STATIC_CTX.renderUiEnabled,
             metadata: STATIC_CTX.metadata,
             groupTypes: STATIC_CTX.groupTypes,
-            requestContext: { mcpConsumer: undefined },
-            sessionContext: null,
         } as unknown as ResolvedState
         const rendered = new InstructionsBuilder(STATIC_CTX.guidelines).buildExecCommandReference(state)
 
@@ -126,8 +130,6 @@ describe('InstructionsFormatter prompt snapshots', () => {
                 renderUiEnabled: STATIC_CTX.renderUiEnabled,
                 metadata: STATIC_CTX.metadata,
                 groupTypes: STATIC_CTX.groupTypes,
-                requestContext: { mcpConsumer: undefined },
-                sessionContext: null,
             } as unknown as ResolvedState
             return new InstructionsBuilder(STATIC_CTX.guidelines).buildExecCommandReference(state)
         }
@@ -188,15 +190,12 @@ describe('InstructionsFormatter prompt snapshots', () => {
         const state = {
             allTools: Object.keys(getToolDefinitions()).map((name) => ({ name })),
             clientProfile: new MCPClientProfile({ vendorClient: 'ClaudeAI', userAgent: 'Claude-User' }),
-            // Both flags on is the worst case: the analytics learn-topic description is
-            // longer with the data catalog, and topic descriptions are inlined in the
-            // command reference.
-            toolFeatureFlags: { [PRODUCT_DATA_CATALOG_FLAG]: true, [MCP_EXEC_SKILLS_FEATURE_FLAG]: true },
+            // Data catalog on: the analytics learn-topic description is longer with
+            // the flag, and topic descriptions are inlined in the command reference.
+            toolFeatureFlags: { [PRODUCT_DATA_CATALOG_FLAG]: true },
             renderUiEnabled: true,
             metadata: worstCaseMetadata,
             groupTypes: worstCaseGroupTypes,
-            requestContext: { mcpConsumer: undefined },
-            sessionContext: null,
         } as unknown as ResolvedState
         const entry = new InstructionsBuilder('').buildExecToolEntry(state)
         const posthog = new PostHogMCP('phc_test', { disabled: true })
@@ -208,5 +207,61 @@ describe('InstructionsFormatter prompt snapshots', () => {
 
         expect(properties).toHaveProperty('context')
         expect(inputSchemaSize).toBeLessThan(16_384)
+    })
+
+    // ------------------------------------------------------------------------------------------------
+    // DO NOT weaken or delete this test. Claude Code truncates a server's `instructions`
+    // payload at MCP_INSTRUCTIONS_CHAR_BUDGET chars, silently and mid-token. The payload
+    // is a single alphabetical tool-domain index, so an overrun does not degrade evenly —
+    // it deletes the tail. Measured 2026-08-07 before this budget existed: 2,923 chars
+    // rendered, 148 domains, of which the 67 from `marketing-analytics` down never
+    // reached the model, including every `scout-*`, `survey`, `session-recording`,
+    // `web-analytics`, `workflows-*` and `vision-*` domain. Agents concluded those
+    // products had no tools and reached for their own built-ins instead.
+    //
+    // If this fails, do NOT trim the domain index by hand — `toCompact` already collapses
+    // sub-families to fit. It means a fixed section grew; move it to the exec command
+    // reference, which has no such cap.
+    // ------------------------------------------------------------------------------------------------
+    it('keeps the compact exec instructions under the Claude Code truncation cap', () => {
+        // The full live tool catalog, plus env context and group types that the payload no
+        // longer carries — if either is ever spliced back into the compact template, the
+        // budget has to account for it here rather than fail silently in production.
+        const ctx: InstructionsContext = {
+            ...STATIC_CTX,
+            metadata: STATIC_METADATA,
+            tools: Object.keys(getToolDefinitions()).map((name) => ({
+                name,
+                category: getToolCategory(name) ?? 'Other',
+            })),
+        }
+        const rendered = new InstructionsFormatter().buildExecInstructions(ctx)
+        const domains = domainsIn(rendered)
+
+        expect(rendered.length).toBeLessThanOrEqual(MCP_INSTRUCTIONS_CHAR_BUDGET)
+        // Domains past the old cutoff point, i.e. the ones a truncated payload lost.
+        // (`workflow` singular: the extractor renders a family's shortest spelling.)
+        for (const domain of ['query', 'scout', 'session-recording', 'survey', 'web-analytics', 'workflow']) {
+            expect(domains).toContain(domain)
+        }
+    })
+
+    // Exercises the re-render branch, which the live catalog no longer reaches now that it
+    // fits on the first pass. 40 families of 30 tools each split into long sub-family roots
+    // that blow the cap unbudgeted, and collapse to 40 short roots that clear it.
+    it('collapses an over-budget domain index until the payload fits', () => {
+        const tools = Array.from({ length: 40 }, (_, family) =>
+            Array.from({ length: 30 }, (_, i) => ({
+                name: `family${family}-subfamily${i % 5}-verylongtoolname${i}`,
+                category: 'Other',
+            }))
+        ).flat()
+        const formatter = new InstructionsFormatter()
+
+        expect(buildToolDomainsCompact(tools).length).toBeGreaterThan(MCP_INSTRUCTIONS_CHAR_BUDGET)
+
+        const rendered = formatter.buildExecInstructions({ guidelines: '', tools })
+        expect(rendered.length).toBeLessThanOrEqual(MCP_INSTRUCTIONS_CHAR_BUDGET)
+        expect(domainsIn(rendered)).toHaveLength(40)
     })
 })

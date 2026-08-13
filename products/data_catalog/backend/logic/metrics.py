@@ -1,14 +1,15 @@
 """Metric write path and approval lifecycle.
 
-Names are reserved forever per team: creating with an existing name refines that metric, and creating
-with a soft-deleted name resurrects the row as ``proposed``. A metric can be created from an insight
+Names are unique among a team's live metrics: creating with a live existing name refines that metric,
+while creating with a deleted metric's name starts a fresh one (delete and rename free the name for
+reuse). A metric can be created from an insight
 (its query is snapshotted server-side and drift is flagged for re-review). Promotion to ``approved``
 is blocked while a metric is drifted. All transitions emit capture events for success-criteria
 measurement.
 """
 
 import re
-from typing import Optional
+from typing import TYPE_CHECKING, Optional
 
 from django.db import IntegrityError, transaction
 from django.db.models import QuerySet
@@ -16,7 +17,6 @@ from django.utils import timezone
 
 from rest_framework.exceptions import ValidationError
 
-from posthog.event_usage import report_user_action
 from posthog.models import Team, User
 from posthog.models.scoping import team_scope
 from posthog.rbac.user_access_control import UserAccessControl
@@ -25,9 +25,20 @@ from products.product_analytics.backend.models.insight import Insight
 
 from ..facade.enums import CreatedSource, MetricStatus
 from ..models import METRIC_NAME_REGEX, Metric
+from .analytics import (
+    METRIC_APPROVAL_BLOCKED_EVENT,
+    METRIC_APPROVED_EVENT,
+    METRIC_CREATED_EVENT,
+    METRIC_DELETED_EVENT,
+    METRIC_UPDATED_EVENT,
+    capture_metric_event,
+)
 from .drift import canonical_query_hash, compute_drift, effective_insight_query, fetch_insight
 from .exceptions import MetricDrifted, SourceInsightUnavailable
-from .validation import validate_metric_definition
+from .validation import validate_description, validate_metric_definition
+
+if TYPE_CHECKING:
+    from rest_framework.request import Request
 
 
 class _Unset:
@@ -46,24 +57,9 @@ _APPROVAL_FIELDS = frozenset({"status", "approved_by", "approved_at"})
 # Fields that carry the metric's reviewed meaning: editing any of them invalidates a prior approval.
 # The definition is compared by canonical hash separately; these are compared by value. display_name
 # (a cosmetic label), owner, and provenance metadata are not part of what a reviewer blessed.
-_APPROVAL_RELEVANT_FIELDS = frozenset({"description", "unit"})
-
-
-def _capture(user: Optional[User], team: Team, event: str, metric: Metric) -> None:
-    if user is None:
-        return
-    report_user_action(
-        user=user,
-        event=event,
-        team=team,
-        properties={
-            "metric_id": str(metric.id),
-            "metric_name": metric.name,
-            "definition_kind": metric.definition_kind,
-            "status": metric.status,
-            "created_source": metric.created_source,
-        },
-    )
+# name is in here because agents pick a metric by matching its name (see the information_schema.metrics
+# description), so moving an approved definition under a different name changes what the approval says.
+_APPROVAL_RELEVANT_FIELDS = frozenset({"name", "description", "unit"})
 
 
 def _canonical_definition(
@@ -173,12 +169,8 @@ def _invalidates_approval(metric: Metric, fields: dict) -> bool:
     return any(key in fields and fields[key] != getattr(metric, key) for key in _APPROVAL_RELEVANT_FIELDS)
 
 
-def _resurrect_or_refine(metric: Metric, fields: dict) -> None:
-    if metric.deleted:
-        metric.deleted = False
-        metric.deleted_at = None
-        _reset_to_proposed(metric)
-    elif _invalidates_approval(metric, fields):
+def _refine(metric: Metric, fields: dict) -> None:
+    if _invalidates_approval(metric, fields):
         # Refining an approved metric's meaning (definition, description, or unit) changes what it
         # computes or how it reads; its review no longer holds, so drop back to proposed (matching
         # update_metric's PATCH behavior).
@@ -203,8 +195,9 @@ def upsert_metric(
     ai_model: str | _Unset = _UNSET,
     confidence: float | None | _Unset = _UNSET,
     reasoning: str | _Unset = _UNSET,
+    request: "Request | None" = None,
 ) -> Metric:
-    """Create a metric, or refine/resurrect the one already holding ``name`` for this team.
+    """Create a metric, or refine the live one already holding ``name`` for this team.
 
     Refine is a partial merge: only the fields the caller supplies are written, so a refine that
     omits a field leaves that field (a stored ``definition``, provenance, ...) untouched rather than
@@ -217,6 +210,7 @@ def upsert_metric(
         raise ValidationError(
             {"name": "Name must start with a letter and contain only letters, numbers, and underscores."}
         )
+    validate_description(description)
 
     fields: dict[str, object] = {"description": description}
     for key, value in (
@@ -238,10 +232,10 @@ def upsert_metric(
     with team_scope(team.id):
         try:
             with transaction.atomic():
-                existing = Metric.objects.for_team(team.id).filter(name=name).select_for_update().first()
+                existing = Metric.objects.for_team(team.id).filter(name=name, deleted=False).select_for_update().first()
                 created = existing is None
                 if existing is not None:
-                    _resurrect_or_refine(existing, fields)
+                    _refine(existing, fields)
                     metric = existing
                 else:
                     metric = Metric.objects.for_team(team.id).create(
@@ -254,20 +248,34 @@ def upsert_metric(
         except IntegrityError:
             # A concurrent writer created (team, name) first; refine that row instead of failing.
             with transaction.atomic():
-                existing = Metric.objects.for_team(team.id).filter(name=name).select_for_update().first()
+                existing = Metric.objects.for_team(team.id).filter(name=name, deleted=False).select_for_update().first()
                 if existing is None:
                     raise
-                _resurrect_or_refine(existing, fields)
+                _refine(existing, fields)
                 metric, created = existing, False
 
-    _capture(user, team, "data catalog metric created" if created else "data catalog metric updated", metric)
+    capture_metric_event(
+        METRIC_CREATED_EVENT if created else METRIC_UPDATED_EVENT, metric, team=team, user=user, request=request
+    )
     return metric
 
 
-def update_metric(metric: Metric, *, team: Team, user: Optional[User], **fields) -> Metric:
-    """Partially update a metric. Name is write-once; editing an approved definition resets approval."""
-    if "name" in fields:
-        raise ValidationError({"name": "Metric name is write-once and cannot be changed."})
+def update_metric(
+    metric: Metric, *, team: Team, user: Optional[User], request: "Request | None" = None, **fields
+) -> Metric:
+    """Partially update a metric. Renaming frees the old name; editing an approved definition resets approval."""
+    if fields.get("name") == metric.name:
+        fields.pop("name")
+    renamed_from = metric.name if "name" in fields else None
+    if renamed_from is not None:
+        if not re.match(METRIC_NAME_REGEX, fields["name"] or ""):
+            raise ValidationError(
+                {"name": "Name must start with a letter and contain only letters, numbers, and underscores."}
+            )
+        if Metric.objects.for_team(team.id).filter(name=fields["name"], deleted=False).exclude(pk=metric.pk).exists():
+            raise ValidationError({"name": "A metric with this name already exists."})
+    if "description" in fields:
+        validate_description(fields["description"])
 
     # Route definition / insight-link through the same resolver as create, so a PATCH honors the
     # definition-XOR-insight rule, snapshots (and validates) on relink, and drops the hash on unlink.
@@ -275,29 +283,51 @@ def update_metric(metric: Metric, *, team: Team, user: Optional[User], **fields)
     source_insight_arg = fields.pop("source_insight_short_id", _UNSET)
     fields.update(_resolve_definition_fields(definition_arg, source_insight_arg, team, user))
 
-    with team_scope(team.id), transaction.atomic():
-        metric = Metric.objects.for_team(team.id).select_for_update().get(pk=metric.pk)
-        approval_invalidated = _invalidates_approval(metric, fields)
+    try:
+        with team_scope(team.id), transaction.atomic():
+            metric = Metric.objects.for_team(team.id).select_for_update().get(pk=metric.pk)
+            approval_invalidated = _invalidates_approval(metric, fields)
 
-        for key, value in fields.items():
-            setattr(metric, key, value)
+            for key, value in fields.items():
+                setattr(metric, key, value)
 
-        changed_fields = set(fields.keys())
-        if approval_invalidated and metric.status == MetricStatus.APPROVED:
-            # The edit changed what the metric means, so its approval no longer holds.
-            _reset_to_proposed(metric)
-            changed_fields |= _APPROVAL_FIELDS
+            changed_fields = set(fields.keys())
+            if approval_invalidated and metric.status == MetricStatus.APPROVED:
+                # The edit changed what the metric means, so its approval no longer holds.
+                _reset_to_proposed(metric)
+                changed_fields |= _APPROVAL_FIELDS
 
-        metric.save(update_fields=[*changed_fields, "updated_at"])
-    _capture(user, team, "data catalog metric updated", metric)
+            metric.save(update_fields=[*changed_fields, "updated_at"])
+    except IntegrityError:
+        # A concurrent writer claimed the target name between the pre-check and the save (the row
+        # lock is on this metric, not on the name).
+        if renamed_from is None:
+            raise
+        raise ValidationError({"name": "A metric with this name already exists."})
+    capture_metric_event(
+        METRIC_UPDATED_EVENT,
+        metric,
+        team=team,
+        user=user,
+        request=request,
+        extra={"renamed_from": renamed_from} if renamed_from else None,
+    )
     return metric
 
 
-def approve_metric(metric: Metric, user: Optional[User]) -> Metric:
+def approve_metric(metric: Metric, user: Optional[User], request: "Request | None" = None) -> Metric:
     """Bless a metric as canonical. Blocked (409) while drifted. Idempotent on an already-approved metric."""
     with team_scope(metric.team_id), transaction.atomic():
         metric = Metric.objects.for_team(metric.team_id).select_for_update().get(pk=metric.pk)
         if compute_drift([metric])[metric.id]:
+            capture_metric_event(
+                METRIC_APPROVAL_BLOCKED_EVENT,
+                metric,
+                team=metric.team,
+                user=user,
+                request=request,
+                extra={"reason": "drifted"},
+            )
             raise MetricDrifted()
         if metric.status == MetricStatus.APPROVED:
             return metric
@@ -305,11 +335,11 @@ def approve_metric(metric: Metric, user: Optional[User]) -> Metric:
         metric.approved_by = user
         metric.approved_at = timezone.now()
         metric.save(update_fields=[*_APPROVAL_FIELDS, "updated_at"])
-    _capture(user, metric.team, "data catalog metric approved", metric)
+    capture_metric_event(METRIC_APPROVED_EVENT, metric, team=metric.team, user=user, request=request)
     return metric
 
 
-def refresh_metric_from_insight(metric: Metric, user: Optional[User]) -> Metric:
+def refresh_metric_from_insight(metric: Metric, user: Optional[User], request: "Request | None" = None) -> Metric:
     """Re-snapshot the linked insight's current query; a changed definition resets approval."""
     with team_scope(metric.team_id), transaction.atomic():
         metric = Metric.objects.for_team(metric.team_id).select_for_update().get(pk=metric.pk)
@@ -339,16 +369,16 @@ def refresh_metric_from_insight(metric: Metric, user: Optional[User]) -> Metric:
             changed_fields |= _APPROVAL_FIELDS
 
         metric.save(update_fields=[*changed_fields, "updated_at"])
-    _capture(user, metric.team, "data catalog metric updated", metric)
+    capture_metric_event(METRIC_UPDATED_EVENT, metric, team=metric.team, user=user, request=request)
     return metric
 
 
-def soft_delete_metric(metric: Metric, user: Optional[User] = None) -> None:
+def soft_delete_metric(metric: Metric, user: Optional[User] = None, request: "Request | None" = None) -> None:
     metric.deleted = True
     metric.deleted_at = timezone.now()
     with team_scope(metric.team_id):
         metric.save(update_fields=["deleted", "deleted_at", "updated_at"])
-    _capture(user, metric.team, "data catalog metric deleted", metric)
+    capture_metric_event(METRIC_DELETED_EVENT, metric, team=metric.team, user=user, request=request)
 
 
 def _reset_to_proposed(metric: Metric) -> None:
@@ -360,3 +390,23 @@ def _reset_to_proposed(metric: Metric) -> None:
 def metrics_for_team(team: Team) -> QuerySet[Metric]:
     """Live (non-deleted) metrics for a team, newest first."""
     return Metric.objects.for_team(team.id).filter(deleted=False).order_by("-created_at")
+
+
+def approved_metric_names_for_team(team: Team, user: Optional[User]) -> list[str]:
+    """Names of the team's approved, non-drifted metrics, sorted, as the given caller may see them.
+
+    Team scoping alone would be broader than the `system.information_schema.metrics` read this
+    listing stands in for: that loader fails closed unless the caller holds `data_catalog` viewer
+    access, so a caller denied the resource must not receive the names here either. A ``user`` of
+    None is a trusted system/agent caller, as in ``_require_insight_viewer_access``.
+
+    Definitions are deliberately not part of the result, so the per-metric denied-table filtering the
+    information_schema loader applies has nothing to hide here.
+    """
+    if user is not None and not UserAccessControl(user=user, team=team).check_access_level_for_resource(
+        "data_catalog", "viewer"
+    ):
+        return []
+    approved = list(metrics_for_team(team).filter(status=MetricStatus.APPROVED).order_by("name"))
+    drifted = compute_drift(approved)
+    return [metric.name for metric in approved if not drifted[metric.id]]

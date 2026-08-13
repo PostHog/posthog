@@ -100,6 +100,24 @@ class TestResendSource:
         else:
             assert not matched
 
+    @parameterized.expand(
+        [
+            ("domains_matches", "https://api.resend.com/domains", True),
+            ("other_endpoint_stays_retryable", "https://api.resend.com/emails", False),
+        ]
+    )
+    def test_domains_bad_request_retryability(self, _name: str, url: str, should_match: bool):
+        errors = self.source.get_non_retryable_errors()
+        raised = f"400 Client Error: Bad Request for url: {url}"
+
+        matched = [message for key, message in errors.items() if key in raised]
+
+        if should_match:
+            assert len(matched) == 1
+            assert matched[0] is not None and "Domains" in matched[0]
+        else:
+            assert not matched
+
     def test_get_schemas(self):
         schemas = self.source.get_schemas(self.config, self.team_id)
 
@@ -187,11 +205,22 @@ class TestResendSource:
         assert error_message is not None and "reconnect" in error_message.lower()
 
     @mock.patch.object(ResendSource, "get_oauth_integration", side_effect=ValueError("Integration not found: 42"))
-    def test_validate_credentials_oauth_missing_integration(self, _mock_get_integration):
+    def test_validate_credentials_oauth_deleted_integration(self, _mock_get_integration):
         is_valid, error_message = self.source.validate_credentials(_oauth_config(), self.team_id)
 
         assert is_valid is False
-        assert error_message == "Integration not found: 42"
+        # The raw "Integration not found: <id>" must be mapped to curated wording so the wizard
+        # never leaks the internal string or the volatile integration ID.
+        assert error_message == "The linked Resend integration no longer exists. Please reconnect your Resend account."
+        assert "42" not in (error_message or "")
+
+    def test_validate_credentials_oauth_missing_integration_id(self):
+        config = ResendSourceConfig(auth_method=ResendAuthMethodConfig(selection="oauth", resend_integration_id=None))
+
+        is_valid, error_message = self.source.validate_credentials(config, self.team_id)
+
+        assert is_valid is False
+        assert error_message == "Resend integration is not configured. Please reconnect your Resend account."
 
     def test_get_resumable_source_manager(self):
         inputs = mock.MagicMock()

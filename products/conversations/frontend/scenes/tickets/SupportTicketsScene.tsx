@@ -1,6 +1,6 @@
 import clsx from 'clsx'
 import { useActions, useMountedLogic, useValues } from 'kea'
-import { router } from 'kea-router'
+import { combineUrl, router } from 'kea-router'
 import { useEffect, useMemo, useRef } from 'react'
 
 import { IconChevronDown, IconRefresh } from '@posthog/icons'
@@ -65,10 +65,13 @@ interface SupportTicketsTableProps {
 }
 
 function SupportTicketsBulkActions(): JSX.Element {
-    const { selectedTicketIds, selectedTickets, bulkUpdating } = useValues(supportTicketsSceneLogic)
+    const { selectedTicketIds, selectedTickets, editableSelectedTicketIds, bulkUpdating } =
+        useValues(supportTicketsSceneLogic)
     const { bulkUpdateStatus } = useActions(supportTicketsSceneLogic)
 
     const hasSelection = selectedTicketIds.length > 0
+    const editableTicketIds = editableSelectedTicketIds
+    const hasRestrictedSelection = editableTicketIds.length < selectedTicketIds.length
     const selectedStatuses = selectedTickets.map((t) => t.status)
     const currentStatus = selectedStatuses.reduce<TicketStatus | 'mixed' | null>((acc, s) => {
         if (acc === null) {
@@ -80,15 +83,28 @@ function SupportTicketsBulkActions(): JSX.Element {
     return (
         <LemonSelect
             onChange={(value) => {
-                if (!value || value === currentStatus) {
+                if (!value || value === currentStatus || editableTicketIds.length === 0) {
                     return
                 }
-                bulkUpdateStatus(selectedTicketIds, value as TicketStatus)
+                bulkUpdateStatus(editableTicketIds, value as TicketStatus)
             }}
             value={null}
             placeholder="Mark as"
             loading={bulkUpdating}
-            disabledReason={!hasSelection ? 'Select tickets first' : bulkUpdating ? 'Updating…' : undefined}
+            disabledReason={
+                !hasSelection
+                    ? 'Select tickets first'
+                    : bulkUpdating
+                      ? 'Updating…'
+                      : editableTicketIds.length === 0
+                        ? "You don't have edit access to any of the selected tickets"
+                        : undefined
+            }
+            tooltip={
+                hasRestrictedSelection && editableTicketIds.length > 0
+                    ? `${selectedTicketIds.length - editableTicketIds.length} selected ticket(s) will be skipped because you don't have edit access to them`
+                    : undefined
+            }
             options={statusOptionsWithoutAll.map((o) => ({ value: o.value, label: o.label }))}
             size="small"
         />
@@ -110,6 +126,7 @@ export function SupportTicketsTable({ embedded = false }: SupportTicketsTablePro
     const { setCurrentPage, setSorting, setSelectedTicketIds, clearFiltersKeepingSearch } = useActions(logic)
     const { visibleColumns } = useValues(ticketColumnsLogic)
     const { push } = useActions(router)
+    const { searchParams } = useValues(router)
     const { currentTeam } = useValues(teamLogic)
     const aiEnabled = !!currentTeam?.conversations_settings?.ai_suggestions_enabled
 
@@ -216,7 +233,14 @@ export function SupportTicketsTable({ embedded = false }: SupportTicketsTablePro
                         : undefined,
             }}
             onRow={(ticket) => {
-                const ticketUrl = urls.supportTicketDetail(ticket.ticket_number)
+                // Carry the active filters / saved view (the list's query string) onto the
+                // ticket URL so the ticket's back arrow can return to this exact view. Skip it
+                // when embedded (e.g. the person side panel), where the host page's query
+                // string isn't the ticket filters.
+                const ticketUrl = combineUrl(
+                    urls.supportTicketDetail(ticket.ticket_number),
+                    embedded ? {} : searchParams
+                ).url
                 return {
                     onClick: (e: React.MouseEvent) => {
                         if (e.metaKey || e.ctrlKey) {
@@ -278,6 +302,7 @@ export function SupportTicketsTableFilters({ embedded = false }: SupportTicketsT
         setTagsExcludeFilter,
         setDateRange,
         loadTickets,
+        resetFilters,
     } = useActions(logic)
     const { aiEnabled } = useValues(logic)
     const { tags: tagsAvailable } = useValues(tagsModel)
@@ -293,6 +318,9 @@ export function SupportTicketsTableFilters({ embedded = false }: SupportTicketsT
                     onChange={setSearchQuery}
                     size="small"
                     className="min-w-64"
+                    // Matches MAX_SEARCH_LENGTH in ticket_filters.py — the backend ignores
+                    // longer searches and rejects saving them in a view.
+                    maxLength={200}
                 />
                 <Tooltip
                     title={
@@ -567,6 +595,11 @@ export function SupportTicketsTableFilters({ embedded = false }: SupportTicketsT
                     </LemonButton>
                 </LemonDropdown>
                 <AssigneeMultiSelect value={assigneeFilterEntries} onChange={setAssigneeFilter} />
+                {hasActiveFilters && (
+                    <LemonButton type="secondary" size="small" onClick={resetFilters} data-attr="clear-ticket-filters">
+                        Clear all filters
+                    </LemonButton>
+                )}
             </div>
             <div className="flex items-center gap-2">
                 <SupportTicketsBulkActions />

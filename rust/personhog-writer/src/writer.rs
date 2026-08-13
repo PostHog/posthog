@@ -13,11 +13,27 @@ use crate::consumer::FlushBatch;
 use crate::kafka::PersonConsumer;
 use crate::store::{BatchOutcome, PersonDb, PersonWriteStore};
 
+/// The offset-commit surface the writer needs from Kafka. Abstracted so the
+/// retry loop is testable without a broker.
+pub trait OffsetCommitter: Send + Sync {
+    fn commit_offsets(&self, offsets: &HashMap<i32, i64>)
+        -> Result<(), rdkafka::error::KafkaError>;
+}
+
+impl OffsetCommitter for PersonConsumer {
+    fn commit_offsets(
+        &self,
+        offsets: &HashMap<i32, i64>,
+    ) -> Result<(), rdkafka::error::KafkaError> {
+        PersonConsumer::commit_offsets(self, offsets)
+    }
+}
+
 /// Receives batches from the consumer task, writes to the persistent
 /// store, and commits Kafka offsets. Runs on its own tokio task so
 /// writes don't block consumption.
-pub struct WriterTask<D: PersonDb + 'static> {
-    consumer: Arc<PersonConsumer>,
+pub struct WriterTask<D: PersonDb + 'static, C: OffsetCommitter + 'static> {
+    consumer: Arc<C>,
     store: PersonWriteStore<D>,
     flush_rx: mpsc::Receiver<FlushBatch>,
     handle: Handle,
@@ -28,9 +44,9 @@ const MAX_CONSECUTIVE_FAILURES: u32 = 3;
 const BASE_BACKOFF: Duration = Duration::from_secs(1);
 const MAX_BACKOFF: Duration = Duration::from_secs(5);
 
-impl<D: PersonDb + 'static> WriterTask<D> {
+impl<D: PersonDb + 'static, C: OffsetCommitter + 'static> WriterTask<D, C> {
     pub fn new(
-        consumer: Arc<PersonConsumer>,
+        consumer: Arc<C>,
         store: PersonWriteStore<D>,
         flush_rx: mpsc::Receiver<FlushBatch>,
         handle: Handle,
@@ -94,6 +110,7 @@ impl<D: PersonDb + 'static> WriterTask<D> {
         // and changelog), Kafka redelivers after restart, and the alarm
         // stands until admission's gap is fixed.
         let mut remaining: Vec<Person> = persons;
+        let mut saturation_rounds: u32 = 0;
 
         loop {
             let to_process = std::mem::take(&mut remaining);
@@ -105,9 +122,11 @@ impl<D: PersonDb + 'static> WriterTask<D> {
 
                 BatchOutcome::Partial {
                     transient,
+                    saturated,
                     data_failed,
                 } => {
                     let mut retry = transient;
+                    let mut saturated = saturated;
                     if !data_failed.is_empty() {
                         counter!("personhog_writer_batch_fallback_total").increment(1);
                         warn!(
@@ -128,31 +147,54 @@ impl<D: PersonDb + 'static> WriterTask<D> {
                             return ControlFlow::Break(());
                         }
                         retry.extend(fallback.transient);
+                        saturated.extend(fallback.saturated);
                     }
 
-                    if retry.is_empty() {
+                    if retry.is_empty() && saturated.is_empty() {
                         self.finish(total_rows, &offsets, oldest_message_ts_ms);
                         return ControlFlow::Continue(());
                     }
 
-                    // Transient failures remain — retry just those with backoff.
-                    self.consecutive_failures += 1;
-                    let backoff = backoff_duration(self.consecutive_failures);
-                    error!(
-                        consecutive_failures = self.consecutive_failures,
-                        transient_rows = retry.len(),
-                        backoff_ms = backoff.as_millis() as u64,
-                        "transient failures, retrying"
-                    );
+                    let backoff = if retry.is_empty() {
+                        // Only saturation: the pool was busy with our own
+                        // statements. Waiting is backpressure, not a strike —
+                        // counting it toward escalation would let a slow-PG
+                        // burst crash-loop the pod, and each restart drops
+                        // the buffers and redelivers, worsening the load
+                        // that caused the saturation.
+                        saturation_rounds += 1;
+                        counter!("personhog_writer_saturation_retries_total").increment(1);
+                        let backoff = backoff_duration(saturation_rounds);
+                        warn!(
+                            saturation_rounds,
+                            saturated_rows = saturated.len(),
+                            backoff_ms = backoff.as_millis() as u64,
+                            "pool saturated, retrying without escalation"
+                        );
+                        backoff
+                    } else {
+                        // Real transient failures remain — retry with backoff
+                        // and count toward escalation.
+                        self.consecutive_failures += 1;
+                        let backoff = backoff_duration(self.consecutive_failures);
+                        error!(
+                            consecutive_failures = self.consecutive_failures,
+                            transient_rows = retry.len(),
+                            backoff_ms = backoff.as_millis() as u64,
+                            "transient failures, retrying"
+                        );
 
-                    if self.consecutive_failures >= MAX_CONSECUTIVE_FAILURES {
-                        self.handle.signal_failure(format!(
-                            "store flush failed {MAX_CONSECUTIVE_FAILURES} consecutive times"
-                        ));
-                        return ControlFlow::Break(());
-                    }
+                        if self.consecutive_failures >= MAX_CONSECUTIVE_FAILURES {
+                            self.handle.signal_failure(format!(
+                                "store flush failed {MAX_CONSECUTIVE_FAILURES} consecutive times"
+                            ));
+                            return ControlFlow::Break(());
+                        }
+                        backoff
+                    };
 
                     tokio::time::sleep(backoff).await;
+                    retry.extend(saturated);
                     remaining = retry;
                 }
 
@@ -190,7 +232,7 @@ impl<D: PersonDb + 'static> WriterTask<D> {
                 .unwrap_or_default()
                 .as_millis() as i64;
             let latency_ms = now_ms.saturating_sub(ts_ms);
-            histogram!("personhog_writer_e2e_latency_seconds").record(latency_ms as f64 / 1000.0);
+            histogram!("personhog_writer_e2e_latency_ms").record(latency_ms as f64);
         }
 
         debug!(rows = rows_written, "flushed to store");
@@ -205,6 +247,118 @@ fn backoff_duration(consecutive_failures: u32) -> Duration {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    use std::collections::VecDeque;
+    use std::sync::Mutex;
+
+    use async_trait::async_trait;
+    use lifecycle::{ComponentOptions, Manager};
+
+    use crate::store::{StoreConfig, WriteError, WriteErrorKind};
+
+    /// DB whose chunk calls pop scripted outcomes (None = Ok); an empty
+    /// script succeeds.
+    struct ScriptedDb {
+        responses: Mutex<VecDeque<Option<WriteErrorKind>>>,
+    }
+
+    #[async_trait]
+    impl PersonDb for ScriptedDb {
+        async fn execute_chunk(&self, _chunk: &[Person]) -> Result<(), WriteError> {
+            match self.responses.lock().unwrap().pop_front().flatten() {
+                None => Ok(()),
+                Some(kind) => Err(WriteError {
+                    message: format!("scripted: {kind:?}"),
+                    kind,
+                }),
+            }
+        }
+
+        async fn execute_row(&self, _person: &Person) -> Result<(), WriteError> {
+            Ok(())
+        }
+    }
+
+    #[derive(Default)]
+    struct RecordingCommitter {
+        commits: Mutex<Vec<HashMap<i32, i64>>>,
+    }
+
+    impl OffsetCommitter for RecordingCommitter {
+        fn commit_offsets(
+            &self,
+            offsets: &HashMap<i32, i64>,
+        ) -> Result<(), rdkafka::error::KafkaError> {
+            self.commits.lock().unwrap().push(offsets.clone());
+            Ok(())
+        }
+    }
+
+    fn scripted_writer(
+        responses: Vec<Option<WriteErrorKind>>,
+    ) -> (
+        WriterTask<ScriptedDb, RecordingCommitter>,
+        Arc<RecordingCommitter>,
+        mpsc::Sender<FlushBatch>,
+        Manager,
+    ) {
+        let committer = Arc::new(RecordingCommitter::default());
+        let store = PersonWriteStore::new(
+            ScriptedDb {
+                responses: Mutex::new(responses.into()),
+            },
+            StoreConfig {
+                chunk_size: 100,
+                row_fallback_concurrency: 4,
+            },
+            Arc::new(tokio::sync::Semaphore::new(8)),
+        );
+        let (tx, rx) = mpsc::channel(1);
+        let mut manager = Manager::builder("test").build();
+        let handle = manager.register("writer", ComponentOptions::new());
+        let writer = WriterTask::new(Arc::clone(&committer), store, rx, handle);
+        (writer, committer, tx, manager)
+    }
+
+    fn batch(rows: i64) -> FlushBatch {
+        FlushBatch {
+            persons: (0..rows)
+                .map(|id| Person {
+                    id,
+                    team_id: 1,
+                    version: 1,
+                    ..Default::default()
+                })
+                .collect(),
+            offsets: HashMap::from([(0, rows - 1)]),
+            oldest_message_ts_ms: None,
+        }
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn saturation_rounds_beyond_the_strike_limit_do_not_halt() {
+        // More saturation rounds than MAX_CONSECUTIVE_FAILURES, then success:
+        // the batch must complete and commit instead of halting the writer.
+        let sat = Some(WriteErrorKind::Saturation);
+        let (mut writer, committer, _tx, _manager) = scripted_writer(vec![sat, sat, sat, sat]);
+
+        let flow = writer.process_batch(batch(3)).await;
+
+        assert!(matches!(flow, ControlFlow::Continue(())));
+        assert_eq!(committer.commits.lock().unwrap().len(), 1);
+        assert_eq!(writer.consecutive_failures, 0);
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn transient_rounds_still_halt_at_the_strike_limit() {
+        let err = Some(WriteErrorKind::Transient);
+        let (mut writer, committer, _tx, _manager) = scripted_writer(vec![err, err, err]);
+
+        let flow = writer.process_batch(batch(3)).await;
+
+        assert!(matches!(flow, ControlFlow::Break(())));
+        assert!(committer.commits.lock().unwrap().is_empty());
+    }
 
     #[test]
     fn backoff_doubles_each_failure() {

@@ -10,6 +10,7 @@ import type {
     ChartTheme,
     DrawHoverResult,
     ResolvedSeries,
+    ScatterMarkerShape,
 } from './types'
 
 export interface DrawContext {
@@ -591,6 +592,41 @@ export function drawPoints(drawCtx: DrawContext, series: ResolvedSeries, yValues
     }
 }
 
+/** Trace a scatter marker's outline at (x, y) without painting it, so the caller can fill it
+ *  translucently and stroke it opaquely from one traced path. `radius` is the glyph's half-extent,
+ *  so every shape spans the same width as a circle of that radius. `cross` traces two open strokes
+ *  and can only be stroked. */
+export function traceScatterMarker(
+    ctx: CanvasRenderingContext2D,
+    shape: ScatterMarkerShape,
+    x: number,
+    y: number,
+    radius: number
+): void {
+    ctx.beginPath()
+    switch (shape) {
+        case 'square':
+            ctx.rect(x - radius, y - radius, radius * 2, radius * 2)
+            return
+        case 'triangle':
+            // Base at half the radius, which puts the centroid rather than the bounding box on the
+            // data point, so the glyph's visual weight sits where the value is.
+            ctx.moveTo(x, y - radius)
+            ctx.lineTo(x + radius, y + radius * 0.5)
+            ctx.lineTo(x - radius, y + radius * 0.5)
+            ctx.closePath()
+            return
+        case 'cross':
+            ctx.moveTo(x - radius, y - radius)
+            ctx.lineTo(x + radius, y + radius)
+            ctx.moveTo(x + radius, y - radius)
+            ctx.lineTo(x - radius, y + radius)
+            return
+        default:
+            ctx.arc(x, y, radius, 0, Math.PI * 2)
+    }
+}
+
 /** Snap a coordinate to the nearest half-pixel so a 1px stroke fills exactly one pixel row/column.
  *  Every axis-adjacent stroke — grid lines, axis baselines, tick marks — must share this rule, or
  *  they land one pixel apart and visibly misalign. */
@@ -922,9 +958,19 @@ export function withVerticalClip(
     // Matches drawAxes' snapping: the axis line's 1px column starts at round(plotLeft), so trimming
     // there leaves the stroke flush against the axis line.
     const left = clipLeft ? Math.round(dimensions.plotLeft) : 0
+    const clipWidth = dimensions.width - left
+    // `useChartMargins` grows the left margin from measured label widths with a floor but no ceiling
+    // against the container, so a narrow chart with stacked y-axis gutters can reserve more than it
+    // has. That makes the rect negative, which canvas reads as a reversed rectangle sitting entirely
+    // off the right edge — clipping to it would discard the whole series layer while the DOM axis
+    // labels still render. Draw unclipped rather than invisibly. `!(> 0)` also bails on a NaN width.
+    if (!(clipWidth > 0)) {
+        draw()
+        return
+    }
     ctx.save()
     ctx.beginPath()
-    ctx.rect(left, dimensions.plotTop - pad, dimensions.width - left, dimensions.plotHeight + pad * 2)
+    ctx.rect(left, dimensions.plotTop - pad, clipWidth, dimensions.plotHeight + pad * 2)
     ctx.clip()
     try {
         draw()

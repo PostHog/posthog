@@ -24,12 +24,7 @@ import api from 'lib/api'
 import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
 import { formatPropertyLabel } from 'lib/components/PropertyFilters/utils'
 import { DEFAULT_UNIVERSAL_GROUP_FILTER } from 'lib/components/UniversalFilters/constants'
-import {
-    isActionFilter,
-    isEventFilter,
-    isEventPropertyFilter,
-    isRecordingPropertyFilter,
-} from 'lib/components/UniversalFilters/utils'
+import { isActionFilter, isEventFilter, isEventPropertyFilter } from 'lib/components/UniversalFilters/utils'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { getCurrentTeamId } from 'lib/utils/getAppContext'
@@ -73,7 +68,7 @@ import {
     isValidRecordingOrder,
 } from '../filters/recordingsQueryConversions'
 import { playerSettingsLogic } from '../player/playerSettingsLogic'
-import { filtersFromUniversalFilterGroups } from '../utils'
+import { filtersFromUniversalFilterGroups, isUniversalFilters } from '../utils'
 import { playlistFiltersLogic } from './playlistFiltersLogic'
 
 // Re-exported for back-compat with existing import sites; the implementations now live in the leaf
@@ -341,6 +336,20 @@ export function isValidRecordingFilters(filters: Partial<RecordingUniversalFilte
     return true
 }
 
+/**
+ * Saved playlists persisted before universal filters store the legacy shape, which has no
+ * `filter_group` for the filter UI to render or for the query converter to read. Anything loading
+ * stored filters has to come through here, or a legacy playlist silently applies no filters at all.
+ */
+export function asUniversalFilters(
+    filters: RecordingUniversalFilters | LegacyRecordingFilters | undefined | null
+): RecordingUniversalFilters | undefined {
+    if (!filters) {
+        return undefined
+    }
+    return isUniversalFilters(filters) ? filters : convertLegacyFiltersToUniversalFilters({}, filters)
+}
+
 export function convertLegacyFiltersToUniversalFilters(
     simpleFilters?: LegacyRecordingFilters,
     advancedFilters?: LegacyRecordingFilters
@@ -438,6 +447,12 @@ function sortRecordings(
 
 export interface SessionRecordingPlaylistLogicProps {
     logicKey?: string
+    /**
+     * Which surface embeds this playlist, stamped on `recording list fetched`. Set it wherever the
+     * playlist is one part of another page, so its list loads can be told apart from the replay
+     * scene's own. Left unset, the event carries no source, as it did before.
+     */
+    analyticsSource?: string
     personUUID?: PersonUUID
     distinctIds?: string[]
     updateSearchParams?: boolean
@@ -446,6 +461,15 @@ export interface SessionRecordingPlaylistLogicProps {
     type?: 'filters' | 'collection'
     filters?: RecordingUniversalFilters
     onFiltersChange?: (filters: RecordingUniversalFilters) => void
+    /** Called with each freshly loaded page of recordings (not the accumulated list). */
+    onRecordingsLoaded?: (recordings: SessionRecordingType[]) => void
+    /**
+     * Called once each time the recording the player shows changes — clicked, played next,
+     * picked via the URL, or the implicit autoplay fallback to the top of the list (on first
+     * load, and again when a reload changes which recording is at the top). Re-selecting the
+     * recording already shown does not re-fire.
+     */
+    onRecordingSelected?: (recordingId: SessionRecordingType['id']) => void
     pinnedFilters?: UniversalFiltersGroup
     pinnedRecordings?: (SessionRecordingType | string)[]
     onPinnedChange?: (recording: SessionRecordingType, pinned: boolean) => void
@@ -476,6 +500,7 @@ export interface sessionRecordingsPlaylistLogicValues {
     isAddToCollectionModalOpen: boolean
     isCreatingNewCollectionInModal: boolean
     isDeleteSelectedRecordingsDialogOpen: boolean
+    isDeletingSelectedRecordings: boolean
     logicProps: SessionRecordingPlaylistLogicProps
     matchingEventsMatchType: MatchingEventsMatchType
     newCollectionName: string
@@ -517,11 +542,13 @@ export interface sessionRecordingsPlaylistLogicActions {
     reportRecordingsListFetched: (
         loadTime: number,
         filters: RecordingUniversalFilters,
-        defaultDurationFilter: RecordingDurationFilter
+        defaultDurationFilter: RecordingDurationFilter,
+        source?: string | undefined
     ) => {
         defaultDurationFilter: RecordingDurationFilter
         filters: RecordingUniversalFilters
         loadTime: number
+        source: string | undefined
     } // sessionRecordingEventUsageLogic
     reportRecordingsListFilterAdded: (filterType: SessionRecordingFilterType) => {
         filterType: SessionRecordingFilterType
@@ -710,6 +737,9 @@ export interface sessionRecordingsPlaylistLogicActions {
     setIsDeleteSelectedRecordingsDialogOpen: (isDeleteSelectedRecordingsDialogOpen: boolean) => {
         isDeleteSelectedRecordingsDialogOpen: boolean
     }
+    setIsDeletingSelectedRecordings: (isDeletingSelectedRecordings: boolean) => {
+        isDeletingSelectedRecordings: boolean
+    }
     setNewCollectionName: (newCollectionName: string) => {
         newCollectionName: string
     }
@@ -866,6 +896,9 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
             isDeleteSelectedRecordingsDialogOpen,
         }),
         setDeleteConfirmationText: (deleteConfirmationText: string) => ({ deleteConfirmationText }),
+        setIsDeletingSelectedRecordings: (isDeletingSelectedRecordings: boolean) => ({
+            isDeletingSelectedRecordings,
+        }),
         handleDeleteSelectedRecordings: (shortId?: string) => ({ shortId }),
         setIsAddToCollectionModalOpen: (isAddToCollectionModalOpen: boolean) => ({ isAddToCollectionModalOpen }),
         setAddToCollectionSearch: (addToCollectionSearch: string) => ({ addToCollectionSearch }),
@@ -922,7 +955,11 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
             },
             {
                 loadSessionRecordings: async ({ direction, userModifiedFilters }, breakpoint) => {
-                    const convertedQuery = convertUniversalFiltersToRecordingsQuery(values.filters)
+                    // Captured before the awaits: `values` reads throw if this logic unmounts
+                    // mid-flight, and the fetch report must carry the filters the request was
+                    // built from, not whatever they are once the response lands.
+                    const filters = values.filters
+                    const convertedQuery = convertUniversalFiltersToRecordingsQuery(filters)
                     const params: RecordingsQuery & { add_events_to_property_queries?: '1' } = {
                         ...convertedQuery,
                         person_uuid: props.personUUID ?? '',
@@ -972,8 +1009,16 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
                     const response = await api.recordings.list(params)
                     const loadTimeMs = performance.now() - startTime
 
-                    actions.reportRecordingsListFetched(loadTimeMs, values.filters, defaultRecordingDurationFilter)
+                    actions.reportRecordingsListFetched(
+                        loadTimeMs,
+                        filters,
+                        defaultRecordingDurationFilter,
+                        props.analyticsSource
+                    )
 
+                    // Must run after the fetch report (superseded and abandoned fetches still
+                    // count toward load-time metrics) and before the `values` reads below
+                    // (they throw once the logic is unmounted).
                     breakpoint()
 
                     return {
@@ -1157,6 +1202,11 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
             [] as string[],
             {
                 setSelectedRecordingsIds: (_, { recordingsIds }) => recordingsIds,
+                // The filtered/pinned lists reload from scratch on a filter change, so a prior selection
+                // can no longer be matched against what's on screen - drop it rather than risk deleting
+                // recordings the user can't see.
+                setFilters: () => [],
+                resetFilters: () => [],
             },
         ],
         isDeleteSelectedRecordingsDialogOpen: [
@@ -1170,6 +1220,12 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
             '',
             {
                 setDeleteConfirmationText: (_, { deleteConfirmationText }) => deleteConfirmationText,
+            },
+        ],
+        isDeletingSelectedRecordings: [
+            false,
+            {
+                setIsDeletingSelectedRecordings: (_, { isDeletingSelectedRecordings }) => isDeletingSelectedRecordings,
             },
         ],
         isAddToCollectionModalOpen: [
@@ -1203,413 +1259,472 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
             },
         ],
     })),
-    listeners(({ props, actions, values }) => ({
-        loadAllRecordings: () => {
-            actions.loadSessionRecordings()
-            actions.loadPinnedRecordings()
-        },
-        setFilters: ({ filters }) => {
-            actions.loadSessionRecordings(undefined, filters)
-            props.onFiltersChange?.(values.filters)
-            actions.loadEventsHaveSessionId()
-        },
-
-        resetFilters: () => {
-            actions.loadSessionRecordings()
-            props.onFiltersChange?.(values.filters)
-        },
-
-        applyPropertyFilter: ({ propertyKey, propertyValue }) => {
-            // Validate property value
-            if (propertyValue === undefined || propertyValue === null) {
-                return
-            }
-
-            // Determine property filter type
-            // For recordings: $browser, $os, $device_type, etc are Event properties
-            // $geoip_* and custom properties (no $) are Person properties
-            // Everything else with $ is Session property
-            const filterType =
-                propertyKey.startsWith('$geoip_') || !propertyKey.startsWith('$')
-                    ? PropertyFilterType.Person
-                    : ['$browser', '$os', '$device_type', '$initial_device_type', '$os_name'].includes(propertyKey)
-                      ? PropertyFilterType.Event
-                      : PropertyFilterType.Session
-
-            // Create property filter object
-            const filter = {
-                type: filterType,
-                key: propertyKey,
-                value: propertyValue,
-                operator: PropertyOperator.Exact,
-            } as AnyPropertyFilter
-
-            // Clone the current filter group structure and add to the first nested group
-            const currentGroup = values.filters.filter_group
-            const newGroup: UniversalFiltersGroup = {
-                ...currentGroup,
-                values: currentGroup.values.map((nestedGroup, index) => {
-                    // Add to the first nested group (index 0)
-                    if (index === 0 && 'values' in nestedGroup) {
-                        return {
-                            ...nestedGroup,
-                            values: [...nestedGroup.values, filter],
-                        } as UniversalFiltersGroup
-                    }
-                    return nestedGroup
-                }),
-            }
-
-            actions.setFilters({ filter_group: newGroup })
-
-            // Show toast notification with human-readable label and view filters button
-            const filterLabel = formatPropertyLabel(filter, {})
-            lemonToast.success(`Filter applied: ${filterLabel}`, {
-                toastId: `filter-applied-${propertyKey}`,
-                button: {
-                    label: 'View filters',
-                    action: () => {
-                        actions.setIsFiltersExpanded(true)
-                    },
-                },
-            })
-        },
-
-        togglePropertyFilter: ({ propertyKey, propertyValue }) => {
-            // Validate property value
-            if (propertyValue === undefined || propertyValue === null) {
-                return
-            }
-
-            // Determine property filter type
-            const filterType =
-                propertyKey.startsWith('$geoip_') || !propertyKey.startsWith('$')
-                    ? PropertyFilterType.Person
-                    : ['$browser', '$os', '$device_type', '$initial_device_type', '$os_name'].includes(propertyKey)
-                      ? PropertyFilterType.Event
-                      : PropertyFilterType.Session
-
-            const currentGroup = values.filters.filter_group
-            const firstNestedGroup = currentGroup.values[0]
-
-            if (!firstNestedGroup || !('values' in firstNestedGroup)) {
-                return
-            }
-
-            // Check if filter with exact (key, value) exists - if so, remove it
-            const exactMatchIndex = firstNestedGroup.values.findIndex((filter) => {
-                if ('key' in filter && 'value' in filter && 'operator' in filter) {
-                    return (
-                        filter.key === propertyKey &&
-                        filter.value === propertyValue &&
-                        filter.operator === PropertyOperator.Exact
-                    )
+    listeners(({ props, actions, values, cache }) => {
+        // The player can start showing a recording with no action dispatched: under autoPlay it
+        // falls back to the first in the list, and moves when a reload changes which recording
+        // is first. So selection is reported from the resulting active id after every action
+        // that can move it — deduped, since several of them can land on the same recording.
+        const notifyRecordingSelected = (): void => {
+            const activeId = values.activeSessionRecordingId
+            if (activeId) {
+                if (cache.lastReportedSelectedRecordingId !== activeId) {
+                    cache.lastReportedSelectedRecordingId = activeId
+                    props.onRecordingSelected?.(activeId)
                 }
-                return false
-            })
+            } else if (!values.sessionRecordingsResponseLoading && !values.pinnedRecordingsLoading) {
+                // Settled on the empty state (a reload matched nothing): whatever shows next is
+                // shown afresh — even the recording reported last — so drop the dedupe. While a
+                // load is in flight the empty is transient (one loader's success can observe the
+                // other's reload window), and clearing on it would re-report an unchanged top
+                // recording once the reload lands.
+                cache.lastReportedSelectedRecordingId = undefined
+            }
+        }
 
-            let newGroup: UniversalFiltersGroup
-            let actionLabel: string
+        // Selection is only ever set by user action, so it can go stale once the underlying
+        // list changes shape - keep it intersected with what's actually rendered.
+        const pruneSelectedRecordingsIds = (): void => {
+            if (values.selectedRecordingsIds.length === 0) {
+                return
+            }
+            const visibleIds = new Set(values.recordings.map((r) => r.id))
+            const prunedIds = values.selectedRecordingsIds.filter((id) => visibleIds.has(id))
+            if (prunedIds.length !== values.selectedRecordingsIds.length) {
+                actions.setSelectedRecordingsIds(prunedIds)
+            }
+        }
 
-            if (exactMatchIndex !== -1) {
-                // Remove the exact match
-                newGroup = {
+        return {
+            loadAllRecordings: () => {
+                actions.loadSessionRecordings()
+                actions.loadPinnedRecordings()
+            },
+            setFilters: ({ filters }) => {
+                actions.loadSessionRecordings(undefined, filters)
+                props.onFiltersChange?.(values.filters)
+                actions.loadEventsHaveSessionId()
+            },
+
+            resetFilters: () => {
+                actions.loadSessionRecordings()
+                props.onFiltersChange?.(values.filters)
+            },
+
+            applyPropertyFilter: ({ propertyKey, propertyValue }) => {
+                // Validate property value
+                if (propertyValue === undefined || propertyValue === null) {
+                    return
+                }
+
+                // Determine property filter type
+                // For recordings: $browser, $os, $device_type, etc are Event properties
+                // $geoip_* and custom properties (no $) are Person properties
+                // Everything else with $ is Session property
+                const filterType =
+                    propertyKey.startsWith('$geoip_') || !propertyKey.startsWith('$')
+                        ? PropertyFilterType.Person
+                        : ['$browser', '$os', '$device_type', '$initial_device_type', '$os_name'].includes(propertyKey)
+                          ? PropertyFilterType.Event
+                          : PropertyFilterType.Session
+
+                // Create property filter object
+                const filter = {
+                    type: filterType,
+                    key: propertyKey,
+                    value: propertyValue,
+                    operator: PropertyOperator.Exact,
+                } as AnyPropertyFilter
+
+                // Clone the current filter group structure and add to the first nested group
+                const currentGroup = values.filters.filter_group
+                const newGroup: UniversalFiltersGroup = {
                     ...currentGroup,
                     values: currentGroup.values.map((nestedGroup, index) => {
+                        // Add to the first nested group (index 0)
                         if (index === 0 && 'values' in nestedGroup) {
                             return {
                                 ...nestedGroup,
-                                values: nestedGroup.values.filter((_, i) => i !== exactMatchIndex),
+                                values: [...nestedGroup.values, filter],
                             } as UniversalFiltersGroup
                         }
                         return nestedGroup
                     }),
                 }
-                actionLabel = 'Filter removed'
-            } else {
-                // Check if filter with same key but different value exists
-                const sameKeyIndex = firstNestedGroup.values.findIndex((filter) => {
-                    if ('key' in filter && 'operator' in filter) {
-                        return filter.key === propertyKey && filter.operator === PropertyOperator.Exact
+
+                actions.setFilters({ filter_group: newGroup })
+
+                // Show toast notification with human-readable label and view filters button
+                const filterLabel = formatPropertyLabel(filter, {})
+                lemonToast.success(`Filter applied: ${filterLabel}`, {
+                    toastId: `filter-applied-${propertyKey}`,
+                    button: {
+                        label: 'View filters',
+                        action: () => {
+                            actions.setIsFiltersExpanded(true)
+                        },
+                    },
+                })
+            },
+
+            togglePropertyFilter: ({ propertyKey, propertyValue }) => {
+                // Validate property value
+                if (propertyValue === undefined || propertyValue === null) {
+                    return
+                }
+
+                // Determine property filter type
+                const filterType =
+                    propertyKey.startsWith('$geoip_') || !propertyKey.startsWith('$')
+                        ? PropertyFilterType.Person
+                        : ['$browser', '$os', '$device_type', '$initial_device_type', '$os_name'].includes(propertyKey)
+                          ? PropertyFilterType.Event
+                          : PropertyFilterType.Session
+
+                const currentGroup = values.filters.filter_group
+                const firstNestedGroup = currentGroup.values[0]
+
+                if (!firstNestedGroup || !('values' in firstNestedGroup)) {
+                    return
+                }
+
+                // Check if filter with exact (key, value) exists - if so, remove it
+                const exactMatchIndex = firstNestedGroup.values.findIndex((filter) => {
+                    if ('key' in filter && 'value' in filter && 'operator' in filter) {
+                        return (
+                            filter.key === propertyKey &&
+                            filter.value === propertyValue &&
+                            filter.operator === PropertyOperator.Exact
+                        )
                     }
                     return false
                 })
 
-                const newFilter = {
-                    type: filterType,
-                    key: propertyKey,
-                    value: propertyValue,
-                    operator: PropertyOperator.Exact,
-                }
+                let newGroup: UniversalFiltersGroup
+                let actionLabel: string
 
-                if (sameKeyIndex !== -1) {
-                    // Replace the existing filter with same key
+                if (exactMatchIndex !== -1) {
+                    // Remove the exact match
                     newGroup = {
                         ...currentGroup,
                         values: currentGroup.values.map((nestedGroup, index) => {
                             if (index === 0 && 'values' in nestedGroup) {
                                 return {
                                     ...nestedGroup,
-                                    values: nestedGroup.values.map((filter, i) =>
-                                        i === sameKeyIndex ? newFilter : filter
-                                    ),
+                                    values: nestedGroup.values.filter((_, i) => i !== exactMatchIndex),
                                 } as UniversalFiltersGroup
                             }
                             return nestedGroup
                         }),
                     }
-                    actionLabel = 'Filter replaced'
+                    actionLabel = 'Filter removed'
                 } else {
-                    // Add new filter
-                    newGroup = {
-                        ...currentGroup,
-                        values: currentGroup.values.map((nestedGroup, index) => {
-                            if (index === 0 && 'values' in nestedGroup) {
-                                return {
-                                    ...nestedGroup,
-                                    values: [...nestedGroup.values, newFilter],
-                                } as UniversalFiltersGroup
-                            }
-                            return nestedGroup
-                        }),
+                    // Check if filter with same key but different value exists
+                    const sameKeyIndex = firstNestedGroup.values.findIndex((filter) => {
+                        if ('key' in filter && 'operator' in filter) {
+                            return filter.key === propertyKey && filter.operator === PropertyOperator.Exact
+                        }
+                        return false
+                    })
+
+                    const newFilter = {
+                        type: filterType,
+                        key: propertyKey,
+                        value: propertyValue,
+                        operator: PropertyOperator.Exact,
                     }
-                    actionLabel = 'Filter applied'
+
+                    if (sameKeyIndex !== -1) {
+                        // Replace the existing filter with same key
+                        newGroup = {
+                            ...currentGroup,
+                            values: currentGroup.values.map((nestedGroup, index) => {
+                                if (index === 0 && 'values' in nestedGroup) {
+                                    return {
+                                        ...nestedGroup,
+                                        values: nestedGroup.values.map((filter, i) =>
+                                            i === sameKeyIndex ? newFilter : filter
+                                        ),
+                                    } as UniversalFiltersGroup
+                                }
+                                return nestedGroup
+                            }),
+                        }
+                        actionLabel = 'Filter replaced'
+                    } else {
+                        // Add new filter
+                        newGroup = {
+                            ...currentGroup,
+                            values: currentGroup.values.map((nestedGroup, index) => {
+                                if (index === 0 && 'values' in nestedGroup) {
+                                    return {
+                                        ...nestedGroup,
+                                        values: [...nestedGroup.values, newFilter],
+                                    } as UniversalFiltersGroup
+                                }
+                                return nestedGroup
+                            }),
+                        }
+                        actionLabel = 'Filter applied'
+                    }
                 }
-            }
 
-            actions.setFilters({ filter_group: newGroup })
+                actions.setFilters({ filter_group: newGroup })
 
-            // Show toast notification
-            const filterLabel = formatPropertyLabel(
-                { type: filterType, key: propertyKey, value: propertyValue, operator: PropertyOperator.Exact },
-                {}
-            )
-            lemonToast.success(`${actionLabel}: ${filterLabel}`, {
-                toastId: `filter-toggled-${propertyKey}`,
-                button: {
-                    label: 'View filters',
-                    action: () => {
-                        actions.setIsFiltersExpanded(true)
-                    },
-                },
-            })
-        },
-
-        maybeLoadSessionRecordings: ({ direction }) => {
-            if (direction === 'older' && !values.hasNext) {
-                return // Nothing more to load
-            }
-            if (values.sessionRecordingsResponseLoading) {
-                return // We don't want to load if we are currently loading
-            }
-
-            actions.loadSessionRecordings(direction)
-        },
-
-        loadSessionRecordingsSuccess: () => {
-            actions.maybeLoadPropertiesForSessions(values.sessionRecordings)
-        },
-
-        setSelectedRecordingId: () => {
-            // Close filters when selecting a recording
-            actions.setIsFiltersExpanded(false)
-
-            const recordingIndex = values.sessionRecordings.findIndex((s) => s.id === values.selectedRecordingId)
-
-            // If recording not found in current list, reload with the new selected recording
-            // The backend will automatically include it via session_recording_id parameter
-            if (recordingIndex === -1 && values.selectedRecordingId) {
-                actions.loadSessionRecordings()
-            }
-
-            // If we are at the end of the list then try to load more
-            if (recordingIndex === values.sessionRecordings.length - 1) {
-                actions.maybeLoadSessionRecordings('older')
-            }
-
-            globalSetupLogic.findMounted()?.actions.markTaskAsCompleted(SetupTaskId.WatchSessionRecording)
-        },
-
-        addDeletedRecordings: ({ ids }) => {
-            if (values.selectedRecordingId && ids.includes(values.selectedRecordingId)) {
-                actions.setSelectedRecordingId(null)
-            }
-        },
-
-        setHideViewedRecordings: () => {
-            // Filtering happens server-side, so toggling the filter changes the result set entirely.
-            // Reset and refetch from the first page rather than paginating onto the stale cursor.
-            actions.loadSessionRecordings()
-        },
-        handleBulkAddToPlaylist: async ({ short_id }: { short_id: string }) => {
-            await lemonToast.promise(
-                (async () => {
-                    try {
-                        await api.recordings.bulkAddRecordingsToPlaylist(short_id, values.selectedRecordingsIds)
-                        actions.setSelectedRecordingsIds([])
-
-                        // Reload the playlist to show the new recordings
-                        handleLoadCollectionRecordings(short_id)
-                    } catch (e) {
-                        posthog.captureException(e)
-                    }
-                })(),
-                {
-                    success: `${values.selectedRecordingsIds.length} recording${
-                        values.selectedRecordingsIds.length > 1 ? 's' : ''
-                    } added to collection!`,
-                    error: 'Failed to add to collection!',
-                    pending: `Adding ${values.selectedRecordingsIds.length} recording${
-                        values.selectedRecordingsIds.length > 1 ? 's' : ''
-                    } to the collection...`,
-                },
-                {
+                // Show toast notification
+                const filterLabel = formatPropertyLabel(
+                    { type: filterType, key: propertyKey, value: propertyValue, operator: PropertyOperator.Exact },
+                    {}
+                )
+                lemonToast.success(`${actionLabel}: ${filterLabel}`, {
+                    toastId: `filter-toggled-${propertyKey}`,
                     button: {
-                        label: 'View collection',
-                        action: () => router.actions.push(urls.replayPlaylist(short_id)),
+                        label: 'View filters',
+                        action: () => {
+                            actions.setIsFiltersExpanded(true)
+                        },
                     },
-                }
-            )
-        },
-        handleBulkDeleteFromPlaylist: async ({ short_id }: { short_id: string }) => {
-            await lemonToast.promise(
-                (async () => {
-                    try {
-                        await api.recordings.bulkDeleteRecordingsFromPlaylist(short_id, values.selectedRecordingsIds)
-                        actions.setSelectedRecordingsIds([])
+                })
+            },
 
-                        // Reload the playlist to see the recordings without the deleted ones
-                        handleLoadCollectionRecordings(short_id)
-                    } catch (e) {
-                        posthog.captureException(e)
+            maybeLoadSessionRecordings: ({ direction }) => {
+                if (direction === 'older' && !values.hasNext) {
+                    return // Nothing more to load
+                }
+                if (values.sessionRecordingsResponseLoading) {
+                    return // We don't want to load if we are currently loading
+                }
+
+                actions.loadSessionRecordings(direction)
+            },
+
+            loadSessionRecordingsSuccess: ({ sessionRecordingsResponse }) => {
+                actions.maybeLoadPropertiesForSessions(values.sessionRecordings)
+                props.onRecordingsLoaded?.(sessionRecordingsResponse.results)
+                pruneSelectedRecordingsIds()
+                notifyRecordingSelected()
+            },
+
+            loadPinnedRecordingsSuccess: () => {
+                pruneSelectedRecordingsIds()
+                // Pinned recordings sort first, so this load can change which recording the
+                // autoplay fallback shows, just like a list load.
+                notifyRecordingSelected()
+            },
+
+            setSelectedRecordingId: () => {
+                // Close filters when selecting a recording
+                actions.setIsFiltersExpanded(false)
+
+                notifyRecordingSelected()
+
+                const recordingIndex = values.sessionRecordings.findIndex((s) => s.id === values.selectedRecordingId)
+
+                // If recording not found in current list, reload with the new selected recording
+                // The backend will automatically include it via session_recording_id parameter
+                if (recordingIndex === -1 && values.selectedRecordingId) {
+                    actions.loadSessionRecordings()
+                }
+
+                // If we are at the end of the list then try to load more
+                if (recordingIndex === values.sessionRecordings.length - 1) {
+                    actions.maybeLoadSessionRecordings('older')
+                }
+
+                globalSetupLogic.findMounted()?.actions.markTaskAsCompleted(SetupTaskId.WatchSessionRecording)
+            },
+
+            addDeletedRecordings: ({ ids }) => {
+                if (values.selectedRecordingId && ids.includes(values.selectedRecordingId)) {
+                    actions.setSelectedRecordingId(null)
+                }
+                pruneSelectedRecordingsIds()
+            },
+
+            setHideViewedRecordings: () => {
+                // Filtering happens server-side, so toggling the filter changes the result set entirely.
+                // Reset and refetch from the first page rather than paginating onto the stale cursor.
+                actions.loadSessionRecordings()
+            },
+            handleBulkAddToPlaylist: async ({ short_id }: { short_id: string }) => {
+                await lemonToast.promise(
+                    (async () => {
+                        try {
+                            await api.recordings.bulkAddRecordingsToPlaylist(short_id, values.selectedRecordingsIds)
+                            actions.setSelectedRecordingsIds([])
+
+                            // Reload the playlist to show the new recordings
+                            handleLoadCollectionRecordings(short_id)
+                        } catch (e) {
+                            posthog.captureException(e)
+                        }
+                    })(),
+                    {
+                        success: `${values.selectedRecordingsIds.length} recording${
+                            values.selectedRecordingsIds.length > 1 ? 's' : ''
+                        } added to collection!`,
+                        error: 'Failed to add to collection!',
+                        pending: `Adding ${values.selectedRecordingsIds.length} recording${
+                            values.selectedRecordingsIds.length > 1 ? 's' : ''
+                        } to the collection...`,
+                    },
+                    {
+                        button: {
+                            label: 'View collection',
+                            action: () => router.actions.push(urls.replayPlaylist(short_id)),
+                        },
                     }
-                })(),
-                {
-                    success: `${values.selectedRecordingsIds.length} recording${
-                        values.selectedRecordingsIds.length > 1 ? 's' : ''
-                    } removed from collection!`,
-                    error: 'Failed to remove from collection!',
-                    pending: `Removing ${values.selectedRecordingsIds.length} recording${
-                        values.selectedRecordingsIds.length > 1 ? 's' : ''
-                    } to the collection...`,
-                }
-            )
-        },
-        handleSelectUnselectAll: ({ checked, type }: { checked: boolean; type: 'filters' | 'collection' }) => {
-            if (checked) {
-                const recordings = type === 'filters' ? values.otherRecordings : values.visiblePinnedRecordings
-                actions.setSelectedRecordingsIds(recordings.map((s) => s.id))
-            } else {
-                actions.setSelectedRecordingsIds([])
-            }
-        },
-        handleDeleteSelectedRecordings: async ({ shortId }: { shortId?: string }) => {
-            const idsToDelete = [...values.selectedRecordingsIds]
-            const deleteCount = idsToDelete.length
-            actions.setDeleteConfirmationText('')
-            actions.setIsDeleteSelectedRecordingsDialogOpen(false)
+                )
+            },
+            handleBulkDeleteFromPlaylist: async ({ short_id }: { short_id: string }) => {
+                await lemonToast.promise(
+                    (async () => {
+                        try {
+                            await api.recordings.bulkDeleteRecordingsFromPlaylist(
+                                short_id,
+                                values.selectedRecordingsIds
+                            )
+                            actions.setSelectedRecordingsIds([])
 
-            try {
-                const result = await api.recordings.bulkDeleteRecordings(idsToDelete, values.filters.date_from)
-                const deletedIds = idsToDelete.filter((id) => !(result.failed_ids ?? []).includes(id))
-                actions.addDeletedRecordings(deletedIds)
-                actions.setSelectedRecordingsIds([])
-
-                if (shortId) {
-                    handleLoadCollectionRecordings(shortId)
-                }
-
-                const actualCount = deletedIds.length
-                if (actualCount < deleteCount) {
-                    lemonToast.warning(
-                        `${actualCount} of ${deleteCount} recording${deleteCount > 1 ? 's' : ''} deleted. ${deleteCount - actualCount} failed.`
-                    )
+                            // Reload the playlist to see the recordings without the deleted ones
+                            handleLoadCollectionRecordings(short_id)
+                        } catch (e) {
+                            posthog.captureException(e)
+                        }
+                    })(),
+                    {
+                        success: `${values.selectedRecordingsIds.length} recording${
+                            values.selectedRecordingsIds.length > 1 ? 's' : ''
+                        } removed from collection!`,
+                        error: 'Failed to remove from collection!',
+                        pending: `Removing ${values.selectedRecordingsIds.length} recording${
+                            values.selectedRecordingsIds.length > 1 ? 's' : ''
+                        } to the collection...`,
+                    }
+                )
+            },
+            handleSelectUnselectAll: ({ checked, type }: { checked: boolean; type: 'filters' | 'collection' }) => {
+                if (checked) {
+                    const recordings = type === 'filters' ? values.otherRecordings : values.visiblePinnedRecordings
+                    actions.setSelectedRecordingsIds(recordings.map((s) => s.id))
                 } else {
-                    lemonToast.success(`${actualCount} recording${actualCount > 1 ? 's' : ''} deleted!`)
+                    actions.setSelectedRecordingsIds([])
                 }
-            } catch (e) {
-                lemonToast.error('Failed to delete recordings!')
-                posthog.captureException(e)
-            }
-        },
-        handleCreateNewCollectionBulkAdd: async ({ onSuccess }) => {
-            const newPlaylist = await createPlaylist({
-                name: values.newCollectionName,
-                type: 'collection',
-            })
+            },
+            handleDeleteSelectedRecordings: async ({ shortId }: { shortId?: string }) => {
+                if (values.isDeletingSelectedRecordings) {
+                    return
+                }
 
-            if (newPlaylist) {
-                actions.handleBulkAddToPlaylist(newPlaylist.short_id)
-                actions.setIsAddToCollectionModalOpen(false)
-                onSuccess()
-            }
-        },
-        setIsAddToCollectionModalOpen: ({ isAddToCollectionModalOpen }) => {
-            if (isAddToCollectionModalOpen) {
+                const idsToDelete = [...values.selectedRecordingsIds]
+                const deleteCount = idsToDelete.length
+                actions.setIsDeletingSelectedRecordings(true)
+
+                try {
+                    const result = await api.recordings.bulkDeleteRecordings(idsToDelete, values.filters.date_from)
+                    const deletedIds = idsToDelete.filter((id) => !(result.failed_ids ?? []).includes(id))
+                    actions.addDeletedRecordings(deletedIds)
+                    actions.setSelectedRecordingsIds([])
+                    actions.setDeleteConfirmationText('')
+                    actions.setIsDeleteSelectedRecordingsDialogOpen(false)
+
+                    if (shortId) {
+                        handleLoadCollectionRecordings(shortId)
+                    }
+
+                    const actualCount = deletedIds.length
+                    if (actualCount < deleteCount) {
+                        lemonToast.warning(
+                            `${actualCount} of ${deleteCount} recording${deleteCount > 1 ? 's' : ''} deleted. ${deleteCount - actualCount} failed.`
+                        )
+                    } else {
+                        lemonToast.success(`${actualCount} recording${actualCount > 1 ? 's' : ''} deleted!`)
+                    }
+                } catch (e) {
+                    lemonToast.error('Failed to delete recordings!')
+                    posthog.captureException(e)
+                } finally {
+                    actions.setIsDeletingSelectedRecordings(false)
+                }
+            },
+            handleCreateNewCollectionBulkAdd: async ({ onSuccess }) => {
+                const newPlaylist = await createPlaylist({
+                    name: values.newCollectionName,
+                    type: 'collection',
+                })
+
+                if (newPlaylist) {
+                    actions.handleBulkAddToPlaylist(newPlaylist.short_id)
+                    actions.setIsAddToCollectionModalOpen(false)
+                    onSuccess()
+                }
+            },
+            setIsAddToCollectionModalOpen: ({ isAddToCollectionModalOpen }) => {
+                if (isAddToCollectionModalOpen) {
+                    actions.loadCollectionsForBulkAdd(null)
+                }
+            },
+            setAddToCollectionSearch: async (_, breakpoint) => {
+                await breakpoint(200)
                 actions.loadCollectionsForBulkAdd(null)
-            }
-        },
-        setAddToCollectionSearch: async (_, breakpoint) => {
-            await breakpoint(200)
-            actions.loadCollectionsForBulkAdd(null)
-        },
-        handleBulkMarkAsViewed: async ({ shortId }: { shortId?: string }) => {
-            await lemonToast.promise(
-                (async () => {
-                    try {
-                        await api.recordings.bulkViewedRecordings(values.selectedRecordingsIds)
-                        actions.setSelectedRecordingsIds([])
+            },
+            handleBulkMarkAsViewed: async ({ shortId }: { shortId?: string }) => {
+                await lemonToast.promise(
+                    (async () => {
+                        try {
+                            await api.recordings.bulkViewedRecordings(values.selectedRecordingsIds)
+                            actions.setSelectedRecordingsIds([])
 
-                        // If it was a collection then we need to reload it, otherwise we need to reload the recordings
-                        if (shortId) {
-                            handleLoadCollectionRecordings(shortId)
-                        } else {
-                            actions.loadSessionRecordings()
+                            // If it was a collection then we need to reload it, otherwise we need to reload the recordings
+                            if (shortId) {
+                                handleLoadCollectionRecordings(shortId)
+                            } else {
+                                actions.loadSessionRecordings()
+                            }
+                        } catch (e) {
+                            posthog.captureException(e)
                         }
-                    } catch (e) {
-                        posthog.captureException(e)
+                    })(),
+                    {
+                        success: `${values.selectedRecordingsIds.length} recording${
+                            values.selectedRecordingsIds.length > 1 ? 's' : ''
+                        } marked as viewed!`,
+                        error: 'Failed to mark as viewed!',
+                        pending: `Marking ${values.selectedRecordingsIds.length} recording${
+                            values.selectedRecordingsIds.length > 1 ? 's' : ''
+                        }...`,
                     }
-                })(),
-                {
-                    success: `${values.selectedRecordingsIds.length} recording${
-                        values.selectedRecordingsIds.length > 1 ? 's' : ''
-                    } marked as viewed!`,
-                    error: 'Failed to mark as viewed!',
-                    pending: `Marking ${values.selectedRecordingsIds.length} recording${
-                        values.selectedRecordingsIds.length > 1 ? 's' : ''
-                    }...`,
-                }
-            )
-        },
-        handleBulkMarkAsNotViewed: async ({ shortId }: { shortId?: string }) => {
-            await lemonToast.promise(
-                (async () => {
-                    try {
-                        await api.recordings.bulkNotViewedRecordings(values.selectedRecordingsIds)
-                        actions.setSelectedRecordingsIds([])
+                )
+            },
+            handleBulkMarkAsNotViewed: async ({ shortId }: { shortId?: string }) => {
+                await lemonToast.promise(
+                    (async () => {
+                        try {
+                            await api.recordings.bulkNotViewedRecordings(values.selectedRecordingsIds)
+                            actions.setSelectedRecordingsIds([])
 
-                        // If it was a collection then we need to reload it, otherwise we need to reload the recordings
-                        if (shortId) {
-                            handleLoadCollectionRecordings(shortId)
-                        } else {
-                            actions.loadSessionRecordings()
+                            // If it was a collection then we need to reload it, otherwise we need to reload the recordings
+                            if (shortId) {
+                                handleLoadCollectionRecordings(shortId)
+                            } else {
+                                actions.loadSessionRecordings()
+                            }
+                        } catch (e) {
+                            posthog.captureException(e)
                         }
-                    } catch (e) {
-                        posthog.captureException(e)
+                    })(),
+                    {
+                        success: `${values.selectedRecordingsIds.length} recording${
+                            values.selectedRecordingsIds.length > 1 ? 's' : ''
+                        } marked as not viewed!`,
+                        error: 'Failed to mark as not viewed!',
+                        pending: `Marking ${values.selectedRecordingsIds.length} recording${
+                            values.selectedRecordingsIds.length > 1 ? 's' : ''
+                        }...`,
                     }
-                })(),
-                {
-                    success: `${values.selectedRecordingsIds.length} recording${
-                        values.selectedRecordingsIds.length > 1 ? 's' : ''
-                    } marked as not viewed!`,
-                    error: 'Failed to mark as not viewed!',
-                    pending: `Marking ${values.selectedRecordingsIds.length} recording${
-                        values.selectedRecordingsIds.length > 1 ? 's' : ''
-                    }...`,
-                }
-            )
-        },
-    })),
+                )
+            },
+        }
+    }),
     selectors({
         logicProps: [() => [(_, props) => props], (props): SessionRecordingPlaylistLogicProps => props],
 
@@ -1632,9 +1747,6 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
                 const eventFilters = filterValues.filter(isEventFilter)
                 const eventPropertyFilters = filterValues.filter(isEventPropertyFilter)
                 const actionFilters = filterValues.filter(isActionFilter)
-                const hasVisitedPageFilter = filterValues
-                    .filter(isRecordingPropertyFilter)
-                    .some((f) => f.key === 'visited_page')
 
                 const hasEvents = !!eventFilters.length
                 const hasEventsProperties = !!eventPropertyFilters.length
@@ -1645,7 +1757,7 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
                     .filter(Boolean) as string[]
                 const hasSimpleEventsFilters = !!simpleEventsFilters.length
 
-                if (hasActions || hasVisitedPageFilter) {
+                if (hasActions) {
                     return { matchType: 'backend', filters }
                 }
 
@@ -1743,7 +1855,8 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
                     (equal(filters.duration?.[0] ?? defaultFilters.duration[0], defaultFilters.duration[0]) ? 0 : 1) +
                     (filters.date_from === defaultFilters.date_from && filters.date_to === defaultFilters.date_to
                         ? 0
-                        : 1)
+                        : 1) +
+                    (filters.session_ids?.length ? 1 : 0)
                 )
             },
         ],
@@ -1992,6 +2105,14 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
     // NOTE: It is important this comes after urlToAction, as it will override the default behavior
     afterMount(({ actions, props, values }) => {
         if (props.onlyPinned) {
+            return
+        }
+
+        // The filters reducer persists to localStorage and rehydrates without validation, so a stale
+        // or malformed entry poisons state and makes every later filter change fall back to defaults.
+        // Drop a bad rehydrated value here, reusing the check that already guards the URL and setFilters paths.
+        if (!isValidRecordingFilters(values.filters)) {
+            actions.resetFilters()
             return
         }
 

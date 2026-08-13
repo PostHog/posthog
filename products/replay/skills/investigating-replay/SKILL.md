@@ -82,8 +82,8 @@ SELECT
     timestamp,
     event,
     properties.$current_url AS url,
-    if(event = '$exception', properties.$exception_message, null) AS exception_message,
-    if(event = '$exception', properties.$exception_type, null) AS exception_type
+    if(event = '$exception', properties.$exception_values[1], null) AS exception_message,
+    if(event = '$exception', properties.$exception_types[1], null) AS exception_type
 FROM events
 WHERE $session_id = '<session_id>'
     AND event IN ('$pageview', '$pageleave', '$autocapture', '$exception', '$rageclick')
@@ -99,8 +99,8 @@ If the recording has console errors or exceptions, find related error tracking i
 posthog:execute-sql
 SELECT DISTINCT
     properties.$exception_fingerprint AS fingerprint,
-    properties.$exception_type AS type,
-    properties.$exception_message AS message,
+    properties.$exception_types[1] AS type,
+    properties.$exception_values[1] AS message,
     count() AS occurrences
 FROM events
 WHERE $session_id = '<session_id>'
@@ -199,7 +199,7 @@ with a throwaway scanner — but **ask the user's permission before creating any
        "prompt": "Summarize what the user was trying to do, whether they succeeded, and any friction they hit."
      },
      "query": { "kind": "RecordingsQuery" },
-     "model": "gemini-3.6-flash",
+     "model": "gemini-3-flash-preview",
      "enabled": false
    }
    ```
@@ -234,3 +234,10 @@ with a throwaway scanner — but **ask the user's permission before creating any
   use this to frame the narrative.
 - If `person` is null on the recording, the user was anonymous.
   Person properties won't be available, but events still are.
+
+## Related skills
+
+- **`finding-sessions-to-watch`** — choose which sessions are worth investigating in the first place
+- **`finding-replay-for-issue`** — start from an error tracking issue and find its linked recordings
+- **`diagnosing-missing-recordings`** — when a recording that should exist doesn't
+- **`creating-replay-vision-scanners`** — automate this kind of watching as a scheduled scanner

@@ -3,9 +3,16 @@ import { MakeLogicType, actions, connect, kea, key, listeners, path, props } fro
 import { WorkflowLogicProps, workflowLogic } from '../../workflowLogic'
 import type { HogFlow, HogFlowAction } from '../types'
 
-const DURATION_REGEX = /^(\d*\.?\d*)([dhm])$/
-const AUTO_DESCRIPTION_REGEX = /^Wait for \d*\.?\d+ (minute|hour|day)s?\.$/
+const DURATION_REGEX = /^(\d*\.?\d*)([dhms])$/
+const AUTO_DESCRIPTION_REGEX = /^Wait for \d*\.?\d+ (second|minute|hour|day)s?\.$/
 const LEGACY_DEFAULT_DESCRIPTION = 'Wait for a specified duration.'
+
+const UNIT_LABELS: Record<string, string> = {
+    s: 'second',
+    m: 'minute',
+    h: 'hour',
+    d: 'day',
+}
 
 export function getDelayDescription(duration: string): string {
     const parts = duration.match(DURATION_REGEX)
@@ -15,7 +22,7 @@ export function getDelayDescription(duration: string): string {
     if (!Number.isFinite(number)) {
         return LEGACY_DEFAULT_DESCRIPTION
     }
-    const unitLabel = unit === 'm' ? 'minute' : unit === 'h' ? 'hour' : 'day'
+    const unitLabel = UNIT_LABELS[unit] ?? 'minute'
     const durationText = `${number} ${unitLabel}${number !== 1 ? 's' : ''}`
     return `Wait for ${durationText}.`
 }
@@ -77,7 +84,11 @@ export interface stepDelayLogicActions {
               }
             | {
                   filters: {
+                      all_roles_unassigned?: boolean | undefined
+                      assigned_to_user_ids?: number[] | undefined
+                      audience_type?: 'accounts' | 'persons' | undefined
                       properties: any[]
+                      tag_names?: string[] | undefined
                   }
                   type: 'batch'
               }
@@ -258,22 +269,6 @@ export interface stepDelayLogicActions {
                   >
                   message_category_id?: string | undefined
                   message_category_type?: 'marketing' | 'transactional' | undefined
-                  template_id: 'template-email'
-                  template_uuid?: string | undefined
-              }
-            | {
-                  inputs: Record<
-                      string,
-                      {
-                          bytecode?: any
-                          order?: number | undefined
-                          secret?: boolean | undefined
-                          templating?: 'hog' | 'liquid' | undefined
-                          value: any
-                      }
-                  >
-                  message_category_id?: string | undefined
-                  message_category_type?: 'marketing' | 'transactional' | undefined
                   template_id: 'template-native-push'
                   template_uuid?: string | undefined
               }
@@ -303,6 +298,23 @@ export interface stepDelayLogicActions {
                   time: [string, string] | 'any'
                   timezone: string | null
                   use_person_timezone?: boolean | undefined
+              }
+            | {
+                  inputs: Record<
+                      string,
+                      {
+                          bytecode?: any
+                          order?: number | undefined
+                          secret?: boolean | undefined
+                          templating?: 'hog' | 'liquid' | undefined
+                          value: any
+                      }
+                  >
+                  message_category_id?: string | undefined
+                  message_category_type?: 'marketing' | 'transactional' | undefined
+                  template_id: 'template-email'
+                  template_uuid?: string | undefined
+                  tracking_enabled?: boolean | undefined
               }
     ) => {
         actionId: string
@@ -335,18 +347,22 @@ export interface stepDelayLogicActions {
               }
             | {
                   filters: {
-                      properties: any[]
-                  }
-                  type: 'batch'
-              }
-            | {
-                  filters: {
                       actions?: any[] | undefined
                       events?: any[] | undefined
                       filter_test_accounts?: boolean | undefined
                       properties?: any[] | undefined
                   }
                   type: 'event'
+              }
+            | {
+                  filters: {
+                      all_roles_unassigned?: boolean | undefined
+                      assigned_to_user_ids?: number[] | undefined
+                      audience_type?: 'accounts' | 'persons' | undefined
+                      properties: any[]
+                      tag_names?: string[] | undefined
+                  }
+                  type: 'batch'
               }
             | {
                   condition: {
@@ -527,22 +543,6 @@ export interface stepDelayLogicActions {
                   >
                   message_category_id?: string | undefined
                   message_category_type?: 'marketing' | 'transactional' | undefined
-                  template_id: 'template-email'
-                  template_uuid?: string | undefined
-              }
-            | {
-                  inputs: Record<
-                      string,
-                      {
-                          bytecode?: any
-                          order?: number | undefined
-                          secret?: boolean | undefined
-                          templating?: 'hog' | 'liquid' | undefined
-                          value: any
-                      }
-                  >
-                  message_category_id?: string | undefined
-                  message_category_type?: 'marketing' | 'transactional' | undefined
                   template_id: 'template-native-push'
                   template_uuid?: string | undefined
               }
@@ -561,6 +561,23 @@ export interface stepDelayLogicActions {
                   message_category_type?: 'marketing' | 'transactional' | undefined
                   template_id: 'template-twilio'
                   template_uuid?: string | undefined
+              }
+            | {
+                  inputs: Record<
+                      string,
+                      {
+                          bytecode?: any
+                          order?: number | undefined
+                          secret?: boolean | undefined
+                          templating?: 'hog' | 'liquid' | undefined
+                          value: any
+                      }
+                  >
+                  message_category_id?: string | undefined
+                  message_category_type?: 'marketing' | 'transactional' | undefined
+                  template_id: 'template-email'
+                  template_uuid?: string | undefined
+                  tracking_enabled?: boolean | undefined
               }
     } // workflowLogic
     setDelayWorkflowActionConfig: (

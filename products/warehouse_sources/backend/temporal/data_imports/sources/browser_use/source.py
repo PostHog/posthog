@@ -9,18 +9,15 @@ from posthog.schema import (
     SourceFieldInputConfigType,
 )
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import (
-    SourceInputs,
-    SourceResponse,
-)
 from products.warehouse_sources.backend.temporal.data_imports.sources.browser_use.browser_use import (
     BrowserUseResumeConfig,
     browser_use_source,
     validate_credentials as validate_browser_use_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.browser_use.settings import (
-    BROWSER_USE_ENDPOINTS,
-    ENDPOINTS,
+    BROWSER_USE_API_VERSION_V3,
+    BROWSER_USE_API_VERSION_V4,
+    endpoints_for_version,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
@@ -32,6 +29,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.sch
     SourceSchema,
     build_endpoint_schemas,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.browseruse import (
     BrowserUseSourceConfig,
 )
@@ -41,8 +39,11 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 @SourceRegistry.register
 class BrowserUseSource(ResumableSource[BrowserUseSourceConfig, BrowserUseResumeConfig]):
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
-    supported_versions = ("v3",)
-    default_version = "v3"
+    # v3 was the experimental agent API; v4 is the current default. The two serve different table
+    # sets (v4 drops the workspaces list and session_messages, adds runs, and reshapes sessions),
+    # so new sources default to v4 while existing v3-pinned sources keep working unchanged.
+    supported_versions = (BROWSER_USE_API_VERSION_V3, BROWSER_USE_API_VERSION_V4)
+    default_version = BROWSER_USE_API_VERSION_V4
     api_docs_url = "https://docs.browser-use.com/cloud/api-reference"
 
     @property
@@ -104,17 +105,19 @@ You can create a non-expiring API key at [cloud.browser-use.com/settings](https:
         force_refresh: bool = False,
         api_version: str | None = None,
     ) -> list[SourceSchema]:
-        # The Browser Use v3 list endpoints expose no server-side created/updated-since filter and
-        # no sort parameter, so there is no reliable way to fetch only new rows. Every endpoint is
-        # therefore full-refresh only (no incremental fields declared) — declaring incremental
-        # would advertise a mode that still scans the whole list each run.
+        # No Browser Use list endpoint (either version) exposes a server-side since-filter or sort
+        # parameter, so there is no reliable way to fetch only new rows. Every endpoint is therefore
+        # full-refresh only (no incremental fields declared) — declaring incremental would advertise
+        # a mode that still scans the whole list each run. The v3 and v4 table sets differ, so a
+        # pinned source must discover under its own version: discovery diffs run under the source
+        # pin and would orphan tables absent from the other version's catalog.
+        catalog = endpoints_for_version(self.resolve_api_version(api_version))
         return build_endpoint_schemas(
-            ENDPOINTS,
+            catalog.keys(),
             {},
             names,
             should_sync_default={
-                endpoint: endpoint_config.should_sync_default
-                for endpoint, endpoint_config in BROWSER_USE_ENDPOINTS.items()
+                endpoint: endpoint_config.should_sync_default for endpoint, endpoint_config in catalog.items()
             },
         )
 
@@ -125,7 +128,9 @@ You can create a non-expiring API key at [cloud.browser-use.com/settings](https:
         schema_name: Optional[str] = None,
         api_version: str | None = None,
     ) -> tuple[bool, str | None]:
-        if validate_browser_use_credentials(config.api_key):
+        # Pre-creation calls pass no pin and resolve to default_version (what new rows are stamped
+        # with); a pinned source revalidates against its own version's probe endpoint.
+        if validate_browser_use_credentials(config.api_key, self.resolve_api_version(api_version)):
             return True, None
 
         return False, "Invalid Browser Use API key"
@@ -139,8 +144,9 @@ You can create a non-expiring API key at [cloud.browser-use.com/settings](https:
         resumable_source_manager: ResumableSourceManager[BrowserUseResumeConfig],
         inputs: SourceInputs,
     ) -> SourceResponse:
-        if inputs.schema_name not in BROWSER_USE_ENDPOINTS:
-            raise ValueError(f"Unknown Browser Use schema '{inputs.schema_name}'")
+        api_version = self.resolve_api_version(inputs.api_version)
+        if inputs.schema_name not in endpoints_for_version(api_version):
+            raise ValueError(f"Unknown Browser Use schema '{inputs.schema_name}' for API version {api_version}")
 
         return browser_use_source(
             api_key=config.api_key,
@@ -148,4 +154,5 @@ You can create a non-expiring API key at [cloud.browser-use.com/settings](https:
             team_id=inputs.team_id,
             job_id=inputs.job_id,
             resumable_source_manager=resumable_source_manager,
+            api_version=api_version,
         )

@@ -10,7 +10,7 @@ def _source_schema(*, catalog=None, schema=None, table=None):
 
 
 class TestDirectQueryEngineRegistry:
-    @parameterized.expand(["postgres", "mysql", "snowflake", "redshift"])
+    @parameterized.expand(["postgres", "mysql", "snowflake", "redshift", "clickhouse", "motherduck"])
     def test_known_engine_resolves(self, engine: str):
         adapter = get_direct_query_engine(engine)
         assert adapter is not None
@@ -28,6 +28,8 @@ class TestDirectQueryEngineRegistry:
             ("mysql", False),
             ("snowflake", False),
             ("redshift", False),
+            ("clickhouse", False),
+            ("motherduck", False),
         ]
     )
     def test_resolves_location_in_warehouse_mode(self, engine: str, expected: bool):
@@ -42,7 +44,10 @@ class TestDirectQueryEngineRegistry:
             ("postgres", ("db", "public", "users")),
             ("snowflake", ("db", "public", "users")),
             ("redshift", ("db", "public", "users")),
+            ("motherduck", ("db", "public", "users")),
             ("mysql", (None, "public", "users")),
+            # ClickHouse has no catalog level — the database occupies the "schema" slot.
+            ("clickhouse", (None, "public", "users")),
         ]
     )
     def test_source_table_location_uses_explicit_metadata(self, engine: str, expected: tuple):
@@ -82,13 +87,26 @@ class TestDirectQueryEngineRegistry:
         )
         assert location == ("WAREHOUSE", "analytics", "events")
 
-    @parameterized.expand(["mysql", "snowflake", "redshift"])
+    @parameterized.expand(["mysql", "snowflake", "redshift", "clickhouse", "motherduck"])
     def test_non_postgres_engines_return_no_name_substitutions(self, engine: str):
         # Returning None (not {}) is the sentinel that makes the view fall through to the generic
         # multi-schema migration path; only Postgres has bespoke legacy-row remapping.
         adapter = get_direct_query_engine(engine)
         assert adapter is not None
         assert adapter.refresh_name_substitutions(source=None, source_schemas=[], team_id=1) is None
+
+    def test_motherduck_splits_three_part_dotted_name(self):
+        # Blank-database MotherDuck sources name rows `db.schema.table`; the split must recover
+        # the database too, not fold it into the schema.
+        adapter = get_direct_query_engine("motherduck")
+        assert adapter is not None
+        location = adapter.source_table_location(
+            schema_name="sample_data.nyc.taxi",
+            source_schema=None,
+            default_schema=None,
+            default_catalog=None,
+        )
+        assert location == ("sample_data", "nyc", "taxi")
 
     def test_snowflake_default_schema_takes_precedence_over_dot_split(self):
         adapter = get_direct_query_engine("snowflake")

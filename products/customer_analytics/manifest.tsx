@@ -7,6 +7,8 @@ import { urls } from 'scenes/urls'
 import { ProductItemCategory, ProductKey } from '~/queries/schema/schema-general'
 import { ProductManifest } from '~/types'
 
+import type { WarehousePropertiesSceneTab } from './frontend/scenes/WarehousePropertiesScene/warehousePropertiesSceneLogic'
+
 export const manifest: ProductManifest = {
     name: 'Customer analytics',
     scenes: {
@@ -33,6 +35,13 @@ export const manifest: ProductManifest = {
             projectBased: true,
             name: 'New journey',
         },
+        WarehouseProperties: {
+            import: () => import('./frontend/scenes/WarehousePropertiesScene/WarehousePropertiesScene'),
+            projectBased: true,
+            name: 'Warehouse properties',
+            description: 'Add properties to your people and groups from a data warehouse table.',
+            iconType: 'data_warehouse',
+        },
     },
     routes: {
         '/customer_analytics/dashboard': ['CustomerAnalytics', 'customerAnalyticsDashboard'],
@@ -43,11 +52,16 @@ export const manifest: ProductManifest = {
         '/customer_analytics/accounts/:accountId/:tab': ['CustomerAnalytics', 'customerAnalyticsAccounts'],
         '/customer_analytics/notes': ['CustomerAnalytics', 'customerAnalyticsNotes'],
         '/customer_analytics/announcements': ['CustomerAnalytics', 'customerAnalyticsAnnouncements'],
+        '/customer_analytics/feed': ['CustomerAnalytics', 'customerAnalyticsFeed'],
+        '/customer_analytics/feature-requests': ['CustomerAnalytics', 'customerAnalyticsFeatureRequests'],
+        '/customer_analytics/feature-requests/:requestId': ['CustomerAnalytics', 'customerAnalyticsFeatureRequests'],
         '/customer_analytics/journeys/new': ['CustomerJourneyBuilder', 'customerJourneyBuilder'],
         '/customer_analytics/journeys/templates': ['CustomerJourneyTemplates', 'customerJourneyTemplates'],
         '/customer_analytics/journeys/:id/edit': ['CustomerJourneyBuilder', 'customerJourneyEdit'],
         '/customer_analytics/journeys': ['CustomerAnalytics', 'customerAnalyticsJourneys'],
         '/customer_analytics/configuration': ['CustomerAnalyticsConfiguration', 'customerAnalyticsConfiguration'],
+        '/data-management/warehouse-properties': ['WarehouseProperties', 'warehouseProperties'],
+        '/data-management/warehouse-properties/:tab': ['WarehouseProperties', 'warehouseProperties'],
     },
     redirects: {
         '/customer_analytics': (_params, searchParams, hashParams) => {
@@ -66,11 +80,17 @@ export const manifest: ProductManifest = {
             `/customer_analytics/accounts/${accountId}${tab ? `/${tab}` : ''}`,
         customerAnalyticsNotes: (): string => '/customer_analytics/notes',
         customerAnalyticsAnnouncements: (): string => '/customer_analytics/announcements',
+        customerAnalyticsFeed: (): string => '/customer_analytics/feed',
+        customerAnalyticsFeatureRequests: (requestId?: string): string =>
+            `/customer_analytics/feature-requests${requestId ? `/${requestId}` : ''}`,
         customerAnalyticsJourneys: (): string => '/customer_analytics/journeys',
-        customerAnalyticsConfiguration: (): string => '/customer_analytics/configuration',
+        customerAnalyticsConfiguration: (tab?: string): string =>
+            `/customer_analytics/configuration${tab ? `?tab=${tab}` : ''}`,
         customerJourneyBuilder: (): string => '/customer_analytics/journeys/new',
         customerJourneyTemplates: (): string => '/customer_analytics/journeys/templates',
         customerJourneyEdit: (id: string): string => `/customer_analytics/journeys/${id}/edit`,
+        warehouseProperties: (tab?: WarehousePropertiesSceneTab): string =>
+            `/data-management/warehouse-properties${tab ? `/${tab}` : ''}`,
     },
     treeItemsProducts: [
         {
@@ -83,6 +103,19 @@ export const manifest: ProductManifest = {
             flag: FEATURE_FLAGS.CUSTOMER_ANALYTICS,
             sceneKey: 'CustomerAnalytics',
             sceneKeys: ['CustomerAnalytics', 'CustomerJourneyTemplates', 'CustomerJourneyBuilder'],
+        },
+    ],
+    // Deliberately not behind the Customer analytics flag: warehouse-backed person and group
+    // properties are useful without opting into Customer analytics, so this is their home in Data.
+    treeItemsMetadata: [
+        {
+            path: 'Warehouse properties',
+            category: 'Schema',
+            iconType: 'data_warehouse',
+            href: urls.warehouseProperties(),
+            flag: FEATURE_FLAGS.WAREHOUSE_PERSON_PROPERTIES,
+            sceneKey: 'WarehouseProperties',
+            sceneKeys: ['WarehouseProperties'],
         },
     ],
 }

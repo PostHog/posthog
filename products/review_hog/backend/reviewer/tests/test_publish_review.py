@@ -11,6 +11,7 @@ from products.review_hog.backend.reviewer.artefact_content import ReviewIssueFin
 from products.review_hog.backend.reviewer.constants import published_priorities_for
 from products.review_hog.backend.reviewer.models.issues_review import IssuePriority, LineRange
 from products.review_hog.backend.reviewer.tools.github_client import GitHubAPIError
+from products.review_hog.backend.reviewer.tools.github_threads import REVIEW_HOG_FINDING_MARKER
 from products.review_hog.backend.reviewer.tools.publish_review import (
     ReviewComment,
     _build_inline_comments,
@@ -196,9 +197,13 @@ class TestPostGithubReview:
     def test_skips_when_a_review_with_our_marker_is_already_present(
         self, mock_request: MagicMock, mock_paginated: MagicMock
     ) -> None:
-        # Post-then-crash idempotency: a review already carrying this run's marker means we posted but
-        # didn't record the watermark, so the retry must post neither a second review nor the promo.
-        _wire_readbacks(mock_paginated, reviews=[{"body": "an earlier review\n\nmarker-xyz"}])
+        # Post-then-crash idempotency: an app-bot review already carrying this run's marker means we
+        # posted but didn't record the watermark, so the retry must post neither a second review nor
+        # the promo. (Only bot reviews count — a pasted marker in a human review must not match.)
+        _wire_readbacks(
+            mock_paginated,
+            reviews=[{"body": "an earlier review\n\nmarker-xyz", "user": {"login": "posthog[bot]", "type": "Bot"}}],
+        )
 
         _post_github_review(
             "o", "r", 1, "body", [], token="t", head_sha="s", post_promo=True, marker="marker-xyz", promo_marker="pm"
@@ -399,3 +404,9 @@ class TestFormatIssueComment:
         # Problem and fix stay inside <details>, not surfaced above the first one.
         assert finding.body not in body[: body.index("<details>")]
         assert "**Priority:**" not in body and "**Lines:**" not in body
+
+    def test_carries_the_self_detection_marker_for_the_resolution_stage(self) -> None:
+        # The resolution stage's `_source_rank` recognizes ReviewHog's own threads by this hidden marker
+        # in the opening comment. Drop it here and every ReviewHog thread misfiles under the other-bot
+        # triage tier — the exact dead-code gap this guards against, now that both sides share the constant.
+        assert REVIEW_HOG_FINDING_MARKER in _format_issue_comment(_finding(), _verdict())

@@ -1,1 +1,1 @@
-0019_remove_notificationevent_archivable
+0023_add_notification_idempotency_key_index

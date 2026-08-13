@@ -8,8 +8,9 @@ relations through facade-exposed queryset helpers, mirroring the existing patter
 `presentation/serializers.py` (`tasks_facade.channel_queryset()` et al.).
 """
 
+import re
 from datetime import UTC, datetime
-from typing import cast
+from typing import Any, cast
 from zoneinfo import available_timezones
 
 from django.utils import timezone as django_timezone
@@ -26,8 +27,14 @@ from products.tasks.backend.facade.run_config import (
     PUBLIC_REASONING_EFFORTS,
     RuntimeAdapter,
     get_default_model_for_runtime_adapter,
+    get_model_access_error,
     get_models_for_runtime_adapter,
     get_reasoning_effort_error,
+)
+from products.tasks.backend.presentation.serializers import (
+    TASK_RUN_SKILL_BUNDLE_FORMAT_CHOICES,
+    TASK_RUN_SKILL_SOURCE_CHOICES,
+    request_distinct_id,
 )
 
 
@@ -125,8 +132,10 @@ class LoopContextOutputsWriteSerializer(serializers.Serializer):
 
 
 class LoopContextTargetWriteSerializer(serializers.Serializer):
-    folder_id = serializers.CharField(help_text="Desktop folder id of the context this loop is attached to.")
-    name = serializers.CharField(max_length=128, help_text="Context (channel) name, used to file runs into its feed.")
+    channel_id = serializers.CharField(help_text="Id of the channel (context) this loop is attached to.")
+    name = serializers.CharField(
+        max_length=128, help_text="Display name of the context, shown in the loop's publish prompt."
+    )
     outputs = LoopContextOutputsWriteSerializer(
         required=False, default=dict, help_text="What the loop maintains in this context each run."
     )
@@ -171,6 +180,84 @@ def _validate_schedule_trigger_config(config: dict, *, now: datetime) -> dict:
         raise serializers.ValidationError({"timezone": f"'{timezone_name}' is not a valid IANA timezone."})
 
     return {"cron_expression": normalized_cron, "timezone": timezone_name}
+
+
+MAX_PAYLOAD_CONDITIONS = 16
+MAX_PAYLOAD_CONDITION_VALUES = 20
+MAX_PAYLOAD_PATH_SEGMENTS = 8
+MAX_PAYLOAD_STRING_LENGTH = 200
+_PAYLOAD_PATH_SEGMENT = re.compile(r"^[A-Za-z0-9_-]+$")
+
+
+def _validate_payload_conditions(raw: Any) -> list[dict[str, Any]]:
+    """`filters.payload`: dot-path conditions on the webhook body, for the fields no named filter
+    covers (the motivating one being `requested_team.slug` on a review request). Bounded because a
+    stored condition is re-evaluated on every delivery for the repo."""
+    if not isinstance(raw, list):
+        raise serializers.ValidationError({"filters": "Filter 'payload' must be a list of {path, equals} objects."})
+    if len(raw) > MAX_PAYLOAD_CONDITIONS:
+        raise serializers.ValidationError({"filters": f"At most {MAX_PAYLOAD_CONDITIONS} payload conditions."})
+
+    conditions: list[dict[str, Any]] = []
+    for condition in raw:
+        if not isinstance(condition, dict):
+            raise serializers.ValidationError({"filters": "Each payload condition must be a {path, equals} object."})
+
+        path = condition.get("path")
+        if not isinstance(path, str) or not path.strip():
+            raise serializers.ValidationError({"filters": "Each payload condition needs a non-empty `path`."})
+        path = path.strip()
+        segments = path.split(".")
+        if len(path) > MAX_PAYLOAD_STRING_LENGTH or len(segments) > MAX_PAYLOAD_PATH_SEGMENTS:
+            raise serializers.ValidationError(
+                {
+                    "filters": (
+                        f"Payload condition `path` must be at most {MAX_PAYLOAD_STRING_LENGTH} characters "
+                        f"and {MAX_PAYLOAD_PATH_SEGMENTS} dot-separated segments."
+                    )
+                }
+            )
+        if not all(_PAYLOAD_PATH_SEGMENT.match(segment) for segment in segments):
+            raise serializers.ValidationError(
+                {"filters": f"Payload condition path '{path}' must be dot-separated keys, like 'requested_team.slug'."}
+            )
+        # Matching walks object keys only, so a list index would save fine and then never fire.
+        # Reject it here rather than let the trigger sit there silently doing nothing.
+        if any(segment.isdigit() for segment in segments):
+            raise serializers.ValidationError(
+                {
+                    "filters": (
+                        f"Payload condition path '{path}' indexes into a list. Conditions match object "
+                        "keys only, so this would never fire. To match labels, use the `labels` filter."
+                    )
+                }
+            )
+
+        expected = condition.get("equals")
+        values = [expected] if isinstance(expected, str) else expected
+        if not isinstance(values, list) or not values or not all(isinstance(item, str) for item in values):
+            raise serializers.ValidationError(
+                {"filters": f"Payload condition '{path}' needs `equals`: a string or a non-empty list of strings."}
+            )
+        # A blank value can't equal any real payload leaf, so the condition would save and then
+        # never fire — the same silent dead end as a list-index path above.
+        if any(not item.strip() for item in values):
+            raise serializers.ValidationError(
+                {"filters": f"Payload condition '{path}' has a blank `equals` value, which would never match."}
+            )
+        if len(values) > MAX_PAYLOAD_CONDITION_VALUES or any(len(item) > MAX_PAYLOAD_STRING_LENGTH for item in values):
+            raise serializers.ValidationError(
+                {
+                    "filters": (
+                        f"Payload condition '{path}' allows at most {MAX_PAYLOAD_CONDITION_VALUES} values "
+                        f"of {MAX_PAYLOAD_STRING_LENGTH} characters each."
+                    )
+                }
+            )
+
+        conditions.append({"path": path, "equals": values})
+
+    return conditions
 
 
 def _validate_github_trigger_config(config: dict, team_id: int) -> dict:
@@ -242,12 +329,15 @@ def _validate_github_trigger_config(config: dict, team_id: int) -> dict:
     # Accept singular keys and a bare string value too: agents (and GitHub's own webhook
     # payloads) naturally reach for `action`/`"opened"` over `actions`/`["opened"]`.
     filter_key_aliases = {"action": "actions", "branch": "branches", "label": "labels"}
-    filters: dict[str, list[str]] = {}
+    filters: dict[str, Any] = {}
     for raw_key, filter_value in filters_raw.items():
         key = filter_key_aliases.get(raw_key, raw_key)
+        if key == "payload":
+            filters[key] = _validate_payload_conditions(filter_value)
+            continue
         if key not in ("actions", "branches", "labels"):
             raise serializers.ValidationError(
-                {"filters": f"Unsupported filter key: '{raw_key}'. Allowed: actions, branches, labels."}
+                {"filters": f"Unsupported filter key: '{raw_key}'. Allowed: actions, branches, labels, payload."}
             )
         values = [filter_value] if isinstance(filter_value, str) else filter_value
         if not isinstance(values, list) or not all(isinstance(item, str) for item in values):
@@ -296,7 +386,12 @@ class LoopTriggerWriteSerializer(serializers.Serializer):
             f"{', '.join(f'`{event}`' for event in loops_facade.ALLOWED_GITHUB_TRIGGER_EVENTS)} "
             "(`event.action` shorthand like `issues.opened` is folded into an `actions` filter, one "
             "event per trigger) and "
-            "`filters` takes `{actions, branches, labels}`; api takes no config."
+            "`filters` takes `{actions, branches, labels, payload}`. Use `actions` for the event "
+            "action; `payload` is for anything else in the webhook body, as a list of "
+            "`{path, equals}` conditions where `path` is a dot-path of object keys and `equals` is "
+            "a string or list of strings, e.g. "
+            '`[{"path": "requested_team.slug", "equals": "team-security"}]` to run only when that '
+            "team is asked to review. All filters must match. API triggers take no config."
         ),
     )
 
@@ -454,6 +549,10 @@ class LoopWriteSerializer(serializers.Serializer):
                     {"model": f"'{model}' is not a supported model for runtime_adapter '{runtime_adapter}'."}
                 )
 
+        model_access_error = get_model_access_error(model, distinct_id=request_distinct_id(self.context))
+        if model_access_error is not None:
+            raise serializers.ValidationError({"model": model_access_error})
+
         reasoning_effort = attrs.get("reasoning_effort")
         if runtime_adapter is not None and reasoning_effort is not None:
             # A blank model means "PostHog picks at run time", so the effort is
@@ -481,10 +580,12 @@ class LoopWriteSerializer(serializers.Serializer):
         context_target = attrs.get("context_target")
         if context_target:
             team_id = self.context["team"].id
-            if not loops_facade.desktop_folder_exists(team_id, context_target.get("folder_id")):
-                raise serializers.ValidationError({"context_target": "Context folder not found for this team."})
+            if not loops_facade.context_channel_exists(
+                team_id, context_target.get("channel_id"), self.context.get("user_id")
+            ):
+                raise serializers.ValidationError({"context_target": "Context channel not found for this team."})
             canvas_id = (context_target.get("outputs") or {}).get("canvas_id")
-            if canvas_id and not loops_facade.desktop_canvas_exists(team_id, canvas_id):
+            if canvas_id and not loops_facade.context_canvas_exists(team_id, canvas_id, self.context.get("user_id")):
                 raise serializers.ValidationError({"context_target": "Canvas not found in this team."})
 
         return attrs
@@ -549,6 +650,11 @@ class LoopRepositoryEntryResponseSerializer(DataclassSerializer):
         dataclass = loops_facade.LoopRepositoryEntryDTO
 
 
+class LoopSkillBundleResponseSerializer(DataclassSerializer):
+    class Meta:
+        dataclass = loops_facade.LoopSkillBundleDTO
+
+
 class LoopSerializer(DataclassSerializer):
     """Detail/create/update response for a loop, including its triggers."""
 
@@ -560,6 +666,9 @@ class LoopSerializer(DataclassSerializer):
         allow_null=True, required=False, help_text="Context this loop is attached to, or null when unattached."
     )
     triggers = LoopTriggerSerializer(many=True, help_text="Triggers attached to this loop.")
+    skill_bundles = LoopSkillBundleResponseSerializer(
+        many=True, help_text="Skill bundles attached to this loop, seeded into every fired run."
+    )
 
     class Meta:
         dataclass = loops_facade.LoopDTO
@@ -592,6 +701,7 @@ class LoopSerializer(DataclassSerializer):
             "created_at",
             "updated_at",
             "triggers",
+            "skill_bundles",
         ]
 
 
@@ -652,6 +762,34 @@ class LoopPreviewRequestSerializer(serializers.Serializer):
 class LoopPreviewSerializer(DataclassSerializer):
     class Meta:
         dataclass = loops_facade.LoopPreviewDTO
+
+
+class LoopSkillBundleUploadSerializer(serializers.Serializer):
+    """One zipped local skill in a skill-bundle replace request."""
+
+    file_name = serializers.CharField(
+        allow_blank=False, max_length=255, help_text="File name for the stored bundle, e.g. `my-skill.zip`."
+    )
+    skill_name = serializers.CharField(
+        allow_blank=False, max_length=255, help_text="Name of the skill inside the bundle."
+    )
+    skill_source = serializers.ChoiceField(
+        choices=TASK_RUN_SKILL_SOURCE_CHOICES, help_text="Local source the bundle was built from, such as user or repo."
+    )
+    content_sha256 = serializers.RegexField(
+        regex=r"^[a-f0-9]{64}$", help_text="SHA-256 hex digest of the bundle bytes."
+    )
+    bundle_format = serializers.ChoiceField(
+        choices=TASK_RUN_SKILL_BUNDLE_FORMAT_CHOICES, help_text="Archive format used for the bundle."
+    )
+    content_base64 = serializers.CharField(allow_blank=False, help_text="Base64-encoded bundle bytes.")
+
+
+class LoopSkillBundlesWriteSerializer(serializers.Serializer):
+    """Request body for replacing a loop's attached skill bundles wholesale. Send an empty
+    list to detach every skill."""
+
+    bundles = LoopSkillBundleUploadSerializer(many=True, allow_empty=True)
 
 
 class LoopFireRunSerializer(DataclassSerializer):

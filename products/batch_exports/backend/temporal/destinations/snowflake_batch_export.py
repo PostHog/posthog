@@ -21,7 +21,7 @@ from snowflake.connector.constants import FIELD_ID_TO_NAME, QueryStatus
 from snowflake.connector.cursor import ResultMetadata
 from snowflake.connector.errors import HttpError, InterfaceError, OperationalError
 from structlog.contextvars import bind_contextvars
-from temporalio import activity, workflow
+from temporalio import activity, exceptions, workflow
 from temporalio.common import RetryPolicy
 
 from posthog.models.integration import Integration, SnowflakeIntegration
@@ -37,10 +37,10 @@ from products.batch_exports.backend.service import (
     SnowflakeBatchExportInputs,
 )
 from products.batch_exports.backend.temporal.batch_exports import (
-    OverBillingLimitError,
     StartBatchExportRunInputs,
     default_fields,
     get_data_interval,
+    is_over_billing_limit_error,
     start_batch_export_run,
 )
 from products.batch_exports.backend.temporal.destinations.utils import get_query_timeout
@@ -54,7 +54,7 @@ from products.batch_exports.backend.temporal.pipeline.transformer import (
     SchemaTransformer,
 )
 from products.batch_exports.backend.temporal.pipeline.types import BatchExportResult
-from products.batch_exports.backend.temporal.spmc import RecordBatchQueue, wait_for_schema_or_producer
+from products.batch_exports.backend.temporal.queue import RecordBatchQueue, wait_for_schema_or_producer
 from products.batch_exports.backend.temporal.temporary_file import BatchExportTemporaryFile
 from products.batch_exports.backend.temporal.utils import (
     JsonType,
@@ -492,32 +492,37 @@ class SnowflakeInsertInputs(BatchExportInsertInputs):
     role: str | None = None
 
 
+def _pem_is_encrypted(private_key: str) -> bool:
+    """PEM declares encryption in the clear: PKCS#8 labels the block ENCRYPTED, legacy OpenSSL adds Proc-Type."""
+    return "ENCRYPTED PRIVATE KEY" in private_key or "Proc-Type: 4,ENCRYPTED" in private_key
+
+
 def load_private_key(private_key: str, passphrase: str | None) -> bytes:
+    # paramiko cannot write a passphrase shorter than one byte, so an empty one means no passphrase.
+    password = passphrase.encode("utf-8") if passphrase else None
+
     try:
         p_key = serialization.load_pem_private_key(
             private_key.encode("utf-8"),
-            password=passphrase.encode() if passphrase is not None else None,
+            password=password,
             backend=default_backend(),
         )
-    except (ValueError, TypeError) as e:
-        msg = "Invalid private key"
-
-        if passphrase is not None and "Incorrect password" in str(e):
-            msg = "Could not load private key: incorrect passphrase?"
-        elif "Password was not given but private key is encrypted" in str(e):
-            msg = "Could not load private key: passphrase was not given but private key is encrypted"
-        elif "Password was given but private key is not encrypted" in str(e):
-            if passphrase == "":
-                try:
-                    loaded = load_private_key(private_key, None)
-                except (ValueError, TypeError):
-                    # Proceed with top level handling
-                    pass
-                else:
-                    return loaded
-            msg = "Could not load private key: passphrase was given but private key is not encrypted"
-
-        raise InvalidPrivateKeyError(msg)
+    except TypeError as e:
+        # cryptography raises TypeError only when the passphrase and the key's encryption disagree.
+        if password is None:
+            raise InvalidPrivateKeyError(
+                "Could not load private key: passphrase was not given but private key is encrypted"
+            ) from e
+        raise InvalidPrivateKeyError(
+            "Could not load private key: passphrase was given but private key is not encrypted"
+        ) from e
+    except ValueError as e:
+        # Decrypt or parse failure. Roughly 1 in 250 wrong passphrases decrypt to validly padded
+        # garbage and report an ASN.1 parse error instead of "Incorrect password", so read the key's
+        # own encryption marker rather than the error text.
+        if password is not None and _pem_is_encrypted(private_key):
+            raise InvalidPrivateKeyError("Could not load private key: incorrect passphrase?") from e
+        raise InvalidPrivateKeyError("Invalid private key") from e
 
     return p_key.private_bytes(
         encoding=serialization.Encoding.DER,
@@ -990,7 +995,7 @@ class SnowflakeClient:
         self,
         file: BatchExportTemporaryFile | NamedBytesIO,
         table: SnowflakeTable,
-    ):
+    ) -> None:
         """Executes a PUT query using the provided cursor to the provided table_name.
 
         Sadly, Snowflake's execute_async does not work with PUT statements. So, we pass the execute
@@ -1449,7 +1454,7 @@ async def insert_into_snowflake_activity_from_stage(
             database=inputs.database,
             primary_key=merge_settings.primary_key if merge_settings else (),
             version_key=merge_settings.version_key if merge_settings else (),
-            stage_prefix=data_interval_end_str,
+            stage_prefix=f"{inputs.batch_export_id}/{data_interval_end_str}",
         )
         if "elements" in target_table:
             # `elements` is exported into a 'VARIANT' column, despite it being a
@@ -1553,16 +1558,14 @@ class SnowflakeBatchExportWorkflow(PostHogWorkflow):
         """Workflow implementation to export data to Snowflake table."""
         is_backfill = inputs.get_is_backfill()
         is_earliest_backfill = inputs.get_is_earliest_backfill()
-        data_interval_start, data_interval_end = get_data_interval(
-            inputs.interval, inputs.data_interval_end, inputs.timezone
-        )
+        data_interval = get_data_interval(inputs.interval, inputs.data_interval_end, inputs.timezone)
         should_backfill_from_beginning = is_backfill and is_earliest_backfill
 
         start_batch_export_run_inputs = StartBatchExportRunInputs(
             team_id=inputs.team_id,
             batch_export_id=inputs.batch_export_id,
-            data_interval_start=data_interval_start.isoformat() if not should_backfill_from_beginning else None,
-            data_interval_end=data_interval_end.isoformat(),
+            data_interval_start=data_interval.start.isoformat() if not should_backfill_from_beginning else None,
+            data_interval_end=data_interval.end.isoformat(),
             exclude_events=inputs.exclude_events,
             include_events=inputs.include_events,
             backfill_id=inputs.backfill_details.backfill_id if inputs.backfill_details else None,
@@ -1583,8 +1586,10 @@ class SnowflakeBatchExportWorkflow(PostHogWorkflow):
                     ],
                 ),
             )
-        except OverBillingLimitError:
-            return
+        except exceptions.ActivityError as e:
+            if is_over_billing_limit_error(e):
+                return
+            raise
 
         insert_inputs = SnowflakeInsertInputs(
             team_id=inputs.team_id,
@@ -1599,8 +1604,8 @@ class SnowflakeBatchExportWorkflow(PostHogWorkflow):
             database=inputs.database,
             schema=inputs.schema,
             table_name=inputs.table_name,
-            data_interval_start=data_interval_start.isoformat() if not should_backfill_from_beginning else None,
-            data_interval_end=data_interval_end.isoformat(),
+            data_interval_start=data_interval.start.isoformat() if not should_backfill_from_beginning else None,
+            data_interval_end=data_interval.end.isoformat(),
             role=inputs.role,
             exclude_events=inputs.exclude_events,
             include_events=inputs.include_events,

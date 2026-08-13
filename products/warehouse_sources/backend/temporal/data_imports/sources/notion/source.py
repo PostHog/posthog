@@ -9,10 +9,6 @@ from posthog.schema import (
     SourceFieldInputConfigType,
 )
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import (
-    SourceInputs,
-    SourceResponse,
-)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
@@ -20,6 +16,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.can
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.notion import NotionSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.notion.notion import (
     NOTION_VERSION_2025_09_03,
@@ -51,6 +48,32 @@ class NotionSource(ResumableSource[NotionSourceConfig, NotionResumeConfig]):
         return {
             "401 Client Error: Unauthorized for url: https://api.notion.com": "Your Notion integration token is invalid or expired. Please generate a new token and reconnect.",
             "403 Client Error: Forbidden for url: https://api.notion.com": "Your Notion integration is missing the required capabilities, or the pages/databases you want to sync have not been shared with it.",
+        }
+
+    def get_retryable_errors(self) -> set[str]:
+        # A 5xx or a 429 is already retried internally with backoff (see notion.py's
+        # tenacity-wrapped _request, which honors Notion's Retry-After on 429s); if those retries
+        # still exhaust, the failure is transient and self-recovering, so let Temporal retry the
+        # activity without surfacing it as tracked exception noise.
+        return {
+            "Notion API error (retryable)",
+            "Notion rate limited",
+            # A 2xx whose body is empty or non-JSON is a truncated/garbled response, retried in-process
+            # by `_request`. If those retries exhaust, the condition is transient and self-recovering,
+            # so let Temporal retry the activity instead of surfacing it as tracked exception noise.
+            "Notion returned a non-JSON response",
+            # `_request`'s tenacity retry also covers `requests.ConnectionError` (which
+            # `requests.exceptions.SSLError` subclasses) and `requests.ReadTimeout`. urllib3
+            # wraps both as "... Max retries exceeded with url: ..." regardless of the underlying
+            # cause (TLS EOF, refused connection, timeout), so match that stable prefix rather
+            # than the per-request URL or nested error id.
+            "Max retries exceeded with url",
+            # Defensive fallback for the mid-TLS-handshake drop: the same self-recovering condition
+            # ClickHouse already classifies this way. These stable OpenSSL SSLEOFError strings sit
+            # inside the MaxRetryError message above, so match them too and the SSL EOF case stays
+            # recognized even if that outer wrapper ever changes.
+            "UNEXPECTED_EOF_WHILE_READING",
+            "EOF occurred in violation of protocol",
         }
 
     @property

@@ -1,14 +1,14 @@
 """Helpers for the revamped-notebooks SQLV2 run flow (Journey 1).
 
 The backend dispatches a run to the in-sandbox kernel-server with a single HTTP
-POST (mirroring PostHog Code's agent-server). The kernel-server fetches the
+POST (mirroring PostHog Desktop's agent-server). The kernel-server fetches the
 node's capped result page from the data-plane endpoint (real ClickHouse data via
 HogQL) and POSTs the envelope back to the token-authed callback endpoint. The
 control plane (write_file / execute) is used only to deploy and launch the
 kernel-server package — never per run.
 
 The callback and data-plane tokens are stateless signed tokens for the slice;
-hardening swaps them for the RS256 sandbox event-ingest JWTs used by PostHog Code.
+hardening swaps them for the RS256 sandbox event-ingest JWTs used by PostHog Desktop.
 """
 
 import hmac
@@ -31,6 +31,21 @@ from products.tasks.backend.facade.sandbox import SandboxBase, get_sandbox_class
 logger = structlog.get_logger(__name__)
 
 REVAMPED_PY_NOTEBOOKS_FLAG = "revamped-py-notebooks"
+NOTEBOOKS_FRAME_STORE_FLAG = "notebooks-frame-store"
+NOTEBOOKS_FRAME_STORE_CH_WRITES_FLAG = "notebooks-frame-store-ch-writes"
+
+# How a run's result rows reached whoever consumes them. The data plane resolves this at
+# the moment it picks a transport and reports it in the 202 accept body; the sandbox echoes
+# it back in the envelope without interpreting it, and `sql_v2_metrics` turns it into a
+# metric label. Because the value crosses the sandbox boundary, where user code can forge
+# an envelope, `sql_v2_metrics.DELIVERY_LABEL_VALUES` is the allowlist that bounds label
+# cardinality; add any new mode to both places.
+DELIVERY_DIRECT = "direct"  # direct lane: ClickHouse to Redis to the UI, no sandbox involved
+DELIVERY_INLINE = "inline"  # sandbox fetch over the inline (Redis) transport, clamped at the async row ceiling
+DELIVERY_OBJECT_RELAY = "object_relay"  # a Temporal worker streams ClickHouse rows to object storage
+DELIVERY_OBJECT_CH_WRITES = "object_ch_writes"  # ClickHouse writes the object itself via INSERT INTO FUNCTION s3
+DELIVERY_NONE = "none"  # kernel run that read no ClickHouse result, so no transport was involved
+DELIVERY_MIXED = "mixed"  # one run materialized several inputs and they did not agree on a transport
 
 _CALLBACK_TOKEN_SALT = "notebooks.sql_v2.callback"
 _CALLBACK_TOKEN_MAX_AGE_SECONDS = 3600
@@ -80,7 +95,7 @@ class SQLV2PageError(Exception):
     """A page fetch the kernel rejected or failed; message is user-facing."""
 
 
-def is_sql_v2_enabled(user: User | None) -> bool:
+def _flag_enabled_for(flag: str, user: User | None) -> bool:
     if user is None or not user.distinct_id:
         return False
     kwargs: dict = {"only_evaluate_locally": False, "send_feature_flag_events": False}
@@ -89,7 +104,35 @@ def is_sql_v2_enabled(user: User | None) -> bool:
         org_id = str(org.id)
         kwargs["groups"] = {"organization": org_id}
         kwargs["group_properties"] = {"organization": {"id": org_id}}
-    return bool(posthoganalytics.feature_enabled(REVAMPED_PY_NOTEBOOKS_FLAG, user.distinct_id, **kwargs))
+    return bool(posthoganalytics.feature_enabled(flag, user.distinct_id, **kwargs))
+
+
+def is_sql_v2_enabled(user: User | None) -> bool:
+    return _flag_enabled_for(REVAMPED_PY_NOTEBOOKS_FLAG, user)
+
+
+def is_frame_store_enabled(user: User | None) -> bool:
+    """Whether this user's whole-frame materializations may use the object-storage path.
+
+    Narrower than `is_sql_v2_enabled`: it gates only the transport, so a user without it
+    still runs SQLV2 nodes, just over the inline transport and its 50k row clamp. Both this
+    and the deployment's `frame_store.is_enabled()` must hold, so the flag can widen the
+    rollout no further than the environment is provisioned for.
+    """
+    return _flag_enabled_for(NOTEBOOKS_FRAME_STORE_FLAG, user)
+
+
+def is_frame_store_ch_writes_enabled(user: User | None) -> bool:
+    """Whether this user's materializations take the ClickHouse-side write path.
+
+    One switch for the whole new flow: it moves the query onto the offline pool as the
+    dedicated `notebooks` user, and hands the object write to ClickHouse. Sits inside
+    `is_frame_store_enabled`, which has to be on before any of this is reached.
+
+    Resolved in the web process and carried on the job, because the Temporal activity that
+    acts on it has no request user to evaluate a flag against.
+    """
+    return _flag_enabled_for(NOTEBOOKS_FRAME_STORE_CH_WRITES_FLAG, user)
 
 
 def mint_callback_token(run_id: str, team_id: int) -> str:

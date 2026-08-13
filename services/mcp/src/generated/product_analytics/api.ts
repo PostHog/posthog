@@ -116,7 +116,7 @@ export const InsightsListQueryParams = /* @__PURE__ */ zod.object({
             'Opt in to receiving the deprecated `dashboards` field in insight payloads. Once opt-in enforcement is enabled, API-token callers stop receiving it by default; use `dashboard_tiles` instead.'
         ),
     insight: zod
-        .enum(['FUNNELS', 'JSON', 'LIFECYCLE', 'PATHS', 'RETENTION', 'SQL', 'STICKINESS', 'TRENDS'])
+        .enum(['FUNNELS', 'JOURNEYS', 'JSON', 'LIFECYCLE', 'PATHS', 'RETENTION', 'SQL', 'STICKINESS', 'TRENDS'])
         .optional()
         .describe(
             'Restrict to a single insight type. `JSON` matches non-wrapper query insights; `SQL` matches HogQL queries.'
@@ -215,7 +215,7 @@ export const InsightsCreateBody = /* @__PURE__ */ zod
             .array(zod.number())
             .optional()
             .describe(
-                '\n        DEPRECATED. Will be removed in a future release. Use dashboard_tiles instead.\n        A dashboard ID for each of the dashboards that this insight is displayed on.\n        This field may be omitted from responses: once opt-in enforcement is enabled, API-token\n        callers (personal API keys, OAuth) only receive it when passing the\n        `include_dashboards=true` query parameter. Do not rely on it being present.\n        '
+                '\n        DEPRECATED. Will be removed in a future release. Use dashboard_tiles instead.\n        A dashboard ID for each of the dashboards that this insight is displayed on.\n        This field is omitted from session-authenticated responses unless `include_dashboards=true`\n        is passed. Once opt-in enforcement is enabled, API-token callers (personal API keys, OAuth)\n        must opt in the same way. Do not rely on it being present.\n        '
             ),
         description: zod.string().max(insightsCreateBodyDescriptionMax).nullish(),
         tags: zod.array(zod.unknown()).optional(),
@@ -335,7 +335,7 @@ export const InsightsPartialUpdateBody = /* @__PURE__ */ zod
             .array(zod.number())
             .optional()
             .describe(
-                '\n        DEPRECATED. Will be removed in a future release. Use dashboard_tiles instead.\n        A dashboard ID for each of the dashboards that this insight is displayed on.\n        This field may be omitted from responses: once opt-in enforcement is enabled, API-token\n        callers (personal API keys, OAuth) only receive it when passing the\n        `include_dashboards=true` query parameter. Do not rely on it being present.\n        '
+                '\n        DEPRECATED. Will be removed in a future release. Use dashboard_tiles instead.\n        A dashboard ID for each of the dashboards that this insight is displayed on.\n        This field is omitted from session-authenticated responses unless `include_dashboards=true`\n        is passed. Once opt-in enforcement is enabled, API-token callers (personal API keys, OAuth)\n        must opt in the same way. Do not rely on it being present.\n        '
             ),
         description: zod.string().max(insightsPartialUpdateBodyDescriptionMax).nullish(),
         tags: zod.array(zod.unknown()).optional(),

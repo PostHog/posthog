@@ -28,6 +28,14 @@ const DAILY_ACTIVITY: DailyActivity = {
     errors: [120, 140, 160, 170, 180, 176, 168],
 }
 
+// The shape the in-progress stories exist for: the last bucket is a few hours into the day, so its
+// counts sit far below its neighbours. Dashing it is what stops that reading as a collapse.
+const DAILY_ACTIVITY_PARTIAL_TAIL: DailyActivity = {
+    labels: DAYS,
+    successes: [4180, 4360, 4560, 4430, 4720, 4920, 1680],
+    errors: [120, 140, 160, 170, 180, 176, 54],
+}
+
 const TOOL_DAILY: ToolDailySeries = {
     labels: DAYS,
     tools: [
@@ -71,7 +79,7 @@ const NOTABLE_SESSIONS: NotableSession[] = [
     },
     {
         rule: 'all_fail',
-        label: 'Every call failed — likely auth scope',
+        label: 'Every call failed, likely an auth scope issue',
         session: {
             session_id: '0193f2a1aaaabbbbcccc000000000002',
             tool_calls: 6,
@@ -84,7 +92,7 @@ const NOTABLE_SESSIONS: NotableSession[] = [
     },
     {
         rule: 'exemplar',
-        label: 'Exemplar — concise success',
+        label: 'Concise success',
         session: {
             session_id: '0193f2a1aaaabbbbcccc000000000003',
             tool_calls: 31,
@@ -147,6 +155,23 @@ export const KeyMetrics: Story = {
                 kpisLoading={false}
                 usersLoading={false}
                 theme={buildTheme()}
+                incompleteTail={false}
+            />
+        </div>
+    ),
+}
+
+export const KeyMetricsInProgressBucket: Story = {
+    render: () => (
+        <div className="w-[960px]">
+            <KpiTiles
+                kpis={KPIS}
+                users={metric(1840, 1655, [], 'up')}
+                intentClusterCount={metric(6, 0, [], 'up')}
+                kpisLoading={false}
+                usersLoading={false}
+                theme={buildTheme()}
+                incompleteTail
             />
         </div>
     ),
@@ -154,7 +179,27 @@ export const KeyMetrics: Story = {
 
 export const DailyCallsAndErrors: Story = {
     render: withTheme((theme) => (
-        <ActivityChart daily={DAILY_ACTIVITY} loading={false} theme={theme} timezone="UTC" interval="day" />
+        <ActivityChart
+            daily={DAILY_ACTIVITY}
+            loading={false}
+            theme={theme}
+            timezone="UTC"
+            interval="day"
+            incompleteTail={false}
+        />
+    )),
+}
+
+export const DailyCallsAndErrorsInProgressBucket: Story = {
+    render: withTheme((theme) => (
+        <ActivityChart
+            daily={DAILY_ACTIVITY_PARTIAL_TAIL}
+            loading={false}
+            theme={theme}
+            timezone="UTC"
+            interval="day"
+            incompleteTail
+        />
     )),
 }
 

@@ -2,20 +2,25 @@ import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 import { useMemo } from 'react'
 
-import { LemonButton, LemonInput, LemonInputSelect, LemonSegmentedButton, LemonSelect } from '@posthog/lemon-ui'
+import {
+    LemonButton,
+    LemonCheckbox,
+    LemonInput,
+    LemonInputSelect,
+    LemonSegmentedButton,
+    LemonSelect,
+} from '@posthog/lemon-ui'
 
 import { IntegrationChoice } from 'lib/components/CyclotronJob/integrations/IntegrationChoice'
-import { NotFound } from 'lib/components/NotFound'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 import { SlackChannelPicker, SlackNotConfiguredBanner } from 'lib/integrations/SlackIntegrationHelpers'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonSearchableSelect } from 'lib/lemon-ui/LemonSelect/LemonSearchableSelect'
 import { LemonTextArea } from 'lib/lemon-ui/LemonTextArea/LemonTextArea'
-import { Spinner, SpinnerOverlay } from 'lib/lemon-ui/Spinner'
+import { Spinner } from 'lib/lemon-ui/Spinner'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { timeZoneLabel } from 'lib/utils/timezones'
-import { appLogic } from 'scenes/appLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
@@ -24,9 +29,11 @@ import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { ProductKey } from '~/queries/schema/schema-general'
 
+import { VisionDocsLink } from '../components/DocsLink'
 import { ReplayVisionFeedbackButton } from '../components/ReplayVisionFeedbackButton'
 import {
     AlertConfigFrequencyEnumApi,
+    DeliveryTargetTypeEnumApi,
     VisionActionModeEnumApi,
     VisionAlertDirectionEnumApi,
     VisionAlertMetricEnumApi,
@@ -108,7 +115,7 @@ function ScheduleSection(): JSX.Element {
                         </LemonButton>
                     </div>
                 </div>
-                <div className="flex gap-1">
+                <div className="flex flex-wrap gap-1">
                     {WEEKDAY_PILLS.map((label, day) => (
                         <LemonButton
                             key={day}
@@ -276,6 +283,7 @@ function TargetingSection({ scannerId }: { scannerId: string }): JSX.Element | n
             <h4 className="mb-0">What to summarize</h4>
             <LemonSegmentedButton
                 size="small"
+                className="max-w-full overflow-x-auto"
                 value={targetingMode}
                 onChange={(mode) => setTargetingMode(mode)}
                 options={[
@@ -407,6 +415,7 @@ function ConditionSection({ scannerId }: { scannerId: string }): JSX.Element {
     const { actionForm, actionFormErrors } = useValues(actionEditorSceneLogic)
     const { setActionFormValue } = useActions(actionEditorSceneLogic)
     const { scanner } = useValues(replayScannerLogic({ id: scannerId }))
+    const { featureFlags } = useValues(featureFlagLogic)
 
     const everyMatch = actionForm.alert_frequency === AlertConfigFrequencyEnumApi.EveryMatch
     const isScorer = scanner?.scanner_type === 'scorer'
@@ -435,6 +444,7 @@ function ConditionSection({ scannerId }: { scannerId: string }): JSX.Element {
 
             <LemonSegmentedButton
                 size="small"
+                className="max-w-full"
                 value={actionForm.alert_frequency}
                 onChange={(value) => {
                     setActionFormValue('alert_frequency', value)
@@ -522,6 +532,14 @@ function ConditionSection({ scannerId }: { scannerId: string }): JSX.Element {
             {actionFormErrors?.min_score ? (
                 <span className="text-xs text-danger">{String(actionFormErrors.min_score)}</span>
             ) : null}
+            {featureFlags[FEATURE_FLAGS.REPLAY_VISION_SEND_REASONING] ? (
+                <LemonCheckbox
+                    checked={actionForm.alert_include_reasoning}
+                    onChange={(checked) => setActionFormValue('alert_include_reasoning', checked)}
+                    label="Include the observation's reasoning in the message"
+                    data-attr="vision-action-alert-include-reasoning"
+                />
+            ) : null}
             <span className="text-xs text-muted">
                 {everyMatch
                     ? 'Checked every few minutes; each notification covers the new matches since the last check.'
@@ -532,6 +550,30 @@ function ConditionSection({ scannerId }: { scannerId: string }): JSX.Element {
 }
 
 function DeliverySection(): JSX.Element {
+    const { actionForm } = useValues(actionEditorSceneLogic)
+    const { setActionFormValue } = useActions(actionEditorSceneLogic)
+    const noun = actionForm.mode === VisionActionModeEnumApi.Alert ? 'alert' : 'digest'
+
+    return (
+        <div className="flex flex-col gap-2">
+            <LemonSelect
+                value={actionForm.delivery_type}
+                onChange={(value) => setActionFormValue('delivery_type', value)}
+                options={[
+                    { value: DeliveryTargetTypeEnumApi.Slack, label: 'Slack' },
+                    { value: DeliveryTargetTypeEnumApi.Webhook, label: 'Webhook' },
+                ]}
+            />
+            {actionForm.delivery_type === DeliveryTargetTypeEnumApi.Webhook ? (
+                <WebhookDelivery noun={noun} />
+            ) : (
+                <SlackDelivery noun={noun} />
+            )}
+        </div>
+    )
+}
+
+function SlackDelivery({ noun }: { noun: string }): JSX.Element {
     const { actionForm } = useValues(actionEditorSceneLogic)
     const { setActionFormValue } = useActions(actionEditorSceneLogic)
     const { slackIntegrations, integrationsLoading } = useValues(integrationsLogic)
@@ -549,7 +591,7 @@ function DeliverySection(): JSX.Element {
     const selectedIntegration = slackIntegrations.find((i) => i.id === integration_id)
 
     return (
-        <div className="flex flex-col gap-2">
+        <>
             <IntegrationChoice
                 integration="slack"
                 value={integration_id ?? undefined}
@@ -571,31 +613,47 @@ function DeliverySection(): JSX.Element {
             )}
             {!actionForm.channel && (
                 <span className="text-xs text-muted">
-                    No channel selected — this summary will appear on the scanner page and in its run history, without a
+                    No channel selected. This {noun} will appear on the scanner page and in its run history, without a
                     Slack notification.
                 </span>
             )}
-        </div>
+        </>
+    )
+}
+
+function WebhookDelivery({ noun }: { noun: string }): JSX.Element {
+    const { actionForm } = useValues(actionEditorSceneLogic)
+
+    return (
+        <>
+            <LemonField name="webhook_url" label="Webhook URL">
+                {({ value, onChange }) => (
+                    <LemonInput value={value} onChange={onChange} placeholder="https://example.com/webhook" />
+                )}
+            </LemonField>
+            <span className="text-xs text-muted">
+                We POST a JSON payload to this URL.{' '}
+                <VisionDocsLink page="webhooks" dataAttr="vision-docs-link-webhook-payload">
+                    See the payload format
+                </VisionDocsLink>
+                .
+            </span>
+            {!actionForm.webhook_url && (
+                <span className="text-xs text-muted">
+                    No URL set. This {noun} will appear on the scanner page and in its run history, without a webhook.
+                </span>
+            )}
+        </>
     )
 }
 
 export function ActionEditorSceneComponent(): JSX.Element {
     const { isNew, actionLoading, loadedAction, actionForm, isActionFormSubmitting, effectiveScannerId, scannerName } =
         useValues(actionEditorSceneLogic)
-    const { featureFlags, receivedFeatureFlags } = useValues(featureFlagLogic)
-    const { featureFlagsTimedOut } = useValues(appLogic)
     // Hooks can't be skipped, and effectiveScannerId can be empty before the action/scanner resolve —
     // 'new' is the sentinel replayScannerLogic already uses to skip its fetch, a harmless placeholder
     // until the real id is available and the logic remounts keyed on it.
     const { scanner } = useValues(replayScannerLogic({ id: effectiveScannerId || 'new' }))
-
-    if (!featureFlags[FEATURE_FLAGS.REPLAY_VISION] || !featureFlags[FEATURE_FLAGS.REPLAY_VISION_ACTIONS]) {
-        // Flags load asynchronously, so wait for them before deciding the page doesn't exist.
-        if (!receivedFeatureFlags && !featureFlagsTimedOut) {
-            return <SpinnerOverlay sceneLevel />
-        }
-        return <NotFound object="page" />
-    }
 
     if (!isNew && actionLoading && !loadedAction) {
         return (
@@ -609,7 +667,7 @@ export function ActionEditorSceneComponent(): JSX.Element {
     if (!isNew && !loadedAction) {
         return (
             <SceneContent>
-                <SceneTitleSection name="Summary not found" resourceType={{ type: 'replay_vision' }} />
+                <SceneTitleSection name="Action not found" resourceType={{ type: 'replay_vision' }} />
                 <div className="flex justify-center pt-4">
                     <LemonButton type="secondary" to={urls.replayVision()}>
                         Back to Replay vision
@@ -620,7 +678,7 @@ export function ActionEditorSceneComponent(): JSX.Element {
     }
 
     const isAlert = actionForm.mode === VisionActionModeEnumApi.Alert
-    const noun = isAlert ? 'alert' : 'summary'
+    const noun = isAlert ? 'alert' : 'digest'
     const title = isNew
         ? scannerName
             ? `New ${noun} for ${scannerName}`
@@ -634,13 +692,13 @@ export function ActionEditorSceneComponent(): JSX.Element {
     return (
         <SceneContent>
             <div className="flex flex-col items-center py-8">
-                <div className="w-full max-w-3xl px-4 flex flex-col gap-6">
+                <div className="w-full max-w-3xl px-0 sm:px-4 flex flex-col gap-6">
                     <SceneTitleSection
                         name={title}
                         description={
                             isAlert
                                 ? 'Watch this scanner on a schedule and get notified only when the condition is met.'
-                                : "Schedule an AI summary of this scanner's observations and deliver it to Slack."
+                                : "Schedule an AI digest of this scanner's observations and deliver it to Slack."
                         }
                         resourceType={{ type: 'replay_vision' }}
                         actions={<ReplayVisionFeedbackButton />}
@@ -652,10 +710,10 @@ export function ActionEditorSceneComponent(): JSX.Element {
                         enableFormOnSubmit
                         className="w-full"
                     >
-                        <div className="bg-bg-light border rounded-lg shadow-sm p-6 flex flex-col gap-4">
+                        <div className="bg-bg-light border rounded-lg shadow-sm p-4 sm:p-6 flex flex-col gap-4">
                             <LemonField name="name" label="Name">
                                 <LemonInput
-                                    placeholder={isAlert ? 'Rage click alert' : 'Daily checkout summary'}
+                                    placeholder={isAlert ? 'Rage click alert' : 'Daily checkout digest'}
                                     autoFocus
                                 />
                             </LemonField>
@@ -682,7 +740,7 @@ export function ActionEditorSceneComponent(): JSX.Element {
                                 <LemonField
                                     name="prompt_guide"
                                     label="Additional guidance (optional)"
-                                    info="Steers how the AI writes the summary."
+                                    info="Steers how the AI writes the digest."
                                 >
                                     <LemonTextArea
                                         placeholder="e.g. focus on issues, bugs, and friction users face — or focus on general user behavior and flows."
@@ -692,13 +750,13 @@ export function ActionEditorSceneComponent(): JSX.Element {
                             )}
 
                             <div>
-                                <h4 className="mb-1">Deliver to Slack (optional)</h4>
+                                <h4 className="mb-1">Delivery (optional)</h4>
                                 <DeliverySection />
                             </div>
 
                             {!isAlert && (
                                 <div className="text-xs text-muted">
-                                    Each scheduled run generates an AI summary using your PostHog AI credits. Runs are
+                                    Each scheduled run generates an AI digest using your PostHog AI credits. Runs are
                                     skipped while you're over your AI-credit budget.
                                 </div>
                             )}
@@ -718,7 +776,7 @@ export function ActionEditorSceneComponent(): JSX.Element {
                                     }
                                     data-attr="vision-action-editor-save"
                                 >
-                                    {isNew ? (isAlert ? 'Create alert' : 'Create summary') : 'Save'}
+                                    {isNew ? (isAlert ? 'Create alert' : 'Create digest') : 'Save'}
                                 </LemonButton>
                             </div>
                         </div>

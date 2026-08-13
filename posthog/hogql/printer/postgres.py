@@ -1,7 +1,6 @@
 import re
 import hashlib
 from collections.abc import Callable
-from datetime import date, datetime
 from typing import ClassVar
 from uuid import UUID
 
@@ -51,7 +50,10 @@ class PostgresPrinter(BasePrinter):
         return f"in {self.DIALECT_LABEL} mode"
 
     def _assert_set_operator_supported(self, set_operator: str) -> None:
-        return
+        # DuckDB permits everything the base gate rejects (INTERSECT/EXCEPT ALL, recursive CTEs) and
+        # supports UNION BY NAME natively — except INTERSECT/EXCEPT BY NAME, which it also rejects.
+        if set_operator.endswith(" BY NAME") and not set_operator.startswith("UNION "):
+            raise QueryError(f"{set_operator} is not supported in the '{self.DIALECT_NAME}' dialect")
 
     def _assert_recursive_cte_supported(self) -> None:
         return
@@ -188,6 +190,14 @@ class PostgresPrinter(BasePrinter):
         if func_name == "count" and not args and not node.distinct:
             # ClickHouse's zero-arg count() is spelled count(*) everywhere else.
             args_str = "*"
+        elif func_name == "concat":
+            # concat(any...) cannot infer psycopg's untyped string parameters without an explicit cast.
+            args_str = ", ".join(
+                f"CAST({rendered_arg} AS TEXT)"
+                if isinstance(arg, ast.Constant) and isinstance(arg.value, str)
+                else rendered_arg
+                for arg, rendered_arg in zip(node.args, args, strict=True)
+            )
         if node.distinct:
             args_str = f"DISTINCT {args_str}"
 
@@ -234,16 +244,21 @@ class PostgresPrinter(BasePrinter):
         # through the HogQL string escape path would produce ClickHouse-style ``\'`` escape
         # sequences that Postgres and DuckDB do not recognize (``standard_conforming_strings``
         # defaults to ``on``), allowing statement-terminator SQL injection.
-        if (
-            node.value is None
-            or isinstance(node.value, bool)
-            or isinstance(node.value, (int, float, UUID, UUIDT, datetime, date))
-        ):
+        if node.value is None or isinstance(node.value, (bool, int, float)):
             value = self._print_escaped_string(node.value)
             if "%" in value:
                 # ``%`` would be interpreted as the start of a parameter placeholder by psycopg.
                 raise QueryError(f"Invalid character '%' in constant: {value}")
             return value
+        # Temporal and UUID values have to be bound for the same reason. ``SQLValueEscaper`` only
+        # models the `hogql` and `clickhouse` dialects, so the escape path renders them as
+        # `toDate(...)`, `toDateTime(...)`, and `toUUID(...)`, which do not exist in any engine
+        # below this printer. Binding lets each driver emit its own literal, and matches how the
+        # function translations already handle an explicit `toDate(...)` call.
+        if isinstance(node.value, (UUID, UUIDT)):
+            # Every dialect here models a UUID as a string (see the `toUUID` translations), and the
+            # MySQL and Snowflake drivers will not bind a UUID object.
+            return self.context.add_value(str(node.value))
         return self.context.add_value(node.value)
 
     def visit_lambda(self, node: ast.Lambda):

@@ -2,20 +2,22 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Optional, Union
 
+from rest_framework.exceptions import ValidationError
+
 from posthog.schema import (
     ActionsNode,
     BaseMathType,
     BreakdownType,
     DataWarehouseNode,
     EventsNode,
+    FilterLogicalOperator,
+    GroupMathType,
     GroupNode,
     MultipleBreakdownType,
 )
 
 from posthog.hogql import ast
 from posthog.hogql.property import action_to_expr, property_to_expr
-
-from posthog.constants import UNIQUE_GROUPS
 
 if TYPE_CHECKING:
     from posthog.models import Team
@@ -57,13 +59,24 @@ def get_properties_chain(
 
 def is_groups_math(series: Union[EventsNode, ActionsNode, DataWarehouseNode | GroupNode]) -> bool:
     return (
-        series.math in {BaseMathType.DAU, UNIQUE_GROUPS, BaseMathType.WEEKLY_ACTIVE, BaseMathType.MONTHLY_ACTIVE}
+        series.math
+        in {
+            BaseMathType.DAU,
+            BaseMathType.WEEKLY_ACTIVE,
+            BaseMathType.MONTHLY_ACTIVE,
+            *GroupMathType,
+        }
         and series.math_group_type_index is not None
     )
 
 
 def group_node_to_expr(group: GroupNode, team: Team) -> ast.Expr | None:
     from products.actions.backend.models.action import Action
+
+    # AND grouping isn't supported yet. Validate up front so it fails loudly regardless of how
+    # many nodes resolve, rather than silently dropping the event filter and matching every event.
+    if group.operator != FilterLogicalOperator.OR_:
+        raise ValidationError(f"Event groups only support the OR operator, got {group.operator}")
 
     group_filters: list[ast.Expr] = []
     for node in group.nodes:
@@ -97,7 +110,4 @@ def group_node_to_expr(group: GroupNode, team: Team) -> ast.Expr | None:
     if len(group_filters) == 1:
         return group_filters[0]
 
-    if group.operator == "OR":
-        return ast.Or(exprs=group_filters)
-
-    return None
+    return ast.Or(exprs=group_filters)

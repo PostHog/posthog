@@ -1,6 +1,7 @@
 //! The seed wire contract shared by the backfill seeder (producer) and the stream processor
-//! (consumer): the [`SeedTile`] day-tile, [`ReconcileTile`] control tile, their newtypes, and the
-//! tolerant [`decode_seed`] entry point. Lives here — not in the seeder crate — for the same reason
+//! (consumer): the [`SeedTile`] day-tile, [`PersonSeed`] person-property verdict, [`ReconcileTile`]
+//! control tile, their newtypes, and the tolerant [`decode_seed`] entry point. Lives here — not in
+//! the seeder crate — for the same reason
 //! as [`crate::events`]: both processes must agree on these bytes, and the processor cannot depend
 //! on the seeder.
 //!
@@ -11,10 +12,15 @@
 
 pub mod decode;
 pub mod ids;
+pub mod person;
 pub mod reconcile;
 pub mod tile;
 
 pub use decode::{decode_seed, DecodedSeed};
-pub use ids::{ClaimEpoch, ConditionHash, ConditionHashError, RunId, SChunkMs};
-pub use reconcile::{BehavioralShapeHash, BehavioralShapeHashError, ReconcileTile};
+pub use ids::{ClaimEpoch, ConditionHash, ConditionHashError, RunId, SChunkMs, ScannedAtMs};
+pub use person::{PersonSeed, PersonSeedError, MAX_PERSON_SEED_HASHES};
+pub use reconcile::{
+    BehavioralShapeHash, PersonShapeHash, ReconcileCompleteMarker, ReconcileScope, ReconcileTile,
+    ReconcileTileError, ScopeKind, ShapeHashError, UnknownScopeKind,
+};
 pub use tile::SeedTile;
