@@ -412,7 +412,11 @@ async def handle_reset_or_full_refresh(
         # Avoid schema mismatches from existing data about to be overwritten
         await logger.adebug("Deleting existing table due to sync being full refresh")
         await delta_table_ref.reset_table()
-        await database_sync_to_async_pool(schema.update_sync_type_config_for_reset_pipeline)()
+        # Keep the initial_sync_complete latch: this branch runs on every scheduled full-refresh
+        # sync, and a run that extracts zero rows never reaches post-load to re-set it.
+        await database_sync_to_async_pool(schema.update_sync_type_config_for_reset_pipeline)(
+            clear_initial_sync_complete=False
+        )
 
 
 def _capture_delta_revived(
