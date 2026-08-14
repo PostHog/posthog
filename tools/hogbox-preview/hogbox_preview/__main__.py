@@ -112,7 +112,11 @@ def cmd_seed(args: argparse.Namespace) -> int:
 def cmd_health(args: argparse.Namespace) -> int:
     backend = build_backend(args)
     backend.provision()
-    backend.wait_http_ok("/_health", expect=200, timeout=args.timeout)
+    # Spanned like the bring-up's own poll so `health --box-id` reports a
+    # summary too; without it this subcommand records no spans at all and
+    # write_summary has nothing to print.
+    with timing.span("health-poll"):
+        backend.wait_http_ok("/_health", expect=200, timeout=args.timeout)
     # /_health only proves the process is up. Run the authed deep-health probe
     # too so this subcommand catches an unusable app (the personhog-drift 500s
     # slipped past /_health). --no-seed only tolerates a failed demo login

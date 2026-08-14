@@ -37,6 +37,7 @@ import json
 import time
 import pathlib
 import contextlib
+from collections.abc import Iterator
 
 # Captured at import (process start) so every stage line is relative to the same
 # t0 across both the backend (pen/restore) and the stack (checkout/migrate/...).
@@ -65,7 +66,7 @@ def stage(message: str) -> None:
 
 
 @contextlib.contextmanager
-def span(name: str):
+def span(name: str) -> Iterator[None]:
     """Time a block, record it, and breadcrumb both edges.
 
     The duration is recorded even when the block raises, so a failed run still
@@ -97,7 +98,16 @@ def write_summary(*, title: str = "preview timings") -> None:
         return
 
     total = time.monotonic() - _START
-    payload = {"total_s": round(total, 1), "stages": {name: round(secs, 1) for name, secs in _SPANS}}
+    # Sum repeats instead of letting a dict keep only the last one: pull_image
+    # retries run_long(name="pull") on a flaky ghcr handshake, so "pull" can be
+    # recorded more than once. Keeping the last attempt would report the 5s
+    # success while total_s still carried the two failed minutes. The table
+    # below still lists every attempt on its own row; this line is the per-stage
+    # total, which is the number you want when asking where the time went.
+    stage_totals: dict[str, float] = {}
+    for name, secs in _SPANS:
+        stage_totals[name] = stage_totals.get(name, 0.0) + secs
+    payload = {"total_s": round(total, 1), "stages": {name: round(secs, 1) for name, secs in stage_totals.items()}}
     sys.stderr.write(f"[hogbox-preview timings] {json.dumps(payload, sort_keys=True)}\n")
     sys.stderr.flush()
 

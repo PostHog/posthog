@@ -625,9 +625,8 @@ class PostHogPreviewStack:
         # a restart skips it and leaves `listeners: {}`, so nothing serves.
         # up_services already brought web up cleanly — just wait for it to serve.
         # Django is a heavy import; first health can take ~7 min.
-        timing.stage("health poll start")
-        self.backend.wait_http_ok("/_health", expect=200, timeout=900)
-        timing.stage("health poll pass")
+        with timing.span("health-poll"):
+            self.backend.wait_http_ok("/_health", expect=200, timeout=900)
 
     def deep_health(self) -> None:
         # /_health is UNAUTHENTICATED — it passed the whole time previews were
@@ -644,8 +643,8 @@ class PostHogPreviewStack:
         # a failed LOGIN (a genuinely unseeded box has no demo user): that
         # soft-skips with a note instead of failing. Any failure past login —
         # and a failed login on a seeded run — is fatal.
-        timing.stage("deep health (authed api)")
-        self._run_authed_probe()
+        with timing.span("deep-health"):
+            self._run_authed_probe()
 
     def _run_authed_probe(self) -> None:
         # Everything runs INSIDE the box (curl against localhost:8000), so it's
