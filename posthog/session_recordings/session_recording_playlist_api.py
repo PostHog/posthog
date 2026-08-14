@@ -631,6 +631,15 @@ class SessionRecordingPlaylistViewSet(
 ):
     scope_object = "session_recording_playlist"
     scope_object_read_actions = ["list", "retrieve", "recordings"]
+    scope_object_write_actions = [
+        "create",
+        "update",
+        "partial_update",
+        "patch",
+        "modify_recordings",
+        "bulk_add_recordings",
+        "bulk_delete_recordings",
+    ]
     queryset = SessionRecordingPlaylist.objects.all()
     serializer_class = SessionRecordingPlaylistSerializer
     throttle_classes = [ClickHouseBurstRateThrottle, ClickHouseSustainedRateThrottle]
@@ -638,6 +647,14 @@ class SessionRecordingPlaylistViewSet(
     filter_backends = [DjangoFilterBackend]
     filterset_fields = ["short_id", "created_by"]
     lookup_field = "short_id"
+
+    def dangerously_get_required_scopes(self, request: request.Request, view: Any) -> list[str] | None:
+        # Scope parity with the recordings list: a filters playlist's recordings action parses
+        # the same query params into a RecordingsQuery, so the experiment_exposure filter reads
+        # experiment data here too. The result replaces the default, so both are listed.
+        if getattr(view, "action", None) == "recordings" and request.query_params.get("experiment_exposure"):
+            return ["session_recording_playlist:read", "experiment:read"]
+        return None
 
     def safely_get_object(self, queryset: QuerySet) -> SessionRecordingPlaylist:
         """Override to handle synthetic playlists in retrieve actions"""

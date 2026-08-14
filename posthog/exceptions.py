@@ -5,7 +5,7 @@ from django.http.response import JsonResponse
 
 import structlog
 from rest_framework import status
-from rest_framework.exceptions import APIException
+from rest_framework.exceptions import APIException, ValidationError
 from rest_framework.response import Response
 
 from posthog.clickhouse.query_tagging import get_query_tags
@@ -85,6 +85,12 @@ class ClickHouseQuerySizeExceeded(APIException):
     default_detail = "Query size exceeded."
 
 
+class ClickHouseBytesLimitExceeded(ValidationError):
+    # A fresh TOO_MANY_BYTES surfaces as ValidationError(str(error), "too_many_bytes") in the
+    # query API, so the breaker's replay must produce the same status and machine code.
+    default_code = "too_many_bytes"
+
+
 class ClickHouseQueryTimeOut(APIException):
     status_code = 504
     default_detail = "Query has hit the max execution time before completing. See our docs for how to improve your query performance. You may need to materialize."
@@ -100,9 +106,20 @@ class ClickHouseQueryMemoryLimitExceeded(APIException):
     # CLICKHOUSE_MEMORY_LIMIT_ERROR_CODE constant.
     default_code = "clickhouse_memory_limit_exceeded"
     default_detail = "This query ran out of memory before it could finish, usually because it's scanning too much data. Try a shorter date range or narrower filters, or see our docs for more ways to speed it up: https://posthog.com/docs/product-analytics/troubleshooting#how-do-i-speed-up-my-insights-and-queries"
-    # True only when ClickHouse hit this query's own memory ceiling, meaning a retry will fail
-    # the same way. Server-wide and per-user limits are transient cluster pressure.
     is_per_query_limit = False
+
+
+class ClickHouseClusterMemoryLimitExceeded(ClickHouseQueryMemoryLimitExceeded):
+    """ClickHouse refused the query because the server-wide or per-user memory ceiling was full.
+
+    The query itself can be sized fine, so this belongs to `CH_TRANSIENT_ERRORS` and every retry
+    mechanism that references that tuple can get past it. Subclassing keeps the 513 status and the
+    machine-readable code, but the detail tells the user to wait rather than shrink a fine query.
+    """
+
+    default_detail = (
+        "We're under heavy load right now and couldn't finish this query. Please try again in a few minutes."
+    )
 
 
 class ExceptionContext(TypedDict):

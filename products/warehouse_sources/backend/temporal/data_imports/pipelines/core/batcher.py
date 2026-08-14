@@ -68,6 +68,7 @@ class Batcher:
     _table_buffer_rows: int
     _table_buffer_bytes: int
     _table_buffer_schema: Optional[pa.Schema]
+    _ready_bytes: int
     _coalesce_tables: bool
     _ready: deque[pa.Table]
     _logger: FilteringBoundLogger
@@ -117,6 +118,7 @@ class Batcher:
         self._table_buffer_bytes = 0
         self._table_buffer_schema = None
         self._ready = deque()
+        self._ready_bytes = 0
 
     def _set_ready(self, table: pa.Table) -> None:
         """Split `table` so no yielded chunk overflows a 32-bit offset column or exceeds
@@ -130,6 +132,8 @@ class Batcher:
         # would be misreported as a merge death, biasing the exact distribution this signal exists
         # to measure.
         report_phase("extract")
+        # Held until `get_table` drains every chunk, so it stays part of what this activity occupies.
+        self._ready_bytes = payload_bytes
         report_buffer_bytes(payload_bytes)
         if self._source_type is not None:
             # The materialised table is the true in-memory peak (an unbounded source yields one giant
@@ -247,6 +251,16 @@ class Batcher:
             return sys.getsizeof(obj)
 
     def batch(self, item: list[Any] | dict | pa.Table) -> None:
+        self._batch(item)
+        # Report after every item, not only when a chunk completes. `_set_ready` fires once a chunk
+        # is materialised, so an activity accumulating toward one reported whatever the *previous*
+        # chunk measured — a long accumulation looked like it held nothing, and a death inside it
+        # was attributed to a co-tenant. The phase is re-declared for the same reason `_set_ready`
+        # does it: without it a death mid-accumulation reads as a merge death.
+        report_phase("extract")
+        report_buffer_bytes(self._ready_bytes + self._table_buffer_bytes + self._buffer_size_bytes)
+
+    def _batch(self, item: list[Any] | dict | pa.Table) -> None:
         if self._ready:
             raise Exception("Batcher already has a table ready to yield. Call get_table() before batching more items.")
 
@@ -321,6 +335,9 @@ class Batcher:
             self._flush_table_buffer()
 
         if self._ready:
-            return self._ready.popleft()
+            chunk = self._ready.popleft()
+            if not self._ready:
+                self._ready_bytes = 0
+            return chunk
 
         raise Exception("No chunks available to yield")

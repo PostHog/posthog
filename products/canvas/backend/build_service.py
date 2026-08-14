@@ -42,6 +42,7 @@ from posthog.models.user import User
 from posthog.ph_client import ph_background_capture
 from posthog.storage import object_storage
 
+from products.canvas.backend import error_reports
 from products.canvas.backend.capabilities import CapabilityWidening, capability_widening
 from products.canvas.backend.contract import CANVAS_BUILDER_DIR, contract_limits
 from products.canvas.backend.models import Canvas, CanvasBuild, CanvasSourceVersion
@@ -1064,6 +1065,7 @@ def _finish_failed(stale_build: CanvasBuild, diagnostics: list[dict[str, Any]]) 
         max(0, (build.finished_at - build.created_at).total_seconds())
     )
     _capture_build_completed(build, outcome="failed")
+    error_reports.report_build_failure(build)
 
 
 def sweep_canvas_builds() -> dict[str, int]:
