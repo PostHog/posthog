@@ -473,6 +473,10 @@ class AlertCheck(UUIDTModel):
     # in the UI so users can audit which fires the agent swallowed.
     notification_suppressed_by_agent = models.BooleanField(default=False)
 
+    # One record per destination that accepted a send (see AlertDelivery). NULL on
+    # checks that predate delivery receipts; targets_notified stays the legacy map.
+    deliveries = models.JSONField(null=True, blank=True)
+
     class Meta:
         db_table = "posthog_alertcheck"
 
