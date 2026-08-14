@@ -42,7 +42,7 @@ domain's partition.
 | Requests per second per domain          | domain                                            | 1, burst 5 |
 | Hop budget                              | one original URL, across every message it becomes | 10         |
 | Redirects followed without republishing | one fetch                                         | 3          |
-| Response bytes                          | one response                                      | 2 MB       |
+| Response bytes, compressed              | one response                                      | 2 MB       |
 | Request timeout                         | one URL, redirects included                       | 10 seconds |
 | Pass deadline                           | one pass                                          | 20 seconds |
 | Pass wall time, worst case              | one pass                                          | 30 seconds |
@@ -489,6 +489,38 @@ request a resource the page never requested.
 **14.2** The lane accepts a compressed response. It names the encodings it can read in
 `Accept-Encoding`, and it never refuses a response because the server compressed it. The site pays
 for the bandwidth, so the site decides how many bytes it sends.
+
+### 15. The response the lane accepts
+
+**15.1** The lane refuses a response over the byte cap, and it checks twice. A `Content-Length` above
+the cap refuses the response before any of the body arrives, which costs the site nothing further.
+The lane also counts the bytes as they arrive and stops the moment the count passes the cap, because
+`Content-Length` can be absent, and a server that sends more than it declared must not be able to
+spend more of our memory than the cap allows.
+
+**15.2** The cap counts the bytes on the wire, which are compressed bytes. The lane passes the image
+to the scrub lane in the encoded form it arrived in. It never decodes an image and passes the pixels
+on, because a file inside the cap decodes to many times the cap. Where a server applied a transport
+encoding such as `gzip`, the lane removes that encoding, because the scrub lane needs the image file
+rather than the wrapper around it.
+
+**15.3** The lane accepts these media types and refuses every other one:
+
+| `Content-Type` | Format |
+| -------------- | ------ |
+| `image/png`    | PNG    |
+| `image/jpeg`   | JPEG   |
+| `image/gif`    | GIF    |
+| `image/webp`   | WebP   |
+| `image/bmp`    | BMP    |
+| `image/avif`   | AVIF   |
+
+This is the same list the collector uses, so the lane never fetches a type the scrub lane cannot
+read. A format the scrub lane gains is added in both places or in neither.
+
+**15.4** The first bytes of the body must agree with the declared type. The lane refuses a response
+that declares one format and carries another. This catches an origin that answers every path with
+one page, which a `Content-Type` check alone would accept whenever that page is served as an image.
 
 ## How a message waits
 
