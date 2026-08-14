@@ -433,6 +433,10 @@ class AlertCheck(UUIDTModel):
     created_at = models.DateTimeField(auto_now_add=True)
     calculated_value = models.FloatField(null=True, blank=True)
     condition = models.JSONField(default=dict)  # Snapshot of the condition at the time of the check
+    # {} = no delivery. "users" is email addresses only — API consumers rely on that
+    # shape, so it never carries other channels. "destinations" holds per-destination
+    # receipts (see AlertDelivery); its presence marks rows written with
+    # accepted-delivery semantics, while legacy rows carry configured recipients.
     targets_notified = models.JSONField(default=dict)
     error = models.JSONField(null=True, blank=True)
 
@@ -472,10 +476,6 @@ class AlertCheck(UUIDTModel):
     # with suppress policy) and we skipped dispatching the notification. Surfaced
     # in the UI so users can audit which fires the agent swallowed.
     notification_suppressed_by_agent = models.BooleanField(default=False)
-
-    # One record per destination that accepted a send (see AlertDelivery). NULL on
-    # checks that predate delivery receipts; targets_notified stays the legacy map.
-    deliveries = models.JSONField(null=True, blank=True)
 
     class Meta:
         db_table = "posthog_alertcheck"

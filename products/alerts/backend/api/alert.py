@@ -281,11 +281,16 @@ class AlertCheckSerializer(serializers.ModelSerializer):
 
     @extend_schema_field(AlertDeliverySerializer(many=True))
     def get_deliveries(self, instance: AlertCheck) -> list[dict[str, Any]] | None:
-        if instance.deliveries:
-            return instance.deliveries
-        legacy_users = (instance.targets_notified or {}).get("users") or []
-        if legacy_users:
-            return [{"channel": "email", "target": email, "status": "unknown"} for email in legacy_users]
+        notified = instance.targets_notified or {}
+        users = notified.get("users") or []
+        # The "destinations" key marks rows recorded under accepted-delivery semantics;
+        # legacy rows only carry the configured recipient list.
+        if "destinations" in notified:
+            accepted_at = instance.notification_sent_at.isoformat() if instance.notification_sent_at else None
+            emails = [{"channel": "email", "target": email, "status": "accepted", "at": accepted_at} for email in users]
+            return emails + list(notified.get("destinations") or [])
+        if users:
+            return [{"channel": "email", "target": email, "status": "unknown"} for email in users]
         return None
 
 

@@ -105,14 +105,13 @@ class TestRepairAlertCheckDeliveryRecords(APIBaseTest):
         receipt_row = AlertCheck.objects.create(
             alert_configuration=self.alert,
             state=AlertState.ERRORED,
-            targets_notified={"users": ["a@example.com"]},
+            targets_notified={"users": ["a@example.com"], "destinations": []},
             notification_sent_at=old_created_at,
-            deliveries=[{"channel": "email", "target": "a@example.com", "status": "accepted"}],
         )
         AlertCheck.objects.filter(id=receipt_row.id).update(created_at=old_created_at)
 
         call_command("repair_alert_check_delivery_records", "--before", self.cutoff, "--execute")
 
         receipt_row.refresh_from_db()
-        assert receipt_row.targets_notified == {"users": ["a@example.com"]}
+        assert receipt_row.targets_notified == {"users": ["a@example.com"], "destinations": []}
         assert receipt_row.notification_sent_at is not None

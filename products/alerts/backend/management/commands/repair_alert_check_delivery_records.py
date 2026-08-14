@@ -40,7 +40,9 @@ class Command(BaseCommand):
             state=AlertState.ERRORED,
             notification_sent_at__isnull=False,
             created_at__lt=cutoff,
-            deliveries__isnull=True,
+            # Missing "destinations" key = written before accepted-delivery semantics;
+            # rows carrying receipts are structurally excluded from the repair.
+            targets_notified__destinations__isnull=True,
         )
         per_team = matches.values("alert_configuration__team_id").annotate(rows=Count("id")).order_by("-rows")
         total = matches.count()

@@ -301,8 +301,5 @@ class TestDisableInvalidAlert(APIBaseTest):
         check = disable_invalid_alert(self.alert, reason="bad config")
 
         check.refresh_from_db()
-        assert check.targets_notified == {"users": [self.user.email]}
-        deliveries = check.deliveries
-        assert isinstance(deliveries, list)
-        assert deliveries[0]["channel"] == "email"
+        assert check.targets_notified == {"users": [self.user.email], "destinations": []}
         mock_send.assert_called_once()

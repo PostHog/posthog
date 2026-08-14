@@ -584,7 +584,6 @@ class TestNotifyAlert:
         mock_errors.assert_not_called()
         refreshed = await sync_to_async(AlertCheck.objects.get)(pk=check.id)
         assert refreshed.targets_notified == {}
-        assert refreshed.deliveries is None
         assert refreshed.notification_sent_at is None
 
     async def test_sends_breach_notifications_when_firing(self, alert_with_user) -> None:
@@ -613,17 +612,7 @@ class TestNotifyAlert:
         mock_errors.assert_not_called()
 
         refreshed = await sync_to_async(AlertCheck.objects.get)(pk=check.id)
-        assert refreshed.targets_notified == {"users": ["alice@posthog.com"]}
-        assert refreshed.deliveries == [
-            {
-                "channel": "email",
-                "target": "alice@posthog.com",
-                "target_id": None,
-                "template": None,
-                "status": "accepted",
-                "at": "2026-08-11T00:00:00+00:00",
-            }
-        ]
+        assert refreshed.targets_notified == {"users": ["alice@posthog.com"], "destinations": []}
         assert refreshed.notification_sent_at is not None
 
         refreshed_alert = await sync_to_async(AlertConfiguration.objects.get)(pk=alert_with_user.pk)
@@ -713,7 +702,7 @@ class TestNotifyAlert:
         assert "contact support" in notification.body
 
         refreshed = await sync_to_async(AlertCheck.objects.get)(pk=check.id)
-        assert refreshed.targets_notified == {"users": ["alice@posthog.com"]}
+        assert refreshed.targets_notified == {"users": ["alice@posthog.com"], "destinations": []}
 
     @pytest.mark.parametrize("message", [None, "", "   "])
     async def test_error_notification_uses_fallback_for_missing_reason(self, alert_with_user, message) -> None:
@@ -784,7 +773,7 @@ class TestNotifyAlert:
             )
 
         refreshed = await sync_to_async(AlertCheck.objects.get)(pk=check.id)
-        assert refreshed.targets_notified == {"users": ["alice@posthog.com"]}
+        assert refreshed.targets_notified == {"users": ["alice@posthog.com"], "destinations": []}
 
     async def test_idempotent_when_already_notified(self, alert_with_user) -> None:
         # Simulate a previous successful notification by setting targets_notified.
@@ -919,7 +908,7 @@ class TestNotifyAlert:
 
         mock_breaches.assert_called_once()
         refreshed = await sync_to_async(AlertCheck.objects.get)(pk=check.id)
-        assert refreshed.targets_notified == {"users": ["alice@posthog.com"]}
+        assert refreshed.targets_notified == {"users": ["alice@posthog.com"], "destinations": []}
 
 
 @pytest.mark.parametrize("calculation_interval", [None, AlertCalculationInterval.REAL_TIME])

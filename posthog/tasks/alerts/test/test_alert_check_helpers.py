@@ -53,17 +53,7 @@ class TestRunAlertCheck(APIBaseTest):
         alert_check = AlertCheck.objects.filter(alert_configuration=self.alert_id).latest("created_at")
         assert alert_check.state == AlertState.FIRING
         assert alert_check.calculated_value == 5.0
-        assert alert_check.targets_notified == {"users": ["user1@example.com"]}
-        assert alert_check.deliveries == [
-            {
-                "channel": "email",
-                "target": "user1@example.com",
-                "target_id": None,
-                "template": None,
-                "status": "accepted",
-                "at": "2026-08-11T00:00:00+00:00",
-            }
-        ]
+        assert alert_check.targets_notified == {"users": ["user1@example.com"], "destinations": []}
         assert alert_check.notification_sent_at is not None
         mock_send.assert_called_once()
 
@@ -91,7 +81,6 @@ class TestRunAlertCheck(APIBaseTest):
         assert alert_check.error is not None
         assert "boom" in alert_check.error["message"]
         assert alert_check.targets_notified == {}
-        assert alert_check.deliveries is None
         assert alert_check.notification_sent_at is None
         mock_send_err.assert_called_once()
 
@@ -104,7 +93,6 @@ class TestRunAlertCheck(APIBaseTest):
         check.refresh_from_db()
         assert check.targets_notified == {}
         assert check.notification_sent_at is None
-        assert check.deliveries is None
 
     def test_record_alert_delivery_writes_legacy_map_and_receipts(self) -> None:
         alert = AlertConfiguration.objects.get(id=self.alert_id)
@@ -120,8 +108,17 @@ class TestRunAlertCheck(APIBaseTest):
         assert record_alert_delivery(alert, check, [hog]) is True
 
         check.refresh_from_db()
-        assert check.targets_notified == {"users": []}
-        deliveries = check.deliveries
-        assert isinstance(deliveries, list)
-        assert deliveries[0]["channel"] == "hog_function"
+        assert check.targets_notified == {
+            "users": [],
+            "destinations": [
+                {
+                    "channel": "hog_function",
+                    "target": "Slack #eng",
+                    "target_id": "hf-1",
+                    "template": "slack",
+                    "status": "accepted",
+                    "at": "2026-08-11T00:00:00+00:00",
+                }
+            ],
+        }
         assert check.notification_sent_at is not None

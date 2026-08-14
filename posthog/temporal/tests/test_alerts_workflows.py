@@ -237,7 +237,7 @@ async def test_check_alert_workflow_firing_drives_full_chain_with_slo(
     assert len(checks) == 1
     check = checks[0]
     assert check.state == AlertState.FIRING
-    assert check.targets_notified == {"users": recipients}
+    assert check.targets_notified == {"users": recipients, "destinations": []}
 
     mock_send_breaches.assert_called_once()
     call = mock_send_breaches.call_args

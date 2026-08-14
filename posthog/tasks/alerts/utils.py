@@ -394,7 +394,7 @@ def record_alert_delivery(alert: AlertConfiguration, alert_check: AlertCheck, de
 
     No-ops (returns False) when nothing was accepted, so a check can never claim
     delivery that didn't happen. Writes the legacy targets_notified map (emails only),
-    the receipt list, and both notification timestamps together.
+    the destination receipts, and both notification timestamps together.
 
     Caller must wrap in transaction.atomic() if atomic semantics are required.
     """
@@ -408,12 +408,15 @@ def record_alert_delivery(alert: AlertConfiguration, alert_check: AlertCheck, de
         )
         return False
     recorded_at = datetime.now(UTC)
+    # "users" keeps its historical email-only shape; "destinations" carries the other
+    # channels' receipts, and writing the key (even empty) marks the row as recorded
+    # under accepted-delivery semantics — legacy rows lack it.
     alert_check.targets_notified = {
-        "users": [delivery.target for delivery in deliveries if delivery.channel == "email"]
+        "users": [delivery.target for delivery in deliveries if delivery.channel == "email"],
+        "destinations": serialize_deliveries([d for d in deliveries if d.channel != "email"]),
     }
-    alert_check.deliveries = serialize_deliveries(deliveries)
     alert_check.notification_sent_at = recorded_at
-    alert_check.save(update_fields=["targets_notified", "deliveries", "notification_sent_at"])
+    alert_check.save(update_fields=["targets_notified", "notification_sent_at"])
     alert.last_notified_at = recorded_at
     alert.save(update_fields=["last_notified_at"])
     return True

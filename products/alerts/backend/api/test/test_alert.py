@@ -506,24 +506,12 @@ class TestAlert(APIBaseTest, QueryMatchingTest):
     @parameterized.expand(
         [
             (
-                "stored_receipts_pass_through",
-                {"users": ["a@example.com"]},
+                "recorded_email_composed_as_accepted",
+                {"users": ["a@example.com"], "destinations": []},
                 [
                     {
                         "channel": "email",
                         "target": "a@example.com",
-                        "target_id": None,
-                        "template": None,
-                        "status": "accepted",
-                        "at": "2026-08-11T00:00:00+00:00",
-                    }
-                ],
-                [
-                    {
-                        "channel": "email",
-                        "target": "a@example.com",
-                        "target_id": None,
-                        "template": None,
                         "status": "accepted",
                         "at": "2026-08-11T00:00:00+00:00",
                     }
@@ -533,23 +521,24 @@ class TestAlert(APIBaseTest, QueryMatchingTest):
             (
                 "legacy_users_map_synthesized_as_unknown",
                 {"users": ["a@example.com"]},
-                None,
                 [{"channel": "email", "target": "a@example.com", "status": "unknown"}],
                 True,
             ),
             (
                 "hog_function_only_delivery_keeps_truthful_yes",
-                {"users": []},
-                [
-                    {
-                        "channel": "hog_function",
-                        "target": "Eng alerts",
-                        "target_id": "hf-1",
-                        "template": "slack",
-                        "status": "accepted",
-                        "at": "2026-08-11T00:00:00+00:00",
-                    }
-                ],
+                {
+                    "users": [],
+                    "destinations": [
+                        {
+                            "channel": "hog_function",
+                            "target": "Eng alerts",
+                            "target_id": "hf-1",
+                            "template": "slack",
+                            "status": "accepted",
+                            "at": "2026-08-11T00:00:00+00:00",
+                        }
+                    ],
+                },
                 [
                     {
                         "channel": "hog_function",
@@ -566,7 +555,6 @@ class TestAlert(APIBaseTest, QueryMatchingTest):
                 "nothing_recorded_is_null",
                 {},
                 None,
-                None,
                 False,
             ),
         ]
@@ -575,7 +563,6 @@ class TestAlert(APIBaseTest, QueryMatchingTest):
         self,
         _name: str,
         targets_notified: dict,
-        deliveries: list[dict] | None,
         expected_deliveries: list[dict] | None,
         expected_targets_notified: bool,
     ) -> None:
@@ -591,7 +578,7 @@ class TestAlert(APIBaseTest, QueryMatchingTest):
         check = AlertCheck.objects.create(
             alert_configuration_id=alert["id"],
             targets_notified=targets_notified,
-            deliveries=deliveries,
+            notification_sent_at=datetime(2026, 8, 11, 0, 0, tzinfo=UTC) if targets_notified else None,
             state=AlertState.FIRING,
         )
 
