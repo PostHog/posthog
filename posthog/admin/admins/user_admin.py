@@ -1,14 +1,20 @@
 import datetime
-from typing import Any
+import dataclasses
+from collections.abc import Iterable
+from typing import Any, cast
 
 from django.contrib import admin, messages
+from django.contrib.admin.models import DELETION, LogEntry
 from django.contrib.auth.admin import UserAdmin as DjangoUserAdmin
 from django.contrib.auth.forms import (
     ReadOnlyPasswordHashWidget as DjangoReadOnlyPasswordHashWidget,
     UserChangeForm as DjangoUserChangeForm,
 )
 from django.core.exceptions import ValidationError
-from django.http import HttpResponseRedirect
+from django.db.models import CASCADE
+from django.db.models.deletion import get_candidate_relations_to_delete
+from django.db.models.fields.reverse_related import ForeignObjectRel
+from django.http import HttpRequest, HttpResponseRedirect
 from django.urls import reverse
 from django.utils.html import format_html
 from django.utils.translation import (
@@ -26,13 +32,26 @@ from posthog.admin.inlines.user_social_auth_inline import UserSocialAuthInline
 from posthog.api.authentication import password_reset_token_generator
 from posthog.api.email_verification import EmailVerifier
 from posthog.api.two_factor_reset import TwoFactorResetVerifier
+from posthog.helpers.impersonation import is_impersonated
 from posthog.models import User
+from posthog.models.activity_logging.activity_log import (
+    ActivityContextBase,
+    Detail,
+    LogActivityEntry,
+    bulk_log_activity,
+)
 from posthog.models.webauthn_credential import WebauthnCredential
 from posthog.session.activity import revoke_other_sessions
 from posthog.tasks.email import send_password_reset, send_two_factor_reset_email
 
 # Django's default widget masks salt/hash but still shows their first few characters; keep those out of the admin entirely.
 _HIDDEN_SUMMARY_LABELS = {"salt", "hash", "checksum"}
+
+# Every relation is counted with its own capped query, so this bounds how much of a table the
+# confirmation page reads. The exact figure past the cap doesn't change the operator's decision.
+DELETION_SUMMARY_COUNT_CAP = 100
+
+DELETION_REASON_FIELD = "deletion_reason"
 
 
 class ReadOnlyPasswordHashWidget(DjangoReadOnlyPasswordHashWidget):
@@ -41,6 +60,18 @@ class ReadOnlyPasswordHashWidget(DjangoReadOnlyPasswordHashWidget):
         hidden_labels = {gettext(label) for label in _HIDDEN_SUMMARY_LABELS}
         context["summary"] = [entry for entry in context["summary"] if entry["label"] not in hidden_labels]
         return context
+
+
+@dataclasses.dataclass(frozen=True)
+class UserDeletionActivityContext(ActivityContextBase):
+    reason: str
+    # The item_id of the log entry points at a row that no longer exists, so the address the
+    # account was deleted under is the only thing that identifies it afterwards.
+    email: str
+
+
+def _deletion_reason(request: HttpRequest) -> str:
+    return request.POST.get(DELETION_REASON_FIELD, "").strip()
 
 
 class UserChangeForm(DjangoUserChangeForm):
@@ -281,6 +312,111 @@ class UserAdmin(DjangoUserAdmin):
             return HttpResponseRedirect(reverse("admin:posthog_user_change", args=[object_id]))
 
         return super().change_view(request, object_id, form_url, extra_context)
+
+    def has_delete_permission(self, request, obj=None):
+        # Deleting the account you're acting as would end the session mid-request, and the
+        # deletion's own activity log entries record the actor by foreign key, which the cascade
+        # would take out from under them.
+        if obj is not None and obj.pk == request.user.pk:
+            return False
+        return super().has_delete_permission(request, obj)
+
+    def get_actions(self, request):
+        actions = super().get_actions(request)
+        # Bulk delete has nowhere to ask for a reason, and it would collect the cascade for every
+        # selected account into one page.
+        actions.pop("delete_selected", None)
+        return actions
+
+    def get_deleted_objects(self, objs, request):
+        # Django builds this page with NestedObjects, which loads every row that cascades from the
+        # user and renders a list item per row. Recorded views alone (session recordings, insights,
+        # file tree entries) reach into the millions on a long-lived account, so both the
+        # confirmation page and the POST that re-collects them time out before anything is deleted.
+        # A capped count per relation answers the same question for the operator in bounded work.
+        return [], self._cascade_summary(objs), set(), []
+
+    def _cascade_summary(self, objs: list[User]) -> dict[str, str]:
+        counts: list[tuple[str, int]] = []
+        # The same relations Django's own collector walks. `User._meta.related_objects` drops the
+        # ones declared with `related_name="+"`, which still cascade and include some of the
+        # highest-volume tables, so the summary would understate what gets deleted.
+        relations = cast(Iterable[ForeignObjectRel], get_candidate_relations_to_delete(User._meta))
+        for related in relations:
+            field = related.field
+            if field.remote_field.on_delete is not CASCADE:
+                continue
+            related_model = field.model
+            # Auto-created through models (groups, permissions) are noise next to the fields that
+            # already show them on the change form.
+            if related_model._meta.auto_created:
+                continue
+            count = (
+                related_model._base_manager.filter(**{f"{field.name}__in": objs})
+                .order_by()[: DELETION_SUMMARY_COUNT_CAP + 1]
+                .count()
+            )
+            if count:
+                counts.append((str(related_model._meta.verbose_name_plural), count))
+
+        counts.sort(key=lambda entry: (-entry[1], entry[0]))
+        summary = {str(User._meta.verbose_name_plural): str(len(objs))}
+        for label, count in counts:
+            summary[label] = f"{DELETION_SUMMARY_COUNT_CAP}+" if count > DELETION_SUMMARY_COUNT_CAP else str(count)
+        return summary
+
+    def delete_view(self, request, object_id, extra_context=None):
+        if request.method == "POST" and not _deletion_reason(request):
+            messages.error(request, "Add a reason for deleting this user, then confirm again.")
+            return HttpResponseRedirect(request.get_full_path())
+        return super().delete_view(
+            request,
+            object_id,
+            {"deletion_summary_count_cap": DELETION_SUMMARY_COUNT_CAP, **(extra_context or {})},
+        )
+
+    def log_deletions(self, request, queryset):
+        # An ActivityLog row has to be scoped to an organization or a team, so an account that has
+        # already left every organization has nowhere to record one. Django's own admin log always
+        # takes the reason, and it's where "recent actions" reads from.
+        return LogEntry.objects.log_actions(
+            user_id=request.user.pk,
+            queryset=queryset,
+            action_flag=DELETION,
+            change_message=f"Reason: {_deletion_reason(request)}",
+        )
+
+    def delete_model(self, request, obj):
+        # Read what the log entries need first: the cascade takes the memberships that scope them,
+        # and the delete blanks the instance's primary key.
+        reason = _deletion_reason(request)
+        organization_ids = list(obj.organization_memberships.values_list("organization_id", flat=True))
+        deleted_user_id = obj.pk
+        name = f"{obj.first_name} {obj.last_name}".strip() or obj.email
+        email = obj.email
+
+        super().delete_model(request, obj)
+
+        detail = Detail(
+            name=name,
+            type="admin_user_deletion",
+            context=UserDeletionActivityContext(reason=reason, email=email),
+        )
+        bulk_log_activity(
+            [
+                LogActivityEntry(
+                    organization_id=organization_id,
+                    team_id=None,
+                    user=request.user,
+                    item_id=deleted_user_id,
+                    scope="User",
+                    activity="deleted",
+                    detail=detail,
+                    was_impersonated=is_impersonated(request),
+                )
+                for organization_id in organization_ids
+            ]
+        )
 
     def user_change_password(self, request, id, form_url=""):
         # We don't let admins set passwords directly (change_password_form is None), but Django's

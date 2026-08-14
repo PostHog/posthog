@@ -5,6 +5,7 @@ from posthog.test.base import BaseTest
 from unittest.mock import patch
 
 from django.conf import settings
+from django.contrib.admin.models import DELETION, LogEntry
 from django.contrib.admin.sites import AdminSite
 from django.contrib.auth import SESSION_KEY
 from django.contrib.messages.storage.fallback import FallbackStorage
@@ -12,8 +13,10 @@ from django.test import RequestFactory
 from django.urls import reverse
 
 from posthog.admin.admins.user_admin import UserAdmin, UserChangeForm
-from posthog.models import User
+from posthog.models import OrganizationMembership, User
+from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.session.models import Session
+from posthog.session_recordings.models.session_recording_event import SessionRecordingViewed
 
 
 class TestUserAdminSessions(BaseTest):
@@ -110,3 +113,114 @@ class TestUserChangeFormPasswordField(BaseTest):
 
         self.assertNotIn("/reset/", help_text)
         self.assertNotIn("href", help_text)
+
+
+class TestUserAdminDeletion(BaseTest):
+    def setUp(self):
+        super().setUp()
+        self.user.is_staff = True
+        self.user.save()
+        self.factory = RequestFactory()
+        self.admin = UserAdmin(User, AdminSite())
+        self.target = User.objects.create_and_join(self.organization, "delete-me@example.com", None)
+        self.delete_path = f"/admin/posthog/user/{self.target.pk}/delete/"
+
+    def _request(self, method: str = "post", data: dict | None = None):
+        request = getattr(self.factory, method)(self.delete_path, data or {})
+        request.user = self.user
+        request.session = {}
+        request._messages = FallbackStorage(request)
+        # Django's delete view is wrapped in csrf_protect, which a RequestFactory POST can't satisfy.
+        request._dont_enforce_csrf_checks = True
+        return request
+
+    def _deletion_logs(self):
+        return ActivityLog.objects.filter(scope="User", activity="deleted", item_id=str(self.target.pk))
+
+    def test_confirmation_page_counts_the_cascade_instead_of_listing_every_row(self):
+        # The reported timeout: Django's NestedObjects collector loads and renders every cascading
+        # row, and recorded views alone run into the millions on a long-lived account.
+        for session_id in ("one", "two"):
+            SessionRecordingViewed.objects.create(team=self.team, user=self.target, session_id=session_id)
+
+        deleted_objects, model_count, perms_needed, protected = self.admin.get_deleted_objects(
+            [self.target], self._request(method="get")
+        )
+
+        self.assertEqual(deleted_objects, [])
+        self.assertEqual(perms_needed, set())
+        self.assertEqual(protected, [])
+        self.assertEqual(model_count[str(User._meta.verbose_name_plural)], "1")
+        self.assertEqual(model_count[str(SessionRecordingViewed._meta.verbose_name_plural)], "2")
+        self.assertEqual(model_count[str(OrganizationMembership._meta.verbose_name_plural)], "1")
+
+    @patch("posthog.admin.admins.user_admin.DELETION_SUMMARY_COUNT_CAP", 1)
+    def test_confirmation_page_caps_each_count(self):
+        for session_id in ("one", "two", "three"):
+            SessionRecordingViewed.objects.create(team=self.team, user=self.target, session_id=session_id)
+
+        _, model_count, _, _ = self.admin.get_deleted_objects([self.target], self._request(method="get"))
+
+        self.assertEqual(model_count[str(SessionRecordingViewed._meta.verbose_name_plural)], "1+")
+
+    def test_confirmation_page_asks_for_a_reason(self):
+        response = self.admin.delete_view(self._request(method="get"), str(self.target.pk))
+        response.render()
+
+        self.assertIn('name="deletion_reason"', response.content.decode())
+
+    def test_delete_without_a_reason_keeps_the_user(self):
+        response = self.admin.delete_view(self._request(data={"post": "yes"}), str(self.target.pk))
+
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(response.url, self.delete_path)
+        self.assertTrue(User.objects.filter(pk=self.target.pk).exists())
+
+    def test_delete_with_a_reason_records_it_for_every_organization(self):
+        other_organization, _, _ = User.objects.bootstrap("Other org", "owner@example.com", None)
+        self.target.join(organization=other_organization)
+        target_id = self.target.pk
+
+        response = self.admin.delete_view(
+            self._request(data={"post": "yes", "deletion_reason": "Duplicate account after an email change"}),
+            str(target_id),
+        )
+
+        self.assertEqual(response.status_code, 302)
+        self.assertFalse(User.objects.filter(pk=target_id).exists())
+        logs = self._deletion_logs()
+        self.assertEqual(
+            {log.organization_id for log in logs},
+            {self.organization.id, other_organization.id},
+        )
+        for log in logs:
+            self.assertEqual(log.user, self.user)
+            self.assertEqual(
+                (log.detail or {}).get("context"),
+                {"reason": "Duplicate account after an email change", "email": "delete-me@example.com"},
+            )
+
+    def test_delete_records_the_reason_in_the_admin_log(self):
+        # An ActivityLog row needs an organization or team to be scoped to, so a user who has left
+        # every organization would otherwise have their deletion recorded with no reason at all.
+        self.target.organization_memberships.all().delete()
+        target_id = self.target.pk
+
+        self.admin.delete_view(
+            self._request(data={"post": "yes", "deletion_reason": "Requested by the customer"}),
+            str(target_id),
+        )
+
+        self.assertFalse(User.objects.filter(pk=target_id).exists())
+        self.assertFalse(self._deletion_logs().exists())
+        entry = LogEntry.objects.get(object_id=str(target_id), action_flag=DELETION)
+        self.assertIn("Requested by the customer", entry.change_message)
+
+    def test_staff_cannot_delete_the_account_they_are_acting_as(self):
+        request = self._request()
+
+        self.assertFalse(self.admin.has_delete_permission(request, self.user))
+        self.assertTrue(self.admin.has_delete_permission(request, self.target))
+
+    def test_bulk_delete_action_is_unavailable(self):
+        self.assertNotIn("delete_selected", self.admin.get_actions(self._request(method="get")))
