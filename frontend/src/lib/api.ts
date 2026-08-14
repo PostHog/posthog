@@ -397,11 +397,8 @@ function apiErrorFallback(response: Response, method: string, url: string): stri
 async function getJSONFromSuccessResponse(response: Response, method: string, url: string): Promise<any> {
     const requestContext = (): string =>
         `[${method} ${new URL(url, location.origin).pathname}] (status ${response.status})`
-    // 204/205 and a null body carry no content, so decide on status before touching the stream:
-    // reading the body of an empty response has nothing to gain and, in practice, is where these
-    // parse failures come from — overwhelmingly WebKit (see the browser split on the PR). Whatever
-    // the engine-specific reason a `.text()` on an empty body rejects, a no-content response should
-    // never depend on that read succeeding.
+    // A no-content response must not depend on reading its body: some engines (in our telemetry,
+    // overwhelmingly WebKit) reject `.text()` on an empty body rather than resolving to "".
     if (response.status === 204 || response.status === 205 || response.body === null) {
         return null
     }
