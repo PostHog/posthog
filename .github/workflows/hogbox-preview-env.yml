@@ -193,7 +193,9 @@ jobs:
 
                       if (!sameRepo) return decide(false, false, `fork PR (${pr.head && pr.head.repo && pr.head.repo.full_name}) → skip`);
                       if (isBot) return decide(false, false, `bot author (${login}) → skip`);
-                      if (!ready) return decide(false, false, 'draft PR → skip');
+                      // TEMP(preview-seed): draft PRs preview too on this branch — the
+                      // dashboard-colors comparison pair includes a draft (#74534).
+                      void ready;
                       if (optedOut) return decide(false, false, 'no-preview label present → skip');
 
                       // The manual label opts a PR in for ANY paths; without it we
@@ -615,6 +617,24 @@ jobs:
                     --host "$HOG_HOST" \
                     --name "preview-pr-${PR}" \
                     swap-frontend --frontend-dist "${RUNNER_TEMP}/fe-dist/frontend-dist.tgz"
+
+            # TEMP(preview-seed): load the dashboard-colors comparison dataset
+            # (persisted flag + fixture dashboard + synthetic events) into the box
+            # on every rebuild. Branch-only; remove before merge.
+            - name: Seed comparison data (temporary)
+              if: steps.build.outcome == 'success'
+              continue-on-error: true
+              working-directory: tools/hogbox-preview
+              run: |
+                  git -C "$GITHUB_WORKSPACE" fetch --no-tags --depth 1 --filter=blob:none origin "pull/${PR}/head"
+                  seed="$RUNNER_TEMP/preview-seed"
+                  mkdir -p "$seed"
+                  for f in seed_preview.py generate_events.py recreate_dashboard.py dashboard-fixture.json; do
+                    git -C "$GITHUB_WORKSPACE" show "FETCH_HEAD:.github/scripts/preview-seed/$f" > "$seed/$f"
+                  done
+                  uv run --no-project --with posthog-hogland==0.3.0 --python 3.12 \
+                    python "$seed/seed_preview.py" --host "$HOG_HOST" \
+                    --name "preview-pr-${PR}" --payload-dir "$seed"
 
             # dist/swap are 'skipped' on a backend-only PR, which passes; 'failure'
             # would serve :master under a comment claiming the PR's frontend.
