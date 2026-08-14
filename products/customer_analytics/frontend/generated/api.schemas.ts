@@ -1623,7 +1623,8 @@ export const FieldEnumApi = {
 export type FeatureRequestHistoryChangeApiBefore =
     | string
     | {
-          id: string
+          /** @nullable */
+          id: string | null
           name: string
       }
     | {
@@ -1638,7 +1639,8 @@ export type FeatureRequestHistoryChangeApiBefore =
 export type FeatureRequestHistoryChangeApiAfter =
     | string
     | {
-          id: string
+          /** @nullable */
+          id: string | null
           name: string
       }
     | {

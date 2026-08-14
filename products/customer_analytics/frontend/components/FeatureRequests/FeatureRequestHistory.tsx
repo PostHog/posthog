@@ -33,6 +33,12 @@ function relationSnapshot(value: unknown): RelationSnapshot | null {
     return null
 }
 
+function accountSnapshotName(value: unknown): string {
+    return typeof value === 'object' && value !== null && 'name' in value && typeof value.name === 'string'
+        ? value.name
+        : 'No account'
+}
+
 function relationSnapshots(value: unknown): RelationSnapshot[] {
     return Array.isArray(value)
         ? value.map(relationSnapshot).filter((snapshot): snapshot is RelationSnapshot => snapshot !== null)
@@ -99,9 +105,12 @@ function describeChange(change: FeatureRequestHistoryChangeApi, isInitial: boole
         return scalarChange('Priority', priorityName(change.before), priorityName(change.after), isInitial)
     }
     if (change.field === 'account') {
-        const before = relationSnapshot(change.before)?.name ?? 'No account'
-        const after = relationSnapshot(change.after)?.name ?? 'No account'
-        return scalarChange('Account', before, after, isInitial)
+        return scalarChange(
+            'Account',
+            accountSnapshotName(change.before),
+            accountSnapshotName(change.after),
+            isInitial
+        )
     }
     if (change.field === 'product_areas') {
         const before = relationSnapshots(change.before)

@@ -196,6 +196,39 @@ def _account_snapshot(account: Account) -> dict[str, str]:
     return {"id": str(account.id), "name": account.name}
 
 
+def _history_account_id(value: object) -> UUID | None:
+    if not isinstance(value, dict) or not isinstance(value.get("id"), str):
+        return None
+    try:
+        return UUID(value["id"])
+    except ValueError:
+        return None
+
+
+def _redact_history_account(value: object, accessible_account_ids: set[UUID]) -> object:
+    if value is None:
+        return None
+    account_id = _history_account_id(value)
+    if account_id is not None and account_id in accessible_account_ids:
+        return value
+    return {"id": None, "name": "Restricted account"}
+
+
+def _redact_inaccessible_history_accounts(
+    changes: list[contracts.FeatureRequestHistoryChange], accessible_account_ids: set[UUID]
+) -> list[contracts.FeatureRequestHistoryChange]:
+    return [
+        {
+            **change,
+            "before": _redact_history_account(change["before"], accessible_account_ids),
+            "after": _redact_history_account(change["after"], accessible_account_ids),
+        }
+        if change["field"] == "account"
+        else change
+        for change in changes
+    ]
+
+
 def _product_area_snapshots(product_areas: list[FeatureRequestProductArea]) -> list[dict[str, str]]:
     return [
         {"id": str(area.id), "name": area.name}
@@ -598,12 +631,26 @@ def list_feature_request_history(
         .filter(feature_request_id=feature_request_id)
         .order_by("-changed_at", "-id")
     )
+    history_account_ids: set[UUID] = set()
+    for entry in history:
+        for change in entry.changes:
+            if change.get("field") != "account":
+                continue
+            for value in (change.get("before"), change.get("after")):
+                account_id = _history_account_id(value)
+                if account_id is not None:
+                    history_account_ids.add(account_id)
+    accessible_account_ids = set(
+        user_access_control.filter_queryset_by_access_level(Account.objects.for_team(team_id))
+        .filter(id__in=history_account_ids)
+        .values_list("id", flat=True)
+    )
     actors = User.objects.filter(id__in={entry.actor_id for entry in history if entry.actor_id is not None})
     actor_names = {actor.id: actor.get_full_name().strip() or actor.email for actor in actors}
     return [
         contracts.FeatureRequestHistoryView(
             id=entry.id,
-            changes=entry.changes,
+            changes=_redact_inaccessible_history_accounts(entry.changes, accessible_account_ids),
             is_initial=entry.is_initial,
             change_source=entry.source,
             actor_id=entry.actor_id,

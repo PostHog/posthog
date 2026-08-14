@@ -242,7 +242,7 @@ _FEATURE_REQUEST_HISTORY_VALUE_SCHEMA = {
             "type": "object",
             "required": ["id", "name"],
             "properties": {
-                "id": {"type": "string", "format": "uuid"},
+                "id": {"type": "string", "format": "uuid", "nullable": True},
                 "name": {"type": "string"},
             },
         },

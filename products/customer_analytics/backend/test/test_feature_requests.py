@@ -282,6 +282,47 @@ class TestFeatureRequestsAPI(APIBaseTest):
         self.assertEqual(initial_changes["account"]["after"]["name"], "Acme")
         self.assertEqual(initial_changes["product_areas"]["after"][0]["name"], "Product analytics")
 
+    def test_history_redacts_snapshots_for_accounts_the_viewer_cannot_access(self) -> None:
+        created = self.client.post(self.requests_url, self._payload(), format="json").json()
+        other_account = create_account(team_id=self.team.id, name="Globex")
+        self.client.patch(
+            f"{self.requests_url}{created['id']}/",
+            {
+                "expected_version": created["version"],
+                "account_id": str(other_account.id),
+            },
+            format="json",
+        )
+        viewer = User.objects.create_and_join(
+            self.organization,
+            "restricted-feature-request-history-viewer@example.com",
+            "testtest",
+        )
+        self._set_access_level(viewer, "viewer")
+        membership = OrganizationMembership.objects.get(user=viewer, organization=self.organization)
+        AccessControl.objects.create(
+            team=self.team,
+            resource="account",
+            resource_id=str(self.account.id),
+            access_level="none",
+            organization_member=membership,
+        )
+        self.client.force_login(viewer)
+
+        response = self.client.get(f"{self.requests_url}{created['id']}/history/")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        updated_changes = {change["field"]: change for change in response.json()[0]["changes"]}
+        self.assertEqual(updated_changes["account"]["before"], {"id": None, "name": "Restricted account"})
+        self.assertEqual(
+            updated_changes["account"]["after"],
+            {"id": str(other_account.id), "name": "Globex"},
+        )
+        initial_changes = {change["field"]: change for change in response.json()[1]["changes"]}
+        self.assertEqual(initial_changes["account"]["after"], {"id": None, "name": "Restricted account"})
+        self.assertNotIn(str(self.account.id), str(response.json()))
+        self.assertNotIn("Acme", str(response.json()))
+
     def test_list_combines_filters_orders_priorities_and_hides_archived_requests(self) -> None:
         first = self.client.post(self.requests_url, self._payload(), format="json").json()
         second_payload = self._payload()

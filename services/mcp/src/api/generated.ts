@@ -35874,7 +35874,8 @@ export namespace Schemas {
      * Value before the update, including relation snapshots.
      */
     export type FeatureRequestHistoryChangeBefore = string | {
-      id: string;
+      /** @nullable */
+      id: string | null;
       name: string;
     } | {
       id: string;
@@ -35885,7 +35886,8 @@ export namespace Schemas {
      * Value after the update, including relation snapshots.
      */
     export type FeatureRequestHistoryChangeAfter = string | {
-      id: string;
+      /** @nullable */
+      id: string | null;
       name: string;
     } | {
       id: string;
