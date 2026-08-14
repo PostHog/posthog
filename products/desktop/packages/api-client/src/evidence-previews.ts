@@ -13,11 +13,21 @@ export interface EvidencePreview {
   title: string;
   /** One line of status or context, e.g. "Enabled" or "Running since Jan 3". */
   detail?: string;
+  /** Short scannable attributes, e.g. "100% rollout" or "42 clicks". */
+  facts?: string[];
   /**
    * Canonical id when it differs from the cited one (a feature flag cited by
    * key), so the caller can build the object's web URL.
    */
   resolvedId?: string;
+}
+
+function count(n: number, noun: string): string {
+  return `${n.toLocaleString("en-US")} ${n === 1 ? noun : `${noun}s`}`;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 function formatDay(iso: string): string {
@@ -40,9 +50,31 @@ function humanizeStatus(status: string): string {
 export function shapeFlagPreview(flag: Schemas.FeatureFlag): EvidencePreview {
   const state = flag.active ? "Enabled" : "Disabled";
   const name = flag.name?.trim();
+
+  const facts: string[] = [];
+  const filters = isRecord(flag.filters) ? flag.filters : {};
+  const groups = Array.isArray(filters.groups) ? filters.groups : [];
+  if (groups.length === 1 && isRecord(groups[0])) {
+    const rollout = groups[0].rollout_percentage;
+    if (typeof rollout === "number") facts.push(`${rollout}% rollout`);
+  } else if (groups.length > 1) {
+    facts.push(count(groups.length, "release condition"));
+  }
+  const multivariate = isRecord(filters.multivariate)
+    ? filters.multivariate
+    : null;
+  const variants = Array.isArray(multivariate?.variants)
+    ? multivariate.variants.length
+    : 0;
+  if (variants > 0) facts.push(count(variants, "variant"));
+  if (flag.experiment_set?.length) {
+    facts.push(`Used by ${count(flag.experiment_set.length, "experiment")}`);
+  }
+
   return {
     title: flag.key,
     detail: name ? `${state} · ${name}` : state,
+    facts,
     resolvedId: String(flag.id),
   };
 }
@@ -58,7 +90,13 @@ export function shapeExperimentPreview(
   } else {
     detail = "Draft";
   }
-  return { title: experiment.name, detail };
+  return {
+    title: experiment.name,
+    detail,
+    facts: experiment.feature_flag_key
+      ? [`Flag: ${experiment.feature_flag_key}`]
+      : undefined,
+  };
 }
 
 export function shapeErrorIssuePreview(
@@ -86,33 +124,67 @@ export function shapeRecordingPreview(
       : `${Math.round(recording.recording_duration)}s`;
   const parts = [duration];
   if (recording.start_time) parts.push(formatDay(recording.start_time));
+
+  const facts: string[] = [];
+  if (typeof recording.click_count === "number" && recording.click_count > 0) {
+    facts.push(count(recording.click_count, "click"));
+  }
+  if (
+    typeof recording.console_error_count === "number" &&
+    recording.console_error_count > 0
+  ) {
+    facts.push(count(recording.console_error_count, "console error"));
+  }
+  if (recording.start_url) {
+    try {
+      const url = new URL(recording.start_url);
+      facts.push(`${url.host}${url.pathname === "/" ? "" : url.pathname}`);
+    } catch {
+      // Not a parsable URL; skip the fact rather than show garbage.
+    }
+  }
+
   return {
     title: person ? `Session by ${person}` : "Session recording",
     detail: parts.join(" · "),
+    facts,
   };
 }
 
 export function shapeDashboardPreview(
   dashboard: Schemas.Dashboard,
 ): EvidencePreview {
+  const facts: string[] = [];
+  if (Array.isArray(dashboard.tiles)) {
+    facts.push(count(dashboard.tiles.length, "tile"));
+  }
+  if (dashboard.pinned) facts.push("Pinned");
   return {
     title: dashboard.name || "Untitled dashboard",
     detail: dashboard.description || undefined,
+    facts,
   };
 }
 
 export function shapeCohortPreview(cohort: Schemas.Cohort): EvidencePreview {
   const detail =
     typeof cohort.count === "number"
-      ? `${cohort.count.toLocaleString("en-US")} ${cohort.count === 1 ? "person" : "people"}`
+      ? count(cohort.count, "person").replace("persons", "people")
       : cohort.description || undefined;
-  return { title: cohort.name || "Untitled cohort", detail };
+  return {
+    title: cohort.name || "Untitled cohort",
+    detail,
+    facts: [cohort.is_static ? "Static" : "Dynamic"],
+  };
 }
 
 export function shapeActionPreview(action: Schemas.Action): EvidencePreview {
   return {
     title: action.name || "Untitled action",
     detail: action.description || undefined,
+    facts: action.steps?.length
+      ? [count(action.steps.length, "match step")]
+      : undefined,
   };
 }
 

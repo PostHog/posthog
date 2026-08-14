@@ -104,6 +104,7 @@ export const HoverCardStates: Story = {
           preview={{
             title: "new-checkout-flow",
             detail: "Enabled · New checkout rollout",
+            facts: ["100% rollout", "Used by 1 experiment"],
           }}
         >
           new-checkout-flow

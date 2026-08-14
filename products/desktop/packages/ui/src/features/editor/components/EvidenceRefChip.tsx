@@ -1,5 +1,5 @@
 import { getCloudUrlFromRegion } from "@posthog/shared";
-import { type MouseEvent, type ReactNode, useId } from "react";
+import { type MouseEvent, type ReactNode, useId, useState } from "react";
 import { useOptionalAuthenticatedClient } from "../../../features/auth/authClient";
 import { useAuthStateValue } from "../../../features/auth/store";
 import { useAuthenticatedQuery } from "../../../hooks/useAuthenticatedQuery";
@@ -35,6 +35,10 @@ import {
 const SPARK_W = 100;
 const SPARK_H = 30;
 const SPARK_PAD = 2;
+// PostHog's first data-viz color, same source quill-charts reads; the hex
+// fallback keeps the spark on-brand where the theme variable isn't defined
+// (the tooltip portals outside the theme root).
+const SPARK_COLOR = "var(--data-color-1, #1d4aff)";
 
 /** Mini chart of the preview's primary series: a line for time series, columns for categories. */
 function Sparkline({
@@ -71,7 +75,7 @@ function Sparkline({
             width={step - gap}
             y={scaleY(point)}
             height={Math.max(SPARK_H - SPARK_PAD - scaleY(point), 0.5)}
-            fill="var(--accent-9)"
+            fill={SPARK_COLOR}
             fillOpacity={0.85}
           />
         ))}
@@ -104,8 +108,8 @@ function Sparkline({
     >
       <defs>
         <linearGradient id={gradientId} x1="0" y1="0" x2="0" y2="1">
-          <stop offset="0%" stopColor="var(--accent-9)" stopOpacity={0.25} />
-          <stop offset="100%" stopColor="var(--accent-9)" stopOpacity={0.02} />
+          <stop offset="0%" stopColor={SPARK_COLOR} stopOpacity={0.25} />
+          <stop offset="100%" stopColor={SPARK_COLOR} stopOpacity={0.02} />
         </linearGradient>
       </defs>
       <path
@@ -115,13 +119,13 @@ function Sparkline({
       <path
         d={line}
         fill="none"
-        stroke="var(--accent-9)"
+        stroke={SPARK_COLOR}
         strokeWidth={1.6}
         strokeLinejoin="round"
         strokeLinecap="round"
         vectorEffect="non-scaling-stroke"
       />
-      <circle cx={lastX} cy={lastY} r={2} fill="var(--accent-9)" />
+      <circle cx={lastX} cy={lastY} r={2} fill={SPARK_COLOR} />
     </svg>
   );
 }
@@ -146,6 +150,8 @@ export function EvidenceHoverCard({
 }) {
   const meta = getObjectKind(target.kind);
   const KindIcon = meta.icon;
+  const isQuery = target.kind === "hogql";
+  const [showQuery, setShowQuery] = useState(false);
   return (
     <div className="w-80 p-3.5">
       <div className="flex items-center gap-1.5 text-[10.5px] text-(--gray-9)">
@@ -153,7 +159,8 @@ export function EvidenceHoverCard({
         <span className="truncate uppercase tracking-[0.06em]">
           {meta.kindLabel}
         </span>
-        <span className="ml-auto shrink-0">{meta.source}</span>
+        {/* For a query the source label duplicates the footer's open action. */}
+        {!isQuery && <span className="ml-auto shrink-0">{meta.source}</span>}
       </div>
       {preview === undefined ? (
         <div className="mt-3 space-y-2" data-testid="evidence-preview-loading">
@@ -199,6 +206,18 @@ export function EvidenceHoverCard({
               {preview.detail}
             </div>
           )}
+          {preview.facts && preview.facts.length > 0 && (
+            <div className="mt-2 flex flex-wrap gap-1">
+              {preview.facts.map((fact) => (
+                <span
+                  key={fact}
+                  className="max-w-full truncate rounded-[4px] bg-(--gray-a3) px-1.5 py-0.5 text-(--gray-11) text-[10px]"
+                >
+                  {fact}
+                </span>
+              ))}
+            </div>
+          )}
         </div>
       ) : (
         <div className="mt-2.5">
@@ -207,8 +226,30 @@ export function EvidenceHoverCard({
           </span>
         </div>
       )}
+      {isQuery && showQuery && (
+        <div className="mt-3 max-h-36 overflow-y-auto rounded-[4px] bg-(--gray-a3) p-2">
+          <pre
+            className="m-0 select-text whitespace-pre-wrap break-all font-mono text-(--gray-11) text-[10.5px] leading-relaxed"
+            data-testid="evidence-query"
+          >
+            {target.id}
+          </pre>
+        </div>
+      )}
       <div className="mt-3 flex items-center justify-between gap-3 text-[10.5px]">
-        <span className="truncate font-mono text-(--gray-8)">{target.id}</span>
+        {isQuery ? (
+          <button
+            type="button"
+            onClick={() => setShowQuery((open) => !open)}
+            className="min-w-0 cursor-pointer truncate border-none bg-transparent p-0 text-left font-mono text-(--gray-8) transition-colors hover:text-(--gray-11)"
+          >
+            {showQuery ? "Hide query" : target.id}
+          </button>
+        ) : (
+          <span className="truncate font-mono text-(--gray-8)">
+            {target.id}
+          </span>
+        )}
         {url && (
           <button
             type="button"

@@ -17,6 +17,8 @@ import type { EvidenceLinkTarget } from "../../utils/evidenceLinks";
 export interface EvidenceCardData {
   title: string;
   detail?: string;
+  /** Short scannable attributes, e.g. "100% rollout" or "42 clicks". */
+  facts?: string[];
   /** Latest value + step change when the result is a single time series. */
   headline?: ChartHeadlineStat | null;
   /** Mini chart of the primary series. */

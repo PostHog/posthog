@@ -130,4 +130,41 @@ describe("EvidenceHoverCard", () => {
       "https://us.posthog.com/project/2/sql?open_query=SELECT%201",
     );
   });
+
+  it("expands the truncated SQL footer into the full query on click", () => {
+    const sql =
+      "SELECT toDate(timestamp) AS day, count() FROM events GROUP BY day";
+    renderInTheme(
+      <EvidenceHoverCard
+        target={{ kind: "hogql", id: sql }}
+        url={null}
+        preview={{ title: "day" }}
+      >
+        events per day
+      </EvidenceHoverCard>,
+    );
+    expect(screen.queryByTestId("evidence-query")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: /SELECT toDate/ }));
+    expect(screen.getByTestId("evidence-query").textContent).toBe(sql);
+    fireEvent.click(screen.getByRole("button", { name: "Hide query" }));
+    expect(screen.queryByTestId("evidence-query")).toBeNull();
+  });
+
+  it("renders preview facts as pills", () => {
+    renderInTheme(
+      <EvidenceHoverCard
+        target={{ kind: "flag", id: "42" }}
+        url={null}
+        preview={{
+          title: "new-checkout-flow",
+          detail: "Enabled",
+          facts: ["100% rollout", "Used by 1 experiment"],
+        }}
+      >
+        new-checkout-flow
+      </EvidenceHoverCard>,
+    );
+    expect(screen.getByText("100% rollout")).toBeDefined();
+    expect(screen.getByText("Used by 1 experiment")).toBeDefined();
+  });
 });

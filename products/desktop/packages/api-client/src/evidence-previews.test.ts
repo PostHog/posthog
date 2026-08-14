@@ -17,10 +17,16 @@ describe("evidence preview shaping", () => {
       key: "new-checkout-flow",
       name: "New checkout rollout",
       active: true,
-    } as Schemas.FeatureFlag);
+      filters: {
+        groups: [{ rollout_percentage: 25 }],
+        multivariate: { variants: [{ key: "a" }, { key: "b" }] },
+      },
+      experiment_set: [7],
+    } as unknown as Schemas.FeatureFlag);
     expect(preview).toEqual({
       title: "new-checkout-flow",
       detail: "Enabled · New checkout rollout",
+      facts: ["25% rollout", "2 variants", "Used by 1 experiment"],
       resolvedId: "42",
     });
   });
@@ -78,6 +84,22 @@ describe("evidence preview shaping", () => {
     } as Schemas.SessionRecording);
     expect(preview.title).toBe("Session by user-1");
     expect(preview.detail).toMatch(expected);
+  });
+
+  it("surfaces a recording's activity and entry page as facts", () => {
+    const preview = shapeRecordingPreview({
+      id: "s_1",
+      distinct_id: "user-1",
+      recording_duration: 120,
+      click_count: 42,
+      console_error_count: 3,
+      start_url: "https://app.example.com/checkout?step=2",
+    } as Schemas.SessionRecording);
+    expect(preview.facts).toEqual([
+      "42 clicks",
+      "3 console errors",
+      "app.example.com/checkout",
+    ]);
   });
 
   it("describes a cohort by its size, falling back to the description", () => {
