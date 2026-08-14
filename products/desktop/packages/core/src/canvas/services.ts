@@ -11,7 +11,6 @@ import type {
   DashboardRecord,
 } from "./dashboardSchemas";
 import type {
-  CanvasAgentRequestResult,
   CanvasCaptureConfig,
   CanvasCaptureInput,
   CanvasCaptureResult,
@@ -81,10 +80,6 @@ export interface IDashboardsService {
   actOnBuild(input: CanvasBuildActionInput): Promise<CanvasBuildRecord>;
   rename(input: { id: string; name: string }): Promise<DashboardRecord>;
   delete(id: string): Promise<void>;
-  requestAgent(input: {
-    id: string;
-    prompt: string;
-  }): Promise<CanvasAgentRequestResult>;
 }
 
 export interface ICanvasDataService {

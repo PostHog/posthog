@@ -69,16 +69,6 @@ export function createCanvasHostMessageRouter(
   return async (message) => {
     switch (message.type) {
       case "data-request":
-        if (message.method === "agentRequest" && !options.hasUserActivation()) {
-          options.post({
-            channel: "posthog-canvas",
-            type: "data-response",
-            id: message.id,
-            ok: false,
-            error: "Agent requests require a user action",
-          });
-          break;
-        }
         if (
           activeDataRequests >= MAX_CONCURRENT_DATA_REQUESTS ||
           !isBoundedPayload(message.payload)

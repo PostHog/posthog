@@ -16,7 +16,6 @@ import {
   promoteCanvasInput,
   renameDashboardInput,
   reportCanvasErrorInput,
-  requestCanvasAgentInput,
   revertCanvasInput,
   saveContextInput,
   setGenerationTaskInput,
@@ -147,12 +146,5 @@ export const dashboardsRouter = router({
       ctx.container
         .get<IDashboardsService>(DASHBOARDS_SERVICE)
         .delete(input.id),
-    ),
-  requestAgent: publicProcedure
-    .input(requestCanvasAgentInput)
-    .mutation(({ ctx, input }) =>
-      ctx.container
-        .get<IDashboardsService>(DASHBOARDS_SERVICE)
-        .requestAgent(input),
     ),
 });

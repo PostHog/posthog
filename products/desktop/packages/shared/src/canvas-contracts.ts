@@ -18,7 +18,6 @@ export const canvasCapabilitiesSchema = z.object({
     insights: z.array(z.string().min(1).max(128)).max(100),
     inlineQueries: z.boolean(),
     captureEvents: z.array(z.string().min(1).max(200)).max(100),
-    agentRequests: z.boolean().default(false),
   }),
   network: z.object({
     origins: z.array(z.string().url().max(2_048)).max(20),
