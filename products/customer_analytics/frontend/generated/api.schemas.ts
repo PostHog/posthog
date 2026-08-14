@@ -485,15 +485,6 @@ export interface AccountEmailThreadParticipantApi {
     readonly kind: EmailThreadParticipantKindEnumApi
 }
 
-export interface AccountEmailThreadOwnerApi {
-    /** User ID of the channel owner. */
-    readonly user_id: number
-    /** Display name of the channel owner. */
-    readonly name: string
-    /** Email address of the channel owner. */
-    readonly email: string
-}
-
 export interface AccountEmailThreadApi {
     /** UUID of the captured email thread. */
     readonly id: string
@@ -515,8 +506,6 @@ export interface AccountEmailThreadApi {
     readonly message_count: number
     /** Participants included in the email thread. */
     readonly participants: readonly AccountEmailThreadParticipantApi[]
-    /** Customer communication channel owners who can access the thread. */
-    readonly owners: readonly AccountEmailThreadOwnerApi[]
 }
 
 export interface PaginatedAccountEmailThreadListApi {
@@ -590,8 +579,6 @@ export interface AccountEmailThreadDetailApi {
     readonly message_count: number
     /** Participants included in the email thread. */
     readonly participants: readonly AccountEmailThreadParticipantApi[]
-    /** Customer communication channel owners who can access the thread. */
-    readonly owners: readonly AccountEmailThreadOwnerApi[]
     /** Messages ordered by their source timestamp. */
     readonly messages: readonly AccountEmailThreadMessageApi[]
 }

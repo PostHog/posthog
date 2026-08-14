@@ -31,7 +31,6 @@ const thread = {
     last_message_at: '2026-08-01T11:00:00Z',
     message_count: 2,
     participants: [],
-    owners: [],
 } as AccountEmailThreadApi
 
 const detail = {

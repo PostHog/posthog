@@ -25,7 +25,6 @@ from posthog.models.utils import generate_random_token_personal, hash_key_value
 from products.conversations.backend.models import (
     EMAIL_THREAD_COMMENT_SCOPE,
     EmailThread,
-    EmailThreadAccess,
     EmailThreadAccountLink,
     EmailThreadMessage,
     EmailThreadMessageDirection,
@@ -2796,11 +2795,6 @@ class TestAccountEmailThreadViewSet(APIBaseTest):
             message_count=2,
             preview="Latest reply",
         )
-        EmailThreadAccess.objects.for_team(self.team.id).create(
-            team=self.team,
-            thread=self.thread,
-            user=self.user,
-        )
         EmailThreadAccountLink.objects.for_team(self.team.id).create(
             team=self.team,
             thread=self.thread,
@@ -2847,7 +2841,6 @@ class TestAccountEmailThreadViewSet(APIBaseTest):
         summary = payload["results"][0]
         self.assertEqual(summary["subject"], "Renewal planning")
         self.assertEqual(summary["message_count"], 2)
-        self.assertEqual(summary["owners"][0]["user_id"], self.user.id)
         self.assertNotIn("messages", summary)
 
         detail_response = self.client.get(f"{self.endpoint}{self.thread.id}/")

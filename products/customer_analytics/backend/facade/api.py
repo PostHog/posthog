@@ -77,7 +77,6 @@ from products.conversations.backend.facade.api import (
     AccountEmailThreadMessage as AccountEmailThreadMessage,
     AccountEmailThreadSummary as AccountEmailThreadSummary,
     EmailThreadAddress as EmailThreadAddress,
-    EmailThreadOwnerSummary as EmailThreadOwnerSummary,
     EmailThreadParticipantSummary as EmailThreadParticipantSummary,
     SupportSlackChannelsUnavailable,
     SupportSlackNotConfigured,

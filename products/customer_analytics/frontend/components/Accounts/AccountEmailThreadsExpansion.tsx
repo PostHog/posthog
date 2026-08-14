@@ -52,22 +52,6 @@ function ParticipantList({ participants }: { participants: readonly AccountEmail
     )
 }
 
-function OwnerList({ thread }: { thread: AccountEmailThreadApi }): JSX.Element {
-    if (thread.owners.length === 0) {
-        return <span className="text-muted">No owner</span>
-    }
-    return (
-        <span>
-            {thread.owners.map((owner, index) => (
-                <span key={owner.user_id} title={owner.email}>
-                    {owner.name}
-                    {index < thread.owners.length - 1 ? ', ' : ''}
-                </span>
-            ))}
-        </span>
-    )
-}
-
 function recipientSummary(message: AccountEmailThreadMessageApi): string {
     const recipients = [...message.to_recipients, ...message.cc_recipients]
     return recipients.map((recipient) => recipient.name || recipient.email).join(', ')
@@ -171,11 +155,6 @@ export function AccountEmailThreadsExpansion({ accountId }: { accountId: string 
             title: 'Participants',
             key: 'participants',
             render: (_, thread) => <ParticipantList participants={thread.participants} />,
-        },
-        {
-            title: 'Owner',
-            key: 'owners',
-            render: (_, thread) => <OwnerList thread={thread} />,
         },
         {
             title: 'Messages',

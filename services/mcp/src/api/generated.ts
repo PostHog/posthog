@@ -353,15 +353,6 @@ export namespace Schemas {
       readonly kind: EmailThreadParticipantKindEnum;
     }
 
-    export interface AccountEmailThreadOwner {
-      /** User ID of the channel owner. */
-      readonly user_id: number;
-      /** Display name of the channel owner. */
-      readonly name: string;
-      /** Email address of the channel owner. */
-      readonly email: string;
-    }
-
     export interface AccountEmailThread {
       /** UUID of the captured email thread. */
       readonly id: string;
@@ -383,8 +374,6 @@ export namespace Schemas {
       readonly message_count: number;
       /** Participants included in the email thread. */
       readonly participants: readonly AccountEmailThreadParticipant[];
-      /** Customer communication channel owners who can access the thread. */
-      readonly owners: readonly AccountEmailThreadOwner[];
     }
 
     export interface AccountEmailThreadAddress {
@@ -449,8 +438,6 @@ export namespace Schemas {
       readonly message_count: number;
       /** Participants included in the email thread. */
       readonly participants: readonly AccountEmailThreadParticipant[];
-      /** Customer communication channel owners who can access the thread. */
-      readonly owners: readonly AccountEmailThreadOwner[];
       /** Messages ordered by their source timestamp. */
       readonly messages: readonly AccountEmailThreadMessage[];
     }

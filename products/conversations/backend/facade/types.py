@@ -54,13 +54,6 @@ class EmailThreadParticipantSummary:
 
 
 @dataclass(frozen=True)
-class EmailThreadOwnerSummary:
-    user_id: int
-    name: str
-    email: str
-
-
-@dataclass(frozen=True)
 class AccountEmailThreadSummary:
     id: str
     subject: str
@@ -69,7 +62,6 @@ class AccountEmailThreadSummary:
     last_message_at: datetime | None
     message_count: int
     participants: list[EmailThreadParticipantSummary]
-    owners: list[EmailThreadOwnerSummary]
 
 
 @dataclass(frozen=True)

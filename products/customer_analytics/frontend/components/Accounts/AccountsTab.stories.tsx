@@ -406,7 +406,6 @@ export const RowExpandedEmailThreads: Story = {
                             kind: 'customer',
                         },
                     ],
-                    owners: [{ user_id: 1, name: 'Alice Anderson', email: 'alice@posthog.com' }],
                 },
             ],
         }),
@@ -422,7 +421,6 @@ export const RowExpandedEmailThreads: Story = {
                     last_message_at: '2026-05-20T11:30:00Z',
                     message_count: 2,
                     participants: [{ email: 'buyer@example.com', display_name: 'Example buyer', kind: 'customer' }],
-                    owners: [{ user_id: 1, name: 'Alice Anderson', email: 'alice@posthog.com' }],
                     messages: [
                         {
                             id: '22222222-2222-2222-2222-222222222222',
