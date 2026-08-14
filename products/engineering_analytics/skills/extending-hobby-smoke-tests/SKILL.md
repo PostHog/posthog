@@ -77,14 +77,14 @@ Then run Hobby CI once and follow the exact run through image build, cloud setup
 
 Use the first failed boundary to choose the next investigation:
 
-| Evidence | Likely boundary |
-| --- | --- |
-| Capture returns 4xx | Endpoint, token, or payload envelope |
-| Read API returns 401 or 403 | Personal key scope or feature access |
-| Capture succeeds, exact query stays empty | Payload semantics, missing consumer, routing, or storage |
-| Added container is absent or unhealthy | Released image or default compose topology |
-| Query returns 200 with empty series | Not success; keep polling or strengthen the assertion |
-| Earlier product checks fail too | Shared install or trunk failure, not the new assertion alone |
+| Evidence                                  | Likely boundary                                              |
+| ----------------------------------------- | ------------------------------------------------------------ |
+| Capture returns 4xx                       | Endpoint, token, or payload envelope                         |
+| Read API returns 401 or 403               | Personal key scope or feature access                         |
+| Capture succeeds, exact query stays empty | Payload semantics, missing consumer, routing, or storage     |
+| Added container is absent or unhealthy    | Released image or default compose topology                   |
+| Query returns 200 with empty series       | Not success; keep polling or strengthen the assertion        |
+| Earlier product checks fail too           | Shared install or trunk failure, not the new assertion alone |
 
 Pull the failed job log before editing. Confirm the hypothesis against the receiver fixture, consumer registration, compose rendering, and API implementation. Do not run another full deployment on a guessed payload.
 
