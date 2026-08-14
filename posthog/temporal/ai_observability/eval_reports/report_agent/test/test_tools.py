@@ -19,7 +19,12 @@ from parameterized import parameterized
 
 from posthog.hogql import ast
 
-from posthog.exceptions import ClickHouseAtCapacity, ClickHouseQueryMemoryLimitExceeded, ClickHouseQueryTimeOut
+from posthog.exceptions import (
+    ClickHouseAtCapacity,
+    ClickHouseClusterMemoryLimitExceeded,
+    ClickHouseQueryMemoryLimitExceeded,
+    ClickHouseQueryTimeOut,
+)
 from posthog.temporal.ai_observability.eval_reports.report_agent.schema import (
     MAX_REPORT_SECTIONS,
     Citation,
@@ -1091,7 +1096,7 @@ class TestExecuteChQueryWithRetry(SimpleTestCase):
         [
             ("network", NetworkError()),
             ("socket_timeout", SocketTimeoutError()),
-            ("cluster_memory_pressure", ClickHouseQueryMemoryLimitExceeded()),
+            ("cluster_memory_pressure", ClickHouseClusterMemoryLimitExceeded()),
         ]
     )
     @patch("posthog.temporal.ai_observability.eval_reports.report_agent.tools.time.sleep")

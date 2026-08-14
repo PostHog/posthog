@@ -12,7 +12,6 @@ import json
 import time
 import random
 from collections.abc import Callable
-from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING, Annotated, Literal, TypeVar
 
@@ -25,8 +24,8 @@ from langgraph.prebuilt import InjectedState
 
 from posthog.hogql import ast
 
+from posthog.dataclasses import frozen
 from posthog.errors import CH_TRANSIENT_ERRORS
-from posthog.exceptions import ClickHouseQueryMemoryLimitExceeded
 from posthog.temporal.ai_observability.eval_reports.output_types import (
     EvaluationReportOutcomeDefinition,
     get_outcome_definition,
@@ -196,7 +195,7 @@ def _outcome_for_result(output_type: str, result: object, applicable: object = N
         return None
 
 
-@dataclass(frozen=True, kw_only=True, slots=True)
+@frozen
 class TimestampWindow:
     ts_start: datetime
     ts_end: datetime
@@ -230,9 +229,7 @@ T = TypeVar("T")
 
 
 def _is_retriable_ch_error(error: Exception) -> bool:
-    return isinstance(error, RETRIABLE_CH_ERRORS) or (
-        isinstance(error, ClickHouseQueryMemoryLimitExceeded) and not error.is_per_query_limit
-    )
+    return isinstance(error, RETRIABLE_CH_ERRORS)
 
 
 def _execute_ch_query_with_retry(

@@ -108,6 +108,46 @@ class TestProxyRecordAPI(APIBaseTest):
         )
         assert response.status_code == status.HTTP_400_BAD_REQUEST
 
+    def test_diagnose_fails_closed_on_a_stored_domain_that_is_not_a_hostname(self):
+        # Rows predate write-time validation, so the endpoint has to report a failed check
+        # rather than raising into the viewset's catch-all and answering 500.
+        record = ProxyRecord.objects.create(
+            organization=self.organization,
+            created_by=self.user,
+            domain="169.254.169.254:80/pad.attacker.example",
+            target_cname="abc123.proxy.posthog.com",
+            status=ProxyRecord.Status.ERRORING,
+        )
+
+        response = self.client.post(
+            f"/api/organizations/{self.organization.id}/proxy_records/{record.id}/diagnose/",
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        data = response.json()
+        assert data["summary"]["status"] == "fail"
+        assert data["summary"]["primary_issue"] == "domain"
+
+    @parameterized.expand(
+        [
+            # Reads as one DNS name but as the authority `169.254.169.254:80` in a URL.
+            ("smuggled_authority", "169.254.169.254:80/pad.attacker.example"),
+            ("scheme", "https://e.example.com"),
+            ("port", "e.example.com:8080"),
+            ("ip_literal", "169.254.169.254"),
+        ]
+    )
+    @patch("posthog.api.proxy_record.sync_connect")
+    def test_create_rejects_domains_that_are_not_bare_hostnames(self, _name, domain, mock_sync_connect):
+        response = self.client.post(
+            f"/api/organizations/{self.organization.id}/proxy_records/",
+            {"domain": domain},
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert not ProxyRecord.objects.filter(organization=self.organization, domain=domain).exists()
+        mock_sync_connect.assert_not_called()
+
     @patch("posthog.api.proxy_record.sync_connect")
     def test_create_cleans_up_on_temporal_failure(self, mock_sync_connect):
         mock_sync_connect.side_effect = Exception("connection failed")

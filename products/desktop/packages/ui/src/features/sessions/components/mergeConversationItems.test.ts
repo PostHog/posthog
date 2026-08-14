@@ -90,6 +90,35 @@ describe("mergeConversationItems", () => {
     expect(pinned.content).toBe(echoedWithContext);
   });
 
+  it.each([
+    { name: "plain bare echo", bare: "hello" },
+    {
+      name: "bare echo carrying an attachment summary",
+      bare: "hello\n\nAttached files: clipboard.png",
+    },
+  ])(
+    "cloud: folds a raced $name and the shadow-context echo into the pinned message",
+    ({ bare }) => {
+      const echoedWithContext =
+        'hello\n\n<channel_context channel="bluebird">background</channel_context>';
+      const result = mergeConversationItems({
+        conversationItems: [
+          userMessage("bare", bare),
+          userMessage("shadow", echoedWithContext),
+          userMessage("other", "different"),
+        ],
+        optimisticItems: [userMessage("opt", echoedWithContext)],
+        isCloud: true,
+      });
+
+      expect(result.map((item) => item.id)).toEqual(["opt", "other"]);
+      const pinned = result[0];
+      if (pinned.type !== "user_message")
+        throw new Error("expected user_message");
+      expect(pinned.content).toBe(echoedWithContext);
+    },
+  );
+
   it("cloud: dedupes the echo when the placeholder carries an 'Attached files:' summary the echo lacks", () => {
     const echoed = {
       ...userMessage("echo", "hello\n\nDo this"),
