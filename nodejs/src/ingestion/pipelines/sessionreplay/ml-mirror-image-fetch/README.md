@@ -307,6 +307,21 @@ it writes a 404. The lane does not request that URL again while the entry lives.
 common AI training token disallows. It fetches those URLs and only counts them, so phase 0 measures
 the cost of the wider match.
 
+**8.13** A path pattern can carry `*`, which matches zero or more characters, and `$`, which matches
+the end of the path. The comparison is over octets. A percent-encoded octet is decoded before the
+comparison unless it is a reserved character. The path match is case sensitive. The product token
+match is not.
+
+**8.14** When more than one rule matches a URL, the rule with the most octets wins. When an `allow`
+rule and a `disallow` rule match the same number of octets, the `allow` rule wins. When more than
+one group names a product token the lane answers to, the lane combines those groups into one.
+
+**8.15** The lane does not write this matching itself. It uses a parser that follows RFC 9309.
+Requirements 8.13 and 8.14 state the behaviour the lane depends on, so a test can hold any parser to
+it. The lane still owns everything the RFC leaves out: the truncation of requirement 8.4, the
+response classes of requirements 8.6 to 8.9, and the `Content-Signal` and `Content-Usage` lines of
+section 10, which no RFC 9309 parser reads because they are not RFC 9309 directives.
+
 ### 9. Identity
 
 **9.1** Every request carries the same user agent. It names one product token and one URL. That URL
