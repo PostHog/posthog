@@ -1,22 +1,99 @@
 <!DOCTYPE html>
 <html lang="en">
     <head>
-        {% include "head.html" %}
+        <title>PostHog</title>
+        <meta name="viewport" content="width=device-width, initial-scale=1" />
+        <meta charset="utf-8" />
+        <link rel="shortcut icon" href="/static/icons/favicon.ico?v=2026-07-07" />
+        <style>
+            html,
+            body {
+                height: 100%;
+                margin: 0;
+                font-family: -apple-system, BlinkMacSystemFont, avenir next, avenir, segoe ui, helvetica, sans-serif;
+                color: #111;
+                background-color: #f3f4ef;
+            }
+            body {
+                display: flex;
+                flex-direction: column;
+                justify-content: center;
+                align-items: center;
+                padding: 24px;
+                box-sizing: border-box;
+                text-align: center;
+                line-height: 1.5715;
+            }
+            img {
+                width: 180px;
+                max-width: 60vw;
+                margin-bottom: 24px;
+            }
+            h1 {
+                margin: 0 0 12px;
+                font-size: 24px;
+            }
+            p {
+                margin: 0 0 24px;
+                max-width: 420px;
+                font-size: 15px;
+            }
+            .error-id {
+                margin-bottom: 24px;
+                font-size: 13px;
+                color: #5f5f5f;
+            }
+            .error-id code {
+                font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+                color: #111;
+                user-select: all;
+            }
+            .actions {
+                display: flex;
+                flex-wrap: wrap;
+                gap: 12px;
+                justify-content: center;
+            }
+            a.button {
+                display: inline-block;
+                padding: 10px 20px;
+                border-radius: 6px;
+                font-size: 15px;
+                text-decoration: none;
+                border: 1px solid #d0d1c9;
+                color: #111;
+                background-color: #fff;
+            }
+            a.button.primary {
+                background-color: #f54e00;
+                border-color: #f54e00;
+                color: #fff;
+            }
+            .status {
+                margin-top: 24px;
+                font-size: 13px;
+            }
+            .status a {
+                color: #5f5f5f;
+            }
+        </style>
     </head>
-    <style>
-        html, body, iframe {
-            width: 100%;
-            height: 100%;
-            margin: 0;
-        }
-        body {
-            display: flex;
-        }
-        iframe {
-            border: none;
-        }
-    </style>
     <body>
-        <iframe src="https://posthog.com/service-error"/>
+        <img src="/static/hedgehog/warning-hog.png" alt="PostHog hedgehog" />
+        <h1>Something went wrong on our end</h1>
+        <p>
+            PostHog hit an unexpected error and could not finish your request. Try again in a moment. If it keeps
+            happening, send the error ID below to support.
+        </p>
+        {% if error_id %}
+        <div class="error-id">Error ID: <code>{{ error_id }}</code></div>
+        {% endif %}
+        <div class="actions">
+            <a class="button primary" href="{{ request.get_full_path }}">Try again</a>
+            <a class="button" href="/">Back to PostHog</a>
+        </div>
+        <div class="status">
+            <a href="https://status.posthog.com" target="_blank" rel="noopener noreferrer">Check system status</a>
+        </div>
     </body>
 </html>

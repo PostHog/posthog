@@ -1,3 +1,4 @@
+import uuid
 from collections.abc import Callable
 from typing import Any, cast
 from urllib.parse import urlencode, urlparse
@@ -291,10 +292,14 @@ def handler500(request):
     500 error handler.
 
     Templates: :template:`500.html`
-    Context: request
+    Context: request, error_id
     """
+    # A short reference the user can quote to support. sys.exc_info() is still set while the
+    # handler runs, so logger.exception attaches the traceback under the same id.
+    error_id = str(uuid.uuid4())
+    logger.exception("app_server_error", error_id=error_id, path=request.path)
     template = loader.get_template("500.html")
-    return HttpResponseServerError(template.render({"request": request}, request))
+    return HttpResponseServerError(template.render({"request": request, "error_id": error_id}, request))
 
 
 APP_POSTHOG_HOST = "app.posthog.com"

@@ -9,7 +9,7 @@ from parameterized import parameterized
 from rest_framework import status
 
 from posthog.models.instance_setting import override_instance_config
-from posthog.urls import region_host_from_current_instance
+from posthog.urls import handler500, region_host_from_current_instance
 
 
 class TestUrls(APIBaseTest):
@@ -250,3 +250,21 @@ class TestLegacyDuckgresAdminUrls(SimpleTestCase):
 
         assert response.status_code == 302
         assert response["Location"] == expected_location
+
+
+class TestHandler500(SimpleTestCase):
+    def test_renders_self_hosted_error_page_with_recovery_affordances(self) -> None:
+        request = RequestFactory().get("/signup/some-invite-id?foo=bar")
+
+        response = handler500(request)
+        content = response.content.decode()
+
+        assert response.status_code == status.HTTP_500_INTERNAL_SERVER_ERROR
+        # Served from the app, not an iframe of the marketing site — that framing recorded app
+        # crashes as posthog.com replay sessions and went blank when posthog.com was unreachable.
+        assert "posthog.com/service-error" not in content
+        assert "<iframe" not in content
+        # A reference the user can quote to support, and a way back into the app.
+        assert "Error ID:" in content
+        assert 'href="/signup/some-invite-id?foo=bar"' in content
+        assert 'href="/"' in content
