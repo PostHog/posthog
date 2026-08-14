@@ -885,7 +885,7 @@ jobs:
                         },
                         body: JSON.stringify({
                           channel: process.env.SLACK_CHANNEL,
-                          text: `🤖 ${testPrefix}the Storybook full sweep found visual drift. ${runUrl}\nLikely authors from recent master commits: ${likelyAuthors}`,
+                          text: `🤖 ${testPrefix}the Storybook full sweep found visual drift. Open the run and review the changed snapshots: ${runUrl}\nLikely authors from recent master commits: ${likelyAuthors}`,
                           unfurl_links: false,
                         }),
                       }).then((result) => result.json())
