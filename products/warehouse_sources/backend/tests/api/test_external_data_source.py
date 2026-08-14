@@ -56,6 +56,7 @@ from products.warehouse_sources.backend.facade.models import (
 from products.warehouse_sources.backend.facade.types import IncrementalFieldType
 from products.warehouse_sources.backend.presentation.views.external_data_schema import ExternalDataSchemaSerializer
 from products.warehouse_sources.backend.presentation.views.external_data_source import (
+    INVALID_CREDENTIALS_FALLBACK_MESSAGE,
     ExternalDataSourceViewSet,
     get_direct_connection_metadata,
     get_nonsensitive_and_sensitive_field_names,
@@ -182,6 +183,31 @@ class TestExternalDataSource(APIBaseTest):
         # so a later default flip never changes their sync behavior
         source = ExternalDataSource.objects.get(id=payload["id"])
         self.assertEqual(source.api_version, "2024-09-30.acacia")
+
+    @patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.stripe.source.StripeSource.validate_credentials",
+        side_effect=AttributeError("boom"),
+    )
+    def test_create_surfaces_400_when_credential_probe_raises(self, _mock_validate):
+        # A source whose validate_credentials raises (rather than returning (False, message)) must
+        # not 500 the create request — the user gets an actionable message and no source is created.
+        response = self.client.post(
+            f"/api/environments/{self.team.pk}/external_data_sources/",
+            data={
+                "source_type": "Stripe",
+                "created_via": "web",
+                "payload": {
+                    "auth_method": {"selection": "api_key", "stripe_secret_key": "sk_test_123"},
+                    "schemas": [
+                        {"name": name, "should_sync": True, "sync_type": "full_refresh"} for name in STRIPE_ENDPOINTS
+                    ],
+                },
+            },
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.json()["message"], INVALID_CREDENTIALS_FALLBACK_MESSAGE)
+        self.assertFalse(ExternalDataSource.objects.filter(team_id=self.team.pk).exists())
 
     def test_api_version_pin_is_read_only_via_api(self):
         source = self._create_external_data_source()
@@ -13238,3 +13264,62 @@ class TestGithubMultiRepoPatch(APIBaseTest):
 
         removed_webhook_row.refresh_from_db()
         assert removed_webhook_row.deleted is True or removed_webhook_row.should_sync is False
+
+
+class TestFanoutParentCreation(APIBaseTest):
+    """Source creation places no fan-out constraint on the schema selection: any combination of
+    parent and child creates, and the run-time gate decides per run whether the child can read
+    its parent from the warehouse."""
+
+    def _post_sentry_source(self, schemas: list[dict]):
+        with patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.sentry.source.SentrySource.validate_credentials",
+            return_value=(True, None),
+        ):
+            return self.client.post(
+                f"/api/environments/{self.team.pk}/external_data_sources/",
+                data={
+                    "source_type": "Sentry",
+                    "created_via": "web",
+                    "payload": {
+                        "auth_token": "token",
+                        "organization_slug": "acme",
+                        "schemas": schemas,
+                    },
+                },
+            )
+
+    def test_create_accepts_child_when_parent_also_selected(self):
+        response = self._post_sentry_source(
+            [
+                {"name": "issues", "should_sync": True, "sync_type": "full_refresh"},
+                {"name": "issue_events", "should_sync": True, "sync_type": "full_refresh"},
+            ]
+        )
+
+        assert response.status_code == 201, response.json()
+        source = ExternalDataSource.objects.get(team_id=self.team.pk)
+        should_sync_by_name = {
+            schema.name: schema.should_sync
+            for schema in ExternalDataSchema.objects.filter(team_id=self.team.pk, source_id=source.id)
+        }
+        assert should_sync_by_name["issues"] is True
+        assert should_sync_by_name["issue_events"] is True
+
+    @parameterized.expand(
+        [
+            ("unconfigured_parent", {"name": "issues", "should_sync": False}),
+            ("missing_parent", None),
+        ]
+    )
+    def test_create_accepts_child_without_a_usable_parent(self, _name, parent_entry):
+        # Selecting only the child is a supported setup: it syncs off the parent API, exactly as
+        # it does today. Refusing it here would force the customer to pay for parent rows.
+        schemas = [{"name": "issue_events", "should_sync": True, "sync_type": "full_refresh"}]
+        if parent_entry is not None:
+            schemas.insert(0, parent_entry)
+
+        response = self._post_sentry_source(schemas)
+
+        assert response.status_code == 201, response.json()
+        assert ExternalDataSchema.objects.get(team_id=self.team.pk, name="issue_events").should_sync is True

@@ -664,7 +664,7 @@ container.load(localMcpModule);
 container.load(mcpRelayModule);
 // Core's cloud-task service executes MCP relay requests through this seam;
 // the workspace relay service satisfies the core executor interface
-// structurally (docs/cloud-mcp-relay.md).
+// structurally (docs/CLOUD-MCP-RELAY.md).
 container
   .bind(MCP_RELAY_EXECUTOR)
   .toDynamicValue((ctx) => ctx.get(MCP_RELAY_SERVICE))

@@ -81,7 +81,10 @@ import type {
 import { QueryContext } from '~/queries/types'
 
 import { AlertType } from 'products/alerts/frontend/types'
-import type { DataWarehouseSavedQueryApiSuspended } from 'products/data_warehouse/frontend/generated/api.schemas'
+import type {
+    DataWarehouseSavedQueryApiSuspended,
+    SyncFrequencyBoundsApi,
+} from 'products/data_warehouse/frontend/generated/api.schemas'
 import type { ExperimentFeatureFlagInputApi } from 'products/experiments/frontend/generated/api.schemas'
 import type { CommentSlackThreadRefApi } from 'products/platform_features/frontend/generated/api.schemas'
 import type { InsightFilterOverrideContextApi } from 'products/product_analytics/frontend/generated/api.schemas'
@@ -679,6 +682,12 @@ export interface ListOrganizationMembersParams {
     limit?: number
     updated_after?: string
     search?: string
+    /** Only members whose email is on this domain. */
+    email_domain?: string
+    /** Only members whose email is outside the organization's verified domains. */
+    outside_verified_domains?: boolean
+    /** Comma-separated membership levels to return, e.g. `1,8`. */
+    levels?: string
 }
 
 export interface APIErrorType {
@@ -1558,6 +1567,12 @@ export interface RecordingUniversalFilters {
     order?: RecordingsQuery['order']
     order_direction?: RecordingsQuery['order_direction']
     limit?: RecordingsQuery['limit']
+    /**
+     * Server-resolved population narrowing (sessions of persons exposed to the experiment).
+     * Not part of `filter_group`, so the filter-pill editor neither renders nor edits it;
+     * it rides through conversions so saved filters and scanners keep the narrowing.
+     */
+    experiment_exposure?: RecordingsQuery['experiment_exposure']
 }
 
 export interface UniversalFiltersGroup {
@@ -2073,8 +2088,6 @@ export interface SessionRecordingType {
     expiry_time?: string
     /** Number of whole days left until the recording expires. */
     recording_ttl?: number
-    has_summary?: boolean
-    summary_outcome?: { success?: boolean | null; description?: string | null } | null
     /** External references to third party issues. */
     external_references?: SessionRecordingExternalReference[]
     /** False when the recording was included in list results via a direct link despite not matching the filters. */
@@ -3016,6 +3029,7 @@ export enum ChartDisplayType {
     TwoDimensionalHeatmap = 'TwoDimensionalHeatmap',
     BoxPlot = 'BoxPlot',
     SlopeGraph = 'SlopeGraph',
+    ScatterPlot = 'ScatterPlot',
 }
 export enum ChartDisplayCategory {
     TimeSeries = 'TimeSeries',
@@ -6192,6 +6206,8 @@ export interface DataWarehouseSavedQuery {
     sync_frequency?: string
     /** True when the DAG's single schedule owns the cadence, so `sync_frequency` is not editable per view */
     sync_frequency_managed_by_dag?: boolean
+    /** Which cadences this view's lineage allows, and what withholds the rest. Single fetches only */
+    sync_frequency_bounds?: SyncFrequencyBoundsApi
     status?: string
     managed_viewset_kind: DataWarehouseManagedViewsetKind | null
     folder_id?: string | null
@@ -6209,6 +6225,36 @@ export interface DataWarehouseSavedQuery {
     is_test?: boolean
     expires_at?: string
     user_access_level?: AccessControlLevel
+    incremental?: DataWarehouseSavedQueryIncremental | null
+    incremental_state?: DataWarehouseSavedQueryIncrementalState | null
+}
+
+export interface DataWarehouseSavedQueryIncremental {
+    enabled: boolean
+    /** Output column whose advancing value marks rows as new */
+    incremental_key: string
+    /** Output columns that identify a row. Must cover every GROUP BY column, and never be null */
+    unique_key: string[]
+    /** How far back before the last high point to re-read, for late-arriving data */
+    lookback_seconds?: number
+}
+
+export interface DataWarehouseSavedQueryIncrementalState {
+    watermark?: string | null
+    definition_fingerprint?: string | null
+    last_full_refresh_at?: string | null
+    last_run_mode?: 'incremental' | 'full_refresh' | null
+}
+
+export interface DataWarehouseSavedQueryIncrementalCheck {
+    eligible: boolean
+    key_candidates: string[]
+    /** Superset of key_candidates: identity only needs equality, so strings qualify here */
+    unique_key_candidates?: string[]
+    /** Coarse type per candidate (datetime, date, integer, ...). No entry: type unknown */
+    key_candidate_types?: Record<string, string>
+    blockers: string[]
+    warnings: string[]
 }
 
 export interface DataWarehouseSavedQueryFolder {
@@ -6370,6 +6416,8 @@ export interface DataModelingJob {
     id: string
     saved_query_id: string
     status: DataModelingJobStatus
+    /** full_refresh: rows_materialized is the whole table. incremental: only the rows synced. Null: unknown (old run) */
+    run_mode?: 'full_refresh' | 'incremental' | null
     rows_materialized: number
     rows_expected: number | null
     error: string | null
@@ -7901,55 +7949,6 @@ export interface DataWarehouseManagedViewsetSavedQuery {
     created_at: string
     created_by_id: string | null
     name: string
-}
-
-// Session Summaries
-export interface SessionSummaryResponse {
-    patterns: EnrichedSessionGroupSummaryPattern[]
-}
-
-export interface EnrichedSessionGroupSummaryPattern {
-    pattern_id: number
-    pattern_name: string
-    pattern_description: string
-    severity: 'low' | 'medium' | 'high' | 'critical'
-    indicators: string[]
-    events: PatternAssignedEventSegmentContext[]
-    stats: EnrichedSessionGroupSummaryPatternStats
-}
-
-export interface EnrichedSessionGroupSummaryPatternStats {
-    occurences: number
-    sessions_affected: number
-    sessions_affected_ratio: number
-    segments_success_ratio: number
-}
-
-export interface PatternAssignedEventSegmentContext {
-    segment_name: string
-    segment_outcome: string
-    segment_success: boolean
-    segment_index: number
-    previous_events_in_segment: EnrichedPatternAssignedEvent[]
-    target_event: EnrichedPatternAssignedEvent
-    next_events_in_segment: EnrichedPatternAssignedEvent[]
-}
-
-export interface EnrichedPatternAssignedEvent {
-    event_id: string
-    event_uuid: string
-    session_id: string
-    description: string
-    abandonment: boolean
-    confusion: boolean
-    exception: string | null
-    timestamp: string
-    milliseconds_since_start: number
-    window_id: string | null
-    current_url: string | null
-    event: string
-    event_type: string | null
-    event_index: number
 }
 
 export interface QuickFilterOption {

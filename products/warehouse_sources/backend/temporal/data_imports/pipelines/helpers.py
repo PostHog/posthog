@@ -1,12 +1,12 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
 from datetime import date, datetime
 from typing import TYPE_CHECKING
 from zoneinfo import ZoneInfo
 
 from django.db.models import F
 
+from posthog.dataclasses import frozen
 from posthog.sync import database_sync_to_async_pool
 
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
@@ -75,7 +75,7 @@ def build_table_name(source: ExternalDataSource, schema_name: str):
     return f"{source.prefix or ''}{source.source_type}_{safe_schema_name}".lower()
 
 
-@dataclass(frozen=True, kw_only=True, slots=True)
+@frozen
 class ResolvedSchemaNames:
     table_storage_name: str
     folder_name: str

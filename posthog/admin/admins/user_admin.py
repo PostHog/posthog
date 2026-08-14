@@ -1,13 +1,20 @@
 import datetime
+from typing import Any
 
 from django.contrib import admin, messages
 from django.contrib.auth.admin import UserAdmin as DjangoUserAdmin
-from django.contrib.auth.forms import UserChangeForm as DjangoUserChangeForm
+from django.contrib.auth.forms import (
+    ReadOnlyPasswordHashWidget as DjangoReadOnlyPasswordHashWidget,
+    UserChangeForm as DjangoUserChangeForm,
+)
 from django.core.exceptions import ValidationError
 from django.http import HttpResponseRedirect
 from django.urls import reverse
 from django.utils.html import format_html
-from django.utils.translation import gettext_lazy as _
+from django.utils.translation import (
+    gettext,
+    gettext_lazy as _,
+)
 
 from django_otp.plugins.otp_totp.models import TOTPDevice
 
@@ -24,21 +31,22 @@ from posthog.models.webauthn_credential import WebauthnCredential
 from posthog.session.activity import revoke_other_sessions
 from posthog.tasks.email import send_password_reset, send_two_factor_reset_email
 
+# Django's default widget masks salt/hash but still shows their first few characters; keep those out of the admin entirely.
+_HIDDEN_SUMMARY_LABELS = {"salt", "hash", "checksum"}
+
+
+class ReadOnlyPasswordHashWidget(DjangoReadOnlyPasswordHashWidget):
+    def get_context(self, name: str, value: str | None, attrs: dict[str, Any] | None) -> dict[str, Any]:
+        context = super().get_context(name, value, attrs)
+        hidden_labels = {gettext(label) for label in _HIDDEN_SUMMARY_LABELS}
+        context["summary"] = [entry for entry in context["summary"] if entry["label"] not in hidden_labels]
+        return context
+
 
 class UserChangeForm(DjangoUserChangeForm):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        # This is a riff on https://github.com/django/django/blob/stable/4.1.x/django/contrib/auth/forms.py#L151-L153.
-        # The difference from the Django default is that instead of a form where the _admin_ sets the new password,
-        # we have a link to the password reset page which the _user_ can use themselves.
-        # This way if some user needs to reset their password and there's a problem with receiving the reset link email,
-        # an admin can provide that reset link manually – much better than sending a new password in plain text.
-        password_reset_token = password_reset_token_generator.make_token(self.instance)
-        self.fields["password"].help_text = (
-            "Raw passwords are not stored, so there is no way to see this user's password, but you can send them "
-            f'<a target="_blank" href="/reset/{self.instance.uuid}/{password_reset_token}">this password reset link</a> '
-            "(it only works when logged out)."
-        )
+        self.fields["password"].widget = ReadOnlyPasswordHashWidget()
 
     def clean_is_staff(self):
         is_staff = bool(self.cleaned_data.get("is_staff", False))
