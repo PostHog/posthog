@@ -195,8 +195,6 @@ def set_default_slack_notification_channel(team_id: int, value: str | None) -> N
 # One catalog drives the list, the toggles, and the "connected" checks.
 # ---------------------------------------------------------------------------
 
-_DEFAULT_SESSION_ANALYSIS_SAMPLE_RATE = 0.1
-
 
 @dataclasses.dataclass(frozen=True)
 class OnboardingSource:
@@ -248,13 +246,6 @@ _SOURCE_CATALOG: tuple[_SourceSpec, ...] = (
         "Replay vision",
         "bugs and UX problems scanners find in recordings",
         enabled_check=_has_emitting_replay_scanner,
-    ),
-    _SourceSpec(
-        "session_replay",
-        "Session replay analysis (legacy)",
-        "problems real users hit. Replay vision covers this now",
-        (("session_replay", "session_analysis_cluster"),),
-        needs_ai_approval=True,
     ),
 )
 _SOURCE_BY_KEY: dict[str, _SourceSpec] = {spec.key: spec for spec in _SOURCE_CATALOG}
@@ -336,8 +327,6 @@ def set_sources(team_id: int, user_id: int | None, selected_keys: list[str]) -> 
         for source_product, source_type in spec.pairs:
             if want_on:
                 defaults: dict = {"enabled": True, "created_by_id": user_id}
-                if source_type == "session_analysis_cluster":
-                    defaults["config"] = {"sample_rate": _DEFAULT_SESSION_ANALYSIS_SAMPLE_RATE}
                 obj, created = SignalSourceConfig.objects.get_or_create(
                     team_id=team_id, source_product=source_product, source_type=source_type, defaults=defaults
                 )
