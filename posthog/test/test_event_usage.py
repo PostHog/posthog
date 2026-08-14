@@ -320,17 +320,28 @@ class TestGetEventSource(BaseTest):
         request = factory.get("/fake", HTTP_X_POSTHOG_CLIENT="mcp")
         assert get_event_source(request) == EventSource.MCP
 
-    @parameterized.expand(
-        [
-            ("posthog_ai_app_beats_mcp_header", POSTHOG_AI_APP_CLIENT_ID_DEV, EventSource.POSTHOG_AI),
-            ("consented_array_grant_is_the_desktop_app", ARRAY_APP_CLIENT_ID_DEV, EventSource.DESKTOP),
-        ]
-    )
-    def test_posthog_ai_oauth_app_source(self, _name, client_id, expected):
+    def test_posthog_ai_oauth_app_beats_the_mcp_header(self):
         request = SimpleNamespace(
             META={},
             headers={"X-Posthog-Client": "mcp"},
-            successful_authenticator=_oauth_authenticator(client_id),
+            successful_authenticator=_oauth_authenticator(POSTHOG_AI_APP_CLIENT_ID_DEV),
+        )
+        assert get_event_source(request) == EventSource.POSTHOG_AI
+
+    @parameterized.expand(
+        [
+            # A first-party caller that declares no consumer is resolved from the grant alone, and
+            # only a token a person consented to in the browser is the interactive app.
+            ("consented_grant_is_the_app", "insight:read", True, EventSource.DESKTOP),
+            ("server_minted_token_is_not_the_app", "insight:read internal_run:read", True, EventSource.MCP),
+            ("no_consent_flow_behind_the_token", "insight:read", False, EventSource.MCP),
+        ]
+    )
+    def test_undeclared_first_party_consumer_resolves_from_the_grant(self, _name, scope, consented, expected):
+        request = SimpleNamespace(
+            META={},
+            headers={"X-Posthog-Client": "mcp"},
+            successful_authenticator=_oauth_authenticator(ARRAY_APP_CLIENT_ID_DEV, scope=scope, consented=consented),
         )
         assert get_event_source(request) == expected
 
@@ -342,17 +353,11 @@ class TestGetEventSource(BaseTest):
 
     @parameterized.expand(
         [
-            # The Electron app and every sandbox agent send the same consumer; only the grant
-            # separates them. A server-minted token carries internal_run:read, a person's does not.
-            ("desktop_app", _POSTHOG_CODE_CONSUMER, "insight:read", True, EventSource.DESKTOP),
+            # The agent PostHog Desktop hosts locally authenticates with the same consented token
+            # as the app around it, so the declared consumer is what tells them apart. A grant that
+            # would otherwise read as the interactive app must not override it.
+            ("local_agent_in_desktop", _POSTHOG_CODE_CONSUMER, "insight:read", True, EventSource.POSTHOG_CODE),
             ("sandbox_agent", _POSTHOG_CODE_CONSUMER, "insight:read internal_run:read", True, EventSource.POSTHOG_CODE),
-            (
-                "array_grant_without_consent_flow",
-                _POSTHOG_CODE_CONSUMER,
-                "insight:read",
-                False,
-                EventSource.POSTHOG_CODE,
-            ),
             ("slack_app", "slack", "insight:read internal_run:read", True, EventSource.SLACK),
             ("posthog_ai_agent", "posthog_ai", "insight:read internal_run:read", True, EventSource.POSTHOG_AI),
             ("unrecognized_consumer", "ops-agent", "insight:read internal_run:read", True, EventSource.MCP),

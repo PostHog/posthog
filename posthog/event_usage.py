@@ -368,11 +368,12 @@ _POSTHOG_CODE_UA_RE = re.compile(r"posthog/(code|[\w.-]+\.hog\.dev)")
 # before _POSTHOG_CODE_UA_RE, which would otherwise swallow it along with the headless agents.
 _DESKTOP_UA_TOKEN = "posthog/desktop.hog.dev"
 
-# The MCP server's catch-all consumer. Everything that isn't Slack or PostHog AI declares it:
-# the interactive Electron app as well as every sandbox agent (the cloud coding agent, signals
-# scouts, signal_report, experiments, image_builder). Only the OAuth grant tells the app apart
-# from the agents; the agents are not separable from each other by header alone, which is why
-# they all stay POSTHOG_CODE for now.
+# The MCP server's catch-all consumer, declared by every first-party caller that is neither Slack
+# nor PostHog AI: the cloud coding agent, signals scouts, signal_report, experiments, image_builder,
+# and the local agent PostHog Desktop hosts. That local agent forwards the user's own consented
+# Desktop token, so the OAuth grant cannot separate it from the app it runs inside. The declaration
+# is the only signal that can, which is why it outranks the grant below. The agents are not
+# separable from each other by header alone, so they share POSTHOG_CODE.
 _POSTHOG_CODE_MCP_CONSUMER = "posthog-code"
 
 # Surfaces a caller can declare in `X-Posthog-Mcp-Consumer` when it wraps the MCP server.
@@ -393,13 +394,17 @@ _WIZARD_SELF_DRIVING_PROGRAM_RE = re.compile(r"program:\s*self-driving")
 def _resolve_mcp_surface(request) -> EventSource:
     """Which surface wrapped the MCP server, for a request the MCP server proxied.
 
-    Ends at MCP — a third-party agent — unless a first-party OAuth application vouches for
+    Ends at MCP, meaning a third-party agent, unless a first-party OAuth application vouches for
     the request, which is the only signal here a caller can't set for itself.
+
+    A declared consumer outranks the grant, because the agents PostHog Desktop hosts authenticate
+    with the same interactive token the app itself uses. Only a request that declares nothing is
+    resolved from the grant.
     """
     if not is_first_party_oauth_client(request):
         return EventSource.MCP
     consumer = request.headers.get("X-Posthog-Mcp-Consumer")
-    if consumer in (None, "", _POSTHOG_CODE_MCP_CONSUMER) and is_interactive_desktop_grant(request):
+    if consumer in (None, "") and is_interactive_desktop_grant(request):
         return EventSource.DESKTOP
     return _FIRST_PARTY_MCP_CONSUMER_TO_SOURCE.get(consumer, EventSource.MCP)
 
