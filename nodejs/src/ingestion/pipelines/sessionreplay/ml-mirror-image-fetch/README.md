@@ -220,6 +220,26 @@ The ACL says nothing about ports, which is why rule 35 exists.
     AI training tokens would have blocked. It acts on none of those counts, so phase 0 can measure
     what the stricter reading would cost.
 
+### Identity
+
+45. Every request carries the same user agent. It names one product token and a URL where an
+    operator can read what the lane does and how to refuse it.
+46. The user agent never names a browser. An operator who sees a browser string from a crawler reads
+    it as evasion rather than as an unverified bot, and evasion is the harder state to leave.
+47. Every request carries a Web Bot Auth signature, so an operator can verify the request came from
+    us without trusting the user agent. That is `Signature`, `Signature-Input` and `Signature-Agent`,
+    per RFC 9421.
+48. `Signature-Agent` names the origin that serves our public key, and that origin serves it at
+    `/.well-known/http-message-signatures-directory`.
+49. The signature omits what Cloudflare refuses: the `@query-params` and `@status` components, and
+    the `sf`, `bs`, `key`, `req` and `name` parameters. Every value is ASCII.
+50. The `expires` parameter leaves the request enough time to reach the verifier.
+51. The private key reaches the pod from the secret store. It appears in no log, no metric, and no
+    error message.
+52. The lane publishes no list of egress IP addresses. Its egress is shared with every other proxied
+    workload, so an operator who blocked it to refuse this lane would also block the webhook
+    delivery they asked for.
+
 ## How a message waits
 
 Kafka has no delayed delivery. The delay belongs to the topic, not to the message, because a
