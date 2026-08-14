@@ -34,6 +34,11 @@ export const ONBOARDING_FLOW_VARIANTS: Record<OnboardingFlowVariant, OnboardingV
  * and `self-driving`; only `self-driving` selects the redesign. Everything else — `control`, the
  * historical `legacy` value (treated as an alias of control), unknown values, booleans, unset —
  * maps to the internal `legacy` variant (the existing design).
+ *
+ * That collapse makes this resolver unsafe on its own as a gate for analytics. Before the flags
+ * land it reports `legacy` for every session, and an event captured then carries no
+ * `$feature/onboarding-flow-variant` property for an experiment to read. Any caller that emits an
+ * exposure event from this value must check `receivedFeatureFlags` first.
  */
 export function resolveOnboardingFlowVariant(featureFlags: FeatureFlagsSet): OnboardingFlowVariant {
     const variant = featureFlags[FEATURE_FLAGS.ONBOARDING_FLOW_VARIANT]

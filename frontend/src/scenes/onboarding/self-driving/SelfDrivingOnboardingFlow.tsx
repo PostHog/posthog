@@ -140,6 +140,10 @@ export function SelfDrivingOnboardingFlow(): JSX.Element {
     // Funnel (GROW-89): `started` fires once per fresh entry — a ?step= resume (refresh, OAuth
     // callback) is a continuation, not a new start. `step viewed` fires for every step shown,
     // including the one this mounts on.
+    // This needs no `receivedFeatureFlags` gate, unlike the legacy flow, because the component
+    // renders only on a definitive `self-driving` resolution, so the flags are loaded by the time it
+    // mounts and the capture carries `$feature/onboarding-flow-variant`. A fallback that rendered
+    // this flow without a resolved flag would emit exposures the experiment cannot attribute.
     useOnMountEffect(() => {
         if (stepIndex === 0) {
             reportOnboardingStarted('welcome', SELF_DRIVING_ONBOARDING_EVENT_PROPS)
