@@ -105,7 +105,12 @@ export function LogsFilterVolumeSparkline({
             // Bucket timestamps carry an offset, and the settings pages around this preview read in
             // the viewer's own time.
             xAxis: { timezone: dayjs.tz.guess(), interval: bucketInterval(seriesData.bucketSeconds) },
-            yAxis: { tickFormatter: formatValue },
+            // Value ticks would only cost plot height here, because the header prints the total, a
+            // goal line carries its own value, and the tooltip gives exact per-service numbers.
+            // Hiding is label-only, so a goal line above the peak still stretches the domain.
+            yAxis: { hide: true, showGrid: false },
+            // Drawn by default on both edges, but the left one would frame an axis nothing labels.
+            showAxisLines: { y: false },
             goalLines,
             barCornerRadius: 2,
             showCrosshair: false,
