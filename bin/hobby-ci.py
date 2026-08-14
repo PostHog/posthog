@@ -460,6 +460,8 @@ runcmd:
         project_api_token, personal_api_key = output_line[-1].split("|||")
 
         capture_id = str(uuid.uuid4())
+        exception_value = f"hobby_ci_error_smoke_test_{time.time_ns()}"
+        error_date_from = datetime.datetime.now(datetime.UTC).isoformat()
         events = [
             {
                 "event": "hobby_ci_smoke_test",
@@ -473,7 +475,7 @@ runcmd:
                     "$exception_list": [
                         {
                             "type": "HobbyCISmokeTestError",
-                            "value": "Exception capture smoke test",
+                            "value": exception_value,
                             "mechanism": {"handled": True, "synthetic": True},
                             "stacktrace": {"type": "raw", "frames": []},
                         }
@@ -587,15 +589,47 @@ runcmd:
                     results = logs_resp.json().get("results", [])
                     if results:
                         print(f"✅ Log found after {attempt} poll(s)", flush=True)
-                        return True, "Events and log ingested successfully"
+                        break
                     print(f"   Poll {attempt}: no logs yet", flush=True)
                 else:
                     print(f"   Poll {attempt}: HTTP {logs_resp.status_code}", flush=True)
             except Exception as e:
                 print(f"   Poll {attempt}: {type(e).__name__}", flush=True)
             time.sleep(poll_interval)
+        else:
+            return False, f"Log did not appear within {timeout_seconds}s ({attempt} polls)"
 
-        return False, f"Log did not appear within {timeout_seconds}s ({attempt} polls)"
+        print(f"⏳ Polling for error tracking issue (timeout {timeout_seconds}s)...", flush=True)
+        deadline = time.time() + timeout_seconds
+        attempt = 0
+        while time.time() < deadline:
+            attempt += 1
+            try:
+                issues_resp = requests.post(
+                    f"{base_url}/api/projects/@current/error_tracking/query/issues",  # nosemgrep: python.lang.security.audit.insecure-transport.requests.request-with-http.request-with-http
+                    json={
+                        "status": "all",
+                        "filterTestAccounts": False,
+                        "dateRange": {"date_from": error_date_from},
+                        "searchQuery": exception_value,
+                        "limit": 1,
+                    },
+                    headers=headers,
+                    timeout=10,
+                )
+                if issues_resp.status_code == 200:
+                    results = issues_resp.json().get("results", [])
+                    if results:
+                        print(f"✅ Error tracking issue found after {attempt} poll(s)", flush=True)
+                        return True, "Events, log, and exception issue ingested successfully"
+                    print(f"   Poll {attempt}: no error tracking issue yet", flush=True)
+                else:
+                    print(f"   Poll {attempt}: HTTP {issues_resp.status_code}", flush=True)
+            except Exception as e:
+                print(f"   Poll {attempt}: {type(e).__name__}", flush=True)
+            time.sleep(poll_interval)
+
+        return False, f"Error tracking issue did not appear within {timeout_seconds}s ({attempt} polls)"
 
     @staticmethod
     def find_existing_droplet_for_pr(token, pr_number):
