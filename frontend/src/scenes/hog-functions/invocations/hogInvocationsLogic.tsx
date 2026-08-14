@@ -1475,10 +1475,19 @@ export const hogInvocationsLogic = kea<hogInvocationsLogicType>([
             try {
                 const response = await hogFlowsInvocationsCancelCreate(String(teamId), props.id, { all: true })
                 const marked = response.marked ?? 0
-                if (marked > 0) {
+                const stopTiming = 'Parked runs stop within moments. Runs mid-step stop at their next step.'
+                if (marked > 0 && response.done) {
                     lemonToast.success(
-                        `Cancellation requested for ${marked} in-flight ${marked === 1 ? 'run' : 'runs'}. Parked runs stop within moments. Runs mid-step stop at their next step.`
+                        `Cancellation requested for ${marked} in-flight ${marked === 1 ? 'run' : 'runs'}. ${stopTiming}`
                     )
+                } else if (marked > 0) {
+                    // One request sweeps a bounded batch of runs, so a very large or still-enrolling
+                    // workflow leaves some unflagged. Prompt another pass instead of reporting a clean stop.
+                    lemonToast.warning(
+                        `Cancellation requested for ${marked} in-flight ${marked === 1 ? 'run' : 'runs'}, but more are still in flight. Run "Cancel in-flight runs" again to catch the rest.`
+                    )
+                } else if (!response.done) {
+                    lemonToast.warning('Runs are still in flight. Run "Cancel in-flight runs" again in a moment.')
                 } else {
                     lemonToast.info('No runs are in flight for this workflow.')
                 }
