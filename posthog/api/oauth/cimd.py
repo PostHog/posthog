@@ -302,13 +302,13 @@ def fetch_client_json_document(
     # the first lookup with a public address and the second with an internal one. Pinning
     # the connection to the addresses we actually validated closes that rebinding window;
     # PinnedIPAdapter keeps the original hostname for SNI and certificate verification.
-    allowed, reason, pinned_ips = validate_url_and_pin_ips(url)
-    if not allowed:
-        raise CIMDValidationError(f"URL blocked: {reason}")
+    verdict = validate_url_and_pin_ips(url)
+    if not verdict.allowed:
+        raise CIMDValidationError(f"URL blocked: {verdict.reason}")
 
     adapter = PinnedIPAdapter()
     hostname = (urlparse(url).hostname or "").lower()
-    chosen_ip = select_pinned_ip(pinned_ips)
+    chosen_ip = select_pinned_ip(verdict.pinned_ips)
     if chosen_ip is not None:
         adapter.pin(hostname, chosen_ip)
 
