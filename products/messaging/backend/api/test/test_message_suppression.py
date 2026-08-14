@@ -31,10 +31,9 @@ class TestMessageSuppressionViewSetScope(SimpleTestCase):
 
 class TestSuppressionListPersonalAPIKeyAccess(APIBaseTest):
     """
-    Guards against the read action losing its scope mapping. `suppressions` is a custom @action, so
-    APIScopePermission only resolves a required scope for it if it is named in
-    scope_object_read_actions — otherwise it resolves none and rejects every token with "does not
-    support personal API key access", while session auth (which skips scope checks) still works.
+    Guards the token scopes on the read action. It needs both hog_flow:read and person:read, so
+    neither alone opens up the recipient addresses and SMTP diagnostics the rows carry. Session auth
+    skips scope checks entirely, so only a token exercises this.
     """
 
     def _key(self, scopes: list[str]) -> str:
@@ -47,13 +46,19 @@ class TestSuppressionListPersonalAPIKeyAccess(APIBaseTest):
         )
         return value
 
-    @parameterized.expand([("hog_flow:read", 200), ("insight:read", 403)])
-    def test_suppressions_read_requires_hog_flow_read_scope(self, scope: str, expected_status: int) -> None:
+    @parameterized.expand(
+        [
+            (["hog_flow:read", "person:read"], 200),
+            (["hog_flow:read"], 403),
+            (["person:read"], 403),
+        ]
+    )
+    def test_suppressions_read_requires_both_scopes(self, scopes: list[str], expected_status: int) -> None:
         self.client.logout()
 
         response = self.client.get(
             f"/api/projects/{self.team.id}/messaging_suppressions/suppressions/",
-            HTTP_AUTHORIZATION=f"Bearer {self._key([scope])}",
+            HTTP_AUTHORIZATION=f"Bearer {self._key(scopes)}",
         )
 
         assert response.status_code == expected_status, response.json()

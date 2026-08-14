@@ -10,6 +10,7 @@ import { IconSparkles } from '@posthog/icons'
 import { LemonButton, LemonInput, LemonSelect, LemonSwitch, LemonTag, LemonTextArea, Link } from '@posthog/lemon-ui'
 
 import { pngHoggie } from 'lib/brand/hoggies'
+import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { LemonField } from 'lib/lemon-ui/LemonField'
@@ -20,6 +21,7 @@ import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
+import { tagsModel } from '~/models/tagsModel'
 import { ProductKey } from '~/queries/schema/schema-general'
 
 import { ReplayVisionFeedbackButton } from '../components/ReplayVisionFeedbackButton'
@@ -103,7 +105,10 @@ export function ScannerEditorSceneComponent(): JSX.Element {
         self_driving: false,
         configure: showScannerErrors && !!(scannerValidationErrors?.name || scannerValidationErrors?.scanner_config),
         triggers:
-            showScannerErrors && (scannerValidationErrors?.sampling_rate != null || durationValidationError != null),
+            showScannerErrors &&
+            (scannerValidationErrors?.sampling_rate != null ||
+                scannerValidationErrors?.credit_limit != null ||
+                durationValidationError != null),
     }
 
     // Validate the current step and move on: submit routes to the next visible step on success.
@@ -207,6 +212,7 @@ function ConfigureStep(): JSX.Element {
     const { setScannerType } = useActions(replayScannerLogic({ id: scannerId }))
     const { searchParams } = useValues(router)
     const { featureFlags } = useValues(featureFlagLogic)
+    const { tags: allTags } = useValues(tagsModel)
     const namingVariant = modelNamingVariant(featureFlags[FEATURE_FLAGS.REPLAY_VISION_MODEL_TIER_NAMING_EXPERIMENT])
     const isTypeSelectable = isNew && !searchParams.template
 
@@ -235,6 +241,23 @@ function ConfigureStep(): JSX.Element {
                 help="The scanning agent doesn't see this field. It's for you and your team to keep scanners organized."
             >
                 <LemonTextArea placeholder="What this scanner looks for and why." minRows={2} />
+            </LemonField>
+
+            <LemonField
+                name="tags"
+                label="Tags (optional)"
+                help="For organizing and filtering the scanner list. The scanning agent doesn't see them."
+            >
+                {({ value, onChange }) => (
+                    <ObjectTags
+                        tags={value ?? []}
+                        onChange={onChange}
+                        saving={false}
+                        // Tags from other products can contain commas; the scanner API rejects those, so don't offer them.
+                        tagsAvailable={allTags.filter((tag) => !tag.includes(',') && !value?.includes(tag))}
+                        data-attr="vision-editor-tags"
+                    />
+                )}
             </LemonField>
 
             {isTypeSelectable ? (

@@ -30,6 +30,8 @@ from django.core.cache import cache
 from django.core.exceptions import ValidationError
 from django.db import IntegrityError, transaction
 from django.db.models import (
+    Aggregate,
+    Avg,
     BooleanField,
     CharField,
     Count,
@@ -39,11 +41,14 @@ from django.db.models import (
     Field,
     FloatField,
     IntegerField,
+    Max,
+    Min,
     OuterRef,
     Prefetch,
     Q,
     QuerySet,
     Subquery,
+    Sum,
     TextField,
     Value,
 )
@@ -83,6 +88,7 @@ from products.customer_analytics.backend.logic import (
     announcements as _announcements_logic,
     channel_summaries as _channel_summaries_logic,
     custom_property_values as _custom_property_values_logic,
+    feature_requests as _feature_requests_logic,
     relationships as _relationships_logic,
 )
 from products.customer_analytics.backend.logic.custom_property_definitions import (
@@ -1955,6 +1961,82 @@ def list_custom_property_sync_runs(
     return [_to_sync_run_view(run) for run in page], total_count
 
 
+FeatureRequestValidationError = _feature_requests_logic.FeatureRequestValidationError
+FeatureRequestProductAreaConflictError = _feature_requests_logic.FeatureRequestProductAreaConflictError
+
+
+def list_feature_request_product_areas(
+    team_id: int, *, include_inactive: bool = False
+) -> list[contracts.FeatureRequestProductAreaView]:
+    return _feature_requests_logic.list_product_areas(team_id, include_inactive=include_inactive)
+
+
+def create_feature_request_product_area(
+    *, team_id: int, name: str, display_order: int, actor_id: int
+) -> contracts.FeatureRequestProductAreaView:
+    return _feature_requests_logic.create_product_area(
+        team_id=team_id,
+        name=name,
+        display_order=display_order,
+        actor_id=actor_id,
+    )
+
+
+def update_feature_request_product_area(
+    *,
+    team_id: int,
+    product_area_id: UUID,
+    name: str | None,
+    display_order: int | None,
+    is_active: bool | None,
+    actor_id: int,
+) -> contracts.FeatureRequestProductAreaView | None:
+    return _feature_requests_logic.update_product_area(
+        team_id=team_id,
+        product_area_id=product_area_id,
+        name=name,
+        display_order=display_order,
+        is_active=is_active,
+        actor_id=actor_id,
+    )
+
+
+def list_feature_requests(
+    *, team_id: int, user_access_control: "UserAccessControl", offset: int, limit: int
+) -> tuple[list[contracts.FeatureRequestView], int]:
+    return _feature_requests_logic.list_feature_requests(
+        team_id=team_id,
+        user_access_control=user_access_control,
+        offset=offset,
+        limit=limit,
+    )
+
+
+def get_feature_request(
+    *, team_id: int, feature_request_id: UUID, user_access_control: "UserAccessControl"
+) -> contracts.FeatureRequestView | None:
+    return _feature_requests_logic.get_feature_request(
+        team_id=team_id,
+        feature_request_id=feature_request_id,
+        user_access_control=user_access_control,
+    )
+
+
+def create_feature_request(
+    *,
+    team_id: int,
+    input: contracts.CreateFeatureRequestInput,
+    actor_id: int,
+    user_access_control: "UserAccessControl",
+) -> contracts.FeatureRequestCreateOutcome:
+    return _feature_requests_logic.create_feature_request(
+        team_id=team_id,
+        input=input,
+        actor_id=actor_id,
+        user_access_control=user_access_control,
+    )
+
+
 # --- CustomerJourney ---
 
 
@@ -2477,6 +2559,90 @@ def _apply_account_table_sort(
         else order.desc(nulls_last=True)
     )
     return queryset.order_by(primary_order, "id")
+
+
+class _PercentileCont(Aggregate):
+    function = "PERCENTILE_CONT"
+    template = "%(function)s(0.5) WITHIN GROUP (ORDER BY %(expressions)s)"
+    output_field = FloatField()
+
+
+def query_accounts_metrics(
+    *,
+    team_id: int,
+    user_access_control: "UserAccessControl",
+    filters: tuple[contracts.AccountTableFilter, ...],
+    metrics: tuple[contracts.AccountTableMetric, ...],
+) -> list[float | int | None]:
+    definition_ids = frozenset(
+        metric.definition_id
+        for metric in metrics
+        if isinstance(metric, contracts.AccountTableAggregateMetric | contracts.AccountTableCountThresholdMetric)
+    )
+    custom_property_display_types = _validate_account_table_definitions(
+        team_id=team_id,
+        selection=contracts.AccountTableColumnSelection(custom_property_definition_ids=definition_ids),
+        filters=filters,
+        sort=None,
+    )
+    for definition_id in definition_ids:
+        if DATA_TYPE_BY_DISPLAY_TYPE[custom_property_display_types[definition_id]] != DataType.NUMERIC:
+            raise InvalidAccountTableColumn("Account table metrics require numeric custom properties.")
+
+    accounts = _apply_account_table_filters(
+        _accounts_queryset(team_id, user_access_control),
+        team_id=team_id,
+        filters=filters,
+        custom_property_display_types=custom_property_display_types,
+    )
+    results: list[float | int | None] = [None] * len(metrics)
+    for index, metric in enumerate(metrics):
+        if isinstance(metric, contracts.AccountTableCountMetric):
+            results[index] = accounts.count()
+
+    aggregate_expressions: dict[str, Aggregate] = {}
+    for index, metric in enumerate(metrics):
+        alias = f"metric_{index}"
+        if isinstance(metric, contracts.AccountTableAggregateMetric):
+            aggregate_type = {
+                contracts.AccountTableAggregation.SUM: Sum,
+                contracts.AccountTableAggregation.AVERAGE: Avg,
+                contracts.AccountTableAggregation.MINIMUM: Min,
+                contracts.AccountTableAggregation.MAXIMUM: Max,
+                contracts.AccountTableAggregation.MEDIAN: _PercentileCont,
+            }[metric.aggregation]
+            aggregate_expressions[alias] = aggregate_type(
+                "value_num",
+                filter=Q(definition_id=metric.definition_id),
+            )
+        elif isinstance(metric, contracts.AccountTableCountThresholdMetric):
+            comparison = {
+                contracts.AccountTableThresholdOperator.GREATER_THAN: Q(value_num__gt=metric.value),
+                contracts.AccountTableThresholdOperator.GREATER_THAN_OR_EQUAL: Q(value_num__gte=metric.value),
+                contracts.AccountTableThresholdOperator.LESS_THAN: Q(value_num__lt=metric.value),
+                contracts.AccountTableThresholdOperator.LESS_THAN_OR_EQUAL: Q(value_num__lte=metric.value),
+                contracts.AccountTableThresholdOperator.EQUAL: Q(value_num=metric.value),
+                contracts.AccountTableThresholdOperator.NOT_EQUAL: ~Q(value_num=metric.value),
+            }[metric.operator]
+            aggregate_expressions[alias] = Count(
+                "account_id",
+                filter=Q(definition_id=metric.definition_id) & comparison,
+            )
+
+    if aggregate_expressions:
+        values = CustomPropertyValue.objects.for_team(team_id).filter(
+            account_id__in=accounts.order_by().values("id"),
+            is_deleted=False,
+            value_num__isnull=False,
+        )
+        aggregated = values.aggregate(**aggregate_expressions)
+        for index, metric in enumerate(metrics):
+            value = aggregated.get(f"metric_{index}")
+            if isinstance(metric, contracts.AccountTableAggregateMetric) and value is not None:
+                results[index] = float(value) * (metric.scale if metric.scale is not None else 1)
+            elif isinstance(metric, contracts.AccountTableCountThresholdMetric):
+                results[index] = int(value or 0)
+    return results
 
 
 def query_accounts_table(

@@ -40,6 +40,10 @@ import { useTaskChannelMap } from "@posthog/ui/features/canvas/hooks/useTaskChan
 import { getDefaultReviewMode } from "@posthog/ui/features/code-review/getDefaultReviewMode";
 import { useReviewNavigationStore } from "@posthog/ui/features/code-review/reviewNavigationStore";
 import { CommandKeyHints } from "@posthog/ui/features/command/CommandKeyHints";
+import {
+  matchesCommandSearch,
+  prioritizeExactCommandMatches,
+} from "@posthog/ui/features/command/commandSearch";
 import { useFileSearchStore } from "@posthog/ui/features/command/fileSearchStore";
 import {
   formatHotkeyParts,
@@ -549,6 +553,7 @@ export function CommandMenu({ open, onOpenChange }: CommandMenuProps) {
           label: channel.name,
           keywords: "space channel",
           icon: channelGlyph(channel.name, {
+            personal: channel.channelType === "personal",
             size: 12,
             space: spacesLayout,
             className: "text-muted-foreground",
@@ -576,13 +581,17 @@ export function CommandMenu({ open, onOpenChange }: CommandMenuProps) {
 
   // Commands, channels, and tasks share a single filterable list.
   const sections = useMemo(
-    () => [
-      ...searchSections,
-      ...commandSections,
-      ...channelSections,
-      ...taskSections,
-    ],
-    [searchSections, commandSections, channelSections, taskSections],
+    () =>
+      prioritizeExactCommandMatches(
+        [
+          ...searchSections,
+          ...commandSections,
+          ...channelSections,
+          ...taskSections,
+        ],
+        query,
+      ),
+    [searchSections, commandSections, channelSections, taskSections, query],
   );
 
   const allCommands = useMemo(
@@ -622,11 +631,7 @@ export function CommandMenu({ open, onOpenChange }: CommandMenuProps) {
               setQuery(val);
             }
           }}
-          filter={(cmd, q) => {
-            if (!q) return true;
-            const haystack = `${cmd.label} ${cmd.keywords ?? ""}`.toLowerCase();
-            return haystack.includes(q.toLowerCase());
-          }}
+          filter={matchesCommandSearch}
         >
           <AutocompleteInput
             placeholder={

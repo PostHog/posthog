@@ -198,6 +198,70 @@ read `FINAL_REPORT.md` there first (config glossary + coverage matrix + ranking)
    rate drops materially (toward ≤50%) on frozen-PR evals with the valid-finding set intact (item 5's
    coverage matrix as the guard); kill if valid findings drop with the noise.
 
+### ✅ BUILT 2026-08-12 — review body cut to a severity tally (the chunk summary is gone)
+
+The published body opened with a walk of the chunk tree: a `## <chunk type>` heading per chunk, an `Issues: N`
+line, a collapsed file list, and a collapsed "What were the main changes" block built from the chunker's
+`key_changes`. It was the longest part of a review and the least read — a machine-written summary of a diff the
+author had just written, in front of the findings they actually came for. Sentiment across the company on
+LLM-written PR prose is blunt: people skip it. Decisions:
+
+- **The body is one line: `Found **2 must fix**, **1 consider**.`** Only severities with a non-zero count
+  appear, most urgent first (`PRIORITIES_BY_URGENCY`), and the tally counts exactly what publishes — valid
+  findings at or above the acting user's threshold, bucketed by **effective** (validator-wins) priority. An
+  empty tally renders "No issues to report." (defensive: publish self-skips with nothing publishable, but the
+  body is also stored and shown in the UI for store-only runs).
+- **Labels are shared, not duplicated.** `PRIORITY_LABELS` + `PRIORITIES_BY_URGENCY` moved to `constants.py`,
+  so the body and the status comment's found-counts line can't drift into two vocabularies.
+- **What deliberately stayed:** the `# ReviewHog Report` title (the report's identity in the UI and in the
+  publish test's marker assertions) and the "Other findings (outside the changed lines)" section — that one
+  isn't a summary, it's the only place off-diff findings surface at all.
+- **The chunk tree left the renderer entirely.** `_assemble_report` and
+  `models/prepare_validation_markdown.py` (`ValidationMarkdownReport*`) are deleted, and `build_review_body`
+  no longer takes `chunks_data` — so `_build_and_finalize` drops its `load_chunk_set` call. The chunker's
+  `chunk_type` / `key_changes` are untouched: perspective selection still reads them, and the pipeline-trace UI
+  still shows the chunks. Only the PR-facing prose was the problem.
+- Rejected: keeping the summary behind a `<details>` (still the first thing in the review, still written for
+  nobody), and shortening it with another LLM call (paying per review to generate text we just established
+  people skip).
+
+### ✅ DECIDED 2026-08-12 — reviewer model: Codex GPT-5.6 Sol @ xhigh (production A/B vs Sonnet 5)
+
+The review-stage default moved from Claude Sonnet 5 @ xhigh to **OpenAI Codex `gpt-5.6-sol` @ `xhigh`**
+(`full-access`), settling the first production reviewer-model experiment. Mechanics: since early August every
+new report drew a sticky per-report arm from `REVIEW_EXPERIMENT_ARMS` (50/50 Sonnet 5 vs GPT-5.6 Sol, both
+@ xhigh), labeled on the `reviewhog_review_completed` / `_failed` events (`review_model`, `review_arm_fallback`)
+and tracked on the "ReviewHog — usage & health" dashboard (us.posthog.com/project/2/dashboard/1922705,
+auth-gated). About a week of dogfood traffic split roughly evenly; PR-size and trigger mixes balanced across
+arms; zero fallback turns; `$ai_model` on the review generations confirmed both arms ran their assigned model.
+
+What the split showed (experiment window only, per arm):
+
+- **Cost:** Sol reviews cost roughly a third of Sonnet's all-in per PR, and the gap is wider on the
+  arm-controlled review stage alone. Sonnet's ~2x candidate volume also roughly doubles the shared Opus
+  validation spend, so its junk flows straight into the pipeline's biggest cost line.
+- **Latency:** Sol turns finish in roughly a third of the wall-clock, at p50 and p90 alike.
+- **Precision (the item-9 lever above):** Sol emitted well under half the candidates per turn at a validator
+  keep rate near double Sonnet's (~41% vs ~24%) — the "stop spamming the validator" direction, achieved by the
+  finder model rather than by skill tuning.
+- **Quality:** Sonnet kept more valid findings per turn overall, but the surplus was should-fix/consider;
+  valid must-fix per turn leaned Sol (not significant). Author engagement with published findings (the
+  finding-outcome telemetry: addressed/reacted vs ignored) was level, directionally favoring Sol. Steady-state
+  completion was indistinguishable — the dashboard's lower Sol completion rate is rollout-day failures from
+  before its first successful turn.
+
+Decision notes:
+
+- The experiment ended the sanctioned way: `REVIEW_EXPERIMENT_ARMS` collapsed to the single default arm,
+  nothing deregistered in `products/tasks` — so reports that drew Sonnet keep finishing on Sonnet (persisted
+  assignments stay honored while registry-valid, for the report's life).
+- The outcome judge (`OUTCOME_JUDGE_MODEL`, claude-opus-5) stays cross-family from the reviewer, now from the
+  other side: Claude judges an OpenAI reviewer's findings. Validator, chunking, dedup, and one-shot pins stay
+  Claude.
+- What a week could NOT settle: whether Sol is strictly better at must-fix coverage — too few must-fix findings
+  for significance. Watch the dashboard's importance-mix and precision tiles; re-open with a weighted arm if
+  the must-fix trend inverts.
+
 ### ✅ BUILT 2026-07-27 — reviews surface exposed as MCP tools (grantable `review_hog` scope)
 
 Agents needed to drive ReviewHog over MCP — kick off a review, poll progress, pull the finished findings
@@ -230,7 +294,7 @@ matched `acting_user` only), no way to link to the report (drawer state was kea-
 blamed "the author's … ReviewHog settings" for a threshold that wasn't theirs, and the drawer's "Published (N)"
 tab claimed publication for findings computed against the _viewer's current_ threshold. Decisions:
 
-- **Report deep links**: `/code_review?review=<report UUID>`, mirrored both ways by the existing URL sync in
+- **Report deep links**: `/code-review?review=<report UUID>`, mirrored both ways by the existing URL sync in
   `reviewHogSettingsLogic` (`replace`, never `push`, so drawer open/close doesn't stack history). The status
   comment's held-back sentence links here ("View them in PostHog", auth-gated — same posture as Slack links),
   which makes the param a **permanent public contract**. A deep link has no list row, so the drawer renders
@@ -460,11 +524,12 @@ floor and blind-spots/validator are **exactly-one-active with deactivation block
 
 - **Placement (as of 2026-07-13 — standalone scene):** originally shipped as a `'code-review'`
   `InboxTabKey` after `'archived'` (staff-gated via `INBOX_STAFF_ONLY_TAB_KEYS`, "Alpha" tag from
-  `INBOX_TAB_TAG`). Moved out of the Inbox to its own `CodeReview` scene at `/code_review`, registered
+  `INBOX_TAB_TAG`). Moved out of the Inbox to its own `CodeReview` scene at `/code-review`, registered
   by `products/review_hog/manifest.tsx` with an "Unreleased" nav entry (`ProductItemCategory.UNRELEASED`,
-  `tags: ['alpha']`). Gating is two-layer by design: `FEATURE_FLAGS.REVIEW_HOG` (`review-hog`) controls
+  `tags: ['alpha']`). Gating was two-layer by design: `FEATURE_FLAGS.REVIEW_HOG` (`review-hog`) controls
   **only the menu entry's visibility** (who discovers it); the scene itself stays **staff-only**
-  (non-staff get `NotFound`) regardless of the flag. The old inbox tab and `/inbox/code-review` URL are
+  (non-staff get `NotFound`) regardless of the flag. (Superseded 2026-08-12 — the scene now honors the
+  flag too; see the follow-up below.) The old inbox tab and `/inbox/code-review` URL are
   gone with no redirect. Body unchanged: hero → pipeline diagram → trigger toggles → urgency slider →
   perspectives → blind-spot check → validation criteria → read-only skill drawer; it no longer sits
   behind the Inbox onboarding takeover.
@@ -508,8 +573,23 @@ floor and blind-spots/validator are **exactly-one-active with deactivation block
   drawer shows the canonical SKILL.md body, threshold click PATCHes and persists (`must_fix` verified in
   DB, then reset), blind-spot deactivation blocked with the toast. New workflow tests cover the opt-out
   skip, the CLI-override bypass, and threshold threading into body+publish.
-- **Still deferred:** reset-to-canonical (needs the force-re-pull helper in `lazy_seed`); non-staff
-  rollout. (The "Review all your Inbox PRs" behavior is **BUILT** — see Stage 6.)
+- **Still deferred:** reset-to-canonical (needs the force-re-pull helper in `lazy_seed`). Non-staff
+  rollout is **BUILT** — see the 2026-08-12 follow-up below. (The "Review all your Inbox PRs" behavior
+  is **BUILT** — see Stage 6.)
+
+#### ✅ BUILT 2026-08-12 — scene access follows the menu flag (staff-only gate relaxed)
+
+The two-layer gating above carried an unstated invariant: the `review-hog` flag's audience had to stay
+within Django-staff users, or people would discover a menu entry they couldn't open. The invariant is
+also unenforceable — `is_staff` is a Django DB column, not a person/group property a flag can target —
+and the flag's real rollout (org-wide internally) broke it: non-staff colleagues saw "Code review"
+under Unreleased and got `NotFound` on click. `CodeReviewScene` now allows
+`FEATURE_FLAGS.REVIEW_HOG` **or** `is_staff`, so the menu entry and the page can no longer disagree,
+and staff keep direct-URL access where the flag is off. Rollout control is now entirely the flag's.
+Nothing changed on the backend: the endpoints were already deliberately self-/team-scoped rather than
+staff-gated, and the UI trigger stays behind the `REVIEWHOG_TEAM_ID` dogfood gate. Before widening the
+flag beyond the internal org, close the QAREPORT note about config endpoints returning skill bodies
+without the `llm_analytics` resource check.
 
 #### ✅ BUILT 2026-07-16 — default urgency threshold flipped to "All issues" (`consider`)
 
@@ -2068,6 +2148,11 @@ the **right substrate** — keep it; the loop only fixes what's positional. **Si
 
 #### Action plane — "implement the fixes" (step 4)
 
+> **⚠️ Superseded for comment-shaped fixes (2026-07-17).** The C→A ordering below is kept as history.
+> The action plane is now the **resolution stage** (Stage 7): direct signed commits to the PR head branch,
+> driven by the PR's unresolved review threads — not suggestion blocks, not a companion PR.
+> Stage 7 records the settled design and the scoped consent model that replaces "never push the author's branch".
+
 Today ReviewHog only reviews + comments; editing code is net-new. Three tiers (verified against the real Tasks
 write path):
 
@@ -2835,6 +2920,272 @@ fleet-level control during alpha).
    unobserved live: receipt `outcome="published"` (needs a findings-bearing inbox PR; publish
    machinery proven by the manual leg on #68108) and the **repeat turn on the same report — the
    first real exercise of re-review**. Log those here when they happen.
+
+---
+
+### 🛠️ Stage 7 — the resolution stage (design settled + BUILT 2026-07-17; live e2e GO 2026-07-18; drift re-e2e passed 2026-08-06)
+
+> **Status: built and live-qualified.** The live e2e ran 2026-07-18 on the stage's own PR #72074 — verdicts,
+> findings, and the GO call in `eval/experiments/2026-07-resolution-e2e/FINAL_REPORT.md`; a drift-check re-e2e
+> passed 2026-08-06 on PR #78848, and the escalations it produced are recorded under item 8 below.
+> Grilled to closure with the maintainer on 2026-07-17;
+> the settled vocabulary lives in [CONTEXT.md](./CONTEXT.md) (the "Resolution stage" block) and is not repeated here.
+> This section records what was decided, the two decisions it deliberately supersedes, and the build map.
+> The stage was prototyped as an interactive triage skill (verify each unresolved thread against current code,
+> fix on confirmation, reply, resolve); this is its autonomous adaptation.
+>
+> **As built (same day):** everything below landed as designed. Topology map: `backend/temporal/resolution.py`
+> (`ResolvePRWorkflow`, id `resolve-pr:{team}:{owner}/{repo}:{pr}` — reuses the review's setup activities, then ONE
+> long `resolve_threads_activity` owning fetch → gates → pre-filter → warm session → verdict-driven side effects;
+> 4h ceiling, 5m heartbeat, 2 attempts with per-thread skip-resume à la validation). Thread I/O:
+> `reviewer/tools/github_threads.py` (GraphQL `reviewThreads` fetch + reply/resolve mutations over the gated egress
+> transport; `order_threads` priority tiers; `classify_thread` pre-filter incl. partial-delivery redelivery;
+> `should_resolve` etiquette gate). Turn contract: `reviewer/models/thread_resolution.py` (`ThreadResolution`,
+> `fixed` requires the real commit SHA) + `prompts/thread_resolution/` (hard floors in the template; criteria
+> pulled via `skill-get` of `review-hog-resolution-criteria`, single-active per user, validator pattern
+> end-to-end: prefix loader, lazy-seed sync, canonical skill on disk under `skills/`). Persistence:
+> `thread_verdict` artefact (latest-wins per thread; `latest_comment_id` watermark; `reply_posted`/`resolved`
+> delivery flags — written before AND after side effects so a crash redoes only writes, never LLM turns), plus the
+> first writers for `task_run` / `commit` / `note`. Entry points: `POST /api/review_hog/resolve` (standalone) and
+> the chained `ReviewPRWorkflow` fire-and-forget ABANDON child dispatch (gating below), `run_resolution` command.
+> Model pin: `RESOLUTION_*` constants (validator's Claude tier); cap: `MAX_THREADS_PER_RUN = 20`, overflow named
+> in the run-summary `note`. **Live e2e (2026-07-18): GO** — the qualification run in
+> `eval/experiments/2026-07-resolution-e2e/PLAN.md` ran against the stage's own PR #72074; the installation token
+> CAN `resolveReviewThread`, where the interactive prototype's PAT could not (verdicts and findings in
+> `eval/experiments/2026-07-resolution-e2e/FINAL_REPORT.md`). **Still not done:** the label Action client, and
+> self-driving calling the endpoint after implementation PRs gather comments.
+>
+> **Superseded same day — reviewing includes resolving (maintainer decision, 2026-07-17).** The first cut gated
+> chaining on a per-run caller flag (`resolve=true` on the label trigger, default-False `resolve_comments` input);
+> that opt-in posture is gone. Whether a published review chains into the resolution stage is the **acting user's
+> `ReviewUserSettings.resolve_comments` setting (default on)** — surfaced beside the trigger opt-outs — snapshotted
+> into `ResolveActingUserResult` at acting-user resolution (new field defaulting **False**, the replay skip value:
+> pre-field histories never reach the dispatch command; the model default is True, and the default-user fallback
+> forces it on — a borrowed user's opt-out never governs someone else's PR).
+> `ReviewPRWorkflowInputs.resolve_comments` became a tri-state per-run override: `None` (every trigger's default) =
+> follow the setting on publishing runs — an unpublished eval/CLI review never writes to the PR; `False`/`True` =
+> pin, used only by the Code review scene. UI (same day): the "Resolve comments on your PRs" toggle, a
+> single-active resolution-criteria config block (`api/resolution.py`, route `review_hog/resolution`, validator
+> pattern end-to-end; the authoring companion gained the resolution path), a "Resolve" phase on the pipeline
+> diagram, and the Review button grew split-button side actions — "Review without resolving comments"
+> (`run_mode=review_only`) and "Only resolve existing comments" (`run_mode=resolve_only`, which keeps the trigger's
+> synchronous PR gates but skips the already-reviewed early-return and starts `ResolvePRWorkflow` directly;
+> feedback is a toast, since resolution runs don't produce the report-row activity the review watch polls).
+
+**The goal.** After a review — anyone's, not just ReviewHog's — the PR should end up _as close to ready-to-merge as
+possible_, not merely "reviewed". The resolution stage loads the PR's unresolved review threads and settles each one:
+implement what is worth doing and safe to do unattended, answer what isn't, and escalate what needs a human.
+
+**The shape (all settled; rationale in CONTEXT.md).**
+
+1. **Scope** — any non-fork PR the acting team's GitHub App installation can access, person- or bot-authored.
+   Installation-relative on purpose: the stage must work on any customer's project, so prompts, criteria, and scope
+   rules never assume our own repos or internal docs; the session discovers the target repo's own convention docs
+   (CLAUDE.md / AGENTS.md / CONTRIBUTING) when present. Forks are hard-refused — this stage writes.
+2. **A ReviewHog stage, standalone-capable.** Chained after a review turn — reviewing includes resolving by
+   default, gated by the acting user's `resolve_comments` setting (see the supersession note above; the original
+   design said "per-run gated, off by default") — _and_ independently triggerable — many PRs never get a review
+   turn. The work-list is always the comments posted on the PR, never in-memory findings, so chained and
+   standalone runs are identical in shape.
+3. **Work-list** — unresolved review threads only; the thread (not the comment) is the unit; outdated unresolved
+   threads included ("already addressed → reply" is a cheap win). Conversation comments and review bodies load as
+   context, never as work items — the stage acts only on surfaces it can both answer and resolve.
+4. **Topology** — one warm writable sandbox session per PR (the shared working tree is load-bearing: later turns see
+   earlier fixes; one pusher, no races), one thread per turn in priority order (humans → ReviewHog → other bots),
+   assess-and-fix in the same turn (they share the same repo investigation). GitHub side effects are verdict-driven:
+   the driver posts replies / resolves server-side from each turn's structured verdict; the schema is fixed in code.
+5. **Triage** — three layers: hard floors in code (never touch CI workflows / CODEOWNERS / auth-secrets-crypto
+   surfaces / dependencies on comment say-so; nothing beyond the PR's intent; prompt-injection → decline + callout),
+   a "worth" bar (real, not already addressed, concrete; source rank is _ordering and trust weighting_ — an unknown
+   bot's ask is never implemented on its say-so alone), and a "safe" bar (contained + provable in-session by
+   lint/tests vs needs-e2e → escalate; proportionality: a fix needing new infrastructure is a decision, not a
+   mechanical fix). Worth/safe ship as a team-owned DB-synced skill (`review-hog-resolution-criteria`, seeded from
+   the interactive triage skill); the floors stay in code — the skill may tighten, never loosen. Standing human
+   verdicts left as thread replies (SAFE TO FIX / E2E REQUIRED) are honored: the human override channel.
+6. **Outcomes & etiquette** — every thread ends FIXED / WON'T FIX / ALREADY FIXED / OBSOLETE / ESCALATE. Triage and
+   fixing are author-blind; only _resolve_ is author-gated: human threads get the bot's reply (fix + commit link, or
+   the reasoning) but are **never resolved** — the human keeps the final word; bot threads are resolved on terminal
+   outcomes; ESCALATE never resolves.
+7. **Entry points** — a trigger-style endpoint is the durable interface (mirroring the review trigger: shared-secret
+   bearer, server-side identity), with a thin label Action and API callers (e.g. self-driving) as clients; a
+   `run_resolution` management command mirrors `run_review` for dev. Deterministic skip gates before any sandbox
+   (closed/merged, fork, empty work-list); one run per PR via a deterministic workflow id.
+8. **Writing mechanics** — one signed commit per FIXED thread (signed commits are remote by construction, so commit
+   cadence is push cadence), that thread's reply/resolve posted once its commit is visible. Mid-run race (author
+   pushed): sync onto the new head once, re-verify, retry; if it moves again, yield — done threads keep their
+   outcomes. **CI is out of scope**: the Tasks CI follow-up owns checks; this stage owns threads.
+   _Built 2026-08-06 (off the e2e's commit-provenance escalation):_ the "commit is visible" precondition is now
+   enforced — delivery verifies the turn's echoed `commit_sha` server-side (`commit_on_branch`: exists + reachable
+   from the head branch's current tip, persisted as `thread_verdict.commit_verified`). An unproven SHA delivers the
+   reply **without** the public commit link and never auto-resolves (`should_resolve` gates on it; the delivered
+   verdict settles as SKIP, the thread stays open for a human). Full session-provenance — capturing the true SHA
+   from the signed-commit tooling instead of the model's echo — remains the recorded follow-up (needs Tasks to
+   surface it). _Same date (off the token-TTL escalation):_ deliveries resolve a **fresh** installation token per
+   thread inside `_deliver_side_effects` instead of carrying the run-start
+   token — a 20-thread session can outlive the ~1h token TTL, which silently failed the tail's replies/resolves.
+   Outright delivery failures are now counted (`ResolutionRunResult.undelivered`) and named in the run note.
+   _Refined 2026-08-10 (off the second review round):_ the per-delivery resolve was quietly re-running the
+   installation-**selection** probe too — a live `GET /repos/{owner}/{repo}` per thread, at CRITICAL priority,
+   answering a question settled at run start. Selection is now pinned once in `_prepare_run` (its probe stays as
+   the access gate; `_PreparedRun.integration_row_id` carries the row) and deliveries only mint fresh tokens from
+   that row (`_delivery_auth`). Fresh-token-per-delivery semantics unchanged; a mid-run revocation now surfaces
+   as a 401/404 on the write itself with the same per-thread undelivered accounting.
+   _Same date (off the poison-thread escalation):_ a session-OPEN failure now raises only while **no turn has
+   completed this run** — the outage signal stays loud — but once turns have landed it degrades to the same
+   final-attempt per-thread skip as a turn failure, so one thread whose content reliably breaks its opening turn
+   can't block the PR's resolution forever. Residual (accepted): a poison thread at position 0 with zero other
+   work is indistinguishable from an outage and still fails the run; the recorded follow-up is typed sandbox
+   errors from the Tasks facade (infra vs turn) to close that corner.
+   _Same date (off the /resolve criteria-borrowing escalation):_ `ResolveThreadsInput.acting_user_id` is now
+   tri-state — `None` (the shared-secret `/resolve` path, which pins nobody) means **the PR author**: prepare maps
+   the fetched author login to a PostHog user (`_login_to_user_id`, the review path's own mapping) and applies
+   their criteria selection; an unmapped author pins the **canonical** bar directly
+   (`load_resolution_skill_for_run(…, None)`) — a borrowed account's personal selection never governs someone
+   else's PR, the same principle as the review path's borrowed-toggle rules. The workflow no longer coerces
+   `acting_user_id or user_id`.
+   _Same date (off the reply-idempotency escalation):_ the duplicate-reply crash window is **accepted as
+   by-design** (maintainer decision): the reply mutation has no idempotency key; the window is a process death
+   between the GitHub post and the DB persist; the cost when hit is one visible duplicate comment plus one
+   re-judged turn, self-correcting on the next persist. Reply-first stays chosen — fail toward a visible
+   duplicate rather than a lost reply. Revisit only if the comment-reply trigger's self-skip lands a
+   reply-identity marker, which would make dedup nearly free.
+   _Same date (off the injection-surface security cluster — maintainer decision):_ of the three e2e-escalated
+   hardening items, the deterministic piece is **built** and the two design-heavy pieces are **deferred as
+   BLOCKING pre-public-release gates** (ARCHITECTURE.md carries the blocking TODOs). Built: the **hard-floor
+   path backstop** — after `commit_on_branch` proves a FIXED commit real, `commit_restricted_paths` fetches its
+   changed files server-side (failing closed on GitHub's 300-file cap) and a commit touching `.github/`,
+   CODEOWNERS, or dependency manifests/lockfiles is never presented as settled: the reply carries a human-review
+   warning instead of the commit link, `thread_verdict.commit_restricted` persists, and `should_resolve` refuses
+   it (delivered verdict settles as SKIP, thread stays open). Security-sensitive _code_ stays prompt-judged —
+   it is not path-derivable. Residual (accepted 2026-08-10, dogfood only): the backstop is post-push
+   containment, not prevention — `createCommitOnBranch` makes commit and push one atomic act, so a restricted
+   commit is already on the PR branch (and CI has already run against it) before the check fires; nothing
+   un-pushes it. Pre-push enforcement needs a guard inside the signed-commit tooling (desktop agent package +
+   Tasks facade + sandbox image — outside this product), recorded as BLOCKING pre-public-release gate 3 in
+   ARCHITECTURE.md the same date. Deferred to pre-GA: structural (JSON) comment rendering in the resolution prompt
+   (e2e-gated — forged author headers / fake SAFE TO FIX), and the author-permission gate policy (which
+   `author_association`s may drive a write turn; naive filters drop the bot threads the stage exists for).
+   _Built 2026-08-10 (off the second review round on PR #72074):_ three verified findings fixed. **Watermark
+   truncation** — the per-thread `comments(first: 50)` fetch returned the oldest 50 with no overflow detection, so
+   a 51+-comment thread's watermark froze below its real newest comment and the thread went permanently blind to
+   new pushback; the fetch now reads the inner connection's `pageInfo` and pages the tail (stamphog's pattern,
+   `_MAX_COMMENT_PAGES = 20`, failing closed past 1000 comments). **Commit-artefact provenance** — the `commit`
+   artefact was appended at triage time from the model's unverified echo, violating the Commit schema's
+   pushed-commits-only contract; it now appends inside delivery, right after `commit_on_branch` verifies the SHA
+   (exactly once per verdict; restricted commits are still recorded — they are real pushed commits, the
+   restriction gates delivery, not the audit log). **Unverified-fix reply caveat** — a FIXED reply whose commit
+   failed verification used to post the model's success claim verbatim (link withheld but no visible signal); the
+   reply now carries a could-not-confirm warning mirroring the restricted-path one.
+   _Same date (off the third review round):_ five more verified findings fixed. **Rename bypass (must-fix)** —
+   `commit_restricted_paths` read only each entry's `filename`, so renaming a restricted file out of place
+   (one `renamed` entry, new name clean) reported the commit clean; both `filename` and `previous_filename`
+   are checked now, matching `line_proximity`/`classify`'s rename handling. **Outdated-thread anchors** — the
+   thread query now fetches `originalLine` and falls back to it when GitHub nulls `line` on drifted threads
+   (desktop's `line ?? original_line` pattern). **GraphQL rate limits** — a 200 with `errors[].type
+RATE_LIMITED` (GraphQL's primary signal, invisible to the REST-shaped helper) now raises
+   `GitHubRateLimitError` with `reset_at`/`retry_after` instead of a generic API error. **Resolve-failure
+   accounting** — `_deliver_side_effects` no longer swallows a failed `resolveReviewThread`: the failure
+   propagates into the run's `undelivered` count and the run note, so a systematic resolve-permission failure
+   can't hide behind clean-looking summaries (the reply persists first, so redelivery still only redoes the
+   resolve). **Outer paging cap** — `fetch_unresolved_threads` fails closed past 20 thread pages (2000
+   threads), the same posture as the comment-tail cap and stamphog's identical query.
+   _Same date (prompt tightenings, maintainer decision — verified by the next live run on this PR):_ two
+   wording holes in the resolution prompt's safety text closed. **Tests are proof, not obstacles** — step 3
+   and the criteria skill now forbid weakening/loosening/deleting a test to make a run pass (tests change only
+   for deliberately changed behavior the reply calls out; provability requiring a test edit → `escalate`), and
+   **the security-code floor is absolute** — the "on comment guidance alone" qualifier was removable by the
+   agent's own mandated investigation ("I verified it myself, so the floor doesn't apply"); security-sensitive
+   code is now always `escalate`, regardless of who asked or what the investigation concluded.
+   _Same date (least-privilege MCP scopes, maintainer decision — verified by the next live run):_ every
+   ReviewHog sandbox session (perspectives, validation, resolution) ran with the context default of **full**
+   PostHog MCP access — execute-sql and every write tool — while reading untrusted PR-comment text; no prompt
+   ever uses more than `skill-get`/`skill-file-get`. The executor now pins `posthog_mcp_scopes` to
+   `REVIEW_MCP_SCOPES = ["llm_skill:read"]` at both context constructions (internal sandbox-plumbing scopes
+   are re-added by the resolver). A future skill that legitimately needs product data adds its specific read
+   scope with that feature.
+   _Same date (fix-commit provenance gate, maintainer decision):_ `commit_on_branch`'s "reachable from the
+   branch tip" necessarily accepts every ancestor (later turns and the author push on top mid-run), so a
+   steered turn could echo someone's old clean commit and have every check inspect the wrong one. The
+   restricted-paths call is now `inspect_fix_commit`: the same single `GET /commits/{sha}` also requires a
+   verified web-flow signature and an app-bot author (`is_app_bot_author` — probed against the July e2e fix
+   commits: authored `posthog-local-dev[bot]`/Bot, `verification.verified` true; fail-open on login when
+   `REVIEWHOG_GITHUB_BOT_LOGIN` is unset). A reachable SHA failing provenance persists
+   `commit_verified=False` — caveat reply, no link, never auto-resolves. Residual (accepted): echoing one of
+   the bot's own earlier fix commits still passes; that closes only with the recorded Tasks
+   session-provenance follow-up.
+9. **Persistence & budget** — home is the living `ReviewReport`; runs append `thread_verdict` (net-new content
+   schema, latest-wins per thread) plus `commit` / `task_run` / `note` artefacts (their first writers). Idempotency
+   is per-thread: unchanged state skips deterministically, any new reply re-opens that thread's triage (pushback on
+   a WON'T FIX gets a fresh assessment). Cap: **20 threads per run** — the binding constraint is the warm session's
+   context window, not cost; overflow is always named in the run summary and the next run continues. Model/effort
+   pinned by `RESOLUTION_*` constants (validator's Claude default to start).
+
+**Supersessions (deliberate, recorded so nobody "fixes" the new behavior back).**
+
+- **Stage 4 action plane (C → A) is superseded for comment-shaped fixes.** No suggestion blocks, no companion PR:
+  the stage commits directly to the PR head branch. The "never push the author's branch" principle is replaced by
+  the scoped consent model above (non-fork, installation-accessible PRs; forks hard-refused). The Tasks engine
+  choice survives — the stage runs on `MultiTurnSession` exactly as the validator does.
+- **The Tasks CI follow-up's "do not resolve or dismiss review threads" rule is narrowed, not repealed.** Resolving
+  _bot_ threads is now the resolution stage's job; human threads remain human-resolved. Known seam to close on the
+  Tasks side when the stage goes live there: `_should_run_ci_follow_up` also fires on new unresolved threads and
+  `DEFAULT_CI_MESSAGE` mandates comment-addressing — narrow that to checks-only where the resolution stage is
+  active, so two bots never fix the same comment.
+
+**Net-new build list (feasibility verified against master, 2026-07-17).**
+
+- **Thread-shaped fetch** — today's `PRComment` is REST, flat, inline-comments-only (no thread ids, no
+  `isResolved`/`isOutdated`, no `author_association`). Thread state is GraphQL-only: `pullRequest.reviewThreads`
+  via the gated egress transport (the limiter already classifies `/graphql` into the core budget).
+- **Write helpers** — `addPullRequestReviewThreadReply` + `resolveReviewThread` (GraphQL; verify the installation
+  token can resolve — the interactive prototype hit token-capability failures here).
+- **The workflow + session driver** — validator-pattern warm session with priority-ordered turns and skip-resume;
+  the per-turn verdict schema (code-owned); `thread_verdict` persistence; endpoint + command + chained dispatch;
+  `RESOLUTION_*` constants; the criteria skill.
+- **Already exists, verified** — commit-to-PR-branch via the signed-commit harness (the protected-base carve-out in
+  `start_agent_server._resolve_protected_base_branch` exists precisely for updating a PR-heading branch),
+  `MultiTurnSession` start/continue/end, the living `ReviewReport` + artefact substrate, the fork guard, and the
+  trigger-endpoint pattern to mirror.
+
+---
+
+### 🧯 Live statuses in the Code review UI — baseline polling + idle deferred to publish (BUILT 2026-08-13)
+
+The Code review scene went stale without a manual refresh, three ways, all rooted in the list poll arming only
+while an in-progress row was already visible: externally-triggered runs (label / inbox / MCP / a teammate) never
+appeared on an already-open page; the run-end race froze rows on "Not published" (finalize wrote `idle` before the
+publish stage wrote `published_head_sha`, and a poll tick landing in that window was the poll's last — it disposes
+itself at the first at-rest response); and the stats cards and an open drawer never refreshed at all.
+
+**Decisions (and the alternatives weighed):**
+
+- **The poll never stops; it changes cadence.** 10s while a run is in progress or freshly triggered, 30s idle,
+  paused on hidden tabs (the disposables plugin), one immediate refresh on tab return (a non-pausing
+  `visibilitychange` listener — a pausing one would be re-attached mid-dispatch of the very event it must observe,
+  and listeners added during dispatch don't run for that event). Rejected: stop-after-N-idle (a state machine to
+  save a flag-gated dogfood page a 30s request) and a push channel (nothing else on the scene justifies the
+  infrastructure).
+- **Finalize defers the idle write on publishing runs** (`will_publish` on `BuildBodyInput` →
+  `finalize_review_report`); `publish_persisted_review` returns the report to `idle` on every outcome (posted — in
+  the same save as the watermark —, already-posted skip, and no-post), and `fail_status_comment_activity` restores
+  rest on a dead run. The failure-path write lives inside that existing activity, not as a new workflow command,
+  because a new unconditional command breaks replay for in-flight histories. Rejected: a `publishing` status enum
+  value (a migration plus every status reader, for a state that lasts seconds) and a frontend-only reconciliation
+  delay (leaves the API reporting `in_progress=false, published=false` for a state that is neither).
+- **The publish window reads "finalizing".** With `run_count` already bumped there are no in-flight findings, so
+  `progress_payload` otherwise falls through and misreads the finished turn's working state as "deduplicating".
+  The branch is scoped to the not-yet-published head deliberately: a resolution run holds the same
+  ACTIVE-at-completed-head shape at a _published_ head and keeps its pre-existing label — the proper `resolving`
+  stage (serializer enum + frontend labels + regenerated types) is a separate change, in flight on its own
+  (maintainer, 2026-08-13), tracked in ARCHITECTURE.md's known issues.
+- **A poll response is the fan-out point.** A run observed finishing (its `in_progress` dropping or `run_count`
+  bumping between responses) reloads the perspective stats, and the drawer's detail when it is open on that
+  report. The error banner keys off a new `markInitialLoadFailed` (dispatched only when the failing surface has
+  nothing loaded), so a background poll blip retries silently instead of flashing the page-level failure banner.
+
+Known residuals, deliberate: the list's `published` flag is still report-lifetime (the drawer-flag TODO in
+ARCHITECTURE.md's known issues), and `_in_progress_report_ids`' 30-minute staleness cutoff can still hide a run
+whose current stage stays quiet longer than that.
 
 ---
 

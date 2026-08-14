@@ -10,11 +10,14 @@ import {
     LemonSwitch,
     LemonTable,
     LemonTabs,
+    LemonTag,
     Link,
     Spinner,
+    Tooltip,
 } from '@posthog/lemon-ui'
 
 import { pngHoggie } from 'lib/brand/hoggies'
+import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
@@ -28,6 +31,7 @@ import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { ProductKey } from '~/queries/schema/schema-general'
 
+import { visionDocsUrl, VisionDocsLink } from '../components/DocsLink'
 import { FilterPill } from '../components/FilterPill'
 import { IngestionLimitBanner } from '../components/IngestionLimitBanner'
 import { ReplayVisionFeedbackButton } from '../components/ReplayVisionFeedbackButton'
@@ -40,6 +44,7 @@ import { ScannerListEmptyState, scannerListEmptyStateVariant } from './component
 import { VisionMetrics } from './components/VisionMetrics'
 import { VisionUsageTab } from './components/VisionUsageTab'
 import { type ScannersSorting, SCANNERS_PAGE_SIZE, replayScannersLogic } from './replayScannersLogic'
+import { LIMIT_REACHED_TOOLTIP } from './scannerCopy'
 import { ENABLED_OPTIONS, EnabledFilter, SCANNER_TYPE_OPTIONS, ScannerType, ReplayScanner } from './types'
 
 const HedgehogXRay = pngHoggie(xRayPng)
@@ -69,6 +74,8 @@ export function ReplayScannersScene(): JSX.Element {
         scannerTypeFilter,
         createdByFilter,
         createdByOptions,
+        tagsFilter,
+        tagOptions,
         hasActiveFilters,
         scannerStats,
         scannerStatsLoading,
@@ -123,6 +130,11 @@ export function ReplayScannersScene(): JSX.Element {
                     <span className={`inline-block min-w-[4.5rem] ${scanner.enabled ? 'text-success' : 'text-muted'}`}>
                         {scanner.enabled ? 'Enabled' : 'Disabled'}
                     </span>
+                    {scanner.limit_reached && (
+                        <Tooltip title={LIMIT_REACHED_TOOLTIP}>
+                            <LemonTag type="danger">Limit reached</LemonTag>
+                        </Tooltip>
+                    )}
                 </div>
             ),
             sorter: true,
@@ -132,6 +144,21 @@ export function ReplayScannersScene(): JSX.Element {
             key: 'scanner_type',
             render: (_, scanner) => <ScannerTypeBadge scannerType={scanner.scanner_type} />,
             sorter: true,
+        },
+        {
+            title: 'Tags',
+            key: 'tags',
+            render: (_, scanner) =>
+                scanner.tags.length > 0 ? (
+                    <ObjectTags
+                        tags={scanner.tags}
+                        staticOnly
+                        onTagClick={(tag) => setScannersFilters({ tagsFilter: [tag] })}
+                        data-attr="vision-scanner-row-tags"
+                    />
+                ) : (
+                    <span className="text-muted">—</span>
+                ),
         },
         {
             title: 'Sampling',
@@ -232,9 +259,9 @@ export function ReplayScannersScene(): JSX.Element {
                 <LemonBanner type="warning" dismissKey="replay-vision-launch-beta-scanners">
                     Replay vision is out of beta and scans now use billed credits. Your scanners were turned off for the
                     launch, so re-enable the ones you want to keep running. See{' '}
-                    <Link to="https://posthog.com/docs/replay-vision/quota-and-limits" target="_blank">
+                    <VisionDocsLink page="quota-and-limits" dataAttr="vision-docs-link-launch-banner">
                         how credits are priced
-                    </Link>{' '}
+                    </VisionDocsLink>{' '}
                     in the docs, or check the Usage tab for current spend.
                 </LemonBanner>
             )}
@@ -248,6 +275,7 @@ export function ReplayScannersScene(): JSX.Element {
                     secondaryDescription="Start from a template or build a fully custom scanner."
                     customHog={HedgehogXRay}
                     action={() => push(urls.replayVisionTemplates())}
+                    docsURL={visionDocsUrl()}
                 />
             )}
 
@@ -304,6 +332,13 @@ export function ReplayScannersScene(): JSX.Element {
                                     value={createdByFilter}
                                     onChange={(v) => setScannersFilters({ createdByFilter: v })}
                                 />
+                                <FilterPill<string>
+                                    label="Tags"
+                                    searchable
+                                    options={tagOptions}
+                                    value={tagsFilter}
+                                    onChange={(v) => setScannersFilters({ tagsFilter: v })}
+                                />
                                 {hasActiveFilters && (
                                     <LemonButton type="tertiary" size="small" onClick={() => clearFilters()}>
                                         Clear filters
@@ -347,6 +382,12 @@ export function ReplayScannersScene(): JSX.Element {
                                             dataAttr="vision-scanner-create-empty"
                                             size="medium"
                                         />
+                                        <VisionDocsLink
+                                            page="creating-scanners"
+                                            dataAttr="vision-empty-docs-link-scanners"
+                                        >
+                                            Learn how scanners work
+                                        </VisionDocsLink>
                                     </div>
                                 ) : (
                                     <span className="text-muted">No scanners match your filters.</span>

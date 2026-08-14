@@ -53,6 +53,7 @@ export function CreateScannerButton({
             showArrow
             ignoreDismissal
             hideTrainingDisclaimer
+            pendingRedirectUrl={urls.replayVisionTemplates()}
             hidden={!consentRequested}
             onApprove={() => {
                 setConsentRequested(false)

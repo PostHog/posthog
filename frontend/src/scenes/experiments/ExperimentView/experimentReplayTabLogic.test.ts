@@ -28,7 +28,7 @@ import {
     getViewRecordingFiltersForVariant,
 } from '../utils'
 import { RETENTION_UNLINKABLE_REASON, viewRecordingsLinkabilityLogic } from '../viewRecordingsLinkabilityLogic'
-import { experimentReplayTabLogic } from './experimentReplayTabLogic'
+import { type ExperimentReplayRecording, experimentReplayTabLogic } from './experimentReplayTabLogic'
 
 jest.mock('lib/utils/product-intents', () => ({
     addProductIntentForCrossSell: jest.fn().mockResolvedValue(null),
@@ -50,6 +50,9 @@ const BUCKET_RESPONSE = {
     filter_test_accounts: true,
 }
 
+/** A playlist page as the tab receives it, narrowed to what the watch cards read off it. */
+const loadedPage = (ids: string[]): ExperimentReplayRecording[] => ids.map((id) => ({ id, recording_duration: 120 }))
+
 const DELTA_RESPONSE = {
     cards: [
         {
@@ -60,6 +63,7 @@ const DELTA_RESPONSE = {
             metric_name: null,
             recording_count: 2,
             session_ids: ['card-session-1', 'card-session-2'],
+            highlights: [{ session_id: 'card-session-2', reason: '3 rage clicks' }],
         },
     ],
     arms: [
@@ -583,7 +587,7 @@ describe('experimentReplayTabLogic', () => {
 
     it('prefetches session contexts for a loaded recordings page when the flag is on', async () => {
         featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.REPLAY_EXPERIMENT_CONTEXT]: true })
-        logic.actions.recordingsLoaded(['s1', 's2'])
+        logic.actions.recordingsLoaded(loadedPage(['s1', 's2']))
         await expectLogic(logic).toFinishAllListeners()
 
         expect(experimentsSessionContextsCreate).toHaveBeenCalledWith(expect.any(String), {
@@ -599,7 +603,7 @@ describe('experimentReplayTabLogic', () => {
         await expectLogic(logic).toFinishAllListeners()
         expect(experimentsSessionContextsCreate).not.toHaveBeenCalled()
 
-        logic.actions.recordingsLoaded(['s1', 's2', 's3'])
+        logic.actions.recordingsLoaded(loadedPage(['s1', 's2', 's3']))
         await expectLogic(logic).toFinishAllListeners()
 
         // The server-side cache TTL runs from prefetch time, so each open must re-warm the
@@ -615,13 +619,13 @@ describe('experimentReplayTabLogic', () => {
     it('never prefetches for flag-disabled viewers, and caps a batch at the backend limit', async () => {
         // Ungated, every experiment-tab visit would fire the expensive ClickHouse scans for
         // viewers who can't even see the experiments box.
-        logic.actions.recordingsLoaded(['s1'])
+        logic.actions.recordingsLoaded(loadedPage(['s1']))
         await expectLogic(logic).toFinishAllListeners()
         expect(experimentsSessionContextsCreate).not.toHaveBeenCalled()
 
         // Over-cap ids must be sliced, not sent — the backend 400s the whole batch above its cap.
         featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.REPLAY_EXPERIMENT_CONTEXT]: true })
-        logic.actions.recordingsLoaded(Array.from({ length: 25 }, (_, index) => `session-${index}`))
+        logic.actions.recordingsLoaded(loadedPage(Array.from({ length: 25 }, (_, index) => `session-${index}`)))
         await expectLogic(logic).toFinishAllListeners()
         expect(experimentsSessionContextsCreate).toHaveBeenCalledTimes(1)
         expect((experimentsSessionContextsCreate as jest.Mock).mock.calls[0][1].session_ids).toHaveLength(20)
@@ -804,6 +808,56 @@ describe('experimentReplayTabLogic', () => {
         expect(logic.values.recordingsFilters.session_ids).toEqual([])
     })
 
+    it('reports a bucket load once it is the one the list shows', async () => {
+        // The bucket events have never fired in production — every open so far used the default
+        // mode, which never asks the endpoint. This pins that the wiring works when one does.
+        const captureSpy = jest.spyOn(posthog, 'capture').mockReturnValue(undefined as any)
+        const bucketLoads = (): any[] =>
+            captureSpy.mock.calls.filter(([event]) => event === 'experiment recordings bucket loaded')
+
+        await expectLogic(logic, () => {
+            logic.actions.setMetricSelected('metric-funnel', true)
+            logic.actions.setMetricFilterMode('fired_any')
+        }).toFinishAllListeners()
+
+        expect(bucketLoads()).toHaveLength(1)
+        expect(bucketLoads()[0][1]).toEqual({
+            experiment_id: 42,
+            bucket: 'fired_any',
+            metric_count: 1,
+            session_count: 2,
+            truncated: false,
+            considered_metric_count: 1,
+            excluded_metric_count: 0,
+            duration_ms: expect.any(Number),
+        })
+    })
+
+    it('reports a bucket failure with what the endpoint said', async () => {
+        const captureSpy = jest.spyOn(posthog, 'capture').mockReturnValue(undefined as any)
+        const bucketEvents = (): any[] =>
+            captureSpy.mock.calls.filter(([event]) => (event as string).startsWith('experiment recordings bucket'))
+        ;(experimentsSessionBucketsCreate as jest.Mock).mockRejectedValue(
+            Object.assign(new Error('boom'), { detail: 'Pick exactly one funnel metric' })
+        )
+
+        await expectLogic(logic, () => {
+            logic.actions.setMetricSelected('metric-funnel', true)
+            logic.actions.setMetricFilterMode('fired_any')
+        }).toFinishAllListeners()
+
+        expect(bucketEvents()).toHaveLength(1)
+        expect(bucketEvents()[0][0]).toBe('experiment recordings bucket failed')
+        // The endpoint's detail names what to fix; the generic message would hide it from us.
+        expect(bucketEvents()[0][1]).toEqual({
+            experiment_id: 42,
+            bucket: 'fired_any',
+            metric_count: 1,
+            duration_ms: expect.any(Number),
+            error: 'Pick exactly one funnel metric',
+        })
+    })
+
     it('keeps a picked mode that has nothing to filter on yet', async () => {
         // The tab pushes no session_ids until an eligible metric is picked, and the playlist echoes
         // that back through onFiltersChange. Reading it as the user clearing the bucket bounced the
@@ -903,6 +957,7 @@ describe('experimentReplayTabLogic', () => {
             logic.actions.setMetricFilterMode('no_metric_activity')
         }).toFinishAllListeners()
         expect(logic.values.recordingsFilters.session_ids).toEqual(['bucket-1', 'bucket-2'])
+        expect(logic.values.recordingsFilters.duration).not.toEqual([])
 
         await expectLogic(logic, () => {
             logic.actions.selectWatchCard(DELTA_RESPONSE.cards[0] as any)
@@ -916,6 +971,9 @@ describe('experimentReplayTabLogic', () => {
         expect(logic.values.metricFilterMode).toBe('fired_all')
         expect(logic.values.selectedMetricUuids).toEqual([])
         expect(logic.values.recordingsFilters.session_ids).toEqual(['card-session-1', 'card-session-2'])
+        // The card's sessions are picked with no duration floor, so the default active-seconds
+        // filter must not thin out the list the card's count promises.
+        expect(logic.values.recordingsFilters.duration).toEqual([])
         // The card's ids already encode the event condition, so no event filter is added on top —
         // only the exposure filter stays, keeping the list's definition visible.
         expect(logic.values.recordingsFilters.filter_group.values).toEqual([
