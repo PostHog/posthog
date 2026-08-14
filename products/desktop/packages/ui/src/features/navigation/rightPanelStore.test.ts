@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { type RightPanelSide, resolveRightPanelSide } from "./rightPanelStore";
+import {
+  type RightPanelSide,
+  resolveArtifactMark,
+  resolveRightPanelSide,
+} from "./rightPanelStore";
 
 describe("resolveRightPanelSide", () => {
   it.each<{
@@ -46,5 +50,54 @@ describe("resolveRightPanelSide", () => {
     },
   ])("$name", ({ stored, isReviewOpen, expected }) => {
     expect(resolveRightPanelSide({ stored, isReviewOpen })).toBe(expected);
+  });
+});
+
+describe("resolveArtifactMark", () => {
+  it.each<{
+    name: string;
+    count: number;
+    seen: number | undefined;
+    isShowingArtifacts: boolean;
+    markSeen: boolean;
+    hasNew: boolean;
+  }>([
+    {
+      name: "a session drawn for the first time takes what it has as seen",
+      count: 3,
+      seen: undefined,
+      isShowingArtifacts: false,
+      markSeen: true,
+      hasNew: false,
+    },
+    {
+      name: "an artifact arriving after that marks the button",
+      count: 4,
+      seen: 3,
+      isShowingArtifacts: false,
+      markSeen: false,
+      hasNew: true,
+    },
+    {
+      name: "an open artifacts panel keeps up with what arrives",
+      count: 4,
+      seen: 3,
+      isShowingArtifacts: true,
+      markSeen: true,
+      hasNew: false,
+    },
+    {
+      name: "a dismissed file leaves nothing to announce",
+      count: 2,
+      seen: 3,
+      isShowingArtifacts: false,
+      markSeen: false,
+      hasNew: false,
+    },
+  ])("$name", ({ count, seen, isShowingArtifacts, markSeen, hasNew }) => {
+    expect(resolveArtifactMark({ count, seen, isShowingArtifacts })).toEqual({
+      markSeen,
+      hasNew,
+    });
   });
 });
