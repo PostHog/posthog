@@ -5,21 +5,29 @@ from posthog.test.base import BaseTest
 from unittest.mock import patch
 
 from django.conf import settings
+from django.contrib.admin import ModelAdmin
 from django.contrib.admin.models import DELETION, LogEntry
 from django.contrib.admin.sites import AdminSite
 from django.contrib.auth import BACKEND_SESSION_KEY, SESSION_KEY
 from django.contrib.messages.storage.fallback import FallbackStorage
+from django.core.exceptions import PermissionDenied
 from django.db.models import PROTECT
 from django.test import RequestFactory
 from django.urls import reverse
 
 from loginas import settings as la_settings
+from parameterized import parameterized
 
 from posthog.admin.admins.user_admin import UserAdmin, UserChangeForm
 from posthog.models import OrganizationMembership, User
 from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.session.models import Session
 from posthog.session_recordings.models.session_recording_event import SessionRecordingViewed
+
+
+class _RefusesDeletionAdmin(ModelAdmin):
+    def has_delete_permission(self, request, obj=None) -> bool:
+        return False
 
 
 class TestUserAdminSessions(BaseTest):
@@ -253,6 +261,31 @@ class TestUserAdminDeletion(BaseTest):
 
         self.assertEqual(len(protected), 1)
         self.assertTrue(User.objects.filter(pk=target_id).exists())
+
+    @parameterized.expand([("with recorded views", 1, True), ("without recorded views", 0, False)])
+    def test_an_admin_that_refuses_deletion_blocks_the_cascade_through_its_model(
+        self, _name: str, view_count: int, blocked: bool
+    ):
+        # Django reports such a model in `perms_needed`, which withholds the confirm button and
+        # raises PermissionDenied on the POST. Reporting none would hard-delete rows behind the
+        # back of an admin that refuses deletion, such as the one for AI assistant conversations.
+        site = AdminSite()
+        site.register(SessionRecordingViewed, _RefusesDeletionAdmin)
+        admin_with_registry = UserAdmin(User, site)
+        for index in range(view_count):
+            SessionRecordingViewed.objects.create(team=self.team, user=self.target, session_id=str(index))
+        target_id = self.target.pk
+
+        _, _, perms_needed, _ = admin_with_registry.get_deleted_objects([self.target], self._request(method="get"))
+
+        self.assertEqual(perms_needed, {str(SessionRecordingViewed._meta.verbose_name)} if blocked else set())
+        request = self._request(data={"post": "yes", "deletion_reason": "Duplicate account"})
+        if blocked:
+            with self.assertRaises(PermissionDenied):
+                admin_with_registry.delete_view(request, str(target_id))
+        else:
+            admin_with_registry.delete_view(request, str(target_id))
+        self.assertEqual(User.objects.filter(pk=target_id).exists(), blocked)
 
     def test_bulk_delete_action_is_unavailable(self):
         self.assertNotIn("delete_selected", self.admin.get_actions(self._request(method="get")))

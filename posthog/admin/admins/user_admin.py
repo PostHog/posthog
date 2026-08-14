@@ -11,7 +11,7 @@ from django.contrib.auth.forms import (
     UserChangeForm as DjangoUserChangeForm,
 )
 from django.core.exceptions import ValidationError
-from django.db.models import CASCADE, PROTECT, RESTRICT
+from django.db.models import CASCADE, PROTECT, RESTRICT, Model
 from django.db.models.deletion import get_candidate_relations_to_delete
 from django.db.models.fields.related import ForeignObject
 from django.db.models.fields.reverse_related import ForeignObjectRel
@@ -75,6 +75,7 @@ class UserDeletionActivityContext(ActivityContextBase):
 @frozen
 class _CascadeSummary:
     counts: dict[str, str]
+    perms_needed: set[str]
     protected: list[str]
 
 
@@ -353,15 +354,20 @@ class UserAdmin(DjangoUserAdmin):
         # file tree entries) reach into the millions on a long-lived account, so both the
         # confirmation page and the POST that re-collects them time out before anything is deleted.
         # A capped count per relation answers the same question for the operator in bounded work.
-        summary = self._cascade_summary(objs)
-        return [], summary.counts, set(), summary.protected
+        summary = self._cascade_summary(objs, request)
+        return [], summary.counts, summary.perms_needed, summary.protected
 
-    def _cascade_summary(self, objs: list[User]) -> _CascadeSummary:
+    def _cascade_summary(self, objs: list[User], request: HttpRequest) -> _CascadeSummary:
         counts: list[tuple[str, int]] = []
+        perms_needed: set[str] = set()
         protected: list[str] = []
         # The same relations Django's own collector walks. `User._meta.related_objects` drops the
         # ones declared with `related_name="+"`, which still cascade and include some of the
         # highest-volume tables, so the summary would understate what gets deleted.
+        # Only relations that hang straight off the user are counted. Reaching the rows that
+        # cascade one step further, through a relation of a relation, means joining back through
+        # every parent table, which is the unbounded work this page exists to avoid. The
+        # confirmation page says the counts stop at the account's own rows.
         relations = cast(Iterable[ForeignObjectRel], get_candidate_relations_to_delete(User._meta))
         for related in relations:
             field = related.field
@@ -384,12 +390,28 @@ class UserAdmin(DjangoUserAdmin):
             )
             if count:
                 counts.append((str(related_model._meta.verbose_name_plural), count))
+                if not self._may_delete_related(request, related_model):
+                    perms_needed.add(str(related_model._meta.verbose_name))
 
         counts.sort(key=lambda entry: (-entry[1], entry[0]))
         summary = {str(User._meta.verbose_name_plural): str(len(objs))}
         for label, count in counts:
             summary[label] = f"{DELETION_SUMMARY_COUNT_CAP}+" if count > DELETION_SUMMARY_COUNT_CAP else str(count)
-        return _CascadeSummary(counts=summary, protected=protected)
+        return _CascadeSummary(counts=summary, perms_needed=perms_needed, protected=protected)
+
+    def _may_delete_related(self, request: HttpRequest, related_model: type[Model]) -> bool:
+        # Django's own collector reports a model in `perms_needed` when the operator can't delete
+        # it in the admin, and `ModelAdmin._delete_view` then withholds the confirm button and
+        # raises PermissionDenied on the POST. Reporting nothing here would cascade through models
+        # whose admin refuses deletion outright, such as the one for AI assistant conversations.
+        # A model with no admin has nobody to ask, which Django also treats as nothing to check.
+        related_admin = self.admin_site._registry.get(related_model)
+        if related_admin is None:
+            return True
+        # Django asks per row. Asking once per model is what keeps this page bounded, so an admin
+        # that refuses only some of its rows is answered by whatever it says for the model as a
+        # whole.
+        return related_admin.has_delete_permission(request)
 
     def _protected_rows(self, field: ForeignObject, objs: list[User]) -> list[str]:
         # Django refuses a delete that a PROTECT or RESTRICT relation blocks by raising from inside

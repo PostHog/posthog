@@ -12,7 +12,10 @@
   </p>
 
   {% include "admin/includes/object_delete_summary.html" %}
-  <p>Counts stop at {{ deletion_summary_count_cap }}+, so a big account doesn't slow this page down.</p>
+  <p>
+    Counts stop at {{ deletion_summary_count_cap }}+, so a big account doesn't slow this page down.
+    Only rows attached directly to the account are counted. Rows that belong to those go too.
+  </p>
 
   <form method="post">{% csrf_token %}
     <div>
