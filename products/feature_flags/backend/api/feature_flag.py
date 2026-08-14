@@ -50,6 +50,7 @@ from posthog.auth import (
 )
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 from posthog.constants import FlagRequestType
+from posthog.dataclasses import frozen
 from posthog.event_usage import report_user_action
 from posthog.exceptions import Conflict
 from posthog.exceptions_capture import capture_exception
@@ -985,27 +986,21 @@ def _reject_serde_unsafe_filters(filters: Any) -> None:
     # Django serializes whole — the per-flag skip in the Rust Postgres path never sees it, so
     # one bad property takes out the team's cached flag set. Aliases count as known: master
     # canonicalized them before checking.
-    for group_index, prop_index, prop in _iter_flag_filter_properties(filters.get("groups")):
-        operator = prop.get("operator")
+    for located in _iter_flag_filter_properties(filters.get("groups")):
+        operator = located.prop.get("operator")
         if operator is not None and (
             not isinstance(operator, str)
             or (operator not in FEATURE_FLAG_SUPPORTED_OPERATORS and operator not in FEATURE_FLAG_OPERATOR_ALIASES)
         ):
-            raise serializers.ValidationError(
-                f"groups[{group_index}].properties[{prop_index}].operator: unsupported operator for feature flags"
-            )
+            raise serializers.ValidationError(f"{located.path}.operator: unsupported operator for feature flags")
         # Rust's PropertyFilter declares key and type as required (Option-typed fields are the
         # optional ones), so a property missing either fails the whole payload, not just itself.
-        prop_key = prop.get("key")
+        prop_key = located.prop.get("key")
         if prop_key is None or isinstance(prop_key, bool) or not isinstance(prop_key, str | int | float):
-            raise serializers.ValidationError(
-                f"groups[{group_index}].properties[{prop_index}].key: a property key is required"
-            )
-        prop_type = prop.get("type")
+            raise serializers.ValidationError(f"{located.path}.key: a property key is required")
+        prop_type = located.prop.get("type")
         if not isinstance(prop_type, str) or prop_type not in _RUST_PROPERTY_TYPES:
-            raise serializers.ValidationError(
-                f"groups[{group_index}].properties[{prop_index}].type: invalid property type"
-            )
+            raise serializers.ValidationError(f"{located.path}.type: invalid property type")
 
     # Explicit null is allowed (Rust reads payloads as an Option) even though the old check
     # rejected it — the structural tier owns that looser, serde-faithful contract.
@@ -1023,8 +1018,20 @@ def _reject_serde_unsafe_filters(filters: Any) -> None:
                 raise serializers.ValidationError(f"Payload for key '{payload_key}' is not valid JSON.")
 
 
-def _iter_flag_filter_properties(groups: Any) -> Iterator[tuple[int, int, dict[str, Any]]]:
-    """Yield (group_index, property_index, property) over well-formed group/property dicts.
+@frozen
+class _FlagFilterProperty:
+    group_index: int
+    property_index: int
+    prop: dict[str, Any]
+
+    @property
+    def path(self) -> str:
+        """Error-message prefix pointing at this property inside `filters`."""
+        return f"groups[{self.group_index}].properties[{self.property_index}]"
+
+
+def _iter_flag_filter_properties(groups: Any) -> Iterator[_FlagFilterProperty]:
+    """Yield each well-formed property filter found under `groups`.
 
     Malformed entries are skipped instead of crashing: they can only occur while the #50084
     enforcement kill switch is off, and log-only mode must never 500.
@@ -1039,7 +1046,11 @@ def _iter_flag_filter_properties(groups: Any) -> Iterator[tuple[int, int, dict[s
             continue
         for prop_index, prop in enumerate(properties):
             if isinstance(prop, dict):
-                yield group_index, prop_index, cast(dict[str, Any], prop)
+                yield _FlagFilterProperty(
+                    group_index=group_index,
+                    property_index=prop_index,
+                    prop=cast(dict[str, Any], prop),
+                )
 
 
 class FeatureFlagCreateRequestSchemaSerializer(serializers.Serializer):
@@ -1700,16 +1711,14 @@ class FeatureFlagSerializer(
                     if p.get("operator") in ("regex", "not_regex") and isinstance(p.get("value"), str):
                         existing_patterns.add(p["value"])
 
-        for group_index, prop_index, prop in _iter_flag_filter_properties(merged.get("groups")):
-            if prop.get("operator") in ("regex", "not_regex"):
-                pattern = prop.get("value")
+        for located in _iter_flag_filter_properties(merged.get("groups")):
+            if located.prop.get("operator") in ("regex", "not_regex"):
+                pattern = located.prop.get("value")
                 if isinstance(pattern, str) and pattern not in existing_patterns and not is_valid_regex(pattern):
-                    raise serializers.ValidationError(
-                        f"groups[{group_index}].properties[{prop_index}].value: invalid regex pattern"
-                    )
+                    raise serializers.ValidationError(f"{located.path}.value: invalid regex pattern")
 
-            if prop.get("type") == "cohort":
-                cohort_id = prop.get("value")
+            if located.prop.get("type") == "cohort":
+                cohort_id = located.prop.get("value")
                 try:
                     initial_cohort: Cohort = Cohort.objects.get(
                         pk=cast(str | int, cohort_id), team__project_id=self.context["project_id"]
