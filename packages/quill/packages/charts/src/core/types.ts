@@ -1,6 +1,7 @@
 import type { ReactNode } from 'react'
 
 import type { LegendItem } from '../components/Legend/Legend'
+import type { LegendItemControls } from '../components/Legend/useChartLegend'
 
 /** Visual theme colours consumed by chart rendering. */
 export interface ChartTheme {
@@ -317,9 +318,11 @@ export interface YAxis {
 }
 
 /** Built-in legend config for the multi-series charts. The chart renders a {@link Legend} and,
- *  when interactive, owns the toggled-off state — clicking a row hides that series (no draw, no
- *  scale contribution, no tooltip) and the axes rescale, matching the classic insight legend.
- *  Pass `hiddenKeys` + `onToggleSeries` to control the state yourself instead. */
+ *  when interactive, owns the toggled-off state. A plain click isolates the clicked series — every
+ *  other row is hidden (no draw, no scale contribution, no tooltip) and the axes rescale into the
+ *  freed space — and clicking the isolated row again restores all; ⌘/Ctrl-click (or Shift-click)
+ *  toggles one series in or out. Pass `hiddenKeys` + `onToggleSeries` to control the state
+ *  yourself instead, and `onSetHiddenSeries` alongside them to keep isolating. */
 export interface ChartLegendConfig {
     /** Render the legend. Default false. */
     show?: boolean
@@ -329,21 +332,36 @@ export interface ChartLegendConfig {
     align?: 'start' | 'center' | 'end'
     /** Gap in px between the legend and the plot. */
     gap?: number
-    /** Clicking a legend item hides/shows its series. Default true when the legend is shown;
-     *  set false for a static, read-only legend. */
+    /** Legend rows respond to clicks — isolate, or toggle with ⌘/Ctrl. Default true when the legend
+     *  is shown; set false for a static, read-only legend. */
     interactive?: boolean
-    /** Controlled hidden-series keys. Provide together with `onToggleSeries` to own the state;
-     *  omit for chart-managed (uncontrolled) toggling. */
+    /** Controlled hidden-series keys. Provide together with `onToggleSeries` to own the state, plus
+     *  `onSetHiddenSeries` for the bulk actions — without it a controlled legend can't isolate and a
+     *  plain click falls back to toggling. Omit all three for chart-managed (uncontrolled) state. */
     hiddenKeys?: string[]
     /** Initial hidden keys for the chart-managed (uncontrolled) state. Ignored when `hiddenKeys`
      *  is set (controlled). */
     defaultHiddenKeys?: string[]
     /** Called whenever a series is toggled, with its key and resulting hidden state. */
     onToggleSeries?: (key: string, hidden: boolean) => void
-    /** Wrap each rendered legend row — receives the default row node and its item, returns the
-     *  node to render. Lets consumers augment rows (e.g. a right-click context menu) while keeping
-     *  the default swatch/label/toggle rendering. Return `defaultNode` to leave a row untouched. */
-    renderItem?: (defaultNode: ReactNode, item: LegendItem) => ReactNode
+    /** Called with the whole next hidden set when a bulk action runs — a plain click isolating a
+     *  series, or a row menu's isolate / hide-all. A controlled legend must handle this for those
+     *  actions to work at all; `onToggleSeries` fires one key at a time and can't express them as a
+     *  single update. Uncontrolled legends update their own state and don't need it. */
+    onSetHiddenSeries?: (hiddenKeys: string[]) => void
+    /** Groups legend rows that a consumer stores one visibility bit for, so the chart counts them as
+     *  one series: isolating keeps the whole group visible, "only this one is visible" is judged per
+     *  group, and a legend with one group has nothing to isolate. A chart comparing two periods needs
+     *  this when a series' current and previous rows share one stored bit. `hiddenKeys` stays in row
+     *  space either way — this only answers which rows are the same series, never where the consumer
+     *  keeps the state. Defaults to the row's own key. */
+    visibilityGroupKey?: (rowKey: string) => string
+    /** Wrap each rendered legend row — receives the default row node, its item, and that row's
+     *  {@link LegendItemControls} (visibility state plus toggle/isolate/hide-all actions), and
+     *  returns the node to render. Lets consumers augment rows (e.g. a right-click context menu)
+     *  while keeping the default swatch/label/toggle rendering. Return `defaultNode` to leave a row
+     *  untouched. */
+    renderItem?: (defaultNode: ReactNode, item: LegendItem, controls: LegendItemControls) => ReactNode
 }
 
 export interface TooltipConfig {
@@ -544,8 +562,15 @@ export type DateRangeZoomData = LabelRange
 /** Payload of a completed 2D brush ({@link ChartProps.onAreaSelect}). The x axis resolves to
  *  labels like `onDateRangeZoom`; the y axis stays in canvas pixels — the core is label-generic
  *  and has no y-band concept, so chart-type adapters map the pixel range onto their own scales
- *  (e.g. the Heatmap converts it to row indices). */
+ *  (e.g. the Heatmap converts it to row indices). The raw x pixels come along too, for chart types
+ *  whose x axis is continuous rather than a band (e.g. ScatterChart inverts them back to data
+ *  values), where the label range would round the selection to whichever points sit near the drag
+ *  edges. */
 export interface AreaSelectData extends LabelRange {
+    /** Left edge of the dragged range in canvas pixels (always <= xPixel1). */
+    xPixel0: number
+    /** Right edge of the dragged range in canvas pixels. */
+    xPixel1: number
     /** Top of the dragged range in canvas pixels (always <= yPixel1). */
     yPixel0: number
     /** Bottom of the dragged range in canvas pixels. */
@@ -596,6 +621,10 @@ export interface BoxRect {
     whiskerBottom: number
     dataIndex: number
 }
+
+/** Marker glyph drawn at a scatter point. `cross` is the one open glyph, so it stays readable as a
+ *  distinct category where the filled shapes overlap into a blob. */
+export type ScatterMarkerShape = 'circle' | 'square' | 'triangle' | 'cross'
 
 /** Generic scale interface that Chart uses for shared overlays and interaction. */
 export interface ChartScales {

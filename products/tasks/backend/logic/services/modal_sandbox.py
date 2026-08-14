@@ -96,13 +96,25 @@ from products.tasks.backend.logic.services.sandbox import (
 )
 from products.tasks.backend.models import SandboxSnapshot
 
-from .sandbox import AgentServerResult, ExecutionResult, ExecutionStream, SandboxConfig, SandboxStatus, SandboxTemplate
+from .sandbox import (
+    AgentServerResult,
+    ExecutionResult,
+    ExecutionStream,
+    SandboxConfig,
+    SandboxStatus,
+    SandboxTemplate,
+    SandboxWorkload,
+)
 
 logger = logging.getLogger(__name__)
 
 DEFAULT_MODAL_APP_NAME = "posthog-sandbox-default"
 NOTEBOOK_MODAL_APP_NAME = "posthog-sandbox-notebook"
 STREAMLIT_MODAL_APP_NAME = "posthog-sandbox-streamlit"
+# Self-driving runs boot the same default image as a user's task, so only the app separates them.
+# Images and snapshots are workspace-scoped in Modal, not app-scoped, so a box here still restores
+# a snapshot baked under the default app.
+SELF_DRIVING_MODAL_APP_NAME = "posthog-sandbox-self-driving"
 
 SANDBOX_BASE_IMAGE = "ghcr.io/posthog/posthog-sandbox-base"
 SANDBOX_NOTEBOOK_IMAGE = "ghcr.io/posthog/posthog-sandbox-notebook"
@@ -246,6 +258,10 @@ LOCAL_MODAL_DOCKERFILES = {
 LOCAL_MODAL_INSTALL_SKILLS_SCRIPT = Path("products/tasks/backend/sandbox/images/install-skills.sh")
 LOCAL_MODAL_GIT_GUARD_SCRIPT = Path("products/tasks/backend/sandbox/images/git-guard.sh")
 LOCAL_MODAL_GH_GUARD_SCRIPT = Path("products/tasks/backend/sandbox/images/gh-guard.sh")
+# The notebook image bakes the notebooks SQLV2 kernel and stamps its content hash,
+# so a local build context needs the package and the module that computes the hash.
+LOCAL_MODAL_NOTEBOOK_KERNEL_MODULE = Path("products/notebooks/backend/kernel_package.py")
+LOCAL_MODAL_NOTEBOOK_KERNEL_DIR = Path("products/notebooks/backend/sandbox/kernel")
 
 
 _image_ref_cache: TTLCache = TTLCache(maxsize=3, ttl=300)
@@ -600,6 +616,18 @@ def _prepare_local_modal_build_context(template: SandboxTemplate) -> tuple[str, 
         LocalSkillsCache(base_dir).ensure_built()
         populate_skills_directory(context_dir / LOCAL_BUILT_SKILLS_PATH, base_dir=base_dir)
 
+    elif template == SandboxTemplate.NOTEBOOK_BASE:
+        destination_kernel_module_path = context_dir / LOCAL_MODAL_NOTEBOOK_KERNEL_MODULE
+        destination_kernel_module_path.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(base_dir / LOCAL_MODAL_NOTEBOOK_KERNEL_MODULE, destination_kernel_module_path)
+        # A checkout that ran the tests locally has bytecode here, and this context
+        # bypasses .dockerignore, so drop it rather than bake it into the image.
+        shutil.copytree(
+            base_dir / LOCAL_MODAL_NOTEBOOK_KERNEL_DIR,
+            context_dir / LOCAL_MODAL_NOTEBOOK_KERNEL_DIR,
+            ignore=shutil.ignore_patterns("__pycache__"),
+        )
+
     elif template == SandboxTemplate.STREAMLIT_BASE:
         # Copy all sibling files (streamlit_auth_proxy.py, etc.)
         # needed by COPY instructions in the Dockerfile
@@ -626,12 +654,14 @@ class ModalSandbox(SandboxBase):
     provision_diagnostics: SandboxProvisionDiagnostics | None
     DEFAULT_APP_NAME = DEFAULT_MODAL_APP_NAME
     NOTEBOOK_APP_NAME = NOTEBOOK_MODAL_APP_NAME
+    STREAMLIT_APP_NAME = STREAMLIT_MODAL_APP_NAME
+    SELF_DRIVING_APP_NAME = SELF_DRIVING_MODAL_APP_NAME
 
     def __init__(self, sandbox: modal.Sandbox, config: SandboxConfig, sandbox_url: str | None = None):
         self.id = sandbox.object_id
         self.config = config
         self._sandbox = sandbox
-        self._app = type(self)._get_app_for_template(config.template)
+        self._app = type(self)._get_app_for_config(config)
         self._sandbox_url = sandbox_url
         self.provision_diagnostics = None
 
@@ -641,22 +671,37 @@ class ModalSandbox(SandboxBase):
         return self._sandbox_url
 
     @classmethod
-    def _get_default_app(cls) -> modal.App:
-        return modal.App.lookup(cls.DEFAULT_APP_NAME, create_if_missing=True)
+    def _template_app_name(cls, template: SandboxTemplate) -> str | None:
+        """App a template owns outright, or None when it shares the general-purpose apps.
+
+        Notebook and Streamlit boxes are their own products with their own images, so they stay
+        in their own app whatever the workload — neither is ever self-driving.
+        """
+        if template == SandboxTemplate.NOTEBOOK_BASE:
+            return cls.NOTEBOOK_APP_NAME
+        if template == SandboxTemplate.STREAMLIT_BASE:
+            return cls.STREAMLIT_APP_NAME
+        return None
 
     @classmethod
     def _get_app_for_template(cls, template: SandboxTemplate) -> modal.App:
-        if template == SandboxTemplate.NOTEBOOK_BASE:
-            return modal.App.lookup(cls.NOTEBOOK_APP_NAME, create_if_missing=True)
-        if template == SandboxTemplate.STREAMLIT_BASE:
-            return modal.App.lookup(STREAMLIT_MODAL_APP_NAME, create_if_missing=True)
-        return cls._get_default_app()
+        """App for a template alone, ignoring workload. For image builds, where the built image
+        is visible to every app in the workspace and so has no workload of its own."""
+        return modal.App.lookup(cls._template_app_name(template) or cls.DEFAULT_APP_NAME, create_if_missing=True)
+
+    @classmethod
+    def _get_app_for_config(cls, config: SandboxConfig) -> modal.App:
+        """App that owns this sandbox: the template's when it has one, otherwise the workload's."""
+        app_name = cls._template_app_name(config.template)
+        if app_name is None and config.workload == SandboxWorkload.SELF_DRIVING:
+            app_name = cls.SELF_DRIVING_APP_NAME
+        return modal.App.lookup(app_name or cls.DEFAULT_APP_NAME, create_if_missing=True)
 
     @classmethod
     def create(cls, config: SandboxConfig) -> ModalSandbox:
         try:
             modal.enable_output()
-            app = cls._get_app_for_template(config.template)
+            app = cls._get_app_for_config(config)
             base_image = _get_template_image(config.template)
             custom_image_bare: modal.Image | None = None
             custom_image: modal.Image | None = None
@@ -864,7 +909,10 @@ class ModalSandbox(SandboxBase):
             if modal_output is not None:
                 sandbox.provision_diagnostics = summarize_modal_output(modal_output.getvalue())
 
-            logger.info(f"Created sandbox {sandbox.id} for {config.name}")
+            logger.info(
+                f"Created sandbox {sandbox.id} for {config.name}",
+                extra={"modal_app": getattr(app, "name", None), "workload": config.workload.value},
+            )
 
             return sandbox
 

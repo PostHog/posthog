@@ -533,6 +533,7 @@ class UserAccessControl:
         # hasattr on an un-computed cached_property would re-populate the value we're clearing
         self.__dict__.pop("_cached_access_controls", None)
         self.__dict__.pop("blocked_resource_ids_by_scope", None)
+        self.__dict__.pop("allowlisted_resource_ids_by_scope", None)
         self.__dict__.pop("blocked_resources", None)
         self.__dict__.pop("_organization_membership", None)
         self.__dict__.pop("_user_role_ids", None)
@@ -1164,12 +1165,17 @@ class UserAccessControl:
     # Filtering querysets
     # ------------------------------------------------------------
 
-    def filter_queryset_by_access_level(self, queryset: QuerySet, include_all_if_admin: bool = False) -> QuerySet:
+    def filter_queryset_by_access_level(
+        self, queryset: QuerySet, include_all_if_admin: bool = False, resource: Optional[APIScopeObject] = None
+    ) -> QuerySet:
         # Filter queryset based on access controls, handling cases where user has "none" resource access
         # but may have specific object access
 
         model = cast(Model, queryset.model)
-        resource = model_to_resource(model)
+        # Callers that already know the resource must pass it: model_to_resource cannot map every
+        # model name (LLMPrompt lowercases to "llmprompt"), and an unmapped model returns the
+        # queryset unfiltered
+        resource = resource or model_to_resource(model)
 
         if not resource:
             return queryset
@@ -1272,6 +1278,38 @@ class UserAccessControl:
             blocked, _allowed = self._blocked_and_allowed_object_ids(acs)
             if blocked:
                 result[resource] = blocked
+        return result
+
+    @cached_property
+    def allowlisted_resource_ids_by_scope(self) -> dict[APIScopeObject, set[str]]:
+        """Per-resource set of object IDs that are the *only* ones the user may read, for resources
+        where they hold object-level grants but no resource-level access at all.
+
+        This is the allowlist branch of `filter_queryset_by_access_level`: with "none" at the
+        resource level, REST serves the route and narrows rows to the explicitly granted objects
+        instead of merely removing denied ones. HogQL consumers must narrow the same way — a
+        resource absent from this mapping falls back to removing `blocked_resource_ids_by_scope`.
+
+        Empty for org admins and when there is no team / EE / entitlement, matching
+        `blocked_resource_ids_by_scope`.
+        """
+        if not EE_AVAILABLE or not self._team or self.is_organization_admin:
+            return {}
+
+        if not self.access_controls_supported:
+            # Without the entitlement, stale rules in the DB must be ignored, not enforced
+            return {}
+
+        object_rows_by_resource: dict[APIScopeObject, list[_AccessControl]] = defaultdict(list)
+        for ac in self._cached_access_controls:
+            if ac.resource_id is not None:
+                object_rows_by_resource[cast(APIScopeObject, ac.resource)].append(ac)
+
+        result: dict[APIScopeObject, set[str]] = {}
+        for resource, acs in object_rows_by_resource.items():
+            _blocked, allowed = self._blocked_and_allowed_object_ids(acs)
+            if allowed and not self.has_resource_access(resource):
+                result[resource] = allowed
         return result
 
     def has_resource_access(self, resource: APIScopeObject) -> bool:

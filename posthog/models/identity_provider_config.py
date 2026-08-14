@@ -1,5 +1,8 @@
+from collections.abc import Collection
+from typing import Any
+
 from django.contrib.postgres.fields import ArrayField
-from django.db import models
+from django.db import models, transaction
 
 import structlog
 
@@ -48,12 +51,15 @@ class IdentityProviderConfig(ModelActivityMixin, UUIDModel):
     updated_at = models.DateTimeField(auto_now=True)
 
     # ---- SAML attributes ----
-    # Field shapes intentionally mirror `OrganizationDomain` (including nullability) so
-    # values can be copied verbatim while domains remain the source of truth.
+    # Field shapes mirror `OrganizationDomain` (including nullability) so existing values can be
+    # migrated from the legacy domain columns without coercion.
     saml_entity_id = models.CharField(max_length=512, blank=True, null=True)
     saml_acs_url = models.CharField(max_length=512, blank=True, null=True)
     saml_x509_cert = models.TextField(blank=True, null=True)
-    saml_relay_state = models.CharField(max_length=36, blank=True, null=True)
+    # Round-trips through the IdP as RelayState to route an assertion back to this config, and is
+    # also the prefix of every `UserSocialAuth.uid` issued through it. Changing the value on a
+    # config already in use orphans those identities, so it is assigned once and never edited.
+    saml_relay_state = models.CharField(max_length=36, blank=True, null=True, unique=True)
 
     # ---- SCIM attributes ----
     scim_slug = models.CharField(max_length=36, blank=True, null=True, unique=True)
@@ -84,11 +90,56 @@ class IdentityProviderConfig(ModelActivityMixin, UUIDModel):
         help_text="Allowed ID-JAG client IDs. Empty list allows any client_id.",
     )
 
+    _IDENTIFIER_FIELDS = ("saml_relay_state", "scim_slug")
+    _loaded_identifier_values: dict[str, str | None]
+
     class Meta:
         verbose_name = "identity provider config"
 
     def __str__(self) -> str:
         return self.name or str(self.id)
+
+    @classmethod
+    def from_db(cls, db: str | None, field_names: Collection[str], values: Collection[Any]) -> "IdentityProviderConfig":
+        instance = super().from_db(db, field_names, values)
+        instance._loaded_identifier_values = {
+            field: getattr(instance, field) for field in cls._IDENTIFIER_FIELDS if field in field_names
+        }
+        return instance
+
+    def save(self, *args: Any, **kwargs: Any) -> None:
+        if self._state.adding:
+            super().save(*args, **kwargs)
+            self._loaded_identifier_values = {field: getattr(self, field) for field in self._IDENTIFIER_FIELDS}
+            return
+
+        update_fields = kwargs.get("update_fields")
+        fields_to_preserve = [
+            field
+            for field in self._IDENTIFIER_FIELDS
+            if getattr(self, field) is None
+            and (
+                (update_fields is not None and field not in update_fields)
+                or (update_fields is None and getattr(self, "_loaded_identifier_values", {}).get(field) is None)
+            )
+        ]
+
+        if fields_to_preserve:
+            with transaction.atomic():
+                persisted = type(self).objects.select_for_update().values(*fields_to_preserve).get(pk=self.pk)
+                for field in fields_to_preserve:
+                    setattr(self, field, persisted[field])
+                super().save(*args, **kwargs)
+        else:
+            super().save(*args, **kwargs)
+
+        saved_identifier_fields = set(fields_to_preserve)
+        if update_fields is None:
+            saved_identifier_fields.update(self._IDENTIFIER_FIELDS)
+        else:
+            saved_identifier_fields.update(field for field in self._IDENTIFIER_FIELDS if field in update_fields)
+        for field in saved_identifier_fields:
+            self._loaded_identifier_values[field] = getattr(self, field)
 
     @property
     def has_saml(self) -> bool:

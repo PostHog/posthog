@@ -39,6 +39,8 @@ export const OBSERVATION_LIST_FILTER_KEYS: readonly (keyof VisionObservationsRet
     'triggered_by',
     'verdict',
     'tags',
+    'min_score',
+    'max_score',
     'session_id',
     'recording_subject',
     'labeled',
@@ -234,13 +236,13 @@ export const ENABLED_OPTIONS: { value: EnabledFilter; label: string }[] = [
 export const OBSERVATION_CREDITS_BY_MODEL: Record<ScannerModelEnumApi, number> = {
     [ScannerModelEnumApi.Gemini35FlashLite]: 2,
     [ScannerModelEnumApi.Gemini3FlashPreview]: 5,
-    [ScannerModelEnumApi.Gemini36Flash]: 15,
+    [ScannerModelEnumApi.Gemini37Flash]: 15,
 }
 
 const MODEL_NAMES: Record<ScannerModelEnumApi, string> = {
     [ScannerModelEnumApi.Gemini35FlashLite]: 'Gemini 3.5 Flash Lite',
     [ScannerModelEnumApi.Gemini3FlashPreview]: 'Gemini 3 Flash',
-    [ScannerModelEnumApi.Gemini36Flash]: 'Gemini 3.6 Flash',
+    [ScannerModelEnumApi.Gemini37Flash]: 'Gemini 3.7 Flash',
 }
 
 // Tier-name arms of the replay-vision-model-tier-naming-experiment flag: capability tiers instead
@@ -252,12 +254,12 @@ const MODEL_TIER_NAMES: Record<ModelNamingVariant, Record<ScannerModelEnumApi, s
     test: {
         [ScannerModelEnumApi.Gemini35FlashLite]: 'Basic',
         [ScannerModelEnumApi.Gemini3FlashPreview]: 'Pro',
-        [ScannerModelEnumApi.Gemini36Flash]: 'Ultra',
+        [ScannerModelEnumApi.Gemini37Flash]: 'Ultra',
     },
     'lite-standard-pro': {
         [ScannerModelEnumApi.Gemini35FlashLite]: 'Lite',
         [ScannerModelEnumApi.Gemini3FlashPreview]: 'Standard',
-        [ScannerModelEnumApi.Gemini36Flash]: 'Pro',
+        [ScannerModelEnumApi.Gemini37Flash]: 'Pro',
     },
 }
 
@@ -401,7 +403,9 @@ export type BaseReplayScanner = Omit<
     ReplayScannerApi,
     'scanner_type' | 'scanner_config' | 'query' | 'created_by' | 'user_access_level'
 > &
-    Required<Pick<ReplayScannerApi, 'sampling_rate' | 'enabled' | 'emits_signals' | 'provider'>> & {
+    Required<
+        Pick<ReplayScannerApi, 'sampling_rate' | 'enabled' | 'emits_signals' | 'provider' | 'credit_limit' | 'tags'>
+    > & {
         query: RecordingsQuery | null
         created_by: ScannerCreatedBy | null
         sampling_mode: SamplingMode
@@ -429,6 +433,13 @@ export interface ScorerScanner extends BaseReplayScanner {
 }
 
 export type ReplayScanner = MonitorScanner | SummarizerScanner | ClassifierScanner | ScorerScanner
+
+// The editor form's values: the API scanner plus UI-only state that is stripped before every API write.
+// `credit_limit_enabled` keeps "limit toggle on, amount still empty" representable so it can block the save.
+export type ScannerFormValues = ReplayScanner & { credit_limit_enabled?: boolean }
+
+// Mirrors the API's int4 bound on credit_limit (visionScannersCreateBodyCreditLimitMax in generated/api.zod.ts).
+export const MAX_CREDIT_LIMIT = 2147483647
 
 /** Narrow a snapshot's untyped scanner_config at one boundary; pair with the snapshot's scanner_type to pick the variant. */
 export function configFromSnapshot(snapshot: { scanner_config?: unknown } | null | undefined): ScannerConfig | null {

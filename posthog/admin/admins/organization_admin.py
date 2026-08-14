@@ -5,6 +5,7 @@ from django.apps import apps
 from django.conf import settings
 from django.contrib import admin, messages
 from django.core.management import call_command
+from django.core.management.base import CommandError
 from django.shortcuts import redirect, render
 from django.template.loader import render_to_string
 from django.urls import path, reverse
@@ -23,6 +24,7 @@ from posthog.admin.inlines.team_inline import TeamInline
 from posthog.admin.paginators.no_count_paginator import NoCountPaginator
 from posthog.models.organization import Organization
 from posthog.person_db_router import PERSONS_DB_MODELS
+from posthog.tasks.ai_observability_usage_report import internal_reporting_team_id
 
 # Registry of default-db models to count for bulk-delete report.
 # Format: (app_label.ModelName, filter_field, display_name)
@@ -570,21 +572,31 @@ class OrganizationAdmin(admin.ModelAdmin):
         return render(request, "admin/posthog/organization/send_usage_report.html", {"form": form})
 
     def send_ai_observability_usage_report_view(self, request):
-        # Staff-only on purpose (no group gate like the sibling): nothing customer-facing, and
-        # duplicate emissions are ignorable at query time (read one event per org per day).
+        # Staff-only on purpose, unlike the sibling billing view: nothing here is customer-facing, and
+        # the task now skips organizations that already have a report for the period.
         if request.method == "POST":
             form = UsageReportForm(request.POST)
             if form.is_valid():
                 report_date = form.cleaned_data["report_date"]
-                call_command(
-                    "send_ai_observability_usage_report", f"--date={report_date.strftime('%Y-%m-%d')}", "--async"
-                )
-                messages.success(request, f"AI observability usage report for date {report_date} was queued.")
+                try:
+                    call_command(
+                        "send_ai_observability_usage_report", f"--date={report_date.strftime('%Y-%m-%d')}", "--async"
+                    )
+                except CommandError as e:
+                    # Surfacing this matters: a swallowed refusal would report success for a run that
+                    # never started, so the operator would stop looking for the missing reports.
+                    messages.error(request, str(e))
+                else:
+                    messages.success(request, f"AI observability usage report for date {report_date} was queued.")
                 return redirect(reverse("admin:posthog_organization_changelist"))
         else:
             form = UsageReportForm()
 
-        return render(request, "admin/posthog/organization/send_ai_observability_usage_report.html", {"form": form})
+        return render(
+            request,
+            "admin/posthog/organization/send_ai_observability_usage_report.html",
+            {"form": form, "can_skip_existing_reports": internal_reporting_team_id() is not None},
+        )
 
     def changelist_view(self, request, extra_context=None):
         extra_context = extra_context or {}
