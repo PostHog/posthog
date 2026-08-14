@@ -101,12 +101,18 @@ def create_custom_agent_ready_report(
                 task_id=task_id,
             )
 
-    # After the transaction so a telemetry failure can't roll back the report.
-    if final_report.assignees:
+    # After the transaction so a telemetry failure can't roll back the report. Telemetry mirrors
+    # the live reviewer set: suggested_reviewers appends are latest-wins and registered artefacts
+    # are written after the assignees append, so a registered SuggestedReviewers overrides it.
+    reviewer_logins = [assignee.github_login for assignee in final_report.assignees]
+    for artefact_content in registered_artefacts:
+        if isinstance(artefact_content, SuggestedReviewers):
+            reviewer_logins = [entry.github_login for entry in artefact_content.root]
+    if reviewer_logins:
         capture_suggested_reviewers_resolved(
             team_id=team_id,
             report_id=str(report.id),
-            github_logins=[assignee.github_login for assignee in final_report.assignees],
+            github_logins=reviewer_logins,
             source="scout",
         )
 

@@ -366,8 +366,9 @@ async def _persist_agentic_report_artefacts(
         artefacts=artefacts,
     )
 
-    # Telemetry mirrors persistence: fires exactly when a suggested_reviewers artefact was
-    # appended above, so re-promotions without new findings don't double-count.
+    # Telemetry mirrors persistence: fires when a suggested_reviewers artefact was appended
+    # above, so re-promotions without new findings don't re-fire. Delivery is at-least-once
+    # (a retry of this activity re-captures), so consumers must dedupe by report_id.
     if reviewers_content and has_new_finding:
         await database_sync_to_async(capture_suggested_reviewers_resolved, thread_sensitive=False)(
             team_id=team_id,
