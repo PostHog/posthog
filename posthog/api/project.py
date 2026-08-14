@@ -316,6 +316,7 @@ def team_default_release_conditions_view(team: Team, request: request.Request) -
         request.user,
         "default release conditions updated",
         {"team_id": team.id, "enabled": enabled, "group_count": len(default_groups)},
+        request=request,
     )
 
     return response.Response({"enabled": config.enabled, "default_groups": config.default_groups})
