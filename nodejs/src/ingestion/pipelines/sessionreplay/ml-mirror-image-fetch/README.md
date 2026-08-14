@@ -298,6 +298,10 @@ adds a prohibition.
     specification when the file reserves and the header releases, and principle two is the reason.
 64. The lane does not read the HTML `meta` form of the reservation. The lane fetches images and
     parses no HTML.
+65. The lane reads every signal that answers for a whole origin before it requests an image from
+    that origin. Those are robots.txt and tdmrep.json. A refusal there costs the host nothing and
+    covers every URL on it. A refusal in a response header costs the host one fetch, and covers one
+    URL.
 
 ## How a message waits
 
