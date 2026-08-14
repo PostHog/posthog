@@ -105,7 +105,7 @@ export function DashboardSectionHeader({
                 <h4 className="mb-0">
                     <button
                         type="button"
-                        className="font-semibold text-left"
+                        className="cursor-pointer font-semibold text-left"
                         data-attr="dashboard-section-name"
                         disabled={!canEdit}
                         onClick={() => {
