@@ -2858,6 +2858,16 @@ class TestAccountEmailThreadViewSet(APIBaseTest):
             [message["content"] for message in second_page_response.json()["results"]],
             ["Message 1"],
         )
+
+        with patch(
+            "products.customer_analytics.backend.presentation.views.views.AccountEmailThreadMessagePagination.max_limit",
+            1,
+        ):
+            capped_response = self.client.get(f"{self.endpoint}{self.thread.id}/?limit=10000")
+        self.assertEqual(status.HTTP_200_OK, capped_response.status_code, capped_response.json())
+        self.assertEqual(capped_response.json()["count"], 2)
+        self.assertEqual(len(capped_response.json()["results"]), 1)
+
         self.assertEqual(status.HTTP_404_NOT_FOUND, self.client.get(f"{self.endpoint}not-a-uuid/").status_code)
 
     def test_user_without_ticket_access_cannot_read_email_summaries_or_bodies(self):

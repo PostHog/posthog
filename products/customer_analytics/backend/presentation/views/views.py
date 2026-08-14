@@ -151,6 +151,11 @@ _ACCOUNT_ID_PARAM = OpenApiParameter(
 # NOTE: deliberately no class docstring — a docstring here is inherited as the ViewSets'
 # ``__doc__`` and drf-spectacular would surface it as every operation's description (the
 # model-backed viewsets had none), drifting the generated clients.
+class AccountEmailThreadMessagePagination(LimitOffsetPagination):
+    default_limit = 50
+    max_limit = 200
+
+
 class _FacadePaginationMixin:
     # Drives the standard ``LimitOffsetPagination`` envelope from a facade ``(page, count)``
     # result. The facade does the slicing (offset/limit), so we set the paginator's state
@@ -1296,6 +1301,7 @@ class AccountViewSet(
         detail=True,
         url_path=r"email_threads/(?P<thread_id>[^/.]+)",
         url_name="email-thread-detail",
+        pagination_class=AccountEmailThreadMessagePagination,
     )
     def email_thread(self, request: Request, thread_id: str, *args, **kwargs) -> Response:
         try:
