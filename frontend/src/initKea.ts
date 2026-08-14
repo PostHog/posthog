@@ -8,7 +8,7 @@ import { waitForPlugin } from 'kea-waitfor'
 import { windowValuesPlugin } from 'kea-window-values'
 import posthog from 'posthog-js'
 
-import { isAccessDeniedError, isApprovalRequiredError } from 'lib/api-error'
+import { isAccessDeniedError, isApprovalRequiredError, NetworkError } from 'lib/api-error'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import {
     addProjectIdIfMissing,
@@ -151,9 +151,14 @@ export function initKea({
                 // distinct codes (`read_only_blocked`, `impersonation_read_only`) and still toasts.
                 const isAccessDenied =
                     isAccessDeniedError(error) && (isLoadAction || ACCESS_DENIED_SELF_HANDLED.has(String(actionKey)))
+                // A request that never reached the server carries no HTTP status (`NetworkError`
+                // leaves `status` undefined on purpose, so retry paths read it as transient). On a
+                // user-initiated write this silently drops the save, so the person needs a toast.
+                // Load actions keep their own retry/empty state, so they stay silent here.
+                const isSilentWriteFailure = error instanceof NetworkError && !isLoadAction
                 if (
                     !ERROR_FILTER_ALLOW_LIST.includes(actionKey) &&
-                    error?.status !== undefined &&
+                    (error?.status !== undefined || isSilentWriteFailure) &&
                     ![200, 201, 204, 401, 409].includes(error.status) && // 401 is handled by api.ts and the userLogic; 409 conflict flows surface their own UI
                     !(isLoadAction && error.status === 403) && // 403 access denied is handled by sceneLogic gates
                     !isAccessDenied
@@ -173,6 +178,12 @@ export function initKea({
 
                     if (!errorMessage && error.status === 404) {
                         errorMessage = 'URL not found'
+                    }
+                    // A `NetworkError` has no `detail` or `statusText`, so give the person a message
+                    // that names the lost write rather than showing an empty toast.
+                    if (!errorMessage && isSilentWriteFailure) {
+                        errorMessage =
+                            'Could not reach the server, so your change was not saved. Check your connection and try again.'
                     }
                     // Reword the default raw-seconds throttle detail via Retry-After; keep custom messages.
                     if (
