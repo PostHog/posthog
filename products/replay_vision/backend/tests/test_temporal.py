@@ -171,7 +171,7 @@ def _make_scanner(**overrides) -> ReplayScanner:
         "name": "t",
         "scanner_type": ScannerType.MONITOR,
         "scanner_config": {"prompt": "p"},
-        "model": ScannerModel.GEMINI_3_6_FLASH,
+        "model": ScannerModel.GEMINI_3_7_FLASH,
     }
     defaults.update(overrides)
     return ReplayScanner.objects.create(**defaults)
@@ -198,7 +198,7 @@ class TestCountInFlightAppliesActivity:
             name="sibling",
             scanner_type=ScannerType.MONITOR,
             scanner_config={"prompt": "p"},
-            model=ScannerModel.GEMINI_3_6_FLASH,
+            model=ScannerModel.GEMINI_3_7_FLASH,
         )
         other_team_scanner = _make_scanner()  # fresh org+team
         _make_observation(scanner, session_id="s1", status=ObservationStatus.PENDING)
@@ -538,7 +538,7 @@ class TestCreateObservationActivity:
     def test_concurrent_admissions_cannot_exceed_scanner_credit_limit(self) -> None:
         # Two applies for different sessions race with a cap that fits exactly one observation. Without the
         # per-scanner lock both read a used=0 budget, both pass, and both reserve a PENDING row (overshoot).
-        credits = observation_credits_for_model(ScannerModel.GEMINI_3_6_FLASH.value)
+        credits = observation_credits_for_model(ScannerModel.GEMINI_3_7_FLASH.value)
         scanner = _make_scanner(credit_limit=credits)
         barrier = threading.Barrier(2)
         created: dict[str, bool] = {}
@@ -606,14 +606,14 @@ class TestCreateObservationActivity:
     def test_concurrent_admissions_for_two_capped_scanners_do_not_serialize_each_other(self) -> None:
         # The admission lock is per scanner row: two different capped scanners on one team must both
         # admit their own observation, with no cross-scanner budget bleed or lock coupling.
-        credits = observation_credits_for_model(ScannerModel.GEMINI_3_6_FLASH.value)
+        credits = observation_credits_for_model(ScannerModel.GEMINI_3_7_FLASH.value)
         scanner_a = _make_scanner(credit_limit=credits)
         scanner_b = ReplayScanner.objects.create(
             team=scanner_a.team,
             name="capped-sibling",
             scanner_type=ScannerType.MONITOR,
             scanner_config={"prompt": "p"},
-            model=ScannerModel.GEMINI_3_6_FLASH,
+            model=ScannerModel.GEMINI_3_7_FLASH,
             credit_limit=credits,
         )
         barrier = threading.Barrier(2)
@@ -651,7 +651,7 @@ class TestCreateObservationActivity:
         # A Temporal retry whose first attempt committed the insert but lost the result must get its
         # row back: that row's own reservation fills the budget, so a plain refusal would strand it
         # PENDING forever while the workflow gives up.
-        credits = observation_credits_for_model(ScannerModel.GEMINI_3_6_FLASH.value)
+        credits = observation_credits_for_model(ScannerModel.GEMINI_3_7_FLASH.value)
         scanner = _make_scanner(credit_limit=credits)
         first_attempt = create_observation_activity(
             CreateObservationInputs(
@@ -771,7 +771,7 @@ class TestKnownFreeformTags:
             name="sibling",
             scanner_type=ScannerType.CLASSIFIER,
             scanner_config={"prompt": "categorize", "tags": ["checkout"], "allow_freeform_tags": True},
-            model=ScannerModel.GEMINI_3_6_FLASH,
+            model=ScannerModel.GEMINI_3_7_FLASH,
         )
         self._succeeded(sibling, "s1", ["sibling_tag"])
         stale = self._succeeded(scanner, "s2", ["stale_tag"])
@@ -1082,6 +1082,78 @@ class TestEmitObservationEventActivity:
 
         properties = capture.call_args.kwargs["properties"]
         assert properties["credits"] == observation_credits_for_model(observation.scanner_snapshot["model"])
+
+    def test_event_carries_indexed_and_named_group_keys(self) -> None:
+        # `$group_N` is what group analytics filters and breaks down on; `$groups` is what a webhook or alert
+        # consumer reads. Ingestion derives one from the other only when it processes a person profile, which
+        # this event doesn't, so both have to be written here.
+        scanner = _make_scanner()
+        observation = _make_observation(scanner, session_group_keys={"0": "acme-inc", "2": "proj-9"})
+        inputs = EmitObservationEventInputs(
+            observation_id=observation.id,
+            model_output=MonitorOutput(verdict="yes", reasoning="ok", confidence=0.9),
+        )
+
+        with (
+            patch(
+                "products.replay_vision.backend.temporal.activities.emit_observation_event.capture_internal"
+            ) as capture,
+            patch(
+                "products.replay_vision.backend.temporal.activities.emit_observation_event.get_group_types_for_project",
+                return_value=[
+                    {"group_type_index": 0, "group_type": "organization"},
+                    {"group_type_index": 2, "group_type": "project"},
+                ],
+            ),
+        ):
+            _emit_event(inputs)
+
+        properties = capture.call_args.kwargs["properties"]
+        assert properties["$group_0"] == "acme-inc"
+        assert properties["$group_2"] == "proj-9"
+        assert properties["$groups"] == {"organization": "acme-inc", "project": "proj-9"}
+
+    def test_event_omits_group_properties_when_the_session_carried_none(self) -> None:
+        # Observations scanned before group keys were resolved leave the column null; they must still emit.
+        scanner = _make_scanner()
+        observation = _make_observation(scanner, session_group_keys=None)
+        inputs = EmitObservationEventInputs(
+            observation_id=observation.id,
+            model_output=MonitorOutput(verdict="yes", reasoning="ok", confidence=0.9),
+        )
+
+        with patch(
+            "products.replay_vision.backend.temporal.activities.emit_observation_event.capture_internal"
+        ) as capture:
+            _emit_event(inputs)
+
+        properties = capture.call_args.kwargs["properties"]
+        assert "$groups" not in properties
+        assert not [key for key in properties if key.startswith("$group_")]
+
+    def test_event_keeps_indexed_group_keys_when_group_types_are_unavailable(self) -> None:
+        # Losing the names costs a nicety; losing `$group_N` would cost the group attribution entirely.
+        scanner = _make_scanner()
+        observation = _make_observation(scanner, session_group_keys={"0": "acme-inc"})
+        inputs = EmitObservationEventInputs(
+            observation_id=observation.id,
+            model_output=MonitorOutput(verdict="yes", reasoning="ok", confidence=0.9),
+        )
+
+        with (
+            patch(
+                "products.replay_vision.backend.temporal.activities.emit_observation_event.capture_internal"
+            ) as capture,
+            patch(
+                "products.replay_vision.backend.temporal.activities.emit_observation_event.get_group_types_for_project",
+                side_effect=RuntimeError("personhog down"),
+            ),
+        ):
+            _emit_event(inputs)
+
+        properties = capture.call_args.kwargs["properties"]
+        assert properties["$group_0"] == "acme-inc"
+        assert "$groups" not in properties
 
 
 def _counter_value(metric_name: str, **labels: str) -> float:

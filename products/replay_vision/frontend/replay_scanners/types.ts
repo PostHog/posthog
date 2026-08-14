@@ -236,13 +236,13 @@ export const ENABLED_OPTIONS: { value: EnabledFilter; label: string }[] = [
 export const OBSERVATION_CREDITS_BY_MODEL: Record<ScannerModelEnumApi, number> = {
     [ScannerModelEnumApi.Gemini35FlashLite]: 2,
     [ScannerModelEnumApi.Gemini3FlashPreview]: 5,
-    [ScannerModelEnumApi.Gemini36Flash]: 15,
+    [ScannerModelEnumApi.Gemini37Flash]: 15,
 }
 
 const MODEL_NAMES: Record<ScannerModelEnumApi, string> = {
     [ScannerModelEnumApi.Gemini35FlashLite]: 'Gemini 3.5 Flash Lite',
     [ScannerModelEnumApi.Gemini3FlashPreview]: 'Gemini 3 Flash',
-    [ScannerModelEnumApi.Gemini36Flash]: 'Gemini 3.6 Flash',
+    [ScannerModelEnumApi.Gemini37Flash]: 'Gemini 3.7 Flash',
 }
 
 // Tier-name arms of the replay-vision-model-tier-naming-experiment flag: capability tiers instead
@@ -254,12 +254,12 @@ const MODEL_TIER_NAMES: Record<ModelNamingVariant, Record<ScannerModelEnumApi, s
     test: {
         [ScannerModelEnumApi.Gemini35FlashLite]: 'Basic',
         [ScannerModelEnumApi.Gemini3FlashPreview]: 'Pro',
-        [ScannerModelEnumApi.Gemini36Flash]: 'Ultra',
+        [ScannerModelEnumApi.Gemini37Flash]: 'Ultra',
     },
     'lite-standard-pro': {
         [ScannerModelEnumApi.Gemini35FlashLite]: 'Lite',
         [ScannerModelEnumApi.Gemini3FlashPreview]: 'Standard',
-        [ScannerModelEnumApi.Gemini36Flash]: 'Pro',
+        [ScannerModelEnumApi.Gemini37Flash]: 'Pro',
     },
 }
 
@@ -403,7 +403,9 @@ export type BaseReplayScanner = Omit<
     ReplayScannerApi,
     'scanner_type' | 'scanner_config' | 'query' | 'created_by' | 'user_access_level'
 > &
-    Required<Pick<ReplayScannerApi, 'sampling_rate' | 'enabled' | 'emits_signals' | 'provider' | 'credit_limit'>> & {
+    Required<
+        Pick<ReplayScannerApi, 'sampling_rate' | 'enabled' | 'emits_signals' | 'provider' | 'credit_limit' | 'tags'>
+    > & {
         query: RecordingsQuery | null
         created_by: ScannerCreatedBy | null
         sampling_mode: SamplingMode

@@ -186,7 +186,7 @@ For local Docker, the worker builds the packages inside the sandbox image. The f
 ```bash
 # In your .env:
 SANDBOX_PROVIDER=docker
-# The desktop source lives in this repo; an out-of-tree PostHog/code checkout also works
+# The desktop source lives in this repo at products/desktop
 LOCAL_POSTHOG_CODE_MONOREPO_ROOT=./products/desktop
 ```
 

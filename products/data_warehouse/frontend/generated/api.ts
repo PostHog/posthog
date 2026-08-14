@@ -10,6 +10,7 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
  */
 import type {
     CheckDatabaseNameResponseApi,
+    CheckIncrementalApi,
     CheckSchemaNameResponseApi,
     CreateTableFromUploadApi,
     DataModelingJobApi,
@@ -28,6 +29,7 @@ import type {
     DeprovisionWarehouseResponseApi,
     FileUploadResponseApi,
     FixHogqlListParams,
+    IncrementalEligibilityApi,
     InsightVariableApi,
     InsightVariablesListParams,
     ManagedWarehouseDataStatusResponseApi,
@@ -66,6 +68,7 @@ import type {
     SavedQueryColumnAnnotationsListParams,
     SavedQueryMaterializeApi,
     SavedQueryResumeApi,
+    SavedQueryRunApi,
     TableApi,
     ViewLinkApi,
     ViewLinkValidationApi,
@@ -1848,14 +1851,14 @@ export const getWarehouseSavedQueriesRunCreateUrl = (projectId: string, id: stri
 export const warehouseSavedQueriesRunCreate = async (
     projectId: string,
     id: string,
-    dataWarehouseSavedQueryApi: NonReadonly<DataWarehouseSavedQueryApi>,
+    savedQueryRunApi?: SavedQueryRunApi,
     options?: RequestInit
-): Promise<DataWarehouseSavedQueryApi> => {
-    return apiMutator<DataWarehouseSavedQueryApi>(getWarehouseSavedQueriesRunCreateUrl(projectId, id), {
+): Promise<void> => {
+    return apiMutator<void>(getWarehouseSavedQueriesRunCreateUrl(projectId, id), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(dataWarehouseSavedQueryApi),
+        body: JSON.stringify(savedQueryRunApi),
     })
 }
 
@@ -1874,6 +1877,29 @@ export const warehouseSavedQueriesRunHistoryRetrieve = async (
     return apiMutator<DataWarehouseSavedQueryApi>(getWarehouseSavedQueriesRunHistoryRetrieveUrl(projectId, id), {
         ...options,
         method: 'GET',
+    })
+}
+
+export const getWarehouseSavedQueriesCheckIncrementalCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/warehouse_saved_queries/check_incremental/`
+}
+
+/**
+ * Report whether a query can be materialized incrementally, without running it.
+ *
+ * Parses the SQL only, so it is cheap enough to call from the editor as the user types. Lets
+ * the editor explain why the incremental option is unavailable before anything is saved.
+ */
+export const warehouseSavedQueriesCheckIncrementalCreate = async (
+    projectId: string,
+    checkIncrementalApi: CheckIncrementalApi,
+    options?: RequestInit
+): Promise<IncrementalEligibilityApi> => {
+    return apiMutator<IncrementalEligibilityApi>(getWarehouseSavedQueriesCheckIncrementalCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(checkIncrementalApi),
     })
 }
 

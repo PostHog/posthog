@@ -46,6 +46,7 @@ import {
 } from '~/layout/panel-layout/ProjectTree/utils'
 import { FEATURE_FLAGS } from '~/lib/constants'
 import { groupsModel } from '~/models/groupsModel'
+import type { ProductTreePath } from '~/products'
 import { FileSystemEntry, FileSystemIconType, FileSystemImport } from '~/queries/schema/schema-general'
 import { UserBasicType } from '~/types'
 
@@ -73,8 +74,10 @@ const SHORTCUTS_LOADER_TIMEOUT_MS = 10000
  */
 const MOVE_TIMEOUT_MS = 30000
 export const PAGINATION_LIMIT = 100
-const PRODUCTS_SHOWN_WITH_SELECTED_PRODUCTS: Record<string, string[]> = {
+const PRODUCTS_SHOWN_WITH_SELECTED_PRODUCTS: Partial<Record<ProductTreePath, readonly ProductTreePath[]>> = {
     'LLM analytics': ['MCP analytics'],
+    // Replay vision scans the recordings Session replay captures, so alone it has nothing to work on.
+    'Session replay': ['Replay vision'],
 }
 
 // Reporting a move per item would toast N times for a bulk move, and because react-toastify dedupes
@@ -1640,7 +1643,8 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
                     for (const item of customProducts) {
                         for (const productPath of [
                             item.product_path,
-                            ...(PRODUCTS_SHOWN_WITH_SELECTED_PRODUCTS[item.product_path] ?? []),
+                            // product_path arrives as a plain string; a path not in the union just misses the map.
+                            ...(PRODUCTS_SHOWN_WITH_SELECTED_PRODUCTS[item.product_path as ProductTreePath] ?? []),
                         ]) {
                             if (selectedProductPaths.has(productPath)) {
                                 continue

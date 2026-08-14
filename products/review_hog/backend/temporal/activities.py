@@ -102,6 +102,7 @@ from products.review_hog.backend.reviewer.status_comment import (
     finalize_status_comment,
     maybe_refresh_status_comment,
 )
+from products.review_hog.backend.reviewer.tools.github_client import GitHubAPIError, github_api_request
 from products.review_hog.backend.reviewer.tools.github_meta import (
     PRFetcher,
     fetch_branch_compare,
@@ -374,6 +375,14 @@ class PublishResult:
     # publishable no-ops), and its GitHub permalink when known — feeds the code_review artefact.
     posted: bool = False
     review_url: str | None = None
+
+
+@dataclass(frozen=True)
+class RemoveTriggerLabelInput:
+    team_id: int
+    owner: str
+    repo: str
+    pr_number: int
 
 
 @dataclass
@@ -1296,6 +1305,31 @@ async def publish_review_activity(input: PublishInput) -> PublishResult:
         input.repo,
         input.pr_number,
         input.urgency_threshold,
+    )
+
+
+def _remove_trigger_label(team_id: int, owner: str, repo: str, pr_number: int) -> None:
+    token, installation_id = _installation_auth(team_id, f"{owner}/{repo}")
+    try:
+        github_api_request(
+            "DELETE",
+            f"/repos/{owner}/{repo}/issues/{pr_number}/labels/reviewhog",
+            token=token,
+            endpoint="/repos/{owner}/{repo}/issues/{issue_number}/labels/{name}",
+            installation_id=installation_id,
+        )
+    except GitHubAPIError as error:
+        if error.status != 404:
+            raise
+
+
+@activity.defn
+@scoped_temporal()
+@close_db_connections
+async def remove_trigger_label_activity(input: RemoveTriggerLabelInput) -> None:
+    """Remove the label that started a label-triggered review, if it is still present."""
+    await database_sync_to_async(_remove_trigger_label, thread_sensitive=False)(
+        input.team_id, input.owner, input.repo, input.pr_number
     )
 
 

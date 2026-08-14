@@ -6,9 +6,11 @@ import * as construction2Png from '@posthog/brand/hoggies/png/construction-2'
 import * as imTheDriverPng from '@posthog/brand/hoggies/png/im-the-driver'
 import * as magnifyingGlassPng from '@posthog/brand/hoggies/png/magnifying-glass-1'
 import * as xRayPng from '@posthog/brand/hoggies/png/x-ray'
+import { IconSparkles } from '@posthog/icons'
 import { LemonButton, LemonInput, LemonSelect, LemonSwitch, LemonTag, LemonTextArea, Link } from '@posthog/lemon-ui'
 
 import { pngHoggie } from 'lib/brand/hoggies'
+import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { LemonField } from 'lib/lemon-ui/LemonField'
@@ -19,10 +21,13 @@ import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
+import { tagsModel } from '~/models/tagsModel'
 import { ProductKey } from '~/queries/schema/schema-general'
 
+import { CreditPriceNote } from '../components/PricingLink'
 import { ReplayVisionFeedbackButton } from '../components/ReplayVisionFeedbackButton'
 import { getReplayVisionEditDisabledReason } from '../utils/accessControl'
+import { ScannerGoalDraft } from './components/ScannerGoalDraft'
 import { ScannerTemplatePicker } from './components/ScannerTemplatePicker'
 import { ScannerTriggers } from './components/ScannerTriggers'
 import { ScannerTypeConfigEditor } from './components/ScannerTypeConfigEditor'
@@ -155,6 +160,7 @@ export function ScannerEditorSceneComponent(): JSX.Element {
                                 </p>
                             </div>
                             <ScannerTemplatePicker />
+                            <ScannerGoalDraft />
                         </>
                     ) : (
                         <Form
@@ -202,10 +208,11 @@ export function ScannerEditorSceneComponent(): JSX.Element {
 
 function ConfigureStep(): JSX.Element {
     const { scannerId } = useValues(scannerEditorSceneLogic)
-    const { scanner, isNew } = useValues(replayScannerLogic({ id: scannerId }))
+    const { scanner, isNew, goalDraft } = useValues(replayScannerLogic({ id: scannerId }))
     const { setScannerType } = useActions(replayScannerLogic({ id: scannerId }))
     const { searchParams } = useValues(router)
     const { featureFlags } = useValues(featureFlagLogic)
+    const { tags: allTags } = useValues(tagsModel)
     const namingVariant = modelNamingVariant(featureFlags[FEATURE_FLAGS.REPLAY_VISION_MODEL_TIER_NAMING_EXPERIMENT])
     const isTypeSelectable = isNew && !searchParams.template
 
@@ -215,6 +222,15 @@ function ConfigureStep(): JSX.Element {
 
     return (
         <div className="flex flex-col gap-4">
+            {isNew && goalDraft?.rationale ? (
+                <div
+                    className="flex items-start gap-2 rounded border border-[var(--color-ai)] p-3 text-sm"
+                    data-attr="vision-goal-draft-rationale"
+                >
+                    <IconSparkles className="text-ai mt-0.5 size-4 shrink-0" />
+                    <span>{goalDraft.rationale}</span>
+                </div>
+            ) : null}
             <LemonField name="name" label="Name">
                 <LemonInput placeholder="e.g. Checkout friction" />
             </LemonField>
@@ -225,6 +241,23 @@ function ConfigureStep(): JSX.Element {
                 help="The scanning agent doesn't see this field. It's for you and your team to keep scanners organized."
             >
                 <LemonTextArea placeholder="What this scanner looks for and why." minRows={2} />
+            </LemonField>
+
+            <LemonField
+                name="tags"
+                label="Tags (optional)"
+                help="For organizing and filtering the scanner list. The scanning agent doesn't see them."
+            >
+                {({ value, onChange }) => (
+                    <ObjectTags
+                        tags={value ?? []}
+                        onChange={onChange}
+                        saving={false}
+                        // Tags from other products can contain commas; the scanner API rejects those, so don't offer them.
+                        tagsAvailable={allTags.filter((tag) => !tag.includes(',') && !value?.includes(tag))}
+                        data-attr="vision-editor-tags"
+                    />
+                )}
             </LemonField>
 
             {isTypeSelectable ? (
@@ -291,10 +324,13 @@ function ConfigureStep(): JSX.Element {
                         options={getModelOptions(namingVariant)}
                     />
                 </LemonField>
+                {/* The price line stays outside the variant branch so every arm of the model-naming experiment
+                    shows it. Tier names give even less of a cost anchor than provider model names do. */}
                 <div className="text-xs text-muted">
                     {namingVariant
                         ? 'Higher tiers tend to produce higher-quality observations, but cost more per observation.'
-                        : 'Newer models tend to produce higher-quality observations, but cost more per observation.'}
+                        : 'Newer models tend to produce higher-quality observations, but cost more per observation.'}{' '}
+                    <CreditPriceNote dataAttr="vision-pricing-link-model-picker" />
                 </div>
             </div>
 
