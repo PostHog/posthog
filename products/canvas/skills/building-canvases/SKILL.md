@@ -82,7 +82,8 @@ matching shape above. The pattern is a hint; the user's actual request remains a
    fetch or your own PostHog client), and
    **declare every `ph` call in `project.capabilities`** (insight short ids in
    `capabilities.posthog.insights`, captured events in `captureEvents`, `inlineQueries: true` for
-   ad-hoc queries) — the host enforces these at runtime and validation rejects undeclared calls.
+   ad-hoc queries, and `agentRequests: true` for `ph.agent.request`) — the host enforces these at
+   runtime and validation rejects undeclared calls.
 3. Follow `validating-and-publishing-canvases`: validate with `canvas-validate-create` as often as
    needed and fix every error-severity diagnostic.
 4. Save the project — which tool depends on whether the canvas is already live:
@@ -120,6 +121,13 @@ That field is the only valid link to a canvas — never construct one yourself; 
   clicks), never to load or render. The registry is the source of truth: list it with the
   `canvases-actions-retrieve` tool and follow each verb's `usage` (payload/result shape,
   behavior, and the confirmation copy it warrants) before wiring it.
+
+- **`ph.agent.request(prompt)`** — ask the canvas's authoring agent for a change, with the viewer's
+  approval. Declare `agentRequests: true` in `capabilities.posthog`. Call it only from a direct
+  click or form submission — the host shows the exact prompt and asks the viewer to accept before
+  spending compute, and rejects calls made during render, mount, or polling. The agent stages the
+  change as a draft for the canvas creator to review; a non-creator's request is filed in the
+  authoring task's thread instead of starting a run.
 
 ## Source-project shape
 
