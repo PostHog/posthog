@@ -37,13 +37,10 @@ export function QueryIndexUsageTable({ predicates }: QueryIndexUsageTableProps):
 
     return (
         <>
-            <div>
-                <h3 className="mb-1">Filters</h3>
-                <p className="text-xs mb-0">
-                    How each property filter reads its data. A filter backed by an index skips the rows that cannot
-                    match, so it reads less.
-                </p>
-            </div>
+            <p className="text-xs px-2 pt-1 mb-1">
+                How each property filter reads its data. A filter backed by an index skips the rows that cannot match,
+                so it reads less.
+            </p>
             <LemonTable
                 size="small"
                 dataSource={predicates}

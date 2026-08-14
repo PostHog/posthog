@@ -2,15 +2,15 @@ import type { Meta, StoryObj } from '@storybook/react'
 
 import { PredicateIndexUsage, PredicateIndexVerdict } from '~/queries/schema/schema-general'
 
-import { QueryIndexUsageTable } from './QueryIndexUsageTable'
+import { QueryIndexUsageBar } from './QueryIndexUsageBar'
 
-const meta: Meta<typeof QueryIndexUsageTable> = {
+const meta: Meta<typeof QueryIndexUsageBar> = {
     title: 'Scenes-App/Data Warehouse/Query index usage',
-    component: QueryIndexUsageTable,
+    component: QueryIndexUsageBar,
 }
 export default meta
 
-type Story = StoryObj<typeof QueryIndexUsageTable>
+type Story = StoryObj<typeof QueryIndexUsageBar>
 
 const PREDICATES: PredicateIndexUsage[] = [
     {
@@ -68,10 +68,18 @@ const PREDICATES: PredicateIndexUsage[] = [
     },
 ]
 
-export const AllVerdicts: Story = {
+export const SomeFiltersScan: Story = {
     render: () => (
-        <div className="flex flex-col gap-4 max-w-3xl">
-            <QueryIndexUsageTable predicates={PREDICATES} />
+        <div className="max-w-3xl">
+            <QueryIndexUsageBar predicates={PREDICATES} />
+        </div>
+    ),
+}
+
+export const EveryFilterIndexed: Story = {
+    render: () => (
+        <div className="max-w-3xl">
+            <QueryIndexUsageBar predicates={[PREDICATES[0]]} />
         </div>
     ),
 }
