@@ -290,8 +290,8 @@ export class DashboardsService {
     if (!res.ok) {
       const detail = await res
         .json()
-        .then((body) => (body as { detail?: string }).detail)
-        .catch(() => undefined);
+        .then((body) => (body as { detail?: string }).detail ?? null)
+        .catch(() => null);
       throw new ProjectApiError(
         detail ?? `Failed to write canvas state (${res.status})`,
         res.status,
