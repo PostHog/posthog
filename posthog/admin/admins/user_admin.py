@@ -352,6 +352,7 @@ class UserAdmin(DjangoUserAdmin):
             if related_model._meta.auto_created:
                 continue
             count = (
+                # nosemgrep: orm-field-injection -- field.name comes from User._meta, never a request
                 related_model._base_manager.filter(**{f"{field.name}__in": objs})
                 .order_by()[: DELETION_SUMMARY_COUNT_CAP + 1]
                 .count()
