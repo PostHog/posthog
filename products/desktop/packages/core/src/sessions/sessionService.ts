@@ -54,6 +54,7 @@ import {
   type Task,
 } from "@posthog/shared/domain-types";
 import type { CommentTarget } from "../comments/anchors";
+import type { AgentSessionNotification } from "../notification/agentSessionNotifications";
 import type { SpeechKind, SpeechSource } from "../speech/identifiers";
 import {
   CONTEXT_WINDOW_OPTION_CATEGORY,
@@ -366,8 +367,7 @@ export interface SessionServiceDeps {
   };
   track: (event: string, props?: Record<string, unknown>) => void;
   buildPermissionToolMetadata: (...args: any[]) => any;
-  notifyPermissionRequest: (...args: any[]) => any;
-  notifyPromptComplete: (...args: any[]) => any;
+  notifyAgentSession: (notification: AgentSessionNotification) => void;
   enqueueSpeech: (request: {
     text: string;
     taskTitle: string;
@@ -413,6 +413,11 @@ export interface SessionServiceDeps {
 
 type AuthClient = NonNullable<
   Awaited<ReturnType<SessionServiceDeps["getAuthenticatedClient"]>>
+>;
+
+type NotifiableAgentSession = Pick<
+  AgentSession,
+  "taskTitle" | "taskId" | "promptStartedAt" | "isTaskAuthor"
 >;
 
 interface AuthCredentials {
@@ -3028,15 +3033,12 @@ export class SessionService {
               stopReason === "end_turn" &&
               session.messageQueue.length === 0
             ) {
-              if (session.isTaskAuthor !== false) {
-                this.d.notifyPromptComplete(
-                  session.taskTitle,
-                  stopReason,
-                  session.taskId,
-                  turnStartedAtTs ? acpMsg.ts - turnStartedAtTs : undefined,
-                );
-                this.speakDeterministic(taskRunId, session, "done");
-              }
+              this.notifyTurnCompleted(
+                taskRunId,
+                session,
+                stopReason,
+                turnStartedAtTs ? acpMsg.ts - turnStartedAtTs : undefined,
+              );
             }
             this.d.taskViewedApi.markActivity(session.taskId);
             this.finalizeTurnContent(taskRunId, "turn_complete", acpMsg.ts);
@@ -3060,7 +3062,11 @@ export class SessionService {
         const session = this.d.store.getSessions()[taskRunId];
         const params = (
           msg as {
-            params?: { agentVersion?: unknown; steering?: unknown };
+            params?: {
+              agentVersion?: unknown;
+              steering?: unknown;
+              conversationClear?: unknown;
+            };
           }
         ).params;
         const agentVersion =
@@ -3076,6 +3082,10 @@ export class SessionService {
           session?.steering !== params.steering
         ) {
           updates.steering = params.steering;
+        }
+        const conversationClear = params?.conversationClear === true;
+        if (Boolean(session?.conversationClear) !== conversationClear) {
+          updates.conversationClear = conversationClear;
         }
         if (session?.isCloud && session.status !== "connected") {
           updates.status = "connected";
@@ -3115,34 +3125,48 @@ export class SessionService {
     }
   }
 
-  /**
-   * Deterministic backstop for the two moments the user must not miss. Fired
-   * from the turn-complete and permission events (which happen every time),
-   * unless the agent already narrated that same moment this turn via the speak
-   * tool — in which case its expressive line stands. Routes through the same
-   * speech channel (focus + settings gating + serialized queue).
-   */
-  private speakDeterministic(
+  private notifyTurnCompleted(
     taskRunId: string,
-    session: {
-      taskTitle: string;
-      taskId: string;
-      promptStartedAt: number | null;
-    },
-    kind: "done" | "needs_input",
+    session: NotifiableAgentSession,
+    stopReason: string,
+    durationMs?: number,
   ): void {
-    const turnStart = session.promptStartedAt ?? 0;
-    const spokeAt = this.agentSpokeAt.get(taskRunId)?.[kind] ?? 0;
-    if (turnStart > 0 && spokeAt >= turnStart) return; // agent already voiced it
-    // Deterministic backstop stays plain — no "Hey <name>," greeting.
-    this.d.enqueueSpeech({
-      text: kind === "done" ? "finished" : "needs your input",
+    this.d.notifyAgentSession({
+      kind: "turn_completed",
       taskTitle: session.taskTitle,
       taskId: session.taskId,
-      kind,
-      source: "backstop",
-      addressByName: false,
+      stopReason,
+      durationMs,
+      isTaskAuthor: session.isTaskAuthor,
+      agentSpoke: this.agentSpokeSinceTurnStarted(taskRunId, session, "done"),
     });
+  }
+
+  private notifyNeedsInput(
+    taskRunId: string,
+    session: NotifiableAgentSession,
+  ): void {
+    this.d.notifyAgentSession({
+      kind: "needs_input",
+      taskTitle: session.taskTitle,
+      taskId: session.taskId,
+      isTaskAuthor: session.isTaskAuthor,
+      agentSpoke: this.agentSpokeSinceTurnStarted(
+        taskRunId,
+        session,
+        "needs_input",
+      ),
+    });
+  }
+
+  private agentSpokeSinceTurnStarted(
+    taskRunId: string,
+    session: Pick<AgentSession, "promptStartedAt">,
+    kind: "done" | "needs_input",
+  ): boolean {
+    const turnStart = session.promptStartedAt ?? 0;
+    const spokeAt = this.agentSpokeAt.get(taskRunId)?.[kind] ?? 0;
+    return turnStart > 0 && spokeAt >= turnStart;
   }
 
   private handleSessionEvent(taskRunId: string, acpMsg: AcpMessage): void {
@@ -3200,20 +3224,13 @@ export class SessionService {
           : this.drainQueuedMessages(taskRunId, session);
 
       // Only notify when nothing is sendable - queued messages start a new turn
-      if (
-        stopReason &&
-        !hasSendableMessages &&
-        session.isTaskAuthor !== false
-      ) {
-        this.d.notifyPromptComplete(
-          session.taskTitle,
+      if (stopReason && !hasSendableMessages) {
+        this.notifyTurnCompleted(
+          taskRunId,
+          session,
           stopReason,
-          session.taskId,
           turnStartedAtTs ? acpMsg.ts - turnStartedAtTs : undefined,
         );
-        if (stopReason === "end_turn") {
-          this.speakDeterministic(taskRunId, session, "done");
-        }
       }
 
       this.d.taskViewedApi.markActivity(session.taskId);
@@ -3450,10 +3467,7 @@ export class SessionService {
 
     this.d.store.setPendingPermissions(taskRunId, newPermissions);
     this.d.taskViewedApi.markActivity(session.taskId);
-    if (session.isTaskAuthor !== false) {
-      this.d.notifyPermissionRequest(session.taskTitle, session.taskId);
-      this.speakDeterministic(taskRunId, session, "needs_input");
-    }
+    this.notifyNeedsInput(taskRunId, session);
   }
 
   private handleCloudPermissionRequest(
@@ -3510,10 +3524,7 @@ export class SessionService {
 
     this.d.store.setPendingPermissions(taskRunId, newPermissions);
     this.d.taskViewedApi.markActivity(session.taskId);
-    if (session.isTaskAuthor !== false) {
-      this.d.notifyPermissionRequest(session.taskTitle, session.taskId);
-      this.speakDeterministic(taskRunId, session, "needs_input");
-    }
+    this.notifyNeedsInput(taskRunId, session);
   }
 
   private surfacePersistedPendingPermissions(
@@ -5730,7 +5741,7 @@ export class SessionService {
    */
   /**
    * Register this client as the relay executor for a run's desktop-only MCP
-   * servers (docs/cloud-mcp-relay.md). Called by the creation saga — only the
+   * servers (docs/CLOUD-MCP-RELAY.md). Called by the creation saga — only the
    * creating client may execute relay requests.
    */
   async designateRelayedMcpServers(

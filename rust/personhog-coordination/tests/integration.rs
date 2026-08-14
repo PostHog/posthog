@@ -770,7 +770,8 @@ async fn rapid_pod_joins(
                 .iter()
                 .map(|a| (a.partition, a.owner.clone()))
                 .collect();
-            let desired = strategy.compute_assignments(&current, &pods, MANY_PARTITIONS);
+            let members = personhog_coordination::strategy::Member::active_all(&pods);
+            let desired = strategy.compute_assignments(&current, &members, MANY_PARTITIONS);
             assignment_coordination::util::compute_required_handoffs(&current, &desired).is_empty()
         }
     })
@@ -1058,7 +1059,8 @@ async fn debounce_batches_rapid_pod_changes(
                 .iter()
                 .map(|a| (a.partition, a.owner.clone()))
                 .collect();
-            let desired = strategy.compute_assignments(&current, &pods, MANY_PARTITIONS);
+            let members = personhog_coordination::strategy::Member::active_all(&pods);
+            let desired = strategy.compute_assignments(&current, &members, MANY_PARTITIONS);
             assignment_coordination::util::compute_required_handoffs(&current, &desired).is_empty()
         }
     })

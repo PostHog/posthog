@@ -79,6 +79,7 @@ import {
     MessageTemplate,
     ReasoningAnswer,
     RecordingsWidget,
+    ReplayVisionScanWidget,
     ResourcesBar,
     ThreadView,
 } from 'products/posthog_ai/frontend/api/primitives'
@@ -98,7 +99,6 @@ import { SIDE_PANEL_PANEL_ID, ThreadMessage, maxLogic } from './maxLogic'
 import { maxThreadLogic } from './maxThreadLogic'
 import { MultiQuestionFormRecap } from './messages/MultiQuestionForm'
 import { NotebookArtifactAnswer } from './messages/NotebookArtifactAnswer'
-import { SessionSummarizationProgress } from './messages/SessionSummarizationProgress'
 import { isRenderableUIPayloadTool } from './messages/UIPayloadAnswer'
 import { VisualizationArtifact } from './messages/VisualizationArtifact'
 import { MAX_SLASH_COMMANDS, SlashCommandName } from './slash-commands'
@@ -1467,8 +1467,14 @@ function renderToolCallWidget(
                     onAcceptFilters={onAcceptSessionFilters}
                 />
             )
-        case 'session_summarization':
-            return <SessionSummarizationProgress updates={widgetDef.args.updates} />
+        case 'replay_vision_scan':
+            return (
+                <ReplayVisionScanWidget
+                    scanId={widgetDef.args.scanId}
+                    sessionIds={widgetDef.args.sessionIds}
+                    skipped={widgetDef.args.skipped}
+                />
+            )
         default:
             return null
     }

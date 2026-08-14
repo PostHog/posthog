@@ -943,7 +943,6 @@ export type ChannelsSurface =
   | "task_input"
   | "channel_home"
   | "channel_history"
-  | "channel_artifacts"
   | "pinned"
   | "dashboards_grid"
   | "canvas"
@@ -973,8 +972,6 @@ export type ChannelActionType =
   | "new_task_suggestion"
   | "view_context"
   | "view_history"
-  | "view_artifacts"
-  | "open_artifact"
   | "file_task"
   | "unfile_task"
   | "archive_task"
@@ -988,8 +985,7 @@ export type ChannelActionType =
   | "canvas_mode_toggle"
   /** Submitted a canvas-mode prompt (the agent resolves or creates the canvas). */
   | "canvas_generate"
-  | "activity_tab_change"
-  | "artifacts_view_change";
+  | "activity_tab_change";
 
 export interface ChannelActionProperties {
   action_type: ChannelActionType;
@@ -1010,8 +1006,6 @@ export interface ChannelActionProperties {
   armed?: boolean;
   /** For activity_tab_change: the tab landed on. */
   tab?: string;
-  /** For artifacts_view_change: the selected layout. */
-  view_mode?: "list" | "grid" | "masonry";
   /** Whether the underlying mutation resolved successfully. */
   success?: boolean;
 }
