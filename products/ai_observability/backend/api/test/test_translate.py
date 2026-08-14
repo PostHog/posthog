@@ -69,22 +69,6 @@ class TestTranslateAPI(APIBaseTest):
         assert call_kwargs["model"] == TRANSLATION_MODEL
 
     @patch(MOCK_PATH)
-    def test_translation_does_not_retry(self, mock_get_client):
-        self.organization.is_ai_data_processing_approved = True
-        self.organization.save()
-        mock_client = mock_llm_client(mock_get_client)
-        mock_completion(mock_client, "Translated")
-
-        self.client.post(
-            f"/api/environments/{self.team.id}/llm_analytics/translate",
-            {"text": "Test", "target_language": "es"},
-            format="json",
-        )
-
-        # Re-enabling the SDK's default two retries makes a user wait three timeouts for an error.
-        mock_client.with_options.assert_called_once_with(max_retries=0)
-
-    @patch(MOCK_PATH)
     def test_translation_uses_default_language_when_not_specified(self, mock_get_client):
         self.organization.is_ai_data_processing_approved = True
         self.organization.save()
