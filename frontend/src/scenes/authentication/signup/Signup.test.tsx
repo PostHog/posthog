@@ -8,9 +8,9 @@ import { router } from 'kea-router'
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
-import { SignupForm } from './SignupForm'
+import { Signup } from './Signup'
 
-describe('SignupForm', () => {
+describe('Signup', () => {
     let signupRequestBody: Record<string, any> | null
 
     beforeEach(() => {
@@ -37,7 +37,7 @@ describe('SignupForm', () => {
         router.actions.push('/signup')
         render(
             <Provider>
-                <SignupForm />
+                <Signup />
             </Provider>
         )
     })
@@ -81,43 +81,32 @@ describe('SignupForm', () => {
         expect(screen.getByTestId('signup-email')).toBeInTheDocument()
     })
 
-    it('a too-short password shows the min-length error; a valid one advances to onboarding', async () => {
+    it('a too-short password blocks the auth panel; a valid one advances to onboarding', async () => {
         await submitEmail('test@example.com')
 
         await submitPassword('123')
-        expect(await screen.findByText('Must be at least 8 characters long')).toBeVisible()
+        expect(await screen.findByTestId('signup-auth-continue')).toHaveAttribute('aria-disabled', 'true')
         expect(screen.queryByTestId('signup-name')).not.toBeInTheDocument()
 
         await userEvent.clear(screen.getByTestId('password'))
         await submitPassword('Str0ng-Test-Pass!')
         expect(await screen.findByTestId('signup-name')).toBeInTheDocument()
-        expect(screen.queryByText('Must be at least 8 characters long')).not.toBeInTheDocument()
     })
 
-    it('a padded full name reaches the signup payload trimmed and split into first and last name', async () => {
+    // The panels are the only place the three forms get wired to the logic, so this walkthrough
+    // guards that wiring. The payload shaping itself is covered in signupLogic.test.ts.
+    it('walks all three panels and posts what was typed into them', async () => {
         await submitEmail('test@example.com')
         await submitPassword('Str0ng-Test-Pass!')
-        // A leading space used to slip through client validation and produce first_name: ""
-        await fillOnboardingAndSubmit({ name: ' Alice Bob', organizationName: 'Hogflix SpinOff' })
+        await fillOnboardingAndSubmit({ name: 'Alice Bob', organizationName: 'Hogflix SpinOff' })
 
         await waitFor(() => {
             expect(signupRequestBody).not.toBeNull()
         })
+        expect(signupRequestBody?.email).toBe('test@example.com')
+        expect(signupRequestBody?.password).toBe('Str0ng-Test-Pass!')
         expect(signupRequestBody?.first_name).toBe('Alice')
         expect(signupRequestBody?.last_name).toBe('Bob')
         expect(signupRequestBody?.organization_name).toBe('Hogflix SpinOff')
-    })
-
-    it('a single-word name sends first_name only and omits the blank organization name', async () => {
-        await submitEmail('test@example.com')
-        await submitPassword('Str0ng-Test-Pass!')
-        await fillOnboardingAndSubmit({ name: 'Alice' })
-
-        await waitFor(() => {
-            expect(signupRequestBody).not.toBeNull()
-        })
-        expect(signupRequestBody?.first_name).toBe('Alice')
-        expect(signupRequestBody).not.toHaveProperty('last_name')
-        expect(signupRequestBody).not.toHaveProperty('organization_name')
     })
 })
