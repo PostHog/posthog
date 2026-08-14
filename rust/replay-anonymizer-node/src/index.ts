@@ -169,3 +169,31 @@ export async function anonymizeKafkaPayload(
     }
     return { ...result, timings }
 }
+
+/**
+ * The politeness unit for a host: the registrable domain, or the host itself when it has none.
+ *
+ * The fetch lane rate limits by this value and the fetch topic keys on it, so both must get the
+ * same answer from one public suffix list, which is why the value comes from the Rust crate. The
+ * private section of that list keeps `user.github.io` and `d111.cloudfront.net` out of a shared
+ * budget with the other tenants of the same provider.
+ *
+ * An IP literal has no registrable domain and comes back unchanged, because the address is the
+ * operator.
+ */
+export function politenessKey(host: string): string {
+    return native.politenessKey(host)
+}
+
+/**
+ * Whether the fetch lane may send a request to a host.
+ *
+ * The collector applies this rule before a URL reaches the topic. A redirect target has not been
+ * through it, so the fetcher calls the same function rather than deriving a second answer.
+ *
+ * It refuses a private or reserved address, a single-label name, and a name under a suffix that
+ * resolves only inside one network, which is the split-horizon DNS case.
+ */
+export function isPublicHost(host: string): boolean {
+    return native.isPublicHost(host)
+}

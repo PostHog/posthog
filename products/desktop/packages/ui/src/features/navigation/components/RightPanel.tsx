@@ -23,7 +23,7 @@ import { openRightPanelSide } from "@posthog/ui/features/navigation/rightPanelSi
 import { useCommentFocusRequest } from "@posthog/ui/features/sessions/useCommentFocusRequest";
 import { taskDetailQuery } from "@posthog/ui/features/tasks/queries";
 import { useTasks } from "@posthog/ui/features/tasks/useTasks";
-import { useIsCloudTask } from "@posthog/ui/features/workspace/useIsCloudTask";
+import { useIsCloudTask } from "@posthog/ui/features/workspace/useWorkspace";
 import {
   ResizableSidebar,
   SLIDE_MS,
@@ -132,7 +132,7 @@ function RightPanelButtons({
 }
 
 function ChangesPanelContent({ task }: { task: Task }) {
-  return useIsCloudTask(task.id, task) ? (
+  return useIsCloudTask(task) ? (
     <CloudReviewPage task={task} />
   ) : (
     <ReviewPage task={task} />

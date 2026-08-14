@@ -822,6 +822,12 @@ export interface ReplayScannerApi {
      * @maxLength 1000
      */
     description?: string
+    /**
+     * Organizational tags for this scanner. Distinct from a classifier's tag vocabulary in scanner_config. Tags cannot contain commas.
+     * @maxItems 32
+     * @items.maxLength 255
+     */
+    tags?: string[]
     /** What the scanner does: monitor, classifier, scorer, or summarizer.
      *
      * * `monitor` - Monitor
@@ -929,6 +935,12 @@ export interface PatchedReplayScannerApi {
      * @maxLength 1000
      */
     description?: string
+    /**
+     * Organizational tags for this scanner. Distinct from a classifier's tag vocabulary in scanner_config. Tags cannot contain commas.
+     * @maxItems 32
+     * @items.maxLength 255
+     */
+    tags?: string[]
     /** What the scanner does: monitor, classifier, scorer, or summarizer.
      *
      * * `monitor` - Monitor
@@ -1588,6 +1600,38 @@ export interface ScannerCreatorsResponseApi {
 }
 
 /**
+ * Body of POST /vision/scanners/draft/ — the user's goal, stated in their own words.
+ */
+export interface DraftScannerRequestApi {
+    /**
+     * What the user wants to accomplish, e.g. 'find out where users get stuck during onboarding'.
+     * @maxLength 2000
+     */
+    goal: string
+}
+
+/**
+ * An AI-drafted scanner configuration, ready to seed the creation wizard. Nothing is persisted.
+ */
+export interface DraftScannerResponseApi {
+    /** Drafted scanner name. */
+    name: string
+    /** Drafted one-sentence description. */
+    description: string
+    /** The scanner type the draft picked for the goal.
+     *
+     * * `monitor` - Monitor
+     * * `classifier` - Classifier
+     * * `scorer` - Scorer
+     * * `summarizer` - Summarizer */
+    scanner_type: ScannerTypeEnumApi
+    /** Type-specific config for the drafted `scanner_type`; always includes `prompt`. */
+    scanner_config: unknown
+    /** Why the draft picked this scanner type and configuration, addressed to the user. */
+    rationale: string
+}
+
+/**
  * Body of POST /vision/scanners/estimate/ — a proposed, unsaved scanner config.
  */
 export interface EstimateRequestApi {
@@ -1919,6 +1963,10 @@ export type VisionScannersListParams = {
      * Case-insensitive substring match across name, description, and the prompt in scanner_config.
      */
     search?: string
+    /**
+     * Filter to scanners carrying at least one of the given tags (comma-separated).
+     */
+    tags?: string
 }
 
 export type VisionScannersImpactRetrieveParams = {

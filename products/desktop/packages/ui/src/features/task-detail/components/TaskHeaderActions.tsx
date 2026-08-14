@@ -20,6 +20,7 @@ import { useHandoffDialogStore } from "@posthog/ui/features/sessions/handoffDial
 import { useSessionCallbacks } from "@posthog/ui/features/sessions/hooks/useSessionCallbacks";
 import { useSessionForTask } from "@posthog/ui/features/sessions/useSession";
 import {
+  useIsCloudTask,
   useWorkspace,
   useWorkspaceLoaded,
 } from "@posthog/ui/features/workspace/useWorkspace";
@@ -131,7 +132,7 @@ function TaskDiffStatsBadge({ task }: { task: Task }) {
 export function TaskHeaderActions({ task }: { task: Task }) {
   const workspace = useWorkspace(task.id);
   const workspaceLoaded = useWorkspaceLoaded();
-  const isCloudTask = workspace?.mode === "cloud";
+  const isCloudTask = useIsCloudTask(task);
   // The badge is this row's way into the review, so it comes off where the
   // right panel's switcher already offers one.
   const showDiffBadge = !useReviewInRightPanel();

@@ -585,3 +585,55 @@ class CanvasPromoteSerializer(serializers.Serializer):
             "been published). A moved head is rejected with 409 version_conflict."
         ),
     )
+
+
+class CanvasReportErrorSerializer(serializers.Serializer):
+    """Payload for reporting a runtime error observed while rendering a canvas build."""
+
+    build_id = serializers.UUIDField(help_text="Id of the build that was rendering when the error occurred.")
+    error_type = serializers.CharField(
+        max_length=64,
+        help_text=(
+            "Error class name only, for example TypeError. Values that are not a plain class-name identifier "
+            "are recorded as 'unknown'. Full error messages and stack traces must stay client-side."
+        ),
+    )
+
+
+class CanvasErrorReportResultSerializer(serializers.Serializer):
+    """Outcome of filing a canvas error report."""
+
+    report_outcome = serializers.ChoiceField(
+        choices=["filed", "duplicate", "no_authoring_task", "skipped"],
+        help_text=(
+            "filed: a new report row was written. duplicate: this build and error type were already reported. "
+            "no_authoring_task: the canvas has no linked task to notify. skipped: thread updates are unavailable."
+        ),
+    )
+
+
+class CanvasRequestFixSerializer(serializers.Serializer):
+    """Payload for asking the canvas's authoring agent to fix a failing build or runtime error."""
+
+    build_id = serializers.UUIDField(help_text="Id of the failing or erroring build the fix should address.")
+    error_type = serializers.CharField(
+        required=False,
+        max_length=64,
+        help_text=(
+            "Error class from the runtime report, when fixing a runtime error. Omit for a failed build; its "
+            "diagnostics are read server-side."
+        ),
+    )
+
+
+class CanvasFixRequestResultSerializer(serializers.Serializer):
+    """Outcome of dispatching a canvas fix to the authoring agent."""
+
+    dispatch_outcome = serializers.ChoiceField(
+        choices=["signaled", "new_run", "already_queued"],
+        help_text=(
+            "signaled: the task's live run received the request. new_run: a fresh agent run was started. "
+            "already_queued: a fix run was already starting, so no new run was created."
+        ),
+    )
+    task_id = serializers.UUIDField(help_text="The authoring task the fix was routed to.")

@@ -39,7 +39,7 @@ SCOPE_CHOICES = [
 # How far an agent grant reaches. "personal" applies only to runs whose
 # credential owner is the granting member; "team" lets any of the team's agent
 # runs borrow that member's credential, including runs with no owner at all
-# (autonomous support replies, creatorless scouts). It never lets another human
+# (autonomous support replies, scout runs). It never lets another human
 # use the credential.
 AGENT_GRANT_SCOPE_CHOICES = [
     ("personal", "Personal"),

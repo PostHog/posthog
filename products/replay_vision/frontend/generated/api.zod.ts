@@ -409,6 +409,10 @@ export const visionScannersCreateBodyNameMax = 255
 
 export const visionScannersCreateBodyDescriptionMax = 1000
 
+export const visionScannersCreateBodyTagsItemMax = 255
+
+export const visionScannersCreateBodyTagsMax = 32
+
 export const visionScannersCreateBodySamplingRateMin = 0
 export const visionScannersCreateBodySamplingRateMax = 1
 
@@ -429,6 +433,13 @@ export const VisionScannersCreateBody = /* @__PURE__ */ zod
             .max(visionScannersCreateBodyDescriptionMax)
             .optional()
             .describe('Free-form description shown in the scanner management UI.'),
+        tags: zod
+            .array(zod.string().max(visionScannersCreateBodyTagsItemMax))
+            .max(visionScannersCreateBodyTagsMax)
+            .optional()
+            .describe(
+                "Organizational tags for this scanner. Distinct from a classifier's tag vocabulary in scanner_config. Tags cannot contain commas."
+            ),
         scanner_type: zod
             .enum(['monitor', 'classifier', 'scorer', 'summarizer'])
             .describe(
@@ -529,6 +540,10 @@ export const visionScannersPartialUpdateBodyNameMax = 255
 
 export const visionScannersPartialUpdateBodyDescriptionMax = 1000
 
+export const visionScannersPartialUpdateBodyTagsItemMax = 255
+
+export const visionScannersPartialUpdateBodyTagsMax = 32
+
 export const visionScannersPartialUpdateBodySamplingRateMin = 0
 export const visionScannersPartialUpdateBodySamplingRateMax = 1
 
@@ -550,6 +565,13 @@ export const VisionScannersPartialUpdateBody = /* @__PURE__ */ zod
             .max(visionScannersPartialUpdateBodyDescriptionMax)
             .optional()
             .describe('Free-form description shown in the scanner management UI.'),
+        tags: zod
+            .array(zod.string().max(visionScannersPartialUpdateBodyTagsItemMax))
+            .max(visionScannersPartialUpdateBodyTagsMax)
+            .optional()
+            .describe(
+                "Organizational tags for this scanner. Distinct from a classifier's tag vocabulary in scanner_config. Tags cannot contain commas."
+            ),
         scanner_type: zod
             .enum(['monitor', 'classifier', 'scorer', 'summarizer'])
             .describe(
@@ -810,6 +832,20 @@ export const VisionScannersPromptSuggestionsEvaluateCreateBody = /* @__PURE__ */
             "The edited config to test, assembled from the recommendation's approved fields. Omit to test the full suggested config."
         ),
 })
+
+/**
+ * Draft a full scanner configuration from a natural-language goal, for the goal-based creation flow.
+ */
+export const visionScannersDraftCreateBodyGoalMax = 2000
+
+export const VisionScannersDraftCreateBody = /* @__PURE__ */ zod
+    .object({
+        goal: zod
+            .string()
+            .max(visionScannersDraftCreateBodyGoalMax)
+            .describe("What the user wants to accomplish, e.g. 'find out where users get stuck during onboarding'."),
+    })
+    .describe("Body of POST \/vision\/scanners\/draft\/ — the user's goal, stated in their own words.")
 
 /**
  * Estimate the observation volume a proposed scanner would generate, for the pre-save cost preview.

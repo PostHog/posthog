@@ -23,13 +23,13 @@ import {
   TreeStructure,
   Wrench,
 } from "@phosphor-icons/react";
-import { Avatar, AvatarFallback, Input, MenuLabel } from "@posthog/quill";
+import { Input, MenuLabel } from "@posthog/quill";
 import { BILLING_FLAG } from "@posthog/shared";
 import { useOptionalAuthenticatedClient } from "@posthog/ui/features/auth/authClient";
 import { useAuthStateValue } from "@posthog/ui/features/auth/store";
+import { UserAvatar } from "@posthog/ui/features/auth/UserAvatar";
 import { useLogoutMutation } from "@posthog/ui/features/auth/useAuthMutations";
 import { useCurrentUser } from "@posthog/ui/features/auth/useCurrentUser";
-import { getUserInitials } from "@posthog/ui/features/auth/userInitials";
 import { useChannelsLayout } from "@posthog/ui/features/canvas/hooks/useChannelsLayout";
 import { useFeatureFlag } from "@posthog/ui/features/feature-flags/useFeatureFlag";
 import { SettingsPageContent } from "@posthog/ui/features/settings/components/SettingsPageContent";
@@ -187,8 +187,6 @@ export function SettingsPanel({
     (item) => item.id === activeSidebarCategory,
   )?.icon;
 
-  const initials = getUserInitials(user);
-
   return (
     <div
       className="flex h-full w-full bg-(--color-background)"
@@ -199,9 +197,7 @@ export function SettingsPanel({
 
         {isAuthenticated && user && (
           <div className="flex items-center gap-3 border-b border-b-(--gray-5) px-3 py-3">
-            <Avatar size="default">
-              <AvatarFallback>{initials}</AvatarFallback>
-            </Avatar>
+            <UserAvatar user={user} />
             <div className="flex min-w-0 flex-col">
               <span className="truncate font-medium text-sm">{user.email}</span>
             </div>

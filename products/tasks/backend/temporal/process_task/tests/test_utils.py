@@ -373,6 +373,7 @@ class TestFetchUserMcpServerConfigs(TestCase):
             task_origin=None,
             task_agent_key=None,
             credential_owner_id=None,
+            allowed_gateway_server_ids=None,
         )
         assert configs == [
             McpServerConfig(
@@ -465,10 +466,12 @@ class TestFetchUserMcpServerConfigs(TestCase):
             origin_product="support_reply",
             task_agent_key="support",
             credential_owner_id=self.CREDENTIAL_OWNER_ID,
+            allowed_gateway_server_ids=["server-1"],
         )
 
         # The credential owner is forwarded separately from the acting user: the sandbox acts
-        # as `user_id`, but it may only mount the grants belonging to the owner.
+        # as `user_id`, but it may only mount the grants belonging to the owner. The per-scout
+        # allowlist rides along untouched — the facade applies it, not this layer.
         mock_facade.assert_called_once_with(
             self.TEAM_ID,
             user_id=self.USER_ID,
@@ -476,6 +479,7 @@ class TestFetchUserMcpServerConfigs(TestCase):
             task_origin="support_reply",
             task_agent_key="support",
             credential_owner_id=self.CREDENTIAL_OWNER_ID,
+            allowed_gateway_server_ids=["server-1"],
         )
         assert configs == [
             McpServerConfig(
@@ -506,6 +510,7 @@ class TestFetchUserMcpServerConfigs(TestCase):
             task_origin=None,
             task_agent_key=None,
             credential_owner_id=None,
+            allowed_gateway_server_ids=None,
         )
 
     @patch(MOCK_API_URL)
