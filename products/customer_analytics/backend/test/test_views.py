@@ -1,3 +1,4 @@
+from datetime import timedelta
 from uuid import uuid4
 
 import pytest
@@ -14,12 +15,23 @@ from rest_framework import status
 from posthog.constants import AvailableFeature
 from posthog.models import Tag, TaggedItem
 from posthog.models.activity_logging.activity_log import ActivityLog
+from posthog.models.comment import Comment
 from posthog.models.organization import OrganizationMembership
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.team import Team
 from posthog.models.user import User
 from posthog.models.utils import generate_random_token_personal, hash_key_value
 
+from products.conversations.backend.models import (
+    EMAIL_THREAD_COMMENT_SCOPE,
+    EmailThread,
+    EmailThreadAccess,
+    EmailThreadAccountLink,
+    EmailThreadMessage,
+    EmailThreadMessageDirection,
+    EmailThreadParticipant,
+    EmailThreadParticipantKind,
+)
 from products.conversations.backend.models.ticket import Ticket
 from products.customer_analytics.backend.logic import relationships as relationships_logic
 from products.customer_analytics.backend.models import (
@@ -2767,6 +2779,112 @@ class TestAccountSupportTicketViewSet(APIBaseTest):
         self.client.force_login(viewer)
 
         self.assertEqual(status.HTTP_403_FORBIDDEN, self.client.get(self.endpoint).status_code)
+
+
+class TestAccountEmailThreadViewSet(APIBaseTest):
+    def setUp(self):
+        super().setUp()
+        self.account = Account.objects.unscoped().create(team=self.team, name="Acme Corp", external_id="acme-1")
+        first_message_at = timezone.now() - timedelta(hours=1)
+        last_message_at = timezone.now()
+        self.thread = EmailThread.objects.for_team(self.team.id).create(
+            team=self.team,
+            canonical_thread_key="<account-email@example.com>",
+            subject="Renewal planning",
+            first_message_at=first_message_at,
+            last_message_at=last_message_at,
+            message_count=2,
+            preview="Latest reply",
+        )
+        EmailThreadAccess.objects.for_team(self.team.id).create(
+            team=self.team,
+            thread=self.thread,
+            user=self.user,
+        )
+        EmailThreadAccountLink.objects.for_team(self.team.id).create(
+            team=self.team,
+            thread=self.thread,
+            account_id=str(self.account.id),
+            account_external_id=self.account.external_id,
+            match_source="email_domain",
+        )
+        EmailThreadParticipant.objects.for_team(self.team.id).create(
+            team=self.team,
+            thread=self.thread,
+            email="customer@example.com",
+            display_name="Customer",
+            kind=EmailThreadParticipantKind.CUSTOMER,
+        )
+        for index, sent_at in enumerate([last_message_at, first_message_at], start=1):
+            comment = Comment.objects.create(
+                team=self.team,
+                scope=EMAIL_THREAD_COMMENT_SCOPE,
+                item_id=str(self.thread.id),
+                content=f"Message {index}",
+            )
+            EmailThreadMessage.objects.for_team(self.team.id).create(
+                team=self.team,
+                thread=self.thread,
+                comment=comment,
+                message_id=f"<message-{index}@example.com>",
+                sent_at=sent_at,
+                sender_email="customer@example.com",
+                sender_name="Customer",
+                to_recipients=[{"name": "CSM", "email": "csm@example.com"}],
+                cc_recipients=[],
+                direction=EmailThreadMessageDirection.INBOUND,
+                source_type="mailgun",
+                source_id=f"message-{index}",
+            )
+        self.endpoint = f"/api/environments/{self.team.id}/accounts/{self.account.id}/email_threads/"
+
+    def test_list_keeps_messages_out_and_detail_orders_them_by_source_time(self):
+        list_response = self.client.get(self.endpoint)
+
+        self.assertEqual(status.HTTP_200_OK, list_response.status_code, list_response.json())
+        payload = list_response.json()
+        self.assertEqual(payload["count"], 1)
+        summary = payload["results"][0]
+        self.assertEqual(summary["subject"], "Renewal planning")
+        self.assertEqual(summary["message_count"], 2)
+        self.assertEqual(summary["owners"][0]["user_id"], self.user.id)
+        self.assertNotIn("messages", summary)
+
+        detail_response = self.client.get(f"{self.endpoint}{self.thread.id}/")
+
+        self.assertEqual(status.HTTP_200_OK, detail_response.status_code, detail_response.json())
+        self.assertEqual(
+            [message["content"] for message in detail_response.json()["messages"]],
+            ["Message 2", "Message 1"],
+        )
+        self.assertEqual(status.HTTP_404_NOT_FOUND, self.client.get(f"{self.endpoint}not-a-uuid/").status_code)
+
+    def test_user_without_ticket_access_cannot_read_email_summaries_or_bodies(self):
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL},
+            {"key": AvailableFeature.ROLE_BASED_ACCESS, "name": AvailableFeature.ROLE_BASED_ACCESS},
+        ]
+        self.organization.save()
+        viewer = User.objects.create_and_join(self.organization, "email-denied@posthog.com", "testtest")
+        membership = OrganizationMembership.objects.get(user=viewer, organization=self.organization)
+        AccessControl.objects.create(
+            team=self.team,
+            resource="customer_analytics",
+            resource_id=None,
+            access_level="viewer",
+            organization_member=membership,
+        )
+        AccessControl.objects.create(
+            team=self.team,
+            resource="ticket",
+            resource_id=None,
+            access_level="none",
+            organization_member=membership,
+        )
+        self.client.force_login(viewer)
+
+        self.assertEqual(status.HTTP_403_FORBIDDEN, self.client.get(self.endpoint).status_code)
+        self.assertEqual(status.HTTP_403_FORBIDDEN, self.client.get(f"{self.endpoint}{self.thread.id}/").status_code)
 
 
 class TestCalendarSyncViewSet(APIBaseTest):

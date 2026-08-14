@@ -10,12 +10,14 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
  */
 import type {
     AccountApi,
+    AccountEmailThreadDetailApi,
     AccountNotebookApi,
     AccountNotesListParams,
     AccountRelationshipApi,
     AccountRelationshipDefinitionApi,
     AccountRelationshipDefinitionsListParams,
     AccountRelationshipWriteApi,
+    AccountsEmailThreadsListParams,
     AccountsListParams,
     AccountsMeetingsListParams,
     AccountsNotebooksListParams,
@@ -59,6 +61,7 @@ import type {
     GroupUsageMetricApi,
     GroupsTypesMetricsListParams,
     PaginatedAccountChannelSummaryListApi,
+    PaginatedAccountEmailThreadListApi,
     PaginatedAccountListApi,
     PaginatedAccountNoteListApi,
     PaginatedAccountNotebookListApi,
@@ -560,6 +563,54 @@ export const accountsDestroy = async (projectId: string, id: string, options?: R
     return apiMutator<void>(getAccountsDestroyUrl(projectId, id), {
         ...options,
         method: 'DELETE',
+    })
+}
+
+export const getAccountsEmailThreadsListUrl = (
+    projectId: string,
+    id: string,
+    params?: AccountsEmailThreadsListParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/accounts/${id}/email_threads/?${stringifiedParams}`
+        : `/api/projects/${projectId}/accounts/${id}/email_threads/`
+}
+
+export const accountsEmailThreadsList = async (
+    projectId: string,
+    id: string,
+    params?: AccountsEmailThreadsListParams,
+    options?: RequestInit
+): Promise<PaginatedAccountEmailThreadListApi> => {
+    return apiMutator<PaginatedAccountEmailThreadListApi>(getAccountsEmailThreadsListUrl(projectId, id, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getAccountsEmailThreadsRetrieveUrl = (projectId: string, id: string, threadId: string) => {
+    return `/api/projects/${projectId}/accounts/${id}/email_threads/${threadId}/`
+}
+
+export const accountsEmailThreadsRetrieve = async (
+    projectId: string,
+    id: string,
+    threadId: string,
+    options?: RequestInit
+): Promise<AccountEmailThreadDetailApi> => {
+    return apiMutator<AccountEmailThreadDetailApi>(getAccountsEmailThreadsRetrieveUrl(projectId, id, threadId), {
+        ...options,
+        method: 'GET',
     })
 }
 

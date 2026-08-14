@@ -330,6 +330,132 @@ export namespace Schemas {
     }
 
     /**
+     * * `internal` - Internal
+     * * `customer` - Customer
+     */
+    export type EmailThreadParticipantKindEnum = typeof EmailThreadParticipantKindEnum[keyof typeof EmailThreadParticipantKindEnum];
+
+
+    export const EmailThreadParticipantKindEnum = {
+      Internal: 'internal',
+      Customer: 'customer',
+    } as const;
+
+    export interface AccountEmailThreadParticipant {
+      /** Email address of the thread participant. */
+      readonly email: string;
+      /** Display name from the captured email headers. */
+      readonly display_name: string;
+      /** Whether the participant belongs to the PostHog organization or the customer.
+       *
+       * * `internal` - Internal
+       * * `customer` - Customer */
+      readonly kind: EmailThreadParticipantKindEnum;
+    }
+
+    export interface AccountEmailThreadOwner {
+      /** User ID of the channel owner. */
+      readonly user_id: number;
+      /** Display name of the channel owner. */
+      readonly name: string;
+      /** Email address of the channel owner. */
+      readonly email: string;
+    }
+
+    export interface AccountEmailThread {
+      /** UUID of the captured email thread. */
+      readonly id: string;
+      /** Email thread subject. */
+      readonly subject: string;
+      /** Plain-text preview of the latest captured message. */
+      readonly preview: string;
+      /**
+         * Source timestamp of the first captured message.
+         * @nullable
+         */
+      readonly first_message_at: string | null;
+      /**
+         * Source timestamp of the latest captured message.
+         * @nullable
+         */
+      readonly last_message_at: string | null;
+      /** Number of captured messages in the thread. */
+      readonly message_count: number;
+      /** Participants included in the email thread. */
+      readonly participants: readonly AccountEmailThreadParticipant[];
+      /** Customer communication channel owners who can access the thread. */
+      readonly owners: readonly AccountEmailThreadOwner[];
+    }
+
+    export interface AccountEmailThreadAddress {
+      /** Name from the email header. */
+      readonly name: string;
+      /** Email address from the email header. */
+      readonly email: string;
+    }
+
+    /**
+     * * `inbound` - Inbound
+     * * `outbound` - Outbound
+     */
+    export type EmailThreadMessageDirectionEnum = typeof EmailThreadMessageDirectionEnum[keyof typeof EmailThreadMessageDirectionEnum];
+
+
+    export const EmailThreadMessageDirectionEnum = {
+      Inbound: 'inbound',
+      Outbound: 'outbound',
+    } as const;
+
+    export interface AccountEmailThreadMessage {
+      /** UUID of the captured email message. */
+      readonly id: string;
+      /** Timestamp from the source email. */
+      readonly sent_at: string;
+      /** Sender from the email From header. */
+      readonly sender: AccountEmailThreadAddress;
+      /** Recipients from the email To header. */
+      readonly to_recipients: readonly AccountEmailThreadAddress[];
+      /** Recipients from the email Cc header. */
+      readonly cc_recipients: readonly AccountEmailThreadAddress[];
+      /** Whether Mailgun authentication verified the sender domain. */
+      readonly sender_authenticated: boolean;
+      /** Whether PostHog received or sent the message.
+       *
+       * * `inbound` - Inbound
+       * * `outbound` - Outbound */
+      readonly direction: EmailThreadMessageDirectionEnum;
+      /** Plain-text email content. */
+      readonly content: string;
+    }
+
+    export interface AccountEmailThreadDetail {
+      /** UUID of the captured email thread. */
+      readonly id: string;
+      /** Email thread subject. */
+      readonly subject: string;
+      /** Plain-text preview of the latest captured message. */
+      readonly preview: string;
+      /**
+         * Source timestamp of the first captured message.
+         * @nullable
+         */
+      readonly first_message_at: string | null;
+      /**
+         * Source timestamp of the latest captured message.
+         * @nullable
+         */
+      readonly last_message_at: string | null;
+      /** Number of captured messages in the thread. */
+      readonly message_count: number;
+      /** Participants included in the email thread. */
+      readonly participants: readonly AccountEmailThreadParticipant[];
+      /** Customer communication channel owners who can access the thread. */
+      readonly owners: readonly AccountEmailThreadOwner[];
+      /** Messages ordered by their source timestamp. */
+      readonly messages: readonly AccountEmailThreadMessage[];
+    }
+
+    /**
      * * `engineering` - Engineering
      * * `data` - Data
      * * `product` - Product Management
@@ -48229,6 +48355,15 @@ export namespace Schemas {
       results: AccountChannelSummary[];
     }
 
+    export interface PaginatedAccountEmailThreadList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: AccountEmailThread[];
+    }
+
     export interface PaginatedAccountList {
       count: number;
       /** @nullable */
@@ -82154,6 +82289,17 @@ export namespace Schemas {
      * Include ended assignments (the full timeline), not just active ones.
      */
     include_history?: boolean;
+    };
+
+    export type AccountsEmailThreadsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
     };
 
     export type AccountsMeetingsListParams = {

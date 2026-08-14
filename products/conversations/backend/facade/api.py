@@ -32,12 +32,14 @@ from products.conversations.backend.facade.types import (
     EmailThreadAccountLinkInput as EmailThreadAccountLinkInput,
     EmailThreadAddress as EmailThreadAddress,
     EmailThreadForAccountMatching as EmailThreadForAccountMatching,
+    EmailThreadOwnerSummary as EmailThreadOwnerSummary,
     EmailThreadParticipantSummary as EmailThreadParticipantSummary,
     SupportChannel as SupportChannel,
     TicketSummary as TicketSummary,
 )
 from products.conversations.backend.models import (
     EmailThread,
+    EmailThreadAccess,
     EmailThreadAccountLink,
     EmailThreadAccountMatchSource,
     EmailThreadMessage,
@@ -350,6 +352,14 @@ def _account_email_thread_summary(thread: EmailThread) -> AccountEmailThreadSumm
         participants=[
             _email_thread_participant_summary(participant) for participant in prefetched_thread.facade_participants
         ],
+        owners=[
+            EmailThreadOwnerSummary(
+                user_id=access.user_id,
+                name=f"{access.user.first_name} {access.user.last_name}".strip() or access.user.email,
+                email=access.user.email,
+            )
+            for access in cast(list[EmailThreadAccess], thread.facade_access_grants)
+        ],
     )
 
 
@@ -361,10 +371,14 @@ def list_account_email_threads(
     limit: int = 50,
 ) -> tuple[list[AccountEmailThreadSummary], int]:
     participants = EmailThreadParticipant.objects.for_team(team_id).order_by("email")
+    access_grants = EmailThreadAccess.objects.for_team(team_id).select_related("user").order_by("user__email")
     threads = (
         EmailThread.objects.for_team(team_id)
         .filter(account_links__team_id=team_id, account_links__account_id=account_id)
-        .prefetch_related(Prefetch("participants", queryset=participants, to_attr="facade_participants"))
+        .prefetch_related(
+            Prefetch("participants", queryset=participants, to_attr="facade_participants"),
+            Prefetch("access_grants", queryset=access_grants, to_attr="facade_access_grants"),
+        )
         .order_by(F("last_message_at").desc(nulls_last=True), "-id")
     )
     count = threads.count()
@@ -391,6 +405,7 @@ def get_account_email_thread(
     thread_id: str,
 ) -> AccountEmailThreadDetail | None:
     participants = EmailThreadParticipant.objects.for_team(team_id).order_by("email")
+    access_grants = EmailThreadAccess.objects.for_team(team_id).select_related("user").order_by("user__email")
     thread = (
         EmailThread.objects.for_team(team_id)
         .filter(
@@ -398,7 +413,10 @@ def get_account_email_thread(
             account_links__team_id=team_id,
             account_links__account_id=account_id,
         )
-        .prefetch_related(Prefetch("participants", queryset=participants, to_attr="facade_participants"))
+        .prefetch_related(
+            Prefetch("participants", queryset=participants, to_attr="facade_participants"),
+            Prefetch("access_grants", queryset=access_grants, to_attr="facade_access_grants"),
+        )
         .first()
     )
     if thread is None:
@@ -419,6 +437,7 @@ def get_account_email_thread(
         last_message_at=summary.last_message_at,
         message_count=summary.message_count,
         participants=summary.participants,
+        owners=summary.owners,
         messages=[
             AccountEmailThreadMessage(
                 id=str(message.id),

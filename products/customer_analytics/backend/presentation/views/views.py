@@ -50,6 +50,8 @@ from products.customer_analytics.backend.facade import api, contracts
 from products.customer_analytics.backend.facade.constants import CUSTOMER_ANALYTICS_FEATURE_REQUESTS_FLAG
 from products.customer_analytics.backend.presentation.views.serializers import (
     AccountChannelSummarySerializer,
+    AccountEmailThreadDetailSerializer,
+    AccountEmailThreadSerializer,
     AccountNotebookSerializer,
     AccountNoteSerializer,
     AccountRelationshipDefinitionSerializer,
@@ -1262,6 +1264,56 @@ class AccountViewSet(
             return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
         return Response(SupportTicketSerializer(instance=tickets, many=True).data)
 
+    @extend_schema(parameters=[_ACCOUNT_ID_PARAM], responses={200: AccountEmailThreadSerializer(many=True)})
+    @action(methods=["GET"], detail=True, url_path="email_threads")
+    def email_threads(self, request: Request, *args, **kwargs) -> Response:
+        if api.get_accessible_account_id(self.team_id, self.kwargs["pk"], self.user_access_control) is None:
+            return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
+
+        def fetch(offset: int, limit: int) -> tuple[list[api.AccountEmailThreadSummary], int]:
+            try:
+                result = api.get_account_email_threads(
+                    self.team_id,
+                    self.kwargs["pk"],
+                    self.user_access_control,
+                    offset=offset,
+                    limit=limit,
+                )
+            except api.ResourceForbiddenError:
+                raise PermissionDenied()
+            return result if result is not None else ([], 0)
+
+        return self._paginate_via_facade(request, fetch, AccountEmailThreadSerializer)
+
+    @extend_schema(
+        parameters=[_ACCOUNT_ID_PARAM],
+        responses={200: AccountEmailThreadDetailSerializer},
+    )
+    @action(
+        methods=["GET"],
+        detail=True,
+        url_path=r"email_threads/(?P<thread_id>[^/.]+)",
+        url_name="email-thread-detail",
+        pagination_class=None,
+    )
+    def email_thread(self, request: Request, thread_id: str, *args, **kwargs) -> Response:
+        try:
+            parsed_thread_id = str(UUID(thread_id))
+        except ValueError:
+            return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
+        try:
+            thread = api.get_account_email_thread_detail(
+                self.team_id,
+                self.kwargs["pk"],
+                parsed_thread_id,
+                self.user_access_control,
+            )
+        except api.ResourceForbiddenError:
+            raise PermissionDenied()
+        if thread is None:
+            return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
+        return Response(AccountEmailThreadDetailSerializer(instance=thread).data)
+
     @extend_schema(
         parameters=[
             _ACCOUNT_ID_PARAM,
@@ -1302,7 +1354,7 @@ class AccountViewSet(
                 return mixin_result
         # Ticket content behind an account-scoped viewset — a token holding only
         # account:read must not read it.
-        if view.action == "support_tickets":
+        if view.action in {"support_tickets", "email_threads", "email_thread"}:
             return ["account:read", "ticket:read"]
         return None
 
