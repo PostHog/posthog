@@ -46,7 +46,7 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.services.query import process_query_model
 from posthog.api.streaming import sse_streaming_response
 from posthog.api.utils import action, is_async_query, is_insight_actors_options_query, is_insight_actors_query
-from posthog.clickhouse.client.execute_async import cancel_query, get_query_status
+from posthog.clickhouse.client.execute_async import QueryNotFoundError, cancel_query, get_query_status
 from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
 from posthog.clickhouse.query_tagging import get_query_tag_value, get_query_tags, tag_queries
 from posthog.constants import AvailableFeature
@@ -69,6 +69,9 @@ from posthog.rate_limit import (
 )
 from posthog.rbac.user_access_control import UserAccessControlError
 from posthog.schema_migrations.upgrade import upgrade
+
+from products.managed_warehouse.backend.facade import feature_flags as managed_warehouse_feature_flags
+from products.warehouse_sources.backend.facade.models import is_managed_warehouse_connection_ready
 
 from common.hogvm.python.utils import HogVMException
 
@@ -380,6 +383,19 @@ class QueryViewSet(QueryCoalescingMixin, TeamAndOrgViewSetMixin, PydanticModelMi
             show_progress or request.query_params.get("showProgress", False) == "true"
         )  # TODO: Remove this once we have a consistent naming convention
         query_status = get_query_status(team_id=self.team.pk, query_id=pk, show_progress=show_progress)
+        managed_connection_id = next(
+            (
+                label.removeprefix(managed_warehouse_feature_flags.MANAGED_WAREHOUSE_QUERY_STATUS_LABEL_PREFIX)
+                for label in query_status.labels or []
+                if label.startswith(managed_warehouse_feature_flags.MANAGED_WAREHOUSE_QUERY_STATUS_LABEL_PREFIX)
+            ),
+            None,
+        )
+        if managed_connection_id is not None and (
+            not managed_warehouse_feature_flags.is_managed_warehouse_sql_editor_enabled(self.team)
+            or not is_managed_warehouse_connection_ready(self.team.pk, managed_connection_id)
+        ):
+            raise QueryNotFoundError(f"Query {pk} not found for team {self.team.pk}")
         query_status_response = QueryStatusResponse(query_status=query_status)
 
         http_code: int = status.HTTP_202_ACCEPTED

@@ -28,6 +28,17 @@ from ee.models import AccessControl
 
 
 class TestGetDirectConnectionSource(APIBaseTest):
+    managed_warehouse_sql_editor_flag: MagicMock
+
+    def setUp(self) -> None:
+        super().setUp()
+        flag_patcher = patch(
+            "products.managed_warehouse.backend.facade.feature_flags.posthog_feature_flag_enabled",
+            return_value=True,
+        )
+        self.managed_warehouse_sql_editor_flag = flag_patcher.start()
+        self.addCleanup(flag_patcher.stop)
+
     def _create_source(self, *, access_method: str, direct_query_enabled: bool = True) -> ExternalDataSource:
         return ExternalDataSource.objects.create(
             team=self.team,
@@ -113,11 +124,21 @@ class TestGetDirectConnectionSource(APIBaseTest):
         assert resolved is not None
         self.assertEqual(resolved.id, managed_source.id)
 
-    def test_managed_warehouse_resolves_from_durable_project_reader_readiness(self):
+    @parameterized.expand([("flag_off", False), ("flag_on", True)])
+    def test_managed_warehouse_flag_controls_connection_resolution(self, _name: str, flag_enabled: bool) -> None:
         source = self._create_managed_source()
+        self.managed_warehouse_sql_editor_flag.return_value = flag_enabled
+        expected_source = source if flag_enabled else None
 
-        self.assertEqual(get_direct_connection_source(self.team, str(source.id)), source)
-        self.assertEqual(get_direct_external_data_source_for_connection(self.team.id, str(source.id)), source)
+        self.assertEqual(get_direct_connection_source(self.team, str(source.id)), expected_source)
+        self.assertEqual(
+            get_direct_connection_source(self.team, str(source.id), require_pure_direct=True),
+            expected_source,
+        )
+        self.assertEqual(
+            get_direct_external_data_source_for_connection(self.team.id, str(source.id)),
+            expected_source,
+        )
 
     @parameterized.expand(
         [

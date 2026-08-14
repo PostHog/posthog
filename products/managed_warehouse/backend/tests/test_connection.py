@@ -333,7 +333,13 @@ class TestReconcileManagedWarehouseTables:
         _create_project_reader_source(team)
         return org, team
 
-    def test_discovers_with_the_existing_project_reader_and_makes_its_catalog_queryable(self) -> None:
+    @patch(
+        "products.managed_warehouse.backend.facade.feature_flags.posthog_feature_flag_enabled",
+        return_value=True,
+    )
+    def test_discovers_with_the_existing_project_reader_and_makes_its_catalog_queryable(
+        self, _managed_warehouse_sql_editor_flag: MagicMock
+    ) -> None:
         org, team = self._setup()
         DuckgresServer.objects.filter(organization=org).delete()
         discovered = [

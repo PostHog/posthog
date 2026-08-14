@@ -144,6 +144,17 @@ class TestDuckgresStreamingClientCursor(SimpleTestCase):
 
 
 class TestDirectDuckgresQuery(APIBaseTest):
+    managed_warehouse_sql_editor_flag: MagicMock
+
+    def setUp(self) -> None:
+        super().setUp()
+        flag_patcher = patch(
+            "products.managed_warehouse.backend.facade.feature_flags.posthog_feature_flag_enabled",
+            return_value=True,
+        )
+        self.managed_warehouse_sql_editor_flag = flag_patcher.start()
+        self.addCleanup(flag_patcher.stop)
+
     def _managed_source(
         self,
         *,
@@ -416,6 +427,21 @@ class TestDirectDuckgresQuery(APIBaseTest):
         with self.assertRaisesMessage(ExposedHogQLError, "Invalid connectionId"):
             HogQLQueryExecutor(
                 query="SELECT 1", team=self.team, connection_id=str(source.id), send_raw_query=True
+            ).execute()
+
+        connect.assert_not_called()
+
+    @patch("posthog.hogql.direct_sql.duckgres_adapter.psycopg.connect")
+    def test_feature_flag_rejects_raw_query_before_connecting(self, connect: MagicMock) -> None:
+        source = self._managed_source()
+        self.managed_warehouse_sql_editor_flag.return_value = False
+
+        with self.assertRaisesMessage(ExposedHogQLError, "Invalid connectionId"):
+            HogQLQueryExecutor(
+                query="SELECT 1",
+                team=self.team,
+                connection_id=str(source.id),
+                send_raw_query=True,
             ).execute()
 
         connect.assert_not_called()

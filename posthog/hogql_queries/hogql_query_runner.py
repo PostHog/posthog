@@ -4,11 +4,13 @@ from typing import Any, Optional, cast
 
 from posthog.schema import (
     CachedHogQLQueryResponse,
+    CacheMissResponse,
     DashboardFilter,
     DateRange,
     HogQLFilters,
     HogQLQuery,
     HogQLQueryResponse,
+    QueryStatusResponse,
 )
 
 from posthog.hogql import ast
@@ -26,10 +28,17 @@ from posthog.hogql.variables import replace_variables
 from posthog import settings as app_settings
 from posthog.caching.utils import ThresholdMode, staleness_threshold_map
 from posthog.clickhouse.query_tagging import tag_contains_user_hogql
+from posthog.event_usage import AnalyticsProps
 from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
-from posthog.hogql_queries.query_runner import AnalyticsQueryRunner
+from posthog.hogql_queries.query_runner import AnalyticsQueryRunner, ExecutionMode
+from posthog.models import User
 
-from products.warehouse_sources.backend.facade.models import get_direct_external_data_source_for_connection
+from products.managed_warehouse.backend.facade import feature_flags as managed_warehouse_feature_flags
+from products.warehouse_sources.backend.facade.models import (
+    get_direct_external_data_source_for_connection,
+    is_managed_warehouse_connection_ready,
+    is_reserved_managed_warehouse_connection,
+)
 
 _INFORMATION_SCHEMA_PREFIX = "system.information_schema."
 
@@ -46,6 +55,8 @@ class HogQLQueryRunner(AnalyticsQueryRunner[HogQLQueryResponse]):
         **kwargs,
     ):
         self.settings = settings or HogQLGlobalSettings()
+        self._is_managed_warehouse_query: bool | None = None
+        self._direct_connection_validated = False
         super().__init__(*args, **kwargs)
 
     # Treat SQL query caching like day insight
@@ -53,6 +64,62 @@ class HogQLQueryRunner(AnalyticsQueryRunner[HogQLQueryResponse]):
         if last_refresh is None:
             return None
         return last_refresh + staleness_threshold_map[ThresholdMode.LAZY if lazy else ThresholdMode.DEFAULT]["day"]
+
+    def _validate_direct_connection(self) -> None:
+        if self._direct_connection_validated:
+            return
+        if self.query.connectionId:
+            source = get_direct_external_data_source_for_connection(
+                team_id=self.team.pk, connection_id=self.query.connectionId
+            )
+            if source is None:
+                raise ExposedHogQLError(INVALID_CONNECTION_ID_ERROR)
+        self._direct_connection_validated = True
+
+    def _uses_managed_warehouse(self) -> bool:
+        if self._is_managed_warehouse_query is None:
+            self._is_managed_warehouse_query = is_reserved_managed_warehouse_connection(
+                team_id=self.team.pk,
+                connection_id=self.query.connectionId,
+            )
+        return self._is_managed_warehouse_query
+
+    def _validate_managed_warehouse_rollout(self) -> None:
+        if not self._uses_managed_warehouse():
+            return
+        if not managed_warehouse_feature_flags.is_managed_warehouse_sql_editor_enabled(self.team):
+            raise ExposedHogQLError(INVALID_CONNECTION_ID_ERROR)
+        if not is_managed_warehouse_connection_ready(self.team.pk, self.query.connectionId):
+            raise ExposedHogQLError(INVALID_CONNECTION_ID_ERROR)
+        self._direct_connection_validated = True
+
+    def query_status_labels(self) -> list[str] | None:
+        if self._uses_managed_warehouse():
+            return [
+                f"{managed_warehouse_feature_flags.MANAGED_WAREHOUSE_QUERY_STATUS_LABEL_PREFIX}{self.query.connectionId}"
+            ]
+        return None
+
+    def run(
+        self,
+        execution_mode: ExecutionMode = ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE,
+        user: Optional[User] = None,
+        query_id: Optional[str] = None,
+        insight_id: Optional[int] = None,
+        dashboard_id: Optional[int] = None,
+        cache_age_seconds: Optional[int] = None,
+        analytics_props: Optional[AnalyticsProps] = None,
+    ) -> HogQLQueryResponse | CachedHogQLQueryResponse | CacheMissResponse | QueryStatusResponse:
+        self._validate_managed_warehouse_rollout()
+        return super().run(
+            execution_mode=execution_mode,
+            user=user,
+            query_id=query_id,
+            insight_id=insight_id,
+            dashboard_id=dashboard_id,
+            cache_age_seconds=cache_age_seconds,
+            analytics_props=analytics_props,
+        )
 
     def requires_fresh_calculation(self) -> bool:
         # system.information_schema.* mirrors mutable data-catalog state (metric approval, relationship
@@ -113,12 +180,7 @@ class HogQLQueryRunner(AnalyticsQueryRunner[HogQLQueryResponse]):
             # p95 duration of HogQL query is 2.78sec
             self.settings.max_execution_time = 10
 
-        if self.query.connectionId:
-            source = get_direct_external_data_source_for_connection(
-                team_id=self.team.pk, connection_id=self.query.connectionId
-            )
-            if source is None:
-                raise ExposedHogQLError(INVALID_CONNECTION_ID_ERROR)
+        self._validate_direct_connection()
 
         if self.query.sendRawQuery and self.query.connectionId:
             return execute_hogql_query(

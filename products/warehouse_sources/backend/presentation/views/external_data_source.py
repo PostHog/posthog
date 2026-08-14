@@ -99,6 +99,7 @@ from products.data_warehouse.backend.facade.api import (
     unpause_cdc_extraction_schedule,
 )
 from products.data_warehouse.backend.facade.models import ExternalDataSourceRevenueAnalyticsConfig
+from products.managed_warehouse.backend.facade import feature_flags as managed_warehouse_feature_flags
 from products.revenue_analytics.backend.facade.api import ensure_person_join, remove_person_join
 from products.warehouse_sources.backend.facade.api import validate_source_prefix
 from products.warehouse_sources.backend.facade.models import (
@@ -4622,28 +4623,30 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
             )
             .order_by(self.ordering)
         )
-        managed_warehouse_filter = Q(
-            source_type=ExternalDataSourceType.POSTGRES,
-            access_method=ExternalDataSource.AccessMethod.DIRECT,
-            direct_query_enabled=True,
-            prefix=MANAGED_WAREHOUSE_SOURCE_PREFIX,
-            connection_metadata__engine="duckdb",
-            connection_metadata__system_managed=True,
-            connection_metadata__credential_kind=MANAGED_WAREHOUSE_PROJECT_READER_CREDENTIAL_KIND,
-            connection_metadata__reader_configured=True,
-        )
-        managed_candidates = connection_sources.filter(managed_warehouse_filter).only(
-            "id",
-            "team_id",
-            "prefix",
-            "description",
-            "connection_metadata",
-            "source_type",
-            "access_method",
-            "direct_query_enabled",
-            "job_inputs",
-        )
-        managed_source = next((source for source in managed_candidates if source.is_managed_warehouse_ready), None)
+        managed_source = None
+        if managed_warehouse_feature_flags.is_managed_warehouse_sql_editor_enabled(self.team):
+            managed_warehouse_filter = Q(
+                source_type=ExternalDataSourceType.POSTGRES,
+                access_method=ExternalDataSource.AccessMethod.DIRECT,
+                direct_query_enabled=True,
+                prefix=MANAGED_WAREHOUSE_SOURCE_PREFIX,
+                connection_metadata__engine="duckdb",
+                connection_metadata__system_managed=True,
+                connection_metadata__credential_kind=MANAGED_WAREHOUSE_PROJECT_READER_CREDENTIAL_KIND,
+                connection_metadata__reader_configured=True,
+            )
+            managed_candidates = connection_sources.filter(managed_warehouse_filter).only(
+                "id",
+                "team_id",
+                "prefix",
+                "description",
+                "connection_metadata",
+                "source_type",
+                "access_method",
+                "direct_query_enabled",
+                "job_inputs",
+            )
+            managed_source = next((source for source in managed_candidates if source.is_managed_warehouse_ready), None)
         external_sources = connection_sources.exclude(prefix=MANAGED_WAREHOUSE_SOURCE_PREFIX)
         if is_service_auth(request):
             accessible_external_sources = external_sources

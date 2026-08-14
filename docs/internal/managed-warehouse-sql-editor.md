@@ -2,6 +2,8 @@
 
 The SQL editor recognizes a system-owned managed warehouse connection only after the project's reserved source contains a configured Duckgres `project_reader` credential. The connection appears as `PostHog (Managed warehouse)` below `PostHog (ClickHouse)` in the database chooser. It is available to every member of that project and is not governed by external-source access controls.
 
+The `managed-warehouse-sql-editor` feature flag controls the rollout per project. When disabled, PostHog omits the connection from the chooser and rejects saved connection IDs and cached query results without deleting the reader or its catalog metadata. Re-enabling the flag makes an existing ready reader available immediately.
+
 Duckgres enforces the reader's read-only, project-scoped query policy. PostHog requires the reserved source to be enabled, marked as a configured `project_reader`, and use the expected `posthog_team_<team_id>` login. Sources backed by the organization login, pending readers, and malformed credentials remain unavailable. This integration does not create or rotate the reader credential.
 
 Raw queries use a native pgwire adapter. The adapter uses the exact reader connection stored on the resolved source, sends one SQL statement unchanged, and does not build a HogQL database or load the third-party PostgreSQL source stack. It never falls back to the organization's stored login. Duckgres authorizes `project_reader` statements through its PostgreSQL query gateway, so raw statements must use PostgreSQL-compatible syntax. Non-raw queries continue through the PostgreSQL and HogQL path with the same source credential.

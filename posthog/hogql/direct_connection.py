@@ -14,6 +14,7 @@ from posthog.rbac.user_access_control import UserAccessControl
 from posthog.shared_link_user import SharedLinkUser
 from posthog.synthetic_user import SyntheticUser
 
+from products.managed_warehouse.backend.facade import feature_flags as managed_warehouse_feature_flags
 from products.warehouse_sources.backend.facade.models import DataWarehouseTable, ExternalDataSource
 
 if TYPE_CHECKING:
@@ -99,6 +100,7 @@ def get_direct_connection_source(
             id=source_uuid,
         )
         .exclude(deleted=True)
+        .defer("job_inputs")
         .first()
     )
     if (
@@ -108,8 +110,11 @@ def get_direct_connection_source(
     ):
         return None
 
-    if source.is_managed_warehouse and not source.is_managed_warehouse_ready:
-        return None
+    if source.is_managed_warehouse:
+        if not managed_warehouse_feature_flags.is_managed_warehouse_sql_editor_enabled(team):
+            return None
+        if not source.is_managed_warehouse_ready:
+            return None
 
     # Synced (warehouse) sources only expose their `should_sync` catalog — raw SQL bypasses that
     # boundary and reads any upstream table, so raw queries are pure-direct only. Pure-direct

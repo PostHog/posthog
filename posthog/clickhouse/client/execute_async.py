@@ -332,6 +332,7 @@ def enqueue_process_query_task(
     dashboard_id: Optional[int] = None,
     query_id: Optional[str] = None,
     cache_key: Optional[str] = None,
+    labels: list[str] | None = None,
     # Attention: This is to pierce through the _manager_ cache, query runner will always refresh
     refresh_requested: bool = False,
     force: bool = False,
@@ -386,6 +387,7 @@ def enqueue_process_query_task(
         start_time=datetime.datetime.now(datetime.UTC),
         insight_id=insight_id,
         dashboard_id=dashboard_id,
+        labels=labels,
     )
     query_tags = get_query_tags().model_dump()
     manager.store_query_status(query_status)

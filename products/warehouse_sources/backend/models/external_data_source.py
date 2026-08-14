@@ -275,6 +275,8 @@ def get_direct_external_data_source_for_connection(
             id=source_uuid,
         )
         .exclude(deleted=True)
+        .select_related("team")
+        .defer("job_inputs")
         .first()
     )
     if (
@@ -284,6 +286,52 @@ def get_direct_external_data_source_for_connection(
     ):
         return None
 
-    if source.is_managed_warehouse and not source.is_managed_warehouse_ready:
-        return None
+    if source.is_managed_warehouse:
+        # Function-local to avoid importing posthog.permissions while Django loads this model module.
+        from products.managed_warehouse.backend.facade import (
+            feature_flags as managed_warehouse_feature_flags,  # noqa: PLC0415
+        )
+
+        if not managed_warehouse_feature_flags.is_managed_warehouse_sql_editor_enabled(source.team):
+            return None
+        if not source.is_managed_warehouse_ready:
+            return None
     return source
+
+
+def is_reserved_managed_warehouse_connection(team_id: int, connection_id: str | None) -> bool:
+    if not connection_id:
+        return False
+
+    try:
+        source_uuid = UUID(connection_id)
+    except ValueError:
+        return False
+
+    # Include tombstoned or malformed reserved rows so a disabled rollout also hides older cached results.
+    return ExternalDataSource.objects.filter(
+        team_id=team_id,
+        id=source_uuid,
+        prefix=MANAGED_WAREHOUSE_SOURCE_PREFIX,
+    ).exists()
+
+
+def is_managed_warehouse_connection_ready(team_id: int, connection_id: str | None) -> bool:
+    if not connection_id:
+        return False
+
+    try:
+        source_uuid = UUID(connection_id)
+    except ValueError:
+        return False
+
+    source = (
+        ExternalDataSource.objects.filter(
+            team_id=team_id,
+            id=source_uuid,
+            prefix=MANAGED_WAREHOUSE_SOURCE_PREFIX,
+        )
+        .exclude(deleted=True)
+        .first()
+    )
+    return source is not None and source.is_managed_warehouse_ready

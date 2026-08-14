@@ -2,6 +2,7 @@ import uuid
 
 import pytest
 from posthog.test.base import APIBaseTest
+from unittest.mock import MagicMock, patch
 
 from parameterized import parameterized
 from rest_framework import status
@@ -27,8 +28,17 @@ except ImportError:
 
 @pytest.mark.ee
 class TestExternalDataSourceAccessControl(APIBaseTest):
-    def setUp(self):
+    managed_warehouse_sql_editor_flag: MagicMock
+
+    def setUp(self) -> None:
         super().setUp()
+
+        flag_patcher = patch(
+            "products.managed_warehouse.backend.facade.feature_flags.posthog_feature_flag_enabled",
+            return_value=True,
+        )
+        self.managed_warehouse_sql_editor_flag = flag_patcher.start()
+        self.addCleanup(flag_patcher.stop)
 
         # Enable access control features
         self.organization.available_product_features = [
@@ -449,7 +459,16 @@ class TestExternalDataSourceAccessControl(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertNotIn(str(source.id), [item["id"] for item in response.json()])
 
-    def test_connections_places_managed_warehouse_before_external_sources(self) -> None:
+    @parameterized.expand(
+        [
+            ("disabled", False, False),
+            ("enabled", True, True),
+            ("evaluation_error", RuntimeError("feature flag unavailable"), False),
+        ]
+    )
+    def test_connections_feature_flag_controls_managed_warehouse_option(
+        self, _name: str, flag_result: bool | Exception, include_managed: bool
+    ) -> None:
         managed_source = self._create_managed_source()
         external_source = ExternalDataSource.objects.create(
             team=self.team,
@@ -460,14 +479,18 @@ class TestExternalDataSourceAccessControl(APIBaseTest):
             access_method=ExternalDataSource.AccessMethod.DIRECT,
             created_by=self.user,
         )
+        if isinstance(flag_result, Exception):
+            self.managed_warehouse_sql_editor_flag.side_effect = flag_result
+        else:
+            self.managed_warehouse_sql_editor_flag.return_value = flag_result
 
         response = self.client.get(f"/api/environments/{self.team.pk}/external_data_sources/connections/")
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(
-            [item["id"] for item in response.json()],
-            [str(managed_source.id), str(external_source.id)],
-        )
+        expected_ids = [str(external_source.id)]
+        if include_managed:
+            expected_ids.insert(0, str(managed_source.id))
+        self.assertEqual([item["id"] for item in response.json()], expected_ids)
 
     def test_connections_uses_a_ready_reader_when_a_newer_reserved_row_is_malformed(self) -> None:
         managed_source = self._create_managed_source()

@@ -38,6 +38,8 @@ from products.warehouse_sources.backend.models.external_data_source import (
     MANAGED_WAREHOUSE_SOURCE_PREFIX,
     ExternalDataSource,
     get_direct_external_data_source_for_connection,
+    is_managed_warehouse_connection_ready,
+    is_reserved_managed_warehouse_connection,
 )
 from products.warehouse_sources.backend.models.pending_source_credential import PendingSourceCredential
 from products.warehouse_sources.backend.models.ssh_tunnel import SSHTunnel
@@ -85,6 +87,8 @@ __all__ = [
     "get_custom_oauth2_integration",
     "get_all_schemas_for_source_id",
     "get_direct_external_data_source_for_connection",
+    "is_managed_warehouse_connection_ready",
+    "is_reserved_managed_warehouse_connection",
     "get_latest_run_if_exists",
     "get_or_create_datawarehouse_credential",
     "clickhouse_column_to_dwh_column",
