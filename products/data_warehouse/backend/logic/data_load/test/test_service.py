@@ -27,6 +27,7 @@ from products.data_warehouse.backend.logic.data_load.service import (
     _get_discover_schemas_schedule_id,
     _jitter_timedelta,
     a_unpause_external_data_schedule,
+    bulk_reconcile_external_data_schedules,
     bulk_sync_cdc_extraction_schedules,
     bulk_update_external_data_job_schedules,
     cdc_min_interval,
@@ -459,6 +460,73 @@ def test_bulk_update_edj_mixed_skip_fail_and_success():
     assert [sid for sid, _ in failures] == [str(broken.id)]
     assert create_mock.call_count == 0
     assert update_mock.call_count == 3
+
+
+# --- bulk_reconcile_external_data_schedules (heal drift: create if missing, unpause if paused,
+# leave an already-running schedule alone) ---
+
+
+def _paused_desc(paused: bool) -> MagicMock:
+    desc = MagicMock()
+    desc.schedule.state.paused = paused
+    return desc
+
+
+def _patch_reconcile(describe_by_id):
+    """Patch the Temporal client so each schedule id describes with a preset paused flag or error."""
+    client = MagicMock()
+
+    def _handle(schedule_id):
+        handle = MagicMock()
+        outcome = describe_by_id[schedule_id]
+        if isinstance(outcome, BaseException):
+            handle.describe = AsyncMock(side_effect=outcome)
+        else:
+            handle.describe = AsyncMock(return_value=_paused_desc(outcome))
+        return handle
+
+    client.get_schedule_handle.side_effect = _handle
+    return (
+        patch(f"{SERVICE}.async_connect", AsyncMock(return_value=client)),
+        patch(f"{SERVICE}.a_update_schedule", AsyncMock()),
+        patch(f"{SERVICE}.a_create_schedule", AsyncMock()),
+        patch(f"{SERVICE}.a_trigger_schedule", AsyncMock()),
+    )
+
+
+def test_reconcile_creates_missing_resumes_paused_and_leaves_active():
+    team = _sync_team()
+    source = _make_source(team)
+    missing, paused, active = (_make_schema(team, source) for _ in range(3))
+
+    conn, upd, crt, trg = _patch_reconcile(
+        {str(missing.id): _not_found(), str(paused.id): True, str(active.id): False}
+    )
+    with conn, upd as update_mock, crt as create_mock, trg as trigger_mock:
+        result = bulk_reconcile_external_data_schedules([missing, paused, active])
+
+    assert result.created == [str(missing.id)]
+    assert result.resumed == [str(paused.id)]
+    assert result.skipped_active == [str(active.id)]
+    assert result.failures == []
+    # missing => create with trigger_immediately; paused => update then an explicit trigger; active => untouched
+    assert create_mock.call_count == 1
+    assert create_mock.call_args.kwargs.get("trigger_immediately") is True
+    assert update_mock.call_count == 1
+    assert trigger_mock.call_count == 1
+
+
+def test_reconcile_isolates_failures_and_aligns_ids():
+    team = _sync_team()
+    source = _make_source(team)
+    ok, broken = _make_schema(team, source), _make_schema(team, source)
+
+    conn, upd, crt, trg = _patch_reconcile({str(ok.id): True, str(broken.id): Exception("boom")})
+    with conn, upd, crt, trg:
+        result = bulk_reconcile_external_data_schedules([ok, broken])
+
+    assert result.resumed == [str(ok.id)]
+    assert [sid for sid, _ in result.failures] == [str(broken.id)]
 
 
 # --- pause/unpause: a schedule whose backing workflow already completed (e.g. deleted by a

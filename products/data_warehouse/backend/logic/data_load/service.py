@@ -1,9 +1,10 @@
 from __future__ import annotations
 
+import enum
 import random
 import asyncio
 from collections.abc import Iterable
-from dataclasses import asdict
+from dataclasses import asdict, field
 from datetime import UTC, datetime, time, timedelta
 from typing import TYPE_CHECKING
 
@@ -25,6 +26,7 @@ from temporalio.client import (
 )
 from temporalio.common import RetryPolicy
 
+from posthog.dataclasses import frozen
 from posthog.ph_client import feature_enabled_or_false
 from posthog.temporal.common.client import async_connect, sync_connect
 from posthog.temporal.common.schedule import (
@@ -202,6 +204,82 @@ async def a_sync_external_data_job_workflow(
         await a_update_schedule(temporal, id=str(external_data_schema.id), schedule=schedule)
 
     return external_data_schema
+
+
+class ScheduleReconcileAction(enum.Enum):
+    """What a single schedule reconcile did."""
+
+    CREATED = "created"  # schedule was missing; created it
+    RESUMED = "resumed"  # schedule existed but was paused; unpaused it
+    SKIPPED_ACTIVE = "skipped_active"  # schedule existed and was already running
+
+
+@frozen
+class ScheduleReconcileResult:
+    """Outcome of a bulk schedule reconcile, grouped by action for logging."""
+
+    created: list[str] = field(default_factory=list)
+    resumed: list[str] = field(default_factory=list)
+    skipped_active: list[str] = field(default_factory=list)
+    failures: list[tuple[str, BaseException]] = field(default_factory=list)
+
+
+@async_to_sync
+async def bulk_reconcile_external_data_schedules(
+    schemas: list[ExternalDataSchema],
+) -> ScheduleReconcileResult:
+    """Re-issue the per-schema sync schedule for schemas that should be syncing but drifted.
+
+    ``update_should_sync`` writes ``should_sync`` to Postgres and the Temporal schedule in two
+    non-transactional steps, and several other paths pause or delete a schedule without clearing
+    ``should_sync``. Each leaves a schema enabled with a paused or missing schedule and no error on
+    any surface, so the table quietly stops syncing. This is the backstop: for every drifted schema
+    it rebuilds the schedule from the schema's current config, unpausing a paused one or creating a
+    missing one, and triggers one catch-up run so a stalled table starts moving again. It does not
+    touch a schedule that already runs, so it heals drift without disturbing healthy schemas.
+
+    Connects once and reconciles concurrently; a partial failure does not abort the rest. Returns the
+    schema ids grouped by action, plus ``(schema_id, exception)`` pairs for any that failed.
+    """
+    if not schemas:
+        return ScheduleReconcileResult()
+
+    temporal = await async_connect()
+    semaphore = asyncio.Semaphore(_BULK_SCHEDULE_CONCURRENCY)
+
+    async def _reconcile_one(schema: ExternalDataSchema) -> ScheduleReconcileAction:
+        async with semaphore:
+            schedule_id = str(schema.id)
+            schedule = get_sync_schedule(schema, should_sync=True)
+            try:
+                desc = await temporal.get_schedule_handle(schedule_id).describe()
+            except temporalio.service.RPCError as e:
+                if e.status == temporalio.service.RPCStatusCode.NOT_FOUND:
+                    await a_create_schedule(temporal, id=schedule_id, schedule=schedule, trigger_immediately=True)
+                    return ScheduleReconcileAction.CREATED
+                raise
+            if not desc.schedule.state.paused:
+                return ScheduleReconcileAction.SKIPPED_ACTIVE
+            # Rewrite from current config so an unpause also picks up any schedule drift, then
+            # trigger a catch-up run. SKIP overlap makes the trigger a no-op if one is already running.
+            await a_update_schedule(temporal, id=schedule_id, schedule=schedule)
+            await a_trigger_schedule(temporal, schedule_id=schedule_id)
+            return ScheduleReconcileAction.RESUMED
+
+    outcomes = await asyncio.gather(*(_reconcile_one(s) for s in schemas), return_exceptions=True)
+
+    result = ScheduleReconcileResult()
+    for schema, outcome in zip(schemas, outcomes):
+        schema_id = str(schema.id)
+        if isinstance(outcome, BaseException):
+            result.failures.append((schema_id, outcome))
+        elif outcome == ScheduleReconcileAction.CREATED:
+            result.created.append(schema_id)
+        elif outcome == ScheduleReconcileAction.RESUMED:
+            result.resumed.append(schema_id)
+        else:
+            result.skipped_active.append(schema_id)
+    return result
 
 
 def trigger_external_data_source_workflow(external_data_source: ExternalDataSource):

@@ -119,7 +119,10 @@ from products.tasks.backend.facade.tasks import (
     refresh_stale_sandbox_custom_images_task,
     sweep_loop_task_retention_task,
 )
-from products.warehouse_sources.backend.facade.tasks import sweep_stopped_schema_syncs
+from products.warehouse_sources.backend.facade.tasks import (
+    reconcile_drifted_schema_schedules,
+    sweep_stopped_schema_syncs,
+)
 from products.web_analytics.backend.achievements.tasks import sweep_web_analytics_achievement_team_tracks
 from products.web_analytics.backend.tasks.heatmap_screenshot import (
     reap_stale_prewarm_heatmaps,
@@ -579,6 +582,16 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         crontab(hour="*", minute="25"),
         sweep_stopped_schema_syncs.s(),
         name="sweep stopped schema syncs",
+    )
+
+    # Backstop for schedule drift: schemas still marked should_sync=True whose Temporal
+    # schedule was paused or lost stop syncing with no error. Re-issue their schedules so a
+    # stalled table heals instead of needing a manual reload.
+    sender.add_periodic_task(
+        crontab(hour="*", minute="40"),
+        reconcile_drifted_schema_schedules.s(),
+        name="reconcile drifted schema schedules",
+        expires=3000,
     )
 
     # Background net for tables created while nobody visits the warehouse status page. Each
