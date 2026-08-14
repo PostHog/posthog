@@ -56,8 +56,7 @@ import {
     isSignificant,
     isWinning,
 } from '~/scenes/experiments/MetricsView/shared/utils'
-import { BreakdownAttributionType } from '~/types'
-import { Experiment, InsightType } from '~/types'
+import { BreakdownAttributionType, Experiment, InsightType, StepOrderValue } from '~/types'
 
 import { MetricBreakdownAttribution } from '../shared/MetricBreakdownAttribution'
 import { MetricBreakdownLimit } from '../shared/MetricBreakdownLimit'
@@ -127,11 +126,18 @@ function BreakdownChipsRow({
                                         <strong>Last touchpoint</strong>: value at the user's last step
                                     </li>
                                     <li>
-                                        <strong>All steps</strong>: value must be the same across all steps
+                                        <strong>All steps</strong>: behaves like first touchpoint
                                     </li>
-                                    <li>
-                                        <strong>Specific step</strong>: value at a step you choose
-                                    </li>
+                                    {(metric as ExperimentFunnelMetric).funnel_order_type ===
+                                    StepOrderValue.UNORDERED ? (
+                                        <li>
+                                            <strong>Any step</strong>: value at any matching step
+                                        </li>
+                                    ) : (
+                                        <li>
+                                            <strong>Specific step</strong>: value at a step you choose
+                                        </li>
+                                    )}
                                 </ul>
                             </>
                         }
