@@ -341,7 +341,6 @@ export interface replayScannerLogicValues {
     scannerValidationErrors: DeepPartialMap<ScannerFormValues, ValidationErrorType>
     showScannerErrors: boolean
     sidePanelContext: SidePanelSceneContext | null
-    submitIntent: 'advance' | 'save'
     tagSuggestions: TagSuggestionApi[]
     tagSuggestionsLoading: boolean
     togglingEnabled: boolean
@@ -599,9 +598,6 @@ export interface replayScannerLogicActions {
     setScannerValues: (values: DeepPartial<ScannerFormValues>) => {
         values: DeepPartial<ScannerFormValues>
     }
-    setSubmitIntent: (intent: 'advance' | 'save') => {
-        intent: 'advance' | 'save'
-    }
     startFromTemplate: (templateKey: string | null) => {
         templateKey: string | null
     }
@@ -713,7 +709,6 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
         startFromTemplate: (templateKey: string | null) => ({ templateKey }),
         discardScannerDraft: true,
         setScannerDraftSavedAt: (savedAt: number | null) => ({ savedAt }),
-        setSubmitIntent: (intent: 'save' | 'advance') => ({ intent }),
         // Fired only after an actual API write, unlike submitScannerSuccess (which the advance path emits too).
         scannerSaved: (scanner: ScannerFormValues) => ({ scanner }),
         appendClassifierTags: (tags: string[]) => ({ tags }),
@@ -773,7 +768,7 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
         copyAllObservationsFinished: true,
     }),
 
-    forms(({ props, values, actions }) => ({
+    forms(({ props, actions }) => ({
         scanner: {
             defaults: newScanner(
                 props.id === 'new' ? currentTemplateKey() : null,
@@ -828,13 +823,11 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                 }
             },
             submit: async (scanner: ScannerFormValues) => {
-                // Advance to the next visible step instead of persisting, when the footer asked to (intent
-                // 'advance') or a new scanner submitted mid-wizard via Enter on any non-final step.
-                const steps = SCANNER_EDITOR_STEPS
+                // A non-final step only ever offers "Next", so any submit there advances rather than persisting.
+                // Enter would otherwise save an existing scanner and leave the wizard from the middle of it.
                 const currentStep = scannerEditorSceneLogic.findMounted()?.values.step ?? 'configure'
-                const nextStep = steps[steps.indexOf(currentStep) + 1]
-                if (nextStep && (values.submitIntent === 'advance' || values.isNew)) {
-                    actions.setSubmitIntent('save')
+                const nextStep = SCANNER_EDITOR_STEPS[SCANNER_EDITOR_STEPS.indexOf(currentStep) + 1]
+                if (nextStep) {
                     router.actions.push(scannerStepUrl(nextStep, props.id))
                     return
                 }
@@ -1067,13 +1060,6 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                 loadScanner: () => true,
                 loadScannerSuccess: () => false,
                 loadScannerFailure: () => false,
-            },
-        ],
-        submitIntent: [
-            'save' as 'save' | 'advance',
-            {
-                setSubmitIntent: (_, { intent }) => intent,
-                loadScannerSuccess: () => 'save' as 'save' | 'advance',
             },
         ],
         tagSuggestions: {

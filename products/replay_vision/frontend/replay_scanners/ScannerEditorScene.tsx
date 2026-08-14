@@ -108,7 +108,7 @@ export function ScannerEditorSceneComponent(): JSX.Element {
         showScannerErrors,
         durationValidationError,
     } = useValues(scannerLogic)
-    const { submitScanner, setSubmitIntent } = useActions(scannerLogic)
+    const { submitScanner } = useActions(scannerLogic)
 
     if (step !== 'template' && (scannerLoading || !scanner)) {
         return (
@@ -124,9 +124,8 @@ export function ScannerEditorSceneComponent(): JSX.Element {
         ? scannerStepErrors({ ...scannerValidationErrors, duration: durationValidationError })
         : undefined
 
-    // Validate the current step and move on: submit routes to the next visible step on success.
+    // Validate the current step and move on: submit routes to the next step on success.
     const advance = (): void => {
-        setSubmitIntent('advance')
         submitScanner()
     }
 
@@ -209,10 +208,7 @@ export function ScannerEditorSceneComponent(): JSX.Element {
                                     isNew={isNew}
                                     isSubmitting={isScannerSubmitting}
                                     onAdvance={advance}
-                                    onSave={() => {
-                                        setSubmitIntent('save')
-                                        submitScanner()
-                                    }}
+                                    onSave={() => submitScanner()}
                                 />
                             </div>
                         </Form>

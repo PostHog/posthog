@@ -311,16 +311,13 @@ describe('replayScannerLogic', () => {
                 name: 'Test scanner',
                 scanner_config: { prompt: 'Q?' },
             })
-            logic.actions.setSubmitIntent('advance')
             await expectLogic(logic, () => logic.actions.submitScanner()).toFinishAllListeners()
             expect(router.values.location.pathname).toContain('/replay-vision/new/triggers')
-            expect(logic.values.submitIntent).toBe('save')
         })
 
         it('advance does not mark the draft as saved, so the unsaved-changes guard stays armed', async () => {
             router.actions.push('/replay-vision/new/configure')
             logic.actions.setScannerValues({ name: 'Draft scanner', scanner_config: { prompt: 'Q?' } })
-            logic.actions.setSubmitIntent('advance')
             await expectLogic(logic, () => logic.actions.submitScanner()).toFinishAllListeners()
             // The draft must not be adopted as the saved baseline — no API write happened.
             expect(logic.values.originalScanner?.name).toBe('MockHog App + Marketing monitor')
@@ -339,7 +336,6 @@ describe('replayScannerLogic', () => {
             router.actions.push('/replay-vision/new/not-a-step')
             scannerEditorSceneLogic.actions.setStep('configure')
             logic.actions.setScannerValues({ name: 'Test scanner', scanner_config: { prompt: 'Q?' } })
-            logic.actions.setSubmitIntent('advance')
             await expectLogic(logic, () => logic.actions.submitScanner()).toFinishAllListeners()
             expect(router.values.location.pathname).toContain('/replay-vision/new/triggers')
         })
@@ -347,7 +343,6 @@ describe('replayScannerLogic', () => {
         it('routes a rejected submit to the step that renders the errored fields', async () => {
             // Defaults leave name and prompt empty, both configure-owned.
             router.actions.push('/replay-vision/new/triggers')
-            logic.actions.setSubmitIntent('advance')
             await expectLogic(logic, () => logic.actions.submitScanner()).toFinishAllListeners()
             expect(createSpy).not.toHaveBeenCalled()
             expect(router.values.location.pathname).toContain('/replay-vision/new/configure')
@@ -741,6 +736,13 @@ describe('replayScannerLogic', () => {
             })
         })
 
+        it('Enter on an intermediate step advances instead of saving and leaving the wizard', async () => {
+            await expectLogic(editLogic, () => editLogic.actions.loadScanner()).toFinishAllListeners()
+            router.actions.push(urls.replayVisionScannerDetails('limited-1'))
+            await expectLogic(editLogic, () => editLogic.actions.submitScanner()).toFinishAllListeners()
+            expect(router.values.location.pathname).toContain(urls.replayVisionScannerConfigure('limited-1'))
+        })
+
         it('strips the form-only toggle from the update payload', async () => {
             let patchedBody: any
             useMocks({
@@ -752,6 +754,8 @@ describe('replayScannerLogic', () => {
                 },
             })
             await expectLogic(editLogic, () => editLogic.actions.loadScanner()).toFinishAllListeners()
+            // Only the final step persists; earlier ones advance, so save from where the button lives.
+            router.actions.push(urls.replayVisionScannerBudget('sid'))
             editLogic.actions.setScannerValues({ credit_limit_enabled: true, credit_limit: 100 })
             await expectLogic(editLogic, () => editLogic.actions.submitScanner()).toDispatchActions(['scannerSaved'])
             expect(patchedBody.credit_limit).toBe(100)
