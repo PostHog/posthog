@@ -24,7 +24,7 @@ export interface DashboardSectionHeaderProps {
     onToggle: () => void
     onRename: (name: string) => void
     onDelete: (memberHandling: MemberHandlingEnumApi) => void
-    onDragStart?: (event: ReactPointerEvent<HTMLSpanElement>) => void
+    onDragStart?: (event: ReactPointerEvent<HTMLDivElement>) => void
 }
 
 export function DashboardSectionHeader({
@@ -51,13 +51,24 @@ export function DashboardSectionHeader({
         }
     }
 
+    const handlePointerDown = (event: ReactPointerEvent<HTMLDivElement>): void => {
+        const target = event.target as Element
+        if (target.closest('button,input,textarea,select,[contenteditable="true"]')) {
+            return
+        }
+        onDragStart?.(event)
+    }
+
     return (
-        <div className="flex items-center gap-2 rounded-t bg-surface-primary px-3 py-2">
+        <div
+            className="flex items-center gap-2 rounded-t bg-surface-primary px-3 py-2"
+            data-attr="dashboard-section-header"
+            onPointerDown={canEdit ? handlePointerDown : undefined}
+        >
             {canEdit && (
                 <span
                     className="dashboard-section-drag-handle cursor-grab touch-none text-muted"
                     data-attr="dashboard-section-drag-handle"
-                    onPointerDown={onDragStart}
                 >
                     <IconDragHandle />
                 </span>

@@ -1,6 +1,6 @@
 import '@testing-library/jest-dom'
 
-import { cleanup, render, screen } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 
 import type { DashboardGroupApi } from '@posthog/products-dashboards/frontend/generated/api.schemas'
@@ -48,5 +48,29 @@ describe('DashboardSectionHeader', () => {
 
         expect(onDelete).toHaveBeenCalledWith('delete_tiles')
         expect(screen.queryByText('Delete section?')).not.toBeInTheDocument()
+    })
+
+    it('starts dragging from the header but not its controls', () => {
+        const onDragStart = jest.fn()
+        render(
+            <DashboardSectionHeader
+                group={group}
+                collapsed={false}
+                canEdit={true}
+                tileCount={1}
+                onToggle={jest.fn()}
+                onRename={jest.fn()}
+                onDelete={jest.fn()}
+                onDragStart={onDragStart}
+            />
+        )
+
+        fireEvent.pointerDown(document.querySelector('[data-attr="dashboard-section-header"]')!)
+
+        expect(onDragStart).toHaveBeenCalledTimes(1)
+
+        fireEvent.pointerDown(document.querySelector('[data-attr="dashboard-section-name"]')!)
+
+        expect(onDragStart).toHaveBeenCalledTimes(1)
     })
 })

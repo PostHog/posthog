@@ -40,7 +40,7 @@ export interface DashboardSectionProps {
     onToggle: () => void
     onRename: (name: string) => void
     onDelete: (memberHandling: MemberHandlingEnumApi) => void
-    onDragStart?: (event: ReactPointerEvent<HTMLSpanElement>) => void
+    onDragStart?: (event: ReactPointerEvent<HTMLDivElement>) => void
 }
 
 export function DashboardSection({
