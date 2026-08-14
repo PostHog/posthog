@@ -546,8 +546,8 @@ export function FreeformCanvasView({
   // in BuiltCanvas via the `capabilities` prop below.
   const onDataRequest = useCallback(
     (method: string, payload: unknown) =>
-      handleFreeformDataRequest(method, payload, queryClient),
-    [queryClient],
+      handleFreeformDataRequest(method, payload, queryClient, { dashboardId }),
+    [queryClient, dashboardId],
   );
 
   // Dedupes the runtime-error capture without a store dependency: reading

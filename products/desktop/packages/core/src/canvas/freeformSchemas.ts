@@ -265,7 +265,16 @@ export const canvasToHostMessageSchema = z.discriminatedUnion("type", [
     channel: z.literal(CANVAS_CHANNEL),
     type: z.literal("data-request"),
     id: z.string().min(1).max(128),
-    method: z.enum(["query", "loadInsight", "capture", "run"]),
+    method: z.enum([
+      "query",
+      "loadInsight",
+      "capture",
+      "run",
+      "stateGet",
+      "stateSet",
+      "stateList",
+      "actionInvoke",
+    ]),
     payload: z.unknown(),
   }),
   // A runtime/compile error from inside the iframe, surfaced so the host can
