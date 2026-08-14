@@ -155,6 +155,13 @@ MAX_METRIC_CARD_EVENTS = 2
 # How many recordings a card names to start with. Enough to offer a choice, few enough that the
 # reader still opens one instead of reading a second list.
 MAX_CARD_HIGHLIGHTS = 3
+# Two cards sharing this much of their recordings are one playlist under two names, so the second
+# one is dropped, e.g. if two cards share 18 of their 20 recordings.
+DUPLICATE_CARD_OVERLAP = 0.8
+# How far one count can carry a recording up the highlight order. Past a few occurrences a count
+# measures how long the session is rather than what it shows, and raw totals hand every card the
+# same longest session. Only the ranking is bounded; the reason still prints the true count.
+HIGHLIGHT_COUNT_DAMPING = 3
 # Recording candidates fetched per card before replay existence is checked, and how many survive
 # onto the card. The margin absorbs sessions that were never recorded without a second round trip.
 MAX_CARD_RECORDING_CANDIDATES = 60
@@ -558,11 +565,14 @@ def get_experiment_session_event_deltas(team: Team, user: User, experiment: Expe
                     )
                 }
             )
-        cards = comparison_cards + [
-            shortcut_by_pair[(card.event, card.variant)]
-            for card in final_shortcuts
-            if (card.event, card.variant) in shortcut_by_pair
-        ]
+        cards = _drop_duplicate_recording_sets(
+            comparison_cards
+            + [
+                shortcut_by_pair[(card.event, card.variant)]
+                for card in final_shortcuts
+                if (card.event, card.variant) in shortcut_by_pair
+            ]
+        )
 
     result = ExperimentWatchResult(
         cards=cards,
@@ -723,7 +733,7 @@ def _cache_key(
     # applied on read. One viewer's scan then serves every viewer whose restrictions match, which
     # on the heaviest read in this family is the difference between paying it once per team per
     # TTL and once per viewer.
-    return f"experiment_session_event_deltas_v6_{team.pk}_{experiment.pk}_{digest}"
+    return f"experiment_session_event_deltas_v7_{team.pk}_{experiment.pk}_{digest}"
 
 
 def _metric_event_names(metrics: list[MetricEventSource]) -> set[str]:
@@ -1102,6 +1112,44 @@ def _pick_behavior_cards(
     )
 
 
+def _shares_recordings(session_ids: set[str], other: set[str]) -> bool:
+    """Whether one card's recordings are, near enough, already the other's.
+
+    Measured against the smaller card rather than the union, so a card whose recordings all sit
+    inside a longer one counts as a duplicate too.
+    """
+    return len(session_ids & other) >= min(len(session_ids), len(other)) * DUPLICATE_CARD_OVERLAP
+
+
+def _drop_duplicate_recording_sets(cards: list[ExperimentWatchCard]) -> list[ExperimentWatchCard]:
+    """The shelf with every card that only restates a higher-ranked card's recordings taken out.
+
+    Two events an arm's people do together are ranked as two findings, because the comparison reads
+    one event name at a time and both separate the arms. The reader gets one playlist twice, and on
+    a redesign experiment, where a whole flow's events move together, that is most of the shelf.
+
+    Compared within a shelf and never across them. An event a variant renders itself always
+    co-occurs with the behavior it drives, so cutting the variant's-own-rendering card against the
+    behavior card would empty the shelf built to hold it, and a metric shortcut is an offer to
+    watch a metric event happen rather than a restatement of the finding it shares recordings with.
+
+    Cards arrive in rank order, so the one kept is the one that earned its place. A dropped card is
+    not replaced by the next-ranked candidate: candidates are capped before their recordings are
+    resolved, and refilling would cost another round trip to find out whether the replacement can
+    be backed by a recording at all.
+    """
+    kept: list[ExperimentWatchCard] = []
+    seen_by_kind: dict[WatchCardKind, list[set[str]]] = {}
+    for card in cards:
+        session_ids = set(card.session_ids)
+        shelf = seen_by_kind.setdefault(card.kind, [])
+        if any(_shares_recordings(session_ids, other) for other in shelf):
+            continue
+        shelf.append(session_ids)
+        kept.append(card)
+    return kept
+
+
 def _metric_events_by_name(
     metrics: list[MetricEventSource], experiment: Experiment
 ) -> tuple[list[_MetricEvent], dict[str, list[EventsNode]]]:
@@ -1437,17 +1485,30 @@ def _recordings_for_cards(
     recorded = {session_id for session_id in all_session_ids if exists_by_id.get(session_id)}
 
     found = {}
-    for pair, pair_recordings in candidates.items():
+    # Which recordings earlier cards already named. Walked in the order the cards were asked for,
+    # which is their rank order, so a higher-ranked card claims a shared recording first. A card
+    # that dedupe later drops has claimed here too, which can reorder a lower-ranked card's picks.
+    highlighted: set[str] = set()
+    for pair in wanted:
+        pair_recordings = candidates.get(pair)
+        if pair in found or not pair_recordings:
+            continue
         kept = [recording for recording in pair_recordings if recording.session_id in recorded][:MAX_CARD_RECORDINGS]
         # A pair without a single playable recording is left out entirely, so any card leaning on
         # it is dropped rather than returned promising zero recordings.
         if not kept:
             continue
-        found[pair] = _CardRecordings(
-            session_ids=[recording.session_id for recording in kept],
+        highlights = _pick_highlights(
+            kept,
             # On a card whose own event is one of the friction signals, the signal count already is
             # the repetition, so counting both would say "2 rage clicks, did this 2 times".
-            highlights=_pick_highlights(kept, count_repetition=pair[0] not in FRICTION_EVENTS),
+            count_repetition=pair[0] not in FRICTION_EVENTS,
+            already_highlighted=highlighted,
+        )
+        highlighted.update(highlight.session_id for highlight in highlights)
+        found[pair] = _CardRecordings(
+            session_ids=[recording.session_id for recording in kept],
+            highlights=highlights,
         )
     return found
 
@@ -1466,7 +1527,7 @@ def _repetition_alias(index: int) -> str:
 
 
 def _pick_highlights(
-    recordings: list[_CandidateRecording], *, count_repetition: bool
+    recordings: list[_CandidateRecording], *, count_repetition: bool, already_highlighted: set[str]
 ) -> list[ExperimentWatchHighlight]:
     """Which of a card's recordings to open first, and everything each of them carries.
 
@@ -1478,16 +1539,23 @@ def _pick_highlights(
     showing a person hitting two problems in a row, which is the case this surface exists to find.
 
     Kinds before volume for the same reason: a session that rage clicked and then hit an error says
-    more about the variant than one that only rage clicked twice as often.
+    more about the variant than one that only rage clicked twice as often. Volume then decides the
+    ties, but damped, because past a few occurrences a count measures the session's length, and
+    ranking on raw totals puts the longest session first on every card it appears on.
 
     Repeating the card's own event counts as one more kind of signal, from two occurrences up
-    since one is what put the session on the card at all. It ranks below friction on a tie by
-    sitting last in the reason, but it is what gives a card without any friction a highlight
-    worth the name: on a behavior card, "did this five times" is the session where the difference
-    the card claims is most on screen. `count_repetition` is False when the card's own event is a
-    friction signal, whose count already says the same thing.
+    since one is what put the session on the card at all, and it outranks friction volume on a tie:
+    on a behavior card the recording worth opening first is the one where the difference the card
+    claims is most on screen, not the one carrying the most of something every card shows.
+    `count_repetition` is False when the card's own event is a friction signal, whose count already
+    says the same thing.
+
+    A recording an earlier card already named sorts last rather than being dropped, so a card whose
+    recordings are all spoken for still names some: the shelf's cards overlap by construction, and
+    sending a reader to the same recording from every one of them wastes the only three slots each
+    card has to differentiate itself.
     """
-    scored: list[tuple[int, int, str, str]] = []
+    scored: list[tuple[bool, int, int, int, str, str]] = []
     for recording in recordings:
         present = [
             (recording.signals[event], singular)
@@ -1503,12 +1571,22 @@ def _pick_highlights(
         if not phrases:
             continue
         kinds = len(present) + (1 if repetition > 1 else 0)
-        total = sum(count for count, _singular in present) + (repetition if repetition > 1 else 0)
-        scored.append((kinds, total, recording.session_id, ", ".join(phrases)))
+        damped_repetition = min(repetition, HIGHLIGHT_COUNT_DAMPING) if repetition > 1 else 0
+        damped_signals = sum(min(count, HIGHLIGHT_COUNT_DAMPING) for count, _singular in present)
+        scored.append(
+            (
+                recording.session_id in already_highlighted,
+                kinds,
+                damped_repetition,
+                damped_signals,
+                recording.session_id,
+                ", ".join(phrases),
+            )
+        )
     # Ties broken on the session id rather than left to dict order, so the same shelf computed
     # twice names the same recordings.
-    scored.sort(key=lambda entry: (-entry[0], -entry[1], entry[2]))
+    scored.sort(key=lambda entry: (entry[0], -entry[1], -entry[2], -entry[3], entry[4]))
     return [
         ExperimentWatchHighlight(session_id=session_id, reason=reason)
-        for _kinds, _total, session_id, reason in scored[:MAX_CARD_HIGHLIGHTS]
+        for _seen, _kinds, _repetition, _signals, session_id, reason in scored[:MAX_CARD_HIGHLIGHTS]
     ]

@@ -455,6 +455,31 @@ class TestExperimentSessionEventDeltas(ClickhouseTestMixin, APILicensedTest):
         assert [(card["event"], card["variant"]) for card in self._cards(data, "behavior")] == [("pricing_faq", "test")]
 
     @rank_anything
+    def test_a_card_showing_another_cards_recordings_is_left_off_the_shelf(self) -> None:
+        experiment = self._create_experiment(metrics=[PURCHASE_METRIC])
+        self._arm("control", [["purchase"], ["purchase"], ["faq_expanded", "purchase"], ["checkout_start", "purchase"]])
+        # `faq_expanded` happens in exactly the sessions `pricing_faq` does, so its card is a second
+        # name for one playlist: a reader who clicks it is shown what the card above already gave
+        # them, which reads as the shelf being broken rather than as two findings.
+        self._arm("test", [["pricing_faq", "faq_expanded", "purchase"]] * 4 + [["checkout_start", "purchase"]] * 4)
+        flush_persons_and_events()
+
+        data = self._post_deltas(experiment).json()
+
+        # The weaker of the twins goes; `checkout_start` sits on recordings of its own and stays.
+        assert [(card["event"], card["variant"]) for card in self._cards(data, "behavior")] == [
+            ("pricing_faq", "test"),
+            ("checkout_start", "test"),
+        ]
+        # The shortcut's recordings are the pricing_faq card's four and four more, but the two
+        # shelves say different things about them: one is a finding, the other only offers to show
+        # a metric event happening. Cutting one against the other would delete that distinction.
+        assert [(card["event"], card["variant"]) for card in self._cards(data, "metric")] == [
+            ("purchase", "control"),
+            ("purchase", "test"),
+        ]
+
+    @rank_anything
     def test_a_cards_highlights_name_which_of_its_recordings_to_open_first(self) -> None:
         experiment = self._create_experiment(metrics=[PURCHASE_METRIC])
         self._arm("control", [[]] * 2)
@@ -479,6 +504,62 @@ class TestExperimentSessionEventDeltas(ClickhouseTestMixin, APILicensedTest):
             (both, "1 rage click, 1 error"),
             (repeated, "did this 3 times"),
             (most_rage, "2 rage clicks"),
+        ]
+
+    @rank_anything
+    def test_a_noisy_session_does_not_outrank_the_behavior_the_card_claims(self) -> None:
+        experiment = self._create_experiment(metrics=[PURCHASE_METRIC])
+        self._arm("control", [[]] * 2)
+        # Six errors against one is the session being longer rather than six times more worth
+        # watching, and counting them raw is what puts the longest session at the top of every card
+        # it happens to back.
+        noisy = self._session(
+            variants=["test"],
+            events=["pricing_faq", "pricing_faq", "$rageclick", "$dead_click"] + ["$exception"] * 6,
+        )
+        # Same three kinds of friction, and the card's own event five times over: the recording
+        # where what the card claims is actually on screen.
+        on_point = self._session(
+            variants=["test"],
+            events=["pricing_faq"] * 5 + ["$rageclick", "$exception", "$dead_click"],
+        )
+        flush_persons_and_events()
+
+        data = self._post_deltas(experiment).json()
+
+        card = next(card for card in self._cards(data, "behavior") if card["event"] == "pricing_faq")
+        # The reasons still print what each recording really carries; only the ordering stops
+        # reading volume as importance.
+        assert [(highlight["session_id"], highlight["reason"]) for highlight in card["highlights"]] == [
+            (on_point, "1 rage click, 1 error, 1 dead click, did this 5 times"),
+            (noisy, "1 rage click, 6 errors, 1 dead click, did this 2 times"),
+        ]
+
+    @rank_anything
+    def test_the_same_recording_does_not_lead_every_card(self) -> None:
+        experiment = self._create_experiment(metrics=[PURCHASE_METRIC])
+        # The control occurrence ranks checkout_start below pricing_faq, so the shared recording
+        # goes to the higher-ranked card rather than to whichever event sorts first.
+        self._arm("control", [["checkout_start"], []])
+        shared = self._session(
+            variants=["test"],
+            events=["pricing_faq", "checkout_start", "$rageclick", "$exception", "$dead_click"],
+        )
+        faq_rage = self._session(variants=["test"], events=["pricing_faq", "$rageclick"])
+        self._session(variants=["test"], events=["pricing_faq"])
+        checkout_rage = self._session(variants=["test"], events=["checkout_start", "$rageclick"])
+        self._session(variants=["test"], events=["checkout_start"])
+        flush_persons_and_events()
+
+        data = self._post_deltas(experiment).json()
+
+        cards = {card["event"]: card for card in self._cards(data, "behavior")}
+        assert [highlight["session_id"] for highlight in cards["pricing_faq"]["highlights"]] == [shared, faq_rage]
+        # The next card leads with a recording of its own instead of sending the reader back to the
+        # one they were already told to open, and still offers the shared one last.
+        assert [highlight["session_id"] for highlight in cards["checkout_start"]["highlights"]] == [
+            checkout_rage,
+            shared,
         ]
 
     @rank_anything
