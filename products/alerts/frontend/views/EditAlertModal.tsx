@@ -2,8 +2,6 @@ import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 import { useCallback, useMemo } from 'react'
 
-import { IconBell, IconClock, IconGraph, IconPulse } from '@posthog/icons'
-
 import { UserActivityIndicator } from 'lib/components/UserActivityIndicator/UserActivityIndicator'
 import { dayjs } from 'lib/dayjs'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
@@ -48,7 +46,7 @@ import type { AlertType } from '../types'
 import { AlertHistorySection } from './AlertHistorySection'
 import { AlertEnabledAction, AlertLeadingActions } from './EditAlertModal/AlertLeadingActions'
 import { buildWizardSteps } from './EditAlertModal/buildWizardSteps'
-import { EditAlertTab, EditAlertTabs } from './EditAlertModal/EditAlertTabs'
+import { defaultAlertTabs, EditAlertTabs } from './EditAlertModal/EditAlertTabs'
 
 interface AlertModalCommonProps {
     isOpen: boolean | undefined
@@ -460,84 +458,39 @@ export function EditAlertModal(props: AlertModalProps): JSX.Element {
                         >
                             <div className="space-y-3">
                                 {(() => {
-                                    const tabs: EditAlertTab[] = [
-                                        {
-                                            key: 'monitor',
-                                            summarySection: 'monitor',
-                                            label: (
-                                                <>
-                                                    <IconPulse className="size-4" />
-                                                    Monitor
-                                                </>
-                                            ),
-                                            content: (
-                                                <div className="space-y-3 pt-3">
-                                                    <AlertEditorFormDetails
-                                                        nameError={nameError}
-                                                        activity={
-                                                            alert?.created_by ? (
-                                                                <UserActivityIndicator
-                                                                    at={alert.created_at}
-                                                                    by={alert.created_by}
-                                                                    prefix="Created"
-                                                                />
-                                                            ) : undefined
-                                                        }
-                                                    />
-                                                    {previewNode}
-                                                    {definitionNode}
+                                    const tabs = defaultAlertTabs({
+                                        monitorContent: (
+                                            <div className="space-y-3 pt-3">
+                                                <AlertEditorFormDetails
+                                                    nameError={nameError}
+                                                    activity={
+                                                        alert?.created_by ? (
+                                                            <UserActivityIndicator
+                                                                at={alert.created_at}
+                                                                by={alert.created_by}
+                                                                prefix="Created"
+                                                            />
+                                                        ) : undefined
+                                                    }
+                                                />
+                                                {previewNode}
+                                                {definitionNode}
+                                            </div>
+                                        ),
+                                        scheduleContent: (
+                                            <div className="space-y-3 pt-3">
+                                                {scheduleNode}
+                                                {advancedNode}
+                                            </div>
+                                        ),
+                                        notifyContent: <div className="pt-3">{notifyNode}</div>,
+                                        historyContent:
+                                            alertId && alert ? (
+                                                <div className="pt-3">
+                                                    <AlertHistorySection alertId={alert.id} showCurrentStatus={false} />
                                                 </div>
-                                            ),
-                                        },
-                                        {
-                                            key: 'schedule',
-                                            summarySection: 'schedule',
-                                            label: (
-                                                <>
-                                                    <IconClock className="size-4" />
-                                                    Schedule
-                                                </>
-                                            ),
-                                            content: (
-                                                <div className="space-y-3 pt-3">
-                                                    {scheduleNode}
-                                                    {advancedNode}
-                                                </div>
-                                            ),
-                                        },
-                                        {
-                                            key: 'notify',
-                                            summarySection: 'notify',
-                                            label: (
-                                                <>
-                                                    <IconBell className="size-4" />
-                                                    Notify
-                                                </>
-                                            ),
-                                            content: <div className="pt-3">{notifyNode}</div>,
-                                        },
-                                        ...(alertId && alert
-                                            ? [
-                                                  {
-                                                      key: 'history',
-                                                      label: (
-                                                          <>
-                                                              <IconGraph className="size-4" />
-                                                              History
-                                                          </>
-                                                      ),
-                                                      content: (
-                                                          <div className="pt-3">
-                                                              <AlertHistorySection
-                                                                  alertId={alert.id}
-                                                                  showCurrentStatus={false}
-                                                              />
-                                                          </div>
-                                                      ),
-                                                  },
-                                              ]
-                                            : []),
-                                    ]
+                                            ) : undefined,
+                                    })
                                     return (
                                         <EditAlertTabs
                                             summary={summary}

@@ -7,6 +7,25 @@ import { AlertSummaryBanner, AlertSummarySection } from 'products/alerts/fronten
 
 export type EditAlertTab = LemonTab<string> & { summarySection?: AlertSummarySection }
 
+export function defaultAlertTabs({
+    monitorContent,
+    scheduleContent,
+    notifyContent,
+    historyContent,
+}: {
+    monitorContent: JSX.Element
+    scheduleContent: JSX.Element
+    notifyContent: JSX.Element
+    historyContent?: JSX.Element
+}): EditAlertTab[] {
+    return [
+        { key: 'monitor', summarySection: 'monitor', label: 'Monitor', content: monitorContent },
+        { key: 'schedule', summarySection: 'schedule', label: 'Schedule', content: scheduleContent },
+        { key: 'notify', summarySection: 'notify', label: 'Notify', content: notifyContent },
+        ...(historyContent ? [{ key: 'history', label: 'History', content: historyContent }] : []),
+    ]
+}
+
 interface EditAlertTabsProps {
     summary: { fires: string; cadence: string; notifies: string }
     summaryHeader?: React.ReactNode
