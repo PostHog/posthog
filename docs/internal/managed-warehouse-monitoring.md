@@ -17,6 +17,17 @@ Both PostHog actions require `warehouse_view:read`.
 Duckgres only returns sanitized worker data.
 The response excludes SQL text, usernames, client addresses, pod names, images, credentials, trace IDs, and control-plane ownership details.
 
+### MCP access
+
+Authenticated MCP clients can request the same organization-scoped data through these tools:
+
+- `managed-warehouse-monitoring-get` for the current worker and workload snapshot
+- `managed-warehouse-metric-history-get` for one operational metric over a trailing time window
+
+Both tools require `warehouse_view:read` and are available when the `data-warehouse-scene` feature is enabled.
+They use the active project to derive the organization and do not accept an organization ID from the caller.
+The returned values describe operational activity and capacity, not invoiced usage.
+
 ## Snapshot
 
 The snapshot contains:
