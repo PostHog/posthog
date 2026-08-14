@@ -167,7 +167,7 @@ function ScatterChartInner<Meta = unknown>({
             // Over the markers: in a dense cloud, which is where a fit line earns its place, drawing
             // it underneath would bury it.
             if (showBestFit) {
-                drawBestFitLines(ctx, computeBestFitSegments(layout.positions), dimensions)
+                drawBestFitLines(ctx, computeBestFitSegments(layout.positions, layout.seriesColors), dimensions)
             }
 
             if (axisLineColor) {

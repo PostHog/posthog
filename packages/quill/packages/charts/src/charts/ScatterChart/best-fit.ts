@@ -1,3 +1,5 @@
+import { group } from 'd3-array'
+
 import { linearRegression } from '../../utils/statistics'
 import type { ScatterPointPosition } from './scatter-layout'
 
@@ -19,24 +21,20 @@ export interface BestFitSegment {
  *
  * Working off `positions` also means the fit sees exactly the drawn points: those a log axis or a
  * pinned domain dropped, and those a legend toggle hid, are already gone.
+ *
+ * `seriesColors` is indexed by series index. The color comes from the series rather than one of its
+ * points, so a point-level override — which highlights that one marker — can't repaint the whole
+ * line and put it out of step with the legend.
  */
-export function computeBestFitSegments(positions: ScatterPointPosition[]): BestFitSegment[] {
-    const bySeries = new Map<number, ScatterPointPosition[]>()
-    for (const position of positions) {
-        const group = bySeries.get(position.seriesIndex)
-        if (group) {
-            group.push(position)
-        } else {
-            bySeries.set(position.seriesIndex, [position])
-        }
-    }
+export function computeBestFitSegments(positions: ScatterPointPosition[], seriesColors: string[]): BestFitSegment[] {
+    const bySeries = group(positions, (position) => position.seriesIndex)
 
     const segments: BestFitSegment[] = []
-    for (const [seriesIndex, group] of bySeries) {
-        if (group.length < 2) {
+    for (const [seriesIndex, seriesPositions] of bySeries) {
+        if (seriesPositions.length < 2) {
             continue
         }
-        const { m, b } = linearRegression(group.map((position): [number, number] => [position.x, position.y]))
+        const { m, b } = linearRegression(seriesPositions.map((position): [number, number] => [position.x, position.y]))
         // Points stacked at a single x leave the gradient a 0/0, which is a vertical line rather than
         // a function of x. Nothing to draw.
         if (!isFinite(m) || !isFinite(b)) {
@@ -44,13 +42,13 @@ export function computeBestFitSegments(positions: ScatterPointPosition[]): BestF
         }
         let x0 = Infinity
         let x1 = -Infinity
-        for (const position of group) {
+        for (const position of seriesPositions) {
             x0 = Math.min(x0, position.x)
             x1 = Math.max(x1, position.x)
         }
         // Spans the series' own points instead of the plot, so the line doesn't extrapolate a
         // relationship out over empty space.
-        segments.push({ seriesIndex, color: group[0].color, x0, y0: m * x0 + b, x1, y1: m * x1 + b })
+        segments.push({ seriesIndex, color: seriesColors[seriesIndex], x0, y0: m * x0 + b, x1, y1: m * x1 + b })
     }
     return segments
 }
