@@ -92,8 +92,8 @@ def _context(
                 agentsh_domain_allowlist=["example.com", "api.posthog.com"],
                 use_modal_network_allowlist=True,
             ),
-            "modal_requested_sandbox_created",
-            None,
+            "modal_requested_sandbox_created_agentsh_ready",
+            ["example.com", "api.posthog.com"],
         ),
         (
             _context(
@@ -103,8 +103,8 @@ def _context(
                 use_modal_network_allowlist=True,
                 network_policy_fingerprint="policy-hash",
             ),
-            "modal_requested_sandbox_created",
-            None,
+            "modal_requested_sandbox_created_agentsh_ready",
+            ["example.com", "api.posthog.com"],
         ),
     ],
 )

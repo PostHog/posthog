@@ -191,8 +191,6 @@ class _LaunchParams:
 
 
 def _agentsh_domains_for(ctx: TaskProcessingContext) -> list[str] | None:
-    if ctx.use_modal_network_allowlist:
-        return None
     if ctx.agentsh_domain_allowlist is not None:
         return list(ctx.agentsh_domain_allowlist)
     return ctx.allowed_domains
@@ -202,7 +200,7 @@ def _network_enforcement_observation(ctx: TaskProcessingContext) -> str:
     if ctx.allowed_domains is None:
         return "unrestricted"
     if ctx.use_modal_network_allowlist:
-        return "modal_requested_sandbox_created"
+        return "modal_requested_sandbox_created_agentsh_ready"
     return "agentsh_ready"
 
 
@@ -320,7 +318,7 @@ def _prepare_launch(ctx: TaskProcessingContext, scopes: PosthogMcpScopes, sandbo
         emit_agent_log(
             ctx.run_id,
             "debug",
-            f"Enforcing network allowlist for '{environment_name}' via Modal (agentsh disabled)",
+            f"Enforcing network allowlist for '{environment_name}' via Modal and agentsh",
         )
     elif agentsh_domains is not None:
         environment_name = ctx.sandbox_environment_name or ctx.sandbox_environment_id or "selected environment"

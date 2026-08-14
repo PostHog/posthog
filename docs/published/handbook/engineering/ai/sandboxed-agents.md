@@ -333,13 +333,17 @@ step — it is the synchronization point, blocking until the warmup completes.
 Restricted runs can use the VM runtime only when `tasks-modal-network-allowlist` is also enabled.
 The network flag interlock runs before state overrides, image-builder routing, custom-image routing,
 and the VM rollout flag. A trusted `use_modal_vm_sandbox` state value cannot bypass it.
-Modal is the sole network enforcement layer whenever that flag is enabled, including on VMs; agentsh
-is not started with a network policy on those runs. The provider policy applies outside the sandbox,
-so it covers traffic from the VM and its Docker containers without tracing their process trees.
+Modal is the authoritative network enforcement layer whenever that flag is enabled, including on VMs.
+AgentSH also applies the compiled policy to the agent-server process tree as defense in depth. The
+provider policy applies outside the sandbox, so it covers traffic from the VM and its Docker containers
+without relying on AgentSH process tracing.
 Modal applies domain restrictions using the requested hostname or TLS SNI. Raw IP connections without
 an allowed SNI fail, while a connection to an IP with an allowed SNI can pass the boundary. This is an
-SNI allowlist, not DNS-to-destination-IP binding. Test both host and container traffic because their
-network paths differ.
+SNI allowlist, not DNS-to-destination-IP binding. AgentSH repeats the domain policy for the processes it
+traces, but it has the same allowed-SNI behavior and does not cover independently started VM services or
+nested Docker containers. Use an externally enforced egress proxy with a provider CIDR allowlist if those
+workloads require strict hostname-to-destination binding. Test both host and container traffic because
+their network paths differ.
 The `use_modal_vm_sandbox` run-state key force-selects the VM runtime for trusted server-created runs
 (image builders) and is never accepted from client input.
 
