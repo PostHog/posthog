@@ -25,6 +25,8 @@ from urllib.parse import urlparse
 
 import psycopg
 
+from posthog.dataclasses import frozen
+
 from products.managed_warehouse.backend.common import (
     _get_org_id_for_team,
     default_bucket_region,
@@ -50,7 +52,7 @@ def _get_django_settings():
         return None
 
 
-@dataclasses.dataclass(frozen=True, kw_only=True, slots=True)
+@frozen
 class AwsCredentials:
     access_key: str
     secret_key: str

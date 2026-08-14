@@ -11,10 +11,11 @@ Semantics:
 
 from __future__ import annotations
 
-from dataclasses import dataclass
 from typing import TypeVar
 
 import structlog
+
+from posthog.dataclasses import frozen
 
 from products.warehouse_sources.backend.temporal.data_imports.naming_convention import NamingConvention
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.identifiers import IdentifierQuoter
@@ -170,7 +171,7 @@ def project_arrow_columns(
     return Table(name=table.name, columns=projected, parents=table.parents, alias=table.alias, type=table.type)
 
 
-@dataclass(frozen=True, kw_only=True, slots=True)
+@frozen
 class PrunedColumns:
     kept: list[str] | None
     removed: list[str]

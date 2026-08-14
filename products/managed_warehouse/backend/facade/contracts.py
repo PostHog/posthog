@@ -18,6 +18,8 @@ from enum import StrEnum
 from typing import Any
 from uuid import UUID
 
+from posthog.dataclasses import frozen
+
 __all__ = [
     "CPUnavailableError",
     "DuckgresQueryServerConfig",
@@ -93,7 +95,7 @@ class DuckgresStoredServerConfig:
     sink_max_concurrency: int
 
 
-@dataclass(frozen=True, kw_only=True)
+@frozen
 class DucklingTables:
     """The per-team events/persons duckling table names the backfill writes to."""
 
