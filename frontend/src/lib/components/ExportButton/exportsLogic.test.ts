@@ -275,6 +275,22 @@ describe('exportsLogic', () => {
             expect(jest.mocked(resolveExportNudgeEligibility).mock.calls).toEqual(expectedCalls)
         })
 
+        it.each([ExporterFormat.CSV, ExporterFormat.XLSX])('leaves a %s export of an insight alone', async (format) => {
+            // A subscription delivers a rendered image, so offering one to someone taking rows
+            // would promise something other than what they just did.
+            jest.spyOn(api.exports, 'create').mockResolvedValue(
+                asset({ id: 19, export_format: format, has_content: true })
+            )
+
+            logic.actions.createExport({
+                exportData: { export_format: format, insightShortId: INSIGHT_SHORT_ID },
+            })
+            await flush()
+
+            expect(resolveExportNudgeEligibility).not.toHaveBeenCalled()
+            expect(lookUpExportNudge).not.toHaveBeenCalled()
+        })
+
         it('folds an eligible nudge into the toast a polled dashboard export completes with', async () => {
             jest.mocked(resolveExportNudgeEligibility).mockResolvedValue({
                 subject: { kind: 'dashboard', dashboardId: 8 },

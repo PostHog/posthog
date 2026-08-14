@@ -90,10 +90,17 @@ class ExportAwaitingDownload extends Error {
 // click anyway.
 const isUserActivationLive = (): boolean => navigator.userActivation?.isActive ?? true
 
+// A subscription delivers a rendered image, so only an export of one is worth answering with an
+// offer of one. Someone taking a CSV wants the rows, and would be promised something else.
+const SUBSCRIBABLE_EXPORT_FORMATS: ExporterFormat[] = [ExporterFormat.PNG]
+
 // Only a dashboard or a saved insight can be subscribed to, so every other export — a recording, a
 // heatmap, a cohort, a data table, a billing report — has no subject and is never nudged. An insight
 // exported from a surface that does not pass its short id has no subscription page to offer either.
 const exportNudgeSubject = (exportData: TriggerExportProps): ExportNudgeSubject | null => {
+    if (!SUBSCRIBABLE_EXPORT_FORMATS.includes(exportData.export_format)) {
+        return null
+    }
     if (exportData.dashboard) {
         return { kind: 'dashboard', dashboardId: exportData.dashboard }
     }
