@@ -45,25 +45,41 @@ impl<'a> GlobalRateLimitKey<'a> {
     }
 }
 
+/// Redis key prefix for the AI lane's byte budget. Unlike the event limiters
+/// this deliberately carries no `capture_mode`: AI events reach the AI topic
+/// from the capture-ai deployment and from `$ai_*` traffic diverted on
+/// capture-analytics, so one token must draw on one budget across both. Both
+/// deployments therefore have to point at the same rate-limiter Redis.
+const AI_BYTES_REDIS_KEY_PREFIX: &str = "@ph/grl/capture/ai_bytes";
+
+/// The per-instance knobs that distinguish one capture limiter from another.
+/// Named fields rather than positional arguments: several are same-typed (two
+/// `&str`, two `bool`) and a swap would silently misconfigure a limiter.
+struct LimiterSpec<'a> {
+    /// Default budget per window for keys with no custom override.
+    threshold: u64,
+    /// Static `key=value` CSV seeding the custom-key map.
+    custom_keys_csv: Option<&'a String>,
+    /// Multiplier applied to each seeded CSV value, for limiters whose
+    /// operator-facing unit is not the window budget: the AI byte limiter is
+    /// configured in bytes/second and enforces bytes/window. `1` when the CSV
+    /// already carries per-window values.
+    custom_key_scale: u64,
+    local_cache_max_entries: u64,
+    redis_key_prefix: &'a str,
+    metrics_scope: &'a str,
+    /// Whether to wire the Redis-backed dynamic threshold source.
+    enable_dynamic_source: bool,
+    /// Evaluate and report, but never enforce.
+    dry_run: bool,
+}
+
 pub struct GlobalRateLimiter {
     limiter: Box<dyn CommonGlobalRateLimiter>,
     dry_run: bool,
 }
 
 impl GlobalRateLimiter {
-    /// Build the token+distinct_id rate limiter from the capture config, sharing a
-    /// single Redis client. If a dedicated Redis URL is configured, creates a separate
-    /// client (optionally with read/write split). Falls back to `shared_redis` when no
-    /// dedicated URL is set.
-    pub async fn try_from_config(
-        config: &Config,
-        shared_redis: Arc<dyn Client + Send + Sync>,
-    ) -> anyhow::Result<Self> {
-        let redis_client = Self::build_redis_client(config, shared_redis).await?;
-        let redis_instances = vec![redis_client];
-        Self::new_token_distinct_id(config, redis_instances)
-    }
-
     /// Create a per-(token, distinct_id) rate limiter sharing the given Redis instances.
     pub fn new_token_distinct_id(
         config: &Config,
@@ -77,14 +93,19 @@ impl GlobalRateLimiter {
         Self::build(
             config,
             redis_instances,
-            config.global_rate_limit_token_distinctid_threshold,
-            config
-                .global_rate_limit_token_distinctid_overrides_csv
-                .as_ref(),
-            config.global_rate_limit_token_distinctid_local_cache_max_entries,
-            &prefix,
-            &metrics_scope,
-            config.global_rate_limit_custom_threshold_key.is_some(),
+            LimiterSpec {
+                threshold: config.global_rate_limit_token_distinctid_threshold,
+                custom_keys_csv: config
+                    .global_rate_limit_token_distinctid_overrides_csv
+                    .as_ref(),
+                custom_key_scale: 1,
+                local_cache_max_entries: config
+                    .global_rate_limit_token_distinctid_local_cache_max_entries,
+                redis_key_prefix: &prefix,
+                metrics_scope: &metrics_scope,
+                enable_dynamic_source: config.global_rate_limit_custom_threshold_key.is_some(),
+                dry_run: config.global_rate_limit_dry_run,
+            },
         )
     }
 
@@ -99,15 +120,56 @@ impl GlobalRateLimiter {
         Self::build(
             config,
             redis_instances,
-            config.global_rate_limit_token_threshold,
-            config.global_rate_limit_token_overrides_csv.as_ref(),
-            config.global_rate_limit_token_local_cache_max_entries,
-            &prefix,
-            &metrics_scope,
-            // The token-only limiter is not wired to the dynamic refresh source.
-            // (The hierarchical resolver is still set but is a no-op for bare
-            // token keys, which have no `:distinct_id` suffix.)
-            false,
+            LimiterSpec {
+                threshold: config.global_rate_limit_token_threshold,
+                custom_keys_csv: config.global_rate_limit_token_overrides_csv.as_ref(),
+                custom_key_scale: 1,
+                local_cache_max_entries: config.global_rate_limit_token_local_cache_max_entries,
+                redis_key_prefix: &prefix,
+                metrics_scope: &metrics_scope,
+                // The token-only limiter is not wired to the dynamic refresh
+                // source. (The hierarchical resolver is still set but is a no-op
+                // for bare token keys, which have no `:distinct_id` suffix.)
+                enable_dynamic_source: false,
+                dry_run: config.global_rate_limit_dry_run,
+            },
+        )
+    }
+
+    /// Create the AI lane's per-token byte budget, sharing the given Redis instances.
+    ///
+    /// Nothing about the underlying limiter changes: the counts it accumulates
+    /// are bytes rather than events, so the same sliding window that caps
+    /// events/window elsewhere caps bytes/window here. Callers pass an event's
+    /// serialized size as the count.
+    ///
+    /// Budgets are configured in bytes/second and scaled to the window, so the
+    /// knob keeps the same meaning whatever `GLOBAL_RATE_LIMIT_WINDOW_INTERVAL_SECS`
+    /// is set to.
+    pub fn new_ai_bytes(
+        config: &Config,
+        redis_instances: Vec<Arc<dyn Client + Send + Sync>>,
+    ) -> anyhow::Result<Self> {
+        // A zero window would make every derived budget zero, limiting all
+        // traffic. The underlying limiter can't run on a zero window either, so
+        // treat it as one second here rather than silently shedding everything.
+        let window_secs = config.global_rate_limit_window_interval_secs.max(1);
+        let metrics_scope = format!("{}_ai_bytes", config.capture_mode.as_tag());
+        Self::build(
+            config,
+            redis_instances,
+            LimiterSpec {
+                threshold: config.ai_byte_limit_per_second.saturating_mul(window_secs),
+                custom_keys_csv: config.ai_byte_limit_overrides_csv.as_ref(),
+                custom_key_scale: window_secs,
+                local_cache_max_entries: config.ai_byte_limit_local_cache_max_entries,
+                redis_key_prefix: AI_BYTES_REDIS_KEY_PREFIX,
+                metrics_scope: &metrics_scope,
+                // Thresholds come from config only; the Django-written blob
+                // holds event-count limits, in different units.
+                enable_dynamic_source: false,
+                dry_run: config.ai_byte_limit_dry_run,
+            },
         )
     }
 
@@ -129,28 +191,28 @@ impl GlobalRateLimiter {
         })
     }
 
-    #[allow(clippy::too_many_arguments)]
     fn build(
         config: &Config,
         redis_instances: Vec<Arc<dyn Client + Send + Sync>>,
-        threshold: u64,
-        custom_keys_csv: Option<&String>,
-        local_cache_max_entries: u64,
-        redis_key_prefix: &str,
-        metrics_scope: &str,
-        enable_dynamic_source: bool,
+        spec: LimiterSpec<'_>,
     ) -> anyhow::Result<Self> {
         // Seed the (swappable) custom-key map from the static CSV overrides. When a
         // dynamic source is enabled, the common refresh loop replaces this map only
         // from an explicit Redis blob; an absent key or an unreachable Redis is
         // fail-static, so the CSV seed keeps applying until a blob is written.
-        let seed = Self::format_custom_keys(custom_keys_csv);
+        let mut seed = Self::format_custom_keys(spec.custom_keys_csv);
+        if spec.custom_key_scale != 1 {
+            for value in seed.values_mut() {
+                *value = value.saturating_mul(spec.custom_key_scale);
+            }
+        }
 
         // Build the dynamic source when enabled and its Redis key + URL are set.
         // The source reads the JSON blob from the event-restrictions Redis (a
         // separate store from the traffic-count Redis in `redis_instances`) and
         // owns its own connection/reconnect; the common limiter runs the loop.
-        let custom_key_source: Option<Arc<dyn CustomKeyThresholdSource>> = if enable_dynamic_source
+        let custom_key_source: Option<Arc<dyn CustomKeyThresholdSource>> = if spec
+            .enable_dynamic_source
         {
             match (
                 config.global_rate_limit_custom_threshold_key.as_ref(),
@@ -180,11 +242,11 @@ impl GlobalRateLimiter {
         };
 
         let grl_config = GlobalRateLimiterConfig {
-            global_threshold: threshold,
+            global_threshold: spec.threshold,
             window_interval: Duration::from_secs(config.global_rate_limit_window_interval_secs),
             sync_interval: Duration::from_secs(config.global_rate_limit_sync_interval_secs),
             tick_interval: Duration::from_millis(config.global_rate_limit_tick_interval_ms),
-            redis_key_prefix: redis_key_prefix.to_string(),
+            redis_key_prefix: spec.redis_key_prefix.to_string(),
             custom_keys: Arc::new(ArcSwap::from_pointee(seed)),
             // Capture keys are always `token` or `token:distinct_id`, so the
             // hierarchical resolver is always the correct policy — a token-level
@@ -195,12 +257,12 @@ impl GlobalRateLimiter {
             custom_key_refresh_interval: Duration::from_secs(
                 config.global_rate_limit_custom_threshold_refresh_secs,
             ),
-            local_cache_max_entries,
-            metrics_scope: metrics_scope.to_string(),
+            local_cache_max_entries: spec.local_cache_max_entries,
+            metrics_scope: spec.metrics_scope.to_string(),
             ..Default::default()
         };
 
-        let dry_run = config.global_rate_limit_dry_run;
+        let dry_run = spec.dry_run;
 
         let limiter = match CommonGlobalRateLimiterImpl::new(grl_config, redis_instances) {
             Ok(l) => l,
@@ -211,7 +273,10 @@ impl GlobalRateLimiter {
         };
 
         if dry_run {
-            info!("GlobalRateLimiter initialized in dry-run mode (evaluating but not enforcing)");
+            info!(
+                scope = spec.metrics_scope,
+                "GlobalRateLimiter initialized in dry-run mode (evaluating but not enforcing)"
+            );
         }
 
         Ok(Self {
@@ -437,6 +502,74 @@ impl GlobalRateLimiter {
 
         let limited_keys: HashSet<String> = limited_keys.iter().map(|k| k.to_string()).collect();
         Self::new_with(MockLimitingLimiter { limited_keys })
+    }
+
+    /// Test helper: build a `GlobalRateLimiter` that tallies the counts charged
+    /// per key and limits once a key's running total reaches `threshold`, with
+    /// the charge for the current call included. Lets weight-charging call sites
+    /// (the AI byte budget) be tested without Redis.
+    ///
+    /// Mirrors two properties of the real limiter that call sites have to cope
+    /// with: a key's first charge is always allowed (the real one takes a cache
+    /// miss as no prior data and fails open), and an over-threshold key keeps
+    /// being charged. It does not model the local cache's leaky-bucket decay, so
+    /// a key never recovers here.
+    #[cfg(test)]
+    pub(crate) fn mock_budget(threshold: u64) -> Self {
+        use async_trait::async_trait;
+        use std::sync::Mutex;
+
+        struct MockBudgetLimiter {
+            threshold: u64,
+            charged: Mutex<HashMap<String, u64>>,
+        }
+
+        #[async_trait]
+        impl CommonGlobalRateLimiter for MockBudgetLimiter {
+            async fn check_limit(
+                &self,
+                key: &str,
+                count: u64,
+                _timestamp: Option<DateTime<Utc>>,
+            ) -> EvalResult {
+                let mut charged = self.charged.lock().unwrap();
+                let first_charge = !charged.contains_key(key);
+                let total = charged.entry(key.to_string()).or_insert(0);
+                *total += count;
+                if !first_charge && *total >= self.threshold {
+                    EvalResult::Limited(GlobalRateLimitResponse {
+                        key: key.to_string(),
+                        current_count: *total as f64,
+                        threshold: self.threshold,
+                        window_interval: std::time::Duration::from_secs(60),
+                        sync_interval: std::time::Duration::from_secs(15),
+                        is_custom_limited: false,
+                    })
+                } else {
+                    EvalResult::Allowed
+                }
+            }
+
+            async fn check_custom_limit(
+                &self,
+                _key: &str,
+                _count: u64,
+                _timestamp: Option<DateTime<Utc>>,
+            ) -> EvalResult {
+                EvalResult::NotApplicable
+            }
+
+            fn is_custom_key(&self, _key: &str) -> bool {
+                false
+            }
+
+            fn shutdown(&mut self) {}
+        }
+
+        Self::new_with(MockBudgetLimiter {
+            threshold,
+            charged: Mutex::new(HashMap::new()),
+        })
     }
 
     // In capture deploys, the custom keys and rate limit thresholds should be
