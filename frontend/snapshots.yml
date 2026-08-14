@@ -2100,6 +2100,14 @@ snapshots:
         hash: v1.k794b7964.d59e36f12a812ad81bfe87a667bac644ccd806ec7ef08bba8406c56c4c384275.UiTTwDxfntJBUdYNxiPU-1zQWfGwMIfxVvEy97dhcsk
     errortracking-volumesparkline--events-before-data-range--light:
         hash: v1.k794b7964.124227295a3079c9a271b5b1b1de997d8f1a9b536928ac8fc0e5e806afd2f8f5.9CCTbFhZMpAVVger6Xuyp0kXNjRjdlk9vf1PwtmZEZw
+    experiments-varianttimeseriestooltip--pending-day--dark:
+        hash: v1.k794b7964.97727c0656cd286fbe329fe68ea8b0b635911b169247a8b45ecc5a6571563509.V2WbyXdFPiGIw4bJpjP7eoK2QZW4iqJo9w68-A_60wM
+    experiments-varianttimeseriestooltip--pending-day--light:
+        hash: v1.k794b7964.afd712c02b718cfbd1b35f3966fe63a2699b9e3d465cbc5ed710b89d2d73e9d5.-XPnMS-DF1sjI1LEQNueLTaiaSauWbdDzdhIlF_M59I
+    experiments-varianttimeseriestooltip--significant-day--dark:
+        hash: v1.k794b7964.454a2741f9e14479f4e7d044cfc853cccf980bc479ebd99d8582c028b1a26f3b.19bCdMNg7cR3OObP_ntNQ0FSRQc9WENqcMT1uMErFss
+    experiments-varianttimeseriestooltip--significant-day--light:
+        hash: v1.k794b7964.6e850075cec396cda57b4d44acd24b1fb4deb1e00c640db0049d172e8d99f2bb.Im0tdmWO-QcJ_sukw7HEC5eSF0ZBsTJgYvKKf-KxnLA
     exporter-funnels--funnel-time-to-convert-insight--dark:
         hash: v1.k794b7964.32e0fdd763e52aa74a859cc74be91c34aa9bc415f698cd276a1cbf5165e07e96.83HRBJWS8NFTguzPf-6KQ58qPcfF8byzAZ6DrhaMS4M
     exporter-funnels--funnel-time-to-convert-insight--light:
