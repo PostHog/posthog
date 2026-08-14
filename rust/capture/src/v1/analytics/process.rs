@@ -168,23 +168,20 @@ pub async fn process_batch(
         if let Some(ref limiter) = state.global_rate_limiter_token_distinctid {
             // The token is constant across the batch, so an exemption resolves
             // once here instead of once per event inside the limiter loop.
-            match limiter.exempt_token(&context.api_token) {
-                Some(token) => {
-                    counter!(
-                        "capture_global_rate_limiter_exempt_events_total",
-                        "token" => token,
-                    )
+            // The counter carries no token label: which tokens are exempt is
+            // deploy config, and customer identifiers do not belong in metrics
+            // storage.
+            if limiter.is_exempt(&context.api_token) {
+                counter!("capture_global_rate_limiter_exempt_events_total")
                     .increment(events.len() as u64);
-                }
-                None => {
-                    let _ = apply_token_distinct_id_limits(
-                        limiter,
-                        context,
-                        state.ingestion_warning_emitter.as_deref(),
-                        &mut events,
-                    )
-                    .await;
-                }
+            } else {
+                let _ = apply_token_distinct_id_limits(
+                    limiter,
+                    context,
+                    state.ingestion_warning_emitter.as_deref(),
+                    &mut events,
+                )
+                .await;
             }
         }
     }

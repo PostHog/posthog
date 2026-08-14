@@ -48,9 +48,7 @@ impl<'a> GlobalRateLimitKey<'a> {
 pub struct GlobalRateLimiter {
     limiter: Box<dyn CommonGlobalRateLimiter>,
     dry_run: bool,
-    /// Held as `Arc<str>` so a lookup can hand the caller an owned token to use
-    /// as a metric label without allocating per batch.
-    exempt_tokens: HashSet<Arc<str>>,
+    exempt_tokens: HashSet<String>,
 }
 
 impl GlobalRateLimiter {
@@ -236,25 +234,25 @@ impl GlobalRateLimiter {
     /// Tokens the limiter skips entirely, from `GLOBAL_RATE_LIMIT_EXEMPT_TOKENS_CSV`.
     /// Blank entries are dropped so a trailing comma or an empty variable does not
     /// produce an empty-string token that would match a request with no token.
-    fn parse_exempt_tokens(csv: Option<&String>) -> HashSet<Arc<str>> {
+    fn parse_exempt_tokens(csv: Option<&String>) -> HashSet<String> {
         csv.map(|raw| {
             raw.split(',')
                 .map(str::trim)
                 .filter(|t| !t.is_empty())
-                .map(Arc::from)
+                .map(str::to_string)
                 .collect()
         })
         .unwrap_or_default()
     }
 
-    /// Returns the interned token when it is exempt from rate limiting.
+    /// Whether `token` is exempt from rate limiting.
     ///
     /// Callers resolve this once per batch, before the per-event loop, because an
     /// exempt token must skip `is_limited` entirely: that call enqueues a Redis
     /// write before it even reads the cache, so a check made any deeper would
     /// still pay the cost the exemption exists to avoid.
-    pub fn exempt_token(&self, token: &str) -> Option<Arc<str>> {
-        self.exempt_tokens.get(token).cloned()
+    pub fn is_exempt(&self, token: &str) -> bool {
+        self.exempt_tokens.contains(token)
     }
 
     /// Check if a key is rate limited. The key is resolved against the custom-key
@@ -389,7 +387,7 @@ impl GlobalRateLimiter {
 
     #[cfg(test)]
     pub(crate) fn with_exempt_tokens(mut self, tokens: &[&str]) -> Self {
-        self.exempt_tokens = tokens.iter().copied().map(Arc::from).collect();
+        self.exempt_tokens = tokens.iter().map(|t| t.to_string()).collect();
         self
     }
 
@@ -911,7 +909,7 @@ mod tests {
     fn test_parse_exempt_tokens(#[case] csv: &str, #[case] expected: Vec<&str>) {
         let parsed = GlobalRateLimiter::parse_exempt_tokens(Some(&csv.to_string()));
 
-        let expected: HashSet<Arc<str>> = expected.into_iter().map(Arc::from).collect();
+        let expected: HashSet<String> = expected.into_iter().map(str::to_string).collect();
         assert_eq!(parsed, expected);
         assert!(
             !parsed.contains(""),

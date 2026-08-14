@@ -477,22 +477,18 @@ async fn process_events_inner(
     // overflowable lane is reachable, so behavior is identical across paths.
     // The token is constant across the batch, so an exemption resolves once here
     // instead of once per event, and the whole limiter block below is skipped.
-    let grl_exempt_token = if context.capture_mode.applies_global_rate_limit() {
-        global_rate_limiter
+    // The counter carries no token label: which tokens are exempt is deploy
+    // config, and customer identifiers do not belong in metrics storage.
+    let grl_exempt = context.capture_mode.applies_global_rate_limit()
+        && global_rate_limiter
             .as_ref()
-            .and_then(|limiter| limiter.exempt_token(&context.token))
-    } else {
-        None
-    };
-    if let Some(ref token) = grl_exempt_token {
-        counter!(
-            "capture_global_rate_limiter_exempt_events_total",
-            "token" => token.clone(),
-        )
-        .increment(events.len() as u64);
+            .is_some_and(|limiter| limiter.is_exempt(&context.token));
+    if grl_exempt {
+        counter!("capture_global_rate_limiter_exempt_events_total")
+            .increment(events.len() as u64);
     }
 
-    if context.capture_mode.applies_global_rate_limit() && grl_exempt_token.is_none() {
+    if context.capture_mode.applies_global_rate_limit() && !grl_exempt {
         if let Some(ref limiter) = global_rate_limiter {
             let mut limited_distinct_ids: HashSet<&str> = HashSet::new();
             let mut limited_event_count: u64 = 0;
