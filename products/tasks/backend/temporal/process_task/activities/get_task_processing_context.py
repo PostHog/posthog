@@ -63,7 +63,7 @@ class GetTaskProcessingContextInput:
     create_pr: bool = True
 
 
-@dataclass
+@dataclass(frozen=False)
 class TaskProcessingContext:
     """
     Serializable context object passed to all activities in the task processing workflow.
