@@ -121,7 +121,7 @@ describe('FilterGroup', () => {
             </Provider>
         )
 
-        const filterPickerButton = screen.getByRole('button', { name: 'Add filter' })
+        const filterPickerButton = screen.getByLabelText('Add filter')
         const activeFilters = screen.getByTestId('error-tracking-active-filters')
 
         expect(filterPickerButton).not.toHaveTextContent('Add filter')

@@ -470,6 +470,14 @@ export const GroupPageBreakdownLoading: Story = {
     render: () => <IssueScenePreviewStory activePreview="properties" />,
 }
 
+export const GroupPageBreakdownModal: Story = {
+    name: 'Issue scene with breakdown modal',
+    parameters: { pageUrl: urls.errorTrackingIssue(ISSUE_ID) },
+    render: () => (
+        <IssueScenePreviewStory activePreview="properties" openBreakdown={{ property: '$browser', title: 'Browser' }} />
+    ),
+}
+
 export const GroupPageBreakdownModalLoading: Story = {
     name: 'Issue scene with loading breakdown modal',
     parameters: {

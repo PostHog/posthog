@@ -81,11 +81,11 @@ export function BreakdownDetailsDialog(): JSX.Element {
                             </Button>
                         </div>
                     ) : breakdownDetailsLoading ? (
-                        <div className="grid min-h-80 grid-cols-[20rem_minmax(0,1fr)] gap-4">
-                            <div className="flex size-80 items-center justify-center">
-                                <Skeleton className="size-64 rounded-full bg-border" />
+                        <div className="grid min-h-80 grid-cols-1 gap-4 md:grid-cols-[20rem_minmax(0,1fr)]">
+                            <div className="mx-auto flex aspect-square w-full max-w-80 items-center justify-center">
+                                <Skeleton className="aspect-square w-4/5 rounded-full bg-border" />
                             </div>
-                            <div className="flex min-w-0 flex-col gap-2 border-l border-primary py-1 pl-4">
+                            <div className="flex min-w-0 flex-col gap-2 border-t border-primary pt-4 md:border-l md:border-t-0 md:py-1 md:pl-4">
                                 <Skeleton className="h-5 w-32 bg-border" />
                                 {Array.from({ length: 7 }, (_, index) => (
                                     <Skeleton key={index} className="h-8 w-full bg-border" />
@@ -97,8 +97,8 @@ export function BreakdownDetailsDialog(): JSX.Element {
                             <Text variant="muted">No values found.</Text>
                         </div>
                     ) : (
-                        <div className="grid min-h-80 grid-cols-[20rem_minmax(0,1fr)] gap-4">
-                            <div className="flex size-80 min-w-0 flex-col">
+                        <div className="grid min-h-80 grid-cols-1 gap-4 md:grid-cols-[20rem_minmax(0,1fr)]">
+                            <div className="mx-auto flex aspect-square w-full max-w-80 min-w-0 flex-col">
                                 <PieChart
                                     series={series}
                                     theme={theme}
@@ -120,7 +120,7 @@ export function BreakdownDetailsDialog(): JSX.Element {
                                     }
                                 />
                             </div>
-                            <div className="min-w-0 border-l border-primary pl-4">
+                            <div className="min-w-0 border-t border-primary pt-4 md:border-l md:border-t-0 md:pl-4 md:pt-0">
                                 <Text size="sm" weight="semibold" className="pb-2">
                                     {selectedBreakdownProperty?.title ?? 'Property'}
                                 </Text>

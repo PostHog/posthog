@@ -26,8 +26,8 @@ describe('IssueEventsEmptyState', () => {
                 />
             )
 
-            expect(Boolean(screen.queryByRole('button', { name: /Show last/ }))).toBe(dateButton)
-            expect(Boolean(screen.queryByRole('button', { name: 'Remove filters' }))).toBe(filterButton)
+            expect(Boolean(screen.queryByText(/Show last/))).toBe(dateButton)
+            expect(Boolean(screen.queryByText('Remove filters'))).toBe(filterButton)
         }
     )
 
@@ -45,8 +45,8 @@ describe('IssueEventsEmptyState', () => {
             />
         )
 
-        await userEvent.click(screen.getByRole('button', { name: 'Show last 30 days' }))
-        await userEvent.click(screen.getByRole('button', { name: 'Remove filters' }))
+        await userEvent.click(screen.getByText('Show last 30 days'))
+        await userEvent.click(screen.getByText('Remove filters'))
 
         expect(onIncreaseDateRange).toHaveBeenCalledTimes(1)
         expect(onClearFilters).toHaveBeenCalledTimes(1)

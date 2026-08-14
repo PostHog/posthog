@@ -45,7 +45,7 @@ export interface issueFilterPreviewLogicActions {
     } // issueFiltersLogic
     setDateRange: (
         dateRange: DateRange,
-        fromPreview?: boolean
+        fromPreview?: boolean | undefined
     ) => {
         dateRange: DateRange
         fromPreview: boolean

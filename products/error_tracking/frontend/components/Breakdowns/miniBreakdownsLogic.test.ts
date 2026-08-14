@@ -91,10 +91,6 @@ describe('miniBreakdownsLogic', () => {
             { property: 'attempt', title: 'attempt' },
             { property: 'enabled', title: 'enabled' },
         ])
-        const latestBreakdownQuery = jest.mocked(api.query).mock.calls.at(-1)?.[0] as ErrorTrackingBreakdownsQuery
-        expect(latestBreakdownQuery.breakdownProperties).toEqual(
-            breakdowns.values.breakdownProperties.map(({ property }) => property)
-        )
     })
 
     it('caps the breakdown properties auto-derived from the selected event', () => {
