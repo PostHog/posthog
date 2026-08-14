@@ -1,6 +1,7 @@
 import json
 from typing import cast
 
+import pytest
 from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, patch
 
@@ -10,9 +11,11 @@ from parameterized import parameterized
 from rest_framework import status
 from rest_framework.response import Response
 
+from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
 from products.data_warehouse.backend.presentation.managed_warehouse_monitoring import (
     ManagedWarehouseMonitoringSeriesQuerySerializer,
 )
+from products.warehouse_sources.backend.tests.api._access_control_base import WarehouseAccessControlTestMixin
 
 
 def _snapshot(organization_id: object) -> dict[str, object]:
@@ -275,6 +278,67 @@ class TestManagedWarehouseMonitoringAPI(APIBaseTest):
         response = self.client.get(self._snapshot_url())
 
         assert response.status_code == expected_status
+
+
+@pytest.mark.ee
+class TestManagedWarehouseMonitoringAccessControl(WarehouseAccessControlTestMixin):
+    resource = "warehouse_objects"
+
+    def setUp(self) -> None:
+        super().setUp()
+        saved_query = DataWarehouseSavedQuery.objects.create(
+            team=self.team,
+            name="restricted_view",
+            query={"kind": "HogQLQuery", "query": "select 1"},
+            created_by=self.user,
+        )
+        self._create_project_default(access_level="none")
+        self._create_access_control(
+            self.viewer_user,
+            resource="warehouse_view",
+            resource_id=str(saved_query.id),
+            access_level="viewer",
+        )
+        self.client.force_login(self.viewer_user)
+
+    @parameterized.expand(
+        [
+            (
+                "snapshot",
+                "monitoring_snapshot_for",
+                "managed-warehouse-monitoring/",
+            ),
+            (
+                "timeseries",
+                "monitoring_series_for",
+                "managed-warehouse-monitoring-timeseries/?metric=query_rate&window=6h",
+            ),
+        ]
+    )
+    def test_org_wide_monitoring_requires_resource_level_warehouse_access(
+        self,
+        _name: str,
+        upstream_method: str,
+        endpoint: str,
+    ) -> None:
+        upstream_path = (
+            f"products.data_warehouse.backend.presentation.views.data_warehouse.managed_warehouse.{upstream_method}"
+        )
+        with patch(upstream_path) as mock_upstream:
+            upstream_body = (
+                _snapshot(self.organization.id)
+                if upstream_method == "monitoring_snapshot_for"
+                else _series(self.organization.id)
+            )
+            mock_upstream.return_value = Response(
+                upstream_body,
+                status=status.HTTP_200_OK,
+            )
+
+            response = self.client.get(f"/api/projects/{self.team.id}/data_warehouse/{endpoint}")
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        mock_upstream.assert_not_called()
 
 
 class TestManagedWarehouseMonitoringPersonalAPIKey(APIBaseTest):

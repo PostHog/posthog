@@ -128,6 +128,7 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     # warehouse_view inherits from warehouse_objects; reads require viewer access,
     # write actions (see required_scopes below) require editor access.
     scope_object = "warehouse_view"
+    requires_resource_level_access = False
     serializer_class = _FallbackSerializer
 
     def _require_organization_admin(self, request: Request, action: str) -> Response | None:
@@ -1106,6 +1107,7 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         detail=False,
         url_path="managed-warehouse-monitoring",
         required_scopes=["warehouse_view:read"],
+        requires_resource_level_access=True,
     )
     def managed_warehouse_monitoring(self, request: Request, **kwargs) -> Response:
         organization_id = str(self.team.organization_id)
@@ -1143,6 +1145,7 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         detail=False,
         url_path="managed-warehouse-monitoring-timeseries",
         required_scopes=["warehouse_view:read"],
+        requires_resource_level_access=True,
     )
     def managed_warehouse_monitoring_timeseries(self, request: Request, **kwargs) -> Response:
         organization_id = str(self.team.organization_id)
