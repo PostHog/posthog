@@ -193,8 +193,7 @@ class Organization(ModelActivityMixin, UUIDTModel):
             "Terms of service violation",
         )
         DESKTOP_ABUSE = (
-            "Your organization has been deactivated for suspected PostHog Desktop abuse. "
-            "Contact PostHog support if you think this is a mistake.",
+            "Suspected PostHog Desktop abuse. Contact PostHog support if you think this is a mistake.",
             "Desktop abuse",
         )
 
