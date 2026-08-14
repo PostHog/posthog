@@ -3,6 +3,7 @@ import type {
   SessionConfigOption,
   SessionConfigSelectGroup,
 } from "@agentclientprotocol/sdk";
+import { ApiRequestError } from "@posthog/api-client/fetcher";
 import type { AcpMessage } from "@posthog/shared";
 import type { Task } from "@posthog/shared/domain-types";
 import type { AgentSession } from "@posthog/ui/features/sessions/sessionStore";
@@ -7029,6 +7030,41 @@ describe("SessionService", () => {
       expect(mockAuthenticatedClient.runTaskInCloud).not.toHaveBeenCalled();
     });
 
+    it("refetches the run for the real error when none is cached", async () => {
+      const service = getSessionService();
+      mockPreBootFailedSession();
+      mockAuthenticatedClient.getTaskRun.mockResolvedValue({
+        id: "run-123",
+        task: "task-123",
+        team: 123,
+        branch: null,
+        runtime_adapter: "claude",
+        model: "claude-sonnet-4-20250514",
+        reasoning_effort: null,
+        environment: "cloud",
+        status: "failed",
+        log_url: null,
+        error_message: "GitHub is not connected for this project",
+        output: {},
+        state: {},
+        created_at: "2026-04-14T00:00:00Z",
+        updated_at: "2026-04-14T00:00:00Z",
+        completed_at: "2026-04-14T00:05:00Z",
+      });
+      const stored: Record<string, AgentSession> = {};
+      mockSessionStoreSetters.updateSession.mockImplementation(
+        (id: string, patch: Partial<AgentSession>) => {
+          stored[id] = { ...(stored[id] ?? createMockSession()), ...patch };
+        },
+      );
+      mockSessionStoreSetters.getSessions.mockImplementation(() => stored);
+
+      await expect(service.sendPrompt("task-123", "retry?")).rejects.toThrow(
+        "GitHub is not connected for this project",
+      );
+      expect(mockAuthenticatedClient.runTaskInCloud).not.toHaveBeenCalled();
+    });
+
     it("still resumes when a previously running agent failed mid-execution", async () => {
       const service = getSessionService();
       mockSessionStoreSetters.getSessionByTaskId.mockReturnValue(
@@ -7085,6 +7121,61 @@ describe("SessionService", () => {
 
       expect(result.stopReason).toBe("queued");
       expect(mockAuthenticatedClient.runTaskInCloud).toHaveBeenCalledTimes(1);
+    });
+
+    it.each([
+      {
+        name: "maps a resume 404 for a non-author to the creator-only error",
+        isTaskAuthor: false,
+        resumeError: new ApiRequestError(404, "{}"),
+        expected: /Only the person who created this task/,
+      },
+      {
+        name: "keeps the original 404 for the task author",
+        isTaskAuthor: true,
+        resumeError: new ApiRequestError(404, "{}"),
+        expected: /Failed request: \[404\]/,
+      },
+      {
+        name: "keeps a non-404 resume error for a non-author",
+        isTaskAuthor: false,
+        resumeError: new ApiRequestError(500, "{}"),
+        expected: /Failed request: \[500\]/,
+      },
+    ])("$name", async ({ isTaskAuthor, resumeError, expected }) => {
+      const service = getSessionService();
+      mockSessionStoreSetters.getSessionByTaskId.mockReturnValue(
+        createMockSession({
+          isCloud: true,
+          cloudStatus: "failed",
+          status: "connected",
+          isTaskAuthor,
+        }),
+      );
+      mockAuthenticatedClient.getTaskRun.mockResolvedValue({
+        id: "run-123",
+        task: "task-123",
+        team: 123,
+        branch: null,
+        runtime_adapter: "claude",
+        model: "claude-sonnet-4-20250514",
+        reasoning_effort: null,
+        environment: "cloud",
+        status: "failed",
+        log_url: null,
+        error_message: "agent crashed",
+        output: {},
+        state: {},
+        created_at: "2026-04-14T00:00:00Z",
+        updated_at: "2026-04-14T00:00:00Z",
+        completed_at: "2026-04-14T00:05:00Z",
+      });
+      mockAuthenticatedClient.getTask.mockResolvedValue(createMockTask());
+      mockAuthenticatedClient.runTaskInCloud.mockRejectedValue(resumeError);
+
+      await expect(service.sendPrompt("task-123", "try again")).rejects.toThrow(
+        expected,
+      );
     });
 
     it("attempts automatic recovery on fatal error", async () => {

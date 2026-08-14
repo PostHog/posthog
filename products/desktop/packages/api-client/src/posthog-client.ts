@@ -222,7 +222,13 @@ export const SESSION_LOGS_PAGE_TIMEOUT_MS = 30_000;
 
 export interface TaskRunSessionLogsResult {
   entries: StoredLogEntry[];
+  /**
+   * False only when entries went missing unintentionally (a page failed). A
+   * deliberate tail fetch of an oversized log stays complete; the dropped
+   * head is reported via {@link truncatedHeadCount}.
+   */
   complete: boolean;
+  /** Oldest entries skipped when an oversized log restarted from the tail. */
   truncatedHeadCount: number;
 }
 
@@ -3677,6 +3683,42 @@ export class PostHogAPIClient {
       .entries;
   }
 
+  /**
+   * One session-logs page request: bounded by a timeout, retried once on
+   * transient failure. Timeouts use AbortController + setTimeout because
+   * `AbortSignal.timeout` is unimplemented in Hermes, which the mobile app
+   * runs this client under.
+   */
+  private async fetchSessionLogsPageResponse(
+    url: URL,
+    path: string,
+    offset: number,
+  ): Promise<Response> {
+    for (let attempt = 0; ; attempt++) {
+      const controller = new AbortController();
+      const timer = setTimeout(
+        () =>
+          controller.abort(new Error("Session logs page request timed out")),
+        SESSION_LOGS_PAGE_TIMEOUT_MS,
+      );
+      try {
+        return await this.api.fetcher.fetch({
+          method: "get",
+          url,
+          path,
+          overrides: { signal: controller.signal },
+        });
+      } catch (err) {
+        const status = requestErrorStatus(err);
+        const retryable = status === undefined || status >= 500;
+        if (attempt > 0 || !retryable) throw err;
+        log.warn(`Retrying session logs page at offset ${offset}`, err);
+      } finally {
+        clearTimeout(timer);
+      }
+    }
+  }
+
   async getTaskRunSessionLogsResult(
     taskId: string,
     runId: string,
@@ -3704,22 +3746,11 @@ export class PostHogAPIClient {
         if (options?.after) {
           url.searchParams.set("after", options.after);
         }
-        let response: Response | null = null;
-        for (let attempt = 0; response === null; attempt++) {
-          try {
-            response = await this.api.fetcher.fetch({
-              method: "get",
-              url,
-              path,
-              overrides: {
-                signal: AbortSignal.timeout(SESSION_LOGS_PAGE_TIMEOUT_MS),
-              },
-            });
-          } catch (err) {
-            if (attempt > 0) throw err;
-            log.warn(`Retrying session logs page at offset ${offset}`, err);
-          }
-        }
+        const response = await this.fetchSessionLogsPageResponse(
+          url,
+          path,
+          offset,
+        );
 
         if (!response.ok) {
           log.warn(

@@ -4677,6 +4677,9 @@ export class SessionService {
       );
     } catch (error) {
       rollbackOptimisticPrompt();
+      // The backend hides the run action from non-creators of a channeled
+      // task with a 404 (not a 403), so a 404 on a task the app can already
+      // read means the creator-only control gate.
       if (requestErrorStatus(error) === 404 && session.isTaskAuthor === false) {
         throw new Error(
           "Only the person who created this task can send it messages. Start a new session to continue the work yourself.",

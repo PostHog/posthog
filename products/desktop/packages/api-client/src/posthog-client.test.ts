@@ -2215,6 +2215,24 @@ describe("PostHogAPIClient", () => {
       expect(result.complete).toBe(true);
       expect(result.entries).toHaveLength(60);
       expect(fetch).toHaveBeenCalledTimes(3);
+      expect(
+        (fetch.mock.calls[0][0] as { overrides: { signal: unknown } }).overrides
+          .signal,
+      ).toBeInstanceOf(AbortSignal);
+    });
+
+    it("does not retry a definite client error", async () => {
+      const fetch = vi.fn().mockRejectedValue(new ApiRequestError(404, "{}"));
+      const client = makeClient(fetch);
+
+      const result = await client.getTaskRunSessionLogsResult(
+        "task-1",
+        "run-1",
+        { limit: 100000 },
+      );
+
+      expect(result.complete).toBe(false);
+      expect(fetch).toHaveBeenCalledTimes(1);
     });
 
     it("gives up after a second rejection on the same page", async () => {
