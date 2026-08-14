@@ -3429,6 +3429,41 @@ class SignalReportArtefactViewSet(
             )
         return Response(self._write_response_data(artefact), status=status.HTTP_201_CREATED)
 
+    def _capture_canonical_reviewer_state(self, report_id: str) -> None:
+        """Re-emit reviewer telemetry from the latest surviving `suggested_reviewers` row.
+
+        Deleting or editing a reviewers artefact changes the report's canonical reviewer set
+        without going through an append path, so the "latest event per report" read would
+        otherwise keep describing the removed row. An empty login list is a valid state (the
+        deletion removed the only row)."""
+        latest = (
+            SignalReportArtefact.objects.filter(
+                team_id=self.team.id,
+                report_id=report_id,
+                type=SignalReportArtefact.ArtefactType.SUGGESTED_REVIEWERS,
+            )
+            .order_by("-created_at")
+            .first()
+        )
+        logins: list[str] = []
+        if latest is not None:
+            try:
+                parsed = json.loads(latest.content)
+            except (json.JSONDecodeError, TypeError, ValueError):
+                parsed = []
+            if isinstance(parsed, list):
+                logins = [
+                    str(entry.get("github_login"))
+                    for entry in parsed
+                    if isinstance(entry, dict) and entry.get("github_login")
+                ]
+        capture_suggested_reviewers_resolved(
+            team_id=self.team.id,
+            report_id=report_id,
+            github_logins=logins,
+            source="api",
+        )
+
     @validated_request(
         request_serializer=SignalReportArtefactLogUpdateSerializer,
         responses={
@@ -3462,6 +3497,9 @@ class SignalReportArtefactViewSet(
                 {"error": f"content does not match the '{artefact.type}' schema: {e}"},
                 status=status.HTTP_400_BAD_REQUEST,
             )
+        if artefact.type == SignalReportArtefact.ArtefactType.SUGGESTED_REVIEWERS:
+            # Editing a reviewers row can change the report's canonical reviewer set in place.
+            transaction.on_commit(partial(self._capture_canonical_reviewer_state, str(artefact.report_id)))
         return Response(self._write_response_data(artefact))
 
     @extend_schema(
@@ -3479,7 +3517,13 @@ class SignalReportArtefactViewSet(
     )
     def destroy(self, request, *args, **kwargs) -> Response:
         artefact = cast(SignalReportArtefact, self.get_object())
+        was_reviewers = artefact.type == SignalReportArtefact.ArtefactType.SUGGESTED_REVIEWERS
+        report_id = str(artefact.report_id)
         artefact.delete()
+        if was_reviewers:
+            # Deleting the latest reviewers row reverts the canonical set to the previous row (or
+            # none) — re-emit so the latest event per report tracks the surviving state.
+            transaction.on_commit(partial(self._capture_canonical_reviewer_state, report_id))
         return Response(status=status.HTTP_204_NO_CONTENT)
 
     @extend_schema(
