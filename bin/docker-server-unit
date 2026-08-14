@@ -41,15 +41,15 @@ if [ "${USE_GRANIAN:-false}" = "true" ]; then
 
     if [ "$GRANIAN_INTERFACE" = "wsgi" ]; then
         APP_TARGET="posthog.wsgi:application"
+        # The Granian WSGI tier serves warehouse queries: each worker loads the
+        # source catalog while importing posthog.wsgi, before it starts serving,
+        # so first warehouse queries skip the catalog import. Set only here so
+        # every other Django process keeps lazy source loading.
+        export PREWARM_WAREHOUSE_SOURCE_REGISTRY=${PREWARM_WAREHOUSE_SOURCE_REGISTRY:-true}
     else
         APP_TARGET="posthog.asgi:application"
         # uvloop drives the Python asyncio loop; WSGI has none.
         export GRANIAN_LOOP=${GRANIAN_LOOP:-uvloop}
-        # Each worker loads the warehouse source catalog during its lifespan
-        # startup, before reporting ready, so first warehouse queries skip the
-        # catalog import. Set only for this launcher so every other Django
-        # process keeps lazy source loading.
-        export PREWARM_WAREHOUSE_SOURCE_REGISTRY=${PREWARM_WAREHOUSE_SOURCE_REGISTRY:-true}
     fi
 
     echo "🚀 Starting with Granian ${GRANIAN_INTERFACE} server (opt-in via USE_GRANIAN=true)..."

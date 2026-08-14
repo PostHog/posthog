@@ -197,8 +197,8 @@ Deferring an import does not delete the work; it moves it to first use, and firs
 The general question to ask of any deferral: _which process pays now, on what path, and is that path latency-sensitive?_
 Background workers paying lazily is almost always fine; web workers paying on first requests usually is not.
 When first use is latency-sensitive, move the cost back deliberately with a targeted, per-process warm-up rather than re-eagering the import for everyone.
-The warehouse source catalog (every vendor SDK, lazy via `SourceRegistry`) has two of these: temporal workers whose queues run data-import syncs call `load_all_sources()` at worker boot, and Granian web workers load the registry during ASGI lifespan startup, behind `PREWARM_WAREHOUSE_SOURCE_REGISTRY` set by `bin/docker-server-unit`.
-Both warm synchronously before the process reports ready; every other process keeps the lazy path.
+The warehouse source catalog (every vendor SDK, lazy via `SourceRegistry`) has two of these: temporal workers whose queues run data-import syncs call `load_all_sources()` at worker boot, and web workers call `posthog/warehouse_source_prewarm.py` at startup (during `posthog.wsgi` module import, inside the boot GC window; during lifespan startup for ASGI), behind `PREWARM_WAREHOUSE_SOURCE_REGISTRY`, which `bin/docker-server-unit` enables for the Granian WSGI tier that serves warehouse queries.
+Both warm synchronously before the process starts serving; a failed prewarm logs and leaves the worker to the lazy path, and every other process keeps that path.
 
 **Pydantic `defer_build` on the generated schema: attempted and reverted.**
 Generating `posthog.schema` against a `defer_build` base took ~400ms of core-schema construction off every setup, and looked safe — validation, `model_dump`, `model_json_schema`, and `TypeAdapter` all build on demand in round-trip tests.

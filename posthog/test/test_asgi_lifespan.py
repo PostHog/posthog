@@ -158,12 +158,13 @@ async def test_lifespan_startup_prewarms_source_registry_before_reporting_ready(
 
 
 @pytest.mark.asyncio
-async def test_lifespan_startup_prewarm_failure_reports_startup_failed() -> None:
-    driver = _LifespanDriver([{"type": "lifespan.startup"}])
+async def test_lifespan_startup_prewarm_failure_still_reports_startup_complete() -> None:
+    driver = _LifespanDriver([{"type": "lifespan.startup"}, {"type": "lifespan.shutdown"}])
 
     with override_settings(PREWARM_WAREHOUSE_SOURCE_REGISTRY=True):
         with mock.patch.object(SourceRegistry, "get_all_sources", side_effect=RuntimeError("catalog broke")):
             await driver.run()
 
-    assert [message["type"] for message in driver.sent] == ["lifespan.startup.failed"]
-    assert "message" in driver.sent[0]
+    # A broken catalog must not fail worker startup (respawn loops); the worker serves
+    # cold and the registry's lazy loading retries on first use.
+    assert driver.sent == [{"type": "lifespan.startup.complete"}, {"type": "lifespan.shutdown.complete"}]
