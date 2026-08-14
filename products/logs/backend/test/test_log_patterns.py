@@ -942,7 +942,10 @@ class TestHostMaskProperties(TestCase):
     def test_lines_differing_only_by_hostname_share_a_fingerprint(self, host_a: str, host_b: str) -> None:
         # This is what the mask is for. The patterns diff and the pattern list both key on
         # the fingerprint, so two hostnames that fingerprint apart show up as two templates.
-        line = '{{"authority":"{}","upstream_cluster":"capture"}}'
+        # The host sits in the message field: a JSON body with no message-like field is
+        # canonicalized to its shape, which fingerprints identically whatever the host is and
+        # would let an over-narrow host mask through.
+        line = '{{"message":"upstream {} refused","upstream_cluster":"capture"}}'
         a = mine_patterns([_sample(line.format(host_a))])
         b = mine_patterns([_sample(line.format(host_b))])
 
