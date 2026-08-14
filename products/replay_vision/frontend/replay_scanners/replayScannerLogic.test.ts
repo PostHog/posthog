@@ -357,9 +357,29 @@ describe('replayScannerLogic', () => {
             expect(router.values.location.pathname).toContain('/replay-vision/new/triggers')
         })
 
-        it('routes a rejected submit to the step that renders the errored fields', async () => {
-            // Defaults leave name and prompt empty, both configure-owned.
+        it('advances a clean step forward even while an earlier step still has an error', async () => {
+            // The prompt is empty (a configure-owned error), but the triggers step itself is valid, so
+            // leaving triggers must move forward to budget, not bounce backward to configure.
             router.actions.push('/replay-vision/new/triggers')
+            await expectLogic(logic, () => logic.actions.submitScanner()).toFinishAllListeners()
+            expect(createSpy).not.toHaveBeenCalled()
+            expect(router.values.location.pathname).toContain('/replay-vision/new/budget')
+        })
+
+        it('routes the final step back to the earlier step whose fields block the save', async () => {
+            // On the last step there is nowhere forward to go, so an empty prompt sends the user to
+            // configure to fix it rather than silently failing the create.
+            router.actions.push('/replay-vision/new/budget')
+            scannerEditorSceneLogic.actions.setStep('budget')
+            await expectLogic(logic, () => logic.actions.submitScanner()).toFinishAllListeners()
+            expect(createSpy).not.toHaveBeenCalled()
+            expect(router.values.location.pathname).toContain('/replay-vision/new/configure')
+        })
+
+        it('keeps the user on a step whose own fields are invalid', async () => {
+            // The prompt is configure-owned, so submitting from configure must surface it in place
+            // rather than jumping the user elsewhere.
+            router.actions.push('/replay-vision/new/configure')
             await expectLogic(logic, () => logic.actions.submitScanner()).toFinishAllListeners()
             expect(createSpy).not.toHaveBeenCalled()
             expect(router.values.location.pathname).toContain('/replay-vision/new/configure')
@@ -776,9 +796,9 @@ describe('replayScannerLogic', () => {
             expect(router.values.location.pathname).toContain(urls.replayVisionScannerConfigure('new'))
         })
 
-        it('keeps the ?template param when a rejected submit jumps to the errored step', async () => {
-            router.actions.push(`${urls.replayVisionScannerTriggers('new')}?template=dead_end`)
-            scannerEditorSceneLogic.actions.setStep('triggers')
+        it('keeps the ?template param when the final step jumps back to the errored step', async () => {
+            router.actions.push(`${urls.replayVisionScannerBudget('new')}?template=dead_end`)
+            scannerEditorSceneLogic.actions.setStep('budget')
             logic.actions.setScannerValues({ scanner_config: { prompt: '' } })
             await expectLogic(logic, () => logic.actions.submitScanner()).toFinishAllListeners()
             expect(router.values.location.pathname).toContain(urls.replayVisionScannerConfigure('new'))

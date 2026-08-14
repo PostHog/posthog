@@ -48,7 +48,6 @@ import {
     SCANNER_EDITOR_STEPS,
     SCANNER_EDITOR_STEP_ORDER,
     ScannerEditorStep,
-    UNVALIDATED_SCANNER_STEPS,
     scannerStepErrors,
     scannerEditorSceneLogic,
     scannerStepUrlWithParams,
@@ -123,19 +122,17 @@ export function ScannerEditorSceneComponent(): JSX.Element {
 
     const title = isNew ? scanner?.name || 'New scanner' : scanner?.name || 'Scanner'
 
-    const stepErrors = showScannerErrors
-        ? scannerStepErrors({ ...scannerValidationErrors, duration: durationValidationError })
-        : undefined
+    const liveStepErrors = scannerStepErrors({ ...scannerValidationErrors, duration: durationValidationError })
+    const stepErrors = showScannerErrors ? liveStepErrors : undefined
 
-    // Validate the current step and move on: submit routes to the next step on success. A step with
-    // nothing to validate navigates straight on, so it can't fail on fields the user hasn't reached.
+    // Next validates only the fields the current step mounts. When this step is clean, move forward
+    // even if an earlier step still has an error (e.g. an empty prompt): that error can't bounce the
+    // user backward here. A step with its own error, or the final step, submits so the form surfaces it.
     const advance = (): void => {
-        if (UNVALIDATED_SCANNER_STEPS.includes(step)) {
-            const next = SCANNER_EDITOR_STEPS[SCANNER_EDITOR_STEPS.indexOf(step) + 1]
-            if (next) {
-                router.actions.push(scannerStepUrlWithParams(next, scannerId, searchParams))
-                return
-            }
+        const next = SCANNER_EDITOR_STEPS[SCANNER_EDITOR_STEPS.indexOf(step) + 1]
+        if (next && !liveStepErrors[step]) {
+            router.actions.push(scannerStepUrlWithParams(next, scannerId, searchParams))
+            return
         }
         submitScanner()
     }
@@ -414,7 +411,9 @@ function EditorFooter({
     onAdvance: () => void
     onSave: () => void
 }): JSX.Element {
-    const { scanner, durationValidationError, hasUnsavedChanges } = useValues(replayScannerLogic({ id: scannerId }))
+    const { scanner, durationValidationError, hasUnsavedChanges, scannerValidationErrors } = useValues(
+        replayScannerLogic({ id: scannerId })
+    )
     const { searchParams } = useValues(router)
     const { discardScannerDraft } = useActions(replayScannerLogic({ id: scannerId }))
     const stepIndex = SCANNER_EDITOR_STEPS.indexOf(step)
@@ -427,6 +426,16 @@ function EditorFooter({
     const ownsDurationFilter = step === 'triggers' || step === 'budget'
     const durationError = ownsDurationFilter ? durationValidationError : null
     const saveDisabledReason = getReplayVisionEditDisabledReason(scanner?.user_access_level) ?? durationError
+    // The final step submits the whole form, so an unfixed earlier step would bounce the user back on
+    // click. Block Create up front and name the step to fix, rather than teleporting with no warning.
+    const stepErrors = scannerStepErrors({ ...scannerValidationErrors, duration: durationValidationError })
+    const earlierBlockingStep = !nextStep
+        ? SCANNER_EDITOR_STEPS.find(
+              (s) => stepErrors[s] && SCANNER_EDITOR_STEP_ORDER[s] < SCANNER_EDITOR_STEP_ORDER[step]
+          )
+        : undefined
+    const createDisabledReason =
+        saveDisabledReason ?? (earlierBlockingStep ? `Finish the ${STEP_LABELS[earlierBlockingStep]} step first` : null)
 
     const cancel = (): void => {
         // Resetting first leaves nothing unsaved, so the leave guard can't prompt on top of this.
@@ -485,7 +494,7 @@ function EditorFooter({
                         <LemonButton
                             type="primary"
                             loading={isSubmitting}
-                            disabledReason={saveDisabledReason}
+                            disabledReason={createDisabledReason}
                             onClick={onSave}
                             data-attr="vision-editor-save"
                             data-ph-capture-attribute-scanner-type={scanner?.scanner_type}

@@ -76,9 +76,9 @@ import {
     SCANNER_EDITOR_STEPS,
     firstErroredScannerStep,
     scannerEditorSceneLogic,
+    scannerStepErrors,
     scannerStepUrl,
     scannerStepUrlWithParams,
-    UNVALIDATED_SCANNER_STEPS,
 } from './scannerEditorSceneLogic'
 import type { ObservationStatusStats } from './scannerStats'
 import { availableTagsFromStats, daysFromDateRange, deriveObservationStatusStats } from './scannerStats'
@@ -1456,21 +1456,24 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                     return
                 }
                 const currentStep = scannerEditorSceneLogic.findMounted()?.values.step
-                // Enter submits the whole form, so leaving a step that validates nothing must behave like
-                // its Next button: move on, rather than red-flag fields the user has not reached yet.
-                if (currentStep && UNVALIDATED_SCANNER_STEPS.includes(currentStep)) {
+                const fieldErrors = {
+                    ...values.scannerValidationErrors,
+                    duration: values.durationValidationError,
+                }
+                const stepErrors = scannerStepErrors(fieldErrors)
+                // Next (and Enter) validate only the current step. When this step's own fields are clean,
+                // move forward rather than bouncing the user back to an earlier step's error they have
+                // not reached yet. Only a clean final step, blocked by an earlier error, routes backward.
+                if (currentStep && !stepErrors[currentStep]) {
                     const next = SCANNER_EDITOR_STEPS[SCANNER_EDITOR_STEPS.indexOf(currentStep) + 1]
                     if (next) {
                         router.actions.push(scannerStepUrlWithParams(next, props.id, router.values.searchParams))
+                        return
                     }
-                    return
-                }
-                const erroredStep = firstErroredScannerStep({
-                    ...values.scannerValidationErrors,
-                    duration: values.durationValidationError,
-                })
-                if (erroredStep && erroredStep !== currentStep) {
-                    router.actions.push(scannerStepUrlWithParams(erroredStep, props.id, router.values.searchParams))
+                    const erroredStep = firstErroredScannerStep(fieldErrors)
+                    if (erroredStep && erroredStep !== currentStep) {
+                        router.actions.push(scannerStepUrlWithParams(erroredStep, props.id, router.values.searchParams))
+                    }
                 }
                 // Yield so the step change renders before scrollToFormError looks for `.Field--error`.
                 await Promise.resolve()
