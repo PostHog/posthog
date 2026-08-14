@@ -80,7 +80,7 @@ export function GatewayAccessSection(): JSX.Element | null {
                             No one has connected yet.
                         </div>
                     ) : (
-                        <div className="border rounded divide-y">
+                        <div className="border rounded divide-y bg-surface-primary">
                             {connections.map((connection) => {
                                 const isYou = connection.installation_id === yourInstallationId
                                 const accessRevoked = server.revoked_user_ids.includes(connection.user.id)
