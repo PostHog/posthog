@@ -905,7 +905,7 @@ class TestVisionActionRunPreview(_VisionActionAPITestCase):
             # 3 observations fit every tier's cap: covered is the window total, one single-pass call.
             self.assertEqual(tier["covered_count"], 3)
             self.assertEqual(tier["llm_calls"], 1)
-            self.assertGreater(tier["estimated_cost_usd"], 0)
+            self.assertGreaterEqual(tier["estimated_credits"], 1)
 
     def test_preview_default_window_anchors_on_the_last_summary(self) -> None:
         # Without an explicit window the preview must count what a run-now would actually cover —

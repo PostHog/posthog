@@ -426,8 +426,8 @@ export interface RunPreviewTierApi {
     covered_count: number
     /** Synthesis LLM calls the run would make at this tier: one for a single-pass run, or one per chunk plus a final reduce pass when the coverage exceeds one batch. */
     llm_calls: number
-    /** Estimated AI-credit cost of those calls in USD, from pinned per-token rates. An estimate by construction; billing meters actual usage. */
-    estimated_cost_usd: number
+    /** Estimated AI-credit cost of those calls in whole credits (1 credit = $0.01), from pinned per-token rates. An estimate by construction; billing meters actual usage. */
+    estimated_credits: number
 }
 
 /**

@@ -9,6 +9,7 @@ import { humanFriendlyNumber } from 'lib/utils/numbers'
 import { DateMappingOption } from '~/types'
 
 import type { RunPreviewResponseApi, RunPreviewTierApi } from '../../generated/api.schemas'
+import { formatCreditCount } from '../../utils/credits'
 import { CoverageTierKey, FALLBACK_TIER_CAPS, scannerDigestLogic } from '../scannerDigestLogic'
 
 // Day-scale presets: a period summary rolls up days or weeks of findings, unlike backfills where
@@ -30,10 +31,6 @@ const TIER_LABELS: Record<CoverageTierKey, string> = {
     complete: 'Complete',
 }
 
-function formatCostUsd(costUsd: number): string {
-    return costUsd < 0.005 ? 'under $0.01' : `$${costUsd.toFixed(2)}`
-}
-
 function tierTooltip(key: CoverageTierKey, cap: number): string {
     return key === 'complete'
         ? `Summarize every observation in the period, up to ${humanFriendlyNumber(cap)}`
@@ -49,7 +46,7 @@ function coverageSummary(preview: RunPreviewResponseApi, tier: RunPreviewTierApi
             : total === 1
               ? 'the 1 observation'
               : `all ${humanFriendlyNumber(total)} ${noun}`
-    return `Summarizes ${scope} in this period for about ${formatCostUsd(tier.estimated_cost_usd)} in AI credits.`
+    return `Summarizes ${scope} in this period for about ${formatCreditCount(tier.estimated_credits)}.`
 }
 
 /** Picks the observation window and coverage for a one-off digest run over a chosen period, e.g. a
@@ -130,7 +127,7 @@ export function SummarizePeriodModal({
                                     <span className="flex items-baseline gap-1.5">
                                         {TIER_LABELS[key]}
                                         <span className="text-muted text-xs font-normal">
-                                            {formatCostUsd(tier.estimated_cost_usd)}
+                                            {formatCreditCount(tier.estimated_credits)}
                                         </span>
                                     </span>
                                 ) : (

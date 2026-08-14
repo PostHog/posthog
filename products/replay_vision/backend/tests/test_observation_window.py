@@ -5,6 +5,7 @@ from parameterized import parameterized
 from products.replay_vision.backend.observation_window import (
     COVERAGE_TIERS,
     estimate_summary_cost_usd,
+    estimate_summary_credits,
     synthesis_llm_calls,
 )
 
@@ -35,3 +36,13 @@ class TestSummaryCostEstimates(SimpleTestCase):
         self.assertGreater(costs[0], 0)
         self.assertLess(costs[0], 0.05)  # standard: a single pass costs around a cent
         self.assertLess(costs[-1], 1.0)  # complete: the full 2,000-observation map-reduce stays under a dollar
+
+    def test_credit_estimate_is_whole_and_never_free_for_a_nonzero_run(self) -> None:
+        # The UI quotes whole credits; rounding a sub-cent single pass down to 0 would advertise a
+        # billable run as free.
+        self.assertEqual(estimate_summary_credits(0), 0)
+        self.assertEqual(estimate_summary_credits(1), 1)
+        credits = [estimate_summary_credits(tier.max_observations) for tier in COVERAGE_TIERS]
+        self.assertEqual(credits, sorted(credits))
+        self.assertGreaterEqual(credits[0], 1)
+        self.assertLess(credits[-1], 100)  # complete stays under a dollar

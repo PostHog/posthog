@@ -180,3 +180,15 @@ def estimate_summary_cost_usd(observation_count: int) -> float:
         input_tokens += (calls - 1) * ESTIMATE_OUTPUT_TOKENS_PER_CALL
     output_tokens = calls * ESTIMATE_OUTPUT_TOKENS_PER_CALL
     return (input_tokens * ESTIMATE_INPUT_USD_PER_MTOK + output_tokens * ESTIMATE_OUTPUT_USD_PER_MTOK) / 1_000_000
+
+
+# Mirrors CREDITS_PER_DOLLAR in frontend/utils/credits.ts: 1 credit = $0.01, the display unit
+# everywhere in this product.
+CREDITS_PER_USD = 100
+
+
+def estimate_summary_credits(observation_count: int) -> int:
+    """`estimate_summary_cost_usd` in whole credits, floored at 1 so a nonzero cost never reads as free."""
+    if observation_count <= 0:
+        return 0
+    return max(1, round(estimate_summary_cost_usd(observation_count) * CREDITS_PER_USD))

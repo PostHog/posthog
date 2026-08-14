@@ -50,7 +50,7 @@ from products.replay_vision.backend.observation_window import (
     MAX_OBSERVATIONS,
     MAX_RUN_OBSERVATIONS,
     default_window_start,
-    estimate_summary_cost_usd,
+    estimate_summary_credits,
     synthesis_llm_calls,
     window_observations,
 )
@@ -701,10 +701,10 @@ class RunPreviewTierSerializer(serializers.Serializer):
             "per chunk plus a final reduce pass when the coverage exceeds one batch."
         ),
     )
-    estimated_cost_usd = serializers.FloatField(
+    estimated_credits = serializers.IntegerField(
         help_text=(
-            "Estimated AI-credit cost of those calls in USD, from pinned per-token rates. An estimate "
-            "by construction; billing meters actual usage."
+            "Estimated AI-credit cost of those calls in whole credits (1 credit = $0.01), from pinned "
+            "per-token rates. An estimate by construction; billing meters actual usage."
         ),
     )
 
@@ -935,7 +935,7 @@ class VisionActionViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 "max_observations": tier.max_observations,
                 "covered_count": min(count, tier.max_observations),
                 "llm_calls": synthesis_llm_calls(min(count, tier.max_observations)),
-                "estimated_cost_usd": round(estimate_summary_cost_usd(min(count, tier.max_observations)), 4),
+                "estimated_credits": estimate_summary_credits(min(count, tier.max_observations)),
             }
             for tier in COVERAGE_TIERS
         ]
