@@ -665,9 +665,9 @@ Optimize for the fewest shell round trips.
 - Never rerun a command solely to reproduce output you already have.
 
 ## Rich output in replies
-The chat renders two special markdown forms. Use them when they make an answer clearer:
-- Inline evidence citation: cite a PostHog object you consulted as \`[label](evidence:<kind>/<id>)\` inside a sentence. Known kinds: insight, error, replay, flag, experiment, survey, ticket, trace, eval, event. Optional URL-encoded query params enrich the hover card with facts you already have: \`url\` (PostHog web URL, makes it clickable), \`value\` (headline figure, e.g. \`28.1%\`), \`desc\` (one context line), \`series\` (comma-separated numbers, drawn as a sparkline).
-- Full-size chart: a fenced code block tagged \`posthog-chart\` whose body is JSON. Inline data you already have: \`{"title": "...", "render": "line"|"bar", "labels": [...], "series": [{"name": "...", "points": [...]}], "caption": "..."}\`. Or a PostHog query node to execute: \`{"title": "...", "query": {"kind": "InsightVizNode", "source": {...}}}\`. Prefer a chart block over a markdown table for numeric or time-series results.`;
+The chat renders two special markdown forms. Both are live references the app resolves when shown; never restate the underlying data in them:
+- Inline evidence citation: cite a PostHog object you consulted as \`[label](evidence:<kind>/<id>)\` inside a sentence. Known kinds: insight, dashboard, error, replay, flag, experiment, survey, ticket, trace, eval, event, cohort, action, person. Use the object's id (insights: the short id; feature flags: the numeric id, falling back to the key; persons: the uuid). The app fetches the object's live name and status for the hover card and links it in PostHog; do not append query params or copy its stats into the link.
+- Full-size chart: a fenced code block tagged \`posthog-chart\` whose body is JSON. For anything queryable from PostHog, embed the query so the chart stays live: an insight query \`{"title": "...", "query": {"kind": "InsightVizNode", "source": {"kind": "TrendsQuery", ...}}}\` or SQL \`{"title": "...", "query": {"kind": "DataVisualizationNode", "source": {"kind": "HogQLQuery", "query": "SELECT ..."}}}\`. Only for small datasets you derived yourself and cannot express as a query: \`{"title": "...", "render": "line"|"bar", "labels": [...], "series": [{"name": "...", "points": [...]}], "caption": "..."}\`. Prefer a chart block over a markdown table for numeric or time-series results.`;
 
     if (channelMode) {
       prompt += `

@@ -117,6 +117,18 @@ import {
   shapeAgentAnalytics,
 } from "./agent-analytics";
 import {
+  type EvidencePreview,
+  shapeActionPreview,
+  shapeCohortPreview,
+  shapeDashboardPreview,
+  shapeErrorIssuePreview,
+  shapeExperimentPreview,
+  shapeFlagPreview,
+  shapeInsightPreview,
+  shapeRecordingPreview,
+  shapeSurveyPreview,
+} from "./evidence-previews";
+import {
   ApiRequestError,
   buildApiFetcher,
   type FetchImplementation,
@@ -7019,6 +7031,103 @@ export class PostHogAPIClient {
       throw new Error(data.error);
     }
     return data;
+  }
+
+  /**
+   * Resolves an `evidence:<kind>/<id>` citation from an agent message to a
+   * small live summary of the object it points at. Returns null for kinds
+   * without a lookup and for ids that don't resolve, so the caller can fall
+   * back to a static reference.
+   */
+  async getEvidencePreview(
+    kind: string,
+    id: string,
+  ): Promise<EvidencePreview | null> {
+    const projectId = (await this.getTeamId()).toString();
+    const numericId = /^\d+$/.test(id) ? Number(id) : null;
+
+    switch (kind) {
+      case "insight": {
+        const page = await this.api.get(
+          "/api/projects/{project_id}/insights/",
+          { path: { project_id: projectId }, query: { short_id: id } },
+        );
+        const insight = page.results[0];
+        return insight ? shapeInsightPreview(insight) : null;
+      }
+      case "flag": {
+        if (numericId !== null) {
+          const flag = await this.api.get(
+            "/api/projects/{project_id}/feature_flags/{id}/",
+            { path: { project_id: projectId, id: numericId } },
+          );
+          return shapeFlagPreview(flag);
+        }
+        // Agents often cite flags by key; the API only retrieves by numeric
+        // id, so find the exact key through the list search.
+        const page = await this.api.get(
+          "/api/projects/{project_id}/feature_flags/",
+          { path: { project_id: projectId }, query: { search: id } },
+        );
+        const flag = page.results.find((entry) => entry.key === id);
+        return flag ? shapeFlagPreview(flag) : null;
+      }
+      case "experiment": {
+        if (numericId === null) return null;
+        const experiment = await this.api.get(
+          "/api/projects/{project_id}/experiments/{id}/",
+          { path: { project_id: projectId, id: numericId } },
+        );
+        return shapeExperimentPreview(experiment);
+      }
+      case "error": {
+        const issue = await this.api.get(
+          "/api/environments/{project_id}/error_tracking/issues/{id}/",
+          { path: { project_id: projectId, id } },
+        );
+        return shapeErrorIssuePreview(issue);
+      }
+      case "replay": {
+        const recording = await this.api.get(
+          "/api/projects/{project_id}/session_recordings/{id}/",
+          { path: { project_id: projectId, id } },
+        );
+        return shapeRecordingPreview(recording);
+      }
+      case "survey": {
+        const survey = await this.api.get(
+          "/api/projects/{project_id}/surveys/{id}/",
+          { path: { project_id: projectId, id } },
+        );
+        return shapeSurveyPreview(survey);
+      }
+      case "dashboard": {
+        if (numericId === null) return null;
+        const dashboard = await this.api.get(
+          "/api/projects/{project_id}/dashboards/{id}/",
+          { path: { project_id: projectId, id: numericId }, query: {} },
+        );
+        return shapeDashboardPreview(dashboard);
+      }
+      case "cohort": {
+        if (numericId === null) return null;
+        const cohort = await this.api.get(
+          "/api/projects/{project_id}/cohorts/{id}/",
+          { path: { project_id: projectId, id: numericId } },
+        );
+        return shapeCohortPreview(cohort);
+      }
+      case "action": {
+        if (numericId === null) return null;
+        const action = await this.api.get(
+          "/api/projects/{project_id}/actions/{id}/",
+          { path: { project_id: projectId, id: numericId }, query: {} },
+        );
+        return shapeActionPreview(action);
+      }
+      default:
+        return null;
+    }
   }
 
   /**

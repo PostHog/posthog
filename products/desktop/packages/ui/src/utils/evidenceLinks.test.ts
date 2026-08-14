@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
-import { parseEvidenceLink } from "./evidenceLinks";
+import { evidenceWebPath, parseEvidenceLink } from "./evidenceLinks";
 
-describe("parseEvidenceLink", () => {
+describe("evidenceLinks", () => {
   it.each([
     ["evidence:insight/9pQx3", { kind: "insight", id: "9pQx3" }],
     ["evidence:error/018f-44aa", { kind: "error", id: "018f-44aa" }],
@@ -11,69 +11,12 @@ describe("parseEvidenceLink", () => {
     expect(parseEvidenceLink(href)).toEqual(expected);
   });
 
-  it("carries a PostHog web url from the query", () => {
-    const url = "https://us.posthog.com/project/2/insights/9pQx3";
+  it("ignores query params so links from older transcripts still resolve", () => {
     expect(
       parseEvidenceLink(
-        `evidence:insight/9pQx3?url=${encodeURIComponent(url)}`,
+        "evidence:insight/9pQx3?value=28.1%25&desc=down&series=1,2&url=https%3A%2F%2Fexample.com",
       ),
-    ).toEqual({ kind: "insight", id: "9pQx3", url });
-  });
-
-  it("carries display params for the hover card", () => {
-    expect(
-      parseEvidenceLink(
-        "evidence:insight/9pQx3?value=28.1%25&desc=down+12.9pts+since+Jan+3",
-      ),
-    ).toEqual({
-      kind: "insight",
-      id: "9pQx3",
-      value: "28.1%",
-      desc: "down 12.9pts since Jan 3",
-    });
-  });
-
-  it("caps display params so a runaway link cannot flood the card", () => {
-    const parsed = parseEvidenceLink(
-      `evidence:insight/x?value=${"9".repeat(80)}&desc=${"a".repeat(400)}`,
-    );
-    expect(parsed?.value?.length).toBe(40);
-    expect(parsed?.desc?.length).toBe(160);
-  });
-
-  it("parses a series param into sparkline points", () => {
-    expect(
-      parseEvidenceLink("evidence:insight/x?series=41,39.5,+40,28"),
-    ).toEqual({
-      kind: "insight",
-      id: "x",
-      series: [41, 39.5, 40, 28],
-    });
-  });
-
-  it.each([
-    ["a single point", "series=41"],
-    ["junk among the numbers", "series=41,down,28"],
-  ])("drops a series with %s instead of a broken sparkline", (_name, query) => {
-    expect(parseEvidenceLink(`evidence:insight/x?${query}`)).toEqual({
-      kind: "insight",
-      id: "x",
-    });
-  });
-
-  it("caps series points so a runaway link cannot flood the card", () => {
-    const parsed = parseEvidenceLink(
-      `evidence:insight/x?series=${Array.from({ length: 200 }, (_, i) => i).join(",")}`,
-    );
-    expect(parsed?.series?.length).toBe(60);
-  });
-
-  it("drops url values that are not http(s)", () => {
-    expect(
-      parseEvidenceLink(
-        `evidence:insight/x?url=${encodeURIComponent("javascript:alert(1)")}`,
-      ),
-    ).toEqual({ kind: "insight", id: "x" });
+    ).toEqual({ kind: "insight", id: "9pQx3" });
   });
 
   it.each([
@@ -87,5 +30,32 @@ describe("parseEvidenceLink", () => {
     ["chart:9pQx3"],
   ])("returns null for %s", (href) => {
     expect(parseEvidenceLink(href)).toBeNull();
+  });
+
+  it.each([
+    ["insight", "9pQx3", "/insights/9pQx3"],
+    ["dashboard", "12", "/dashboard/12"],
+    ["error", "018f-44aa", "/error_tracking/018f-44aa"],
+    ["replay", "s_01HQ4K", "/replay/s_01HQ4K"],
+    ["flag", "42", "/feature_flags/42"],
+    ["experiment", "7", "/experiments/7"],
+    ["survey", "srv-11", "/surveys/srv-11"],
+    ["ticket", "conv_88", "/support/tickets/conv_88"],
+    ["trace", "t_9f2ab4", "/ai-observability/traces/t_9f2ab4"],
+    ["eval", "ev_faith", "/ai-evals/evaluations/ev_faith"],
+    ["cohort", "31", "/cohorts/31"],
+    ["action", "5", "/data-management/actions/5"],
+    ["person", "0192-aaaa", "/persons/0192-aaaa"],
+    // Flag pages only resolve by numeric id, so a key gets no direct URL.
+    ["flag", "my-flag-key", null],
+    // Kinds without a canonical object page.
+    ["event", "cart_saved", null],
+    ["something-new", "x1", null],
+  ])("maps %s/%s to %s", (kind, id, expected) => {
+    expect(evidenceWebPath(kind, id)).toBe(expected);
+  });
+
+  it("URL-encodes the id in the web path", () => {
+    expect(evidenceWebPath("insight", "a/b c")).toBe("/insights/a%2Fb%20c");
   });
 });

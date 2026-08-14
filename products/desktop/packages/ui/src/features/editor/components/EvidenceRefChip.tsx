@@ -3,6 +3,7 @@ import {
   ChartLineIcon,
   ChatCircleTextIcon,
   ClipboardTextIcon,
+  CursorClickIcon,
   FlagIcon,
   FlaskIcon,
   type Icon,
@@ -11,11 +12,22 @@ import {
   PulseIcon,
   ShieldCheckIcon,
   SparkleIcon,
+  SquaresFourIcon,
+  UserIcon,
+  UsersThreeIcon,
 } from "@phosphor-icons/react";
-import { type MouseEvent, type ReactNode, useId } from "react";
+import type { EvidencePreview } from "@posthog/api-client/evidence-previews";
+import { getCloudUrlFromRegion } from "@posthog/shared";
+import type { MouseEvent, ReactNode } from "react";
+import { useOptionalAuthenticatedClient } from "../../../features/auth/authClient";
+import { useAuthStateValue } from "../../../features/auth/store";
+import { useAuthenticatedQuery } from "../../../hooks/useAuthenticatedQuery";
 import { Tooltip } from "../../../primitives/Tooltip";
 import { openExternalUrl } from "../../../shell/openExternal";
-import type { EvidenceLinkTarget } from "../../../utils/evidenceLinks";
+import {
+  type EvidenceLinkTarget,
+  evidenceWebPath,
+} from "../../../utils/evidenceLinks";
 
 /**
  * Inline evidence reference inside an agent message.
@@ -26,12 +38,10 @@ import type { EvidenceLinkTarget } from "../../../utils/evidenceLinks";
  * inline like the icon's svg, while a bottom border runs under the full
  * reference on every wrapped line fragment.
  *
- * Hovering shows a preview card with what the reference points at; clicking
- * opens the underlying object in PostHog when the link carries a `url`.
- *
- * UI layer only: the card shows the metadata the link itself carries
- * (including the optional `value` and `desc` display params). A live data
- * preview can slot into `preview` once evidence fetching exists.
+ * The link carries only `kind/id`. Hovering mounts the card, which resolves
+ * the object's live name and status through the PostHog API; clicking opens
+ * the object in PostHog at a URL derived from the reference and the current
+ * project. Nothing about the object is stored in the message itself.
  */
 
 interface EvidenceKindMeta {
@@ -46,6 +56,11 @@ const EVIDENCE_KIND_META: Record<string, EvidenceKindMeta> = {
   insight: {
     icon: ChartLineIcon,
     kindLabel: "Insight",
+    source: "Product analytics",
+  },
+  dashboard: {
+    icon: SquaresFourIcon,
+    kindLabel: "Dashboard",
     source: "Product analytics",
   },
   error: { icon: BugIcon, kindLabel: "Error issue", source: "Error tracking" },
@@ -66,15 +81,34 @@ const EVIDENCE_KIND_META: Record<string, EvidenceKindMeta> = {
     kindLabel: "Support tickets",
     source: "Conversations",
   },
-  trace: { icon: SparkleIcon, kindLabel: "LLM trace", source: "LLM analytics" },
+  trace: {
+    icon: SparkleIcon,
+    kindLabel: "LLM trace",
+    source: "AI observability",
+  },
   eval: {
     icon: ShieldCheckIcon,
     kindLabel: "Evaluation",
-    source: "LLM analytics",
+    source: "AI evals",
   },
   event: {
     icon: LightningIcon,
     kindLabel: "Events",
+    source: "Product analytics",
+  },
+  cohort: {
+    icon: UsersThreeIcon,
+    kindLabel: "Cohort",
+    source: "Product analytics",
+  },
+  action: {
+    icon: CursorClickIcon,
+    kindLabel: "Action",
+    source: "Product analytics",
+  },
+  person: {
+    icon: UserIcon,
+    kindLabel: "Person",
     source: "Product analytics",
   },
 };
@@ -89,83 +123,25 @@ export function getEvidenceKindMeta(kind: string): EvidenceKindMeta {
   return EVIDENCE_KIND_META[kind] ?? GENERIC_KIND_META;
 }
 
-const SPARK_W = 100;
-const SPARK_H = 32;
-const SPARK_PAD = 3;
-
 /**
- * Tiny trend line for the hover card, drawn from the numbers the link itself
- * carries — same zero-fetch principle as the other display params.
+ * The hover card, presentation only. `preview` is the live lookup result:
+ * `undefined` while loading, `null` when there is nothing to show (unknown
+ * kind, failed lookup, or no session).
  */
-function Sparkline({ points }: { points: number[] }) {
-  const gradientId = useId();
-  const max = Math.max(...points);
-  const min = Math.min(...points);
-  const range = max - min || 1;
-  const coords = points.map((point, index) => [
-    (index / (points.length - 1)) * SPARK_W,
-    SPARK_H - SPARK_PAD - ((point - min) / range) * (SPARK_H - 2 * SPARK_PAD),
-  ]);
-  const line = coords
-    .map(
-      ([x, y], index) =>
-        `${index === 0 ? "M" : "L"}${x.toFixed(1)} ${y.toFixed(1)}`,
-    )
-    .join(" ");
-  const [lastX, lastY] = coords[coords.length - 1];
-  return (
-    <svg
-      viewBox={`0 0 ${SPARK_W} ${SPARK_H}`}
-      preserveAspectRatio="none"
-      className="h-9 w-full"
-      role="img"
-      aria-label="Trend sparkline"
-      data-testid="evidence-sparkline"
-    >
-      <defs>
-        <linearGradient id={gradientId} x1="0" y1="0" x2="0" y2="1">
-          <stop offset="0%" stopColor="var(--accent-9)" stopOpacity={0.2} />
-          <stop offset="100%" stopColor="var(--accent-9)" stopOpacity={0.02} />
-        </linearGradient>
-      </defs>
-      <path
-        d={`${line} L${SPARK_W} ${SPARK_H} L0 ${SPARK_H} Z`}
-        fill={`url(#${gradientId})`}
-      />
-      <path
-        d={line}
-        fill="none"
-        stroke="var(--accent-9)"
-        strokeWidth={1.6}
-        strokeLinejoin="round"
-        strokeLinecap="round"
-        vectorEffect="non-scaling-stroke"
-      />
-      <circle cx={lastX} cy={lastY} r={2} fill="var(--accent-9)" />
-    </svg>
-  );
-}
-
-export function EvidenceRefChip({
+export function EvidenceHoverCard({
   target,
   children,
+  clickable,
   preview,
 }: {
   target: EvidenceLinkTarget;
   children: ReactNode;
-  /** Slot for a live data preview inside the card, once fetching exists. */
-  preview?: ReactNode;
+  clickable: boolean;
+  preview: EvidencePreview | null | undefined;
 }) {
   const meta = getEvidenceKindMeta(target.kind);
   const KindIcon = meta.icon;
-  const clickable = !!target.url;
-
-  const open = (event: MouseEvent<HTMLAnchorElement>) => {
-    event.preventDefault();
-    if (target.url) openExternalUrl(target.url);
-  };
-
-  const card = (
+  return (
     <div className="w-72">
       <div className="flex items-center gap-2.5 px-3 pt-2.5 pb-2">
         <span className="flex size-6 shrink-0 items-center justify-center rounded-md border border-(--gray-a4) bg-(--gray-a3)">
@@ -180,41 +156,29 @@ export function EvidenceRefChip({
           </span>
         </span>
       </div>
-      {(target.value || target.desc || target.series) && (
-        <div className="border-(--gray-a4) border-t px-3 py-2">
-          <div className="flex items-center gap-3">
-            {(target.value || target.desc) && (
-              <span className="min-w-0 flex-1">
-                {target.value && (
-                  <span className="block font-[600] text-(--gray-12) text-[17px] tabular-nums leading-tight tracking-[-0.01em]">
-                    {target.value}
-                  </span>
-                )}
-                {target.desc && (
-                  <span
-                    className={`block text-(--gray-10) text-[11.5px] leading-snug ${target.value ? "mt-1" : ""}`}
-                  >
-                    {target.desc}
-                  </span>
-                )}
-              </span>
-            )}
-            {target.series && (
-              <span
-                className={
-                  target.value || target.desc
-                    ? "w-24 shrink-0"
-                    : "min-w-0 flex-1"
-                }
-              >
-                <Sparkline points={target.series} />
-              </span>
-            )}
-          </div>
+      {preview === undefined && (
+        <div
+          className="space-y-1.5 border-(--gray-a4) border-t px-3 py-2.5"
+          data-testid="evidence-preview-loading"
+        >
+          <div className="h-3 w-3/5 animate-pulse rounded bg-(--gray-a4)" />
+          <div className="h-2.5 w-2/5 animate-pulse rounded bg-(--gray-a3)" />
         </div>
       )}
       {preview && (
-        <div className="border-(--gray-a4) border-t px-3 py-2">{preview}</div>
+        <div
+          className="border-(--gray-a4) border-t px-3 py-2"
+          data-testid="evidence-preview"
+        >
+          <span className="block truncate font-medium text-(--gray-12) text-[12.5px] leading-[1.4]">
+            {preview.title}
+          </span>
+          {preview.detail && (
+            <span className="mt-0.5 block text-(--gray-10) text-[11.5px] leading-snug">
+              {preview.detail}
+            </span>
+          )}
+        </div>
       )}
       <div className="flex items-center justify-between gap-3 rounded-b-[5px] border-(--gray-a4) border-t bg-(--gray-a2) px-3 py-[7px] text-[10.5px]">
         <span className="truncate font-mono text-(--gray-9)">{target.id}</span>
@@ -226,6 +190,68 @@ export function EvidenceRefChip({
       </div>
     </div>
   );
+}
+
+/**
+ * Fetching wrapper around the card. Mounted only while the tooltip is open,
+ * so the lookup is lazy: a transcript full of references costs nothing until
+ * one is hovered, and react-query caches the result across hovers.
+ */
+function EvidenceHoverCardLoader({
+  target,
+  children,
+  clickable,
+}: {
+  target: EvidenceLinkTarget;
+  children: ReactNode;
+  clickable: boolean;
+}) {
+  const client = useOptionalAuthenticatedClient();
+  const query = useAuthenticatedQuery(
+    ["evidence-preview", target.kind, target.id],
+    (apiClient) => apiClient.getEvidencePreview(target.kind, target.id),
+    {
+      staleTime: 5 * 60 * 1000,
+      refetchOnWindowFocus: false,
+      retry: 1,
+    },
+  );
+  // No session means no lookup: show the static card, not an endless skeleton.
+  const preview =
+    !client || query.isError
+      ? null
+      : query.isFetched
+        ? (query.data ?? null)
+        : undefined;
+  return (
+    <EvidenceHoverCard target={target} clickable={clickable} preview={preview}>
+      {children}
+    </EvidenceHoverCard>
+  );
+}
+
+export function EvidenceRefChip({
+  target,
+  children,
+}: {
+  target: EvidenceLinkTarget;
+  children: ReactNode;
+}) {
+  const meta = getEvidenceKindMeta(target.kind);
+  const KindIcon = meta.icon;
+  const projectId = useAuthStateValue((state) => state.currentProjectId);
+  const cloudRegion = useAuthStateValue((state) => state.cloudRegion);
+
+  const path = evidenceWebPath(target.kind, target.id);
+  const url =
+    path && cloudRegion && projectId
+      ? `${getCloudUrlFromRegion(cloudRegion)}/project/${projectId}${path}`
+      : null;
+
+  const open = (event: MouseEvent<HTMLAnchorElement>) => {
+    event.preventDefault();
+    if (url) openExternalUrl(url);
+  };
 
   const refClass =
     "border-b border-dotted border-(--gray-a8) pb-px text-(--gray-12) no-underline hover:border-solid hover:border-(--gray-a11)";
@@ -241,9 +267,17 @@ export function EvidenceRefChip({
   );
 
   return (
-    <Tooltip content={card} contentClassName="block p-0" sideOffset={8}>
-      {clickable ? (
-        <a href={target.url} onClick={open} className={refClass}>
+    <Tooltip
+      content={
+        <EvidenceHoverCardLoader target={target} clickable={!!url}>
+          {children}
+        </EvidenceHoverCardLoader>
+      }
+      contentClassName="block p-0"
+      sideOffset={8}
+    >
+      {url ? (
+        <a href={url} onClick={open} className={refClass}>
           {inner}
         </a>
       ) : (
