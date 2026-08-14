@@ -222,6 +222,33 @@ describe('PropertyValue', () => {
         expect(input).toHaveValue('7.8')
     })
 
+    it('renders static values without fetching from the API', async () => {
+        // Guards the staticValues escape hatch: consumers whose events are not in
+        // ClickHouse (e.g. internal events) must get their statically known values,
+        // not values of same-named properties fetched from the events table.
+        render(
+            <Provider>
+                <PropertyValue
+                    propertyKey="scope"
+                    type={PropertyFilterType.Event}
+                    operator={PropertyOperator.Exact}
+                    onSet={jest.fn()}
+                    value={[]}
+                    staticValues={[{ name: 'FeatureFlag' }, { name: 'Insight' }]}
+                />
+            </Provider>
+        )
+
+        userEvent.click(screen.getByRole('textbox'))
+
+        expect(await screen.findByText('FeatureFlag')).toBeInTheDocument()
+        expect(screen.getByText('Insight')).toBeInTheDocument()
+
+        // Flush the load debounce window to catch a stray fetch
+        await new Promise((r) => setTimeout(r, 350))
+        expect(loadPropertyValuesSpy).not.toHaveBeenCalled()
+    })
+
     it('renders a group `id` filter with the generic value editor, not the group-name picker', () => {
         // Reverting the editor swap for `id` is the regression fix: a group property
         // named `id` must keep its normal value input (GroupKeySelect, used only for

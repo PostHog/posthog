@@ -23,6 +23,8 @@ from products.tasks.backend.constants import (
     vm_sandbox_allowed_origin_products,
     vm_sandbox_default_base_origin_products,
     vm_sandbox_default_custom_image,
+    vm_sandbox_origin_in_rollout,
+    vm_sandbox_origin_rollout_percentages,
 )
 from products.tasks.backend.exceptions import TaskInvalidStateError, TaskRunNotReadyError
 from products.tasks.backend.facade.api import ensure_task_run_session
@@ -33,7 +35,7 @@ from products.tasks.backend.logic.services.sandbox_config import (
     MAX_SANDBOX_TTL_SECONDS,
 )
 from products.tasks.backend.models import SandboxCustomImage, SandboxEnvironment, Task, TaskRun
-from products.tasks.backend.temporal.constants import resolve_inactivity_timeout
+from products.tasks.backend.temporal.constants import resolve_inactivity_timeout, resolve_max_run_duration
 from products.tasks.backend.temporal.observability import emit_agent_log, log_with_activity_context
 from products.tasks.backend.temporal.process_task.utils import (
     format_allowed_domains_for_log,
@@ -126,6 +128,13 @@ class TaskProcessingContext:
         return self.github_integration_id is not None or self.github_user_integration_id is not None
 
     @property
+    def repositories(self) -> list[str]:
+        repositories = (self.state or {}).get("repositories")
+        if isinstance(repositories, list) and all(isinstance(repository, str) for repository in repositories):
+            return repositories
+        return [self.repository] if self.repository else []
+
+    @property
     def github_read_access(self) -> bool:
         """Repo-less run that asked for a read-only GitHub token (see Task.create_and_run)."""
         return (self.state or {}).get("github_read_access") is True
@@ -200,11 +209,27 @@ class TaskProcessingContext:
 
     def inactivity_timeout(self) -> timedelta:
         """Idle time before the workflow times the run out; longer for user-driven runs."""
-        is_user_origin = not self.origin_product or self.origin_product in (
+        return resolve_inactivity_timeout(
+            is_user_origin=self._is_user_origin(), origin_product=self.origin_product, state=self.state
+        )
+
+    def _is_user_origin(self) -> bool:
+        return not self.origin_product or self.origin_product in (
             Task.OriginProduct.USER_CREATED.value,
             Task.OriginProduct.IMAGE_BUILDER.value,
         )
-        return resolve_inactivity_timeout(is_user_origin=is_user_origin, state=self.state)
+
+    def max_run_duration(self) -> timedelta | None:
+        """Hard wall-clock cap on total run time, or None when the run is exempt.
+
+        Unlike the inactivity timeout, this is not reset by heartbeats, so it stops a
+        wedged-but-heartbeating agent that would otherwise run forever. User-driven
+        sessions can legitimately run for hours, so they are uncapped. Autonomous runs
+        get the cap as a safety net unless the setting disables it deployment-wide.
+        """
+        if self.mode == "interactive" or self._is_user_origin():
+            return None
+        return resolve_max_run_duration()
 
     def sandbox_resource_overrides(self) -> dict[str, float | int]:
         """Per-task SandboxConfig overrides (compute + TTL), clamped to server-owned bounds.
@@ -461,6 +486,7 @@ def _resolve_modal_vm_sandbox(
     #     org-targeted payload variants decide which default VM image an org gets.
     allowed_origins: set[str] = set()
     default_base_origins: set[str] = set()
+    origin_rollout_percentages: dict[str, float] = {}
     default_custom_image: str | None = None
     if state_override is None:
         try:
@@ -470,9 +496,11 @@ def _resolve_modal_vm_sandbox(
             return VmSandboxDecision(use_vm_sandbox=False)
         allowed_origins = vm_sandbox_allowed_origin_products(payload)
         default_base_origins = vm_sandbox_default_base_origin_products(payload)
+        origin_rollout_percentages = vm_sandbox_origin_rollout_percentages(payload)
         default_custom_image = vm_sandbox_default_custom_image(payload)
 
-    origin_allows_default_base = origin_product in default_base_origins
+    origin_in_percentage_rollout = vm_sandbox_origin_in_rollout(origin_product, run_id, origin_rollout_percentages)
+    origin_allows_default_base = origin_product in default_base_origins or origin_in_percentage_rollout
 
     # Custom images are VM-only, so VM historically required one. image_builder always
     # runs on VM (it builds images on that base); origins in the default-base allowlist
@@ -501,10 +529,12 @@ def _resolve_modal_vm_sandbox(
     log_with_activity_context(
         "modal_vm_sandbox_flag_checked",
         run_id=run_id,
-        flag_enabled=bool(allowed_origins or default_base_origins),
+        flag_enabled=bool(allowed_origins or default_base_origins or origin_rollout_percentages),
         origin_product=origin_product,
         allowed_origin_products=sorted(allowed_origins),
         default_base_origin_products=sorted(default_base_origins),
+        origin_product_rollout_percentages=origin_rollout_percentages,
+        origin_in_percentage_rollout=origin_in_percentage_rollout,
         default_custom_image=default_custom_image,
         custom_image_available=custom_image_available,
         use_modal_vm_sandbox=result,
@@ -798,12 +828,15 @@ def get_task_processing_context(input: GetTaskProcessingContextInput) -> TaskPro
                 "falling back to the environment or default base image",
             )
 
+    repositories = state.get("repositories")
+    run_repository = repositories[0] if isinstance(repositories, list) and repositories else task.repository
+
     log_with_activity_context(
         "Task processing context created",
         task_id=str(task.id),
         run_id=run_id,
         team_id=task.team_id,
-        repository=task.repository,
+        repository=run_repository,
         origin_product=task.origin_product,
         environment=task_run.environment,
         distinct_id=distinct_id,
@@ -965,7 +998,7 @@ def get_task_processing_context(input: GetTaskProcessingContextInput) -> TaskPro
         organization_id=str(task.team.organization_id),
         github_integration_id=task.github_integration_id,
         github_user_integration_id=user_github_integration_id,
-        repository=task.repository,
+        repository=run_repository,
         distinct_id=distinct_id,
         origin_product=task.origin_product,
         task_runtime=task.runtime,

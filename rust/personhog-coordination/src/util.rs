@@ -2,12 +2,13 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
-use metrics::counter;
+use metrics::{counter, histogram};
 use tokio_util::sync::CancellationToken;
 use uuid::Uuid;
 
 pub use assignment_coordination::util::{now_millis, now_seconds};
 
+use crate::authority::AuthorityClock;
 use crate::error::{Error, Result};
 use crate::store::PersonhogStore;
 
@@ -85,11 +86,13 @@ pub(crate) fn note_run_failure(
 /// must fence *now* so the fence completes inside the final third,
 /// before the coordinator can possibly treat the lease as expired.
 /// Retrying past the margin would win availability on a coin flip and
-/// split-brain on the other face. The margin clock starts at response
-/// receipt — strictly after the server reset its own countdown — so the
-/// local measurement is conservative, and every await in the loop is
+/// split-brain on the other face. The margin clock is anchored at each
+/// renewal's *send* — the server restarts its countdown only after
+/// that, when it processes the request — so the local measurement never
+/// overstates how much lease is left, and every await in the loop is
 /// bounded by the time left so a hang can never defer the verdict past
 /// the moment the fence must begin.
+#[allow(clippy::too_many_arguments)]
 pub async fn run_lease_keepalive(
     store: Arc<PersonhogStore>,
     lease_id: i64,
@@ -97,9 +100,13 @@ pub async fn run_lease_keepalive(
     lease_ttl: i64,
     granted_at: Instant,
     component: &'static str,
+    // Published on every confirmed renewal, so the data plane can judge
+    // its own authority without depending on this task being alive to
+    // tell it. `None` for components that serve nothing.
+    authority: Option<Arc<AuthorityClock>>,
     cancel: CancellationToken,
 ) -> Result<()> {
-    let renewal_margin = Duration::from_secs(lease_ttl.max(0) as u64).mul_f64(2.0 / 3.0);
+    let renewal_margin = AuthorityClock::renewal_margin(lease_ttl);
     // `clamp` panics when min > max, and sub-250ms intervals are
     // constructible from zero-valued env config; floor the pace instead.
     let retry_pace = (interval / 4)
@@ -161,6 +168,12 @@ pub async fn run_lease_keepalive(
             if left.is_zero() {
                 return Err(margin_exhausted());
             }
+            // The renewal is anchored at its send: etcd restarts the
+            // lease countdown when it processes the request, which can
+            // only be after this instant, so measuring age from here
+            // never overstates how much lease is left. Anchoring at the
+            // response would credit the round-trip delay to the lease.
+            let sent = Instant::now();
             let round = async {
                 keeper.keep_alive().await?;
                 match stream.message().await? {
@@ -180,7 +193,23 @@ pub async fn run_lease_keepalive(
                 ))),
             };
             match outcome {
-                Ok(true) => last_renewed = Instant::now(),
+                Ok(true) => {
+                    // The gap between confirmations is the headroom
+                    // question in one number: how close routine
+                    // operation runs to the margin at which a pod stops
+                    // being able to vouch for what it serves. Recorded
+                    // whether or not anything is gating on it, so the
+                    // distribution is known before it is enforced.
+                    histogram!(
+                        "personhog_coordination_lease_renewal_interval_ms",
+                        "component" => component
+                    )
+                    .record(last_renewed.elapsed().as_secs_f64() * 1000.0);
+                    last_renewed = sent;
+                    if let Some(authority) = &authority {
+                        authority.confirm(sent);
+                    }
+                }
                 // Authoritative: the lease is gone, no margin applies.
                 Ok(false) => return Err(Error::leadership_lost()),
                 Err(e) => {
@@ -211,6 +240,72 @@ pub async fn run_lease_keepalive(
                 _ = tokio::time::sleep(interval) => {}
             }
         }
+    }
+}
+
+/// Records how long a handoff phase write took to reach this observer's
+/// watch stream. Only the non-terminal phases are recorded — those are
+/// the writes whose propagation gates protocol progress, while Complete
+/// puts (including cancellation reaffirms) arrive in floods that would
+/// drown the signal. Same-cluster clocks make millisecond skew
+/// negligible for the diagnostic purpose; records stamped by
+/// pre-instrumentation writers (zero) are skipped.
+pub fn record_phase_watch_delivery(
+    observer: &'static str,
+    phase: crate::types::HandoffPhase,
+    phase_entered_at_ms: i64,
+) {
+    if phase == crate::types::HandoffPhase::Complete || phase_entered_at_ms <= 0 {
+        return;
+    }
+    let lag = now_millis().saturating_sub(phase_entered_at_ms).max(0);
+    metrics::histogram!(
+        "personhog_coordination_phase_watch_delivery_ms",
+        "observer" => observer
+    )
+    .record(lag as f64);
+}
+
+/// Records the coordinator's reaction lag: from the newest ack that
+/// satisfied a quorum to the phase advance it triggered. Zero-stamped
+/// acks (pre-instrumentation writers) are excluded.
+pub fn record_ack_to_advance(phase: &'static str, ack_stamps_ms: impl Iterator<Item = i64>) {
+    let Some(latest) = ack_stamps_ms.filter(|&t| t > 0).max() else {
+        return;
+    };
+    let lag = now_millis().saturating_sub(latest).max(0);
+    metrics::histogram!(
+        "personhog_coordination_ack_to_advance_ms",
+        "phase" => phase
+    )
+    .record(lag as f64);
+}
+
+/// Touch the coordinator's deploy-burst counters so their series exist
+/// with zero samples before any burst. metrics registration is lazy: a
+/// counter that first fires between two scrapes materializes with the
+/// burst already inside it, and no rate function can recover a delta
+/// that precedes a series' first sample.
+pub fn preregister_coordinator_metrics() {
+    for kind in ["fresh", "move"] {
+        metrics::counter!("personhog_coordination_handoffs_created_total", "kind" => kind)
+            .increment(0);
+    }
+    metrics::counter!("personhog_coordination_elections_won_total").increment(0);
+    metrics::counter!("personhog_coordination_partition_releases_total").increment(0);
+    metrics::gauge!("personhog_coordination_generation_hold_pods").set(0.0);
+    metrics::gauge!("personhog_coordination_generation_capped_pods").set(0.0);
+}
+
+/// Same as [`preregister_coordinator_metrics`], for the counters the
+/// router's coordination layer emits.
+pub fn preregister_router_coordination_metrics() {
+    for outcome in ["revoked", "revoke_failed"] {
+        metrics::counter!(
+            "personhog_coordination_router_deregistered_total",
+            "outcome" => outcome
+        )
+        .increment(0);
     }
 }
 

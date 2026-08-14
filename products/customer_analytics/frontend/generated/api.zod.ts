@@ -101,24 +101,16 @@ export const AccountsCreateBody = /* @__PURE__ */ zod
             ),
         properties: zod
             .object({
-                csm: zod
-                    .object({
-                        id: zod.number(),
-                        email: zod.string(),
-                    })
-                    .nullish(),
-                account_executive: zod
-                    .object({
-                        id: zod.number(),
-                        email: zod.string(),
-                    })
-                    .nullish(),
-                account_owner: zod
-                    .object({
-                        id: zod.number(),
-                        email: zod.string(),
-                    })
-                    .nullish(),
+                email_domains: zod
+                    .array(zod.string())
+                    .optional()
+                    .describe(
+                        "Email domains owned by this account's company, used to match inbound touchpoints to the account."
+                    ),
+                known_emails: zod
+                    .array(zod.string())
+                    .optional()
+                    .describe('Individual email addresses pinned to this account, matched before the domain fallback.'),
                 stripe_customer_id: zod.string().nullish(),
                 hubspot_deal_id: zod.string().nullish(),
                 billing_id: zod.string().nullish(),
@@ -126,10 +118,11 @@ export const AccountsCreateBody = /* @__PURE__ */ zod
                 zendesk_id: zod.string().nullish(),
                 slack_channel_id: zod.string().nullish(),
                 usage_dashboard_link: zod.string().nullish(),
+                metabase_link: zod.string().nullish(),
             })
             .nullish()
             .describe(
-                'Typed account properties: assignment fields (csm, account_executive, account_owner) and external system identifiers (stripe_customer_id, hubspot_deal_id, billing_id, sfdc_id, zendesk_id, slack_channel_id, usage_dashboard_link). Defaults to an empty object. Unknown keys are rejected.'
+                "Typed account properties: external system identifiers (stripe_customer_id, hubspot_deal_id, billing_id, sfdc_id, zendesk_id, slack_channel_id, usage_dashboard_link, metabase_link) plus touchpoint matching lists: email_domains (the company's email domains) and known_emails (individual addresses pinned to the account). Defaults to an empty object. Unknown keys are rejected. User assignments live on account relationships, not here."
             ),
         tags: zod
             .array(zod.string())
@@ -193,24 +186,16 @@ export const AccountsUpdateBody = /* @__PURE__ */ zod
             ),
         properties: zod
             .object({
-                csm: zod
-                    .object({
-                        id: zod.number(),
-                        email: zod.string(),
-                    })
-                    .nullish(),
-                account_executive: zod
-                    .object({
-                        id: zod.number(),
-                        email: zod.string(),
-                    })
-                    .nullish(),
-                account_owner: zod
-                    .object({
-                        id: zod.number(),
-                        email: zod.string(),
-                    })
-                    .nullish(),
+                email_domains: zod
+                    .array(zod.string())
+                    .optional()
+                    .describe(
+                        "Email domains owned by this account's company, used to match inbound touchpoints to the account."
+                    ),
+                known_emails: zod
+                    .array(zod.string())
+                    .optional()
+                    .describe('Individual email addresses pinned to this account, matched before the domain fallback.'),
                 stripe_customer_id: zod.string().nullish(),
                 hubspot_deal_id: zod.string().nullish(),
                 billing_id: zod.string().nullish(),
@@ -218,10 +203,11 @@ export const AccountsUpdateBody = /* @__PURE__ */ zod
                 zendesk_id: zod.string().nullish(),
                 slack_channel_id: zod.string().nullish(),
                 usage_dashboard_link: zod.string().nullish(),
+                metabase_link: zod.string().nullish(),
             })
             .nullish()
             .describe(
-                'Typed account properties: assignment fields (csm, account_executive, account_owner) and external system identifiers (stripe_customer_id, hubspot_deal_id, billing_id, sfdc_id, zendesk_id, slack_channel_id, usage_dashboard_link). Defaults to an empty object. Unknown keys are rejected.'
+                "Typed account properties: external system identifiers (stripe_customer_id, hubspot_deal_id, billing_id, sfdc_id, zendesk_id, slack_channel_id, usage_dashboard_link, metabase_link) plus touchpoint matching lists: email_domains (the company's email domains) and known_emails (individual addresses pinned to the account). Defaults to an empty object. Unknown keys are rejected. User assignments live on account relationships, not here."
             ),
         tags: zod
             .array(zod.string())
@@ -261,24 +247,16 @@ export const AccountsPartialUpdateBody = /* @__PURE__ */ zod
             ),
         properties: zod
             .object({
-                csm: zod
-                    .object({
-                        id: zod.number(),
-                        email: zod.string(),
-                    })
-                    .nullish(),
-                account_executive: zod
-                    .object({
-                        id: zod.number(),
-                        email: zod.string(),
-                    })
-                    .nullish(),
-                account_owner: zod
-                    .object({
-                        id: zod.number(),
-                        email: zod.string(),
-                    })
-                    .nullish(),
+                email_domains: zod
+                    .array(zod.string())
+                    .optional()
+                    .describe(
+                        "Email domains owned by this account's company, used to match inbound touchpoints to the account."
+                    ),
+                known_emails: zod
+                    .array(zod.string())
+                    .optional()
+                    .describe('Individual email addresses pinned to this account, matched before the domain fallback.'),
                 stripe_customer_id: zod.string().nullish(),
                 hubspot_deal_id: zod.string().nullish(),
                 billing_id: zod.string().nullish(),
@@ -286,10 +264,11 @@ export const AccountsPartialUpdateBody = /* @__PURE__ */ zod
                 zendesk_id: zod.string().nullish(),
                 slack_channel_id: zod.string().nullish(),
                 usage_dashboard_link: zod.string().nullish(),
+                metabase_link: zod.string().nullish(),
             })
             .nullish()
             .describe(
-                'Typed account properties: assignment fields (csm, account_executive, account_owner) and external system identifiers (stripe_customer_id, hubspot_deal_id, billing_id, sfdc_id, zendesk_id, slack_channel_id, usage_dashboard_link). Defaults to an empty object. Unknown keys are rejected.'
+                "Typed account properties: external system identifiers (stripe_customer_id, hubspot_deal_id, billing_id, sfdc_id, zendesk_id, slack_channel_id, usage_dashboard_link, metabase_link) plus touchpoint matching lists: email_domains (the company's email domains) and known_emails (individual addresses pinned to the account). Defaults to an empty object. Unknown keys are rejected. User assignments live on account relationships, not here."
             ),
         tags: zod
             .array(zod.string())
@@ -317,6 +296,16 @@ export const AnnouncementsCreateBody = /* @__PURE__ */ zod.object({
             'Slack channel IDs to send to. Each must be a channel the SupportHog bot is a member of; names are resolved server-side.'
         ),
 })
+
+/**
+ * Start a sync run for one connected Google Calendar immediately, outside the hourly schedule.
+ * @summary Sync a connected calendar now
+ */
+export const CalendarSyncSyncNowCreateBody = /* @__PURE__ */ zod
+    .object({
+        integration_id: zod.number().describe('Id of the google-calendar integration to sync.'),
+    })
+    .describe('Request body of the calendar sync-now trigger.')
 
 export const customPropertyDefinitionsCreateBodyNameMax = 400
 
@@ -912,6 +901,84 @@ export const EventStreamsRemoveAccountCreateBody = /* @__PURE__ */ zod
         account_id: zod.uuid().describe('UUID of the account to add to or remove from the stream.'),
     })
     .describe('Request body for adding or removing an event-stream member account.')
+
+export const featureRequestProductAreasCreateBodyNameMax = 200
+
+export const featureRequestProductAreasCreateBodyDisplayOrderDefault = 0
+export const featureRequestProductAreasCreateBodyDisplayOrderMin = 0
+
+export const featureRequestProductAreasCreateBodyIsActiveDefault = true
+
+export const FeatureRequestProductAreasCreateBody = /* @__PURE__ */ zod.object({
+    name: zod.string().max(featureRequestProductAreasCreateBodyNameMax).describe('Team-maintained product area name.'),
+    display_order: zod
+        .number()
+        .min(featureRequestProductAreasCreateBodyDisplayOrderMin)
+        .default(featureRequestProductAreasCreateBodyDisplayOrderDefault)
+        .describe('Position in product area selectors. Lower values appear first.'),
+    is_active: zod
+        .boolean()
+        .default(featureRequestProductAreasCreateBodyIsActiveDefault)
+        .describe('Whether editors can select this product area for new requests.'),
+})
+
+export const featureRequestProductAreasUpdateBodyNameMax = 200
+
+export const featureRequestProductAreasUpdateBodyDisplayOrderDefault = 0
+export const featureRequestProductAreasUpdateBodyDisplayOrderMin = 0
+
+export const featureRequestProductAreasUpdateBodyIsActiveDefault = true
+
+export const FeatureRequestProductAreasUpdateBody = /* @__PURE__ */ zod.object({
+    name: zod.string().max(featureRequestProductAreasUpdateBodyNameMax).describe('Team-maintained product area name.'),
+    display_order: zod
+        .number()
+        .min(featureRequestProductAreasUpdateBodyDisplayOrderMin)
+        .default(featureRequestProductAreasUpdateBodyDisplayOrderDefault)
+        .describe('Position in product area selectors. Lower values appear first.'),
+    is_active: zod
+        .boolean()
+        .default(featureRequestProductAreasUpdateBodyIsActiveDefault)
+        .describe('Whether editors can select this product area for new requests.'),
+})
+
+export const featureRequestProductAreasPartialUpdateBodyNameMax = 200
+
+export const featureRequestProductAreasPartialUpdateBodyDisplayOrderDefault = 0
+export const featureRequestProductAreasPartialUpdateBodyDisplayOrderMin = 0
+
+export const featureRequestProductAreasPartialUpdateBodyIsActiveDefault = true
+
+export const FeatureRequestProductAreasPartialUpdateBody = /* @__PURE__ */ zod.object({
+    name: zod
+        .string()
+        .max(featureRequestProductAreasPartialUpdateBodyNameMax)
+        .optional()
+        .describe('Team-maintained product area name.'),
+    display_order: zod
+        .number()
+        .min(featureRequestProductAreasPartialUpdateBodyDisplayOrderMin)
+        .default(featureRequestProductAreasPartialUpdateBodyDisplayOrderDefault)
+        .describe('Position in product area selectors. Lower values appear first.'),
+    is_active: zod
+        .boolean()
+        .default(featureRequestProductAreasPartialUpdateBodyIsActiveDefault)
+        .describe('Whether editors can select this product area for new requests.'),
+})
+
+export const featureRequestsCreateBodyTitleMax = 400
+
+export const FeatureRequestsCreateBody = /* @__PURE__ */ zod.object({
+    title: zod.string().max(featureRequestsCreateBodyTitleMax).describe('Required customer-facing request title.'),
+    description: zod.string().describe('Required customer-facing request description in Markdown.'),
+    account_id: zod.uuid().describe('ID of the affected Customer Analytics account.'),
+    product_area_ids: zod.array(zod.uuid()).describe('One or more active product area IDs. Duplicate IDs are ignored.'),
+    idempotency_key: zod
+        .uuid()
+        .describe(
+            'Client-generated key that makes retries return the original request instead of creating a duplicate.'
+        ),
+})
 
 export const groupsTypesMetricsCreateBodyNameMax = 255
 
