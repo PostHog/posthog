@@ -1,4 +1,4 @@
-import { channelDisplayLabel } from "@posthog/core/canvas/channelName";
+import { channelDisplayReference } from "@posthog/core/canvas/channelName";
 import { loopHog } from "@posthog/ui/assets/hedgehogs";
 import { Flex, Text } from "@radix-ui/themes";
 
@@ -26,7 +26,7 @@ export function LoopsEmptyState({ contextName }: { contextName?: string }) {
           <Flex direction="column" gap="1">
             <p className="font-semibold text-[16px] text-gray-12">
               {contextName
-                ? `Create a loop for ${channelDisplayLabel(contextName)}`
+                ? `Create a loop for ${channelDisplayReference(contextName)}`
                 : "Create your first loop"}
             </p>
             <Text className="text-[13px] text-gray-11 leading-relaxed">

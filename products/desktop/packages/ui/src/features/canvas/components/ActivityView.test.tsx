@@ -103,7 +103,7 @@ describe("activityHeadline", () => {
 
   it.each([
     ["shared channel", "engineering", "#engineering"],
-    ["personal channel", "personal", "personal"],
+    ["personal channel", "personal", "your personal space"],
   ])("formats the %s label", (_name, channelName, expected) => {
     const { getByText } = render(
       <div>

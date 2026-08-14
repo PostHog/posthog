@@ -1,4 +1,4 @@
-import { channelDisplayLabel } from "@posthog/core/canvas/channelName";
+import { channelDisplayReference } from "@posthog/core/canvas/channelName";
 import { Box, ScrollArea } from "@radix-ui/themes";
 import { MarkdownRenderer } from "../../editor/components/MarkdownRenderer";
 
@@ -19,7 +19,7 @@ export function ChannelContextTab({
       <Box p="4">
         <p className="mb-3 text-[12px] text-gray-9">
           Sent with this task's prompt as background context
-          {channelName ? ` from ${channelDisplayLabel(channelName)}` : ""}.
+          {channelName ? ` from ${channelDisplayReference(channelName)}` : ""}.
         </p>
         <Box className="text-[13px]">
           <MarkdownRenderer content={body} />

@@ -141,7 +141,7 @@ export const KEYBOARD_SHORTCUTS: KeyboardShortcut[] = [
   {
     id: "switch-starred-channel",
     keys: "mod+1-9",
-    description: "Switch to space (⌘1 = personal, ⌘2-9 = starred)",
+    description: "Switch to space (⌘1 = personal space, ⌘2-9 = starred)",
     category: "navigation",
     context: "Spaces",
     availability: "channels-layout",

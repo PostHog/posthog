@@ -1318,8 +1318,9 @@ function useOpenPersonalChannel(): {
   const ensureChannelId = (): string | undefined => {
     const meChannel = channels.find((c) => c.channelType === "personal");
     if (!meChannel) {
-      toast.error("Couldn't open personal", {
-        description: "Personal is still loading. Try again in a moment.",
+      toast.error("Couldn't open personal space", {
+        description:
+          "Your personal space is still loading. Try again in a moment.",
       });
       return undefined;
     }

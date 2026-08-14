@@ -12,7 +12,8 @@ export const PERSONAL_CHANNEL_NAME = "me";
  * Lives in core because names reach a reader by more routes than the channel
  * list — an activity row and a mention both carry one of their own.
  */
-export const PERSONAL_CHANNEL_LABEL = "personal";
+export const PERSONAL_CHANNEL_LABEL = "personal space";
+const LEGACY_PERSONAL_CHANNEL_LABEL = "personal";
 
 /** A channel's name as a reader should see it. */
 export function channelDisplayName(name: string): string;
@@ -21,15 +22,33 @@ export function channelDisplayName(name: string | null): string | null {
   return name === PERSONAL_CHANNEL_NAME ? PERSONAL_CHANNEL_LABEL : name;
 }
 
+function isPersonalChannelLabel(
+  name: string,
+  channelType?: "public" | "personal",
+): boolean {
+  return channelType !== undefined
+    ? channelType === "personal"
+    : name === PERSONAL_CHANNEL_NAME ||
+        name === PERSONAL_CHANNEL_LABEL ||
+        name === LEGACY_PERSONAL_CHANNEL_LABEL;
+}
+
 export function channelDisplayLabel(
   name: string,
   channelType?: "public" | "personal",
 ): string {
-  const isPersonal =
-    channelType !== undefined
-      ? channelType === "personal"
-      : name === PERSONAL_CHANNEL_NAME || name === PERSONAL_CHANNEL_LABEL;
-  return isPersonal ? PERSONAL_CHANNEL_LABEL : `#${channelDisplayName(name)}`;
+  return isPersonalChannelLabel(name, channelType)
+    ? PERSONAL_CHANNEL_LABEL
+    : `#${channelDisplayName(name)}`;
+}
+
+export function channelDisplayReference(
+  name: string,
+  channelType?: "public" | "personal",
+): string {
+  return isPersonalChannelLabel(name, channelType)
+    ? `your ${PERSONAL_CHANNEL_LABEL}`
+    : `#${channelDisplayName(name)}`;
 }
 
 // A channel's name is used verbatim as its server-side filesystem path segment,
@@ -60,7 +79,7 @@ export function normalizeChannelName(name: string): string {
  */
 const RESERVED_CHANNEL_NAMES = new Set([
   PERSONAL_CHANNEL_NAME,
-  PERSONAL_CHANNEL_LABEL,
+  LEGACY_PERSONAL_CHANNEL_LABEL,
 ]);
 
 export function validateChannelName(name: string): string | null {

@@ -1,4 +1,4 @@
-import { channelDisplayLabel } from "@posthog/core/canvas/channelName";
+import { channelDisplayReference } from "@posthog/core/canvas/channelName";
 import {
   REPORT_MODEL_RESOLVER,
   type ReportModelResolver,
@@ -155,7 +155,7 @@ export class CanvasApplicationService {
         }),
         taskDescription: input.name
           ? `Generate canvas "${input.name}"`
-          : `Generate a canvas in ${channelDisplayLabel(input.channelName)}`,
+          : `Generate a canvas in ${channelDisplayReference(input.channelName)}`,
         // Unattended generation: run in auto mode so it doesn't stall on
         // edit-approval prompts.
         executionMode: "auto" as const,

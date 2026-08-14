@@ -32,7 +32,7 @@ describe("CommentComposer", () => {
     const onValueChange = vi.fn();
     render(
       <Theme>
-        <MentionAvailabilityProvider disabledReason="Mentions aren’t available in personal.">
+        <MentionAvailabilityProvider disabledReason="Mentions aren’t available in your personal space.">
           <CommentComposer
             value="@"
             onValueChange={onValueChange}
@@ -45,7 +45,7 @@ describe("CommentComposer", () => {
     );
 
     expect(screen.getByRole("status")).toHaveTextContent(
-      "Mentions aren’t available in personal.",
+      "Mentions aren’t available in your personal space.",
     );
     fireEvent.change(screen.getByRole("textbox", { name: "Comment" }), {
       target: { value: "private note" },

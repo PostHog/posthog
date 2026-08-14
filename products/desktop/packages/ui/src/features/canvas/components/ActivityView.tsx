@@ -5,7 +5,7 @@ import {
   LinkIcon,
   RobotIcon,
 } from "@phosphor-icons/react";
-import { channelDisplayLabel } from "@posthog/core/canvas/channelName";
+import { channelDisplayReference } from "@posthog/core/canvas/channelName";
 import type { TaskActivityItem } from "@posthog/core/canvas/taskActivity";
 import {
   Avatar,
@@ -68,7 +68,7 @@ function ChannelSuffix({ channelName }: { channelName: string | null }) {
     <>
       {" in "}
       <span className="font-medium text-xs">
-        {channelDisplayLabel(channelName)}
+        {channelDisplayReference(channelName)}
       </span>
     </>
   );
