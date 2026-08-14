@@ -467,3 +467,34 @@ class TestUpdateResolutionStatusComment(BaseTest):
         patched = mock_request.call_args_list[1].kwargs["json"]["body"]
         assert "### reviewed" in patched
         assert "Resolving comments: 1/3 · 1 fixed" in patched
+
+    @patch(f"{_MODULE}.Integration")
+    def test_pinned_integration_row_skips_the_selection_probe(
+        self,
+        mock_integration_model: MagicMock,
+        mock_request: MagicMock,
+        mock_paginated: MagicMock,
+        mock_integration: MagicMock,
+    ) -> None:
+        # A resolution run pins its installation once and refreshes after every thread; passing the
+        # pinned row must re-mint the token from it, never re-run first_for_team_repository (a
+        # GET /repos/... per integration tried) on each refresh.
+        mock_integration.return_value.get_access_token.return_value = "tok"
+        mock_integration.return_value.github_installation_id = "inst-1"
+        report = self._report()
+        report.status_comment_id = 777
+        report.save(update_fields=["status_comment_id"])
+        get_response = MagicMock()
+        get_response.json.return_value = {"body": "### reviewed\n\n" + status_marker(str(report.id))}
+        mock_request.side_effect = [get_response, MagicMock()]
+
+        update_resolution_status_comment(
+            self.team.id,
+            str(report.id),
+            render_resolution_progress_section(done=1, total=3, fixed=1, left_for_you=0),
+            integration_row_id=42,
+        )
+
+        mock_integration.first_for_team_repository.assert_not_called()
+        mock_integration_model.objects.get.assert_called_once_with(id=42)
+        assert _patches(mock_request) == ["/repos/o/r/issues/comments/777"]

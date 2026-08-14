@@ -24,7 +24,7 @@ from django.conf import settings
 from django.db.models import Q
 from django.utils import timezone
 
-from posthog.models.integration import GitHubIntegration
+from posthog.models.integration import GitHubIntegration, Integration
 
 from products.review_hog.backend.models import ReviewReport
 from products.review_hog.backend.reviewer.constants import (
@@ -302,6 +302,18 @@ def _auth(team_id: int, repository: str) -> tuple[str, str | None] | None:
     return github.get_access_token(), github.github_installation_id
 
 
+def _auth_from_row(integration_row_id: int) -> tuple[str, str | None]:
+    """A fresh installation token from an already-pinned integration row, skipping `_auth`'s probe.
+
+    A resolution run selects its installation once and refreshes the status comment after every
+    thread; re-running the selection probe each time repeats a `GET /repos/{repository}` for an
+    answer the run already has. GitHub still enforces access on the edit itself, so a mid-run
+    revocation surfaces there and is swallowed like any other status-comment failure.
+    """
+    github = GitHubIntegration(Integration.objects.get(id=integration_row_id))
+    return github.get_access_token(), github.github_installation_id
+
+
 def _find_marker_comment(
     owner: str, repo: str, pr_number: int, marker: str, *, token: str, installation_id: str | None
 ) -> int | None:
@@ -504,19 +516,27 @@ def fail_status_comment(team_id: int, report_id: str) -> None:
         logger.exception("Could not mark the ReviewHog status comment as failed")
 
 
-def update_resolution_status_comment(team_id: int, report_id: str, section: str) -> None:
+def update_resolution_status_comment(
+    team_id: int, report_id: str, section: str, *, integration_row_id: int | None = None
+) -> None:
     """Splice the resolution stage's section into the report's status comment.
 
     Chained runs extend the review's existing comment (edits don't notify PR subscribers, and one
     ReviewHog voice per PR beats a second comment); standalone runs, where the PR never got a
     review comment, create it on demand carrying just the resolution section. Best-effort like
     every entry point here: a status edit must never fail or block a resolution run.
+
+    A resolution run passes its pinned `integration_row_id` so the token is re-minted from that row
+    (`_auth_from_row`) rather than re-running the installation-selection probe on every refresh;
+    without one it falls back to the probe (`_auth`).
     """
     try:
         report = ReviewReport.objects.for_team(team_id).filter(id=report_id).first()
         if report is None or report.pr_number is None:
             return
-        auth = _auth(team_id, report.repository)
+        auth = (
+            _auth_from_row(integration_row_id) if integration_row_id is not None else _auth(team_id, report.repository)
+        )
         if auth is None:
             return
         token, installation_id = auth

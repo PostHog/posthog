@@ -551,6 +551,7 @@ async def resolve_threads_activity(input: ResolveThreadsInput) -> ResolutionRunR
                 fixed=result.outcomes.get(ThreadOutcome.FIXED.value, 0),
                 left_for_you=result.outcomes.get(ThreadOutcome.ESCALATE.value, 0),
             ),
+            integration_row_id=prepared.integration_row_id,
         )
 
     final_attempt = activity.info().attempt >= RESOLUTION_MAX_ATTEMPTS
@@ -677,6 +678,7 @@ async def resolve_threads_activity(input: ResolveThreadsInput) -> ResolutionRunR
                     input.team_id,
                     prepared.report_id,
                     render_resolution_failed_section(done=result.triaged, total=total_queued),
+                    integration_row_id=prepared.integration_row_id,
                 )
         raise
     finally:
@@ -693,6 +695,7 @@ async def resolve_threads_activity(input: ResolveThreadsInput) -> ResolutionRunR
             input.team_id,
             prepared.report_id,
             render_resolution_final_section(outcomes=result.outcomes, failed_turns=result.failed_turns),
+            integration_row_id=prepared.integration_row_id,
         )
     await database_sync_to_async(_idle_report, thread_sensitive=False)(input.team_id, prepared.report_id)
     return result
