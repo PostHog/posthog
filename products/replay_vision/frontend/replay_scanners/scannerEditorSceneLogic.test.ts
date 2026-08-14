@@ -59,30 +59,14 @@ describe('scannerEditorSceneLogic', () => {
             })
         })
 
-        it('redirects /:id/template → /:id/configure for existing scanners', async () => {
+        it('redirects /:id/template → /:id/details for existing scanners', async () => {
             router.actions.push(urls.replayVisionScannerTemplate('abc-123'))
             await expectLogic(logic).toMatchValues({
                 scannerId: 'abc-123',
-                step: 'configure',
+                step: 'details',
                 isNew: false,
             })
-            expect(router.values.location.pathname.endsWith(urls.replayVisionScannerConfigure('abc-123'))).toBe(true)
-        })
-    })
-
-    describe('visibleSteps', () => {
-        it('shows every step for a new scanner', async () => {
-            router.actions.push(urls.replayVisionScannerConfigure('new'))
-            await expectLogic(logic).toMatchValues({
-                visibleSteps: ['template', 'details', 'configure', 'triggers', 'budget'],
-            })
-        })
-
-        it('keeps every step for an existing scanner, so the numbering matches creation', async () => {
-            router.actions.push(urls.replayVisionScannerConfigure('abc-123'))
-            await expectLogic(logic).toMatchValues({
-                visibleSteps: ['template', 'details', 'configure', 'triggers', 'budget'],
-            })
+            expect(router.values.location.pathname.endsWith(urls.replayVisionScannerDetails('abc-123'))).toBe(true)
         })
     })
 

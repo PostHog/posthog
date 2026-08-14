@@ -101,7 +101,7 @@ describe('replayScannerLogic', () => {
     })
 
     describe('draftScannerFromGoal', () => {
-        it('seeds the form from the AI draft and routes to the configure step', async () => {
+        it('seeds the form from the AI draft and routes to the details step', async () => {
             const draft = {
                 name: 'User intent',
                 description: 'Tags each session by intent.',
@@ -126,7 +126,7 @@ describe('replayScannerLogic', () => {
                 scanner_config: draft.scanner_config,
             })
             // The test router prefixes paths with /project/:id, so match on the suffix.
-            expect(router.values.location.pathname).toContain(urls.replayVisionScannerConfigure('new'))
+            expect(router.values.location.pathname).toContain(urls.replayVisionScannerDetails('new'))
 
             // The rationale stays available for the configure step, until a template pick replaces the draft.
             expect(logic.values.goalDraft?.rationale).toEqual(draft.rationale)

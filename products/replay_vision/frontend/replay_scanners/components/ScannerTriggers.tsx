@@ -1,5 +1,3 @@
-import './ScannerTriggers.scss'
-
 import { useActions, useValues } from 'kea'
 
 import { LemonBanner, LemonCard, LemonInputSelect, LemonTag } from '@posthog/lemon-ui'

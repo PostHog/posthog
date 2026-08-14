@@ -45,7 +45,7 @@ function ScannerPromptField({
     const { scanner, isNew, goalDraft } = useValues(logic)
     const { setScannerValue } = useActions(logic)
     // The AI already wrote this prompt one step ago, so offering to write it reads as a no-op.
-    const revising = isNew && !!goalDraft
+    const promptWasDrafted = isNew && !!goalDraft
 
     const onDraftedPrompt = useCallback(
         (toolOutput: { prompt?: string; error?: string }) => {
@@ -66,7 +66,7 @@ function ScannerPromptField({
         contextDescription: scanner
             ? { text: `${scannerTypeLabel(scanner.scanner_type)} scanner`, icon: iconForType('session_replay') }
             : undefined,
-        initialMaxPrompt: revising
+        initialMaxPrompt: promptWasDrafted
             ? 'Help me rewrite the prompt for this scanner'
             : 'Help me write the prompt for this scanner',
         callback: onDraftedPrompt,
@@ -98,7 +98,7 @@ function ScannerPromptField({
                         onClick={() => openMax()}
                         data-attr="replay-vision-write-prompt-with-ai"
                     >
-                        {revising ? 'Rewrite with PostHog AI' : 'Write with PostHog AI'}
+                        {promptWasDrafted ? 'Rewrite with PostHog AI' : 'Write with PostHog AI'}
                     </LemonButton>
                 )}
             </div>
@@ -178,8 +178,8 @@ function ClassifierTagsField({ scannerId }: { scannerId: string }): JSX.Element 
 
     const config = scanner?.scanner_config as ClassifierScannerConfig | undefined
     const hasPrompt = !!config?.prompt?.trim()
-    // The draft already filled the vocabulary, so the offer is more of them, not a first set.
-    const revising = isNew && !!goalDraft && !!config?.tags?.length
+    // The draft already filled these in, so the offer is more of them, not a first set.
+    const categoriesWereDrafted = isNew && !!goalDraft && !!config?.tags?.length
 
     return (
         <div className="space-y-2">
@@ -197,7 +197,7 @@ function ClassifierTagsField({ scannerId }: { scannerId: string }): JSX.Element 
                             onClick={() => loadTagSuggestions()}
                             data-attr="replay-vision-suggest-tags-with-ai"
                         >
-                            {revising ? 'Suggest more categories' : 'Suggest categories with PostHog AI'}
+                            {categoriesWereDrafted ? 'Suggest more categories' : 'Suggest categories with PostHog AI'}
                         </LemonButton>
                     </span>
                 }

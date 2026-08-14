@@ -39,7 +39,7 @@ function TemplateCard({ template }: { template: ScannerTemplate | 'blank' }): JS
         const templateKey = isBlank ? null : template.key
         replayScannerLogic({ id: 'new' }).actions.startFromTemplate(templateKey)
         const params = isBlank ? searchParams : { ...searchParams, template: template.key }
-        router.actions.push(combineUrl(urls.replayVisionScannerConfigure('new'), params).url)
+        router.actions.push(combineUrl(urls.replayVisionScannerDetails('new'), params).url)
     }
 
     const handleClick = (): void => {
@@ -108,7 +108,7 @@ function ResumeDraftBanner(): JSX.Element | null {
 
     const handleResume = (): void => {
         const { template: _template, ...params } = searchParams
-        router.actions.push(combineUrl(urls.replayVisionScannerConfigure('new'), params).url)
+        router.actions.push(combineUrl(urls.replayVisionScannerDetails('new'), params).url)
     }
 
     return (

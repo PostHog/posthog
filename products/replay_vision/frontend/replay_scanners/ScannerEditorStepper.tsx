@@ -58,8 +58,8 @@ export function ScannerEditorStepper({
                         <Tooltip title={disabledReason}>
                             <button
                                 type="button"
-                                onClick={() => onStepClick(step.key)}
-                                disabled={!!disabledReason}
+                                onClick={() => !disabledReason && onStepClick(step.key)}
+                                aria-disabled={!!disabledReason}
                                 data-attr={`vision-editor-step-${step.key}`}
                                 className={cn(
                                     'group flex items-center gap-1.5 px-2 py-1 rounded transition-all duration-150',

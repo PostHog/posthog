@@ -32,6 +32,7 @@ import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
+import { tagsModel } from '~/models/tagsModel'
 import { ProductKey } from '~/queries/schema/schema-general'
 
 import { ReplayVisionFeedbackButton } from '../components/ReplayVisionFeedbackButton'
@@ -43,8 +44,10 @@ import { ScannerTriggers } from './components/ScannerTriggers'
 import { ScannerTypeConfigEditor } from './components/ScannerTypeConfigEditor'
 import { replayScannerLogic } from './replayScannerLogic'
 import {
+    SCANNER_EDITOR_STEPS,
     SCANNER_EDITOR_STEP_ORDER,
     ScannerEditorStep,
+    scannerStepErrors,
     scannerEditorSceneLogic,
     scannerStepUrl,
 } from './scannerEditorSceneLogic'
@@ -92,7 +95,7 @@ const STEP_HEADERS: Record<
 }
 
 export function ScannerEditorSceneComponent(): JSX.Element {
-    const { scannerId, step, isNew, visibleSteps } = useValues(scannerEditorSceneLogic)
+    const { scannerId, step, isNew } = useValues(scannerEditorSceneLogic)
 
     const scannerLogic = replayScannerLogic({ id: scannerId })
     useAttachedLogic(scannerLogic, scannerEditorSceneLogic)
@@ -117,15 +120,9 @@ export function ScannerEditorSceneComponent(): JSX.Element {
 
     const title = isNew ? scanner?.name || 'New scanner' : scanner?.name || 'Scanner'
 
-    const stepErrors: Record<ScannerEditorStep, boolean> = {
-        template: false,
-        details: false,
-        configure: showScannerErrors && !!scannerValidationErrors?.scanner_config,
-        triggers: showScannerErrors && durationValidationError != null,
-        budget:
-            showScannerErrors &&
-            (scannerValidationErrors?.sampling_rate != null || scannerValidationErrors?.credit_limit != null),
-    }
+    const stepErrors = showScannerErrors
+        ? scannerStepErrors({ ...scannerValidationErrors, duration: durationValidationError })
+        : undefined
 
     // Validate the current step and move on: submit routes to the next visible step on success.
     const advance = (): void => {
@@ -139,7 +136,7 @@ export function ScannerEditorSceneComponent(): JSX.Element {
         }
         if (SCANNER_EDITOR_STEP_ORDER[next] > SCANNER_EDITOR_STEP_ORDER[step]) {
             if (step === 'template') {
-                router.actions.push(urls.replayVisionScannerConfigure(scannerId))
+                router.actions.push(urls.replayVisionScannerDetails(scannerId))
                 return
             }
             advance()
@@ -159,7 +156,7 @@ export function ScannerEditorSceneComponent(): JSX.Element {
                     />
                     <ScannerEditorStepper
                         currentStep={step}
-                        steps={visibleSteps}
+                        steps={SCANNER_EDITOR_STEPS}
                         onStepClick={goToStep}
                         stepErrors={stepErrors}
                         disabledSteps={
@@ -209,7 +206,6 @@ export function ScannerEditorSceneComponent(): JSX.Element {
                                 <EditorFooter
                                     step={step}
                                     scannerId={scannerId}
-                                    visibleSteps={visibleSteps}
                                     isNew={isNew}
                                     isSubmitting={isScannerSubmitting}
                                     onAdvance={advance}
@@ -228,8 +224,7 @@ export function ScannerEditorSceneComponent(): JSX.Element {
 }
 
 function DetailsStep(): JSX.Element {
-    const { scannerId } = useValues(scannerEditorSceneLogic)
-    const { availableObjectTags } = useValues(replayScannerLogic({ id: scannerId }))
+    const { tags: allTags } = useValues(tagsModel)
 
     return (
         <div className="flex flex-col gap-4">
@@ -255,7 +250,8 @@ function DetailsStep(): JSX.Element {
                         tags={value ?? []}
                         onChange={onChange}
                         saving={false}
-                        tagsAvailable={availableObjectTags}
+                        // Tags from other products can contain commas; the scanner API rejects those.
+                        tagsAvailable={allTags.filter((tag) => !tag.includes(',') && !value?.includes(tag))}
                         data-attr="vision-editor-tags"
                     />
                 )}
@@ -396,7 +392,6 @@ function ConfigureStep(): JSX.Element {
 function EditorFooter({
     step,
     scannerId,
-    visibleSteps,
     isNew,
     isSubmitting,
     onAdvance,
@@ -404,7 +399,6 @@ function EditorFooter({
 }: {
     step: ScannerEditorStep
     scannerId: string
-    visibleSteps: readonly ScannerEditorStep[]
     isNew: boolean
     isSubmitting: boolean
     onAdvance: () => void
@@ -412,9 +406,10 @@ function EditorFooter({
 }): JSX.Element {
     const { scanner, durationValidationError, hasUnsavedChanges } = useValues(replayScannerLogic({ id: scannerId }))
     const { discardScannerDraft } = useActions(replayScannerLogic({ id: scannerId }))
-    const stepIndex = visibleSteps.indexOf(step)
-    const prevStep = stepIndex > 0 ? visibleSteps[stepIndex - 1] : null
-    const nextStep = stepIndex < visibleSteps.length - 1 ? visibleSteps[stepIndex + 1] : null
+    const stepIndex = SCANNER_EDITOR_STEPS.indexOf(step)
+    const previous = stepIndex > 0 ? SCANNER_EDITOR_STEPS[stepIndex - 1] : null
+    const prevStep = previous === 'template' && !isNew ? null : previous
+    const nextStep = stepIndex < SCANNER_EDITOR_STEPS.length - 1 ? SCANNER_EDITOR_STEPS[stepIndex + 1] : null
     // A broken duration filter blocks the save, but only from the triggers step onward: gating an
     // earlier step's button on it blocks the wizard with a reason nothing on screen explains. RBAC
     // takes priority and must match the backend's create/update requirement exactly.
@@ -444,16 +439,10 @@ function EditorFooter({
 
     return (
         <div className="flex flex-col gap-2">
-            {/* Past the recordings step the duration field isn't on screen, so a tooltip alone isn't enough. */}
-            {step !== 'triggers' && durationError ? <div className="text-danger text-sm">{durationError}</div> : null}
+            {/* The duration field lives on the recordings step, so budget needs the error spelled out. */}
+            {step === 'budget' && durationError ? <div className="text-danger text-sm">{durationError}</div> : null}
             <div className="flex flex-wrap items-center justify-between gap-2">
-                {/* First form step of a new scanner goes back to the template picker; a mid-flow step goes to the
-                previous visible step; editing's first step (configure, no template) has no back. */}
-                {isNew && step === 'configure' ? (
-                    <LemonButton type="tertiary" to={urls.replayVisionTemplates()} data-attr="vision-editor-back">
-                        Back to templates
-                    </LemonButton>
-                ) : prevStep ? (
+                {prevStep ? (
                     <LemonButton
                         type="tertiary"
                         to={scannerStepUrl(prevStep, scannerId)}
