@@ -4,6 +4,11 @@ import { EVENT_SOURCE, resolveEventSource } from '@/lib/event-source'
 import eventSourcesContract from '@/lib/event-sources.json'
 
 const SANDBOX_SCOPES = ['insight:read', 'internal_run:read']
+const CONSENTED_SCOPES = ['insight:read']
+
+// Mirrors ARRAY_APP_CLIENT_ID_DEV and POSTHOG_AI_APP_CLIENT_ID_DEV in `posthog/temporal/oauth.py`.
+const ARRAY_CLIENT_ID = 'DC5uRLVbGI02YQ82grxgnK6Qn12SXWpCqdPb60oZ'
+const POSTHOG_AI_CLIENT_ID = 'DD2ZLG6a2YEUtpPANSzSiIBPuUryYmbndLnKKUy1'
 
 describe('resolveEventSource', () => {
     it.each([
@@ -32,6 +37,30 @@ describe('resolveEventSource', () => {
             EVENT_SOURCE.WIZARD,
         ],
         ['no consumer at all', {}, EVENT_SOURCE.MCP],
+        [
+            // The agent PostHog Desktop hosts authenticates with the user's consented token, so it
+            // carries no `internal_run:read`. Only the OAuth application vouches for it, and Django
+            // resolves the same request to posthog_code.
+            'the local agent inside PostHog Desktop',
+            { mcpConsumer: 'posthog-code', apiKeyScopes: CONSENTED_SCOPES, oauthClientId: ARRAY_CLIENT_ID },
+            EVENT_SOURCE.POSTHOG_CODE,
+        ],
+        [
+            'a PostHog AI token, whichever consumer it declares',
+            { mcpConsumer: 'cursor', oauthClientId: POSTHOG_AI_CLIENT_ID },
+            EVENT_SOURCE.POSTHOG_AI,
+        ],
+        [
+            'a third-party application declaring a first-party consumer',
+            { mcpConsumer: 'slack', apiKeyScopes: CONSENTED_SCOPES, oauthClientId: 'some-third-party-client-id' },
+            EVENT_SOURCE.MCP,
+        ],
+        [
+            // A consumer naming an inherited Object member must not resolve to one.
+            'a consumer borrowed from the prototype chain',
+            { mcpConsumer: 'constructor', apiKeyScopes: SANDBOX_SCOPES },
+            EVENT_SOURCE.MCP,
+        ],
     ])('resolves %s', (_name, input, expected) => {
         expect(resolveEventSource(input)).toBe(expected)
     })

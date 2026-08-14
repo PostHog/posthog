@@ -47,6 +47,7 @@ function buildBaseProperties(
             mcpConsumer: clientIdentity.mcpConsumer,
             clientUserAgent: requestContext.clientUserAgent,
             apiKeyScopes: state.apiKeyScopes,
+            oauthClientId: state.oauthClientId,
         }),
         $mcp_source: MCP_ANALYTICS_SOURCE,
         $mcp_server_name: MCP_SERVER_NAME,

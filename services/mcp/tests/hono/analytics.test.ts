@@ -32,6 +32,7 @@ function makeState(overrides: Partial<ResolvedState> = {}): ResolvedState {
         useSingleExec: true,
         toolFeatureFlags: undefined,
         apiKeyScopes: [],
+        oauthClientId: undefined,
         clientProfile: {} as any,
         requestContext: {
             authMethod: 'personal_api_key',
