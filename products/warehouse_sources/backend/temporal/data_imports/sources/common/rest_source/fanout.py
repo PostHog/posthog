@@ -162,6 +162,7 @@ def build_dependent_resource(
                 parent_name=fanout.parent_name,
                 columns=parent_columns,
                 page_size=parent_config.page_size,
+                schema_name=child_endpoint,
             )
 
     child_path = child_config.path
