@@ -1,4 +1,4 @@
 interface:
-  display_name: "Extend Hobby Smoke Tests"
-  short_description: "Design reliable Hobby ingestion smoke tests"
-  default_prompt: "Use $extending-hobby-smoke-tests to decide whether and how to add a Hobby ingestion smoke test."
+    display_name: 'Extend Hobby Smoke Tests'
+    short_description: 'Design reliable Hobby ingestion smoke tests'
+    default_prompt: 'Use $extending-hobby-smoke-tests to decide whether and how to add a Hobby ingestion smoke test.'
