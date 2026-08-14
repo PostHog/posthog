@@ -49,7 +49,7 @@ class TestApplySesTenantState(BaseTest):
     )
     def test_first_sync_baseline_notifies_only_already_bad_tenants(
         self, _name: str, sending_status: str, impact: str | None, expected_email: str | None
-    ):
+    ) -> None:
         emails = self._apply(sending_status, impact)
 
         config = TeamWorkflowsConfig.objects.get(team=self.team)
@@ -58,7 +58,7 @@ class TestApplySesTenantState(BaseTest):
         for kind, mock in emails.items():
             assert mock.called == (kind == expected_email), f"{kind} called={mock.called}"
 
-    def test_unchanged_state_only_refreshes_synced_at(self):
+    def test_unchanged_state_only_refreshes_synced_at(self) -> None:
         self._seed("ENABLED", "LOW")
 
         emails = self._apply("ENABLED", "LOW")
@@ -93,7 +93,7 @@ class TestApplySesTenantState(BaseTest):
         new_status: str,
         new_impact: str,
         expected_email: str | None,
-    ):
+    ) -> None:
         self._seed(previous_status, previous_impact)
 
         emails = self._apply(new_status, new_impact or None)
@@ -101,7 +101,7 @@ class TestApplySesTenantState(BaseTest):
         for kind, mock in emails.items():
             assert mock.called == (kind == expected_email), f"{kind} called={mock.called}"
 
-    def test_restore_is_silent_while_staff_kill_switch_still_blocks_sending(self):
+    def test_restore_is_silent_while_staff_kill_switch_still_blocks_sending(self) -> None:
         # AWS reinstating the tenant does not restore delivery while the staff kill switch is set,
         # so a "re-enabled" email would tell admins something false. The admin unsuspend action
         # sends that email when the switch clears.
@@ -114,7 +114,7 @@ class TestApplySesTenantState(BaseTest):
 
         assert not emails["unsuspended"].called
 
-    def test_provider_pause_email_carries_the_provider_reason(self):
+    def test_provider_pause_email_carries_the_provider_reason(self) -> None:
         self._seed("ENABLED")
 
         emails = self._apply("DISABLED", "HIGH")
@@ -123,14 +123,14 @@ class TestApplySesTenantState(BaseTest):
         assert args[0] == self.team.id
         assert args[1] == PROVIDER_PAUSE_REASON
 
-    def test_finding_email_carries_the_new_impact(self):
+    def test_finding_email_carries_the_new_impact(self) -> None:
         self._seed("ENABLED", "LOW")
 
         emails = self._apply("ENABLED", "HIGH")
 
         assert emails["finding"].call_args.args[:2] == (self.team.id, "HIGH")
 
-    def test_pause_without_high_impact_does_not_blame_reputation_findings(self):
+    def test_pause_without_high_impact_does_not_blame_reputation_findings(self) -> None:
         self._seed("ENABLED", "NONE")
 
         emails = self._apply("DISABLED", "NONE")
@@ -148,7 +148,7 @@ class TestApplySesTenantState(BaseTest):
             apply_ses_tenant_state(self.team.id, sending_status="ENABLED", reputation_impact="HIGH", findings=findings)
         return finding.delay.call_args.args[3]
 
-    def test_finding_email_uses_our_wording_worst_first_and_drops_unknown_types(self):
+    def test_finding_email_uses_our_wording_worst_first_and_drops_unknown_types(self) -> None:
         sent = self._findings_sent_for(
             [
                 {"finding_type": "DKIM", "impact": "LOW", "description": "Provider prose we do not show"},
@@ -162,7 +162,7 @@ class TestApplySesTenantState(BaseTest):
             {"impact": "LOW", "description": "Set up DKIM for your sending domain"},
         ]
 
-    def test_repeated_finding_type_is_collapsed_to_its_worst_impact(self):
+    def test_repeated_finding_type_is_collapsed_to_its_worst_impact(self) -> None:
         sent = self._findings_sent_for(
             [
                 {"finding_type": "DKIM", "impact": "LOW", "description": ""},
@@ -174,7 +174,7 @@ class TestApplySesTenantState(BaseTest):
 
 
 class TestSyncSesTenantState(BaseTest):
-    def test_unknown_team_is_skipped_without_calling_ses(self):
+    def test_unknown_team_is_skipped_without_calling_ses(self) -> None:
         # SES keeps tenants for deleted projects, and the webhook trusts AWS for the team id. A
         # write here would fail the config row's FK and retry forever.
         provider = MagicMock()

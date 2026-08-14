@@ -1,4 +1,5 @@
 import re
+import time
 import base64
 import hashlib
 import logging
@@ -21,8 +22,18 @@ logger = logging.getLogger(__name__)
 # (nodejs/src/cdp/services/messaging/helpers/ses.ts).
 _SNS_HOST_RE = re.compile(r"^sns\.[a-z0-9-]+\.amazonaws\.com$")
 
+# Cert URLs are one fixed shape; a message whose path is anything else cannot be from SNS, and
+# checking it here means such a message is rejected without an outbound request.
+_CERT_PATH_RE = re.compile(r"^/SimpleNotificationService-[A-Za-z0-9]{8,64}\.pem$")
+
 _CERT_CACHE_SECONDS = 60 * 60
+_CERT_FAILURE_CACHE_SECONDS = 60
 _FETCH_TIMEOUT_SECONDS = 5
+# SNS rotates its signing cert rarely, so steady state is one fetch an hour and a low ceiling costs
+# nothing legitimate. It bounds what a flood of varied cert URLs can make us do: over budget we fail
+# closed, and the sweep still reconciles the state the dropped events would have carried.
+_MAX_CERT_FETCHES_PER_MINUTE = 10
+_FETCH_FAILED = "failed"
 
 # Per https://docs.aws.amazon.com/sns/latest/dg/sns-verify-signature-of-message.html the string to
 # sign is "Key\nValue\n" pairs in this exact order, skipping absent keys.
@@ -38,7 +49,32 @@ def is_valid_sns_url(url: str | None) -> bool:
     if not url:
         return False
     parsed = urlparse(url)
-    return parsed.scheme == "https" and bool(parsed.hostname) and bool(_SNS_HOST_RE.match(parsed.hostname or ""))
+    if parsed.scheme != "https" or not parsed.hostname or not _SNS_HOST_RE.match(parsed.hostname):
+        return False
+    # SNS only ever serves 443. Without this an SNS hostname on a dead port passes validation, and
+    # each such URL holds a request for the full fetch timeout.
+    try:
+        return parsed.port in (None, 443)
+    except ValueError:
+        # urlparse defers parsing the port, so a non-numeric one raises here rather than above.
+        return False
+
+
+def is_valid_sns_cert_url(url: str | None) -> bool:
+    """True when the URL is one SNS could actually serve a signing certificate from."""
+    return is_valid_sns_url(url) and bool(_CERT_PATH_RE.match(urlparse(url or "").path))
+
+
+def _claim_cert_fetch_slot() -> bool:
+    # One counter shared across web workers, so the ceiling holds for the deployment rather than
+    # per process.
+    bucket_key = f"sns_cert_fetch_budget_{int(time.time()) // 60}"
+    cache.add(bucket_key, 0, 120)
+    try:
+        return cache.incr(bucket_key) <= _MAX_CERT_FETCHES_PER_MINUTE
+    except ValueError:
+        # The bucket expired between the add and the incr, so this is effectively a fresh minute.
+        return True
 
 
 def _fetch_signing_cert(cert_url: str) -> bytes | None:
@@ -47,12 +83,17 @@ def _fetch_signing_cert(cert_url: str) -> bytes | None:
     cache_key = f"sns_signing_cert_{hashlib.sha256(cert_url.encode()).hexdigest()}"
     cached = cache.get(cache_key)
     if cached is not None:
-        return cached
+        return None if cached == _FETCH_FAILED else cached
+    if not _claim_cert_fetch_slot():
+        logger.warning("Skipped SNS signing certificate fetch, per-minute budget exhausted")
+        return None
     try:
         response = requests.get(cert_url, timeout=_FETCH_TIMEOUT_SECONDS)
         response.raise_for_status()
     except requests.RequestException:
         logger.exception("Failed to fetch SNS signing certificate", extra={"cert_url": cert_url})
+        # Remember the failure, or a repeated bad URL buys a fresh request every time.
+        cache.set(cache_key, _FETCH_FAILED, _CERT_FAILURE_CACHE_SECONDS)
         return None
     cache.set(cache_key, response.content, _CERT_CACHE_SECONDS)
     return response.content
@@ -92,7 +133,7 @@ def verify_sns_message(message: dict[str, Any]) -> bool:
         )
         return False
     cert_url = message.get("SigningCertURL")
-    if not isinstance(cert_url, str) or not is_valid_sns_url(cert_url):
+    if not isinstance(cert_url, str) or not is_valid_sns_cert_url(cert_url):
         return False
     string_to_sign = _string_to_sign(message)
     if string_to_sign is None:
