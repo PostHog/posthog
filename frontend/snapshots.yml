@@ -1072,6 +1072,10 @@ snapshots:
         hash: v1.k794b7964.43f6eb1474d256161abbb5a6a9fb4fcdc9106b3a2929c8b3a16b6ff76ba1fad9.FBPe_INNlLA1E-419fyRDywJsBSgXBgInE2a1Jg17vA
     components-hogcharts-timeserieslinechart--y-axis-formats--light:
         hash: v1.k794b7964.f069019d468fdbe30e6dadec5747c4103ef9d696404463c433c5c6d333f786b3.5--sMNDuGxAUTA_gdKqQbE8KKnkjsOGubKKrg59-0s0
+    components-hogcharts-timeserieslinechart--y-axis-range--dark:
+        hash: v1.k794b7964.74fa4998f18f347555b68b7d5b70cbcbd58d362d405c48cb4efd4eb14df2c0d6.aoLPhLRwS1e43mJx-spfRqtspjEVrIGfwqWby9cY18Y
+    components-hogcharts-timeserieslinechart--y-axis-range--light:
+        hash: v1.k794b7964.625e033c4e33d90b83a2226ac1a7cb4a21001ad1ea9e0f1bb1a92b65c9b82fc9.PN7p1HkN-58lB8tal-t-_Xnuogrm20kdQ11-S_5L8gI
     components-hogcharts-trendlineoverlay--single-series-with-trend--dark:
         hash: v1.k794b7964.516a16ffe07ab9611351c87621a551c2be271b06e36362c9451dea8dc4b5eacb.5Sxpr5u-k77d0oS64FGemW7JP-NlFmNqVrK6_frmZNk
     components-hogcharts-trendlineoverlay--single-series-with-trend--light:
@@ -6433,9 +6437,9 @@ snapshots:
     scenes-app-inbox-scene--empty-with-many-scouts--light:
         hash: v1.k794b7964.4757fdc3e6603cc7752cffdf45421aa24d8551754e9b5cca04569ed5c9577a26.k0mDZb6DY2eTMFjNrG2mi_0Dbhcrho9A4MhjjH5KlCM
     scenes-app-inbox-scene--inbox--dark:
-        hash: v1.k794b7964.7ade0c95519de555691da00b03aaa9aeea1ba0c32762354222d23676099ea0da.OmzLebXW_1EJ-lRFDeh7flQ6cl3OqskJfVarjDu4FQc
+        hash: v1.k794b7964.6938f54b10a00b66cd90158043512d6b056ac3bf97e291fa5961529af56ba084.noXScllvtHLNl8e7c7bKckMTjf-O9lC0OuvKdUKVT7o
     scenes-app-inbox-scene--inbox--light:
-        hash: v1.k794b7964.cd4a9d438b8342df350fcc8de14e27707c460e73d08772f90fec51dcb346858d.pXZHp6MatJwXk0M_5UL2njnpvO02KcZWmTtPqoeaj6E
+        hash: v1.k794b7964.21ae4235f9bc3c8f39fc33259edc39f53e06baaeb37f679f3badd771b986b86a.AoPLxHhT6028ylYpVRlXQUVgqm6ckEBiLWWwCovU7DQ
     scenes-app-inbox-scene--installing-self-driving--dark:
         hash: v1.k794b7964.d2c648fd6ea8079c6746f4b5e979cac53dbd928dd06990c3bac2031eeaba12be.rCs94UBn0krUWBSp28BM_f7Jo4Smc85JTXR_iWzDjoY
     scenes-app-inbox-scene--installing-self-driving--light:
