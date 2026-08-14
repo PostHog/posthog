@@ -71,6 +71,25 @@ export const Clickable: Story = {
   ),
 };
 
+export const WithSparkline: Story = {
+  render: () => (
+    <div className="max-w-md text-[13px]">
+      <EvidenceRefChip
+        target={{
+          kind: "insight",
+          id: "9pQx3",
+          url: "https://us.posthog.com/project/2/insights/9pQx3",
+          value: "28.1%",
+          desc: "down 12.9pts since Jan 3",
+          series: [41.2, 40.8, 41, 39.9, 40.4, 41.1, 28.4, 27.9, 28.1],
+        }}
+      >
+        Checkout funnel
+      </EvidenceRefChip>
+    </div>
+  ),
+};
+
 export const InsideAgentMessage: Story = {
   render: () => (
     <div className="max-w-xl">

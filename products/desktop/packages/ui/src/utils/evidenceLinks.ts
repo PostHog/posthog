@@ -10,6 +10,8 @@
  * - `url`: PostHog web URL of the object, makes the reference clickable.
  * - `value`: headline figure for the hover card, e.g. `28.1%`.
  * - `desc`: one context line for the hover card, e.g. `down 12.9pts since Jan 3`.
+ * - `series`: comma-separated numbers the agent already has, drawn as a
+ *   sparkline on the hover card, e.g. `41,39,40,28,27`.
  *
  * `evidence:insight/9pQx3?url=https%3A%2F%2Fus.posthog.com%2F...&value=28.1%25&desc=down+12.9pts`
  */
@@ -27,12 +29,23 @@ export interface EvidenceLinkTarget {
   value?: string;
   /** One context line for the hover card. */
   desc?: string;
+  /** Data points for the hover-card sparkline, oldest first. */
+  series?: number[];
 }
 
 // Display params are agent-written text headed for a small card; caps keep a
 // runaway link from flooding the layout.
 const MAX_VALUE_LENGTH = 40;
 const MAX_DESC_LENGTH = 160;
+const MAX_SERIES_POINTS = 60;
+
+/** A sparkline needs 2+ finite numbers; anything else is dropped whole. */
+function parseSeriesParam(raw: string): number[] | null {
+  const parts = raw.split(",").slice(0, MAX_SERIES_POINTS);
+  if (parts.length < 2) return null;
+  const points = parts.map((part) => Number(part.trim()));
+  return points.every(Number.isFinite) ? points : null;
+}
 
 function decodePart(part: string): string {
   try {
@@ -71,6 +84,11 @@ export function parseEvidenceLink(
     if (value) target.value = value.slice(0, MAX_VALUE_LENGTH);
     const desc = params.get("desc")?.trim();
     if (desc) target.desc = desc.slice(0, MAX_DESC_LENGTH);
+    const series = params.get("series");
+    if (series) {
+      const points = parseSeriesParam(series);
+      if (points) target.series = points;
+    }
   }
 
   return target;

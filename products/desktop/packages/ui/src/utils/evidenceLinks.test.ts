@@ -41,6 +41,33 @@ describe("parseEvidenceLink", () => {
     expect(parsed?.desc?.length).toBe(160);
   });
 
+  it("parses a series param into sparkline points", () => {
+    expect(
+      parseEvidenceLink("evidence:insight/x?series=41,39.5,+40,28"),
+    ).toEqual({
+      kind: "insight",
+      id: "x",
+      series: [41, 39.5, 40, 28],
+    });
+  });
+
+  it.each([
+    ["a single point", "series=41"],
+    ["junk among the numbers", "series=41,down,28"],
+  ])("drops a series with %s instead of a broken sparkline", (_name, query) => {
+    expect(parseEvidenceLink(`evidence:insight/x?${query}`)).toEqual({
+      kind: "insight",
+      id: "x",
+    });
+  });
+
+  it("caps series points so a runaway link cannot flood the card", () => {
+    const parsed = parseEvidenceLink(
+      `evidence:insight/x?series=${Array.from({ length: 200 }, (_, i) => i).join(",")}`,
+    );
+    expect(parsed?.series?.length).toBe(60);
+  });
+
   it("drops url values that are not http(s)", () => {
     expect(
       parseEvidenceLink(

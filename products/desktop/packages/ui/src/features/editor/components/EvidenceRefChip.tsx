@@ -12,7 +12,7 @@ import {
   ShieldCheckIcon,
   SparkleIcon,
 } from "@phosphor-icons/react";
-import type { MouseEvent, ReactNode } from "react";
+import { type MouseEvent, type ReactNode, useId } from "react";
 import { Tooltip } from "../../../primitives/Tooltip";
 import { openExternalUrl } from "../../../shell/openExternal";
 import type { EvidenceLinkTarget } from "../../../utils/evidenceLinks";
@@ -89,6 +89,63 @@ export function getEvidenceKindMeta(kind: string): EvidenceKindMeta {
   return EVIDENCE_KIND_META[kind] ?? GENERIC_KIND_META;
 }
 
+const SPARK_W = 100;
+const SPARK_H = 32;
+const SPARK_PAD = 3;
+
+/**
+ * Tiny trend line for the hover card, drawn from the numbers the link itself
+ * carries — same zero-fetch principle as the other display params.
+ */
+function Sparkline({ points }: { points: number[] }) {
+  const gradientId = useId();
+  const max = Math.max(...points);
+  const min = Math.min(...points);
+  const range = max - min || 1;
+  const coords = points.map((point, index) => [
+    (index / (points.length - 1)) * SPARK_W,
+    SPARK_H - SPARK_PAD - ((point - min) / range) * (SPARK_H - 2 * SPARK_PAD),
+  ]);
+  const line = coords
+    .map(
+      ([x, y], index) =>
+        `${index === 0 ? "M" : "L"}${x.toFixed(1)} ${y.toFixed(1)}`,
+    )
+    .join(" ");
+  const [lastX, lastY] = coords[coords.length - 1];
+  return (
+    <svg
+      viewBox={`0 0 ${SPARK_W} ${SPARK_H}`}
+      preserveAspectRatio="none"
+      className="h-9 w-full"
+      role="img"
+      aria-label="Trend sparkline"
+      data-testid="evidence-sparkline"
+    >
+      <defs>
+        <linearGradient id={gradientId} x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stopColor="var(--accent-9)" stopOpacity={0.2} />
+          <stop offset="100%" stopColor="var(--accent-9)" stopOpacity={0.02} />
+        </linearGradient>
+      </defs>
+      <path
+        d={`${line} L${SPARK_W} ${SPARK_H} L0 ${SPARK_H} Z`}
+        fill={`url(#${gradientId})`}
+      />
+      <path
+        d={line}
+        fill="none"
+        stroke="var(--accent-9)"
+        strokeWidth={1.6}
+        strokeLinejoin="round"
+        strokeLinecap="round"
+        vectorEffect="non-scaling-stroke"
+      />
+      <circle cx={lastX} cy={lastY} r={2} fill="var(--accent-9)" />
+    </svg>
+  );
+}
+
 export function EvidenceRefChip({
   target,
   children,
@@ -123,20 +180,37 @@ export function EvidenceRefChip({
           </span>
         </span>
       </div>
-      {(target.value || target.desc) && (
+      {(target.value || target.desc || target.series) && (
         <div className="border-(--gray-a4) border-t px-3 py-2">
-          {target.value && (
-            <div className="font-[600] text-(--gray-12) text-[17px] leading-tight tracking-[-0.01em]">
-              {target.value}
-            </div>
-          )}
-          {target.desc && (
-            <div
-              className={`text-(--gray-10) text-[11.5px] leading-snug ${target.value ? "mt-1" : ""}`}
-            >
-              {target.desc}
-            </div>
-          )}
+          <div className="flex items-center gap-3">
+            {(target.value || target.desc) && (
+              <span className="min-w-0 flex-1">
+                {target.value && (
+                  <span className="block font-[600] text-(--gray-12) text-[17px] tabular-nums leading-tight tracking-[-0.01em]">
+                    {target.value}
+                  </span>
+                )}
+                {target.desc && (
+                  <span
+                    className={`block text-(--gray-10) text-[11.5px] leading-snug ${target.value ? "mt-1" : ""}`}
+                  >
+                    {target.desc}
+                  </span>
+                )}
+              </span>
+            )}
+            {target.series && (
+              <span
+                className={
+                  target.value || target.desc
+                    ? "w-24 shrink-0"
+                    : "min-w-0 flex-1"
+                }
+              >
+                <Sparkline points={target.series} />
+              </span>
+            )}
+          </div>
         </div>
       )}
       {preview && (
