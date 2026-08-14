@@ -1,6 +1,7 @@
 from datetime import UTC, datetime
 from typing import Any
 
+from freezegun import freeze_time
 from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, patch
 
@@ -856,11 +857,20 @@ class TestRunActionRequestSerializer(SimpleTestCase):
             ),
             ("end_before_start", {"window_start": "2026-07-02T00:00:00Z", "window_end": "2026-07-01T00:00:00Z"}, False),
             ("not_a_datetime", {"window_start": "last month"}, False),
+            ("start_only_in_the_future", {"window_start": "2026-08-01T00:00:00Z"}, False),
+            (
+                "window_longer_than_the_cap",
+                {"window_start": "2025-06-01T00:00:00Z", "window_end": "2026-07-01T00:00:00Z"},
+                False,
+            ),
+            ("start_only_longer_than_the_cap", {"window_start": "2025-06-01T00:00:00Z"}, False),
         ]
     )
+    @freeze_time("2026-07-15T00:00:00Z")
     def test_window_shape(self, _label: str, body: dict[str, Any], expected_valid: bool) -> None:
-        # An inverted or half-specified window would silently synthesize an empty summary; it must be
-        # rejected in-memory before any workflow is started.
+        # An inverted, half-specified, future-starting, or over-long window would silently synthesize
+        # an empty or unboundedly expensive summary; it must be rejected in-memory before any workflow
+        # is started. Time is frozen because a missing end defaults to now.
         self.assertEqual(RunActionRequestSerializer(data=body).is_valid(), expected_valid)
 
 

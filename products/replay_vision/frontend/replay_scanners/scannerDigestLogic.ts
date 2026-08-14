@@ -415,10 +415,19 @@ export const scannerDigestLogic = kea<scannerDigestLogicType>([
                     actions.summarizePeriodDone()
                     return
                 }
+                const windowStart = resolveWindowBound(values.periodDateFrom, dayjs().subtract(30, 'day'))
+                const windowEnd = resolveWindowBound(values.periodDateTo, dayjs())
+                // The picker accepts future dates, but a period starting after its end (which defaults
+                // to now) holds nothing to summarize; catch it here instead of surfacing a backend 400.
+                if (!dayjs(windowStart).isBefore(windowEnd)) {
+                    lemonToast.error('The period must start in the past. Pick an earlier start date.')
+                    actions.summarizePeriodDone()
+                    return
+                }
                 try {
                     const { already_running } = await visionActionsRunCreate(String(teamId), digest.id, {
-                        window_start: resolveWindowBound(values.periodDateFrom, dayjs().subtract(30, 'day')),
-                        window_end: resolveWindowBound(values.periodDateTo, dayjs()),
+                        window_start: windowStart,
+                        window_end: windowEnd,
                     })
                     if (already_running) {
                         // The server coalesced onto the run already in flight, so the requested period

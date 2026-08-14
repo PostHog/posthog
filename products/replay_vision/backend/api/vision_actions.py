@@ -1,4 +1,5 @@
 import uuid
+from datetime import timedelta
 from typing import Any, NoReturn, cast, get_args
 from urllib.parse import urlparse
 
@@ -29,6 +30,7 @@ from posthog.api.scoped_related_fields import TeamScopedPrimaryKeyRelatedField
 from posthog.api.shared import UserBasicSerializer
 from posthog.models.integration import Integration
 
+from products.replay_vision.backend.api.backfills import MAX_BACKFILL_WINDOW_DAYS
 from products.replay_vision.backend.api.delivery import archive_delivery, provision_delivery
 from products.replay_vision.backend.api.errors import ReplayVisionErrorSerializer
 from products.replay_vision.backend.api.trigger import WorkflowStartOutcome, start_process_vision_action_workflow
@@ -614,6 +616,9 @@ def _check_action_scanner_access(
             raise PermissionDenied("You don't have access to one or more scanners this action targets.")
 
 
+MAX_RUN_WINDOW_DAYS = MAX_BACKFILL_WINDOW_DAYS
+
+
 class RunActionRequestSerializer(serializers.Serializer):
     """Optional explicit observation window for POST /vision/actions/{id}/run/. With no body the run
     covers everything since the action's last summary (or the last 24h); with a window it becomes a
@@ -639,8 +644,21 @@ class RunActionRequestSerializer(serializers.Serializer):
         window_end = attrs.get("window_end")
         if window_end is not None and window_start is None:
             raise serializers.ValidationError({"window_start": "window_end requires window_start."})
-        if window_start is not None and window_end is not None and window_start >= window_end:
-            raise serializers.ValidationError({"window_end": "window_end must be after window_start."})
+        if window_start is None:
+            return attrs
+        # A missing end defaults to now, so a future start would be an empty window too.
+        effective_end = window_end or timezone.now()
+        if window_start >= effective_end:
+            raise serializers.ValidationError(
+                {"window_end": "window_end (which defaults to now) must be after window_start."}
+            )
+        # Synthesis counts and filters the whole window before sampling caps apply, so an unbounded
+        # window would scan the scanner's entire observation history. Matches the backfill cap: any
+        # period a backfill can produce can be summarized.
+        if effective_end - window_start > timedelta(days=MAX_RUN_WINDOW_DAYS):
+            raise serializers.ValidationError(
+                {"window_start": f"Summary windows are limited to {MAX_RUN_WINDOW_DAYS} days. Pick a shorter range."}
+            )
         return attrs
 
 
