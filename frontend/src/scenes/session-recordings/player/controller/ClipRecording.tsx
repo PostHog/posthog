@@ -18,6 +18,38 @@ interface ClipTimes {
     endClip: string
 }
 
+interface ClipDurationOption {
+    value: number
+    label: string
+    'data-attr': string
+}
+
+// Seconds for a moment worth sharing. Anything past a couple of minutes is a different job, and a
+// recording long enough to need one is served by the longer options below.
+const SHORT_CLIP_SECONDS = [5, 10, 15]
+// Minutes, for reviewing part of a recording too long to export whole.
+const LONG_CLIP_MINUTES = [1, 5, 15]
+
+export const MIN_CLIP_DURATION_SECONDS = SHORT_CLIP_SECONDS[0]
+
+export function clipDurationOptions(sessionDurationMs: number): ClipDurationOption[] {
+    const sessionSeconds = sessionDurationMs / 1000
+    const shortOptions = SHORT_CLIP_SECONDS.map((seconds) => ({
+        value: seconds,
+        label: `${seconds}s`,
+        'data-attr': `replay-clip-duration-${seconds}`,
+    }))
+
+    // Only offered where there is that much recording to clip, so no option produces an empty tail.
+    const longOptions = LONG_CLIP_MINUTES.filter((minutes) => minutes * 60 < sessionSeconds).map((minutes) => ({
+        value: minutes * 60,
+        label: `${minutes}m`,
+        'data-attr': `replay-clip-duration-${minutes}m`,
+    }))
+
+    return [...shortOptions, ...longOptions]
+}
+
 function calculateClipTimes(currentTimeMs: number | null, sessionDurationMs: number, clipDuration: number): ClipTimes {
     const startTimeSeconds = (currentTimeMs ?? 0) / 1000
     const endTimeSeconds = Math.floor(sessionDurationMs / 1000)
@@ -51,8 +83,13 @@ export function ClipOverlay(): JSX.Element | null {
     const { currentPlayerTime, sessionPlayerData, showingClipParams, sessionRecordingId } =
         useValues(sessionRecordingPlayerLogic)
     const { getClip, setShowingClipParams } = useActions(sessionRecordingPlayerLogic)
-    const [duration, setDuration] = useState(5)
+    const [duration, setDuration] = useState(MIN_CLIP_DURATION_SECONDS)
     const [format, setFormat] = useState(ExporterFormat.MP4)
+
+    const durationOptions = useMemo(
+        () => clipDurationOptions(sessionPlayerData.durationMs),
+        [sessionPlayerData.durationMs]
+    )
 
     const { current, startClip, endClip } = calculateClipTimes(
         currentPlayerTime,
@@ -99,15 +136,11 @@ export function ClipOverlay(): JSX.Element | null {
             </div>
 
             <div className="space-y-1">
-                <label className="block text-sm font-medium text-default">Duration (seconds)</label>
+                <label className="block text-sm font-medium text-default">Duration</label>
                 <LemonSegmentedSelect
                     fullWidth
                     size="xsmall"
-                    options={[
-                        { value: 5, label: '5', 'data-attr': 'replay-clip-duration-5' },
-                        { value: 10, label: '10', 'data-attr': 'replay-clip-duration-10' },
-                        { value: 15, label: '15', 'data-attr': 'replay-clip-duration-15' },
-                    ]}
+                    options={durationOptions}
                     value={duration}
                     onChange={(value) => setDuration(value)}
                 />
@@ -121,7 +154,9 @@ export function ClipOverlay(): JSX.Element | null {
                 type="primary"
                 className="mt-3 mx-auto"
                 disabledReason={
-                    !duration || duration < 5 || duration > 15 ? 'Duration must be between 5 and 15 seconds' : undefined
+                    durationOptions.some((option) => option.value === duration)
+                        ? undefined
+                        : 'Pick one of the durations above'
                 }
                 data-attr="replay-clip-create"
             >
@@ -168,7 +203,7 @@ function ClipRecording_({ current, className }: { current: string; className?: s
 export function ClipRecording({ className }: { className?: string }): JSX.Element {
     const { currentPlayerTime, sessionPlayerData } = useValues(sessionRecordingPlayerLogic)
 
-    const { current } = calculateClipTimes(currentPlayerTime, sessionPlayerData.durationMs, 5)
+    const { current } = calculateClipTimes(currentPlayerTime, sessionPlayerData.durationMs, MIN_CLIP_DURATION_SECONDS)
 
     return <ClipRecording_ current={current} className={className} />
 }
