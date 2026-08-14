@@ -244,6 +244,12 @@ tools:
     canvases-revert-create:
         operation: canvases_revert_create
         enabled: false
+    canvases-state-retrieve:
+        operation: canvases_state_retrieve
+        enabled: false
+    canvases-state-set:
+        operation: canvases_state_set
+        enabled: false
     canvases-versions-retrieve:
         operation: canvases_versions_retrieve
         enabled: false

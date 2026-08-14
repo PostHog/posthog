@@ -88,6 +88,16 @@
                                     },
                                     "maxItems": 100,
                                     "type": "array"
+                                },
+                                "state": {
+                                    "description": "State scopes the canvas may use via ph.state: 'user' (private to each viewer) and/or 'shared' (one value per canvas, team-visible).",
+                                    "items": {
+                                        "description": "* `user` - user\n* `shared` - shared",
+                                        "enum": ["user", "shared"],
+                                        "type": "string"
+                                    },
+                                    "maxItems": 2,
+                                    "type": "array"
                                 }
                             },
                             "required": ["insights", "inlineQueries", "captureEvents"],

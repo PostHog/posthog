@@ -1,3 +1,4 @@
+import json
 from typing import Any, cast
 from uuid import UUID
 
@@ -12,6 +13,7 @@ from rest_framework.decorators import action
 from rest_framework.exceptions import NotFound
 from rest_framework.request import Request
 from rest_framework.response import Response
+from rest_framework.throttling import BaseThrottle, SimpleRateThrottle
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.auth import OAuthAccessTokenAuthentication
@@ -23,7 +25,7 @@ from posthog.storage.object_storage import ObjectStorageError
 from posthog.temporal.oauth import SANDBOX_OAUTH_APP_CLIENT_IDS
 
 from products.canvas.backend import build_service, error_reports
-from products.canvas.backend.models import Canvas, CanvasBuild, CanvasSourceVersion
+from products.canvas.backend.models import Canvas, CanvasBuild, CanvasSourceVersion, CanvasState
 from products.canvas.backend.presentation.serializers import (
     CanvasBuildActionSerializer,
     CanvasBuildSerializer,
@@ -47,6 +49,9 @@ from products.canvas.backend.presentation.serializers import (
     CanvasSourcePublishResponseSerializer,
     CanvasSourcePublishSerializer,
     CanvasSourceResponseSerializer,
+    CanvasStateEntrySerializer,
+    CanvasStateResponseSerializer,
+    CanvasStateSetSerializer,
     CanvasSummarySerializer,
     CanvasUpdateSerializer,
     CanvasValidateRequestSerializer,
@@ -62,6 +67,10 @@ from products.tasks.backend.facade import api as tasks_facade
 BUILDS_WINDOW = 20
 # Version-history window for the client's undo/revert browser.
 VERSIONS_WINDOW = 100
+# Write-time bounds on canvas runtime state (ph.state). They keep every access
+# a point lookup and cap table growth by canvas count rather than usage.
+CANVAS_STATE_MAX_VALUE_BYTES = 64 * 1024
+CANVAS_STATE_MAX_KEYS_PER_SCOPE = 256
 
 
 def _capacity_response() -> Response:
@@ -94,6 +103,19 @@ def _invalid_response(diagnostics: list[dict[str, Any]]) -> Response:
     )
 
 
+class CanvasStateWriteThrottle(SimpleRateThrottle):
+    """Per viewer per canvas. State writes are interaction-driven app data, so
+    the ceiling is generous — it exists to stop a canvas render loop from
+    hammering the table, not to meter normal use."""
+
+    scope = "canvas_state_write"
+    rate = "240/min"
+
+    def get_cache_key(self, request: Request, view: Any) -> str:
+        ident = request.user.pk if request.user and request.user.is_authenticated else self.get_ident(request)
+        return self.cache_format % {"scope": self.scope, "ident": f"{ident}:{view.kwargs.get('pk')}"}
+
+
 class CanvasViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     """Canvases: agent-built sandboxed browser apps, filed into channels.
 
@@ -107,7 +129,7 @@ class CanvasViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     queryset = Canvas.objects.unscoped().select_related("created_by")
     serializer_class = CanvasSerializer
     http_method_names = ["get", "post", "patch", "delete", "head", "options"]
-    scope_object_read_actions = ["list", "retrieve", "source", "versions", "drafts", "builds", "validate"]
+    scope_object_read_actions = ["list", "retrieve", "source", "versions", "drafts", "builds", "validate", "state"]
     scope_object_write_actions = [
         "create",
         "partial_update",
@@ -121,7 +143,13 @@ class CanvasViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         "build_action",
         "report_error",
         "request_fix",
+        "set_state",
     ]
+
+    def get_throttles(self) -> list[BaseThrottle]:
+        if self.action == "set_state":
+            return [CanvasStateWriteThrottle()]
+        return super().get_throttles()
 
     _CREATOR_ONLY_ACTIONS = {
         "partial_update",
@@ -993,6 +1021,127 @@ class CanvasViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         if build is None:
             raise NotFound("Build not found for this canvas.")
         return build
+    def _state_actor(self, request: Request) -> User | None:
+        """The viewer whose state is read or written; None rejects the call.
+
+        Sandboxes are excluded by design: runtime state belongs to viewer
+        sessions, and the authoring agent works with it through the source
+        code it publishes, not by writing rows.
+        """
+        if self._is_sandbox_authenticated(request):
+            return None
+        return self._request_user()
+
+    @extend_schema(
+        operation_id="canvases_state_retrieve",
+        parameters=[
+            OpenApiParameter(
+                "scope",
+                OpenApiTypes.STR,
+                required=False,
+                enum=CanvasState.SCOPES,
+                description="Only return entries in this scope.",
+            )
+        ],
+        responses={
+            200: CanvasStateResponseSerializer,
+            403: OpenApiResponse(description="Canvas state is a viewer surface; sandbox tokens cannot use it."),
+        },
+    )
+    @action(methods=["GET"], detail=True)
+    def state(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        """Read the canvas's runtime key-value state (the ph.state store).
+
+        Returns the canvas's shared entries plus the caller's own user-scoped
+        entries — never another viewer's.
+        """
+        canvas = self.get_object()
+        user = self._state_actor(request)
+        if user is None:
+            return Response(
+                {"detail": "Canvas state is a viewer surface; sandbox tokens cannot use it."},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+        entries = (
+            CanvasState.objects.for_team(self.team_id)
+            .filter(canvas=canvas)
+            .filter(Q(scope=CanvasState.SCOPE_SHARED, user__isnull=True) | Q(scope=CanvasState.SCOPE_USER, user=user))
+        )
+        scope = request.query_params.get("scope")
+        if scope:
+            if scope not in CanvasState.SCOPES:
+                return Response({"detail": "scope must be 'user' or 'shared'."}, status=status.HTTP_400_BAD_REQUEST)
+            entries = entries.filter(scope=scope)
+        return Response({"entries": CanvasStateEntrySerializer(entries.order_by("scope", "key"), many=True).data})
+
+    @extend_schema(
+        operation_id="canvases_state_set",
+        request=CanvasStateSetSerializer,
+        responses={
+            200: CanvasStateEntrySerializer,
+            204: OpenApiResponse(description="The key was deleted (value was null)."),
+            400: OpenApiResponse(description="The value or the scope's key count exceeds the state bounds."),
+            403: OpenApiResponse(
+                description="The scope is not declared in the canvas's capabilities, or the caller is a sandbox."
+            ),
+        },
+    )
+    @action(methods=["POST"], detail=True, url_path="state/set")
+    def set_state(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        """Write one key of the canvas's runtime state, or delete it with a null value."""
+        canvas = self.get_object()
+        user = self._state_actor(request)
+        if user is None:
+            return Response(
+                {"detail": "Canvas state is a viewer surface; sandbox tokens cannot use it."},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+        payload = CanvasStateSetSerializer(data=request.data)
+        payload.is_valid(raise_exception=True)
+        scope = payload.validated_data["scope"]
+        key = payload.validated_data["key"]
+        value = payload.validated_data["value"]
+        # The head version's declared capabilities gate writes: state is part of
+        # the canvas's reviewed permission boundary, exactly like insights.
+        version = canvas.current_source_version
+        declared = set((((version.capabilities if version else None) or {}).get("posthog") or {}).get("state") or [])
+        if scope not in declared:
+            return Response(
+                {
+                    "detail": f'The canvas does not declare state scope "{scope}". '
+                    "Add it to capabilities.posthog.state and publish."
+                },
+                status=status.HTTP_403_FORBIDDEN,
+            )
+        owner = user if scope == CanvasState.SCOPE_USER else None
+        existing = CanvasState.objects.for_team(self.team_id).filter(canvas=canvas, scope=scope, user=owner, key=key)
+        if value is None:
+            existing.delete()
+            return Response(status=status.HTTP_204_NO_CONTENT)
+        if len(json.dumps(value, separators=(",", ":")).encode()) > CANVAS_STATE_MAX_VALUE_BYTES:
+            return Response(
+                {
+                    "detail": "State values are capped at 64 KB serialized. "
+                    "Store large data in PostHog (insights, the warehouse) and reference it."
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        if not existing.exists():
+            key_count = (
+                CanvasState.objects.for_team(self.team_id).filter(canvas=canvas, scope=scope, user=owner).count()
+            )
+            if key_count >= CANVAS_STATE_MAX_KEYS_PER_SCOPE:
+                return Response(
+                    {
+                        "detail": f"A canvas may hold at most {CANVAS_STATE_MAX_KEYS_PER_SCOPE} state keys per scope. "
+                        "Delete keys (set them to null) or consolidate values."
+                    },
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+        entry, _ = CanvasState.objects.for_team(self.team_id).update_or_create(
+            team_id=self.team_id, canvas=canvas, scope=scope, user=owner, key=key, defaults={"value": value}
+        )
+        return Response(CanvasStateEntrySerializer(entry).data)
 
     def _log_canvas_activity(self, canvas: Canvas, activity: str, detail: Detail) -> None:
         log_activity(

@@ -111,6 +111,8 @@ export const canvasesDraftCreateBodyProjectOneCapabilitiesOnePosthogCaptureEvent
 
 export const canvasesDraftCreateBodyProjectOneCapabilitiesOnePosthogCaptureEventsMax = 100
 
+export const canvasesDraftCreateBodyProjectOneCapabilitiesOnePosthogStateMax = 2
+
 export const canvasesDraftCreateBodyProjectOneCapabilitiesOneNetworkOriginsItemMax = 2048
 
 export const canvasesDraftCreateBodyProjectOneCapabilitiesOneNetworkOriginsMax = 20
@@ -182,6 +184,13 @@ export const CanvasesDraftCreateBody = /* @__PURE__ */ zod
                                         )
                                 )
                                 .max(canvasesDraftCreateBodyProjectOneCapabilitiesOnePosthogCaptureEventsMax),
+                            state: zod
+                                .array(zod.enum(['user', 'shared']).describe('\* `user` - user\n\* `shared` - shared'))
+                                .max(canvasesDraftCreateBodyProjectOneCapabilitiesOnePosthogStateMax)
+                                .optional()
+                                .describe(
+                                    "State scopes the canvas may use via ph.state: 'user' (private to each viewer) and\/or 'shared' (one value per canvas, team-visible)."
+                                ),
                         }),
                         network: zod.object({
                             origins: zod
@@ -338,6 +347,8 @@ export const canvasesPublishCreateBodyProjectOneCapabilitiesOnePosthogCaptureEve
 
 export const canvasesPublishCreateBodyProjectOneCapabilitiesOnePosthogCaptureEventsMax = 100
 
+export const canvasesPublishCreateBodyProjectOneCapabilitiesOnePosthogStateMax = 2
+
 export const canvasesPublishCreateBodyProjectOneCapabilitiesOneNetworkOriginsItemMax = 2048
 
 export const canvasesPublishCreateBodyProjectOneCapabilitiesOneNetworkOriginsMax = 20
@@ -411,6 +422,13 @@ export const CanvasesPublishCreateBody = /* @__PURE__ */ zod
                                         )
                                 )
                                 .max(canvasesPublishCreateBodyProjectOneCapabilitiesOnePosthogCaptureEventsMax),
+                            state: zod
+                                .array(zod.enum(['user', 'shared']).describe('\* `user` - user\n\* `shared` - shared'))
+                                .max(canvasesPublishCreateBodyProjectOneCapabilitiesOnePosthogStateMax)
+                                .optional()
+                                .describe(
+                                    "State scopes the canvas may use via ph.state: 'user' (private to each viewer) and\/or 'shared' (one value per canvas, team-visible)."
+                                ),
                         }),
                         network: zod.object({
                             origins: zod
@@ -514,6 +532,8 @@ export const canvasesValidateCreateBodyProjectOneCapabilitiesOnePosthogCaptureEv
 
 export const canvasesValidateCreateBodyProjectOneCapabilitiesOnePosthogCaptureEventsMax = 100
 
+export const canvasesValidateCreateBodyProjectOneCapabilitiesOnePosthogStateMax = 2
+
 export const canvasesValidateCreateBodyProjectOneCapabilitiesOneNetworkOriginsItemMax = 2048
 
 export const canvasesValidateCreateBodyProjectOneCapabilitiesOneNetworkOriginsMax = 20
@@ -585,6 +605,13 @@ export const CanvasesValidateCreateBody = /* @__PURE__ */ zod
                                         )
                                 )
                                 .max(canvasesValidateCreateBodyProjectOneCapabilitiesOnePosthogCaptureEventsMax),
+                            state: zod
+                                .array(zod.enum(['user', 'shared']).describe('\* `user` - user\n\* `shared` - shared'))
+                                .max(canvasesValidateCreateBodyProjectOneCapabilitiesOnePosthogStateMax)
+                                .optional()
+                                .describe(
+                                    "State scopes the canvas may use via ph.state: 'user' (private to each viewer) and\/or 'shared' (one value per canvas, team-visible)."
+                                ),
                         }),
                         network: zod.object({
                             origins: zod

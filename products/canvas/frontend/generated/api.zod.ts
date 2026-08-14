@@ -79,6 +79,8 @@ export const canvasesDraftCreateBodyProjectOneCapabilitiesOnePosthogCaptureEvent
 
 export const canvasesDraftCreateBodyProjectOneCapabilitiesOnePosthogCaptureEventsMax = 100
 
+export const canvasesDraftCreateBodyProjectOneCapabilitiesOnePosthogStateMax = 2
+
 export const canvasesDraftCreateBodyProjectOneCapabilitiesOneNetworkOriginsItemMax = 2048
 
 export const canvasesDraftCreateBodyProjectOneCapabilitiesOneNetworkOriginsMax = 20
@@ -150,6 +152,13 @@ export const CanvasesDraftCreateBody = /* @__PURE__ */ zod
                                         )
                                 )
                                 .max(canvasesDraftCreateBodyProjectOneCapabilitiesOnePosthogCaptureEventsMax),
+                            state: zod
+                                .array(zod.enum(['user', 'shared']).describe('\* `user` - user\n\* `shared` - shared'))
+                                .max(canvasesDraftCreateBodyProjectOneCapabilitiesOnePosthogStateMax)
+                                .optional()
+                                .describe(
+                                    "State scopes the canvas may use via ph.state: 'user' (private to each viewer) and\/or 'shared' (one value per canvas, team-visible)."
+                                ),
                         }),
                         network: zod.object({
                             origins: zod
@@ -259,6 +268,8 @@ export const canvasesPublishCreateBodyProjectOneCapabilitiesOnePosthogCaptureEve
 
 export const canvasesPublishCreateBodyProjectOneCapabilitiesOnePosthogCaptureEventsMax = 100
 
+export const canvasesPublishCreateBodyProjectOneCapabilitiesOnePosthogStateMax = 2
+
 export const canvasesPublishCreateBodyProjectOneCapabilitiesOneNetworkOriginsItemMax = 2048
 
 export const canvasesPublishCreateBodyProjectOneCapabilitiesOneNetworkOriginsMax = 20
@@ -332,6 +343,13 @@ export const CanvasesPublishCreateBody = /* @__PURE__ */ zod
                                         )
                                 )
                                 .max(canvasesPublishCreateBodyProjectOneCapabilitiesOnePosthogCaptureEventsMax),
+                            state: zod
+                                .array(zod.enum(['user', 'shared']).describe('\* `user` - user\n\* `shared` - shared'))
+                                .max(canvasesPublishCreateBodyProjectOneCapabilitiesOnePosthogStateMax)
+                                .optional()
+                                .describe(
+                                    "State scopes the canvas may use via ph.state: 'user' (private to each viewer) and\/or 'shared' (one value per canvas, team-visible)."
+                                ),
                         }),
                         network: zod.object({
                             origins: zod
@@ -438,6 +456,24 @@ export const CanvasesRevertCreateBody = /* @__PURE__ */ zod
     .describe("Payload for reverting the canvas's head to an existing source version.")
 
 /**
+ * Write one key of the canvas's runtime state, or delete it with a null value.
+ */
+export const canvasesStateSetBodyKeyMax = 200
+
+export const CanvasesStateSetBody = /* @__PURE__ */ zod
+    .object({
+        scope: zod
+            .enum(['user', 'shared'])
+            .describe('\* `user` - user\n\* `shared` - shared')
+            .describe(
+                'Scope to write into; the canvas must declare it in capabilities.posthog.state.\n\n\* `user` - user\n\* `shared` - shared'
+            ),
+        key: zod.string().max(canvasesStateSetBodyKeyMax).describe('Key to write, unique within its scope.'),
+        value: zod.unknown().describe('JSON value to store (at most 64 KB serialized), or null to delete the key.'),
+    })
+    .describe("Payload for writing (or deleting) one key of a canvas's runtime state.")
+
+/**
  * Validate a candidate source project without publishing it. Side-effect free.
  */
 export const canvasesValidateCreateBodyProjectOneAssetsContentMax = 2796204
@@ -452,6 +488,8 @@ export const canvasesValidateCreateBodyProjectOneCapabilitiesOnePosthogInsightsM
 export const canvasesValidateCreateBodyProjectOneCapabilitiesOnePosthogCaptureEventsItemMax = 200
 
 export const canvasesValidateCreateBodyProjectOneCapabilitiesOnePosthogCaptureEventsMax = 100
+
+export const canvasesValidateCreateBodyProjectOneCapabilitiesOnePosthogStateMax = 2
 
 export const canvasesValidateCreateBodyProjectOneCapabilitiesOneNetworkOriginsItemMax = 2048
 
@@ -524,6 +562,13 @@ export const CanvasesValidateCreateBody = /* @__PURE__ */ zod
                                         )
                                 )
                                 .max(canvasesValidateCreateBodyProjectOneCapabilitiesOnePosthogCaptureEventsMax),
+                            state: zod
+                                .array(zod.enum(['user', 'shared']).describe('\* `user` - user\n\* `shared` - shared'))
+                                .max(canvasesValidateCreateBodyProjectOneCapabilitiesOnePosthogStateMax)
+                                .optional()
+                                .describe(
+                                    "State scopes the canvas may use via ph.state: 'user' (private to each viewer) and\/or 'shared' (one value per canvas, team-visible)."
+                                ),
                         }),
                         network: zod.object({
                             origins: zod

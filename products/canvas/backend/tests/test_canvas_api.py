@@ -886,11 +886,11 @@ class TestCanvasActivityLog(CanvasAPIBaseTest):
         assert first.status_code == status.HTTP_200_OK, first.json()
 
         default_capabilities = {
-            "posthog": {"insights": [], "inlineQueries": False, "captureEvents": []},
+            "posthog": {"insights": [], "inlineQueries": False, "captureEvents": [], "state": []},
             "network": {"origins": []},
         }
         widened_capabilities = {
-            "posthog": {"insights": ["abc123"], "inlineQueries": True, "captureEvents": []},
+            "posthog": {"insights": ["abc123"], "inlineQueries": True, "captureEvents": [], "state": []},
             "network": {"origins": []},
         }
         widened = self._project("export default function C() { return 2 }")
@@ -1157,6 +1157,103 @@ class TestCanvasDraftBuilds(CanvasAPIBaseTest):
 
         builds = self.client.get(f"/api/projects/{self.team.id}/canvases/{canvas_id}/builds/").json()
         assert builds["current_version_id"] == head_id
+
+
+class TestCanvasState(CanvasAPIBaseTest):
+    def _state_canvas(self, scopes: tuple[str, ...] = ("user", "shared")) -> str:
+        canvas_id = self._create_canvas()
+        capabilities = {
+            "posthog": {"insights": [], "inlineQueries": False, "captureEvents": [], "state": list(scopes)},
+            "network": {"origins": []},
+        }
+        response = self._publish(canvas_id, project=self._project(capabilities=capabilities))
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        return canvas_id
+
+    def _set_state(self, canvas_id: str, scope: str, key: str, value: Any, client: APIClient | None = None):
+        return (client or self.client).post(
+            f"/api/projects/{self.team.id}/canvases/{canvas_id}/state/set/",
+            {"scope": scope, "key": key, "value": value},
+            format="json",
+        )
+
+    def _entries(self, canvas_id: str, client: APIClient | None = None) -> list[dict[str, Any]]:
+        response = (client or self.client).get(f"/api/projects/{self.team.id}/canvases/{canvas_id}/state/")
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        return response.json()["entries"]
+
+    def test_state_isolates_user_scope_and_shares_shared_scope(self):
+        canvas_id = self._state_canvas()
+        assert self._set_state(canvas_id, "shared", "board", {"columns": 3}).status_code == status.HTTP_200_OK
+        assert self._set_state(canvas_id, "user", "draft", "mine").status_code == status.HTTP_200_OK
+
+        teammate = self._create_user("state-teammate@example.com")
+        self.client.force_login(teammate)
+        assert self._set_state(canvas_id, "user", "draft", "theirs").status_code == status.HTTP_200_OK
+        teammate_view = {(e["scope"], e["key"]): e["value"] for e in self._entries(canvas_id)}
+        assert teammate_view == {("shared", "board"): {"columns": 3}, ("user", "draft"): "theirs"}
+
+        self.client.force_login(self.user)
+        own_view = {(e["scope"], e["key"]): e["value"] for e in self._entries(canvas_id)}
+        assert own_view == {("shared", "board"): {"columns": 3}, ("user", "draft"): "mine"}
+
+    def test_set_state_requires_the_scope_to_be_declared(self):
+        canvas_id = self._state_canvas(scopes=("user",))
+
+        denied = self._set_state(canvas_id, "shared", "k", 1)
+
+        assert denied.status_code == status.HTTP_403_FORBIDDEN
+        assert "shared" in denied.json()["detail"]
+        assert self._set_state(canvas_id, "user", "k", 1).status_code == status.HTTP_200_OK
+
+    def test_null_value_deletes_the_key(self):
+        canvas_id = self._state_canvas()
+        self._set_state(canvas_id, "shared", "flag", True)
+
+        response = self._set_state(canvas_id, "shared", "flag", None)
+
+        assert response.status_code == status.HTTP_204_NO_CONTENT
+        assert self._entries(canvas_id) == []
+
+    def test_state_write_bounds_are_enforced(self):
+        canvas_id = self._state_canvas()
+
+        oversized = self._set_state(canvas_id, "shared", "big", "x" * (64 * 1024))
+        assert oversized.status_code == status.HTTP_400_BAD_REQUEST
+
+        with patch("products.canvas.backend.presentation.views.CANVAS_STATE_MAX_KEYS_PER_SCOPE", 2):
+            assert self._set_state(canvas_id, "shared", "one", 1).status_code == status.HTTP_200_OK
+            assert self._set_state(canvas_id, "shared", "two", 2).status_code == status.HTTP_200_OK
+            # Rewriting an existing key is not a new key, so it stays allowed.
+            assert self._set_state(canvas_id, "shared", "one", 11).status_code == status.HTTP_200_OK
+            assert self._set_state(canvas_id, "shared", "three", 3).status_code == status.HTTP_400_BAD_REQUEST
+
+    def test_sandbox_tokens_cannot_use_state(self):
+        canvas_id = self._state_canvas()
+        task = Task.objects.create(
+            team=self.team,
+            channel=self.channel,
+            created_by=self.user,
+            title="State",
+            description="d",
+            origin_product=Task.OriginProduct.USER_CREATED,
+        )
+        Canvas.objects.unscoped().filter(id=canvas_id).update(generation_task_id=task.id)
+        client = self._sandbox_client(task.id)
+
+        read = client.get(
+            f"/api/projects/{self.team.id}/canvases/{canvas_id}/state/",
+            HTTP_X_POSTHOG_TASK_ID=str(task.id),
+        )
+        write = client.post(
+            f"/api/projects/{self.team.id}/canvases/{canvas_id}/state/set/",
+            {"scope": "shared", "key": "k", "value": 1},
+            format="json",
+            HTTP_X_POSTHOG_TASK_ID=str(task.id),
+        )
+
+        assert read.status_code == status.HTTP_403_FORBIDDEN
+        assert write.status_code == status.HTTP_403_FORBIDDEN
 
 
 class TestCanvasErrorReports(CanvasAPIBaseTest):

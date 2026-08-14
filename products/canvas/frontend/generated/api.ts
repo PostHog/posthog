@@ -27,12 +27,16 @@ import type {
     CanvasSourcePublishApi,
     CanvasSourcePublishResponseApi,
     CanvasSourceResponseApi,
+    CanvasStateEntryApi,
+    CanvasStateResponseApi,
+    CanvasStateSetApi,
     CanvasValidateRequestApi,
     CanvasValidateResponseApi,
     CanvasesBuildsRetrieveParams,
     CanvasesDraftsRetrieveParams,
     CanvasesListParams,
     CanvasesSourceRetrieveParams,
+    CanvasesStateRetrieveParams,
     CanvasesVersionsRetrieveParams,
     PaginatedCanvasDraftListApi,
     PaginatedCanvasListApi,
@@ -471,6 +475,61 @@ export const canvasesSourceRetrieve = async (
     return apiMutator<CanvasSourceResponseApi>(getCanvasesSourceRetrieveUrl(projectId, id, params), {
         ...options,
         method: 'GET',
+    })
+}
+
+export const getCanvasesStateRetrieveUrl = (projectId: string, id: string, params?: CanvasesStateRetrieveParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/canvases/${id}/state/?${stringifiedParams}`
+        : `/api/projects/${projectId}/canvases/${id}/state/`
+}
+
+/**
+ * Read the canvas's runtime key-value state (the ph.state store).
+ *
+ * Returns the canvas's shared entries plus the caller's own user-scoped
+ * entries — never another viewer's.
+ */
+export const canvasesStateRetrieve = async (
+    projectId: string,
+    id: string,
+    params?: CanvasesStateRetrieveParams,
+    options?: RequestInit
+): Promise<CanvasStateResponseApi> => {
+    return apiMutator<CanvasStateResponseApi>(getCanvasesStateRetrieveUrl(projectId, id, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getCanvasesStateSetUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/canvases/${id}/state/set/`
+}
+
+/**
+ * Write one key of the canvas's runtime state, or delete it with a null value.
+ */
+export const canvasesStateSet = async (
+    projectId: string,
+    id: string,
+    canvasStateSetApi: CanvasStateSetApi,
+    options?: RequestInit
+): Promise<CanvasStateEntryApi | void> => {
+    return apiMutator<CanvasStateEntryApi | void>(getCanvasesStateSetUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(canvasStateSetApi),
     })
 }
 

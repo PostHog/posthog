@@ -80,6 +80,7 @@ _NETWORK_PATTERNS: list[tuple[re.Pattern[str], str, str]] = [
 _PH_LOAD_INSIGHT_RE = re.compile(r"\bph\s*\.\s*loadInsight\s*\(\s*(?:[\"']([^\"']+)[\"'])?")
 _PH_QUERY_RE = re.compile(r"\bph\s*\.\s*query\s*\(")
 _PH_CAPTURE_RE = re.compile(r"\bph\s*\.\s*capture\s*\(\s*(?:[\"']([^\"']+)[\"'])?")
+_PH_STATE_RE = re.compile(r"\bph\s*\.\s*state\s*\.")
 
 _PATH_SEGMENT_RE = re.compile(r"^[A-Za-z0-9._@-]+$")
 
@@ -208,6 +209,20 @@ def _validate_capabilities(path: str, code: str, capabilities: dict[str, Any]) -
     declared_insights = set(posthog_capabilities.get("insights") or [])
     declared_events = set(posthog_capabilities.get("captureEvents") or [])
     inline_queries = bool(posthog_capabilities.get("inlineQueries"))
+
+    if not (posthog_capabilities.get("state") or []):
+        state_match = _PH_STATE_RE.search(code)
+        if state_match is not None:
+            diagnostics.append(
+                diagnostic(
+                    "error",
+                    "capability_missing_state",
+                    'ph.state requires its scopes in capabilities.posthog.state (["user"] and/or ["shared"]) — '
+                    "the host rejects undeclared state access at runtime",
+                    path=path,
+                    line=_line_of(code, state_match.start()),
+                )
+            )
 
     for match in _PH_LOAD_INSIGHT_RE.finditer(code):
         short_id = match.group(1)

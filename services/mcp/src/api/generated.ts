@@ -14472,6 +14472,18 @@ export namespace Schemas {
       builds: CanvasBuild[];
     }
 
+    /**
+     * * `user` - user
+     * * `shared` - shared
+     */
+    export type CanvasStateScopeEnum = typeof CanvasStateScopeEnum[keyof typeof CanvasStateScopeEnum];
+
+
+    export const CanvasStateScopeEnum = {
+      User: 'user',
+      Shared: 'shared',
+    } as const;
+
     export interface CanvasPostHogCapabilities {
       /**
          * @maxItems 100
@@ -14484,6 +14496,11 @@ export namespace Schemas {
          * @items.maxLength 200
          */
       captureEvents: string[];
+      /**
+         * State scopes the canvas may use via ph.state: 'user' (private to each viewer) and/or 'shared' (one value per canvas, team-visible).
+         * @maxItems 2
+         */
+      state?: CanvasStateScopeEnum[];
     }
 
     export interface CanvasNetworkCapabilities {
@@ -14514,6 +14531,8 @@ export namespace Schemas {
       inline_queries_enabled: boolean;
       /** Network origins the draft newly declares it may reach. */
       network_origins_added: string[];
+      /** State scopes (user, shared) the draft newly declares for ph.state. */
+      state_scopes_added: string[];
     }
 
     /**
@@ -14914,6 +14933,52 @@ export namespace Schemas {
          * @nullable
          */
       current_version_id: string | null;
+    }
+
+    /**
+     * One key of a canvas's runtime key-value state (the ph.state store).
+     */
+    export interface CanvasStateEntry {
+      /** user: private to the viewer who wrote it. shared: one value per canvas, visible to every viewer.
+       *
+       * * `user` - user
+       * * `shared` - shared */
+      scope: CanvasStateScopeEnum;
+      /**
+         * The entry's key, unique within its scope.
+         * @maxLength 200
+         */
+      key: string;
+      /** The stored JSON value. */
+      value: unknown;
+      /** When the entry was last written. */
+      updated_at: string;
+    }
+
+    /**
+     * The canvas state readable by the caller.
+     */
+    export interface CanvasStateResponse {
+      /** The canvas's shared entries plus the caller's own user-scoped entries. */
+      entries: CanvasStateEntry[];
+    }
+
+    /**
+     * Payload for writing (or deleting) one key of a canvas's runtime state.
+     */
+    export interface CanvasStateSet {
+      /** Scope to write into; the canvas must declare it in capabilities.posthog.state.
+       *
+       * * `user` - user
+       * * `shared` - shared */
+      scope: CanvasStateScopeEnum;
+      /**
+         * Key to write, unique within its scope.
+         * @maxLength 200
+         */
+      key: string;
+      /** JSON value to store (at most 64 KB serialized), or null to delete the key. */
+      value: unknown;
     }
 
     /**
@@ -82476,6 +82541,21 @@ export namespace Schemas {
      */
     version_id?: string;
     };
+
+    export type CanvasesStateRetrieveParams = {
+    /**
+     * Only return entries in this scope.
+     */
+    scope?: CanvasesStateRetrieveScope;
+    };
+
+    export type CanvasesStateRetrieveScope = typeof CanvasesStateRetrieveScope[keyof typeof CanvasesStateRetrieveScope];
+
+
+    export const CanvasesStateRetrieveScope = {
+      Shared: 'shared',
+      User: 'user',
+    } as const;
 
     export type CanvasesVersionsRetrieveParams = {
     /**
