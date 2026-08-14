@@ -3,7 +3,7 @@ import { loaders } from 'kea-loaders'
 import { actionToUrl, combineUrl, router, urlToAction } from 'kea-router'
 
 import api from 'lib/api'
-import { dateFilterToText, getDefaultInterval } from 'lib/utils/dateFilters'
+import { dateFilterToText } from 'lib/utils/dateFilters'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
@@ -16,7 +16,15 @@ import {
 } from '~/queries/schema/schema-general'
 import { IntervalType } from '~/types'
 
-import { buildBucketKeys, normalizeBucket } from './timeBuckets'
+import {
+    type IntervalOption,
+    buildBucketKeys,
+    intervalOptionsForWindow,
+    lastBucketIsInProgress,
+    normalizeBucket,
+    parseIntervalParam,
+    resolveInterval,
+} from './timeBuckets'
 
 export interface CategoryCount {
     category: string
@@ -41,9 +49,10 @@ export interface DateFilter {
     dateTo: string | null
 }
 
-// Carry the selected window across navigation as date_from / date_to, mirroring the tab's
-// actionToUrl. Only set them when present so a cleared range stays out of the URL.
-export function mcpDateSearchParams(dateFilter: DateFilter): Record<string, string> {
+// Carry the selected window across navigation as date_from / date_to, plus the grouping interval
+// when one is pinned, mirroring the tab's actionToUrl. Only set them when present so a cleared range
+// and an auto interval stay out of the URL.
+export function mcpDateSearchParams(dateFilter: DateFilter, interval?: IntervalType | null): Record<string, string> {
     const params: Record<string, string> = {}
     if (dateFilter.dateFrom) {
         params.date_from = dateFilter.dateFrom
@@ -51,18 +60,21 @@ export function mcpDateSearchParams(dateFilter: DateFilter): Record<string, stri
     if (dateFilter.dateTo) {
         params.date_to = dateFilter.dateTo
     }
+    if (interval) {
+        params.interval = interval
+    }
     return params
 }
 
-// Link from the Tool quality tab to an individual tool's report, keeping the date filter so
-// the tool page opens on the same window.
-export function mcpToolReportUrl(tool: string, dateFilter: DateFilter): string {
-    return combineUrl(urls.mcpAnalyticsTool(tool), mcpDateSearchParams(dateFilter)).url
+// Link from the Tool quality tab to an individual tool's report, keeping the date filter and pinned
+// interval so the tool page opens on the same window and granularity.
+export function mcpToolReportUrl(tool: string, dateFilter: DateFilter, interval?: IntervalType | null): string {
+    return combineUrl(urls.mcpAnalyticsTool(tool), mcpDateSearchParams(dateFilter, interval)).url
 }
 
-// Link back from a tool report to the Tool quality tab, restoring the date filter.
-export function mcpToolQualityUrlWithDates(dateFilter: DateFilter): string {
-    return combineUrl(urls.mcpAnalyticsToolQuality(), mcpDateSearchParams(dateFilter)).url
+// Link back from a tool report to the Tool quality tab, restoring the date filter and interval.
+export function mcpToolQualityUrlWithDates(dateFilter: DateFilter, interval?: IntervalType | null): string {
+    return combineUrl(urls.mcpAnalyticsToolQuality(), mcpDateSearchParams(dateFilter, interval)).url
 }
 
 export interface ToolQualityRow {
@@ -146,7 +158,10 @@ export interface mcpAnalyticsToolQualityLogicValues {
     dateFilter: DateFilter
     dateRangeLabel: string
     filteredRows: ToolQualityRow[]
+    incompleteTail: boolean
     interval: IntervalType
+    intervalOptions: IntervalOption[]
+    pinnedInterval: IntervalType | null
     scopeShare: ScopeShare
     searchTerm: string
     selectedCategories: string[]
@@ -228,6 +243,9 @@ export interface mcpAnalyticsToolQualityLogicActions {
         dateFrom: string | null
         dateTo: string | null
     }
+    setPinnedInterval: (interval: IntervalType | null) => {
+        interval: IntervalType | null
+    }
     setSearchTerm: (searchTerm: string) => {
         searchTerm: string
     }
@@ -250,7 +268,8 @@ export interface mcpAnalyticsToolQualityLogicActions {
 export interface mcpAnalyticsToolQualityLogicMeta {
     __keaTypeGenInternalSelectorTypes: {
         dateRangeLabel: (dateFilter: DateFilter) => string
-        interval: (dateFilter: DateFilter) => IntervalType
+        intervalOptions: (dateFilter: DateFilter, timezone: string) => IntervalOption[]
+        interval: (dateFilter: DateFilter, pinnedInterval: IntervalType | null, timezone: string) => IntervalType
         scopeShare: (categoryCounts: CategoryCount[], selectedCategories: string[]) => ScopeShare
         filteredRows: (toolRows: ToolQualityRow[], toolQualitySort: SortState, searchTerm: string) => ToolQualityRow[]
         dailyChartData: (
@@ -259,6 +278,7 @@ export interface mcpAnalyticsToolQualityLogicMeta {
             interval: IntervalType,
             timezone: string
         ) => DailyChartData
+        incompleteTail: (dailyChartData: DailyChartData, interval: IntervalType, timezone: string) => boolean
     }
 }
 
@@ -275,6 +295,7 @@ export const mcpAnalyticsToolQualityLogic = kea<mcpAnalyticsToolQualityLogicType
     actions({
         setToolQualitySort: (column: string, direction: SortDirection) => ({ column, direction }),
         setDateFilter: (dateFrom: string | null, dateTo: string | null) => ({ dateFrom, dateTo }),
+        setPinnedInterval: (interval: IntervalType | null) => ({ interval }),
         setSelectedCategories: (categories: string[]) => ({ categories }),
         setSelectedTool: (tool: string | null) => ({ tool }),
         setSearchTerm: (searchTerm: string) => ({ searchTerm }),
@@ -292,6 +313,15 @@ export const mcpAnalyticsToolQualityLogic = kea<mcpAnalyticsToolQualityLogicType
             DEFAULT_DATE_FILTER,
             {
                 setDateFilter: (_, { dateFrom, dateTo }): DateFilter => ({ dateFrom, dateTo }),
+            },
+        ],
+        // The grouping the user picked, kept independent of the window: null means follow the
+        // auto-choice for the range. It survives date changes so switching windows doesn't quietly
+        // undo the pin — `interval` drops back to auto only when the pin no longer fits.
+        pinnedInterval: [
+            null as IntervalType | null,
+            {
+                setPinnedInterval: (_, { interval }): IntervalType | null => interval,
             },
         ],
         selectedCategories: [
@@ -402,11 +432,18 @@ export const mcpAnalyticsToolQualityLogic = kea<mcpAnalyticsToolQualityLogicType
             (dateFilter: DateFilter): string =>
                 dateFilterToText(dateFilter.dateFrom, dateFilter.dateTo, 'the selected range') ?? 'the selected range',
         ],
-        // Grouping interval for the daily chart — PostHog's standard auto-choice, so a sub-day window
-        // (e.g. last 12 hours) buckets hourly instead of collapsing to a single day point.
+        intervalOptions: [
+            (s) => [s.dateFilter, teamLogic.selectors.timezone],
+            (dateFilter: DateFilter, timezone: string): IntervalOption[] =>
+                intervalOptionsForWindow(dateFilter.dateFrom, dateFilter.dateTo, timezone),
+        ],
+        // Grouping interval for the charts: the pinned choice, or PostHog's standard auto-choice when
+        // none is pinned, so a sub-day window (e.g. last 12 hours) still buckets hourly by default
+        // instead of collapsing to a single day point.
         interval: [
-            (s) => [s.dateFilter],
-            (dateFilter: DateFilter): IntervalType => getDefaultInterval(dateFilter.dateFrom, dateFilter.dateTo),
+            (s) => [s.dateFilter, s.pinnedInterval, teamLogic.selectors.timezone],
+            (dateFilter: DateFilter, pinnedInterval: IntervalType | null, timezone: string): IntervalType =>
+                resolveInterval(dateFilter.dateFrom, dateFilter.dateTo, timezone, pinnedInterval),
         ],
         scopeShare: [
             (s) => [s.categoryCounts, s.selectedCategories],
@@ -439,6 +476,13 @@ export const mcpAnalyticsToolQualityLogic = kea<mcpAnalyticsToolQualityLogicType
                 return buildDailyChartData(dailyStats, bucketKeys)
             },
         ],
+        // The charts dash the final segment when it is the current, still-collecting interval, so a
+        // partial day doesn't read as a fall in calls or a latency improvement.
+        incompleteTail: [
+            (s) => [s.dailyChartData, s.interval, teamLogic.selectors.timezone],
+            (dailyChartData: DailyChartData, interval: IntervalType, timezone: string): boolean =>
+                lastBucketIsInProgress(dailyChartData.labels, timezone, interval),
+        ],
     }),
 
     listeners(({ actions, values }) => ({
@@ -451,6 +495,10 @@ export const mcpAnalyticsToolQualityLogic = kea<mcpAnalyticsToolQualityLogicType
         },
         setSelectedCategories: () => {
             actions.reloadAll()
+        },
+        // Only the charts bucket by interval; the table is a single-window aggregate.
+        setPinnedInterval: () => {
+            actions.loadDailyStats()
         },
         reloadAll: () => {
             actions.loadToolRows()
@@ -492,11 +540,17 @@ export const mcpAnalyticsToolQualityLogic = kea<mcpAnalyticsToolQualityLogicType
             } else {
                 delete searchParams.date_to
             }
+            if (values.pinnedInterval) {
+                searchParams.interval = values.pinnedInterval
+            } else {
+                delete searchParams.interval
+            }
             return [currentLocation.pathname, searchParams, currentLocation.hashParams, { replace: true }]
         }
         return {
             setSelectedTool: syncUrl,
             setDateFilter: syncUrl,
+            setPinnedInterval: syncUrl,
             setSelectedCategories: syncUrl,
         }
     }),
@@ -520,6 +574,10 @@ export const mcpAnalyticsToolQualityLogic = kea<mcpAnalyticsToolQualityLogicType
             const dateTo = typeof searchParams.date_to === 'string' ? searchParams.date_to : null
             if (dateFrom !== values.dateFilter.dateFrom || dateTo !== values.dateFilter.dateTo) {
                 actions.setDateFilter(dateFrom, dateTo)
+            }
+            const interval = parseIntervalParam(searchParams.interval)
+            if (interval !== values.pinnedInterval) {
+                actions.setPinnedInterval(interval)
             }
         },
     })),

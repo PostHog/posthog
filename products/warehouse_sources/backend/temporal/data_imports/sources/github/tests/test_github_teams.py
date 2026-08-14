@@ -53,7 +53,8 @@ def _not_found_response() -> mock.Mock:
         # rows, not fail the schema. teams walks it directly; team_members hits it via its fan-out parent.
         ("teams", False),
         ("team_members", False),
-        # Repo-scoped: a 404 is a genuinely missing/inaccessible repo and must stay fatal.
+        # Repo-scoped: the repository probe 404s here too, so the repository really is gone and the
+        # sync must stay fatal.
         ("issues", True),
     ],
 )
@@ -70,7 +71,7 @@ def test_org_scoped_404_syncs_zero_rows_while_repo_scoped_404_stays_fatal(endpoi
             resumable_source_manager=_no_resume(),
         )
         if expect_raise:
-            with pytest.raises(requests.exceptions.HTTPError):
+            with pytest.raises(github.GithubRepositoryNotFoundError):
                 list(rows)
         else:
             assert list(rows) == []

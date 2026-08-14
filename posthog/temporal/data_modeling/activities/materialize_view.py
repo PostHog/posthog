@@ -29,6 +29,7 @@ from posthog.sync import database_sync_to_async_pool
 from posthog.temporal.common.clickhouse import get_client as get_clickhouse_client
 from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.common.logger import get_logger
+from posthog.temporal.data_modeling.activities.utils import bind_data_modeling_log_context
 
 from products.data_modeling.backend.facade.modeling import bounded_resolver_factory_for_view
 from products.data_modeling.backend.facade.models import DataModelingJob, DataWarehouseSavedQuery, Node, NodeType
@@ -394,7 +395,9 @@ async def hogql_table(query: str, team: Team, logger: FilteringBoundLogger, view
         arrow_prepared_hogql_query, context=context, dialect="clickhouse", stack=[], settings=settings
     )
 
-    await logger.adebug(f"Running clickhouse query: {arrow_printed}")
+    # The query goes in a field rather than the message: only the message is copied into the
+    # log_entries row users can read, and the compiled query is the saved query's own SQL.
+    await logger.adebug("Running clickhouse query", query=arrow_printed)
 
     async with (
         _clickhouse_query_semaphore,
@@ -445,10 +448,18 @@ async def hogql_table(query: str, team: Team, logger: FilteringBoundLogger, view
             yield (empty_batch, ch_typings_pairs)
 
 
+@dataclasses.dataclass(frozen=True, kw_only=True, slots=True)
+class MatviewInputObjects:
+    team: Team
+    node: Node
+    saved_query: DataWarehouseSavedQuery
+    job: DataModelingJob
+
+
 @database_sync_to_async_pool
 def _get_matview_input_objects(
     inputs: MaterializeViewInputs,
-) -> tuple[Team, Node, DataWarehouseSavedQuery, DataModelingJob]:
+) -> MatviewInputObjects:
     team = Team.objects.get(id=inputs.team_id)
     node = Node.objects.prefetch_related("saved_query").get(
         id=inputs.node_id, team_id=inputs.team_id, dag_id=inputs.dag_id
@@ -467,7 +478,7 @@ def _get_matview_input_objects(
         prepare_executable_query(saved_query)
 
     job = DataModelingJob.objects.get(id=inputs.job_id, team_id=inputs.team_id)
-    return (team, node, saved_query, job)
+    return MatviewInputObjects(team=team, node=node, saved_query=saved_query, job=job)
 
 
 @activity.defn
@@ -478,10 +489,11 @@ async def materialize_view_activity(inputs: MaterializeViewInputs) -> Materializ
 
     tag_queries(team_id=inputs.team_id, product=Product.WAREHOUSE, feature=Feature.DATA_MODELING)
 
-    team, node, saved_query, job = await _get_matview_input_objects(inputs)
-    await logger.ainfo(f"Starting materialization for node {node.name}")
+    objects = await _get_matview_input_objects(inputs)
+    bind_data_modeling_log_context(inputs.team_id, objects.saved_query.id)
+    await logger.ainfo(f"Starting materialization for node {objects.node.name}")
 
-    table_uri = _build_model_table_uri(team.pk, saved_query.id.hex, saved_query.normalized_name)
+    table_uri = _build_model_table_uri(objects.team.pk, objects.saved_query.id.hex, objects.saved_query.normalized_name)
     await logger.adebug(f"Delta table URI = {table_uri}")
 
     async with Heartbeater():
@@ -494,7 +506,7 @@ async def materialize_view_activity(inputs: MaterializeViewInputs) -> Materializ
         except FileNotFoundError:
             await logger.adebug(f"Skipping deletion because table not found: uri={table_uri}")
 
-        hogql_query = typing.cast(dict, saved_query.query)["query"]
+        hogql_query = typing.cast(dict, objects.saved_query.query)["query"]
 
         row_count = 0
         storage_options = _get_aws_storage_options()
@@ -505,13 +517,13 @@ async def materialize_view_activity(inputs: MaterializeViewInputs) -> Materializ
         pa_schema: pa.Schema | None = None
 
         # write each batch as its own delta commit, imitating the data_imports pipeline
-        # (DeltaTableHelper.write_to_deltalake): the first batch overwrites — creating the
+        # (DeltaWriter.write): the first batch overwrites — creating the
         # table from the exact arrow schema, which pins column case like `personId` — and
         # later batches append with schema_mode="merge". this keeps peak memory at ~one
         # batch (hogql_table yields ~100MB combined batches) and, because each write is a
         # brief to_thread released between batches, never pins a worker thread for the whole
         # read — which is what starved the shared executor that heartbeats/db/logging use.
-        async for batch, ch_types in hogql_table(hogql_query, team, logger):
+        async for batch, ch_types in hogql_table(hogql_query, objects.team, logger):
             batch = _transform_unsupported_decimals(batch)
             batch = _transform_date_and_datetimes(batch, ch_types)
             batch = _force_nullable(batch)
@@ -536,8 +548,8 @@ async def materialize_view_activity(inputs: MaterializeViewInputs) -> Materializ
                     storage_options=storage_options,
                 )
             row_count = row_count + batch.num_rows
-            job.rows_materialized = row_count
-            await database_sync_to_async_pool(job.save)()
+            objects.job.rows_materialized = row_count
+            await database_sync_to_async_pool(objects.job.save)()
 
         await logger.ainfo(f"Finished writing to delta table. row_count={row_count}")
         file_uris = []
@@ -557,12 +569,12 @@ async def materialize_view_activity(inputs: MaterializeViewInputs) -> Materializ
                 # queryable folder has a file with a schema attached that's queryable
                 empty_parquet_uri = await _write_empty_parquet_for_zero_rows(table_uri, pa_schema, logger)
                 file_uris = [empty_parquet_uri]
-        await logger.ainfo(f"Materialized node {node.name} with {row_count} rows")
+        await logger.ainfo(f"Materialized node {objects.node.name} with {row_count} rows")
     return MaterializeViewResult(
-        node_id=node.id,
-        node_name=node.name,
+        node_id=objects.node.id,
+        node_name=objects.node.name,
         row_count=row_count,
         table_uri=table_uri,
         file_uris=file_uris,
-        saved_query_id=str(saved_query.id),
+        saved_query_id=str(objects.saved_query.id),
     )
