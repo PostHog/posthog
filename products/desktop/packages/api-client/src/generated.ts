@@ -7551,6 +7551,12 @@ export namespace Schemas {
     created_by: UserBasic & unknown;
     deleted?: boolean | undefined;
   };
+  export type EvaluationPattern = {
+    title: string;
+    description: string;
+    frequency: string;
+    example_generation_ids: Array<string>;
+  };
   export type EvaluationReportFrequencyEnum = "scheduled" | "every_n";
   export type EvaluationReport = {
     id: string;
@@ -7589,6 +7595,27 @@ export namespace Schemas {
     timestamp: string;
     event?: string | undefined;
     distinct_id?: (string | null) | undefined;
+  };
+  export type FilterEnum = "all" | "pass" | "fail" | "na";
+  export type EvaluationSummaryRequest = {
+    evaluation_id: string;
+    filter?: (FilterEnum & unknown) | undefined;
+    generation_ids?: Array<string> | undefined;
+    force_refresh?: boolean | undefined;
+  };
+  export type EvaluationSummaryStatistics = {
+    total_analyzed: number;
+    pass_count: number;
+    fail_count: number;
+    na_count: number;
+  };
+  export type EvaluationSummaryResponse = {
+    overall_assessment: string;
+    pass_patterns: Array<EvaluationPattern>;
+    fail_patterns: Array<EvaluationPattern>;
+    na_patterns: Array<EvaluationPattern>;
+    recommendations: Array<string>;
+    statistics: EvaluationSummaryStatistics;
   };
   export type EventDefinitionBasic = { id: string; name: string };
   export type EventDefinitionRecord = {
@@ -16669,6 +16696,23 @@ export namespace Endpoints {
       path: { id: string; project_id: string };
     };
     responses: { 200: Schemas.PaginatedEvaluationReportRunList };
+  };
+  export type post_Llm_analytics_evaluation_summary_create = {
+    method: "POST";
+    path: "/api/environments/{project_id}/llm_analytics/evaluation_summary/";
+    requestFormat: "json";
+    parameters: {
+      path: { project_id: string };
+
+      body: Schemas.EvaluationSummaryRequest;
+    };
+    responses: {
+      200: Schemas.EvaluationSummaryResponse;
+      400: Record<string, unknown>;
+      403: Record<string, unknown>;
+      404: Record<string, unknown>;
+      500: Record<string, unknown>;
+    };
   };
   export type get_Llm_analytics_models_retrieve = {
     method: "GET";
@@ -26166,6 +26210,7 @@ export type EndpointByMethod = {
     "/api/environments/{project_id}/llm_analytics/evaluation_config/set_active_key/": Endpoints.post_Llm_analytics_evaluation_config_set_active_key_create;
     "/api/environments/{project_id}/llm_analytics/evaluation_reports/": Endpoints.post_Llm_analytics_evaluation_reports_create;
     "/api/environments/{project_id}/llm_analytics/evaluation_reports/{id}/generate/": Endpoints.post_Llm_analytics_evaluation_reports_generate_create;
+    "/api/environments/{project_id}/llm_analytics/evaluation_summary/": Endpoints.post_Llm_analytics_evaluation_summary_create;
     "/api/environments/{project_id}/llm_analytics/provider_key_validations/": Endpoints.post_Llm_analytics_provider_key_validations_create;
     "/api/environments/{project_id}/llm_analytics/provider_keys/": Endpoints.post_Llm_analytics_provider_keys_create;
     "/api/environments/{project_id}/llm_analytics/provider_keys/{id}/assign/": Endpoints.post_Llm_analytics_provider_keys_assign_create;
