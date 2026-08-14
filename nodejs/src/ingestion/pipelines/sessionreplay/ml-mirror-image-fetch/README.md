@@ -266,8 +266,9 @@ already reads, so none of them costs an extra request.
     already refuses those, and an opt-out label there would misreport the reason.
 54. `X-Robots-Tag` refuses the URL when it carries `noai` or `noimageai`. A directive that names
     another product token does not bind this lane.
-55. `Content-Usage` refuses the URL when its dictionary sets `train-ai=n`. RFC 9651 defines the
-    dictionary.
+55. `Content-Usage` refuses the URL when its dictionary sets `train-ai=n`. The signal has two
+    transports: a response header, and a rule inside robots.txt. The lane reads both. RFC 9651
+    defines the dictionary.
 56. `tdm-reservation: 1` refuses the URL. It is the EU DSM Article 4 channel, so it carries legal
     weight the other two do not.
 57. A signal that is absent means unknown. It does not mean permission. The lane never reads silence
@@ -291,9 +292,9 @@ adds a prohibition.
     and the hold of rule 41.
 62. A rule in that file refuses the URL when its location covers the URL and it sets
     `tdm-reservation` to 1.
-63. TDMRep ranks the file above the response header. The lane does not rank them. A refusal in
-    either one refuses the URL, under rule 58. This is stricter than the specification, and
-    principle two is the reason.
+63. TDMRep lets the response header supersede the file. The lane does not rank them. A refusal in
+    either one refuses the URL, under rule 58. The lane is therefore stricter than the
+    specification when the file reserves and the header releases, and principle two is the reason.
 64. The lane does not read the HTML `meta` form of the reservation. The lane fetches images and
     parses no HTML.
 
@@ -359,3 +360,27 @@ report zero, which is what a lane holding no request and blocking no domain shou
 
 This is the mode phase 0 measures in. The server refuses to clear the flag, and names the two things
 that must land before it can: reading robots.txt, and producing the image to the scrub topic.
+
+## The specifications these rules follow
+
+| Specification                                                                                                            | What it governs here                                                                                                      |
+| ------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------- |
+| [RFC 9309](https://www.rfc-editor.org/rfc/rfc9309.html), Robots Exclusion Protocol                                       | Rules 36 to 44. The response classes, the 24 hour cache, the 500 KiB parse limit, and how a product token matches a group |
+| [TDMRep](https://www.w3.org/community/reports/tdmrep/CG-FINAL-tdmrep-20240202/), W3C Community Group Final Report        | Rules 56 and 61 to 64. A Community Group report, which is not a W3C Standard                                              |
+| [Directive (EU) 2019/790](https://eur-lex.europa.eu/eli/dir/2019/790/oj), Article 4                                      | Why a TDMRep reservation matters. It removes a permission rather than adds a prohibition                                  |
+| [RFC 9421](https://www.rfc-editor.org/rfc/rfc9421.html), HTTP Message Signatures                                         | Rules 47 to 50. The signature, and the components and parameters it covers                                                |
+| [draft-meunier-webbotauth-httpsig-protocol](https://datatracker.ietf.org/doc/draft-meunier-webbotauth-httpsig-protocol/) | Rules 47 and 48. Web Bot Auth. An individual submission, not yet adopted by the working group                             |
+| [RFC 7517](https://www.rfc-editor.org/rfc/rfc7517.html), JSON Web Key                                                    | Rule 48. The key directory, and the rule that a reader ignores a member it does not understand                            |
+| [RFC 7638](https://www.rfc-editor.org/rfc/rfc7638.html), JWK Thumbprint                                                  | Rule 48. The `kid`, computed over the required members only                                                               |
+| [RFC 9651](https://www.rfc-editor.org/rfc/rfc9651.html), Structured Field Values                                         | Rule 55. The `Content-Usage` dictionary                                                                                   |
+| [draft-ietf-aipref-attach](https://datatracker.ietf.org/doc/draft-ietf-aipref-attach/)                                   | Rule 55. `Content-Usage`. A working group draft, and it expired in 2026                                                   |
+| [RFC 9110](https://www.rfc-editor.org/rfc/rfc9110.html), HTTP Semantics                                                  | Rule 17, `Retry-After`. Also how a reader joins repeated field lines                                                      |
+| [RFC 1918](https://www.rfc-editor.org/rfc/rfc1918.html)                                                                  | Rule 32. One of the ranges that is not globally routable                                                                  |
+| [Public Suffix List](https://publicsuffix.org/)                                                                          | The registrable domain, which is the key of the frontier and of the host budget                                           |
+
+`noai` and `noimageai` in rule 54 have no specification. They are a convention that art hosting
+platforms adopted, and `X-Robots-Tag` is the transport.
+
+Two of these are unstable. The Web Bot Auth draft is an individual submission, so its header names
+can change. The AIPREF draft that defines `Content-Usage` expired, and its vocabulary lost three of
+its five categories between revisions.
