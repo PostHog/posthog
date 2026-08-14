@@ -137,7 +137,7 @@ class TaxonomyTaskExecutorNode(
     """
 
     async def _aget_input_tuples(self, tool_calls: list[AssistantToolCall]) -> list[TaskExecutionInputTuple]:
-        taxonomy_toolkit = TaxonomyAgentToolkit(self._team, self._user)
+        taxonomy_toolkit = TaxonomyAgentToolkit(self._team, self._user, event_source=self.context_manager.event_source)
         input_tuples: list[TaskExecutionInputTuple] = []
         for task in tool_calls:
             if task.name == "retrieve_event_or_action_properties":
