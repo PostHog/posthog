@@ -16,7 +16,11 @@ import type {
   CanvasVersion,
   DashboardRecord,
 } from "./dashboardSchemas";
-import { FREEFORM_TEMPLATE_ID } from "./freeformSchemas";
+import {
+  type CanvasAgentRequestResult,
+  canvasAgentRequestResultSchema,
+  FREEFORM_TEMPLATE_ID,
+} from "./freeformSchemas";
 import {
   PROJECT_API_CLIENT,
   type ProjectApiClient,
@@ -484,5 +488,27 @@ export class DashboardsService {
     if (!res.ok && res.status !== 404) {
       throw new Error(`Failed to delete canvas (${res.status})`);
     }
+  }
+
+  async requestAgent(input: {
+    id: string;
+    prompt: string;
+  }): Promise<CanvasAgentRequestResult> {
+    const body = await this.api.json<{
+      request_outcome: string;
+      task_id: string;
+    }>(
+      `canvases/${encodeURIComponent(input.id)}/request_agent/`,
+      "request canvas agent",
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ prompt: input.prompt }),
+      },
+    );
+    return canvasAgentRequestResultSchema.parse({
+      requestOutcome: body.request_outcome,
+      taskId: body.task_id,
+    });
   }
 }
