@@ -24,6 +24,7 @@ import { useFileSearchStore } from "../../command/fileSearchStore";
 import { SHORTCUTS } from "../../command/keyboard-shortcuts";
 import { useRepoFileWatcher } from "../../file-watcher/useRepoFileWatcher";
 import { clearGitReviewQueries } from "../../git-interaction/gitCacheKeys";
+import { useRightPanelStore } from "../../navigation/rightPanelStore";
 import { useReviewInRightPanel } from "../../navigation/useReviewInRightPanel";
 import { PanelLayout } from "../../panels/components/PanelLayout";
 import { MIN_CHAT_WIDTH } from "../../sessions/constants";
@@ -273,11 +274,15 @@ export function TaskDetail({
   const isExpanded = !inRightPanel && reviewMode === "expanded";
 
   // Keyed off the review mode rather than this pane, so a review open in the
-  // right panel keeps the diff queries it is drawing from.
+  // right panel keeps the diff queries it is drawing from. A drag on that
+  // panel's handle passes through "closed" and back within one gesture, so the
+  // clear waits for the drag to end rather than emptying the cache under a
+  // review that is still on screen.
+  const isDraggingRightPanel = useRightPanelStore((s) => s.isResizing);
   useEffect(() => {
-    if (reviewMode !== "closed") return;
+    if (reviewMode !== "closed" || isDraggingRightPanel) return;
     clearGitReviewQueries();
-  }, [reviewMode]);
+  }, [reviewMode, isDraggingRightPanel]);
 
   const containerRef = useRef<HTMLDivElement>(null);
   const [reviewWidth, setReviewWidth] = useState<number | null>(null);

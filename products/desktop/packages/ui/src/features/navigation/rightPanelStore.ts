@@ -1,3 +1,4 @@
+import { electronStorage } from "@posthog/ui/shell/rendererStorage";
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
 
@@ -61,16 +62,11 @@ export const useRightPanelStore = create<RightPanelStore>()(
     }),
     {
       name: "right-panel",
+      // A resize drag calls setWidth per pointer event, and this backend
+      // coalesces the burst behind its debounce instead of writing
+      // synchronously on each one, the way every other panel store does.
+      storage: electronStorage,
       partialize: (state) => ({ width: state.width }),
-      merge: (persisted, current) => {
-        const stored = (persisted ?? {}) as Partial<
-          Pick<RightPanelStore, "width">
-        >;
-        return {
-          ...current,
-          width: Math.max(RIGHT_PANEL_MIN_WIDTH, stored.width ?? current.width),
-        };
-      },
     },
   ),
 );

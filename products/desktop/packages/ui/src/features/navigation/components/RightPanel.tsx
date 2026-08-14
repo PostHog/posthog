@@ -19,17 +19,18 @@ import {
   LazyReviewPage as ReviewPage,
 } from "@posthog/ui/features/code-review/components/LazyReviewPages";
 import { useReviewNavigationStore } from "@posthog/ui/features/code-review/reviewNavigationStore";
-import { useCommentNavigationStore } from "@posthog/ui/features/sessions/commentNavigationStore";
+import { openRightPanelSide } from "@posthog/ui/features/navigation/rightPanelSide";
+import { useCommentFocusRequest } from "@posthog/ui/features/sessions/useCommentFocusRequest";
 import { taskDetailQuery } from "@posthog/ui/features/tasks/queries";
 import { useTasks } from "@posthog/ui/features/tasks/useTasks";
-import { useWorkspace } from "@posthog/ui/features/workspace/useWorkspace";
+import { useIsCloudTask } from "@posthog/ui/features/workspace/useIsCloudTask";
 import {
   ResizableSidebar,
   SLIDE_MS,
 } from "@posthog/ui/primitives/ResizableSidebar";
 import { useQuery } from "@tanstack/react-query";
 import { useParams } from "@tanstack/react-router";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import {
   DEFAULT_RIGHT_PANEL_SIDE,
   RIGHT_PANEL_MIN_WIDTH,
@@ -82,16 +83,6 @@ function useActiveSide(taskId: string): RightPanelSide | null {
   });
 }
 
-function openSide(side: RightPanelSide | null, taskId: string): void {
-  useRightPanelStore.getState().setSideForKey(taskId, side);
-  // Changes rides the review store so the command menu, PR links, and diff
-  // toggles that already open review all land on the same panel, and so that
-  // picking another panel closes what they opened.
-  useReviewNavigationStore
-    .getState()
-    .setReviewMode(taskId, side === "changes" ? "split" : "closed");
-}
-
 /**
  * The panel's own switcher: one button per side, the active one toggling the
  * panel closed. It sits a row below the header band, pinned to the right edge,
@@ -120,7 +111,7 @@ function RightPanelButtons({
                     aria-label={label}
                     data-selected={active === side || undefined}
                     onClick={() =>
-                      openSide(active === side ? null : side, taskId)
+                      openRightPanelSide(active === side ? null : side, taskId)
                     }
                     className="text-muted-foreground data-selected:bg-fill-selected data-selected:text-foreground"
                   >
@@ -138,38 +129,11 @@ function RightPanelButtons({
 }
 
 function ChangesPanelContent({ task }: { task: Task }) {
-  const workspace = useWorkspace(task.id);
-  const isCloud =
-    workspace?.mode === "cloud" || task.latest_run?.environment === "cloud";
-  return isCloud ? <CloudReviewPage task={task} /> : <ReviewPage task={task} />;
-}
-
-/**
- * A thread picked on the artifact itself is read in the Comments panel, so the
- * pick has to bring the panel with it. Only a fresh request opens it: a focus
- * left over from an earlier visit must not hijack the panel on mount.
- */
-function useCommentFocusOpensPanel(taskId: string): void {
-  const focusByTask = useCommentNavigationStore((state) => state.focusByTask);
-  const acknowledgeCommentsTabOpen = useCommentNavigationStore(
-    (state) => state.acknowledgeCommentsTabOpen,
+  return useIsCloudTask(task.id, task) ? (
+    <CloudReviewPage task={task} />
+  ) : (
+    <ReviewPage task={task} />
   );
-  const commentFocus = focusByTask[taskId];
-  const seenFocus = useRef(
-    new Map(
-      Object.entries(focusByTask).map(([focusTaskId, focus]) => [
-        focusTaskId,
-        focus?.nonce ?? null,
-      ]),
-    ),
-  );
-  useEffect(() => {
-    if (!commentFocus?.openCommentsTab) return;
-    if (commentFocus.nonce === seenFocus.current.get(taskId)) return;
-    seenFocus.current.set(taskId, commentFocus.nonce);
-    openSide("comments", taskId);
-    acknowledgeCommentsTabOpen(taskId, commentFocus.nonce);
-  }, [acknowledgeCommentsTabOpen, commentFocus, taskId]);
 }
 
 /**
@@ -208,7 +172,10 @@ function useFadingSide(
  */
 export function RightPanel() {
   const taskId = useParams({ strict: false }).taskId;
-  return taskId ? <SessionRightPanel taskId={taskId} /> : null;
+  // Keyed by session: the panel holds per-session state (which side is drawn,
+  // which comment request it has taken), and carrying that across a navigation
+  // draws the previous session's panel over the new one for a frame.
+  return taskId ? <SessionRightPanel key={taskId} taskId={taskId} /> : null;
 }
 
 /**
@@ -220,7 +187,7 @@ export function RightPanel() {
 function SessionRightPanel({ taskId }: { taskId: string }) {
   const task = useRightPanelTask(taskId);
   const active = useActiveSide(taskId);
-  useCommentFocusOpensPanel(taskId);
+  useCommentFocusRequest(taskId, () => openRightPanelSide("comments", taskId));
 
   const width = useRightPanelStore((s) => s.width);
   const setWidth = useRightPanelStore((s) => s.setWidth);
@@ -236,7 +203,10 @@ function SessionRightPanel({ taskId }: { taskId: string }) {
   // for a reopen that starts from no panel at all.
   const setOpen = useCallback(
     (next: boolean) =>
-      openSide(next ? (drawn ?? DEFAULT_RIGHT_PANEL_SIDE) : null, taskId),
+      openRightPanelSide(
+        next ? (drawn ?? DEFAULT_RIGHT_PANEL_SIDE) : null,
+        taskId,
+      ),
     [drawn, taskId],
   );
 

@@ -13,11 +13,11 @@ import {
 import { TaskCard } from "@posthog/ui/features/canvas/components/ChannelFeedView";
 import { ThreadLoadingState } from "@posthog/ui/features/canvas/components/ThreadPanel";
 import { useTaskThread } from "@posthog/ui/features/canvas/hooks/useTaskThread";
-import { useCommentNavigationStore } from "@posthog/ui/features/sessions/commentNavigationStore";
+import { useCommentFocusRequest } from "@posthog/ui/features/sessions/useCommentFocusRequest";
 import { taskDetailQuery } from "@posthog/ui/features/tasks/queries";
 import { track } from "@posthog/ui/shell/analytics";
 import { useQuery } from "@tanstack/react-query";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useState } from "react";
 
 const ACTIVITY_TABS: readonly { key: ActivityTab; label: string }[] = [
   { key: "timeline", label: "Timeline" },
@@ -136,39 +136,8 @@ function ActivityConversation({
     [taskId],
   );
 
-  // A thread picked on the artifact itself lives in the Comments tab, so the
-  // pick has to bring the tab with it. Only a fresh request switches tabs: a
-  // focus left over from an earlier visit must not hijack the panel on mount.
-  const focusByTask = useCommentNavigationStore((state) => state.focusByTask);
-  const commentFocus = focusByTask[taskId];
-  const acknowledgeCommentsTabOpen = useCommentNavigationStore(
-    (state) => state.acknowledgeCommentsTabOpen,
-  );
-  // Seed requests that predate this panel, but leave later requests for other tasks pending
-  // until the reused panel switches to that task.
-  const seenFocus = useRef(
-    new Map(
-      Object.entries(focusByTask).map(([focusTaskId, focus]) => [
-        focusTaskId,
-        focus?.nonce ?? null,
-      ]),
-    ),
-  );
-  useEffect(() => {
-    if (
-      commentFocus?.openCommentsTab &&
-      commentFocus.nonce !== seenFocus.current.get(taskId)
-    ) {
-      seenFocus.current.set(taskId, commentFocus.nonce);
-      // Not handleTabChange: a programmatic switch isn't a user tab change.
-      setTab("comments");
-    }
-  }, [commentFocus, taskId]);
-  useEffect(() => {
-    if (tab === "comments" && commentFocus?.openCommentsTab) {
-      acknowledgeCommentsTabOpen(taskId, commentFocus.nonce);
-    }
-  }, [acknowledgeCommentsTabOpen, commentFocus, tab, taskId]);
+  // Not handleTabChange: a programmatic switch isn't a user tab change.
+  useCommentFocusRequest(taskId, () => setTab("comments"));
 
   return (
     <div className="flex h-full min-w-0 flex-col bg-gray-1">
@@ -185,7 +154,11 @@ function ActivityConversation({
           <TaskCard task={task} channelId={channelId} inThread />
         </div>
       )}
+      {/* Keyed by session: the body latches "the timeline has drawn" so it
+          never blinks back to a loader, and the dock reuses one body across
+          tasks, which would carry that latch onto a session still loading. */}
       <ActivityPanelBody
+        key={taskId}
         task={task}
         tab={tab}
         canOpenInPlace={canOpenInPlace}

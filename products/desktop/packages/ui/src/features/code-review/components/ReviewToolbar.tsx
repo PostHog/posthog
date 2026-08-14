@@ -115,9 +115,9 @@ export const ReviewToolbar = memo(function ReviewToolbar({
     setReviewMode(taskId, "closed");
   };
 
-  // Closing the review mode does not close the right panel that draws it, so
-  // the toolbar leaves that to the panel's own switcher. The Code scene, which
-  // has no switcher, keeps the close.
+  // The panel's own switcher opens and closes the review there, and its column
+  // has one width, which the expanded mode has no way to take. Both controls
+  // would sit dead in the panel, so they stay with the Code scene.
   const inRightPanel = useReviewInRightPanel();
 
   const visibleFileSummary = getVisibleFileSummary(
@@ -207,24 +207,26 @@ export const ReviewToolbar = memo(function ReviewToolbar({
           </Button>
         </Tooltip>
 
-        <Tooltip
-          content={
-            reviewMode === "expanded" ? "Collapse review" : "Expand review"
-          }
-        >
-          <Button
-            size="icon-sm"
-            onClick={handleToggleExpand}
-            aria-selected={reviewMode === "expanded"}
-            className="rounded-xs"
+        {!inRightPanel && (
+          <Tooltip
+            content={
+              reviewMode === "expanded" ? "Collapse review" : "Expand review"
+            }
           >
-            {reviewMode === "expanded" ? (
-              <Minimize size={12} />
-            ) : (
-              <Maximize size={12} />
-            )}
-          </Button>
-        </Tooltip>
+            <Button
+              size="icon-sm"
+              onClick={handleToggleExpand}
+              aria-selected={reviewMode === "expanded"}
+              className="rounded-xs"
+            >
+              {reviewMode === "expanded" ? (
+                <Minimize size={12} />
+              ) : (
+                <Maximize size={12} />
+              )}
+            </Button>
+          </Tooltip>
+        )}
 
         <Separator orientation="vertical" size="1" />
 

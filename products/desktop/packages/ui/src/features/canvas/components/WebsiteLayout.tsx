@@ -399,33 +399,22 @@ export function WebsiteLayout() {
           and skipped entirely when there is neither a title nor a session's
           actions to carry. */}
       {!showToolbar && (headerContent || channelTask) && (
-        <Flex
-          align="center"
-          gap="2"
-          className="h-10 shrink-0 border-gray-6 border-b px-3"
-        >
-          <Flex
-            align="center"
-            justify="between"
-            className="h-full min-w-0 flex-1 overflow-hidden"
-          >
+        <div className="flex h-10 shrink-0 items-center gap-2 border-gray-6 border-b px-3">
+          <div className="flex h-full min-w-0 flex-1 items-center justify-between overflow-hidden">
             {headerContent}
-          </Flex>
+          </div>
           {/* Rendered without a wrapper: the actions cap themselves at half the
               bar, and a wrapper that hugs their content resolves that
               percentage against itself, which clips them. */}
           {channelTask && <TaskHeaderActions task={channelTask} />}
-        </Flex>
+        </div>
       )}
 
       {/* Single canvas toolbar: the "# channel / canvas" breadcrumb (left) and
           canvas actions (Edit / New canvas) on the right.
           Freeform canvases own their own date control in-app (DateTimePicker). */}
       {showToolbar && channelId && (
-        <Flex
-          align="center"
-          className="h-10 shrink-0 border-border border-b px-3"
-        >
+        <div className="flex h-10 shrink-0 items-center border-border border-b px-3">
           {isDashboardDetail && dashboardId ? (
             <CanvasBreadcrumb
               channelName={channelName}
@@ -446,7 +435,7 @@ export function WebsiteLayout() {
               trailing={<NewCanvasMenu channelId={channelId} />}
             />
           )}
-        </Flex>
+        </div>
       )}
       {/* The right panel's switcher pins itself to this row's top right, so the
           row is its positioning context. `isolate` keeps the switcher's stacking
