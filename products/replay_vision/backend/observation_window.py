@@ -29,7 +29,7 @@ MAX_OBSERVATIONS = 100
 # The middle coverage tier offered in the UI.
 DEEP_OBSERVATIONS = 500
 # Hard ceiling on a per-run override. Bounds the map-reduce fan-out so one run stays within the
-# synthesis activity's 10-minute timeout and a single click can't queue an unbounded LLM job.
+# synthesis activity timeout and a single click can't queue an unbounded LLM job.
 MAX_RUN_OBSERVATIONS = 2_000
 
 

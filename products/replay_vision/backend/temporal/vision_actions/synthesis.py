@@ -53,9 +53,17 @@ SYNTHESIS_MODEL = "gpt-4.1-mini"
 # One flat pass stays reliable up to about this many observation lines; past it, themes from the
 # tail of the context get drowned, so bigger batches go through per-chunk digests plus a reduce pass.
 SYNTHESIS_CHUNK_SIZE = MAX_OBSERVATIONS
-# Concurrent chunk-digest calls. Bounds gateway pressure and keeps the worst case
-# (MAX_RUN_OBSERVATIONS / SYNTHESIS_CHUNK_SIZE calls, in waves of this) inside the activity timeout.
+# Concurrent chunk-digest calls. Bounds gateway pressure while keeping the worst case
+# (MAX_RUN_OBSERVATIONS / SYNTHESIS_CHUNK_SIZE chunk calls in waves of this, plus a reduce pass,
+# each call bounded by the client timeout and retries below) inside the synthesis activity
+# timeout; the invariant is pinned by a test.
 _CHUNK_CONCURRENCY = 4
+# Per-attempt request timeout and client-level retries for each LLM call. Client retries stay low
+# on purpose: the activity retry (which resumes from the per-chunk digest cache) is the outer retry
+# loop, and stacking client retries on top would multiply the worst-case wall clock past the
+# activity timeout, making Temporal start a second attempt while this one still runs billable calls.
+_LLM_REQUEST_TIMEOUT_SECONDS = 120
+_LLM_CLIENT_MAX_RETRIES = 1
 # Upper bound on how many ids the sampling path pulls into memory. A very busy window (the case the
 # cap guards against) samples across its newest SAMPLE_SCAN_LIMIT observations rather than every row,
 # so this activity can't materialize an unbounded id list.
@@ -594,12 +602,14 @@ def _call_llm(team: Team, *, system_prompt: str, human: str, stage: str) -> str:
     # the LLM gateway (settings.OPENAI_BASE_URL), so the generation lands in LLM analytics tagged to
     # Replay Vision AND bills the team's AI credits ($ai_billable) — the same budget
     # is_team_over_ai_credit_budget gates on in `_synthesize`.
-    client = OpenAI(posthog_client=posthoganalytics.setup(), base_url=settings.OPENAI_BASE_URL, max_retries=3)
+    client = OpenAI(
+        posthog_client=posthoganalytics.setup(), base_url=settings.OPENAI_BASE_URL, max_retries=_LLM_CLIENT_MAX_RETRIES
+    )
     distinct_id = replay_vision_distinct_id(team.id)
     response = client.chat.completions.create(  # type: ignore[call-overload]
         model=SYNTHESIS_MODEL,
         temperature=0.3,
-        timeout=120,
+        timeout=_LLM_REQUEST_TIMEOUT_SECONDS,
         messages=[
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": human},

@@ -1,3 +1,4 @@
+import math
 import uuid
 from datetime import timedelta
 
@@ -17,9 +18,16 @@ from products.replay_vision.backend.models.replay_observation import (
 )
 from products.replay_vision.backend.models.replay_scanner import ScannerModel, ScannerType
 from products.replay_vision.backend.models.vision_action import ActionMode, TriggerType, VisionActionRunStatus
+from products.replay_vision.backend.observation_window import MAX_RUN_OBSERVATIONS
 from products.replay_vision.backend.temporal.vision_actions import activities as act
 from products.replay_vision.backend.temporal.vision_actions.alerts import evaluate_alert_activity
-from products.replay_vision.backend.temporal.vision_actions.synthesis import synthesize_group_summary_activity
+from products.replay_vision.backend.temporal.vision_actions.synthesis import (
+    _CHUNK_CONCURRENCY,
+    _LLM_CLIENT_MAX_RETRIES,
+    _LLM_REQUEST_TIMEOUT_SECONDS,
+    SYNTHESIS_CHUNK_SIZE,
+    synthesize_group_summary_activity,
+)
 from products.replay_vision.backend.temporal.vision_actions.types import (
     AlertStatus,
     CreateVisionActionRunInputs,
@@ -32,7 +40,10 @@ from products.replay_vision.backend.temporal.vision_actions.types import (
     UpdateVisionActionRunInputs,
     ValidateVisionActionInputs,
 )
-from products.replay_vision.backend.temporal.vision_actions.workflows import ProcessVisionActionWorkflow
+from products.replay_vision.backend.temporal.vision_actions.workflows import (
+    _SYNTHESIS_TIMEOUT,
+    ProcessVisionActionWorkflow,
+)
 from products.replay_vision.backend.tests.helpers import snapshot_for
 
 DAILY = "FREQ=DAILY;BYHOUR=9"
@@ -537,3 +548,16 @@ async def test_update_run_failure_does_not_mask_body_error() -> None:
     )
     with pytest.raises(RuntimeError, match="llm exploded"):
         await _run_process(_process_inputs(), mocks)
+
+
+def test_synthesis_worst_case_fits_inside_the_activity_timeout() -> None:
+    # A complete-coverage run fans out chunk digests in waves; if the worst case outgrew the
+    # activity timeout, Temporal would start a retry while the first attempt still runs billable
+    # LLM calls, double-charging. This binds the fan-out and LLM-call budgets to the timeout, so
+    # bumping any one knob (cap, chunk size, concurrency, client timeout or retries) forces the
+    # budget to be re-checked.
+    chunks = math.ceil(MAX_RUN_OBSERVATIONS / SYNTHESIS_CHUNK_SIZE)
+    waves = math.ceil(chunks / _CHUNK_CONCURRENCY)
+    per_call = _LLM_REQUEST_TIMEOUT_SECONDS * (1 + _LLM_CLIENT_MAX_RETRIES)
+    worst_case = timedelta(seconds=(waves + 1) * per_call)  # +1 wave for the reduce pass
+    assert worst_case <= _SYNTHESIS_TIMEOUT * 0.9  # headroom for the ORM fetch and sampling

@@ -42,6 +42,11 @@ _RECORD_RETRY = common.RetryPolicy(initial_interval=dt.timedelta(seconds=5), max
 _SYNTH_RETRY = common.RetryPolicy(
     initial_interval=dt.timedelta(seconds=30), maximum_interval=dt.timedelta(minutes=5), maximum_attempts=3
 )
+# Fits the complete-coverage worst case: MAX_RUN_OBSERVATIONS / SYNTHESIS_CHUNK_SIZE chunk digests
+# in waves of _CHUNK_CONCURRENCY plus a reduce pass, each call bounded by the LLM client's timeout
+# and retries (the invariant is pinned by a test). A timeout mid-run stays cheap to retry: finished
+# chunk digests are cached on the run row, so a retry re-bills only the unfinished chunks.
+_SYNTHESIS_TIMEOUT = dt.timedelta(minutes=30)
 _EMIT_RETRY = common.RetryPolicy(initial_interval=dt.timedelta(seconds=10), maximum_attempts=3)
 
 
@@ -109,7 +114,7 @@ class ProcessVisionActionWorkflow(PostHogWorkflow):
                 synth = await wf.execute_activity(
                     synthesize_group_summary_activity,
                     SynthesizeGroupSummaryInputs(run_id=run_id, team_id=inputs.team_id),
-                    start_to_close_timeout=dt.timedelta(minutes=10),
+                    start_to_close_timeout=_SYNTHESIS_TIMEOUT,
                     retry_policy=_SYNTH_RETRY,
                 )
                 if synth.status in (SynthesisStatus.ABORTED_NO_CONSENT, SynthesisStatus.ABORTED_NO_USER):
