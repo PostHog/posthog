@@ -277,9 +277,14 @@ class TestSkillLoader(BaseTest):
         loaded = load_skill_for_run(self.team, "signals-scout-errors", include_authors=True)
         assert loaded.authors == []
 
-    def test_acting_user_is_creator_even_when_owners_are_set(self) -> None:
-        # Owner-first ordering would let a skill editor pick which teammate's identity a run
-        # mints (owner rows are editor-settable); the consent-aligned creator must win.
+    def _create_config(self, **kwargs) -> SignalScoutConfig:
+        return SignalScoutConfig.objects.unscoped().create(
+            team_id=self.team.id, skill_name="signals-scout-errors", **kwargs
+        )
+
+    def test_acting_user_is_creator_even_when_config_names_an_enabler(self) -> None:
+        # The creator authored the prompt the run executes, so they must win over whoever
+        # merely switched the scout on.
         ben = User.objects.create_and_join(self.organization, "ben@example.com", None, "Ben")
         v1 = self._create_skill("signals-scout-errors")
         v1.created_by = ben
@@ -294,32 +299,37 @@ class TestSkillLoader(BaseTest):
             is_latest=True,
             created_by=self.user,
         )
-        LLMSkillOwner.objects.for_team(self.team.id).create(
-            team=self.team, skill_name="signals-scout-errors", user=self.user
-        )
-        assert resolve_scout_acting_user_id(self.team, "signals-scout-errors") == ben.id
+        config = self._create_config(enabled_by=self.user)
+        assert resolve_scout_acting_user_id(self.team, "signals-scout-errors", config) == ben.id
 
-    def test_acting_user_falls_back_to_first_owner_for_authorless_skill(self) -> None:
-        # A pristine canonical scout's versions are all system-authored, so without the owner
+    def test_acting_user_falls_back_to_config_enabler_for_authorless_skill(self) -> None:
+        # A pristine canonical scout's versions are all system-authored, so without the config
         # fallback its runs pool on the team-level default user, which is the cost-allocation
-        # bug this resolver exists to fix.
+        # bug this resolver exists to fix. `enabled_by` outranks `created_by`: switching a
+        # scout on is the spend decision.
         ben = User.objects.create_and_join(self.organization, "ben@example.com", None, "Ben")
         self._create_skill("signals-scout-errors")
-        LLMSkillOwner.objects.for_team(self.team.id).create(team=self.team, skill_name="signals-scout-errors", user=ben)
-        LLMSkillOwner.objects.for_team(self.team.id).create(
-            team=self.team, skill_name="signals-scout-errors", user=self.user
-        )
-        assert resolve_scout_acting_user_id(self.team, "signals-scout-errors") == ben.id
+        config = self._create_config(enabled_by=ben, created_by=self.user)
+        assert resolve_scout_acting_user_id(self.team, "signals-scout-errors", config) == ben.id
+
+    def test_acting_user_skips_config_enabler_without_access(self) -> None:
+        # The run mints a sandbox token as the resolved user, so a revoked member must never
+        # resolve; the next self-consenting candidate (the config creator) takes over.
+        ben = User.objects.create_and_join(self.organization, "ben@example.com", None, "Ben")
+        self._create_skill("signals-scout-errors")
+        config = self._create_config(enabled_by=ben, created_by=self.user)
+        OrganizationMembership.objects.filter(user=ben).delete()
+        assert resolve_scout_acting_user_id(self.team, "signals-scout-errors", config) == self.user.id
 
     def test_acting_user_none_when_creator_lost_access(self) -> None:
-        # The run mints a sandbox token as the resolved user, so a revoked member must never
-        # resolve; without owners the runner falls back to the team-level default instead.
+        # A revoked skill creator with no config candidates must resolve to nothing, so the
+        # runner falls back to the team-level default instead of minting for a removed member.
         ben = User.objects.create_and_join(self.organization, "ben@example.com", None, "Ben")
         skill = self._create_skill("signals-scout-errors")
         skill.created_by = ben
         skill.save()
         OrganizationMembership.objects.filter(user=ben).delete()
-        assert resolve_scout_acting_user_id(self.team, "signals-scout-errors") is None
+        assert resolve_scout_acting_user_id(self.team, "signals-scout-errors", self._create_config()) is None
 
     def test_signals_scout_prefix_check(self) -> None:
         match = self._create_skill("signals-scout-errors")
