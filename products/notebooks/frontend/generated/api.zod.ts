@@ -415,6 +415,29 @@ export const NotebooksSqlV2RunCreateBody = /* @__PURE__ */ zod.object({
         .describe(
             "Available upstream nodes, keyed by dataframe name. A SQL node inlines referenced hogql refs as CTEs — unless it references a local ref, which reroutes the run to the sandbox's DuckDB; a python node materializes the hogql refs its code reads as pandas frames."
         ),
+    variables: zod
+        .array(
+            zod.object({
+                name: zod
+                    .string()
+                    .describe('Identifier the cell reads: `{name}` in a SQL cell, a plain global in a Python cell.'),
+                type: zod
+                    .string()
+                    .describe(
+                        "How to coerce the value: 'string', 'number', 'boolean', or 'date'. Unknown types read as 'string'."
+                    ),
+                value: zod
+                    .unknown()
+                    .optional()
+                    .describe(
+                        "The variable's current value. A 'date' accepts an absolute date or a relative expression ('-7d', 'mStart'), resolved against the project timezone."
+                    ),
+            })
+        )
+        .optional()
+        .describe(
+            'Notebook-level variables in scope for this run. A SQL node has each `{name}` bound to its value before dispatch; a Python node gets them as globals in the kernel namespace. A SQL node reading a `{name}` that is absent here fails the dispatch.'
+        ),
     connection_id: zod
         .uuid()
         .nullish()
