@@ -631,6 +631,15 @@ class SessionRecordingPlaylistViewSet(
 ):
     scope_object = "session_recording_playlist"
     scope_object_read_actions = ["list", "retrieve", "recordings"]
+    scope_object_write_actions = [
+        "create",
+        "update",
+        "partial_update",
+        "patch",
+        "modify_recordings",
+        "bulk_add_recordings",
+        "bulk_delete_recordings",
+    ]
     queryset = SessionRecordingPlaylist.objects.all()
     serializer_class = SessionRecordingPlaylistSerializer
     throttle_classes = [ClickHouseBurstRateThrottle, ClickHouseSustainedRateThrottle]
