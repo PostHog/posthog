@@ -4816,25 +4816,16 @@ class S3CompatibleIntegration:
 class StripeIntegration:
     integration: Integration
 
-    # These are the scopes we'll give Stripe when creating a local OAuth App
-    # and sending them access
+    # Every endpoint services/stripe-app/src/posthog/client.ts calls, and nothing else.
+    # This token is readable by every member of the customer's Stripe account, so anything
+    # granted here is granted to all of them. Read-only by design; do not add a write scope.
     SCOPES: str = " ".join(
         [
             "customer_journey:read",
-            "query:read",
-            "conversation:read",
-            "conversation:write",
             "experiment:read",
             "feature_flag:read",
             "insight:read",
-            "organization:read",
-            "person:read",
-            "project:read",
-            "ticket:read",
-            "ticket:write",
-            "user:read",
-            "hog_flow:read",
-            "hog_flow:write",
+            "query:read",
         ]
     )
 
