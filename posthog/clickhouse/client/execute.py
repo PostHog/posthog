@@ -6,7 +6,6 @@ import threading
 import traceback
 from collections.abc import Iterator, Sequence
 from contextlib import contextmanager
-from dataclasses import dataclass
 from enum import StrEnum
 from functools import lru_cache
 from time import perf_counter
@@ -39,6 +38,7 @@ from posthog.clickhouse.query_tagging import (
     get_query_tags,
     is_api_key_access_method,
 )
+from posthog.dataclasses import frozen
 from posthog.errors import clickhouse_error_type, wrap_clickhouse_query_error
 from posthog.settings import CLICKHOUSE_PER_TEAM_QUERY_SETTINGS, DEBUG, TEST
 from posthog.utils import generate_short_id, patchable
@@ -167,7 +167,7 @@ def _get_kill_switch_level(_ttl: int) -> KillSwitchLevel:
         return KillSwitchLevel.OFF
 
 
-@dataclass(frozen=True, kw_only=True, slots=True)
+@frozen
 class KillSwitchTeamSets:
     full_teams: frozenset[int]
     light_teams: frozenset[int]

@@ -1,8 +1,8 @@
-from dataclasses import dataclass
 from datetime import datetime
 
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.query_tagging import Feature, Product, tags_context
+from posthog.dataclasses import frozen
 
 TOPHOG_QUERY = """
 WITH filtered AS (
@@ -79,7 +79,7 @@ def query_tophog_metrics(
     ]
 
 
-@dataclass(frozen=True, kw_only=True, slots=True)
+@frozen
 class TopHogFilterOptions:
     pipelines: list[str]
     lanes: list[str]
