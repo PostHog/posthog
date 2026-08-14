@@ -267,6 +267,22 @@ export function buildSandboxDocument(
         }
         return call("capture", { event, properties: properties ?? {}, distinctId });
       },
+      // Durable key-value memory, declared in capabilities.posthog.state.
+      // Scope "user" (default) is private to this viewer; "shared" is one
+      // value per canvas, visible to the whole team. Values are JSON, capped
+      // at 64 KB serialized and 256 keys per scope; setting null deletes.
+      state: {
+        get: (key, opts) => call("stateGet", { key, scope: (opts && opts.scope) || "user" }),
+        set: (key, value, opts) =>
+          call("stateSet", { key, value: value === undefined ? null : value, scope: (opts && opts.scope) || "user" }),
+        list: (opts) => call("stateList", { scope: opts && opts.scope }),
+      },
+      // Write into PostHog as the viewer. Every verb must be declared in
+      // capabilities.posthog.actions; wire invocations to explicit user
+      // gestures (a button), never to load or render.
+      actions: {
+        invoke: (verb, payload) => call("actionInvoke", { verb, payload: payload ?? {} }),
+      },
       // Brokered by the host: PostHog-only https URLs, rate-limited, and
       // ignored while the canvas is unfocused (no auto-opens on load).
       openExternal: (url) => post({ type: "open-external", url }),

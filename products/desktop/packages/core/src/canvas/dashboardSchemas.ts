@@ -146,3 +146,49 @@ export const reportCanvasErrorInput = z.object({
   buildId: z.string().min(1),
   errorType: z.string().min(1).max(64),
 });
+export const canvasStateScopeSchema = z.enum(["user", "shared"]);
+export type CanvasStateScope = z.infer<typeof canvasStateScopeSchema>;
+
+// One key of a canvas's runtime key-value state (the ph.state store).
+export const canvasStateEntrySchema = z.object({
+  scope: canvasStateScopeSchema,
+  key: z.string(),
+  value: z.unknown(),
+  updatedAt: z.string(),
+});
+export type CanvasStateEntry = z.infer<typeof canvasStateEntrySchema>;
+
+export const canvasStateListInput = z.object({
+  id: z.string().min(1),
+  scope: canvasStateScopeSchema.optional(),
+});
+
+// A null value deletes the key.
+export const canvasStateSetInput = z.object({
+  id: z.string().min(1),
+  scope: canvasStateScopeSchema,
+  key: z.string().min(1).max(200),
+  value: z.unknown(),
+});
+
+// One registered action verb, as the host renders it before invoking.
+export const canvasActionDefinitionSchema = z.object({
+  verb: z.string(),
+  summary: z.string(),
+  destructive: z.boolean(),
+});
+export type CanvasActionDefinition = z.infer<
+  typeof canvasActionDefinitionSchema
+>;
+
+export const canvasActionInvokeInput = z.object({
+  id: z.string().min(1),
+  verb: z.string().min(1).max(64),
+  payload: z.record(z.string(), z.unknown()).default({}),
+});
+
+export const canvasActionResultSchema = z.object({
+  verb: z.string(),
+  result: z.record(z.string(), z.unknown()),
+});
+export type CanvasActionResult = z.infer<typeof canvasActionResultSchema>;

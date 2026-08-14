@@ -5,8 +5,12 @@ import type {
 } from "./canvasBuildSchemas";
 import type { ChannelTaskRecord } from "./channelTaskSchemas";
 import type {
+  CanvasActionDefinition,
+  CanvasActionResult,
   CanvasDraft,
   CanvasSource,
+  CanvasStateEntry,
+  CanvasStateScope,
   CanvasVersion,
   DashboardRecord,
 } from "./dashboardSchemas";
@@ -54,6 +58,26 @@ export interface IDashboardsService {
     buildId: string;
     errorType: string;
   }): Promise<void>;
+  // The canvas's readable ph.state entries (shared + the caller's own user rows).
+  listState(input: {
+    id: string;
+    scope?: CanvasStateScope;
+  }): Promise<CanvasStateEntry[]>;
+  // Write one ph.state key; a null value deletes it.
+  setState(input: {
+    id: string;
+    scope: CanvasStateScope;
+    key: string;
+    value: unknown;
+  }): Promise<void>;
+  // The action registry: every verb a canvas may declare and invoke.
+  listActions(): Promise<CanvasActionDefinition[]>;
+  // Invoke one registered action verb as the viewer.
+  invokeAction(input: {
+    id: string;
+    verb: string;
+    payload: Record<string, unknown>;
+  }): Promise<CanvasActionResult>;
   // Read the canvas's source project (the head, or a historical version).
   getSource(input: { id: string; versionId?: string }): Promise<CanvasSource>;
   // The canvas's source-version history, newest first (metadata only).
