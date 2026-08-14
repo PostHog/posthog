@@ -18,6 +18,7 @@ from posthog.tasks.alerts.schedule_restriction import snap_candidate_utc_to_sche
 
 from products.alerts.backend.delivery_slo import alert_delivery_slo
 from products.alerts.backend.destinations import (
+    ALERT_NO_TRANSPORT_ACCEPTED,
     ALERT_NOTIFICATION_FLUSH_TIMEOUT_SECONDS,
     AlertDelivery,
     alert_internal_event_delivered,
@@ -398,6 +399,7 @@ def record_alert_delivery(alert: AlertConfiguration, alert_check: AlertCheck, de
     Caller must wrap in transaction.atomic() if atomic semantics are required.
     """
     if not deliveries:
+        ALERT_NO_TRANSPORT_ACCEPTED.labels(alert_state=alert_check.state).inc()
         logger.warning(
             "record_alert_delivery.no_transport_accepted",
             alert_id=str(alert.id),
@@ -415,6 +417,20 @@ def record_alert_delivery(alert: AlertConfiguration, alert_check: AlertCheck, de
     alert.last_notified_at = recorded_at
     alert.save(update_fields=["last_notified_at"])
     return True
+
+
+def record_delivery_or_stamp(
+    alert: AlertConfiguration, alert_check: AlertCheck, deliveries: list[AlertDelivery] | None
+) -> None:
+    """Record accepted deliveries, else stamp notification_sent_at as the gating marker.
+
+    Shared by the investigation-gated dispatchers: a zero-accept attempt must still
+    stamp, or the safety-net sweep would re-dispatch an undeliverable check forever.
+    """
+    recorded = record_alert_delivery(alert, alert_check, deliveries) if deliveries is not None else False
+    if not recorded:
+        alert_check.notification_sent_at = datetime.now(UTC)
+        alert_check.save(update_fields=["notification_sent_at"])
 
 
 def add_alert_check(

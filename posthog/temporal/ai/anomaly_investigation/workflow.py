@@ -15,7 +15,6 @@ from typing import TYPE_CHECKING, Optional
 from uuid import UUID
 
 from django.db import transaction
-from django.utils import timezone
 
 import structlog
 from asgiref.sync import sync_to_async
@@ -23,7 +22,7 @@ from temporalio import activity, workflow
 from temporalio.common import RetryPolicy
 
 from posthog.models import Team, User
-from posthog.tasks.alerts.utils import dispatch_alert_notification, record_alert_delivery
+from posthog.tasks.alerts.utils import dispatch_alert_notification, record_delivery_or_stamp
 from posthog.temporal.ai.anomaly_investigation.charts import png_to_b64, render_series_chart
 from posthog.temporal.ai.anomaly_investigation.metric_definition import describe_metric_definition
 from posthog.temporal.ai.anomaly_investigation.notebook import NotebookRenderContext, build_investigation_notebook
@@ -415,7 +414,7 @@ def _dispatch_gated_notification(
         )
         try:
             deliveries = dispatch_alert_notification(alert, check, breaches, extra_properties=extra_properties)
-            recorded = record_alert_delivery(alert, check, deliveries) if deliveries is not None else False
+            record_delivery_or_stamp(alert, check, deliveries)
         except Exception:
             logger.exception(
                 "anomaly_investigation.gated_notification_failed",
@@ -424,13 +423,6 @@ def _dispatch_gated_notification(
             )
             # Don't swallow — let the safety-net task retry on the next tick.
             raise
-
-        if not recorded:
-            # record_alert_delivery stamps notification_sent_at when it records; when nothing
-            # was accepted the stamp must still land — it is the marker the safety net's
-            # idempotency check reads, so this check is not force-dispatched again.
-            check.notification_sent_at = timezone.now()
-            check.save(update_fields=["notification_sent_at"])
 
 
 def _build_breach_descriptions(

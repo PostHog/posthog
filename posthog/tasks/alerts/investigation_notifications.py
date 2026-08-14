@@ -21,13 +21,12 @@ from datetime import UTC, datetime, timedelta
 
 from django.db import transaction
 from django.db.models import Q
-from django.utils import timezone
 
 import structlog
 
 from posthog.schema import AlertState
 
-from posthog.tasks.alerts.utils import dispatch_alert_notification, record_alert_delivery
+from posthog.tasks.alerts.utils import dispatch_alert_notification, record_delivery_or_stamp
 
 from products.alerts.backend.models.alert import AlertCheck, InvestigationStatus
 
@@ -99,12 +98,7 @@ def run_investigation_notification_safety_net() -> int:
                     continue
                 breaches = _fallback_breach_descriptions(locked)
                 deliveries = dispatch_alert_notification(alert, locked, breaches)
-                recorded = record_alert_delivery(alert, locked, deliveries) if deliveries is not None else False
-                if not recorded:
-                    # Even with nothing accepted, the stamp is this sweep's idempotency
-                    # marker — without it an undeliverable check is re-dispatched forever.
-                    locked.notification_sent_at = timezone.now()
-                    locked.save(update_fields=["notification_sent_at"])
+                record_delivery_or_stamp(alert, locked, deliveries)
         except Exception:
             logger.exception(
                 "alert.investigation_safety_net_failed",

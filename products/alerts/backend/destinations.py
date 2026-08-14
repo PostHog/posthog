@@ -9,7 +9,7 @@ from typing import Any
 from uuid import UUID
 
 from django.db import transaction
-from django.db.models import Q
+from django.db.models import Q, QuerySet
 
 import structlog
 from prometheus_client import Counter
@@ -32,6 +32,12 @@ ALERT_INTERNAL_EVENT_DELIVERY_FAILURES = Counter(
     "posthog_alert_internal_event_delivery_failures_total",
     "Number of alert internal events that failed delivery",
     labelnames=["event_name"],
+)
+
+ALERT_NO_TRANSPORT_ACCEPTED = Counter(
+    "posthog_alert_delivery_no_transport_accepted_total",
+    "Alert checks whose notification dispatch ended with zero accepted deliveries",
+    labelnames=["alert_state"],
 )
 
 
@@ -64,7 +70,9 @@ _TEMPLATE_ID_TO_DESTINATION_TYPE = {
 }
 
 
-def _active_alert_destinations_qs(*, team_id: int, alert_id: str, allowed_event_ids: Collection[str]):
+def _active_alert_destinations_qs(
+    *, team_id: int, alert_id: str, allowed_event_ids: Collection[str]
+) -> QuerySet[HogFunction]:
     return HogFunction.objects.filter(
         _allowed_event_filter(allowed_event_ids),
         team_id=team_id,

@@ -20,9 +20,14 @@ from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.team import Team
 from posthog.models.utils import generate_random_token_personal, hash_key_value
 
+from products.alerts.backend.destinations import AlertDelivery
 from products.alerts.backend.models.alert import AlertCheck, AlertConfiguration, AlertSubscription, Threshold
 from products.cdp.backend.models.hog_functions.hog_function import HogFunction
 from products.product_analytics.backend.models.insight import Insight
+
+TEST_DESTINATION_DELIVERY = AlertDelivery(
+    channel="hog_function", target="Eng alerts", template="slack", at="2026-08-11T00:00:00+00:00"
+)
 
 
 class TestAlert(APIBaseTest, QueryMatchingTest):
@@ -1598,7 +1603,7 @@ class TestAlertTestDelivery(APIBaseTest):
 
     @mock.patch("products.alerts.backend.api.alert.trigger_alert_hog_functions")
     def test_queues_test_delivery_for_active_destinations_without_changing_alert(self, mock_trigger) -> None:
-        mock_trigger.return_value = True
+        mock_trigger.return_value = [TEST_DESTINATION_DELIVERY]
         self._create_destination()
         self._create_destination()
         self._create_destination(enabled=False)
@@ -1649,7 +1654,9 @@ class TestAlertTestDelivery(APIBaseTest):
         mock_trigger.assert_not_called()
 
     @mock.patch("products.alerts.backend.api.alert.send_test_alert_email", side_effect=RuntimeError("email failed"))
-    @mock.patch("products.alerts.backend.api.alert.trigger_alert_hog_functions", return_value=True)
+    @mock.patch(
+        "products.alerts.backend.api.alert.trigger_alert_hog_functions", return_value=[TEST_DESTINATION_DELIVERY]
+    )
     def test_destination_still_queues_when_email_fails(self, mock_trigger, _mock_email) -> None:
         alert = AlertConfiguration.objects.get(id=self.alert["id"])
         AlertSubscription.objects.create(alert_configuration=alert, user=self.user)
@@ -1665,7 +1672,7 @@ class TestAlertTestDelivery(APIBaseTest):
         }
         mock_trigger.assert_called_once()
 
-    @mock.patch("products.alerts.backend.api.alert.trigger_alert_hog_functions", return_value=False)
+    @mock.patch("products.alerts.backend.api.alert.trigger_alert_hog_functions", return_value=[])
     def test_returns_service_unavailable_when_destination_fails_to_queue(self, mock_trigger) -> None:
         self._create_destination()
 

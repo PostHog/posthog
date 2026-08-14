@@ -122,20 +122,17 @@ class TestInvestigationNotificationSafetyNet(APIBaseTest):
         ]
     )
     @patch("posthog.tasks.alerts.investigation_notifications.dispatch_alert_notification")
-    @patch("posthog.tasks.alerts.investigation_notifications.record_alert_delivery")
     def test_grace_period_predicate(
         self,
         _name: str,
         age_minutes: int,
         investigation_status: str | None,
         expected_dispatched: bool,
-        mock_record: object,
         mock_dispatch: object,
     ) -> None:
-        # Attempted dispatch with nothing accepted: the safety net itself must stamp
-        # notification_sent_at so the check is not re-dispatched every sweep.
+        # Attempted dispatch with nothing accepted: record_delivery_or_stamp (real) must
+        # stamp notification_sent_at so the check is not re-dispatched every sweep.
         mock_dispatch.return_value = []  # type: ignore[attr-defined]
-        mock_record.return_value = False  # type: ignore[attr-defined]
 
         check = self._make_check(age_minutes=age_minutes, investigation_status=investigation_status)
         notified = run_investigation_notification_safety_net()
