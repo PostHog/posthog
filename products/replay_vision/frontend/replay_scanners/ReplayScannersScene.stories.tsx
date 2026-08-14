@@ -47,7 +47,7 @@ const scanner = (overrides: Partial<ReplayScannerApi> = {}): ReplayScannerApi =>
         query: null,
         sampling_rate: 1,
         provider: 'google',
-        model: 'gemini-3.6-flash',
+        model: 'gemini-3.7-flash',
         enabled: true,
         emits_signals: false,
         scanner_version: 1,
@@ -185,7 +185,7 @@ const observation = (overrides: Partial<ReplayObservationApi> = {}): ReplayObser
             name: summarizerScanner.name,
             scanner_type: 'summarizer',
             scanner_version: 1,
-            model: 'gemini-3.6-flash',
+            model: 'gemini-3.7-flash',
             provider: 'google',
             emits_signals: false,
             scanner_config: { prompt: 'Summarize this session.', length: 'medium' },
@@ -564,14 +564,6 @@ export const ScannerDigests: StoryObj = {
 
 export const ScannerTemplates: StoryObj = {
     parameters: { pageUrl: urls.replayVisionTemplates() },
-}
-
-// The flag-gated "tell PostHog AI what you want to accomplish" box below the template grid.
-export const ScannerTemplatesWithGoalDraft: StoryObj = {
-    parameters: {
-        pageUrl: urls.replayVisionTemplates(),
-        featureFlags: [FEATURE_FLAGS.REPLAY_VISION_GOAL_DRAFT],
-    },
 }
 
 export const ScannerEditorConfigure: StoryObj = {
