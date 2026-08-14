@@ -8,6 +8,7 @@ from django.db import transaction
 from products.signals.backend.artefact_schemas import ArtefactContent, SuggestedReviewers
 from products.signals.backend.custom_agent.schemas import CustomAgentFinalReport
 from products.signals.backend.models import ArtefactAttribution, SignalReport, SignalReportArtefact
+from products.signals.backend.report_generation.reviewer_telemetry import capture_suggested_reviewers_resolved
 from products.signals.backend.report_generation.select_repo import RepoSelectionResult
 from products.signals.backend.task_run_artefacts import append_task_run_artefact
 
@@ -99,5 +100,14 @@ def create_custom_agent_ready_report(
                 type=type,
                 task_id=task_id,
             )
+
+    # After the transaction so a telemetry failure can't roll back the report.
+    if final_report.assignees:
+        capture_suggested_reviewers_resolved(
+            team_id=team_id,
+            report_id=str(report.id),
+            github_logins=[assignee.github_login for assignee in final_report.assignees],
+            source="scout",
+        )
 
     return PersistedCustomAgentReport(report_id=str(report.id), task_id=task_id)

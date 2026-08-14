@@ -187,6 +187,17 @@ def _resolve_suggested_reviewer_user_ids(report: SignalReport) -> set[int]:
     if not logins:
         return set()
     login_map = resolve_org_github_login_to_users(report.team_id, logins)
+    unmapped = sorted(logins - login_map.keys())
+    if unmapped:
+        # These reviewers can't get a personal-channel notification; when the whole list is
+        # unmapped the report falls back to the team channel despite being "assigned".
+        logger.info(
+            "slack routing for report %s (team %d): %d suggested reviewer login(s) map to no PostHog user: %s",
+            report.id,
+            report.team_id,
+            len(unmapped),
+            ", ".join(unmapped),
+        )
     if not login_map:
         return set()
 

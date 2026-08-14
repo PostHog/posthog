@@ -470,6 +470,15 @@ def _resolve_autostart_assignee(
             candidate_users.append(candidate)
 
     if not candidate_users:
+        attempted_logins = sorted(
+            {str(r["github_login"]).lower() for r in identity_candidates if r.get("github_login")}
+        )
+        if attempted_logins:
+            logger.info(
+                "no autostart identity: no suggested reviewer login maps to an org member",
+                team_id=team_id,
+                logins=attempted_logins,
+            )
         return None
 
     # Personal autonomy configs are optional: load any that exist to honor a reviewer's own
