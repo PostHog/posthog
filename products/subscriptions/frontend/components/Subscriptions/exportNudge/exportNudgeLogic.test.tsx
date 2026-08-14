@@ -7,10 +7,6 @@ import { expectLogic } from 'kea-test-utils'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import posthog from 'lib/posthog-typed'
-import {
-    dashboardNudgeScopeKey,
-    dashboardSubscribeNudgeStoreLogic,
-} from 'scenes/dashboard/dashboardSubscribeNudgeStoreLogic'
 import { userLogic } from 'scenes/userLogic'
 
 import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
@@ -61,7 +57,6 @@ function capturesOf(event: string): any[][] {
 
 describe('exportNudgeLogic', () => {
     let logic: ReturnType<typeof exportNudgeLogic.build>
-    let storeLogic: ReturnType<typeof dashboardSubscribeNudgeStoreLogic.build>
 
     function mockSubscriptionCounts({
         subjectCount,
@@ -100,7 +95,6 @@ describe('exportNudgeLogic', () => {
         })
         logic = exportNudgeLogic()
         logic.mount()
-        storeLogic = dashboardSubscribeNudgeStoreLogic({ scope: dashboardNudgeScopeKey() })
         ;(posthog.capture as jest.Mock).mockClear()
     })
 
@@ -139,25 +133,23 @@ describe('exportNudgeLogic', () => {
         expect(capturesOf('dashboard export nudge shown')).toHaveLength(2)
     })
 
-    it('suppresses the dashboard when it already has a subscription', async () => {
+    it.each([
+        ['dashboard', DASHBOARD],
+        ['insight', INSIGHT],
+    ])('does not nudge a %s that already has a subscription', async (_kind, subject) => {
         mockSubscriptionCounts({ subjectCount: 1 })
 
-        expect(await considerNudge()).toBe(false)
-        // Shared with the repeat-view nudge: someone who already subscribed is done being asked.
-        expect(storeLogic.values.suppressedDashboardIds).toEqual([DASHBOARD_ID])
+        expect(await considerNudge(subject)).toBe(false)
     })
 
-    it('does not nudge a dashboard the repeat-view nudge already suppressed', async () => {
-        storeLogic.actions.suppressDashboardNudge(DASHBOARD_ID)
-
-        expect(await considerNudge()).toBe(false)
-        expect(mockSubscriptionsList).not.toHaveBeenCalled()
-    })
-
-    it('does not nudge an insight that already has a subscription', async () => {
+    it('asks again once the subscription that retired the offer is gone', async () => {
         mockSubscriptionCounts({ subjectCount: 1 })
+        expect(await considerNudge()).toBe(false)
 
-        expect(await considerNudge(INSIGHT)).toBe(false)
+        // Nothing is remembered across the two exports: the subscription check is the only gate, so
+        // deleting the subscription brings the offer back.
+        mockSubscriptionCounts({ subjectCount: 0 })
+        expect(await considerNudge()).toBe(true)
     })
 
     describe('answering without a request', () => {
@@ -252,7 +244,7 @@ describe('exportNudgeLogic', () => {
             const message = claimExportNudgeMessage({ subject, name })
             render(<>{message!('Export complete!')}</>)
 
-            fireEvent.click(screen.getByText('Set up recurring updates'))
+            fireEvent.click(screen.getByText('Subscribe'))
 
             expect(router.values.location.pathname).toMatch(new RegExp(`${path}$`))
             expect(router.values.searchParams).toMatchObject({ prefill: 'nudge', via: 'export' })
@@ -261,7 +253,7 @@ describe('exportNudgeLogic', () => {
         it('drops the offer from later frames once it has been followed', () => {
             const message = claimExportNudgeMessage({ subject: DASHBOARD, name: 'Weekly numbers' })
             render(<>{message!('Preparing export…')}</>)
-            fireEvent.click(screen.getByText('Set up recurring updates'))
+            fireEvent.click(screen.getByText('Subscribe'))
             cleanup()
 
             // The export settles into its own message rather than asking a second time.
