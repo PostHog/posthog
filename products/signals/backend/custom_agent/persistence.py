@@ -113,7 +113,7 @@ def create_custom_agent_ready_report(
             team_id=team_id,
             report_id=str(report.id),
             github_logins=reviewer_logins,
-            source="scout",
+            source="custom_agent",
         )
 
     return PersistedCustomAgentReport(report_id=str(report.id), task_id=task_id)

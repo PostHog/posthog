@@ -470,14 +470,13 @@ def _resolve_autostart_assignee(
             candidate_users.append(candidate)
 
     if not candidate_users:
-        attempted_logins = sorted(
-            {str(r["github_login"]).lower() for r in identity_candidates if r.get("github_login")}
-        )
-        if attempted_logins:
+        attempted_count = len({str(r["github_login"]).lower() for r in identity_candidates if r.get("github_login")})
+        if attempted_count:
+            # Count only: GitHub logins are member PII and must not reach logs.
             logger.info(
                 "no autostart identity: no suggested reviewer login maps to an org member",
                 team_id=team_id,
-                logins=attempted_logins,
+                login_count=attempted_count,
             )
         return None
 

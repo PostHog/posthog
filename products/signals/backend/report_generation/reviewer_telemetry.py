@@ -15,7 +15,7 @@ logger = logging.getLogger(__name__)
 # model-proposed and unbounded, so cap what reaches event properties.
 _MAX_LOGINS_PER_EVENT = 10
 
-ReviewerSuggestionSource = Literal["pipeline", "scout"]
+ReviewerSuggestionSource = Literal["pipeline", "scout", "scout_edit", "custom_agent"]
 
 
 @frozen
@@ -54,12 +54,14 @@ def capture_suggested_reviewers_resolved(
     try:
         linkability = split_reviewer_linkability(team_id, github_logins)
         if linkability.unlinkable_logins:
+            # GitHub logins are member PII, so logs carry counts only; the logins themselves go in
+            # the event properties, the same internal-analytics surface the artefact already feeds.
             logger.info(
-                "suggested reviewers for report %s (team %d) include %d login(s) with no PostHog user: %s",
+                "suggested reviewers for report %s (team %d): %d of %d login(s) have no PostHog user",
                 report_id,
                 team_id,
                 len(linkability.unlinkable_logins),
-                ", ".join(linkability.unlinkable_logins),
+                len(linkability.linkable_logins) + len(linkability.unlinkable_logins),
             )
         team = Team.objects.select_related("organization").get(id=team_id)
         posthoganalytics.capture(

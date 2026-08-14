@@ -52,6 +52,7 @@ from products.signals.backend.artefact_schemas import (
 )
 from products.signals.backend.models import ArtefactAttribution, SignalReport, SignalReportArtefact, SignalScoutRun
 from products.signals.backend.report_charts import ReportChart, chart_batch_error
+from products.signals.backend.report_generation.reviewer_telemetry import capture_suggested_reviewers_resolved
 from products.signals.backend.report_generation.select_repo import RepoSelectionResult
 from products.signals.backend.scout_harness.tools.emit import SCOUT_SIGNAL_WEIGHT, SOURCE_PRODUCT, SOURCE_TYPE
 
@@ -248,6 +249,14 @@ def create_scout_report(
         "signals_scout.emit_report: created",
         extra={"team_id": team_id, "report_id": report_id, "signal_count": len(signals)},
     )
+    # After commit and the signal emits, so best-effort telemetry can't interfere with either.
+    if suggested_reviewers is not None and len(suggested_reviewers.root) > 0:
+        capture_suggested_reviewers_resolved(
+            team_id=team_id,
+            report_id=report_id,
+            github_logins=[entry.github_login for entry in suggested_reviewers.root],
+            source="scout",
+        )
     return PersistedScoutReport(
         report_id=report_id,
         signal_count=len(signals),
@@ -522,7 +531,15 @@ def set_scout_report_reviewers(
         )
     logger.info(
         "signals_scout.edit_report: reviewers set",
-        extra={"team_id": team_id, "report_id": report_id, "reviewers": logins},
+        extra={"team_id": team_id, "report_id": report_id, "reviewer_count": len(logins)},
+    )
+    # After commit, so best-effort telemetry can't roll back the edit. The merged content is the
+    # live reviewer set (latest-wins), so telemetry reflects what routing will actually see.
+    capture_suggested_reviewers_resolved(
+        team_id=team_id,
+        report_id=report_id,
+        github_logins=[entry.github_login for entry in merged.root],
+        source="scout_edit",
     )
     return True
 
