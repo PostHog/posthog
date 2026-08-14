@@ -124,7 +124,7 @@ describe('customerEmailConfigLogic', () => {
         let runPoll = (): void => {}
         jest.spyOn(window, 'setInterval').mockImplementation((handler: TimerHandler): number => {
             if (typeof handler === 'function') {
-                runPoll = handler
+                runPoll = () => handler()
             }
             return 1
         })
