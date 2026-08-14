@@ -112,7 +112,9 @@ TEAM_METADATA_CACHE_VERIFICATION_GRACE_PERIOD_MINUTES: int = get_from_env(
 # Defaults are set well above observed production maximums to avoid impacting
 # normal usage while protecting against extreme outliers.
 
-# Maximum number of feature flags allowed per team
+# Maximum number of feature flags allowed per team. This is the fleet-wide default: staff can
+# raise or lower it for a single team via TeamFeatureFlagsConfig.max_feature_flags_override.
+# MAX_FEATURE_FLAG_FILTER_SIZE_BYTES below has no per-team override.
 MAX_FEATURE_FLAGS_PER_TEAM: int = get_from_env("MAX_FEATURE_FLAGS_PER_TEAM", 2000, type_cast=int)
 
 # Maximum size in bytes for a single flag's filters JSON

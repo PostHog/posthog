@@ -556,9 +556,9 @@ function findLastBufferIndex(state: ThreadItem[], id: string, type: ThreadItemTy
     return -1
 }
 
-/** The in-progress compaction spinner item — cleared when compaction completes or a boundary lands. */
-function isPendingCompactingStatus(item: ThreadItem): boolean {
-    return item.type === 'status' && item.status === 'compacting' && item.isComplete !== true
+/** The in-progress spinner for a long-running status — retired when it completes, fails, or its boundary lands. */
+function isPendingStatus(item: ThreadItem, status: string): boolean {
+    return item.type === 'status' && item.status === status && item.isComplete !== true
 }
 
 function insertHumanMessageAtTurnStart(state: ThreadItem[], item: ThreadItem): ThreadItem[] {
@@ -1016,6 +1016,7 @@ export function foldLogToThread(entries: StoredEntry[], options: { isResumeRun: 
     let errorSeq = 0
     let statusSeq = 0
     let compactSeq = 0
+    let clearedSeq = 0
     let taskSeq = 0
     let consoleSeq = 0
     let contextSeq = 0
@@ -1214,15 +1215,26 @@ export function foldLogToThread(entries: StoredEntry[], options: { isResumeRun: 
         if (method === '_posthog/status') {
             const status = String(params.status ?? '')
             const isComplete = params.isComplete === true
-            if (status === 'compacting' && isComplete) {
-                items = items.filter((item) => !isPendingCompactingStatus(item))
+            if (isComplete && (status === 'compacting' || status === 'clearing')) {
+                items = items.filter((item) => !isPendingStatus(item, status))
+            } else if (status === 'clearing_failed') {
+                // A failed clear emits no `conversation_cleared` marker, so retire the spinner
+                // here and report the outcome in its place.
+                items = items.filter((item) => !isPendingStatus(item, 'clearing'))
+                items.push({
+                    id: `status-${statusSeq++}`,
+                    type: 'status',
+                    status,
+                    isComplete: true,
+                    errorMessage: stringifyOptional(params.error),
+                })
             } else {
                 items.push({ id: `status-${statusSeq++}`, type: 'status', status, isComplete })
             }
             continue
         }
         if (method === '_posthog/compact_boundary') {
-            items = items.filter((item) => !isPendingCompactingStatus(item))
+            items = items.filter((item) => !isPendingStatus(item, 'compacting'))
             items.push({
                 id: `compact-${compactSeq++}`,
                 type: 'compact_boundary',
@@ -1230,6 +1242,13 @@ export function foldLogToThread(entries: StoredEntry[], options: { isResumeRun: 
                 preTokens: typeof params.preTokens === 'number' ? params.preTokens : undefined,
                 contextSize: typeof params.contextSize === 'number' ? params.contextSize : undefined,
             })
+            continue
+        }
+        if (method === '_posthog/conversation_cleared') {
+            // The divider supersedes the spinner visually, but the completing `_posthog/status`
+            // frame is a separate notification that may not have landed yet.
+            items = items.filter((item) => !isPendingStatus(item, 'clearing'))
+            items.push({ id: `cleared-${clearedSeq++}`, type: 'conversation_cleared' })
             continue
         }
         if (method === '_posthog/task_notification') {
@@ -1359,6 +1378,7 @@ export interface runStreamLogicValues {
     bootstrappedRunId: string | null
     bootstrappedTaskId: string | null
     contextUsage: ContextUsage | null
+    conversationClearSupported: boolean
     cumulativeReconnectAttempt: number
     currentMode: string | null
     currentProgress: string | null
@@ -1507,6 +1527,9 @@ export interface runStreamLogicActions {
     permissionResponseFailed: () => {
         value: true
     }
+    pushConversationCleared: () => {
+        value: true
+    }
     pushErrorItem: (
         errorMessage: string,
         variant?: 'crash' | 'error'
@@ -1540,6 +1563,9 @@ export interface runStreamLogicActions {
     }
     setContextUsage: (usage: ContextUsage) => {
         usage: ContextUsage
+    }
+    setConversationClearSupported: (supported: boolean) => {
+        supported: boolean
     }
     setCurrentMode: (mode: string) => {
         mode: string
@@ -1778,6 +1804,8 @@ export const runStreamLogic = kea<runStreamLogicType>([
         /** Optional `task_run_state.stage` — wired for a future richer status surface (G6). */
         setCurrentStage: (stage: string | null) => ({ stage }),
         markRunStarted: true,
+        /** Records the agent's `/clear` capability, read off each `_posthog/run_started` frame. */
+        setConversationClearSupported: (supported: boolean) => ({ supported }),
         markTurnComplete: true,
         /** Echoes the user's own message into the thread as a `client`-sourced log entry (the wire never replays a live turn). */
         pushHumanMessage: (content: string) => ({ content }),
@@ -1792,6 +1820,8 @@ export const runStreamLogic = kea<runStreamLogicType>([
         startOptimisticRun: (message?: string) => ({ message }),
         /** Injects a client-side error (terminal failure / stream disconnect) into the log as a `client`-sourced entry. */
         pushErrorItem: (errorMessage: string, variant: 'error' | 'crash' = 'error') => ({ errorMessage, variant }),
+        /** Echoes a `/clear` boundary the backend just recorded against a finished run, which has no stream to send it back. */
+        pushConversationCleared: true,
         /** Union the products an answer was grounded in — accumulates across the whole session. */
         mergeResourcesUsed: (products: { id?: string; label?: string }[]) => ({ products }),
         /** Latest-wins merge of git artifacts (PR url / branch / base / repo) a run exposes. */
@@ -2049,6 +2079,17 @@ export const runStreamLogic = kea<runStreamLogicType>([
             {
                 markRunStarted: () => true,
                 reset: () => false,
+            },
+        ],
+        // The latest run_started in the resume chain wins, matching the desktop client: the gate
+        // predicts the next run's agent, and after an agent rollback an earlier capable run must
+        // not authorize recording a boundary the current agent would ignore on resume (the UI
+        // would claim a clear that never happens). `reset` is deliberately not handled: a
+        // re-bootstrap replays the chain's run_started frames and re-derives it.
+        conversationClearSupported: [
+            false,
+            {
+                setConversationClearSupported: (_, { supported }) => supported,
             },
         ],
         turnComplete: [
@@ -3030,6 +3071,17 @@ export const runStreamLogic = kea<runStreamLogicType>([
                 },
             ])
         },
+        pushConversationCleared: () => {
+            actions.appendEntries([
+                {
+                    entry: {
+                        type: 'notification',
+                        notification: { method: '_posthog/conversation_cleared', params: {} },
+                    },
+                    source: 'client',
+                },
+            ])
+        },
         pushErrorItem: ({ errorMessage, variant }) => {
             // Client-side errors (terminal failure, stream disconnect) aren't wire frames — append
             // them as `client`-sourced log entries so the projection renders them in thread order.
@@ -3109,6 +3161,9 @@ export const runStreamLogic = kea<runStreamLogicType>([
                         cold_start: true,
                     })
                 }
+                actions.setConversationClearSupported(
+                    (notification.params as { conversationClear?: unknown } | undefined)?.conversationClear === true
+                )
                 cache.isBootstrapping = false
                 actions.markRunStarted()
                 return

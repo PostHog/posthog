@@ -8,7 +8,7 @@ import {
 import type { Tab } from "../../panels/panelTypes";
 import { PiSessionView } from "../../pi-sessions/PiSessionView";
 import { ArtifactPreview } from "../../sessions/components/ArtifactPreview";
-import { useIsWorkspaceCloudRun } from "../../workspace/useWorkspace";
+import { useIsCloudTask } from "../../workspace/useWorkspace";
 import { ActionPanel } from "./ActionPanel";
 import { CanvasInstructionsTab } from "./CanvasInstructionsTab";
 import { ChangesPanel } from "./ChangesPanel";
@@ -28,19 +28,13 @@ export function TabContentRenderer({
   taskId,
   task,
 }: TabContentRendererProps) {
-  const isCloud =
-    useIsWorkspaceCloudRun(taskId) || task.latest_run?.environment === "cloud";
+  const isCloud = useIsCloudTask(task);
   const { data } = tab;
 
   switch (data.type) {
     case "logs":
       return task.runtime === "pi" ? (
-        <PiSessionView
-          key={taskId}
-          taskId={taskId}
-          taskRunId={task.latest_run?.id}
-          isCloud={isCloud}
-        />
+        <PiSessionView key={taskId} task={task} isCloud={isCloud} />
       ) : (
         <TaskLogsPanel taskId={taskId} task={task} />
       );

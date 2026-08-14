@@ -1,5 +1,7 @@
 from typing import Any
 
+from django.conf import settings
+
 from rest_framework import serializers
 
 from posthog.api.shared import UserBasicSerializer
@@ -10,6 +12,17 @@ from products.canvas.backend.models import Canvas
 # Base64 expands 3 source bytes into 4 characters (padded); size the asset field
 # from the contract's total-source cap rather than restating the number.
 _MAX_ASSET_BASE64_LENGTH = (contract_limits()["maxSourceTotalBytes"] + 2) // 3 * 4
+
+_CANVAS_URL_HELP_TEXT = (
+    "Canonical link to the canvas in the PostHog app. The only valid way to link to a canvas — "
+    "share this when pointing a user at it; never construct a canvas URL."
+)
+
+
+def canvas_url(canvas: Canvas) -> str:
+    # The same shape the thread-message announcements use; the route deep-links
+    # into the desktop app and renders in the web app.
+    return f"{settings.SITE_URL}/code/canvas/{canvas.channel_id}/{canvas.id}"
 
 
 class CanvasSerializer(serializers.ModelSerializer):
@@ -29,6 +42,7 @@ class CanvasSerializer(serializers.ModelSerializer):
     )
     created_by = UserBasicSerializer(read_only=True)
     pinned = serializers.SerializerMethodField(help_text="Whether the canvas is pinned to its channel.")
+    url = serializers.SerializerMethodField(help_text=_CANVAS_URL_HELP_TEXT)
 
     class Meta:
         model = Canvas
@@ -46,11 +60,15 @@ class CanvasSerializer(serializers.ModelSerializer):
             "created_by",
             "created_at",
             "updated_at",
+            "url",
         ]
         read_only_fields = fields
 
     def get_pinned(self, canvas: Canvas) -> bool:
         return canvas.pinned_at is not None
+
+    def get_url(self, canvas: Canvas) -> str:
+        return canvas_url(canvas)
 
 
 class CanvasCreateSerializer(serializers.Serializer):
@@ -209,6 +227,10 @@ class CanvasSummarySerializer(serializers.Serializer):
         help_text="Id of the canvas's live (last successful, still-eligible) build. Null until a build completes.",
     )
     created_at = serializers.DateTimeField(help_text="When the canvas was created.")
+    url = serializers.SerializerMethodField(help_text=_CANVAS_URL_HELP_TEXT)
+
+    def get_url(self, canvas: Canvas) -> str:
+        return canvas_url(canvas)
 
 
 class CanvasVersionSerializer(serializers.Serializer):
@@ -563,3 +585,55 @@ class CanvasPromoteSerializer(serializers.Serializer):
             "been published). A moved head is rejected with 409 version_conflict."
         ),
     )
+
+
+class CanvasReportErrorSerializer(serializers.Serializer):
+    """Payload for reporting a runtime error observed while rendering a canvas build."""
+
+    build_id = serializers.UUIDField(help_text="Id of the build that was rendering when the error occurred.")
+    error_type = serializers.CharField(
+        max_length=64,
+        help_text=(
+            "Error class name only, for example TypeError. Values that are not a plain class-name identifier "
+            "are recorded as 'unknown'. Full error messages and stack traces must stay client-side."
+        ),
+    )
+
+
+class CanvasErrorReportResultSerializer(serializers.Serializer):
+    """Outcome of filing a canvas error report."""
+
+    report_outcome = serializers.ChoiceField(
+        choices=["filed", "duplicate", "no_authoring_task", "skipped"],
+        help_text=(
+            "filed: a new report row was written. duplicate: this build and error type were already reported. "
+            "no_authoring_task: the canvas has no linked task to notify. skipped: thread updates are unavailable."
+        ),
+    )
+
+
+class CanvasRequestFixSerializer(serializers.Serializer):
+    """Payload for asking the canvas's authoring agent to fix a failing build or runtime error."""
+
+    build_id = serializers.UUIDField(help_text="Id of the failing or erroring build the fix should address.")
+    error_type = serializers.CharField(
+        required=False,
+        max_length=64,
+        help_text=(
+            "Error class from the runtime report, when fixing a runtime error. Omit for a failed build; its "
+            "diagnostics are read server-side."
+        ),
+    )
+
+
+class CanvasFixRequestResultSerializer(serializers.Serializer):
+    """Outcome of dispatching a canvas fix to the authoring agent."""
+
+    dispatch_outcome = serializers.ChoiceField(
+        choices=["signaled", "new_run", "already_queued"],
+        help_text=(
+            "signaled: the task's live run received the request. new_run: a fresh agent run was started. "
+            "already_queued: a fix run was already starting, so no new run was created."
+        ),
+    )
+    task_id = serializers.UUIDField(help_text="The authoring task the fix was routed to.")

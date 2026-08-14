@@ -4,7 +4,6 @@ export const CLOUD_COMPUTE_BILLING_FLAG =
 export const SPEND_ANALYSIS_FLAG = "posthog-code-spend-analysis";
 export const EXPERIMENT_SUGGESTIONS_FLAG =
   "posthog-code-experiment-suggestions";
-export const SYNC_CLOUD_TASKS_FLAG = "posthog-code-sync-cloud-tasks";
 /** Autoresearch (metric-optimization loop). Staff-gated while it bakes. */
 export const AUTORESEARCH_FLAG = "posthog-code-autoresearch";
 export const DISCOVERY_RUN_FLAG = "posthog-code-discovery-run";
@@ -38,12 +37,6 @@ export const LOCAL_MCP_IMPORT_FLAG = "posthog-code-local-mcp-import";
 export const MCP_GATEWAY_FLAG = "mcp-gateway";
 /** Per-task estimated cost readout in the context usage indicator. */
 export const TASK_COST_FLAG = "posthog-code-task-cost";
-/**
- * Rollout gate for re-staging desktop updates: keep polling after an update
- * is staged and replace it when the feed offers a newer version. Off keeps
- * the legacy stop-polling-once-staged behavior.
- */
-export const STAGED_UPDATES_FLAG = "posthog-desktop-staged-updates";
 /**
  * Remote in-app announcements. The flag's JSON payload carries the
  * announcements (schema: `announcements.ts`); rollout % arms the system.

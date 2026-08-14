@@ -9,6 +9,15 @@ pub const DEFAULT_PERSONS_DB_URL: &str =
 /// The dev-stack leader-mode router (bin/mprocs.yaml `personhog-router-leader`).
 pub const DEV_STACK_ROUTER_URL: &str = "http://127.0.0.1:50054";
 
+/// Connections a load-driving scenario opens to the router by default.
+/// Sized so a deployed instance spreads over a meaningful slice of a
+/// router fleet while staying trivial against a single local router.
+pub const DEFAULT_ROUTER_CHANNELS: usize = 8;
+
+/// Keys a traffic lane holds a person's document at. The changelog carries
+/// the whole document per update, so this multiplies the bed's byte rate.
+pub const DEFAULT_KEYS_PER_PERSON: u64 = 64;
+
 #[derive(Parser)]
 #[command(
     name = "personhog-test-harness",
@@ -75,6 +84,10 @@ pub struct BlastArgs {
     #[arg(long, default_value = DEV_STACK_ROUTER_URL)]
     pub router_url: String,
 
+    /// Connections to open to the router; see TrafficArgs::router_channels.
+    #[arg(long, default_value_t = DEFAULT_ROUTER_CHANNELS)]
+    pub router_channels: usize,
+
     #[arg(long)]
     pub team_id: i64,
 
@@ -91,6 +104,12 @@ pub struct BlastArgs {
     /// Prefix for generated property keys.
     #[arg(long, default_value = "harness_")]
     pub property_prefix: String,
+
+    /// Distinct property keys a person's document settles at. Workers
+    /// share this budget, so the document holds its size as concurrency
+    /// changes.
+    #[arg(long, default_value_t = DEFAULT_KEYS_PER_PERSON)]
+    pub property_keys_per_person: u64,
 
     /// Read back each person with STRONG consistency after the blast and
     /// verify that every acked write is present.
@@ -341,6 +360,13 @@ pub struct TrafficArgs {
     #[arg(long, env = "TRAFFIC_IDENTITY_URL")]
     pub identity_url: String,
 
+    /// Connections this instance opens to the router. A Kubernetes Service
+    /// pins each connection to one router pod, so a single connection
+    /// confines an instance's whole load to one pod and measures that
+    /// pod's ceiling rather than the fleet's.
+    #[arg(long, env = "TRAFFIC_ROUTER_CHANNELS", default_value_t = DEFAULT_ROUTER_CHANNELS)]
+    pub router_channels: usize,
+
     /// Master toggle. When false the process starts fully (guard, metrics,
     /// liveness) but idles instead of driving traffic — so a deployed-but-
     /// disabled harness is observably "off on purpose" rather than absent.
@@ -379,10 +405,20 @@ pub struct TrafficArgs {
     )]
     pub pg_target_table: String,
 
-    /// Persons seeded per epoch. The pool rotates every epoch so journal
-    /// keys never grow a document toward the admission size ceiling.
+    /// Persons seeded per epoch, rotated at epoch close.
     #[arg(long, env = "TRAFFIC_POOL_SIZE", default_value_t = 200)]
     pub pool_size: u32,
+
+    /// Distinct property keys a person's document settles at. Rotation
+    /// alone does not bound it: writes per person scale with the drawn
+    /// rate, so a high enough rate reaches the admission ceiling inside
+    /// one epoch.
+    #[arg(
+        long,
+        env = "TRAFFIC_PROPERTY_KEYS_PER_PERSON",
+        default_value_t = DEFAULT_KEYS_PER_PERSON
+    )]
+    pub property_keys_per_person: u64,
 
     /// Verification epoch length: traffic runs, then the epoch's acked
     /// writes are verified against strong reads and Postgres, then the

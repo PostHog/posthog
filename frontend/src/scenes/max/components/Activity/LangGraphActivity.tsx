@@ -7,7 +7,7 @@ import { TaskExecutionStatus as ExecutionStatus } from '~/queries/schema/schema-
 import { Activity, ActivityToggleSection, MarkdownMessage } from 'products/posthog_ai/frontend/api/primitives'
 
 import type { EnhancedToolCall } from '../../max-constants'
-import { SummarizeSessionsWidget, UIPayloadAnswer, isRenderableUIPayloadTool } from '../../messages/UIPayloadAnswer'
+import { UIPayloadAnswer, isRenderableUIPayloadTool } from '../../messages/UIPayloadAnswer'
 
 export function LangGraphActivity({
     id,
@@ -61,13 +61,6 @@ export function LangGraphActivity({
     const activityChildren = (
         <>
             {widget}
-            {/* Render summarize_sessions UI payload outside details so "Open report" is always visible. */}
-            {!!uiPayload?.summarize_sessions && result && (
-                <SummarizeSessionsWidget
-                    payload={uiPayload.summarize_sessions}
-                    title={toolCall?.args.summary_title as string | undefined}
-                />
-            )}
             {!!uiPayload?.summarize_website_interactions && result && (
                 <UIPayloadAnswer
                     toolCallId={result.tool_call_id}

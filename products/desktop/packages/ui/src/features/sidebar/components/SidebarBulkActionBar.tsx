@@ -6,6 +6,7 @@ import {
   SquaresFourIcon,
   XIcon,
 } from "@phosphor-icons/react";
+import { channelDisplayLabel } from "@posthog/core/canvas/channelName";
 import {
   Button,
   DropdownMenu,
@@ -152,7 +153,7 @@ export function SidebarBulkActionBar({
                       key={channel.id}
                       onClick={() => void actions.fileSelectedTo(channel.id)}
                     >
-                      {`#${channel.name}`}
+                      {channelDisplayLabel(channel.name, channel.channelType)}
                     </DropdownMenuItem>
                   ))}
                 </DropdownMenuContent>
