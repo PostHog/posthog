@@ -1,8 +1,18 @@
 import { registerRendererStateStorage } from "@posthog/ui/shell/rendererStorage";
 import { Theme } from "@radix-ui/themes";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import {
+  act,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from "@testing-library/react";
 import { beforeAll, describe, expect, it } from "vitest";
-import { retireTeachingTip, TeachingTip } from "./TeachingTip";
+import {
+  resetTeachingTips,
+  retireTeachingTip,
+  TeachingTip,
+} from "./TeachingTip";
 
 // The store waits for a persistence backend before it shows anything; the host
 // registers one at boot, and nothing does here.
@@ -66,5 +76,19 @@ describe("TeachingTip", () => {
     await waitFor(() =>
       expect(screen.queryByText("Artifacts placed here")).toBeNull(),
     );
+  });
+
+  // "Don't show again" is otherwise a one-way door, which is what settings
+  // offers a way back from.
+  it("offers a retired tip again after a reset", async () => {
+    retireTeachingTip("tip-reset");
+    renderTip("tip-reset", true);
+    await waitFor(() =>
+      expect(screen.queryByText("Artifacts placed here")).toBeNull(),
+    );
+
+    act(() => resetTeachingTips());
+
+    await screen.findByText("Artifacts placed here");
   });
 });

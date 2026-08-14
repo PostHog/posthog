@@ -20,6 +20,7 @@ interface TeachingTipStore {
    *  every restart would flash the tips someone already retired. */
   hydrated: boolean;
   retire: (id: string) => void;
+  reset: () => void;
 }
 
 const useTeachingTipStore = create<TeachingTipStore>()(
@@ -29,6 +30,7 @@ const useTeachingTipStore = create<TeachingTipStore>()(
       hydrated: false,
       retire: (id) =>
         set((state) => ({ retired: { ...state.retired, [id]: true } })),
+      reset: () => set({ retired: {} }),
     }),
     {
       name: "teaching-tips",
@@ -70,6 +72,21 @@ function ArrowGlyph() {
  */
 export function retireTeachingTip(id: string): void {
   useTeachingTipStore.getState().retire(id);
+}
+
+/**
+ * Offer every retired tip again. "Don't show again" is otherwise a one-way
+ * door, and the tips point at parts of the app a person may well come back to.
+ */
+export function resetTeachingTips(): void {
+  useTeachingTipStore.getState().reset();
+}
+
+/** How many tips this person has turned off, for a surface that offers them back. */
+export function useRetiredTipCount(): number {
+  return useTeachingTipStore(
+    (state) => Object.values(state.retired).filter(Boolean).length,
+  );
 }
 
 /**
