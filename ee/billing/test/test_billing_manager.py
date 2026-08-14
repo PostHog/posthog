@@ -22,7 +22,6 @@ from posthog.models.team.team import Team
 from posthog.models.user import User
 
 from ee.billing.billing_manager import (
-    BILLING_DEACTIVATED_REASON,
     BILLING_PROVIDER_WEBHOOK_SIGNATURE_HEADER,
     BILLING_PROVIDER_WEBHOOK_SIGNATURE_VERSION,
     BILLING_PROVIDER_WEBHOOK_TIMESTAMP_HEADER,
@@ -400,31 +399,11 @@ class TestBillingManager(BaseTest):
         ]
         assert self.team.logs_settings == {"retention_days": 30}
 
-    @parameterized.expand(
-        [
-            ("deactivates", True, True, None, False, BILLING_DEACTIVATED_REASON, True),
-            ("deactivates_null_active", True, None, None, False, BILLING_DEACTIVATED_REASON, True),
-            ("keeps_manual_disable_on_deactivate", True, False, "Spam", False, "Spam", False),
-            ("reactivates_own_deactivation", False, False, BILLING_DEACTIVATED_REASON, True, None, True),
-            ("keeps_manual_disable_on_reactivate", False, False, "Spam", False, "Spam", False),
-            ("missing_key_is_noop", None, False, BILLING_DEACTIVATED_REASON, False, BILLING_DEACTIVATED_REASON, False),
-        ]
-    )
-    @patch("ee.billing.billing_manager.invalidate_llm_gateway_quota_cache")
-    def test_update_org_details_syncs_billing_deactivation(
-        self,
-        _name: str,
-        deactivated: bool | None,
-        initial_is_active: bool | None,
-        initial_reason: str | None,
-        expected_is_active: bool,
-        expected_reason: str | None,
-        expected_invalidated: bool,
-        mock_invalidate: MagicMock,
-    ) -> None:
+    def test_billing_sync_ignores_deactivated_flag(self) -> None:
+        """Billing no longer flips org active state — deactivation is an out-of-band org action."""
         organization = self.organization
-        organization.is_active = initial_is_active
-        organization.is_not_active_reason = initial_reason
+        organization.is_active = True
+        organization.is_not_active_reason = None
         organization.save()
 
         license = super(LicenseManager, cast(LicenseManager, License.objects)).create(
@@ -433,15 +412,39 @@ class TestBillingManager(BaseTest):
             valid_until=datetime.datetime(2038, 1, 19, 3, 14, 7),
         )
 
-        customer: dict[str, Any] = {} if deactivated is None else {"deactivated": deactivated}
-        billing_status: dict[str, Any] = {"customer": customer}
-
+        billing_status: dict[str, Any] = {"customer": {"deactivated": True}}
         BillingManager(license).update_org_details(organization, cast(BillingStatus, billing_status))
 
         organization.refresh_from_db()
-        assert organization.is_active is expected_is_active
-        assert organization.is_not_active_reason == expected_reason
-        assert mock_invalidate.called is expected_invalidated
+        assert organization.is_active is True
+        assert organization.is_not_active_reason is None
+
+    def test_billing_sync_does_not_revert_manual_deactivation(self) -> None:
+        """A field-scoped save must never resurrect an org disabled out-of-band mid-sync."""
+        license = super(LicenseManager, cast(LicenseManager, License.objects)).create(
+            key="key123::key123",
+            plan="enterprise",
+            valid_until=datetime.datetime(2038, 1, 19, 3, 14, 7),
+        )
+
+        organization = self.organization
+        organization.customer_id = "cus_old"
+        organization.save()
+
+        # Org gets disabled out-of-band after this sync loaded its (stale, active) snapshot.
+        Organization.objects.filter(id=organization.id).update(
+            is_active=False, is_not_active_reason=Organization.DeactivationReason.DESKTOP_ABUSE
+        )
+        organization.is_active = True
+        organization.is_not_active_reason = None
+
+        billing_status: dict[str, Any] = {"customer": {"customer_id": "cus_new"}}
+        BillingManager(license).update_org_details(organization, cast(BillingStatus, billing_status))
+
+        organization.refresh_from_db()
+        assert organization.customer_id == "cus_new"
+        assert organization.is_active is False
+        assert organization.is_not_active_reason == Organization.DeactivationReason.DESKTOP_ABUSE
 
     @patch("ee.billing.billing_manager.requests.get")
     def test_update_available_product_features_resets_revoked_logs_retention(self, mock_get: MagicMock):

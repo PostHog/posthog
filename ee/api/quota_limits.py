@@ -27,8 +27,8 @@ class QuotaResourceLimitSerializer(serializers.Serializer):
     limited = serializers.BooleanField(
         help_text=(
             "True when the team is currently over its quota for this resource and limits are in "
-            "effect, or when the organization has been deactivated (every enforceable resource "
-            "reads as limited then)."
+            "effect. A deactivated organization additionally reads as limited on the two credit "
+            "buckets `ai_credits` and `posthog_code_credits`, regardless of usage."
         ),
     )
     usage = serializers.FloatField(
@@ -106,12 +106,15 @@ class QuotaLimitsViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         org_deactivated = self.team.organization.is_active is False
         # Fresh read on purpose: the gateway re-caches this answer for minutes, so serving
         # the 30s per-worker memo here would re-poison a just-invalidated gateway entry.
-        # Deactivated orgs skip it: their answer must not depend on Redis being reachable.
-        limited_resources = (
-            dict.fromkeys(QuotaResource, True)
-            if org_deactivated
-            else get_fresh_team_limited_resources(self.team.api_token)
-        )
+        # A deactivated org (for any reason) instead reads as limited on just the two credit
+        # buckets the gateway enforces on — that blocks AI and Desktop spend without dropping
+        # events, recordings, or syncs, and without depending on Redis being reachable.
+        if org_deactivated:
+            limited_resources = dict.fromkeys(QuotaResource, False)
+            limited_resources[QuotaResource.AI_CREDITS] = True
+            limited_resources[QuotaResource.POSTHOG_CODE_CREDITS] = True
+        else:
+            limited_resources = get_fresh_team_limited_resources(self.team.api_token)
         limited = {}
         for resource in QuotaResource:
             summary = org_usage.get(resource.value) or {}

@@ -29,11 +29,7 @@ from posthog.models.team.logs_retention import reset_revoked_logs_retention
 from posthog.models.user import User
 
 from ee.billing.billing_types import BillingProvider, BillingStatus
-from ee.billing.quota_limiting import (
-    invalidate_llm_gateway_quota_cache,
-    set_org_usage_summary,
-    update_org_billing_quotas,
-)
+from ee.billing.quota_limiting import set_org_usage_summary, update_org_billing_quotas
 from ee.models import License
 from ee.settings import BILLING_SERVICE_URL
 
@@ -42,10 +38,6 @@ logger = structlog.get_logger(__name__)
 BILLING_PROVIDER_WEBHOOK_SIGNATURE_HEADER = "X-PostHog-Billing-Provider-Signature"
 BILLING_PROVIDER_WEBHOOK_TIMESTAMP_HEADER = "X-PostHog-Billing-Provider-Timestamp"
 BILLING_PROVIDER_WEBHOOK_SIGNATURE_VERSION = "sha256"
-
-# Matched by equality so the sync only undoes its own deactivations, never a manual admin
-# disable. User-visible: rendered after "Your organization has been deactivated." in the app.
-BILLING_DEACTIVATED_REASON = "Deactivated by PostHog billing. Contact support if you think this is a mistake."
 
 
 class BillingAPIErrorCodes(Enum):
@@ -543,35 +535,6 @@ class BillingManager:
             organization.never_drop_data = never_drop_data
             modified_fields.add("never_drop_data")
 
-        # Missing key is a no-op: a partial billing response must not flip an org's active state.
-        # Compare-and-set updates, not the full-row save below, so these writes cannot revert a
-        # concurrent flip (the trailing save's stale-snapshot race predates this and covers all
-        # synced fields).
-        deactivated = cast(bool | None, data.get("deactivated"))
-        deactivation_flipped = False
-        if deactivated is True:
-            deactivation_flipped = (
-                Organization.objects.filter(id=organization.id)
-                .exclude(is_active=False)
-                .update(is_active=False, is_not_active_reason=BILLING_DEACTIVATED_REASON)
-                > 0
-            )
-            if deactivation_flipped:
-                organization.is_active = False
-                organization.is_not_active_reason = BILLING_DEACTIVATED_REASON
-        elif deactivated is False:
-            deactivation_flipped = (
-                Organization.objects.filter(
-                    id=organization.id, is_active=False, is_not_active_reason=BILLING_DEACTIVATED_REASON
-                ).update(is_active=True, is_not_active_reason=None)
-                > 0
-            )
-            if deactivation_flipped:
-                organization.is_active = True
-                organization.is_not_active_reason = None
-        if deactivation_flipped:
-            invalidate_llm_gateway_quota_cache(organization.teams.values_list("id", flat=True))
-
         customer_trust_scores = data.get("customer_trust_scores", {})
 
         if customer_trust_scores:
@@ -598,7 +561,9 @@ class BillingManager:
                 modified_fields.add("customer_trust_scores")
 
         # Field-scoped so a stale in-memory snapshot can never write back is_active /
-        # is_not_active_reason over a concurrent deactivation flip.
+        # is_not_active_reason over a concurrent (manual/admin) deactivation. Billing no longer
+        # writes those fields itself — deactivation is an out-of-band org action now — but this
+        # sync still loads the org before that action and must not resurrect a just-disabled org.
         if modified_fields:
             organization.save(update_fields=[*modified_fields, "updated_at"])
 
