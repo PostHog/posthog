@@ -938,6 +938,12 @@ export const signalSourcesLogic = kea<signalSourcesLogicType>([
                             !(
                                 c.source_product === SignalSourceProduct.LlmAnalytics &&
                                 c.source_type === SignalSourceType.Evaluation
+                            ) &&
+                            // Retired: rows survive until the cleanup migration runs, and counting
+                            // them shows a watcher that cannot produce anything.
+                            !(
+                                c.source_product === SignalSourceProduct.SessionReplay &&
+                                c.source_type === SignalSourceType.SessionAnalysisCluster
                             )
                     ).length ?? 0
                 return configured + (hasEmittingScanner ? 1 : 0)
