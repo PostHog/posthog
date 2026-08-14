@@ -153,6 +153,27 @@ export const InvestigationVerdictEnumApi = {
     Inconclusive: 'inconclusive',
 } as const
 
+export interface AlertDeliveryApi {
+    /** Delivery channel: 'email' or 'hog_function' (destinations). */
+    channel: string
+    /** Email address, or destination name, that received the notification. */
+    target: string
+    /**
+     * Hog function ID, for destination deliveries. Null for email.
+     * @nullable
+     */
+    target_id?: string | null
+    /**
+     * Destination template: 'slack', 'discord', 'webhook', or 'teams'. Null for email.
+     * @nullable
+     */
+    template?: string | null
+    /** Delivery status. 'accepted' for a confirmed send, 'unknown' for legacy checks recorded before delivery receipts existed. */
+    status: string
+    /** When the delivery was recorded. Absent on legacy synthesized entries. */
+    at?: string
+}
+
 export interface AlertCheckApi {
     readonly id: string
     readonly created_at: string
@@ -178,6 +199,11 @@ export interface AlertCheckApi {
     /** @nullable */
     readonly notification_sent_at: string | null
     readonly notification_suppressed_by_agent: boolean
+    /**
+     * Destinations that accepted this check's notification, one record per destination (channel, target, status, at). Synthesized with status 'unknown' for checks recorded before delivery receipts existed. Null when no delivery was recorded.
+     * @nullable
+     */
+    readonly deliveries: readonly AlertDeliveryApi[] | null
 }
 
 export type TrendsAlertConfigApiType = (typeof TrendsAlertConfigApiType)[keyof typeof TrendsAlertConfigApiType]

@@ -498,6 +498,78 @@ class TestAlert(APIBaseTest, QueryMatchingTest):
         values = [c["calculated_value"] for c in checks]
         assert 4.0 not in values
 
+    @parameterized.expand(
+        [
+            (
+                "stored_receipts_pass_through",
+                {"users": ["a@example.com"]},
+                [
+                    {
+                        "channel": "email",
+                        "target": "a@example.com",
+                        "target_id": None,
+                        "template": None,
+                        "status": "accepted",
+                        "at": "2026-08-11T00:00:00+00:00",
+                    }
+                ],
+                [
+                    {
+                        "channel": "email",
+                        "target": "a@example.com",
+                        "target_id": None,
+                        "template": None,
+                        "status": "accepted",
+                        "at": "2026-08-11T00:00:00+00:00",
+                    }
+                ],
+                True,
+            ),
+            (
+                "legacy_users_map_synthesized_as_unknown",
+                {"users": ["a@example.com"]},
+                None,
+                [{"channel": "email", "target": "a@example.com", "status": "unknown"}],
+                True,
+            ),
+            (
+                "nothing_recorded_is_null",
+                {},
+                None,
+                None,
+                False,
+            ),
+        ]
+    )
+    def test_alert_check_deliveries_field(
+        self,
+        _name: str,
+        targets_notified: dict,
+        deliveries: list[dict] | None,
+        expected_deliveries: list[dict] | None,
+        expected_targets_notified: bool,
+    ) -> None:
+        creation_request = {
+            "insight": self.insight["id"],
+            "subscribed_users": [self.user.id],
+            "condition": {"type": AlertConditionType.ABSOLUTE_VALUE},
+            "config": {"type": "TrendsAlertConfig", "series_index": 0},
+            "threshold": {"configuration": {"type": InsightThresholdType.ABSOLUTE, "bounds": {"upper": 100}}},
+            "name": "deliveries field test",
+        }
+        alert = self.client.post(f"/api/projects/{self.team.id}/alerts", creation_request).json()
+        check = AlertCheck.objects.create(
+            alert_configuration_id=alert["id"],
+            targets_notified=targets_notified,
+            deliveries=deliveries,
+            state=AlertState.FIRING,
+        )
+
+        response = self.client.get(f"/api/projects/{self.team.id}/alerts/{alert['id']}")
+        serialized = next(c for c in response.json()["checks"] if c["id"] == str(check.id))
+        assert serialized["deliveries"] == expected_deliveries
+        assert serialized["targets_notified"] is expected_targets_notified
+
     def test_alert_limit(self) -> None:
         with mock.patch(
             "products.alerts.backend.api.alert.AlertConfiguration.ALERTS_ALLOWED_ON_FREE_TIER"

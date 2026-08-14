@@ -217,10 +217,36 @@ class ThresholdSerializer(serializers.ModelSerializer):
         return data
 
 
+class AlertDeliverySerializer(serializers.Serializer):
+    channel = serializers.CharField(help_text="Delivery channel: 'email' or 'hog_function' (destinations).")
+    target = serializers.CharField(help_text="Email address, or destination name, that received the notification.")
+    target_id = serializers.CharField(
+        required=False, allow_null=True, help_text="Hog function ID, for destination deliveries. Null for email."
+    )
+    template = serializers.CharField(
+        required=False,
+        allow_null=True,
+        help_text="Destination template: 'slack', 'discord', 'webhook', or 'teams'. Null for email.",
+    )
+    status = serializers.CharField(
+        help_text="Delivery status. 'accepted' for a confirmed send, 'unknown' for legacy checks recorded "
+        "before delivery receipts existed."
+    )
+    at = serializers.DateTimeField(
+        required=False, help_text="When the delivery was recorded. Absent on legacy synthesized entries."
+    )
+
+
 class AlertCheckSerializer(serializers.ModelSerializer):
     targets_notified = serializers.SerializerMethodField()
     investigation_notebook_short_id = serializers.SerializerMethodField(
         help_text="Short ID of the Notebook produced by the investigation agent, when the agent ran for this check."
+    )
+    deliveries = serializers.SerializerMethodField(
+        allow_null=True,
+        help_text="Destinations that accepted this check's notification, one record per destination "
+        "(channel, target, status, at). Synthesized with status 'unknown' for checks recorded "
+        "before delivery receipts existed. Null when no delivery was recorded.",
     )
 
     class Meta:
@@ -242,6 +268,7 @@ class AlertCheckSerializer(serializers.ModelSerializer):
             "investigation_notebook_short_id",
             "notification_sent_at",
             "notification_suppressed_by_agent",
+            "deliveries",
         ]
         read_only_fields = fields
 
@@ -251,6 +278,15 @@ class AlertCheckSerializer(serializers.ModelSerializer):
     def get_investigation_notebook_short_id(self, instance: AlertCheck) -> str | None:
         notebook = instance.investigation_notebook
         return notebook.short_id if notebook is not None else None
+
+    @extend_schema_field(AlertDeliverySerializer(many=True))
+    def get_deliveries(self, instance: AlertCheck) -> list[dict] | None:
+        if instance.deliveries:
+            return instance.deliveries
+        legacy_users = (instance.targets_notified or {}).get("users") or []
+        if legacy_users:
+            return [{"channel": "email", "target": email, "status": "unknown"} for email in legacy_users]
+        return None
 
 
 class AlertSubscriptionSerializer(serializers.ModelSerializer):
