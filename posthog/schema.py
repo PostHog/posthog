@@ -2583,6 +2583,10 @@ class ScatterChartSettings(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    showBestFit: bool | None = Field(
+        default=None,
+        description=("Whether to draw a least-squares fit line through each series' points."),
+    )
     xScale: XScale | None = Field(
         default=None,
         description=(

@@ -10,6 +10,8 @@ import type { ScatterSeries } from './types'
 export interface ScatterPointPosition {
     /** Global index into the flattened point list. */
     index: number
+    /** Which series drew this point, so per-series work (the best-fit line) can group by it. */
+    seriesIndex: number
     x: number
     y: number
     radius: number
@@ -105,6 +107,7 @@ export function createScatterScales({
         maxRadius = Math.max(maxRadius, radius)
         positions.push({
             index: i,
+            seriesIndex: point.seriesIndex,
             x,
             y,
             radius,
