@@ -104,8 +104,9 @@ export function parseCollectedUrlsRecord(value: Buffer | null, key: string | nul
             continue
         }
         const host = typeof entry.host === 'string' ? entry.host : ''
-        if (!isFetchableUrl(entry.url, host)) {
-            rejected.push({ reason: 'bad_url' })
+        const unfetchable = urlDropReason(entry.url, host)
+        if (unfetchable) {
+            rejected.push({ reason: unfetchable })
             continue
         }
         // The connection layer refuses a private address, so this is not the only guard against
@@ -190,9 +191,9 @@ function carriesSignature(parsed: URL): boolean {
     return parsed.pathname.split('/').some((s) => s.length >= 6 && s.startsWith('s--') && s.endsWith('--'))
 }
 
-function isFetchableUrl(url: string, host: string): boolean {
+function urlDropReason(url: string, host: string): Extract<UrlDropReason, 'bad_url' | 'signed'> | null {
     if (url.length > MAX_URL_LENGTH || !host) {
-        return false
+        return 'bad_url'
     }
     try {
         const parsed = new URL(url)
@@ -200,19 +201,23 @@ function isFetchableUrl(url: string, host: string): boolean {
         // the wire in clear text, and requirement 9 keeps a redirect off HTTP only if the first URL
         // is HTTPS.
         if (parsed.protocol !== 'https:' || parsed.hostname !== host) {
-            return false
+            return 'bad_url'
         }
         // A signature says the operator serves this to a holder of the signature rather than to
-        // anyone who asks, and it expires while the URL waits in a delay topic.
+        // anyone who asks, and it expires while the URL waits in a delay topic. The collector drops
+        // these, so a count above zero here means the producer is stale or the two lists disagree.
         if (carriesSignature(parsed)) {
-            return false
+            return 'signed'
         }
         // The lane refuses both on a redirect target, so it holds the first hop to the same rule. A
         // port other than the scheme's own would make this lane a port prober, and userinfo is a
         // credential this lane never sends. The canonicalizer strips both, so this checks against a
         // wrong or stale producer rather than an expected case.
-        return parsed.port === '' && !parsed.username && !parsed.password
+        if (parsed.port !== '' || parsed.username || parsed.password) {
+            return 'bad_url'
+        }
+        return null
     } catch {
-        return false
+        return 'bad_url'
     }
 }

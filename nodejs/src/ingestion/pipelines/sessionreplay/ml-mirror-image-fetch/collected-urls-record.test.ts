@@ -124,7 +124,7 @@ describe('parseCollectedUrlsRecord', () => {
 
         const parsed = parseCollectedUrlsRecord(value, host)
 
-        expect(parsed.ok && parsed.rejected).toEqual([{ reason: 'bad_url' }])
+        expect(parsed.ok && parsed.rejected).toEqual([{ reason: 'signed' }])
     })
 
     it('keeps a Gravatar size, which uses the same name imgix signs with', () => {
