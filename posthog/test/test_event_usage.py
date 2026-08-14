@@ -287,6 +287,7 @@ class TestGetEventSource(BaseTest):
             ("wizard", "posthog/wizard 1.0", EventSource.WIZARD),
             ("posthog_code", "posthog/code 1.2.3", EventSource.POSTHOG_CODE),
             ("desktop_app_direct", "posthog/desktop.hog.dev 0.1.0", EventSource.DESKTOP),
+            ("mobile_app_direct", "posthog/mobile.hog.dev; version: 1.4.0", EventSource.MOBILE),
             ("hog_dev_complex", "posthog/my-app.hog.dev", EventSource.POSTHOG_CODE),
             ("mcp_server", "posthog/mcp-server 1.0", EventSource.MCP),
             ("unknown_ua_falls_through_to_api", "some-random-agent/1.0", EventSource.API),

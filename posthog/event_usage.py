@@ -286,10 +286,11 @@ class EventSource(StrEnum):
     API = "api"
     CLI = "cli"
     POSTHOG_AI = "posthog_ai"
-    # Headless coding agents — the cloud agent, the local agent, signals scouts. Distinct from
-    # DESKTOP, which is the interactive Electron app a person is sitting in front of.
+    # Headless coding agents: the cloud agent, the local agent, signals scouts. Distinct from
+    # DESKTOP and MOBILE, which are apps a person is sitting in front of.
     POSTHOG_CODE = "posthog_code"
     DESKTOP = "desktop"
+    MOBILE = "mobile"
     SLACK = "slack"
     TERRAFORM = "terraform"
     MCP = "mcp"
@@ -305,14 +306,15 @@ class EventSource(StrEnum):
 # review-then-apply path; the web app has its own confirm UI, and headless callers (raw API keys,
 # Terraform) apply in one call.
 #
-# DESKTOP and SLACK are in the set for the same reason the others are: both are LLM-driven. They
-# previously resolved to MCP or POSTHOG_CODE, so listing them keeps the gate closed rather than
-# opening it — leaving either out would silently drop the review step for that surface.
+# DESKTOP, MOBILE and SLACK belong here for the same reason as the rest: each is a managed channel
+# an LLM drives. Leaving one out drops the review step for that surface with nothing else to
+# signal that it happened.
 AGENT_EVENT_SOURCES = frozenset(
     {
         EventSource.MCP,
         EventSource.POSTHOG_CODE,
         EventSource.DESKTOP,
+        EventSource.MOBILE,
         EventSource.SLACK,
         EventSource.WIZARD,
         EventSource.CLI,
@@ -320,17 +322,22 @@ AGENT_EVENT_SOURCES = frozenset(
     }
 )
 
-# Surfaces that reach the backend through the MCP server. Code asking "did this arrive over
-# MCP" must test membership here: comparing against EventSource.MCP alone used to answer that
-# question, but MCP now means third-party agents only, so the first-party surfaces carved out
-# of it would silently drop out. POSTHOG_CODE is included because the overwhelming majority of
-# it arrives over MCP; the few requests that reach REST directly with a `posthog/code`
-# user-agent are agent traffic too, so counting them here is the lesser distortion.
+# Surfaces that reach the backend through the MCP server. Code asking "did this arrive over MCP"
+# must test membership here rather than comparing against EventSource.MCP, which covers third-party
+# agents only and so leaves out every first-party surface. POSTHOG_CODE, DESKTOP and MOBILE are
+# included even though each also calls REST directly, because the overwhelming majority of their
+# traffic arrives over MCP and the direct calls come from the same clients.
 #
-# Only useful after DRF authentication — desktop and Slack resolve from the OAuth grant, so
-# anything reading a source produced before that (the request middleware) still sees plain MCP.
+# Only meaningful after DRF authentication, because desktop and Slack resolve from the OAuth grant.
+# Anything reading a source produced before that, such as the request middleware, sees plain MCP.
 MCP_TRANSPORT_EVENT_SOURCES = frozenset(
-    {EventSource.MCP, EventSource.DESKTOP, EventSource.SLACK, EventSource.POSTHOG_CODE}
+    {
+        EventSource.MCP,
+        EventSource.DESKTOP,
+        EventSource.MOBILE,
+        EventSource.SLACK,
+        EventSource.POSTHOG_CODE,
+    }
 )
 
 
@@ -367,6 +374,12 @@ _POSTHOG_CODE_UA_RE = re.compile(r"posthog/(code|[\w.-]+\.hog\.dev)")
 # The Electron app's own user-agent, for the calls it makes straight to the REST API. Matched
 # before _POSTHOG_CODE_UA_RE, which would otherwise swallow it along with the headless agents.
 _DESKTOP_UA_TOKEN = "posthog/desktop.hog.dev"
+
+# The companion mobile app, matched ahead of _POSTHOG_CODE_UA_RE for the same reason. It
+# authenticates against the Desktop OAuth applications, so a mobile request that reached MCP
+# without declaring a consumer would resolve as DESKTOP. Nothing routes mobile through the MCP
+# server today, so the user-agent is the only signal that has to carry this surface.
+_MOBILE_UA_TOKEN = "posthog/mobile.hog.dev"
 
 # The MCP server's catch-all consumer, declared by every first-party caller that is neither Slack
 # nor PostHog AI: the cloud coding agent, signals scouts, signal_report, experiments, image_builder,
@@ -428,6 +441,8 @@ def get_event_source(request) -> EventSource:
         return EventSource.WIZARD
     if _DESKTOP_UA_TOKEN in user_agent:
         return EventSource.DESKTOP
+    if _MOBILE_UA_TOKEN in user_agent:
+        return EventSource.MOBILE
     if _POSTHOG_CODE_UA_RE.search(user_agent):
         return EventSource.POSTHOG_CODE
     # The CLI is the one consumer honored without a first-party OAuth application behind it:
