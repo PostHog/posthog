@@ -12,7 +12,9 @@ from django.utils import timezone
 from parameterized import parameterized
 from temporalio.exceptions import WorkflowAlreadyStartedError
 
+from posthog.api.tagged_item import set_tags_on_object
 from posthog.models import Organization, PersonalAPIKey, Team, User
+from posthog.models.tagged_item import TaggedItem
 from posthog.models.utils import generate_random_token_personal, hash_key_value, uuid7
 from posthog.redis import get_client
 from posthog.session_recordings.queries.test.session_replay_sql import produce_replay_summary
@@ -433,6 +435,24 @@ class TestReplayScannerViewSet(_VisionAPITestCase):
         resp = self.client.patch(url, data={"credit_limit": 0}, format="json")
         self.assertEqual(resp.status_code, 400, resp.json())
 
+    def test_changing_the_credit_limit_rearms_the_limit_notification(self) -> None:
+        # The scanner already notified this period; raising the limit makes the next exhaustion news
+        # again, while an unrelated edit leaves the stamp alone.
+        scanner = self._create_scanner()
+        stamp = datetime(2026, 8, 1, tzinfo=UTC)
+        ReplayScanner.objects.filter(pk=scanner.pk).update(credit_limit=500, limit_notified_period_start=stamp)
+        url = f"{self.scanners_url}{scanner.id}/"
+
+        resp = self.client.patch(url, data={"name": "renamed, limit untouched"}, format="json")
+        self.assertEqual(resp.status_code, 200, resp.json())
+        scanner.refresh_from_db()
+        self.assertEqual(scanner.limit_notified_period_start, stamp)
+
+        resp = self.client.patch(url, data={"credit_limit": 1_000}, format="json")
+        self.assertEqual(resp.status_code, 200, resp.json())
+        scanner.refresh_from_db()
+        self.assertIsNone(scanner.limit_notified_period_start)
+
     def test_create_accepts_valid_query(self) -> None:
         resp = self.client.post(
             self.scanners_url,
@@ -707,6 +727,137 @@ class TestReplayScannerViewSet(_VisionAPITestCase):
             resp = self.client.post(f"{self.scanners_url}{scanner.id}/affected_cohort/", format="json")
         self.assertEqual(resp.status_code, 403, resp.json())
         self.assertIn("cohort", resp.json()["detail"])
+
+
+class TestReplayScannerTags(_VisionAPITestCase):
+    def _scanner_payload(self, name: str, **extra: Any) -> dict[str, Any]:
+        return {
+            "name": name,
+            "scanner_type": ScannerType.MONITOR,
+            "scanner_config": {"prompt": "did checkout complete?"},
+            "model": ScannerModel.GEMINI_3_6_FLASH,
+            **extra,
+        }
+
+    def _tag_names(self, scanner_id: str) -> list[str]:
+        return sorted(
+            TaggedItem.objects.filter(replay_scanner_id=scanner_id).values_list("tag__name", flat=True),
+        )
+
+    @parameterized.expand(
+        [
+            ("with_tags", ["Checkout ", "funnel"], ["checkout", "funnel"]),
+            ("without_tags", None, []),
+        ]
+    )
+    def test_create_persists_tags(self, _name: str, tags: list[str] | None, expected: list[str]) -> None:
+        payload = self._scanner_payload("tagged-scanner")
+        if tags is not None:
+            payload["tags"] = tags
+        resp = self.client.post(self.scanners_url, data=payload, format="json")
+        self.assertEqual(resp.status_code, 201, resp.json())
+        self.assertEqual(sorted(resp.json()["tags"]), expected)
+        self.assertEqual(self._tag_names(resp.json()["id"]), expected)
+
+    @parameterized.expand(
+        [
+            ("replace", ["b", "c"], ["b", "c"]),
+            ("clear", [], []),
+            ("untouched_when_absent", None, ["a", "b"]),
+        ]
+    )
+    def test_patch_tags(self, _name: str, tags: list[str] | None, expected: list[str]) -> None:
+        scanner = self._create_scanner()
+        set_tags_on_object(["a", "b"], scanner)
+        payload: dict[str, Any] = {"description": "updated"}
+        if tags is not None:
+            payload["tags"] = tags
+        resp = self.client.patch(f"{self.scanners_url}{scanner.id}/", data=payload, format="json")
+        self.assertEqual(resp.status_code, 200, resp.json())
+        self.assertEqual(resp.json()["description"], "updated")
+        self.assertEqual(sorted(resp.json()["tags"]), expected)
+        self.assertEqual(self._tag_names(str(scanner.id)), expected)
+
+    @parameterized.expand(
+        [
+            ("comma_in_tag", ["checkout,production"]),
+            ("too_many_tags", [f"tag-{i}" for i in range(33)]),
+            ("tag_too_long", ["x" * 256]),
+        ]
+    )
+    def test_create_rejects_invalid_tags(self, _name: str, tags: list[str]) -> None:
+        resp = self.client.post(self.scanners_url, data=self._scanner_payload("bad-tags", tags=tags), format="json")
+        self.assertEqual(resp.status_code, 400, resp.json())
+        self.assertEqual(TaggedItem.objects.count(), 0)
+
+    def test_list_filters_by_tags(self) -> None:
+        both = self._create_scanner(name="both-tags")
+        set_tags_on_object(["alpha", "beta"], both)
+        beta_only = self._create_scanner(name="beta-only")
+        set_tags_on_object(["beta"], beta_only)
+        self._create_scanner(name="untagged")
+
+        resp = self.client.get(self.scanners_url, {"tags": "alpha"})
+        self.assertEqual(resp.status_code, 200, resp.json())
+        self.assertEqual([s["name"] for s in resp.json()["results"]], ["both-tags"])
+
+        # Writes store tagify()d names, so a mixed-case filter value must still match.
+        resp = self.client.get(self.scanners_url, {"tags": "Alpha "})
+        self.assertEqual(resp.status_code, 200, resp.json())
+        self.assertEqual([s["name"] for s in resp.json()["results"]], ["both-tags"])
+
+        # A scanner matching several requested tags must not appear once per match.
+        resp = self.client.get(self.scanners_url, {"tags": "alpha,beta"})
+        self.assertEqual(resp.status_code, 200, resp.json())
+        self.assertEqual(sorted(s["name"] for s in resp.json()["results"]), ["beta-only", "both-tags"])
+
+    @parameterized.expand(
+        [
+            ("changed", ["b"], ["replay_vision_scanner_edited"]),
+            ("unchanged", ["a"], []),
+            ("unchanged_after_tagify", ["A "], []),
+        ]
+    )
+    def test_tags_only_patch_reports_edit_only_on_change(
+        self, _name: str, tags: list[str], expected_events: list[str]
+    ) -> None:
+        scanner = self._create_scanner()
+        set_tags_on_object(["a"], scanner)
+        with patch("products.replay_vision.backend.api.scanners.report_user_action") as report:
+            resp = self.client.patch(f"{self.scanners_url}{scanner.id}/", data={"tags": tags}, format="json")
+        self.assertEqual(resp.status_code, 200, resp.json())
+        self.assertEqual([call.args[1] for call in report.call_args_list], expected_events)
+        if expected_events:
+            self.assertEqual(report.call_args.args[2]["edited_fields"], ["tags"])
+
+    def test_create_rolls_back_scanner_when_tag_write_fails(self) -> None:
+        with patch("posthog.api.tagged_item.set_tags_on_object", side_effect=RuntimeError("boom")):
+            resp = self.client.post(self.scanners_url, data=self._scanner_payload("atomic", tags=["a"]), format="json")
+        self.assertEqual(resp.status_code, 500)
+        self.assertFalse(ReplayScanner.objects.filter(team=self.team, name="atomic").exists())
+
+    def test_update_rolls_back_columns_when_tag_write_fails(self) -> None:
+        scanner = self._create_scanner(description="before")
+        with patch("posthog.api.tagged_item.set_tags_on_object", side_effect=RuntimeError("boom")):
+            resp = self.client.patch(
+                f"{self.scanners_url}{scanner.id}/", data={"description": "after", "tags": ["a"]}, format="json"
+            )
+        self.assertEqual(resp.status_code, 500)
+        scanner.refresh_from_db()
+        self.assertEqual(scanner.description, "before")
+
+    def test_list_tag_serialization_is_constant_queries(self) -> None:
+        first = self._create_scanner(name="scanner-0")
+        set_tags_on_object(["alpha"], first)
+        self.client.get(self.scanners_url)  # Warm request-scoped caches so both captures compare cleanly.
+        with CaptureQueriesContext(connection) as one_row:
+            self.assertEqual(self.client.get(self.scanners_url).status_code, 200)
+        for i in range(1, 5):
+            scanner = self._create_scanner(name=f"scanner-{i}")
+            set_tags_on_object(["alpha", f"tag-{i}"], scanner)
+        with CaptureQueriesContext(connection) as five_rows:
+            self.assertEqual(self.client.get(self.scanners_url).status_code, 200)
+        self.assertEqual(len(one_row.captured_queries), len(five_rows.captured_queries))
 
 
 class TestScannerExperimentTargeting(_VisionAPITestCase):

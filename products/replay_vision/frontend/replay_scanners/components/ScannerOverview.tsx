@@ -264,6 +264,7 @@ function ClassifierOverview({ scannerId }: { scannerId: string }): JSX.Element |
 
     const cohortAction = (tag: string): JSX.Element => (
         <LemonButton
+            type="secondary"
             size="xsmall"
             icon={<IconPeople />}
             tooltip={`Save users tagged "${tag}" in the last 30 days as a cohort`}
@@ -273,7 +274,9 @@ function ClassifierOverview({ scannerId }: { scannerId: string }): JSX.Element |
                 affectedCohortLoading && savingCohortTag !== tag ? 'Another cohort is being created' : undefined
             }
             data-attr="vision-save-tag-cohort"
-        />
+        >
+            Save as cohort
+        </LemonButton>
     )
 
     return (

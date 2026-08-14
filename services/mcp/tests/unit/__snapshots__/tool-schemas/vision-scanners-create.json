@@ -100,6 +100,15 @@
             "description": "What the scanner does: monitor, classifier, scorer, or summarizer.\n\n* `monitor` - Monitor\n* `classifier` - Classifier\n* `scorer` - Scorer\n* `summarizer` - Summarizer",
             "enum": ["monitor", "classifier", "scorer", "summarizer"],
             "type": "string"
+        },
+        "tags": {
+            "description": "Organizational tags for this scanner. Distinct from a classifier's tag vocabulary in scanner_config. Tags cannot contain commas.",
+            "items": {
+                "maxLength": 255,
+                "type": "string"
+            },
+            "maxItems": 32,
+            "type": "array"
         }
     },
     "required": ["name", "scanner_type", "scanner_config", "model"],

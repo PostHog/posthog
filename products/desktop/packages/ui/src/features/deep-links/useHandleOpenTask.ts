@@ -1,3 +1,5 @@
+import type { CommentTarget } from "@posthog/core/comments/anchors";
+import type { TaskLinkCommentAnchor } from "@posthog/core/links/task-link";
 import {
   TASK_SERVICE,
   type TaskService,
@@ -8,6 +10,7 @@ import type { Task } from "@posthog/shared/domain-types";
 import { useChannels } from "@posthog/ui/features/canvas/hooks/useChannels";
 import { useTaskChannelMap } from "@posthog/ui/features/canvas/hooks/useTaskChannelMap";
 import { useFeatureFlag } from "@posthog/ui/features/feature-flags/useFeatureFlag";
+import { useCommentNavigationStore } from "@posthog/ui/features/sessions/commentNavigationStore";
 import { useTaskViewed } from "@posthog/ui/features/sidebar/useTaskViewed";
 import { taskKeys } from "@posthog/ui/features/tasks/taskKeys";
 import { toast } from "@posthog/ui/primitives/toast";
@@ -25,9 +28,23 @@ const log = logger.scope("open-task");
  * (`useTaskDeepLink`) and the generic notification-target consumer
  * (`useOpenTargetDeepLink`).
  */
+function commentTargetFromAnchor(
+  taskId: string,
+  anchor: TaskLinkCommentAnchor,
+): CommentTarget {
+  if (
+    (anchor.scope === "desktop_canvas" || anchor.scope === "task_artifact") &&
+    anchor.itemId
+  ) {
+    return { scope: anchor.scope, itemId: anchor.itemId };
+  }
+  return { scope: "task", itemId: taskId };
+}
+
 export function useHandleOpenTask(): (
   taskId: string,
   taskRunId?: string,
+  comment?: TaskLinkCommentAnchor,
 ) => Promise<void> {
   const taskService = useService<TaskService>(TASK_SERVICE);
   const { markAsViewed } = useTaskViewed();
@@ -49,7 +66,11 @@ export function useHandleOpenTask(): (
   }, [channelMap]);
 
   return useCallback(
-    async (taskId: string, taskRunId?: string) => {
+    async (
+      taskId: string,
+      taskRunId?: string,
+      comment?: TaskLinkCommentAnchor,
+    ) => {
       log.info(
         `Opening task from deep link: ${taskId}${taskRunId ? `, run: ${taskRunId}` : ""}`,
       );
@@ -87,6 +108,15 @@ export function useHandleOpenTask(): (
           task,
           channel ? { channelId: channel.id } : undefined,
         );
+        if (comment) {
+          useCommentNavigationStore
+            .getState()
+            .requestCommentFocus(
+              taskId,
+              commentTargetFromAnchor(taskId, comment),
+              comment.threadId,
+            );
+        }
         log.info(`Opened task from deep link: ${taskId}`);
       } catch (error) {
         log.error("Unexpected error opening task from deep link:", error);
