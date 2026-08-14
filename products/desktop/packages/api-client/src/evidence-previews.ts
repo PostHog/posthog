@@ -43,12 +43,6 @@ export function compactCount(value: number): string {
   return Number.isInteger(value) ? String(value) : value.toFixed(1);
 }
 
-/** A `/query/` grid: rows of cells plus column names. */
-export interface HogqlGrid {
-  results?: unknown;
-  [key: string]: unknown;
-}
-
 export function gridRows(grid: Record<string, unknown>): unknown[][] {
   return (Array.isArray(grid.results) ? grid.results : []).filter(
     (row): row is unknown[] => Array.isArray(row),
@@ -65,8 +59,8 @@ export function dailySparkPoints(rows: unknown[][]): number[] {
   return rows.map((row) => cellNumber(row[1]) ?? 0);
 }
 
-function count(n: number, noun: string): string {
-  return `${n.toLocaleString("en-US")} ${n === 1 ? noun : `${noun}s`}`;
+function count(n: number, noun: string, plural = `${noun}s`): string {
+  return `${n.toLocaleString("en-US")} ${n === 1 ? noun : plural}`;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -314,7 +308,7 @@ export function shapeDashboardPreview(
 export function shapeCohortPreview(cohort: Schemas.Cohort): EvidencePreview {
   const detail =
     typeof cohort.count === "number"
-      ? count(cohort.count, "person").replace("persons", "people")
+      ? count(cohort.count, "person", "people")
       : cohort.description || undefined;
   return {
     title: cohort.name || "Untitled cohort",

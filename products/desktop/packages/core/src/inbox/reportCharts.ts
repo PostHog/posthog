@@ -99,7 +99,7 @@ export type ReportChartData =
   | { type: "empty" };
 
 /** 87342 -> "87.3K"; keeps small numbers plain. */
-export function compactChartValue(value: number): string {
+function compactChartValue(value: number): string {
   const abs = Math.abs(value);
   const format = (scaled: number, suffix: string): string => {
     const rounded =
