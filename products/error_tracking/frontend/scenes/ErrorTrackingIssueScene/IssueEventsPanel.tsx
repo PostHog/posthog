@@ -1,5 +1,5 @@
 import { useActions, useValues } from 'kea'
-import { PropsWithChildren, useEffect } from 'react'
+import { PropsWithChildren, useEffect, useRef } from 'react'
 
 import { IconRefresh } from '@posthog/icons'
 
@@ -41,20 +41,23 @@ function LoadedIssueEventsPanel(): JSX.Element {
     const { items, itemsLoading, canLoadNextData } = useValues(dataSource)
     const { loadData, loadNextData } = useActions(dataSource)
     const nextDateRange = getNextErrorTrackingDateRange(dateRange)
+    const previousEventsQueryKey = useRef(eventsQueryKey)
 
     useEffect(() => {
         if (itemsLoading) {
             return
         }
 
-        const nextSelection = getListSelection(items, selectedEvent, canLoadNextData)
+        const queryChanged = previousEventsQueryKey.current !== eventsQueryKey
+        previousEventsQueryKey.current = eventsQueryKey
+        const nextSelection = getListSelection(items, selectedEvent, canLoadNextData, queryChanged)
         if (nextSelection !== selectedEvent) {
             selectEvent(nextSelection)
         }
         if (!nextSelection) {
             setMobileDetailOpen(false)
         }
-    }, [items, itemsLoading, canLoadNextData, selectEvent, selectedEvent, setMobileDetailOpen])
+    }, [items, itemsLoading, canLoadNextData, eventsQueryKey, selectEvent, selectedEvent, setMobileDetailOpen])
 
     return (
         <IssueEventsLayout
@@ -97,16 +100,16 @@ function LoadedIssueEventsPanel(): JSX.Element {
 export function getListSelection(
     items: ErrorEventType[],
     selectedEvent: ErrorEventType | null,
-    canLoadMore: boolean
+    canLoadMore: boolean,
+    queryChanged: boolean
 ): ErrorEventType | null {
     const matchedEvent = selectedEvent ? items.find((item) => item.uuid === selectedEvent.uuid) : undefined
     if (matchedEvent) {
         return matchedEvent
     }
-    // The selection isn't on the loaded page, but a later page may still hold it — e.g. a
-    // timestamp-linked exception older than the first 100 rows. Keep it until the list is fully
-    // loaded rather than swapping in the newest event and rewriting the URL away from the link.
-    if (selectedEvent && canLoadMore) {
+    // A later page of the same query may hold a timestamp-linked exception older than the first
+    // 100 rows. A new query cannot make that claim, so filter changes reconcile immediately.
+    if (selectedEvent && canLoadMore && !queryChanged) {
         return selectedEvent
     }
     return items[0] ?? null
