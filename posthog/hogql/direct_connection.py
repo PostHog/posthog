@@ -14,8 +14,11 @@ from posthog.rbac.user_access_control import UserAccessControl
 from posthog.shared_link_user import SharedLinkUser
 from posthog.synthetic_user import SyntheticUser
 
-from products.managed_warehouse.backend.facade import feature_flags as managed_warehouse_feature_flags
-from products.warehouse_sources.backend.facade.models import DataWarehouseTable, ExternalDataSource
+from products.warehouse_sources.backend.facade.models import (
+    DataWarehouseTable,
+    ExternalDataSource,
+    ManagedWarehouseSQLMode,
+)
 
 if TYPE_CHECKING:
     from posthog.models import Team, User
@@ -103,17 +106,13 @@ def get_direct_connection_source(
         .defer("job_inputs")
         .first()
     )
-    if (
-        source is None
-        or not is_direct_capable(source)
-        or (source.has_managed_warehouse_prefix and not source.is_managed_warehouse)
-    ):
+    if source is None or not is_direct_capable(source):
         return None
 
-    if source.is_managed_warehouse:
-        if not managed_warehouse_feature_flags.is_managed_warehouse_sql_editor_enabled(team):
-            return None
-        if not source.is_managed_warehouse_ready:
+    managed_warehouse_mode: ManagedWarehouseSQLMode | None = None
+    if source.has_managed_warehouse_prefix:
+        managed_warehouse_mode = source.managed_warehouse_sql_mode
+        if managed_warehouse_mode == ManagedWarehouseSQLMode.UNAVAILABLE:
             return None
 
     # Synced (warehouse) sources only expose their `should_sync` catalog — raw SQL bypasses that
@@ -125,7 +124,7 @@ def get_direct_connection_source(
 
     if (
         user is not None
-        and not source.is_managed_warehouse_ready
+        and managed_warehouse_mode != ManagedWarehouseSQLMode.BUILT_IN
         and not UserAccessControl(user=user, team=team).check_access_level_for_object(source, required_level="viewer")
     ):
         return None

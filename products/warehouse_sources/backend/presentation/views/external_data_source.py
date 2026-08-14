@@ -11,7 +11,7 @@ from django.conf import settings
 from django.core.cache import cache
 from django.core.exceptions import ValidationError as DjangoValidationError
 from django.db import connection, transaction
-from django.db.models import Prefetch, Q
+from django.db.models import Prefetch, Q, QuerySet
 from django.utils import timezone
 from django.utils.cache import patch_cache_control
 
@@ -103,12 +103,14 @@ from products.managed_warehouse.backend.facade import feature_flags as managed_w
 from products.revenue_analytics.backend.facade.api import ensure_person_join, remove_person_join
 from products.warehouse_sources.backend.facade.api import validate_source_prefix
 from products.warehouse_sources.backend.facade.models import (
+    MANAGED_WAREHOUSE_LEGACY_CREDENTIAL_KINDS,
     MANAGED_WAREHOUSE_PROJECT_READER_CREDENTIAL_KIND,
     MANAGED_WAREHOUSE_SOURCE_PREFIX,
     DataWarehouseTable,
     ExternalDataJob,
     ExternalDataSchema,
     ExternalDataSource,
+    ManagedWarehouseSQLMode,
     PendingSourceCredential,
     auto_enable_new_schemas,
     sync_old_schemas_with_new_schemas,
@@ -177,6 +179,49 @@ RESERVED_SOURCE_NAME_MESSAGE = "This source name is reserved by PostHog."
 INVALID_CREDENTIALS_FALLBACK_MESSAGE = (
     "We couldn't validate those credentials. Check they're correct and have the required access, then try again."
 )
+
+
+def _canonical_legacy_managed_warehouse_source(
+    queryset: QuerySet[ExternalDataSource],
+) -> ExternalDataSource | None:
+    candidates = (
+        queryset.select_related(None)
+        .filter(
+            source_type=ExternalDataSourceType.POSTGRES,
+            access_method=ExternalDataSource.AccessMethod.DIRECT,
+            direct_query_enabled=True,
+            prefix=MANAGED_WAREHOUSE_SOURCE_PREFIX,
+            connection_metadata__engine="duckdb",
+            connection_metadata__system_managed=True,
+            connection_metadata__credential_kind__in=MANAGED_WAREHOUSE_LEGACY_CREDENTIAL_KINDS,
+        )
+        .only(
+            "id",
+            "team_id",
+            "created_at",
+            "prefix",
+            "connection_metadata",
+            "source_type",
+            "access_method",
+            "direct_query_enabled",
+            "job_inputs",
+        )
+        .order_by("-created_at")
+    )
+    return next(
+        (source for source in candidates if source.managed_warehouse_sql_mode == ManagedWarehouseSQLMode.EXTERNAL),
+        None,
+    )
+
+
+def _hide_noncanonical_managed_warehouse_sources(
+    queryset: QuerySet[ExternalDataSource], canonical_source: ExternalDataSource | None
+) -> QuerySet[ExternalDataSource]:
+    hidden_sources = Q(prefix=MANAGED_WAREHOUSE_SOURCE_PREFIX)
+    if canonical_source is not None:
+        hidden_sources &= ~Q(pk=canonical_source.pk)
+    return queryset.exclude(hidden_sources)
+
 
 REFRESH_SCHEMAS_EXPECTED_ERROR_MESSAGES = {
     "timeout": "Connection timed out while fetching schemas from the source.",
@@ -575,6 +620,9 @@ class ExternalDataSourceConnectionOptionSerializer(serializers.ModelSerializer):
     supports_hogql = serializers.SerializerMethodField(
         help_text="Whether HogQL queries compile for this connection. When false, only raw SQL (sendRawQuery) works.",
     )
+    is_builtin_managed_warehouse = serializers.SerializerMethodField(
+        help_text="Whether this option is the built-in PostHog managed warehouse connection.",
+    )
     description = serializers.CharField(
         read_only=True,
         allow_null=True,
@@ -588,10 +636,23 @@ class ExternalDataSourceConnectionOptionSerializer(serializers.ModelSerializer):
 
         return direct_supports_hogql(source)
 
+    @extend_schema_field(serializers.BooleanField())
+    def get_is_builtin_managed_warehouse(self, source: ExternalDataSource) -> bool:
+        return source.pk == self.context.get("builtin_managed_warehouse_source_id")
+
     class Meta:
         model = ExternalDataSource
-        fields = ["id", "prefix", "engine", "source_type", "access_method", "supports_hogql", "description"]
-        read_only_fields = ["id", "prefix", "engine", "source_type", "access_method", "supports_hogql", "description"]
+        fields = [
+            "id",
+            "prefix",
+            "engine",
+            "source_type",
+            "access_method",
+            "supports_hogql",
+            "is_builtin_managed_warehouse",
+            "description",
+        ]
+        read_only_fields = fields
 
 
 class DirectConnectionSourceOptionSerializer(serializers.Serializer):
@@ -1879,10 +1940,12 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
         return context
 
     def safely_get_queryset(self, queryset):
+        queryset = queryset.exclude(deleted=True)
+        canonical_source = _canonical_legacy_managed_warehouse_source(queryset.filter(team_id=self.team_id))
+        queryset = _hide_noncanonical_managed_warehouse_sources(queryset, canonical_source)
+
         return (
-            queryset.exclude(deleted=True)
-            # The reserved managed warehouse row is an internal query handle, not a configurable source.
-            .exclude(prefix=MANAGED_WAREHOUSE_SOURCE_PREFIX)
+            queryset
             # created_by (FK) and revenue_analytics_config (reverse 1:1) are read per source during
             # serialization. select_related folds them into the main query instead of firing one
             # extra SELECT per source — the reverse 1:1 was an unprefetched N+1 that dominated the
@@ -4623,8 +4686,9 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
             )
             .order_by(self.ordering)
         )
+        managed_warehouse_enabled = managed_warehouse_feature_flags.is_managed_warehouse_sql_editor_enabled(self.team)
         managed_source = None
-        if managed_warehouse_feature_flags.is_managed_warehouse_sql_editor_enabled(self.team):
+        if managed_warehouse_enabled:
             managed_warehouse_filter = Q(
                 source_type=ExternalDataSourceType.POSTGRES,
                 access_method=ExternalDataSource.AccessMethod.DIRECT,
@@ -4647,7 +4711,10 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
                 "job_inputs",
             )
             managed_source = next((source for source in managed_candidates if source.is_managed_warehouse_ready), None)
-        external_sources = connection_sources.exclude(prefix=MANAGED_WAREHOUSE_SOURCE_PREFIX)
+            external_sources = connection_sources.exclude(prefix=MANAGED_WAREHOUSE_SOURCE_PREFIX)
+        else:
+            canonical_source = _canonical_legacy_managed_warehouse_source(connection_sources)
+            external_sources = _hide_noncanonical_managed_warehouse_sources(connection_sources, canonical_source)
         if is_service_auth(request):
             accessible_external_sources = external_sources
         else:
@@ -4658,9 +4725,14 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
                 "external_data_source", required_level="viewer"
             ):
                 accessible_external_sources = accessible_external_sources.filter(created_by=cast(User, request.user))
-        options = ([managed_source] if managed_source is not None else []) + list(accessible_external_sources)
+        accessible_sources = list(accessible_external_sources)
+        options = ([managed_source] if managed_source is not None else []) + accessible_sources
 
-        serializer = ExternalDataSourceConnectionOptionSerializer(options, many=True)
+        serializer = ExternalDataSourceConnectionOptionSerializer(
+            options,
+            many=True,
+            context={"builtin_managed_warehouse_source_id": managed_source.pk if managed_source is not None else None},
+        )
         return Response(status=status.HTTP_200_OK, data=serializer.data)
 
     @extend_schema(responses=DirectConnectionSourceOptionSerializer(many=True))

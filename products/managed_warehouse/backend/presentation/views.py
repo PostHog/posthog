@@ -340,8 +340,8 @@ def _register_provisioning_team(organization_id: UUID | str, team_id: int) -> No
 
     duckgres creates the provisioning team's row from the provision request itself (and
     `_complete_provisioning_team_row` pins its legacy table names), so nothing is written
-    here. The team reuses an already-provisioned SQL-editor reader when one exists and
-    starts its earliest-event-date sync, matching the tail that `onboard_team` runs later.
+    here. The team gets its auto-provisioned external SQL source and starts its
+    earliest-event-date sync, matching the tail that `onboard_team` runs later.
 
     Best-effort, mirroring `_persist_duckgres_server`: a failure is logged, not raised, so
     the one-time provision password is never lost to it.
@@ -354,10 +354,10 @@ def _register_provisioning_team(organization_id: UUID | str, team_id: int) -> No
 
 
 def _ensure_direct_source(team_id: int, organization_id: UUID | str) -> None:
-    """Best-effort: recognize the team's pre-provisioned managed-warehouse reader.
+    """Best-effort: create or refresh the team's external managed-warehouse source.
 
-    Reader provisioning has a separate lifecycle. A missing or unready reader must never
-    fall back to a broader login or block onboarding.
+    This snapshots the stored DuckgresServer login. Project-reader provisioning has a
+    separate lifecycle, and this path never creates or modifies one.
     """
     try:
         from products.managed_warehouse.backend.facade.connection import (  # noqa: PLC0415

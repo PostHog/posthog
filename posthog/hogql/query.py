@@ -74,6 +74,8 @@ from posthog.models.user import User
 from posthog.rbac.user_access_control import UserAccessControl
 from posthog.settings import HOGQL_INCREASED_MAX_EXECUTION_TIME
 
+from products.warehouse_sources.backend.facade.models import ManagedWarehouseSQLMode
+
 tracer = trace.get_tracer(__name__)
 
 TRANSIENT_S3_ERROR_RETRY_DELAY_SECONDS = 1.0
@@ -603,10 +605,11 @@ class HogQLQueryExecutor:
             raise ExposedHogQLError("Sending a raw query requires a valid connection.")
         self.connection_id = str(source.id)
         self.direct_source_id = self.connection_id
+        managed_warehouse_mode = source.managed_warehouse_sql_mode if source.has_managed_warehouse_prefix else None
         adapter = get_raw_adapter_for_source(source)
         if adapter is None:
             raise ExposedHogQLError(INVALID_CONNECTION_ID_ERROR)
-        if not source.is_managed_warehouse_ready and raw_query_denied_by_table_access(
+        if managed_warehouse_mode != ManagedWarehouseSQLMode.BUILT_IN and raw_query_denied_by_table_access(
             self.team,
             source,
             user=self.user,

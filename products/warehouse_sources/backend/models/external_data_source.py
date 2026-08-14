@@ -1,3 +1,4 @@
+from enum import StrEnum
 from uuid import UUID
 
 from django.db import models
@@ -16,7 +17,14 @@ logger = structlog.get_logger(__name__)
 
 MANAGED_WAREHOUSE_SOURCE_PREFIX = "managed_warehouse"
 MANAGED_WAREHOUSE_PROJECT_READER_CREDENTIAL_KIND = "project_reader"
+MANAGED_WAREHOUSE_LEGACY_CREDENTIAL_KINDS = frozenset({"org_root", "stored_server_login"})
 SYSTEM_MANAGED_SOURCE_PREFIXES = frozenset({MANAGED_WAREHOUSE_SOURCE_PREFIX})
+
+
+class ManagedWarehouseSQLMode(StrEnum):
+    EXTERNAL = "external"
+    BUILT_IN = "built_in"
+    UNAVAILABLE = "unavailable"
 
 
 class ExternalDataSourceManager(models.Manager):
@@ -137,18 +145,7 @@ class ExternalDataSource(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
             and metadata.get("engine") == "duckdb"
         )
 
-    @property
-    def is_managed_warehouse_ready(self) -> bool:
-        metadata = self.connection_metadata
-        if (
-            not self.is_managed_warehouse
-            or not self.direct_query_enabled
-            or not isinstance(metadata, dict)
-            or metadata.get("credential_kind") != MANAGED_WAREHOUSE_PROJECT_READER_CREDENTIAL_KIND
-            or metadata.get("reader_configured") is not True
-        ):
-            return False
-
+    def _has_valid_managed_warehouse_connection_inputs(self, *, expected_user: str | None = None) -> bool:
         job_inputs = self.job_inputs
         if not isinstance(job_inputs, dict):
             return False
@@ -163,8 +160,11 @@ class ExternalDataSource(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
         else:
             return False
 
+        user = job_inputs.get("user")
         return (
-            job_inputs.get("user") == f"posthog_team_{self.team_id}"
+            isinstance(user, str)
+            and bool(user)
+            and (expected_user is None or user == expected_user)
             and isinstance(job_inputs.get("host"), str)
             and bool(job_inputs["host"].strip())
             and isinstance(job_inputs.get("database"), str)
@@ -173,6 +173,41 @@ class ExternalDataSource(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
             and bool(job_inputs["password"])
             and 1 <= port_number <= 65535
         )
+
+    @property
+    def is_legacy_managed_warehouse(self) -> bool:
+        metadata = self.connection_metadata
+        return (
+            self.is_managed_warehouse
+            and isinstance(metadata, dict)
+            and metadata.get("credential_kind") in MANAGED_WAREHOUSE_LEGACY_CREDENTIAL_KINDS
+        )
+
+    @property
+    def is_managed_warehouse_ready(self) -> bool:
+        metadata = self.connection_metadata
+        if (
+            not self.is_managed_warehouse
+            or not self.direct_query_enabled
+            or not isinstance(metadata, dict)
+            or metadata.get("credential_kind") != MANAGED_WAREHOUSE_PROJECT_READER_CREDENTIAL_KIND
+            or metadata.get("reader_configured") is not True
+        ):
+            return False
+
+        return self._has_valid_managed_warehouse_connection_inputs(expected_user=f"posthog_team_{self.team_id}")
+
+    @property
+    def managed_warehouse_sql_mode(self) -> ManagedWarehouseSQLMode:
+        if self.is_managed_warehouse_ready:
+            return ManagedWarehouseSQLMode.BUILT_IN
+        if (
+            self.is_legacy_managed_warehouse
+            and self.direct_query_enabled
+            and self._has_valid_managed_warehouse_connection_inputs()
+        ):
+            return ManagedWarehouseSQLMode.EXTERNAL
+        return ManagedWarehouseSQLMode.UNAVAILABLE
 
     @classmethod
     def is_system_managed_prefix(cls, prefix: str | None) -> bool:
@@ -275,45 +310,15 @@ def get_direct_external_data_source_for_connection(
             id=source_uuid,
         )
         .exclude(deleted=True)
-        .select_related("team")
         .defer("job_inputs")
         .first()
     )
-    if (
-        source is None
-        or not is_direct_capable(source)
-        or (source.has_managed_warehouse_prefix and not source.is_managed_warehouse)
-    ):
+    if source is None or not is_direct_capable(source):
         return None
 
-    if source.is_managed_warehouse:
-        # Function-local to avoid importing posthog.permissions while Django loads this model module.
-        from products.managed_warehouse.backend.facade import (
-            feature_flags as managed_warehouse_feature_flags,  # noqa: PLC0415
-        )
-
-        if not managed_warehouse_feature_flags.is_managed_warehouse_sql_editor_enabled(source.team):
-            return None
-        if not source.is_managed_warehouse_ready:
-            return None
+    if source.has_managed_warehouse_prefix and source.managed_warehouse_sql_mode == ManagedWarehouseSQLMode.UNAVAILABLE:
+        return None
     return source
-
-
-def is_reserved_managed_warehouse_connection(team_id: int, connection_id: str | None) -> bool:
-    if not connection_id:
-        return False
-
-    try:
-        source_uuid = UUID(connection_id)
-    except ValueError:
-        return False
-
-    # Include tombstoned or malformed reserved rows so a disabled rollout also hides older cached results.
-    return ExternalDataSource.objects.filter(
-        team_id=team_id,
-        id=source_uuid,
-        prefix=MANAGED_WAREHOUSE_SOURCE_PREFIX,
-    ).exists()
 
 
 def is_managed_warehouse_connection_ready(team_id: int, connection_id: str | None) -> bool:

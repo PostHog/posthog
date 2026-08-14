@@ -11,9 +11,10 @@ from parameterized import parameterized
 from psycopg import pq
 
 from posthog.hogql.constants import HogQLGlobalSettings
+from posthog.hogql.database.database import Database
 from posthog.hogql.direct_sql import DuckgresRawAdapter, PostgresAdapter, get_adapter, get_raw_adapter_for_source
 from posthog.hogql.direct_sql.duckgres_adapter import _DuckgresStreamingClientCursor
-from posthog.hogql.errors import ExposedHogQLError
+from posthog.hogql.errors import ExposedHogQLError, QueryError, TableAccessDeniedError
 from posthog.hogql.query import HogQLQueryExecutor
 
 from posthog.constants import AvailableFeature
@@ -58,6 +59,18 @@ class TestDuckgresRawAdapterSelection(SimpleTestCase):
     def test_selects_native_adapter_only_for_complete_managed_markers(self) -> None:
         self.assertIsInstance(get_raw_adapter_for_source(self._source()), DuckgresRawAdapter)
         self.assertIsInstance(
+            get_raw_adapter_for_source(
+                self._source(
+                    connection_metadata={
+                        "engine": "duckdb",
+                        "system_managed": True,
+                        "credential_kind": "org_root",
+                    }
+                )
+            ),
+            PostgresAdapter,
+        )
+        self.assertIsInstance(
             get_raw_adapter_for_source(self._source(prefix="customer_postgres", connection_metadata={})),
             PostgresAdapter,
         )
@@ -88,12 +101,37 @@ class TestDuckgresRawAdapterSelection(SimpleTestCase):
                 "synced_direct_query",
                 {"access_method": ExternalDataSource.AccessMethod.WAREHOUSE, "direct_query_enabled": True},
             ),
+            (
+                "pending_reader",
+                {
+                    "connection_metadata": {
+                        "engine": "duckdb",
+                        "system_managed": True,
+                        "credential_kind": "project_reader",
+                        "reader_configured": False,
+                    }
+                },
+            ),
+            (
+                "unknown_credential_kind",
+                {
+                    "connection_metadata": {
+                        "engine": "duckdb",
+                        "system_managed": True,
+                        "credential_kind": "unknown",
+                    }
+                },
+            ),
         ]
     )
     def test_incomplete_managed_markers_do_not_select_native_adapter(
         self, _name: str, overrides: dict[str, object]
     ) -> None:
-        self.assertNotIsInstance(get_raw_adapter_for_source(self._source(**overrides)), DuckgresRawAdapter)
+        adapter = get_raw_adapter_for_source(self._source(**overrides))
+        if overrides.get("prefix") == "ducklake":
+            self.assertIsInstance(adapter, PostgresAdapter)
+        else:
+            self.assertIsNone(adapter)
 
 
 class TestDuckgresStreamingClientCursor(SimpleTestCase):
@@ -209,6 +247,36 @@ class TestDirectDuckgresQuery(APIBaseTest):
         connection = MagicMock()
         connection.cursor.return_value.__enter__.return_value = cursor
         return connection, cursor
+
+    def _managed_source_with_denied_table(
+        self,
+        *,
+        user: str | None = None,
+        connection_metadata: dict[str, object] | None = None,
+    ) -> ExternalDataSource:
+        source = self._managed_source(user=user, connection_metadata=connection_metadata)
+        table = DataWarehouseTable.objects.create(
+            name="managed_table",
+            format="Parquet",
+            team=self.team,
+            external_data_source=source,
+            url_pattern="",
+            columns={"value": {"hogql": "IntegerDatabaseField", "clickhouse": "Int64", "valid": True}},
+        )
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL},
+        ]
+        self.organization.save()
+        membership = OrganizationMembership.objects.get(user=self.user, organization=self.organization)
+        membership.level = OrganizationMembership.Level.MEMBER
+        membership.save()
+        AccessControl.objects.create(
+            team=self.team,
+            resource="warehouse_table",
+            resource_id=str(table.id),
+            access_level="none",
+        )
+        return source
 
     @patch("posthog.hogql.direct_sql.duckgres_adapter.psycopg.connect")
     def test_executes_with_the_selected_sources_project_reader(self, connect) -> None:
@@ -332,28 +400,8 @@ class TestDirectDuckgresQuery(APIBaseTest):
         connection.commit.assert_not_called()
 
     def test_non_raw_managed_query_ignores_warehouse_object_access_control(self) -> None:
-        source = self._managed_source()
-        table = DataWarehouseTable.objects.create(
-            name="managed_table",
-            format="Parquet",
-            team=self.team,
-            external_data_source=source,
-            url_pattern="",
-            columns={"value": {"hogql": "IntegerDatabaseField", "clickhouse": "Int64", "valid": True}},
-        )
-        self.organization.available_product_features = [
-            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL},
-        ]
-        self.organization.save()
-        membership = OrganizationMembership.objects.get(user=self.user, organization=self.organization)
-        membership.level = OrganizationMembership.Level.MEMBER
-        membership.save()
-        AccessControl.objects.create(
-            team=self.team,
-            resource="warehouse_table",
-            resource_id=str(table.id),
-            access_level="none",
-        )
+        source = self._managed_source_with_denied_table()
+        self.managed_warehouse_sql_editor_flag.return_value = False
 
         with patch(
             "posthog.hogql.database.database.feature_enabled_or_false",
@@ -367,6 +415,31 @@ class TestDirectDuckgresQuery(APIBaseTest):
             ).generate_clickhouse_sql()
 
         self.assertIn("managed_table", sql)
+
+    def test_non_raw_legacy_managed_source_enforces_warehouse_object_access_control(self) -> None:
+        source = self._managed_source_with_denied_table(
+            user="org-root",
+            connection_metadata={
+                "engine": "duckdb",
+                "system_managed": True,
+                "credential_kind": "org_root",
+            },
+        )
+        self.managed_warehouse_sql_editor_flag.return_value = True
+
+        with (
+            patch(
+                "posthog.hogql.database.database.feature_enabled_or_false",
+                side_effect=lambda flag, *_args, **_kwargs: flag == "hogql-warehouse-access-control",
+            ),
+            self.assertRaises(TableAccessDeniedError),
+        ):
+            HogQLQueryExecutor(
+                query="SELECT value FROM managed_table",
+                team=self.team,
+                user=self.user,
+                connection_id=str(source.id),
+            ).generate_clickhouse_sql()
 
     @patch("posthog.hogql.direct_sql.postgres_adapter.psycopg.connect")
     def test_non_raw_managed_connection_errors_hide_connection_details(self, connect) -> None:
@@ -401,6 +474,7 @@ class TestDirectDuckgresQuery(APIBaseTest):
     @patch("posthog.hogql.query.raw_query_denied_by_table_access", side_effect=AssertionError)
     def test_managed_warehouse_raw_queries_skip_unconfigured_table_access(self, _denied, connect) -> None:
         source = self._managed_source()
+        self.managed_warehouse_sql_editor_flag.return_value = False
         connection, _cursor = self._connection_with_result([(1,)])
         connect.return_value.__enter__.return_value = connection
 
@@ -421,6 +495,7 @@ class TestDirectDuckgresQuery(APIBaseTest):
         self, _name: str, credential_overrides: dict[str, object], connect
     ) -> None:
         source = self._managed_source()
+        self.managed_warehouse_sql_editor_flag.return_value = False
         source.job_inputs = {**source.job_inputs, **credential_overrides}
         source.save(update_fields=["job_inputs"])
 
@@ -432,19 +507,33 @@ class TestDirectDuckgresQuery(APIBaseTest):
         connect.assert_not_called()
 
     @patch("posthog.hogql.direct_sql.duckgres_adapter.psycopg.connect")
-    def test_feature_flag_rejects_raw_query_before_connecting(self, connect: MagicMock) -> None:
-        source = self._managed_source()
-        self.managed_warehouse_sql_editor_flag.return_value = False
+    @patch("posthog.hogql.direct_sql.postgres_adapter.psycopg.connect")
+    @patch("posthog.hogql.query.raw_query_denied_by_table_access", return_value=True)
+    def test_legacy_managed_raw_query_preserves_external_table_access_control(
+        self, denied: MagicMock, postgres_connect: MagicMock, duckgres_connect: MagicMock
+    ) -> None:
+        source = self._managed_source(
+            user="org-root",
+            connection_metadata={
+                "engine": "duckdb",
+                "system_managed": True,
+                "credential_kind": "org_root",
+            },
+        )
+        self.managed_warehouse_sql_editor_flag.return_value = True
 
-        with self.assertRaisesMessage(ExposedHogQLError, "Invalid connectionId"):
+        with self.assertRaisesMessage(ExposedHogQLError, "raw SQL is not allowed"):
             HogQLQueryExecutor(
                 query="SELECT 1",
                 team=self.team,
+                user=self.user,
                 connection_id=str(source.id),
                 send_raw_query=True,
             ).execute()
 
-        connect.assert_not_called()
+        denied.assert_called_once()
+        postgres_connect.assert_not_called()
+        duckgres_connect.assert_not_called()
 
     @parameterized.expand(
         [
@@ -459,11 +548,11 @@ class TestDirectDuckgresQuery(APIBaseTest):
                 True,
             ),
             (
-                "wrong_credential_kind",
+                "unknown_credential_kind",
                 {
                     "engine": "duckdb",
                     "system_managed": True,
-                    "credential_kind": "stored_server_login",
+                    "credential_kind": "unknown",
                     "reader_configured": True,
                 },
                 True,
@@ -492,6 +581,7 @@ class TestDirectDuckgresQuery(APIBaseTest):
             connection_metadata=connection_metadata,
             direct_query_enabled=direct_query_enabled,
         )
+        self.managed_warehouse_sql_editor_flag.return_value = False
 
         with self.assertRaises(ExposedHogQLError):
             HogQLQueryExecutor(
@@ -502,6 +592,19 @@ class TestDirectDuckgresQuery(APIBaseTest):
             ).execute()
 
         connect.assert_not_called()
+
+    def test_database_fails_closed_for_an_unavailable_reserved_source(self) -> None:
+        source = self._managed_source(
+            connection_metadata={
+                "engine": "duckdb",
+                "system_managed": True,
+                "credential_kind": "project_reader",
+                "reader_configured": False,
+            }
+        )
+
+        with self.assertRaisesMessage(QueryError, "This managed warehouse connection isn't available"):
+            Database.create_for(team=self.team, connection_id=str(source.id))
 
     @patch("posthog.hogql.direct_sql.duckgres_adapter.psycopg.connect")
     def test_hides_connection_details(self, connect) -> None:
@@ -552,18 +655,21 @@ class TestDirectDuckgresQuery(APIBaseTest):
         self.assertTrue(cursor.stream_closed)
         connection.commit.assert_called_once_with()
 
-    @patch("posthog.hogql.direct_sql.duckgres_adapter.DIRECT_DUCKGRES_MAX_ROWS", 3)
     @patch("posthog.hogql.direct_sql.duckgres_adapter.psycopg.connect")
     def test_rejects_raw_results_over_the_row_cap(self, connect) -> None:
         source = self._managed_source()
-        connection, cursor = self._connection_with_result([(1,), (2,), (3,), (4,)])
+        connection, cursor = self._connection_with_result([(1,)] * 50_001)
         connect.return_value.__enter__.return_value = connection
 
-        with self.assertRaisesMessage(ExposedHogQLError, "Add a LIMIT clause"):
+        with self.assertRaises(ExposedHogQLError) as context:
             HogQLQueryExecutor(
                 query="SELECT value FROM large_table", team=self.team, connection_id=str(source.id), send_raw_query=True
             ).execute()
 
+        self.assertEqual(
+            str(context.exception),
+            "Managed warehouse query returned more than 50,000 rows. Add a LIMIT clause.",
+        )
         cursor.stream.assert_called_once_with("SELECT value FROM large_table", None)
         self.assertTrue(cursor.stream_closed)
         connection.commit.assert_not_called()

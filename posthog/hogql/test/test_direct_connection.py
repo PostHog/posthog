@@ -102,7 +102,17 @@ class TestGetDirectConnectionSource(APIBaseTest):
         assert resolved is not None
         self.assertEqual(resolved.id, source.id)
 
-    def test_managed_warehouse_ignores_external_source_access_control(self):
+    @parameterized.expand(
+        [
+            ("reader_flag_off", "project_reader", False, True),
+            ("reader_flag_on", "project_reader", True, True),
+            ("legacy_flag_off", "org_root", False, False),
+            ("legacy_flag_on", "org_root", True, False),
+        ]
+    )
+    def test_managed_warehouse_access_control_follows_credential_kind(
+        self, _name: str, credential_kind: str, flag_enabled: bool, expected_access: bool
+    ) -> None:
         self.organization.available_product_features = [
             {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL},
         ]
@@ -112,33 +122,66 @@ class TestGetDirectConnectionSource(APIBaseTest):
         membership.save()
 
         external_source = self._create_source(access_method=ExternalDataSource.AccessMethod.DIRECT)
-        managed_source = self._create_managed_source()
+        managed_source = self._create_managed_source(
+            connection_metadata={
+                "engine": "duckdb",
+                "system_managed": True,
+                "credential_kind": credential_kind,
+                "reader_configured": credential_kind == "project_reader",
+            }
+        )
         AccessControl.objects.create(
             team=self.team,
             resource="external_data_source",
             access_level="none",
         )
+        self.managed_warehouse_sql_editor_flag.return_value = flag_enabled
         self.assertIsNone(get_direct_connection_source(self.team, str(external_source.id), user=self.user))
         resolved = get_direct_connection_source(self.team, str(managed_source.id), user=self.user)
 
-        assert resolved is not None
-        self.assertEqual(resolved.id, managed_source.id)
+        self.assertEqual(resolved is not None, expected_access)
+        if resolved is not None:
+            self.assertEqual(resolved.id, managed_source.id)
 
     @parameterized.expand([("flag_off", False), ("flag_on", True)])
-    def test_managed_warehouse_flag_controls_connection_resolution(self, _name: str, flag_enabled: bool) -> None:
+    def test_ready_reader_resolution_does_not_depend_on_picker_flag(self, _name: str, flag_enabled: bool) -> None:
         source = self._create_managed_source()
         self.managed_warehouse_sql_editor_flag.return_value = flag_enabled
-        expected_source = source if flag_enabled else None
 
-        self.assertEqual(get_direct_connection_source(self.team, str(source.id)), expected_source)
+        self.assertEqual(get_direct_connection_source(self.team, str(source.id)), source)
         self.assertEqual(
             get_direct_connection_source(self.team, str(source.id), require_pure_direct=True),
-            expected_source,
+            source,
         )
         self.assertEqual(
             get_direct_external_data_source_for_connection(self.team.id, str(source.id)),
-            expected_source,
+            source,
         )
+
+    @parameterized.expand([("org_root", "org_root"), ("stored_server_login", "stored_server_login")])
+    def test_legacy_managed_credentials_remain_available_when_picker_flag_changes(
+        self, _name: str, credential_kind: str
+    ) -> None:
+        source = self._create_managed_source(
+            connection_metadata={
+                "engine": "duckdb",
+                "system_managed": True,
+                "credential_kind": credential_kind,
+            }
+        )
+
+        for flag_enabled in (False, True):
+            self.managed_warehouse_sql_editor_flag.return_value = flag_enabled
+            self.assertEqual(get_direct_connection_source(self.team, str(source.id)), source)
+            self.assertEqual(get_direct_external_data_source_for_connection(self.team.id, str(source.id)), source)
+
+    @parameterized.expand([("flag_off", False), ("flag_on", True)])
+    def test_malformed_reserved_source_fails_closed_in_both_modes(self, _name: str, flag_enabled: bool) -> None:
+        source = self._create_managed_source(connection_metadata={"engine": "duckdb"})
+        self.managed_warehouse_sql_editor_flag.return_value = flag_enabled
+
+        self.assertIsNone(get_direct_connection_source(self.team, str(source.id)))
+        self.assertIsNone(get_direct_external_data_source_for_connection(self.team.id, str(source.id)))
 
     @parameterized.expand(
         [
@@ -151,38 +194,6 @@ class TestGetDirectConnectionSource(APIBaseTest):
                         "system_managed": True,
                         "credential_kind": "project_reader",
                         "reader_configured": False,
-                    }
-                },
-            ),
-            (
-                "legacy_org_root",
-                {
-                    "connection_metadata": {
-                        "engine": "duckdb",
-                        "system_managed": True,
-                        "credential_kind": "org_root",
-                        "reader_configured": True,
-                    }
-                },
-            ),
-            (
-                "stored_server_login",
-                {
-                    "connection_metadata": {
-                        "engine": "duckdb",
-                        "system_managed": True,
-                        "credential_kind": "stored_server_login",
-                        "reader_configured": True,
-                    }
-                },
-            ),
-            (
-                "malformed_identity",
-                {
-                    "connection_metadata": {
-                        "engine": "duckdb",
-                        "credential_kind": "project_reader",
-                        "reader_configured": True,
                     }
                 },
             ),
@@ -217,8 +228,32 @@ class TestGetDirectConnectionSource(APIBaseTest):
     ) -> None:
         source = self._create_managed_source(**overrides)
 
-        self.assertIsNone(get_direct_connection_source(self.team, str(source.id)))
-        self.assertIsNone(get_direct_external_data_source_for_connection(self.team.id, str(source.id)))
+        for flag_enabled in (False, True):
+            self.managed_warehouse_sql_editor_flag.return_value = flag_enabled
+            self.assertIsNone(get_direct_connection_source(self.team, str(source.id)))
+            self.assertIsNone(get_direct_external_data_source_for_connection(self.team.id, str(source.id)))
+
+    @parameterized.expand(
+        [
+            ("empty_user", {"host": "h", "port": 5432, "database": "d", "user": "", "password": "p"}),
+            ("empty_host", {"host": "", "port": 5432, "database": "d", "user": "u", "password": "p"}),
+            ("invalid_port", {"host": "h", "port": 70000, "database": "d", "user": "u", "password": "p"}),
+        ]
+    )
+    def test_malformed_legacy_managed_credentials_fail_closed(self, _name: str, job_inputs: dict[str, object]) -> None:
+        source = self._create_managed_source(
+            connection_metadata={
+                "engine": "duckdb",
+                "system_managed": True,
+                "credential_kind": "org_root",
+            },
+            job_inputs=job_inputs,
+        )
+
+        for flag_enabled in (False, True):
+            self.managed_warehouse_sql_editor_flag.return_value = flag_enabled
+            self.assertIsNone(get_direct_connection_source(self.team, str(source.id)))
+            self.assertIsNone(get_direct_external_data_source_for_connection(self.team.id, str(source.id)))
 
     def test_managed_warehouse_resolution_rejects_deleted_and_cross_team_sources(self) -> None:
         deleted_source = self._create_managed_source(deleted=True)

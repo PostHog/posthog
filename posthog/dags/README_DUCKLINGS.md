@@ -145,10 +145,12 @@ class DucklingBackfillConfig:
 2. Enable another team's backfill with the "Enable warehouse backfill for a team" admin
    action or the managed warehouse onboarding API. This creates the control-plane team row
    with backfill enabled. The discovery sensor will pick up the team on its next run.
-   The SQL editor exposes the managed connection only when its reserved source already contains a
-   configured Duckgres `project_reader` credential. Credential provisioning and rotation are separate
-   from this enablement flow. Once the reader is ready, background schema discovery exposes only the
-   project namespaces allowed by Duckgres. A missing or invalid reader leaves the connection unavailable.
+   By default, the SQL editor exposes the auto-provisioned Duckgres source as an external connection
+   backed by the stored server login. When the `managed-warehouse-sql-editor` flag is enabled, the chooser
+   replaces it with the built-in connection only if a reserved source already contains a configured Duckgres
+   `project_reader` credential. Reader provisioning and rotation are separate from this enablement flow.
+   Background discovery for a ready reader exposes only the project namespaces allowed by Duckgres. If the
+   flag is enabled without a valid reader, neither managed connection appears in the chooser.
 
 3. To trigger immediate historical backfill, reset the full backfill sensor cursor
 

@@ -391,9 +391,8 @@ class QueryViewSet(QueryCoalescingMixin, TeamAndOrgViewSetMixin, PydanticModelMi
             ),
             None,
         )
-        if managed_connection_id is not None and (
-            not managed_warehouse_feature_flags.is_managed_warehouse_sql_editor_enabled(self.team)
-            or not is_managed_warehouse_connection_ready(self.team.pk, managed_connection_id)
+        if managed_connection_id is not None and not is_managed_warehouse_connection_ready(
+            self.team.pk, managed_connection_id
         ):
             raise QueryNotFoundError(f"Query {pk} not found for team {self.team.pk}")
         query_status_response = QueryStatusResponse(query_status=query_status)

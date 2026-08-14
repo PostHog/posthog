@@ -1259,11 +1259,12 @@ class TestQueryRetrieve(APIBaseTest):
     @parameterized.expand(
         [
             ("enabled_ready", True, True, 200),
-            ("disabled_ready", False, True, 404),
+            ("disabled_ready", False, True, 200),
             ("enabled_revoked", True, False, 404),
+            ("disabled_revoked", False, False, 404),
         ]
     )
-    def test_managed_warehouse_query_status_respects_rollout_flag(
+    def test_managed_warehouse_query_status_checks_reader_readiness_without_flag_revocation(
         self, _name: str, flag_enabled: bool, reader_configured: bool, expected_status: int
     ) -> None:
         source = ExternalDataSource.objects.create(
@@ -1303,10 +1304,11 @@ class TestQueryRetrieve(APIBaseTest):
         with patch(
             "products.managed_warehouse.backend.facade.feature_flags.posthog_feature_flag_enabled",
             return_value=flag_enabled,
-        ):
+        ) as managed_warehouse_sql_editor_flag:
             response = self.client.get(f"/api/environments/{self.team.id}/query/{self.valid_query_id}/")
 
         self.assertEqual(response.status_code, expected_status)
+        managed_warehouse_sql_editor_flag.assert_not_called()
 
     def test_failed_query_with_internal_error(self):
         self.redis_client_mock.get.return_value = json.dumps(

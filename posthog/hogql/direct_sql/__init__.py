@@ -10,7 +10,7 @@ from posthog.hogql.direct_sql.redshift_adapter import RedshiftAdapter
 from posthog.hogql.direct_sql.registry import get_adapter, register_adapter, registered_engines
 from posthog.hogql.direct_sql.snowflake_adapter import SnowflakeAdapter
 
-from products.warehouse_sources.backend.facade.models import ExternalDataSource
+from products.warehouse_sources.backend.facade.models import ExternalDataSource, ManagedWarehouseSQLMode
 
 register_adapter(PostgresAdapter())
 register_adapter(MySQLAdapter())
@@ -22,7 +22,13 @@ register_adapter(MotherDuckAdapter())
 
 def get_raw_adapter_for_source(source: ExternalDataSource) -> DirectSQLAdapter | None:
     if source.has_managed_warehouse_prefix:
-        return DuckgresRawAdapter() if source.is_managed_warehouse_ready and is_direct_capable(source) else None
+        managed_warehouse_mode = source.managed_warehouse_sql_mode
+        if not source.is_managed_warehouse or not is_direct_capable(source):
+            return None
+        if managed_warehouse_mode == ManagedWarehouseSQLMode.BUILT_IN:
+            return DuckgresRawAdapter()
+        if managed_warehouse_mode == ManagedWarehouseSQLMode.UNAVAILABLE:
+            return None
     return get_adapter(source.direct_engine)
 
 

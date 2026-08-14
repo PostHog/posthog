@@ -34,12 +34,13 @@ from products.warehouse_sources.backend.models.external_data_schema import (
     update_sync_type_config_keys,
 )
 from products.warehouse_sources.backend.models.external_data_source import (
+    MANAGED_WAREHOUSE_LEGACY_CREDENTIAL_KINDS,
     MANAGED_WAREHOUSE_PROJECT_READER_CREDENTIAL_KIND,
     MANAGED_WAREHOUSE_SOURCE_PREFIX,
     ExternalDataSource,
+    ManagedWarehouseSQLMode,
     get_direct_external_data_source_for_connection,
     is_managed_warehouse_connection_ready,
-    is_reserved_managed_warehouse_connection,
 )
 from products.warehouse_sources.backend.models.pending_source_credential import PendingSourceCredential
 from products.warehouse_sources.backend.models.ssh_tunnel import SSHTunnel
@@ -74,8 +75,10 @@ __all__ = [
     "ExternalDataJob",
     "ExternalDataSchema",
     "ExternalDataSource",
+    "MANAGED_WAREHOUSE_LEGACY_CREDENTIAL_KINDS",
     "MANAGED_WAREHOUSE_PROJECT_READER_CREDENTIAL_KIND",
     "MANAGED_WAREHOUSE_SOURCE_PREFIX",
+    "ManagedWarehouseSQLMode",
     "PendingSourceCredential",
     "SERIALIZED_FIELD_TO_CLICKHOUSE_MAPPING",
     "SSHTunnel",
@@ -88,7 +91,6 @@ __all__ = [
     "get_all_schemas_for_source_id",
     "get_direct_external_data_source_for_connection",
     "is_managed_warehouse_connection_ready",
-    "is_reserved_managed_warehouse_connection",
     "get_latest_run_if_exists",
     "get_or_create_datawarehouse_credential",
     "clickhouse_column_to_dwh_column",

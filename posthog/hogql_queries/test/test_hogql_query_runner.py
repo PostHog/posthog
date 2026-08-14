@@ -234,7 +234,7 @@ class TestHogQLQueryRunner(ClickhouseTestMixin, APIBaseTest):
         return_value=True,
     )
     @patch("posthog.hogql_queries.hogql_query_runner.execute_hogql_query")
-    def test_managed_warehouse_flag_blocks_cached_connection_results(
+    def test_managed_warehouse_cache_and_status_are_not_revoked_by_picker_flag(
         self, mock_execute_hogql_query: MagicMock, managed_warehouse_sql_editor_flag: MagicMock
     ) -> None:
         source = ExternalDataSource.objects.create(
@@ -267,6 +267,7 @@ class TestHogQLQueryRunner(ClickhouseTestMixin, APIBaseTest):
         runner = self._create_runner(query)
         expected_query_status_labels = [f"{MANAGED_WAREHOUSE_QUERY_STATUS_LABEL_PREFIX}{source.id}"]
         self.assertEqual(runner.query_status_labels(), expected_query_status_labels)
+        built_in_cache_key = runner.get_cache_key()
         response = cast(
             HogQLQueryResponse,
             runner.run(execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS),
@@ -284,17 +285,66 @@ class TestHogQLQueryRunner(ClickhouseTestMixin, APIBaseTest):
         )
 
         managed_warehouse_sql_editor_flag.return_value = False
-        with self.assertRaisesMessage(ExposedHogQLError, "Invalid connectionId"):
-            self._create_runner(query).run()
+        flag_off_runner = self._create_runner(query)
+        self.assertEqual(flag_off_runner.query_status_labels(), expected_query_status_labels)
+        self.assertEqual(flag_off_runner.get_cache_key(), built_in_cache_key)
+        flag_off_response = cast(
+            HogQLQueryResponse,
+            flag_off_runner.run(execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS),
+        )
+        self.assertEqual(flag_off_response.results, [(1,)])
 
-        managed_warehouse_sql_editor_flag.return_value = True
         assert isinstance(source.connection_metadata, dict)
         source.connection_metadata["reader_configured"] = False
         source.save(update_fields=["connection_metadata"])
         with self.assertRaisesMessage(ExposedHogQLError, "Invalid connectionId"):
             self._create_runner(query).run()
 
-        mock_execute_hogql_query.assert_called_once()
+        self.assertEqual(mock_execute_hogql_query.call_count, 2)
+        managed_warehouse_sql_editor_flag.assert_not_called()
+
+    @patch(
+        "products.managed_warehouse.backend.facade.feature_flags.posthog_feature_flag_enabled",
+        return_value=True,
+    )
+    def test_legacy_managed_cache_and_status_are_not_changed_by_picker_flag(
+        self, managed_warehouse_sql_editor_flag: MagicMock
+    ) -> None:
+        source = ExternalDataSource.objects.create(
+            source_id="managed-source",
+            connection_id="managed-connection",
+            destination_id="managed-destination",
+            team=self.team,
+            status=ExternalDataSource.Status.COMPLETED,
+            source_type=ExternalDataSourceType.POSTGRES,
+            prefix=MANAGED_WAREHOUSE_SOURCE_PREFIX,
+            access_method=ExternalDataSource.AccessMethod.DIRECT,
+            direct_query_enabled=True,
+            connection_metadata={
+                "engine": "duckdb",
+                "system_managed": True,
+                "credential_kind": "org_root",
+            },
+            job_inputs={
+                "host": "managed.example.com",
+                "port": 5432,
+                "database": "ducklake",
+                "user": "org-root",
+                "password": "root-password",
+            },
+        )
+        query = HogQLQuery(query="select 1::int as value", connectionId=str(source.id), sendRawQuery=True)
+
+        flag_on_runner = self._create_runner(query)
+        self.assertIsNone(flag_on_runner.query_status_labels())
+        self.assertNotIn("managed_warehouse_sql_mode", flag_on_runner.get_cache_payload())
+        flag_on_cache_key = flag_on_runner.get_cache_key()
+
+        managed_warehouse_sql_editor_flag.return_value = False
+        flag_off_runner = self._create_runner(query)
+        self.assertIsNone(flag_off_runner.query_status_labels())
+        self.assertEqual(flag_off_runner.get_cache_key(), flag_on_cache_key)
+        managed_warehouse_sql_editor_flag.assert_not_called()
 
     @patch("posthog.hogql_queries.hogql_query_runner.execute_hogql_query")
     def test_send_raw_query_uses_raw_query_string_for_direct_connections(self, mock_execute_hogql_query):

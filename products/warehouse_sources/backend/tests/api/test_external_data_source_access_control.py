@@ -133,6 +133,24 @@ class TestExternalDataSourceAccessControl(APIBaseTest):
         fields.update(overrides)
         return ExternalDataSource.objects.create(**fields)
 
+    def _create_legacy_managed_source(self, **overrides: object) -> ExternalDataSource:
+        fields: dict[str, object] = {
+            "connection_metadata": {
+                "engine": "duckdb",
+                "system_managed": True,
+                "credential_kind": "org_root",
+            },
+            "job_inputs": {
+                "host": "managed.example.com",
+                "port": 5432,
+                "database": "ducklake",
+                "user": "organization_login",
+                "password": "secret",
+            },
+        }
+        fields.update(overrides)
+        return self._create_managed_source(**fields)
+
     # --- Viewer Access Level Tests ---
 
     def test_viewer_can_list_sources(self):
@@ -363,6 +381,7 @@ class TestExternalDataSourceAccessControl(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         returned_ids = [item["id"] for item in response.json()]
         self.assertEqual(returned_ids, [str(managed_source.id)])
+        self.assertTrue(response.json()[0]["is_builtin_managed_warehouse"])
         self.assertNotIn(str(external_source.id), returned_ids)
         self.assertNotIn(str(pending_source.id), returned_ids)
 
@@ -461,15 +480,31 @@ class TestExternalDataSourceAccessControl(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("disabled", False, False),
-            ("enabled", True, True),
-            ("evaluation_error", RuntimeError("feature flag unavailable"), False),
+            ("disabled", False),
+            ("evaluation_error", RuntimeError("feature flag unavailable")),
         ]
     )
-    def test_connections_feature_flag_controls_managed_warehouse_option(
-        self, _name: str, flag_result: bool | Exception, include_managed: bool
+    def test_connections_flag_off_preserves_legacy_managed_source_as_external(
+        self, _name: str, flag_result: bool | Exception
     ) -> None:
-        managed_source = self._create_managed_source()
+        legacy_source = self._create_legacy_managed_source()
+        ready_reader = self._create_managed_source()
+        pending_reader = self._create_managed_source(
+            connection_metadata={
+                "engine": "duckdb",
+                "system_managed": True,
+                "credential_kind": "project_reader",
+                "reader_configured": False,
+            }
+        )
+        malformed_legacy = self._create_legacy_managed_source(job_inputs={})
+        unknown_kind = self._create_managed_source(
+            connection_metadata={
+                "engine": "duckdb",
+                "system_managed": True,
+                "credential_kind": "unknown",
+            }
+        )
         external_source = ExternalDataSource.objects.create(
             team=self.team,
             source_id=str(uuid.uuid4()),
@@ -487,10 +522,82 @@ class TestExternalDataSourceAccessControl(APIBaseTest):
         response = self.client.get(f"/api/environments/{self.team.pk}/external_data_sources/connections/")
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        expected_ids = [str(external_source.id)]
-        if include_managed:
-            expected_ids.insert(0, str(managed_source.id))
-        self.assertEqual([item["id"] for item in response.json()], expected_ids)
+        self.assertEqual(
+            [item["id"] for item in response.json()],
+            [str(external_source.id), str(legacy_source.id)],
+        )
+        self.assertFalse(
+            next(item for item in response.json() if item["id"] == str(legacy_source.id))[
+                "is_builtin_managed_warehouse"
+            ]
+        )
+        self.assertNotIn(str(ready_reader.id), [item["id"] for item in response.json()])
+        self.assertNotIn(str(pending_reader.id), [item["id"] for item in response.json()])
+        self.assertNotIn(str(malformed_legacy.id), [item["id"] for item in response.json()])
+        self.assertNotIn(str(unknown_kind.id), [item["id"] for item in response.json()])
+
+    def test_connections_flag_on_hides_legacy_source_and_marks_ready_reader_as_built_in(self) -> None:
+        ready_reader = self._create_managed_source()
+        legacy_source = self._create_legacy_managed_source()
+        external_source = ExternalDataSource.objects.create(
+            team=self.team,
+            source_id=str(uuid.uuid4()),
+            connection_id=str(uuid.uuid4()),
+            source_type="Postgres",
+            prefix="Customer database",
+            access_method=ExternalDataSource.AccessMethod.DIRECT,
+            created_by=self.user,
+        )
+
+        response = self.client.get(f"/api/environments/{self.team.pk}/external_data_sources/connections/")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(
+            [(item["id"], item["is_builtin_managed_warehouse"]) for item in response.json()],
+            [(str(ready_reader.id), True), (str(external_source.id), False)],
+        )
+        self.assertNotIn(str(legacy_source.id), [item["id"] for item in response.json()])
+
+    def test_connections_flag_off_applies_external_source_access_control_to_legacy_source(self) -> None:
+        legacy_source = self._create_legacy_managed_source()
+        self.managed_warehouse_sql_editor_flag.return_value = False
+        self._create_access_control(self.viewer_user, access_level="none")
+        self.client.force_login(self.viewer_user)
+
+        response = self.client.get(f"/api/environments/{self.team.pk}/external_data_sources/connections/")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json(), [])
+
+        self._create_access_control(
+            self.viewer_user,
+            resource_id=str(legacy_source.id),
+            access_level="viewer",
+        )
+        response = self.client.get(f"/api/environments/{self.team.pk}/external_data_sources/connections/")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(
+            [(item["id"], item["is_builtin_managed_warehouse"]) for item in response.json()],
+            [(str(legacy_source.id), False)],
+        )
+
+    def test_connections_flag_off_does_not_fall_back_to_an_older_accessible_legacy_source(self) -> None:
+        older_source = self._create_legacy_managed_source()
+        self._create_legacy_managed_source()
+        self.managed_warehouse_sql_editor_flag.return_value = False
+        self._create_access_control(self.viewer_user, access_level="none")
+        self._create_access_control(
+            self.viewer_user,
+            resource_id=str(older_source.id),
+            access_level="viewer",
+        )
+        self.client.force_login(self.viewer_user)
+
+        response = self.client.get(f"/api/environments/{self.team.pk}/external_data_sources/connections/")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json(), [])
 
     def test_connections_uses_a_ready_reader_when_a_newer_reserved_row_is_malformed(self) -> None:
         managed_source = self._create_managed_source()
@@ -542,7 +649,8 @@ class TestExternalDataSourceAccessControl(APIBaseTest):
 
         self.assertEqual(response.status_code, expected_status)
 
-    def test_reserved_sources_are_not_external_source_resources(self) -> None:
+    def test_external_source_resources_expose_only_the_canonical_legacy_source(self) -> None:
+        legacy_source = self._create_legacy_managed_source()
         managed_source = self._create_managed_source()
         incomplete_source = self._create_managed_source(connection_metadata={})
 
@@ -550,11 +658,61 @@ class TestExternalDataSourceAccessControl(APIBaseTest):
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         returned_ids = [item["id"] for item in response.json()["results"]]
+        self.assertIn(str(legacy_source.id), returned_ids)
         self.assertNotIn(str(managed_source.id), returned_ids)
         self.assertNotIn(str(incomplete_source.id), returned_ids)
+        response = self.client.get(f"/api/environments/{self.team.pk}/external_data_sources/{legacy_source.id}/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
         for source in (managed_source, incomplete_source):
             response = self.client.get(f"/api/environments/{self.team.pk}/external_data_sources/{source.id}/")
             self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
+    def test_flag_off_preserves_legacy_managed_source_as_read_only_external_resource(self) -> None:
+        legacy_source = self._create_legacy_managed_source()
+        ready_reader = self._create_managed_source()
+        pending_reader = self._create_managed_source(
+            connection_metadata={
+                "engine": "duckdb",
+                "system_managed": True,
+                "credential_kind": "project_reader",
+                "reader_configured": False,
+            }
+        )
+        malformed_legacy = self._create_legacy_managed_source(job_inputs={})
+        unknown_kind = self._create_managed_source(
+            connection_metadata={
+                "engine": "duckdb",
+                "system_managed": True,
+                "credential_kind": "unknown",
+            }
+        )
+        other_team = Team.objects.create(organization=self.organization, name="Other project")
+        cross_team_legacy = self._create_legacy_managed_source(team=other_team)
+        self.managed_warehouse_sql_editor_flag.return_value = False
+
+        response = self.client.get(f"/api/environments/{self.team.pk}/external_data_sources/")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        returned_ids = [item["id"] for item in response.json()["results"]]
+        self.assertIn(str(legacy_source.id), returned_ids)
+        self.assertNotIn(str(ready_reader.id), returned_ids)
+        self.assertNotIn(str(pending_reader.id), returned_ids)
+        self.assertNotIn(str(malformed_legacy.id), returned_ids)
+        self.assertNotIn(str(unknown_kind.id), returned_ids)
+        self.assertNotIn(str(cross_team_legacy.id), returned_ids)
+
+        for hidden_source in (ready_reader, pending_reader, malformed_legacy, unknown_kind):
+            response = self.client.get(f"/api/environments/{self.team.pk}/external_data_sources/{hidden_source.id}/")
+            self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
+        response = self.client.get(f"/api/environments/{self.team.pk}/external_data_sources/{legacy_source.id}/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        response = self.client.patch(
+            f"/api/environments/{self.team.pk}/external_data_sources/{legacy_source.id}/",
+            data={"description": "Updated description"},
+        )
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
 
     # --- Organization Admin Tests ---
 

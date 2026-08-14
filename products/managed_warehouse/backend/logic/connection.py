@@ -1,10 +1,8 @@
 """Expose a managed Duckgres warehouse in the SQL editor as a Postgres connection.
 
-Each enrolled team gets a Postgres ``ExternalDataSource`` pointed at its managed
-Duckgres warehouse. Sources that already hold a confirmed ``project_reader`` login keep
-that credential and discover only the catalog Duckgres exposes to it. This module does
-not create, replace, or rotate project readers. Older sources backed by a broader stored
-login remain ineligible for managed-warehouse discovery and queries.
+Each enrolled team keeps its auto-provisioned external source backed by the stored server
+login. If a confirmed ``project_reader`` source also exists, it has an independent catalog.
+This module does not create, replace, or rotate project readers.
 
 This bypasses the user-facing create endpoint because the managed host is internal
 infrastructure and is not reachable for live schema validation during provisioning.
@@ -15,7 +13,7 @@ Deleting a team removes its project-scoped source through the existing model cas
 
 from __future__ import annotations
 
-from uuid import UUID
+from uuid import UUID, uuid4
 
 from django.db import transaction
 from django.db.models import QuerySet
@@ -28,16 +26,20 @@ from posthog.models.team.team import Team
 from products.data_warehouse.backend.facade.api import reconcile_postgres_schemas
 from products.managed_warehouse.backend.models import DuckgresServer
 from products.warehouse_sources.backend.facade.models import (
+    MANAGED_WAREHOUSE_LEGACY_CREDENTIAL_KINDS,
     MANAGED_WAREHOUSE_PROJECT_READER_CREDENTIAL_KIND,
     MANAGED_WAREHOUSE_SOURCE_PREFIX,
     DataWarehouseTable,
     ExternalDataSchema,
     ExternalDataSource,
+    ManagedWarehouseSQLMode,
 )
 from products.warehouse_sources.backend.facade.source_management import SourceRegistry
 from products.warehouse_sources.backend.facade.types import ExternalDataSourceType
 
 logger = structlog.get_logger(__name__)
+
+MANAGED_WAREHOUSE_SOURCE_DESCRIPTION = "Managed warehouse (auto-provisioned)"
 
 # Database engine internals — never warehouse data. Sidebar hygiene, not permissioning:
 # The discovery login may expose engine internals, so this denylist keeps them out of the sidebar.
@@ -80,38 +82,99 @@ def _is_project_reader_source(source: ExternalDataSource) -> bool:
     )
 
 
+def _ensure_stored_login_source_locked(*, team_id: int, server: DuckgresServer) -> ExternalDataSource:
+    existing = next(
+        (
+            source
+            for source in _managed_source_queryset(team_id).select_for_update().order_by("deleted", "-created_at")
+            if not _is_project_reader_source(source)
+        ),
+        None,
+    )
+
+    config = _source_config(server)
+    if existing is not None:
+        update_fields: list[str] = []
+        connection_metadata = dict(existing.connection_metadata or {})
+        if connection_metadata.get("credential_kind") not in MANAGED_WAREHOUSE_LEGACY_CREDENTIAL_KINDS:
+            # Catalog rows discovered with an unknown credential scope cannot be reused safely.
+            now = timezone.now()
+            DataWarehouseTable.raw_objects.filter(
+                team_id=team_id, external_data_source_id=existing.id, deleted=False
+            ).update(deleted=True, deleted_at=now, updated_at=now)
+            ExternalDataSchema.objects.filter(team_id=team_id, source_id=existing.id).delete()
+        if existing.job_inputs != config:
+            existing.job_inputs = config
+            update_fields.append("job_inputs")
+        if existing.access_method != ExternalDataSource.AccessMethod.DIRECT:
+            existing.access_method = ExternalDataSource.AccessMethod.DIRECT
+            update_fields.append("access_method")
+        if not existing.direct_query_enabled:
+            existing.direct_query_enabled = True
+            update_fields.append("direct_query_enabled")
+        if (
+            connection_metadata.get("engine") != "duckdb"
+            or connection_metadata.get("system_managed") is not True
+            or connection_metadata.get("credential_kind") != "org_root"
+        ):
+            migrated = {
+                **connection_metadata,
+                "engine": "duckdb",
+                "system_managed": True,
+                "credential_kind": "org_root",
+            }
+            migrated.pop("reader_configured", None)
+            existing.connection_metadata = migrated
+            update_fields.append("connection_metadata")
+        if existing.deleted:
+            existing.deleted = False
+            existing.deleted_at = None
+            update_fields.extend(["deleted", "deleted_at"])
+        if update_fields:
+            existing.save(update_fields=[*update_fields, "updated_at"])
+        return existing
+
+    return ExternalDataSource.objects.create(
+        source_id=str(uuid4()),
+        connection_id=str(uuid4()),
+        destination_id=str(uuid4()),
+        team_id=team_id,
+        status=ExternalDataSource.Status.RUNNING,
+        source_type=ExternalDataSourceType.POSTGRES,
+        job_inputs=config,
+        prefix=MANAGED_WAREHOUSE_SOURCE_PREFIX,
+        description=MANAGED_WAREHOUSE_SOURCE_DESCRIPTION,
+        access_method=ExternalDataSource.AccessMethod.DIRECT,
+        created_via=ExternalDataSource.CreatedVia.WEB,
+        direct_query_enabled=True,
+        connection_metadata={
+            "engine": "duckdb",
+            "system_managed": True,
+            "credential_kind": "org_root",
+        },
+    )
+
+
 def ensure_managed_warehouse_direct_source(*, team_id: int, organization_id: str | UUID) -> ExternalDataSource:
-    """Return the team's ready project reader without creating or changing credentials."""
+    """Create or refresh the external source backed by the stored server login."""
     with transaction.atomic():
+        server = DuckgresServer.objects.select_for_update().get(organization_id=organization_id)
         Team.objects.select_for_update().only("id").get(id=team_id, organization_id=organization_id)
-        project_readers = (
-            _managed_source_queryset(team_id)
-            .select_for_update()
-            .filter(deleted=False)
-            .filter(connection_metadata__credential_kind=MANAGED_WAREHOUSE_PROJECT_READER_CREDENTIAL_KIND)
-            .order_by("-created_at")
-        )
-        for project_reader in project_readers:
-            if project_reader.is_managed_warehouse_ready:
-                return project_reader
-
-        raise ExternalDataSource.DoesNotExist("Managed warehouse project reader is not configured.")
+        return _ensure_stored_login_source_locked(team_id=team_id, server=server)
 
 
-def reconcile_managed_warehouse_tables(*, team_id: int, organization_id: str | UUID) -> None:
-    """Discover and register the managed-warehouse catalog visible to this team's source."""
+def _reconcile_managed_warehouse_source(
+    *,
+    team_id: int,
+    organization_id: str | UUID,
+    source_id: UUID,
+    expected_mode: ManagedWarehouseSQLMode,
+) -> None:
     with transaction.atomic():
-        # A deprovision tombstone must win over delayed reconciliation, even while the
-        # organization-scoped server row remains available to other internal workflows.
-        if _managed_source_queryset(team_id).filter(deleted=True).exists():
-            return
-
-    try:
-        ensured_source = ensure_managed_warehouse_direct_source(team_id=team_id, organization_id=organization_id)
-    except (ExternalDataSource.DoesNotExist, Team.DoesNotExist):
-        return
-
-    with transaction.atomic():
+        if expected_mode == ManagedWarehouseSQLMode.EXTERNAL:
+            server_exists = DuckgresServer.objects.select_for_update().filter(organization_id=organization_id).exists()
+            if not server_exists:
+                return
         team = Team.objects.select_for_update().only("id").filter(id=team_id, organization_id=organization_id).first()
         if team is None:
             return
@@ -120,15 +183,13 @@ def reconcile_managed_warehouse_tables(*, team_id: int, organization_id: str | U
             _managed_source_queryset(team_id)
             .select_for_update()
             .filter(
-                id=ensured_source.id,
+                id=source_id,
                 deleted=False,
-                connection_metadata__credential_kind=MANAGED_WAREHOUSE_PROJECT_READER_CREDENTIAL_KIND,
             )
             .first()
         )
-        if source is None or not source.is_managed_warehouse_ready:
+        if source is None or source.managed_warehouse_sql_mode != expected_mode:
             return
-        source_id = source.id
         source_config = dict(source.job_inputs or {})
         source_api_version = source.api_version
 
@@ -143,11 +204,21 @@ def reconcile_managed_warehouse_tables(*, team_id: int, organization_id: str | U
     except Exception:
         # A provisioning or briefly unreachable warehouse fails here on every periodic sweep;
         # skip and let the next run retry rather than surfacing a task error each time.
-        logger.warning("Managed warehouse introspection failed; will retry", team_id=team_id, exc_info=True)
+        logger.warning(
+            "Managed warehouse introspection failed; will retry",
+            team_id=team_id,
+            source_id=source_id,
+            source_mode=expected_mode,
+            exc_info=True,
+        )
         return
     source_schemas = [schema for schema in discovered if (schema.source_schema or "") not in excluded_schemas]
     with transaction.atomic():
         # Revalidate after live introspection so deprovision wins the race.
+        if expected_mode == ManagedWarehouseSQLMode.EXTERNAL:
+            server_exists = DuckgresServer.objects.select_for_update().filter(organization_id=organization_id).exists()
+            if not server_exists:
+                return
         team = Team.objects.select_for_update().only("id").filter(id=team_id, organization_id=organization_id).first()
         if team is None:
             return
@@ -158,11 +229,10 @@ def reconcile_managed_warehouse_tables(*, team_id: int, organization_id: str | U
                 id=source_id,
                 deleted=False,
                 access_method=ExternalDataSource.AccessMethod.DIRECT,
-                connection_metadata__credential_kind=MANAGED_WAREHOUSE_PROJECT_READER_CREDENTIAL_KIND,
             )
             .first()
         )
-        if source is None or not source.is_managed_warehouse_ready:
+        if source is None or source.managed_warehouse_sql_mode != expected_mode:
             return
 
         for schema in source_schemas:
@@ -179,6 +249,48 @@ def reconcile_managed_warehouse_tables(*, team_id: int, organization_id: str | U
                 schema_model.save(update_fields=["deleted", "deleted_at", "should_sync", "updated_at"])
 
         reconcile_postgres_schemas(source=source, source_schemas=source_schemas, team_id=team_id)
+
+
+def reconcile_managed_warehouse_tables(*, team_id: int, organization_id: str | UUID) -> None:
+    """Discover each live managed-warehouse catalog using that source's own credentials."""
+    legacy_source_id: UUID | None = None
+    reader_source_id: UUID | None = None
+    try:
+        with transaction.atomic():
+            server = DuckgresServer.objects.select_for_update().filter(organization_id=organization_id).first()
+            Team.objects.select_for_update().only("id").get(id=team_id, organization_id=organization_id)
+            sources = list(_managed_source_queryset(team_id).select_for_update().order_by("-created_at"))
+            has_tombstone = any(source.deleted for source in sources)
+            has_live_legacy_source = any(
+                not source.deleted and not _is_project_reader_source(source) for source in sources
+            )
+            # Explicit reprovisioning revives one mode; tombstones left for the other mode remain authoritative.
+            if server is not None and (not has_tombstone or has_live_legacy_source):
+                legacy_source_id = _ensure_stored_login_source_locked(team_id=team_id, server=server).id
+
+            reader_source = next(
+                (source for source in sources if not source.deleted and source.is_managed_warehouse_ready),
+                None,
+            )
+            if reader_source is not None:
+                reader_source_id = reader_source.id
+    except Team.DoesNotExist:
+        return
+
+    if legacy_source_id is not None:
+        _reconcile_managed_warehouse_source(
+            team_id=team_id,
+            organization_id=organization_id,
+            source_id=legacy_source_id,
+            expected_mode=ManagedWarehouseSQLMode.EXTERNAL,
+        )
+    if reader_source_id is not None:
+        _reconcile_managed_warehouse_source(
+            team_id=team_id,
+            organization_id=organization_id,
+            source_id=reader_source_id,
+            expected_mode=ManagedWarehouseSQLMode.BUILT_IN,
+        )
 
 
 def _managed_sources_for_org(organization_id: str | UUID) -> QuerySet[ExternalDataSource]:
