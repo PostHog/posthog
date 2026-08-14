@@ -5,25 +5,24 @@ import { useState } from 'react'
 import * as xRayPng from '@posthog/brand/hoggies/png/x-ray'
 import { IconPencil, IconPlus, IconRefresh, IconSearch, IconTrash } from '@posthog/icons'
 import {
+    LemonBanner,
     LemonButton,
     LemonInput,
     LemonSwitch,
     LemonTable,
     LemonTabs,
+    LemonTag,
     Link,
     Spinner,
-    SpinnerOverlay,
+    Tooltip,
 } from '@posthog/lemon-ui'
 
 import { pngHoggie } from 'lib/brand/hoggies'
-import { NotFound } from 'lib/components/NotFound'
+import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { appLogic } from 'scenes/appLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 import { aiConsentLogic } from 'scenes/settings/organization/aiConsentLogic'
 import { AIConsentPopoverWrapper } from 'scenes/settings/organization/AIConsentPopoverWrapper'
@@ -33,15 +32,18 @@ import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { ProductKey } from '~/queries/schema/schema-general'
 
+import { visionDocsUrl, VisionDocsLink } from '../components/DocsLink'
 import { FilterPill } from '../components/FilterPill'
 import { IngestionLimitBanner } from '../components/IngestionLimitBanner'
 import { ReplayVisionFeedbackButton } from '../components/ReplayVisionFeedbackButton'
 import { ScannerTypeBadge } from '../components/ScannerTypeBadge'
+import { visionQuotaLogic } from '../logics/visionQuotaLogic'
 import { getReplayVisionDeleteDisabledReason, getReplayVisionEditDisabledReason } from '../utils/accessControl'
 import { creditsToUsd, formatCreditCount } from '../utils/credits'
 import { VisionMetrics } from './components/VisionMetrics'
 import { VisionUsageTab } from './components/VisionUsageTab'
 import { type ScannersSorting, SCANNERS_PAGE_SIZE, replayScannersLogic } from './replayScannersLogic'
+import { LIMIT_REACHED_TOOLTIP } from './scannerCopy'
 import { ENABLED_OPTIONS, EnabledFilter, SCANNER_TYPE_OPTIONS, ScannerType, ReplayScanner } from './types'
 
 const HedgehogXRay = pngHoggie(xRayPng)
@@ -94,6 +96,7 @@ function CreateScannerButton({
             ignoreDismissal
             hideTrainingDisclaimer
             hidden={!consentRequested}
+            pendingRedirectUrl={urls.replayVisionTemplates()}
             onApprove={() => {
                 setConsentRequested(false)
                 goToCreate()
@@ -125,6 +128,8 @@ export function ReplayScannersScene(): JSX.Element {
         scannerTypeFilter,
         createdByFilter,
         createdByOptions,
+        tagsFilter,
+        tagOptions,
         hasActiveFilters,
         scannerStats,
         scannerStatsLoading,
@@ -133,16 +138,7 @@ export function ReplayScannersScene(): JSX.Element {
         useActions(replayScannersLogic)
     const { push } = useActions(router)
     const { searchParams } = useValues(router)
-    const { featureFlags, receivedFeatureFlags } = useValues(featureFlagLogic)
-    const { featureFlagsTimedOut } = useValues(appLogic)
-
-    if (!featureFlags[FEATURE_FLAGS.REPLAY_VISION]) {
-        // Flags load asynchronously, so wait for them before deciding the page doesn't exist.
-        if (!receivedFeatureFlags && !featureFlagsTimedOut) {
-            return <SpinnerOverlay sceneLevel />
-        }
-        return <NotFound object="page" />
-    }
+    const { showUsd } = useValues(visionQuotaLogic)
 
     const columns: LemonTableColumns<ReplayScanner> = [
         {
@@ -179,6 +175,11 @@ export function ReplayScannersScene(): JSX.Element {
                     <span className={`inline-block min-w-[4.5rem] ${scanner.enabled ? 'text-success' : 'text-muted'}`}>
                         {scanner.enabled ? 'Enabled' : 'Disabled'}
                     </span>
+                    {scanner.limit_reached && (
+                        <Tooltip title={LIMIT_REACHED_TOOLTIP}>
+                            <LemonTag type="danger">Limit reached</LemonTag>
+                        </Tooltip>
+                    )}
                 </div>
             ),
             sorter: true,
@@ -188,6 +189,21 @@ export function ReplayScannersScene(): JSX.Element {
             key: 'scanner_type',
             render: (_, scanner) => <ScannerTypeBadge scannerType={scanner.scanner_type} />,
             sorter: true,
+        },
+        {
+            title: 'Tags',
+            key: 'tags',
+            render: (_, scanner) =>
+                scanner.tags.length > 0 ? (
+                    <ObjectTags
+                        tags={scanner.tags}
+                        staticOnly
+                        onTagClick={(tag) => setScannersFilters({ tagsFilter: [tag] })}
+                        data-attr="vision-scanner-row-tags"
+                    />
+                ) : (
+                    <span className="text-muted">—</span>
+                ),
         },
         {
             title: 'Sampling',
@@ -205,7 +221,7 @@ export function ReplayScannersScene(): JSX.Element {
             render: (_, scanner) => (
                 <div className="text-sm tabular-nums">
                     <div>{formatCreditCount(scanner.credits_this_month)}</div>
-                    <div className="text-muted text-xs">≈ {creditsToUsd(scanner.credits_this_month)}</div>
+                    {showUsd && <div className="text-muted text-xs">≈ {creditsToUsd(scanner.credits_this_month)}</div>}
                 </div>
             ),
             sorter: true,
@@ -284,6 +300,17 @@ export function ReplayScannersScene(): JSX.Element {
 
             <IngestionLimitBanner />
 
+            {(scannerStats?.total ?? 0) - (scannerStats?.enabled ?? 0) > 0 && (
+                <LemonBanner type="warning" dismissKey="replay-vision-launch-beta-scanners">
+                    Replay vision is out of beta and scans now use billed credits. Your scanners were turned off for the
+                    launch, so re-enable the ones you want to keep running. See{' '}
+                    <VisionDocsLink page="quota-and-limits" dataAttr="vision-docs-link-launch-banner">
+                        how credits are priced
+                    </VisionDocsLink>{' '}
+                    in the docs, or check the Usage tab for current spend.
+                </LemonBanner>
+            )}
+
             <ProductIntroduction
                 productName="Replay vision"
                 productKey={ProductKey.REPLAY_VISION}
@@ -292,6 +319,7 @@ export function ReplayScannersScene(): JSX.Element {
                 secondaryDescription="Start from a template or build a fully custom scanner."
                 customHog={HedgehogXRay}
                 action={() => push(urls.replayVisionTemplates())}
+                docsURL={visionDocsUrl()}
             />
 
             <LemonTabs
@@ -316,9 +344,9 @@ export function ReplayScannersScene(): JSX.Element {
                     ) : null}
 
                     <div className="flex flex-col gap-3">
-                        <div className="flex items-center gap-2">
+                        <div className="flex flex-wrap items-center gap-2">
                             <h3 className="font-semibold text-base m-0">Scanners</h3>
-                            <div className="ml-auto flex items-center gap-2">
+                            <div className="ml-auto flex flex-wrap items-center gap-2">
                                 <LemonInput
                                     type="search"
                                     placeholder="Search scanners..."
@@ -344,6 +372,13 @@ export function ReplayScannersScene(): JSX.Element {
                                     options={createdByOptions}
                                     value={createdByFilter}
                                     onChange={(v) => setScannersFilters({ createdByFilter: v })}
+                                />
+                                <FilterPill<string>
+                                    label="Tags"
+                                    searchable
+                                    options={tagOptions}
+                                    value={tagsFilter}
+                                    onChange={(v) => setScannersFilters({ tagsFilter: v })}
                                 />
                                 {hasActiveFilters && (
                                     <LemonButton type="tertiary" size="small" onClick={() => clearFilters()}>
@@ -388,6 +423,12 @@ export function ReplayScannersScene(): JSX.Element {
                                             dataAttr="vision-scanner-create-empty"
                                             size="medium"
                                         />
+                                        <VisionDocsLink
+                                            page="creating-scanners"
+                                            dataAttr="vision-empty-docs-link-scanners"
+                                        >
+                                            Learn how scanners work
+                                        </VisionDocsLink>
                                     </div>
                                 ) : (
                                     <span className="text-muted">No scanners match your filters.</span>

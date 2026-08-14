@@ -1,0 +1,128 @@
+name: Desktop CI
+
+# One dispatch per PR event instead of four. GitHub's run-queue cap
+# (500 runs/10s/repo) counts workflow runs, and a run that calls reusable
+# workflows counts once, so the whole desktop suite costs one slot per push.
+#
+# The suites themselves stay unfiltered here on purpose: each child gates its
+# own work on an internal `changes` job, so a non-desktop PR pays a handful of
+# short detector jobs and skips everything else. A trigger-level `paths:`
+# filter would stop the `Desktop * Pass` checks from ever reporting, leaving
+# any PR that requires them stuck waiting for status.
+
+on:
+    pull_request:
+    # Required so the `Desktop * Pass` checks report on merge queue entries —
+    # without it the queue would wait for them until timeout. The children skip
+    # all real jobs on merge_group (the suite already ran in full on the PR) and
+    # their aggregators treat skipped as success.
+    merge_group:
+
+concurrency:
+    group: desktop-ci-${{ github.head_ref || github.ref }}
+    cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+# Children can only narrow what the caller grants, never widen it.
+permissions:
+    contents: read
+    pull-requests: read
+
+jobs:
+    build:
+        uses: ./.github/workflows/desktop-build.yml
+        secrets:
+            GH_APP_POSTHOG_PATHS_FILTER_APP_ID: ${{ secrets.GH_APP_POSTHOG_PATHS_FILTER_APP_ID }}
+            GH_APP_POSTHOG_PATHS_FILTER_PRIVATE_KEY: ${{ secrets.GH_APP_POSTHOG_PATHS_FILTER_PRIVATE_KEY }}
+
+    quality:
+        uses: ./.github/workflows/desktop-quality.yml
+        secrets:
+            GH_APP_POSTHOG_PATHS_FILTER_APP_ID: ${{ secrets.GH_APP_POSTHOG_PATHS_FILTER_APP_ID }}
+            GH_APP_POSTHOG_PATHS_FILTER_PRIVATE_KEY: ${{ secrets.GH_APP_POSTHOG_PATHS_FILTER_PRIVATE_KEY }}
+
+    typecheck:
+        uses: ./.github/workflows/desktop-typecheck.yml
+        secrets:
+            GH_APP_POSTHOG_PATHS_FILTER_APP_ID: ${{ secrets.GH_APP_POSTHOG_PATHS_FILTER_APP_ID }}
+            GH_APP_POSTHOG_PATHS_FILTER_PRIVATE_KEY: ${{ secrets.GH_APP_POSTHOG_PATHS_FILTER_PRIVATE_KEY }}
+
+    test:
+        uses: ./.github/workflows/desktop-test.yml
+        secrets:
+            GH_APP_POSTHOG_PATHS_FILTER_APP_ID: ${{ secrets.GH_APP_POSTHOG_PATHS_FILTER_APP_ID }}
+            GH_APP_POSTHOG_PATHS_FILTER_PRIVATE_KEY: ${{ secrets.GH_APP_POSTHOG_PATHS_FILTER_PRIVATE_KEY }}
+            POSTHOG_CODE_E2E_GATEWAY_PERSONAL_API_KEY: ${{ secrets.POSTHOG_CODE_E2E_GATEWAY_PERSONAL_API_KEY }}
+            POSTHOG_CODE_E2E_GATEWAY_URL: ${{ secrets.POSTHOG_CODE_E2E_GATEWAY_URL }}
+            TRUNK_API_TOKEN: ${{ secrets.TRUNK_API_TOKEN }}
+
+    # Desktop counterpart of the migration/service separation check (see the
+    # script header for why). Lives here rather than pr-housekeeping so the
+    # existing Desktop Tests Pass required check covers it.
+    backend-coupling:
+        name: Desktop backend coupling
+        # merge_group has no pull_request payload; the check already ran on the PR.
+        # trunk-merge/** is the same story for Trunk's merge queue: it opens a real
+        # PR batching several already-checked PRs, so a desktop PR riding along with
+        # an unrelated backend PR would fail a coupling that no author introduced.
+        # The skip is scoped to same-repo heads so a fork can't opt out of the gate
+        # by naming its branch trunk-merge/**; only write access can create one here.
+        if: |
+            github.event_name == 'pull_request' && !(
+                github.event.pull_request.head.repo.full_name == github.repository &&
+                startsWith(github.head_ref, 'trunk-merge/')
+            )
+        runs-on: ubuntu-latest
+        timeout-minutes: 5
+        steps:
+            - name: Checkout gate scripts
+              uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              with:
+                  sparse-checkout: .github/scripts/desktop
+                  persist-credentials: false
+            - uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
+              id: app-token
+              # forks can't read org secrets; fall back to github.token
+              if: github.event.pull_request.head.repo.full_name == github.repository
+              with:
+                  client-id: ${{ secrets.GH_APP_POSTHOG_PATHS_FILTER_APP_ID }}
+                  private-key: ${{ secrets.GH_APP_POSTHOG_PATHS_FILTER_PRIVATE_KEY }}
+            - name: Check desktop/backend separation
+              env:
+                  GH_TOKEN: ${{ steps.app-token.outputs.token || github.token }}
+                  REPOSITORY: ${{ github.repository }}
+                  PR_NUMBER: ${{ github.event.pull_request.number }}
+              run: .github/scripts/desktop/check-pr-backend-coupling.sh
+
+    # Umbrella gate for the whole desktop suite: the one check name to require in
+    # the master ruleset. Adding or removing a suite only changes this needs list,
+    # not branch protection.
+    tests-pass:
+        name: Desktop Tests Pass
+        needs: [build, quality, typecheck, test, backend-coupling]
+        if: always()
+        runs-on: ubuntu-latest
+        timeout-minutes: 5
+        steps:
+            - name: Check results
+              run: |
+                  if [[ "${{ needs.build.result }}" != "success" && "${{ needs.build.result }}" != "skipped" ]]; then
+                    echo "Desktop build did not succeed (result: ${{ needs.build.result }})."
+                    exit 1
+                  fi
+                  if [[ "${{ needs.quality.result }}" != "success" && "${{ needs.quality.result }}" != "skipped" ]]; then
+                    echo "Desktop quality did not succeed (result: ${{ needs.quality.result }})."
+                    exit 1
+                  fi
+                  if [[ "${{ needs.typecheck.result }}" != "success" && "${{ needs.typecheck.result }}" != "skipped" ]]; then
+                    echo "Desktop typecheck did not succeed (result: ${{ needs.typecheck.result }})."
+                    exit 1
+                  fi
+                  if [[ "${{ needs.test.result }}" != "success" && "${{ needs.test.result }}" != "skipped" ]]; then
+                    echo "Desktop tests did not succeed (result: ${{ needs.test.result }})."
+                    exit 1
+                  fi
+                  if [[ "${{ needs.backend-coupling.result }}" != "success" && "${{ needs.backend-coupling.result }}" != "skipped" ]]; then
+                    echo "Desktop backend coupling check did not succeed (result: ${{ needs.backend-coupling.result }})."
+                    exit 1
+                  fi
+                  echo "All desktop suites passed or were skipped."

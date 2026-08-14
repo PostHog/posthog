@@ -74,6 +74,10 @@ def calculate_table_size_activity(inputs: CalculateTableSizeActivityInputs) -> N
     job.save(update_fields=["storage_delta_mib", "updated_at"])
 
     table.size_in_s3_mib = total_mib
-    table.save()
+    # Scoped to the field this activity actually changes: an unscoped save() compares this
+    # possibly-stale in-memory url_pattern (table was loaded before the potentially long
+    # get_size_of_folder() call above) against the row's current DB value, and a credential-less
+    # table with no other change in flight trips the url_pattern guard on that false mismatch.
+    table.save(update_fields=["size_in_s3_mib", "updated_at"])
 
     logger.debug("Table model updated")

@@ -40,7 +40,6 @@ from products.tasks.backend.temporal.process_task.utils import (
     get_actor_distinct_id,
     get_imported_mcp_server_configs,
     get_pr_authorship_mode,
-    get_sandbox_github_identity_user,
     get_sandbox_github_token,
     get_sandbox_mcp_session_user,
     get_sandbox_ph_mcp_configs,
@@ -52,6 +51,7 @@ from products.tasks.backend.temporal.process_task.utils import (
     mark_sandbox_mcp_session,
     record_message_actor,
     sandbox_identity_scope,
+    upgrade_run_to_user_authorship,
 )
 
 from ee.hogai.sandbox import STOP_REASON_END_TURN, TURN_COMPLETE_METHOD
@@ -351,10 +351,11 @@ def _refresh_sandbox_mcp(
 
     scope = sandbox_identity_scope(run_id, state)
     bound_user_id = get_sandbox_mcp_session_user(scope)
-    if bound_user_id == actor_user.id:
+    is_built_in_agent_task = task_run.task.mcp_builtin_agent_key is not None
+    if bound_user_id == actor_user.id and not is_built_in_agent_task:
         logger.info("refresh_mcp_skipped_within_interval", run_id=run_id, user_id=actor_user.id)
         return True
-    is_transition = bound_user_id is not None
+    is_transition = bound_user_id is not None and bound_user_id != actor_user.id
     if is_transition:
         logger.info(
             "refresh_mcp_identity_transition",
@@ -380,8 +381,13 @@ def _refresh_sandbox_mcp(
         token=access_token,
         team_id=task_run.team_id,
         user_id=actor_user.id,
+        include_personal=not task_run.task.internal,
         interaction_origin=(state or {}).get("interaction_origin"),
         allowed_installation_ids=loop_mcp_installation_allowlist(state),
+        origin_product=task_run.task.origin_product,
+        task_agent_key=task_run.task.mcp_builtin_agent_key,
+        credential_owner_id=task_run.task.mcp_credential_owner_id,
+        allowed_gateway_server_ids=task_run.task.mcp_gateway_server_allowlist,
     )
     if user_mcp_configs:
         mcp_configs = mcp_configs + user_mcp_configs
@@ -478,11 +484,11 @@ def _resolve_live_sandbox(state: dict[str, Any] | None) -> Any:
 def _refresh_sandbox_github(task_run: TaskRun, actor_user: Any, state: dict[str, Any] | None) -> bool:
     """Bind the sandbox's in-place GitHub credentials to this message's actor.
 
-    On an actor transition: re-inject the new actor's token if they have usable
-    access, otherwise log the sandbox out (strip the token from the git remote
-    and env) so the previous actor's GitHub identity can never be used by a
-    follow-up actor who lacks access. Reauthorization for that actor is surfaced
-    by the existing credential-refresh path, unchanged.
+    Runs on every turn, for every actor: re-inject the acting user's token if they
+    have usable access, otherwise log the sandbox out (strip the token from the git
+    remote and env). Someone can connect or disconnect their GitHub between any two
+    messages, so the sandbox is never assumed to still reflect the last turn — and a
+    follow-up actor can never inherit the previous actor's identity.
 
     Only USER-authored runs carry per-actor identity — BOT runs share one
     installation token, so every actor is already the same identity. This
@@ -490,22 +496,30 @@ def _refresh_sandbox_github(task_run: TaskRun, actor_user: Any, state: dict[str,
     keeps a continuous actor's token rotated between transitions.
 
     Returns ``True`` when the sandbox safely reflects this actor (rebound, logged
-    out, or nothing to do) and ``False`` only when we could neither rebind nor
-    even clear — the previous actor's credentials may still be live, so the
-    caller fails the follow-up closed.
+    out, or nothing to do) and ``False`` when we could neither rebind nor even
+    clear. That is fail-closed for everyone, including an actor who revoked their
+    own connection: deleting a `UserIntegration` does not revoke the token GitHub
+    already issued, so an unconfirmed clear can leave it usable in the sandbox.
     """
     if actor_user is None:
         return True
 
     run_id = str(task_run.id)
-    scope = sandbox_identity_scope(run_id, state)
-    if get_sandbox_github_identity_user(scope) == actor_user.id:
-        return True  # sandbox already reflects this actor — cheapest check first
-
     task = task_run.task
+    # A run that started before its actor connected GitHub is bot-authored, and the agent may
+    # have been the one that asked them to connect. Promote it so the turn that follows the
+    # connection is the one that gets their identity.
+    promoted_state = upgrade_run_to_user_authorship(task_run, actor_user, state)
+    if promoted_state is not None:
+        state = promoted_state
+
+    scope = sandbox_identity_scope(run_id, state)
     if get_pr_authorship_mode(task, state) != PrAuthorshipMode.USER:
         return True
 
+    # Re-established every turn rather than skipped when the actor is unchanged: they can connect
+    # or disconnect their GitHub between any two messages, and the sandbox can lose its token to a
+    # resume or snapshot restore. Apply the token whenever one resolves, clear it when none does.
     sandbox = _resolve_live_sandbox(state)
     if sandbox is None:
         # We are past the same-actor fast path, so this is an unconfirmed transition. The
@@ -581,6 +595,10 @@ def _refresh_sandbox_github(task_run: TaskRun, actor_user: Any, state: dict[str,
             logger.warning("refresh_github_logout_failed", run_id=run_id, user_id=actor_user.id, exc_info=True)
             return False
         if cleared:
+            # Still record the actor: the marker tells owner-scoped refreshes that this sandbox is
+            # bound away from the run owner, and clearing it would let the scheduled refresh inject
+            # the owner's token into this actor's session. It does not gate the rebind — every turn
+            # re-establishes — so a reconnect is still picked up.
             mark_sandbox_github_identity(scope, actor_user.id)
             logger.info("refresh_github_logged_out", run_id=run_id, user_id=actor_user.id)
             return True

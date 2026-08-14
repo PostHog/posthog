@@ -83,7 +83,7 @@ class TestSessionRecordingPlaylist(APIBaseTest, QueryMatchingTest):
 
         return post_response
 
-    def _get_non_synthetic_playlists(self, query_params: str = "", expected_synthetic_count: int = 7) -> list[dict]:
+    def _get_non_synthetic_playlists(self, query_params: str = "", expected_synthetic_count: int = 6) -> list[dict]:
         url = f"/api/projects/{self.team.id}/session_recording_playlists{query_params}"
         response = self.client.get(url)
         assert response.status_code == status.HTTP_200_OK
@@ -124,7 +124,7 @@ class TestSessionRecordingPlaylist(APIBaseTest, QueryMatchingTest):
 
         assert response.status_code == status.HTTP_200_OK
         response_data = response.json()
-        assert response_data["count"] == 9
+        assert response_data["count"] == 8
         assert response_data["next"] is None
         assert response_data["previous"] is None
         assert [x for x in response_data["results"] if not x["is_synthetic"]] == [
@@ -962,9 +962,9 @@ class TestSessionRecordingPlaylist(APIBaseTest, QueryMatchingTest):
 
     @parameterized.expand(
         [
-            ["no_filter", "", 7, 2],
+            ["no_filter", "", 6, 2],
             ["custom_only", "?collection_type=custom", 0, 2],
-            ["synthetic_only", "?collection_type=synthetic", 7, 0],
+            ["synthetic_only", "?collection_type=synthetic", 6, 0],
         ]
     )
     def test_filters_playlist_by_collection_type(
@@ -1401,6 +1401,68 @@ class TestSessionRecordingPlaylistPersonalAPIKey(APIBaseTest):
         response = self.client.get(url, headers={"authorization": f"Bearer {personal_api_key}"})
 
         assert response.status_code == expected_status
+
+    @parameterized.expand(
+        [
+            ("create", "", {"name": "new playlist", "type": "collection"}, status.HTTP_201_CREATED),
+            ("add_recording", "/{short_id}/recordings/test_session_id", None, status.HTTP_200_OK),
+            (
+                "bulk_add",
+                "/{short_id}/recordings/bulk_add",
+                {"session_recording_ids": ["test_session_id"]},
+                status.HTTP_200_OK,
+            ),
+            (
+                "bulk_delete",
+                "/{short_id}/recordings/bulk_delete",
+                {"session_recording_ids": ["test_session_id"]},
+                status.HTTP_200_OK,
+            ),
+        ]
+    )
+    def test_personal_api_key_can_access_write_endpoints(
+        self, _name: str, path_suffix: str, data: dict | None, expected_status: int
+    ) -> None:
+        playlist = SessionRecordingPlaylist.objects.create(
+            team=self.team,
+            name="test playlist",
+            created_by=self.user,
+            type=SessionRecordingPlaylist.PlaylistType.COLLECTION,
+        )
+        personal_api_key = self._create_personal_api_key(["session_recording_playlist:write"])
+        url = (
+            f"/api/projects/{self.team.pk}/session_recording_playlists{path_suffix.format(short_id=playlist.short_id)}"
+        )
+
+        response = self.client.post(url, data, headers={"authorization": f"Bearer {personal_api_key}"})
+
+        assert response.status_code == expected_status
+
+    @parameterized.expand(
+        [
+            ("create", "", {"name": "new playlist", "type": "collection"}),
+            ("add_recording", "/{short_id}/recordings/test_session_id", None),
+            ("bulk_add", "/{short_id}/recordings/bulk_add", {"session_recording_ids": ["test_session_id"]}),
+            ("bulk_delete", "/{short_id}/recordings/bulk_delete", {"session_recording_ids": ["test_session_id"]}),
+        ]
+    )
+    def test_personal_api_key_with_read_scope_denied_on_write_endpoints(
+        self, _name: str, path_suffix: str, data: dict | None
+    ) -> None:
+        playlist = SessionRecordingPlaylist.objects.create(
+            team=self.team,
+            name="test playlist",
+            created_by=self.user,
+            type=SessionRecordingPlaylist.PlaylistType.COLLECTION,
+        )
+        personal_api_key = self._create_personal_api_key(["session_recording_playlist:read"])
+        url = (
+            f"/api/projects/{self.team.pk}/session_recording_playlists{path_suffix.format(short_id=playlist.short_id)}"
+        )
+
+        response = self.client.post(url, data, headers={"authorization": f"Bearer {personal_api_key}"})
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN
 
     @parameterized.expand(
         [
