@@ -24,6 +24,8 @@ if not org:
 team = Team.objects.filter(organization=org).first()
 if not team:
     team = Team.objects.create(organization=org, name="Default project")
+team.session_recording_opt_in = True
+team.save(update_fields=["session_recording_opt_in"])
 
 user = User.objects.filter(email="ci@posthog.com").first()
 if not user:
