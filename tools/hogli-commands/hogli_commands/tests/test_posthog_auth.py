@@ -167,23 +167,22 @@ def test_the_credential_file_is_owner_only() -> None:
     assert stat.S_IMODE(path.stat().st_mode) == 0o600
 
 
-def test_hosts_are_cached_separately() -> None:
-    # us and eu are different accounts, so one overwriting the other would log you out sideways.
+@pytest.mark.parametrize(
+    "other_host",
+    [
+        # us and eu are different accounts, so one overwriting the other would log you out sideways.
+        "https://eu.posthog.com",
+        # http and https on one netloc are different origins, so a slug built from the netloc
+        # alone would let one login overwrite and serve the other.
+        "http://us.posthog.com",
+    ],
+)
+def test_hosts_are_cached_separately(other_host: str) -> None:
     posthog_auth.save(_credential())
-    posthog_auth.save(_credential(host="https://eu.posthog.com", access_token="pha_eu"))
-    us, eu = posthog_auth.load(_HOST), posthog_auth.load("https://eu.posthog.com")
-    assert us is not None and us.access_token == "pha_cached"
-    assert eu is not None and eu.access_token == "pha_eu"
-
-
-def test_hosts_differing_only_by_scheme_are_cached_separately() -> None:
-    # http and https on one netloc are different origins (a local stack vs a tunnel in front of
-    # it), so a slug built from the netloc alone would let one login overwrite and serve the other.
-    posthog_auth.save(_credential(host="https://localhost:8000", access_token="pha_tls"))
-    posthog_auth.save(_credential(host="http://localhost:8000", access_token="pha_plain"))
-    secure, plain = posthog_auth.load("https://localhost:8000"), posthog_auth.load("http://localhost:8000")
-    assert secure is not None and secure.access_token == "pha_tls"
-    assert plain is not None and plain.access_token == "pha_plain"
+    posthog_auth.save(_credential(host=other_host, access_token="pha_other"))
+    ours, theirs = posthog_auth.load(_HOST), posthog_auth.load(other_host)
+    assert ours is not None and ours.access_token == "pha_cached"
+    assert theirs is not None and theirs.access_token == "pha_other"
 
 
 def test_a_cache_file_recorded_for_another_host_reads_as_absent() -> None:

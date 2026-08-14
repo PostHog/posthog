@@ -164,7 +164,7 @@ def load(host: str = DEFAULT_HOST) -> Credential | None:
         return None
     try:
         return Credential(
-            host=str(raw["host"]),
+            host=host,
             client_id=str(raw["client_id"]),
             access_token=str(raw["access_token"]),
             refresh_token=raw.get("refresh_token"),
