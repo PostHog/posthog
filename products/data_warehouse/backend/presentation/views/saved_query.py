@@ -964,19 +964,12 @@ class DataWarehouseSavedQuerySerializer(
             )
 
         dag_managed_frequency = False
-        if sync_frequency and posthoganalytics.feature_enabled(
-            "data-modeling-backend-v2",
-            str(instance.team.uuid),
-            groups={
-                "organization": str(instance.team.organization_id),
-                "project": str(instance.team.id),
-            },
-        ):
+        if sync_frequency:
             from products.data_modeling.backend.facade.api import tiered_schedules_enabled
 
-            # On tiered v2 the frequency writes through to the DAG node's freshness target;
-            # on single-schedule v2 the DAG's one schedule owns cadence and per-query
-            # frequency edits are rejected.
+            # On tiered schedules the frequency writes through to the DAG node's freshness target;
+            # on a single DAG schedule that one schedule owns cadence and per-query frequency edits
+            # are rejected.
             if not tiered_schedules_enabled(instance.team):
                 raise serializers.ValidationError("Schedule is managed by the DAG. Edit the DAG schedule instead.")
             dag_managed_frequency = True
@@ -1006,18 +999,10 @@ class DataWarehouseSavedQuerySerializer(
                     raise serializers.ValidationError("The query was modified by someone else.")
 
             if dag_managed_frequency:
-                # Tiered v2: the node target is the only store of frequency intent. The
-                # interval column stays NULL so a stale v1 schedule can never be revived
-                # from it.
+                # The node target is the only store of frequency intent. The interval column
+                # stays NULL so a stale v1 schedule can never be revived from it.
                 locked_instance.sync_frequency_interval = None
                 validated_data["sync_frequency_interval"] = None
-            elif sync_frequency == "never":
-                locked_instance.sync_frequency_interval = None
-                validated_data["sync_frequency_interval"] = None
-            elif sync_frequency:
-                sync_frequency_interval = sync_frequency_to_sync_frequency_interval(sync_frequency)
-                validated_data["sync_frequency_interval"] = sync_frequency_interval
-                locked_instance.sync_frequency_interval = sync_frequency_interval
 
             view: DataWarehouseSavedQuery = super().update(locked_instance, validated_data)
 
@@ -1513,23 +1498,15 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, AccessControlViewSe
         return context
 
     def _team_frequency_mode(self) -> str:
-        """Which backend owns materialization cadence for this team.
+        """Which scheduler owns materialization cadence for this team.
 
-        Mirrors the branch `update()` takes on a `sync_frequency` write: `legacy` writes the interval
-        column, `tiered` writes the DAG node's freshness target and is the only mode with bounds, and
-        `dag_schedule` rejects the write because the team's one DAG schedule owns cadence. Team-scoped,
-        so the per-view rejections (managed viewsets, views with no node) are not reflected here.
+        Mirrors the branch `update()` takes on a `sync_frequency` write: `tiered` writes the DAG node's
+        freshness target and is the only mode with bounds, and `dag_schedule` rejects the write because
+        the team's one DAG schedule owns cadence. Team-scoped, so the per-view rejections (managed
+        viewsets, views with no node) are not reflected here.
         """
         from products.data_modeling.backend.facade.api import tiered_schedules_enabled
 
-        v2_enabled = posthoganalytics.feature_enabled(
-            "data-modeling-backend-v2",
-            str(self.team.uuid),
-            groups={"organization": str(self.team.organization_id), "project": str(self.team.id)},
-            send_feature_flag_events=False,
-        )
-        if not v2_enabled:
-            return "legacy"
         return "tiered" if tiered_schedules_enabled(self.team) else "dag_schedule"
 
     def get_serializer_class(self):
