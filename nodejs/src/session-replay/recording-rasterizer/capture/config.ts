@@ -5,6 +5,9 @@ import { CaptureConfig, RasterizeRecordingInput } from '~/session-replay/recordi
 
 const DEFAULT_PLAYBACK_SPEED = 4
 const DEFAULT_FPS = 24
+// Kept in step with SESSION_RECORDING_ID_RE in products/exports/backend/models/exported_asset.py.
+// The lookahead drops a dot-only id, which is a relative path segment rather than a session.
+const SESSION_ID_RE = /^(?!\.+$)[A-Za-z0-9_.:-]{1,200}$/
 
 // Coerce a value interpolated into an ffmpeg option (`-t`) or filter (`setpts=`, `fps=`) to a
 // finite number. ffmpeg is spawned without a shell, but a non-finite/non-numeric value reaching
@@ -22,6 +25,11 @@ function toFiniteNumber(value: unknown, field: string): number {
 export function validateInput(input: RasterizeRecordingInput): void {
     if (!input.session_id) {
         throw new RasterizationError('session_id is required', false, 'INVALID_INPUT')
+    }
+    // Mirrors the allowlist the Python side enforces: a session id ends up in the internal
+    // recording-api paths the block proxy builds, so it must not carry path structure.
+    if (!SESSION_ID_RE.test(input.session_id)) {
+        throw new RasterizationError('session_id contains illegal characters', false, 'INVALID_INPUT')
     }
     if (!input.team_id || input.team_id <= 0) {
         throw new RasterizationError('team_id must be a positive integer', false, 'INVALID_INPUT')
