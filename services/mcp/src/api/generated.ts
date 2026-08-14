@@ -3225,7 +3225,13 @@ export namespace Schemas {
       xAxisLabel?: string | null;
       /** Custom label rendered alongside the Y axis. */
       yAxisLabel?: string | null;
+      /** Pins the top of the y-axis; unset means automatic. Ignored in the same cases as `yAxisStartAtZero`, and when `yAxisMin` is not below it. */
+      yAxisMax?: number | null;
+      /** Pins the bottom of the y-axis; unset means automatic. Ignored in the same cases as `yAxisStartAtZero`, while it is on, and when not below `yAxisMax`. */
+      yAxisMin?: number | null;
       yAxisScaleType?: YAxisScaleType | null;
+      /** Y-axis baseline. When false the axis floats to the data range instead of starting at zero. Ignored on bar displays (bars always draw from zero), on a logarithmic scale, and while showing percentages. */
+      yAxisStartAtZero?: boolean | null;
     }
 
     export interface TrendsQuery {
@@ -8893,6 +8899,32 @@ export namespace Schemas {
       Inconclusive: 'inconclusive',
     } as const;
 
+    export interface AlertDelivery {
+      /** Delivery channel: 'email' or 'hog_function' (destinations). */
+      channel: string;
+      /** Email address, or destination name, that received the notification. */
+      target: string;
+      /**
+         * Hog function ID, for destination deliveries. Null for email.
+         * @nullable
+         */
+      target_id?: string | null;
+      /**
+         * Destination template: 'slack', 'discord', 'webhook', or 'teams'. Null for email.
+         * @nullable
+         */
+      template?: string | null;
+      /** Delivery status. Always 'accepted', for a confirmed send. */
+      status: string;
+      /**
+         * When the delivery was recorded.
+         * @nullable
+         */
+      at: string | null;
+      /** Ready-to-display description of the delivery, e.g. 'Email: a@example.com' or 'Slack #eng-alerts'. */
+      display_label: string;
+    }
+
     export interface AlertCheck {
       readonly id: string;
       readonly created_at: string;
@@ -8918,6 +8950,11 @@ export namespace Schemas {
       /** @nullable */
       readonly notification_sent_at: string | null;
       readonly notification_suppressed_by_agent: boolean;
+      /**
+         * Destinations that accepted this check's notification, one record per destination (channel, target, status, at). Null when no delivery receipt was recorded, which covers checks that notified nobody and checks predating delivery receipts.
+         * @nullable
+         */
+      readonly deliveries: readonly AlertDelivery[] | null;
     }
 
     export type TrendsAlertConfigType = typeof TrendsAlertConfigType[keyof typeof TrendsAlertConfigType];
@@ -66948,7 +66985,7 @@ export namespace Schemas {
     }
 
     export interface QuotaResourceLimit {
-      /** True when the team is currently over its quota for this resource and limits are in effect. */
+      /** True when the team is currently over its quota for this resource and limits are in effect. A deactivated organization additionally reads as limited on the two credit buckets `ai_credits` and `posthog_code_credits`, regardless of usage. */
       limited: boolean;
       /**
          * Units of this resource the organization has used so far this billing period, in the resource's native unit (credits for credit buckets). Null when billing hasn't synced usage for the resource.
@@ -66970,7 +67007,7 @@ export namespace Schemas {
     export interface QuotaLimitsResponse {
       /** Per-resource limit state for every `QuotaResource` value, e.g. `ai_credits`, `posthog_code_credits`. Also carries the informational Desktop component resources (`posthog_code_token_credits`, `sandbox_compute_credits`, `sandbox_compute_cpu_millicore_seconds`, `sandbox_compute_memory_mib_seconds`) with usage in their native units, a null limit, and `limited` always false — they are never quota-enforced; only the combined `posthog_code_credits` is. */
       limited: QuotaLimitsResponseLimited;
-      /** Whether the team's organization pays for PostHog Desktop usage: billing grants the `posthog_code_usage` product feature only on the Desktop usage product's paid plan, synced into the organization's available features. Consumers gate paid-tier Desktop behavior on this; an org unknown to billing reads as not paying. */
+      /** Whether the team's organization pays for PostHog Desktop usage: billing grants the `posthog_code_usage` product feature only on the Desktop usage product's paid plan, synced into the organization's available features. Consumers gate paid-tier Desktop behavior on this; an org unknown to billing reads as not paying. Always false for deactivated organizations. */
       code_usage_billing_active: boolean;
     }
 
