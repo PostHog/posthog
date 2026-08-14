@@ -174,6 +174,27 @@ describe('replayScannerLogic', () => {
             expect(logic.values.scanner).toMatchObject({ name: '', scanner_type: 'monitor' })
             expect(router.values.location.pathname).toEqual(pathBefore)
         })
+
+        // The in-player analysis nudge deep-links to the wizard with the goal as a search param.
+        it('consumes a ?goal= param: starts the draft and strips the param so a reload cannot re-fire it', async () => {
+            draftSpy.mockReturnValue([
+                200,
+                { name: 'Rage clicks', description: '', scanner_type: 'monitor', scanner_config: { prompt: 'x' } },
+            ])
+            router.actions.push(urls.replayVisionScannerTemplate('new'), { goal: 'find rage clicks in checkout' })
+
+            await expectLogic(logic, () => logic.actions.loadScanner())
+                .toDispatchActions([
+                    logic.actionCreators.setGoalDraftInput('find rage clicks in checkout'),
+                    'draftScannerFromGoal',
+                ])
+                .toFinishAllListeners()
+
+            expect(draftSpy).toHaveBeenCalled()
+            expect(router.values.searchParams.goal).toBeUndefined()
+            expect(logic.values.scanner).toMatchObject({ name: 'Rage clicks' })
+            expect(router.values.location.pathname).toContain(urls.replayVisionScannerConfigure('new'))
+        })
     })
 
     describe('setScannerType', () => {
