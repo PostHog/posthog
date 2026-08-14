@@ -31,6 +31,7 @@ import {
     convertUniversalFiltersToRecordingsQuery,
     getDefaultFilters,
     preferredRecordingsSortStorage,
+    sanitizeRecordingFilters,
     sessionRecordingsPlaylistLogic,
 } from './sessionRecordingsPlaylistLogic'
 
@@ -1973,6 +1974,42 @@ describe('sessionRecordingsPlaylistLogic', () => {
                     },
                 })
             }).toMatchValues({ totalFiltersCount: 1 })
+        })
+    })
+
+    describe('sanitizeRecordingFilters', () => {
+        const validGroup: UniversalFiltersGroup = {
+            type: FilterLogicalOperator.And,
+            values: [{ type: FilterLogicalOperator.And, values: [] }],
+        }
+
+        it('keeps valid fields and drops only the malformed one', () => {
+            // Guards the fix: a single bad field must not wipe the whole set back to defaults.
+            const { validFilters, rejectedFields } = sanitizeRecordingFilters({
+                date_from: '-7d',
+                filter_group: validGroup,
+                order_direction: 'SIDEWAYS' as any,
+            })
+
+            expect(rejectedFields).toEqual(['order_direction'])
+            expect(validFilters).toEqual({ date_from: '-7d', filter_group: validGroup })
+        })
+
+        it.each([
+            ['date_from', { date_from: 5 as any }],
+            ['filter_test_accounts', { filter_test_accounts: 'yes' as any }],
+            ['duration', { duration: 'long' as any }],
+            ['filter_group', { filter_group: { type: FilterLogicalOperator.And } as any }],
+            ['order', { order: 42 as any }],
+        ])('rejects %s when malformed', (field, filters) => {
+            const { validFilters, rejectedFields } = sanitizeRecordingFilters(filters)
+            expect(rejectedFields).toEqual([field])
+            expect(field in validFilters).toBe(false)
+        })
+
+        it('reports nothing rejected for a fully valid set', () => {
+            const { rejectedFields } = sanitizeRecordingFilters({ date_from: '-7d', order_direction: 'ASC' })
+            expect(rejectedFields).toEqual([])
         })
     })
 })

@@ -284,56 +284,96 @@ const handleLoadCollectionRecordings = (shortId: string): void => {
  * @param filters - The filters to check.
  * @returns True if the filters are valid, false otherwise.
  */
-export function isValidRecordingFilters(filters: Partial<RecordingUniversalFilters> | undefined): boolean {
+/** User-facing names for filter fields, used when telling someone which parts were skipped. */
+const FILTER_FIELD_LABELS: Record<string, string> = {
+    date_from: 'date range',
+    date_to: 'date range',
+    filter_test_accounts: 'test account filter',
+    duration: 'duration',
+    filter_group: 'filters',
+    order: 'sort order',
+    order_direction: 'sort order',
+}
+
+export interface SanitizedRecordingFilters {
+    /** The input with every invalid field removed, safe to merge onto current state. */
+    validFilters: Partial<RecordingUniversalFilters>
+    /** Field keys that failed validation and were dropped. */
+    rejectedFields: string[]
+}
+
+/**
+ * Validates each known filter field on its own. Invalid fields are dropped and listed in
+ * `rejectedFields`; every other field is kept. So a single malformed field from a URL or from
+ * stored state no longer discards the whole set of filters the user set.
+ */
+export function sanitizeRecordingFilters(
+    filters: Partial<RecordingUniversalFilters> | undefined
+): SanitizedRecordingFilters {
     if (!filters || typeof filters !== 'object') {
-        return false
+        return { validFilters: {}, rejectedFields: [] }
+    }
+
+    const validFilters: Partial<RecordingUniversalFilters> = { ...filters }
+    const rejectedFields: string[] = []
+    const reject = (field: keyof RecordingUniversalFilters): void => {
+        rejectedFields.push(field)
+        delete validFilters[field]
     }
 
     if ('date_from' in filters && filters.date_from !== null && typeof filters.date_from !== 'string') {
-        return false
+        reject('date_from')
     }
     if ('date_to' in filters && filters.date_to !== null && typeof filters.date_to !== 'string') {
-        return false
+        reject('date_to')
     }
 
     if ('filter_test_accounts' in filters && typeof filters.filter_test_accounts !== 'boolean') {
-        return false
+        reject('filter_test_accounts')
     }
 
     if ('duration' in filters) {
-        if (!Array.isArray(filters.duration)) {
-            return false
-        }
+        const duration = filters.duration
         if (
-            filters.duration.length > 0 &&
-            (!filters.duration[0]?.type || !filters.duration[0]?.key || !filters.duration[0]?.operator)
+            !Array.isArray(duration) ||
+            (duration.length > 0 && (!duration[0]?.type || !duration[0]?.key || !duration[0]?.operator))
         ) {
-            return false
+            reject('duration')
         }
     }
 
     if ('filter_group' in filters) {
         const group = filters.filter_group
-        if (!group || typeof group !== 'object') {
-            return false
-        }
-        if (!('type' in group) || !('values' in group) || !Array.isArray(group.values)) {
-            return false
+        if (
+            !group ||
+            typeof group !== 'object' ||
+            !('type' in group) ||
+            !('values' in group) ||
+            !Array.isArray(group.values)
+        ) {
+            reject('filter_group')
         }
     }
 
     if ('order' in filters && typeof filters.order !== 'string') {
-        return false
+        reject('order')
     }
 
     if (
         'order_direction' in filters &&
         (typeof filters.order_direction !== 'string' || !['ASC', 'DESC'].includes(filters.order_direction ?? 'DESC'))
     ) {
-        return false
+        reject('order_direction')
     }
 
-    return true
+    return { validFilters, rejectedFields }
+}
+
+export function isValidRecordingFilters(filters: Partial<RecordingUniversalFilters> | undefined): boolean {
+    if (!filters || typeof filters !== 'object') {
+        return false
+    }
+    return sanitizeRecordingFilters(filters).rejectedFields.length === 0
 }
 
 /**
@@ -1101,25 +1141,23 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
             {
                 setFilters: (state, { filters }) => {
                     try {
-                        if (!isValidRecordingFilters(filters)) {
-                            posthog.captureException(new Error('Invalid filters provided'), {
-                                filters,
-                            })
-                            return getDefaultFilters(props.personUUID, props.pinnedFilters)
-                        }
-
+                        // Keep every valid field; drop only the malformed ones. The listener tells the
+                        // user which parts were skipped. This replaces a wholesale reset to defaults.
+                        const { validFilters } = sanitizeRecordingFilters(filters)
                         const newState = {
                             ...state,
-                            date_to: filters.date_from && isRelativeDate(filters.date_from) ? null : state.date_to,
-                            ...filters,
+                            date_to:
+                                validFilters.date_from && isRelativeDate(validFilters.date_from) ? null : state.date_to,
+                            ...validFilters,
                         }
                         if (props.pinnedFilters) {
                             newState.filter_group = mergePinnedFilters(newState.filter_group, props.pinnedFilters)
                         }
                         return newState
                     } catch (e) {
+                        // Keep the current filters rather than discarding them on an unexpected error.
                         posthog.captureException(e)
-                        return getDefaultFilters(props.personUUID, props.pinnedFilters)
+                        return state
                     }
                 },
                 resetFilters: () => getDefaultFilters(props.personUUID, props.pinnedFilters),
@@ -1191,9 +1229,10 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
             false,
             {
                 loadSessionRecordingsFailure: () => true,
-                loadSessionRecordingSuccess: () => false,
+                loadSessionRecordingsSuccess: () => false,
                 setFilters: () => false,
                 setAdvancedFilters: () => false,
+                resetFilters: () => false,
                 loadNext: () => false,
                 loadPrev: () => false,
             },
@@ -1300,6 +1339,16 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
                 actions.loadPinnedRecordings()
             },
             setFilters: ({ filters }) => {
+                const { rejectedFields } = sanitizeRecordingFilters(filters)
+                if (rejectedFields.length > 0) {
+                    posthog.captureException(new Error('Invalid filters provided'), { filters, rejectedFields })
+                    const labels = Array.from(
+                        new Set(rejectedFields.map((field) => FILTER_FIELD_LABELS[field] ?? field))
+                    )
+                    lemonToast.warning(
+                        `Some filters couldn't be applied and were skipped: ${labels.join(', ')}. Your other filters are still active.`
+                    )
+                }
                 actions.loadSessionRecordings(undefined, filters)
                 props.onFiltersChange?.(values.filters)
                 actions.loadEventsHaveSessionId()

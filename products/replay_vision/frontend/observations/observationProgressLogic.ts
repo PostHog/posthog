@@ -1,5 +1,6 @@
 import { MakeLogicType, actions, kea, key, listeners, path, props, reducers } from 'kea'
 
+import posthog from 'lib/posthog-typed'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { observationsDockLogic } from '../logics/observationsDockLogic'
@@ -31,8 +32,11 @@ export interface ObservationProgressLogicProps {
 interface StreamHandlers {
     setProgress: (progress: ObservationProgress) => void
     streamCompleted: () => void
-    setStreamError: (error: string) => void
+    setStreamError: (message: string, code: string) => void
 }
+
+/** Fallback code when an error payload predates the structured format or omits its code. */
+const DEFAULT_STREAM_ERROR_CODE = 'stream_failed'
 
 /** Parse one SSE block (`event: <label>\ndata: <json>`) from our progress endpoint and dispatch it. */
 function dispatchSseBlock(block: string, handlers: StreamHandlers): void {
@@ -55,7 +59,20 @@ function dispatchSseBlock(block: string, handlers: StreamHandlers): void {
     } else if (event === 'observation-complete') {
         handlers.streamCompleted()
     } else if (event === 'observation-error') {
-        handlers.setStreamError(data)
+        // The payload is `{code, message}`. Tolerate a non-JSON body too, so a server still on the
+        // old plain-string format during a rollout doesn't crash the parser and kill the stream.
+        let code = DEFAULT_STREAM_ERROR_CODE
+        let message = data
+        try {
+            const parsed = JSON.parse(data)
+            if (parsed && typeof parsed === 'object') {
+                code = typeof parsed.code === 'string' ? parsed.code : code
+                message = typeof parsed.message === 'string' ? parsed.message : message
+            }
+        } catch {
+            // Keep the raw string as the message.
+        }
+        handlers.setStreamError(message, code)
     }
 }
 
@@ -104,8 +121,12 @@ export interface observationProgressLogicActions {
     setProgress: (progress: ObservationProgress) => {
         progress: ObservationProgress
     }
-    setStreamError: (error: string) => {
-        error: string
+    setStreamError: (
+        message: string,
+        code: string
+    ) => {
+        message: string
+        code: string
     }
     startStream: () => {
         value: true
@@ -141,7 +162,7 @@ export const observationProgressLogic = kea<observationProgressLogicType>([
         startStream: true,
         setProgress: (progress: ObservationProgress) => ({ progress }),
         streamCompleted: true,
-        setStreamError: (error: string) => ({ error }),
+        setStreamError: (message: string, code: string) => ({ message, code }),
     }),
 
     reducers({
@@ -154,7 +175,7 @@ export const observationProgressLogic = kea<observationProgressLogicType>([
         streamError: [
             null as string | null,
             {
-                setStreamError: (_, { error }) => error,
+                setStreamError: (_, { message }) => message,
             },
         ],
     }),
@@ -183,8 +204,10 @@ export const observationProgressLogic = kea<observationProgressLogicType>([
                 observationsDockLogic.findMounted({ sessionId: props.sessionId })?.actions.loadObservations()
             }
         },
-        setStreamError: () => {
+        setStreamError: ({ code }) => {
             cache.disposables.dispose('progressStream')
+            // Capture so each failure kind is countable; the stream captured nothing client-side before.
+            posthog.capture('replay vision progress stream error', { code, observation_id: props.observationId })
         },
     })),
 ])

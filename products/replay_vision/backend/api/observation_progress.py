@@ -36,6 +36,12 @@ def _sse_event(label: str, data: str) -> str:
     return f"event: {label}\ndata: {data}\n\n"
 
 
+def _sse_error(code: str, message: str) -> str:
+    """Error events carry a stable `code` next to the human-readable `message`, so the client can pick the
+    right recovery and count each failure kind rather than parsing a free-text string."""
+    return _sse_event("observation-error", json.dumps({"code": code, "message": message}))
+
+
 @dataclass(frozen=True)
 class _ObservationState:
     status: str
@@ -122,11 +128,11 @@ async def stream_observation_progress(observation: ReplayObservation) -> AsyncGe
             if time.monotonic() > deadline:
                 # Free the ASGI worker rather than hold it open indefinitely on a stuck workflow.
                 logger.info("replay_vision.observation_progress_stream_timeout", observation_id=str(observation_id))
-                yield _sse_event("observation-error", "Progress stream timed out.")
+                yield _sse_error("stream_timeout", "Progress stream timed out.")
                 return
             state = await _read_observation_state(observation_id, team_id)
             if state is None:
-                yield _sse_event("observation-error", "Observation not found")
+                yield _sse_error("observation_not_found", "Observation not found.")
                 return
             status, workflow_id = state.status, state.workflow_id
             if status in TERMINAL_STATUSES:
@@ -139,4 +145,4 @@ async def stream_observation_progress(observation: ReplayObservation) -> AsyncGe
     except Exception:
         # Don't leak the raw exception (DB hosts, internal details) to the client; it's logged server-side.
         logger.exception("replay_vision.observation_progress_stream_failed", observation_id=str(observation_id))
-        yield _sse_event("observation-error", "An unexpected error occurred.")
+        yield _sse_error("stream_failed", "An unexpected error occurred.")
