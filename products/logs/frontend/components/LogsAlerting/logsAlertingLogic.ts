@@ -23,13 +23,16 @@ import { alertFiltersForPreEnableCheck, dispatchPreEnableCheck, runPreEnableChec
 const ALERT_POLL_INTERVAL_MS = 30_000
 
 export function resolveSnoozeUntil(value: string): string {
-    const relativeValue = value.match(/^\+(\d+)([hdwMy])$/)
+    const relativeValue = value.match(/^\+(\d+)([mhdwMy])$/)
     if (!relativeValue) {
         return dayjs(value).endOf('day').toISOString()
     }
 
     const amount = Number(relativeValue[1])
     const unit = relativeValue[2]
+    if (unit === 'm') {
+        return dayjs().add(amount, 'minute').toISOString()
+    }
     if (unit === 'h') {
         return dayjs().add(amount, 'hour').toISOString()
     }

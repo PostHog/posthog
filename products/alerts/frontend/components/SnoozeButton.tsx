@@ -42,15 +42,27 @@ export function SnoozeButton({ onChange, onClear, value, disabledReason }: Snooz
                 clearOption={onClear && value ? { label: 'Clear snooze', onClick: onClear } : undefined}
                 dateOptions={[
                     {
-                        key: 'Tomorrow',
-                        values: ['+1d'],
-                        getFormattedDate: (date: dayjs.Dayjs): string => formatDate(date.add(1, 'd'), DATETIME_FORMAT),
-                        defaultInterval: 'day',
+                        key: '30 minutes',
+                        values: ['+30m'],
+                        getFormattedDate: (date: dayjs.Dayjs): string => formatDate(date.add(30, 'm'), DATETIME_FORMAT),
+                        defaultInterval: 'minute',
                     },
                     {
-                        key: 'One week from now',
-                        values: ['+1w'],
-                        getFormattedDate: (date: dayjs.Dayjs): string => formatDate(date.add(1, 'w'), DATETIME_FORMAT),
+                        key: '1 hour',
+                        values: ['+1h'],
+                        getFormattedDate: (date: dayjs.Dayjs): string => formatDate(date.add(1, 'h'), DATETIME_FORMAT),
+                        defaultInterval: 'hour',
+                    },
+                    {
+                        key: '4 hours',
+                        values: ['+4h'],
+                        getFormattedDate: (date: dayjs.Dayjs): string => formatDate(date.add(4, 'h'), DATETIME_FORMAT),
+                        defaultInterval: 'hour',
+                    },
+                    {
+                        key: '24 hours',
+                        values: ['+24h'],
+                        getFormattedDate: (date: dayjs.Dayjs): string => formatDate(date.add(24, 'h'), DATETIME_FORMAT),
                         defaultInterval: 'day',
                     },
                 ]}
