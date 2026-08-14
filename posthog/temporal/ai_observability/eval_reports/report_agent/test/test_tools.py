@@ -630,6 +630,22 @@ class TestAddSection(SimpleTestCase):
         self.assertNotIn("Error", result)
         self.assertEqual(len(state["report"].sections), 1)
 
+    @parameterized.expand(
+        [
+            ("different_casing", f"`{_VALID_GEN_ID.upper()}`"),
+            ("surrounding_spaces", f"` {_VALID_GEN_ID} `"),
+            ("multiple_backticks", f"``{_VALID_GEN_ID}``"),
+        ]
+    )
+    def test_rejects_cited_uuid_when_format_will_not_link(self, _name: str, formatted_id: str) -> None:
+        state = _state_with_empty_report()
+        state["report"].citations.append(Citation(generation_id=_VALID_GEN_ID, trace_id=_VALID_TRACE_ID))
+
+        result = _add_section_fn(state=state, title="Summary", content=f"See {formatted_id} for the regression.")
+
+        self.assertIn("Error", result)
+        self.assertEqual(state["report"].sections, [])
+
 
 class TestAddCitation(SimpleTestCase):
     def test_appends_citation(self):
