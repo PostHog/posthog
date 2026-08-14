@@ -88,7 +88,7 @@ export const batchWorkflowJobsLogic = kea<batchWorkflowJobsLogicType>([
             try {
                 await hogFlowsBatchJobsCancelCreate(String(ApiConfig.getCurrentTeamId()), props.id, jobId)
                 lemonToast.success(
-                    'Batch run cancellation requested. Runs mid-step stop at their next step; sent messages are not recalled.'
+                    'Batch run cancellation requested. Runs mid-step stop at their next step. Sent messages are not recalled.'
                 )
                 actions.loadBatchWorkflowJobs()
             } catch (e: any) {

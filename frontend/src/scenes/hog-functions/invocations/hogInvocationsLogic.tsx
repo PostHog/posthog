@@ -1452,10 +1452,10 @@ export const hogInvocationsLogic = kea<hogInvocationsLogicType>([
                 const marked = response.marked ?? 0
                 if (marked > 0) {
                     lemonToast.success(
-                        `Cancellation requested for ${marked} ${marked === 1 ? 'run' : 'runs'}. Parked runs stop within moments; runs mid-step stop at their next step.`
+                        `Cancellation requested for ${marked} ${marked === 1 ? 'run' : 'runs'}. Parked runs stop within moments. Runs mid-step stop at their next step.`
                     )
                 } else {
-                    lemonToast.info('No runs needed cancelling - they may have already finished.')
+                    lemonToast.info('Nothing to cancel. The selected runs may have already finished.')
                 }
                 actions.clearSelected()
                 // Cancelled rows flip once the worker terminates them - poll briefly so the
