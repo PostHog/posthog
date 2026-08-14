@@ -475,7 +475,7 @@ runcmd:
                             "type": "HobbyCISmokeTestError",
                             "value": "Exception capture smoke test",
                             "mechanism": {"handled": True, "synthetic": True},
-                            "stacktrace": {"frames": []},
+                            "stacktrace": {"type": "raw", "frames": []},
                         }
                     ],
                 },
