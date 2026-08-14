@@ -589,9 +589,11 @@ describe('Workflows E2E (postgres-v2)', () => {
             await workflowWaitingUntil()
             await triggerWorkflow(createGlobals({ properties: {} } as any))
 
+            // Waiting for a terminal state, not merely "not available": a job being worked on is also not
+            // available, so the looser check can pass in the window before the run would have sent.
             await waitForExpect(async () => {
                 const jobs = await queryCyclotronJobs()
-                expect(jobs.filter((j: any) => j[statusColumn] !== 'available')).toHaveLength(1)
+                expect(jobs.filter((j: any) => j[statusColumn] === 'failed')).toHaveLength(1)
             }, 10000)
             expect(mockFetch).not.toHaveBeenCalled()
         })
