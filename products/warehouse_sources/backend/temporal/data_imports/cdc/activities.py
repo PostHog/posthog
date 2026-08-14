@@ -68,6 +68,7 @@ from products.warehouse_sources.backend.temporal.data_imports.cdc.errors import 
     CDCSlotNotConfiguredError,
     classify_cdc_error,
 )
+from products.warehouse_sources.backend.temporal.data_imports.cdc.load_resolution import has_engine_seq
 from products.warehouse_sources.backend.temporal.data_imports.cdc.naming import cdc_qualified_table_name
 from products.warehouse_sources.backend.temporal.data_imports.cdc.types import ChangeEvent
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.helpers import resolve_table_and_folder_names
@@ -628,10 +629,7 @@ class CDCExtractActivity:
         """
         if not self._shadow_enabled or self._shadow_disabled_for_run:
             return
-        # The engine seq column is always LAST when the batcher appended it; a
-        # same-named source column (collision → append skipped) is never last.
-        # Checking by name would let the user's column masquerade as positions.
-        if table.num_rows == 0 or table.schema.field(table.num_columns - 1).name != CDC_SEQ_COLUMN:
+        if table.num_rows == 0 or not has_engine_seq(table):
             return
 
         file_index = self._shadow_file_index.get(table_name, 0)
@@ -645,7 +643,7 @@ class CDCExtractActivity:
                 # past where this run restarted (batch boundaries are not stable
                 # across attempts — see buffer.py). The batch's min seq IS the
                 # restart floor for this schema.
-                restart_seq = pc.min(table.column(table.num_columns - 1)).as_py()
+                restart_seq = pc.min(table.column(CDC_SEQ_COLUMN)).as_py()
                 self._shadow_buffer_writer.cleanup_superseded_files(
                     team_id=schema.team_id, schema_id=schema_id, restart_seq=restart_seq
                 )
@@ -720,15 +718,11 @@ class CDCExtractActivity:
             enriched_table = enrich_toast_omitted_rows(raw_table, key_columns)
             enriched_table = enrich_delete_rows(enriched_table, key_columns)
 
-            # Shadow buffered ingress: persist the raw (pre-dedup/SCD2) stream, then
-            # strip the seq column so the legacy write path stays byte-identical.
-            # Strip by LAST field only — the batcher appends its seq column last and
-            # skips the append on collision, so a source column that happens to be
-            # named _ph_cdc_seq is never ours and must pass through untouched.
+            # Buffer the raw (pre-dedup/SCD2) stream, then strip the seq column so the legacy write
+            # path stays byte-identical. Only ours — a source column of the same name stays.
             self._maybe_shadow_write_buffer(schema, table_name, enriched_table)
-            last_field_idx = enriched_table.num_columns - 1
-            if enriched_table.schema.field(last_field_idx).name == CDC_SEQ_COLUMN:
-                enriched_table = enriched_table.remove_column(last_field_idx)
+            if has_engine_seq(enriched_table):
+                enriched_table = enriched_table.remove_column(enriched_table.column_names.index(CDC_SEQ_COLUMN))
 
             # Consolidated shares the snapshot's canonical folder; the `_cdc` companion is
             # CDC-only and stays self-consistent with its `name`-keyed snapshot seed.

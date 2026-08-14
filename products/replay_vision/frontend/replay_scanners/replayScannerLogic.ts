@@ -1589,8 +1589,13 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                     return
                 }
                 // The model call can take a while; if the user picked a template or navigated away
-                // meanwhile, their newer state wins and the stale draft is dropped.
-                if (!router.values.location.pathname.endsWith(urls.replayVisionScannerTemplate('new'))) {
+                // meanwhile, their newer state wins and the stale draft is dropped. The box lives on
+                // the template step and the zero-scanner empty state, so both count as still there.
+                const pathname = router.values.location.pathname
+                if (
+                    !pathname.endsWith(urls.replayVisionScannerTemplate('new')) &&
+                    !pathname.endsWith(urls.replayVision())
+                ) {
                     return
                 }
                 actions.resetScanner(newScanner())
