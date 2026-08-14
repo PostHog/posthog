@@ -917,7 +917,7 @@ class AccountEmailThreadDetailSerializer(AccountEmailThreadSerializer):
         help_text="Messages ordered by their source timestamp.",
     )
 
-    class Meta(AccountEmailThreadSerializer.Meta):
+    class Meta:
         dataclass = AccountEmailThreadDetail
         ref_name = "AccountEmailThreadDetail"
         fields = [*AccountEmailThreadSerializer.Meta.fields, "messages"]

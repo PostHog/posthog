@@ -12,7 +12,7 @@ from typing import Any, Protocol, cast
 
 from django.conf import settings
 from django.db import transaction
-from django.db.models import F, Prefetch
+from django.db.models import F, Prefetch, QuerySet
 
 import structlog
 from slack_sdk.errors import SlackApiError
@@ -60,6 +60,7 @@ logger = structlog.get_logger(__name__)
 
 class _EmailThreadWithFacadePrefetch(Protocol):
     facade_participants: list[EmailThreadParticipant]
+    facade_access_grants: list[EmailThreadAccess]
 
 
 class SupportMessageSendError(Exception):
@@ -358,7 +359,7 @@ def _account_email_thread_summary(thread: EmailThread) -> AccountEmailThreadSumm
                 name=f"{access.user.first_name} {access.user.last_name}".strip() or access.user.email,
                 email=access.user.email,
             )
-            for access in cast(list[EmailThreadAccess], thread.facade_access_grants)
+            for access in prefetched_thread.facade_access_grants
         ],
     )
 
@@ -370,8 +371,10 @@ def list_account_email_threads(
     offset: int = 0,
     limit: int = 50,
 ) -> tuple[list[AccountEmailThreadSummary], int]:
-    participants = EmailThreadParticipant.objects.for_team(team_id).order_by("email")
-    access_grants = EmailThreadAccess.objects.for_team(team_id).select_related("user").order_by("user__email")
+    participants: QuerySet[EmailThreadParticipant] = EmailThreadParticipant.objects.for_team(team_id).order_by("email")
+    access_grants: QuerySet[EmailThreadAccess] = (
+        EmailThreadAccess.objects.for_team(team_id).select_related("user").order_by("user__email")
+    )
     threads = (
         EmailThread.objects.for_team(team_id)
         .filter(account_links__team_id=team_id, account_links__account_id=account_id)
@@ -404,8 +407,10 @@ def get_account_email_thread(
     account_id: str,
     thread_id: str,
 ) -> AccountEmailThreadDetail | None:
-    participants = EmailThreadParticipant.objects.for_team(team_id).order_by("email")
-    access_grants = EmailThreadAccess.objects.for_team(team_id).select_related("user").order_by("user__email")
+    participants: QuerySet[EmailThreadParticipant] = EmailThreadParticipant.objects.for_team(team_id).order_by("email")
+    access_grants: QuerySet[EmailThreadAccess] = (
+        EmailThreadAccess.objects.for_team(team_id).select_related("user").order_by("user__email")
+    )
     thread = (
         EmailThread.objects.for_team(team_id)
         .filter(
