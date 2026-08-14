@@ -1,4 +1,5 @@
 import { parseJSON } from '~/common/utils/json-parse'
+import { aiOtelUnknownPartTypeCounter } from '~/ingestion/pipelines/ai/metrics'
 import { extractToolCallNames } from '~/ingestion/pipelines/ai/tools/extract-tool-calls'
 import { PluginEvent } from '~/plugin-scaffold'
 
@@ -54,6 +55,53 @@ describe('mapOtelAttributes', () => {
         })
         mapOtelAttributes(event)
         expect(event.properties!.$ai_input).toBe('not valid json')
+    })
+
+    it('JSON-parses gen_ai.tool.definitions into $ai_tools', () => {
+        const tools = [{ type: 'function', name: 'get_weather', parameters: { type: 'object' } }]
+        const event = createEvent('$ai_generation', {
+            'gen_ai.tool.definitions': JSON.stringify(tools),
+        })
+        mapOtelAttributes(event)
+        expect(event.properties!.$ai_tools).toEqual(tools)
+        expect(event.properties!['gen_ai.tool.definitions']).toBeUndefined()
+    })
+
+    describe('unknown message part types', () => {
+        beforeEach(() => {
+            aiOtelUnknownPartTypeCounter.reset()
+        })
+
+        const partCount = async (partType: string): Promise<number> => {
+            const data = await aiOtelUnknownPartTypeCounter.get()
+            return data.values.find((v) => v.labels.part_type === partType)?.value ?? 0
+        }
+
+        it('counts parts no renderer handles, sanitizing producer-controlled labels', async () => {
+            const event = createEvent('$ai_generation', {
+                'gen_ai.input.messages': JSON.stringify([
+                    {
+                        role: 'user',
+                        parts: [
+                            { type: 'text', content: 'hi' },
+                            { type: 'tool_approval_response', approved: true },
+                            { type: 'Weird Type!', x: 1 },
+                            { content: 'no type at all' },
+                        ],
+                    },
+                ]),
+                'gen_ai.output.messages': JSON.stringify([
+                    { role: 'assistant', parts: [{ type: 'reasoning', content: 'hmm' }] },
+                ]),
+            })
+            mapOtelAttributes(event)
+
+            expect(await partCount('tool_approval_response')).toBe(1)
+            expect(await partCount('weird_type_')).toBe(1)
+            expect(await partCount('invalid')).toBe(1)
+            expect(await partCount('text')).toBe(0)
+            expect(await partCount('reasoning')).toBe(0)
+        })
     })
 
     it('does not JSON-parse already-parsed objects', () => {
