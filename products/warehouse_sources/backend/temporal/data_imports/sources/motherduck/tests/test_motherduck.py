@@ -17,13 +17,15 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.motherduck
     MOTHERDUCK_SYSTEM_DATABASES,
     MotherDuckImplementation,
     build_motherduck_connection_string,
+    connect,
     filter_motherduck_incremental_fields,
     translate_motherduck_error,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.motherduck.source import MotherduckSource
 from products.warehouse_sources.backend.types import IncrementalFieldType
 
-_CONNECT_PATH = "products.warehouse_sources.backend.temporal.data_imports.sources.motherduck.motherduck.duckdb.connect"
+_MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.motherduck.motherduck"
+_CONNECT_PATH = f"{_MODULE}.duckdb.connect"
 
 
 def _make_config(**overrides) -> MotherduckSourceConfig:
@@ -176,14 +178,22 @@ class TestMotherDuck:
                 pass
         mock_connect.return_value.execute.assert_not_called()
 
-    def test_connect_redirects_extension_storage_off_the_home_directory(self):
-        # Regression: `home_directory` alone leaves extension storage at `~/.duckdb`, which raised
-        # `Failed to create directory "/root/.duckdb": Permission denied` in the worker.
-        for key in ("home_directory", "extension_directory"):
-            directory = DUCKDB_LOCAL_CONFIG[key]
-            os.makedirs(directory, exist_ok=True)
-            assert os.access(directory, os.W_OK)
+    def test_config_redirects_extension_storage_off_the_home_directory(self):
+        # `home_directory` alone leaves extension storage at `~/.duckdb`, so it needs its own key.
         assert DUCKDB_LOCAL_CONFIG["extension_directory"] != DUCKDB_LOCAL_CONFIG["home_directory"]
+        assert DUCKDB_LOCAL_CONFIG["extension_directory"].startswith(DUCKDB_LOCAL_CONFIG["home_directory"])
+
+    def test_connect_creates_the_writable_duckdb_home(self, tmp_path):
+        # Regression: extension autoload creates `~/.duckdb` on connect, which raised
+        # `Failed to create directory "/root/.duckdb": Permission denied` in a locked-down worker.
+        # connect() must create a writable home first, so driving it (not pre-making the dirs) is
+        # what catches a dropped or reordered makedirs.
+        fresh_home = str(tmp_path / "duckdb-home")
+        with patch(f"{_MODULE}._DUCKDB_HOME", fresh_home), patch(_CONNECT_PATH):
+            assert not os.path.exists(fresh_home)
+            connect("md-token", "my_db")
+        assert os.path.isdir(fresh_home)
+        assert os.access(fresh_home, os.W_OK)
 
     def test_connect_closes_on_exit(self, impl):
         with patch(_CONNECT_PATH) as mock_connect:
