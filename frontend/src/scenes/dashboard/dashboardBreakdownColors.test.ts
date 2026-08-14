@@ -1,5 +1,12 @@
 import { InsightQueryNode, InsightVizNode, NodeKind } from '~/queries/schema/schema-general'
-import { AccessControlLevel, DashboardTile, FunnelVizType, InsightShortId, QueryBasedInsightModel } from '~/types'
+import {
+    AccessControlLevel,
+    ChartDisplayType,
+    DashboardTile,
+    FunnelVizType,
+    InsightShortId,
+    QueryBasedInsightModel,
+} from '~/types'
 
 import {
     BreakdownColorConfig,
@@ -422,6 +429,71 @@ describe('dashboardBreakdownColors', () => {
                 ],
             ])
         })
+
+        it('extracts series names from tiles without a breakdown, scoped to the series group', () => {
+            const tile = trendsTile([
+                { action: { order: 0, name: '$pageview', custom_name: 'Views' }, label: '$pageview' },
+                // a compare pair shares its base series' name and color by design
+                {
+                    action: { order: 0, name: '$pageview', custom_name: 'Views' },
+                    label: '$pageview',
+                    compare_label: 'previous',
+                },
+                { action: { order: 1, name: 'signup' }, label: 'signup' },
+                // formula results carry no action, so their label is the name
+                { action: null, label: 'Formula (A/B)' },
+            ])
+
+            // the rename is the name a reader sees across insights, so it is the identity;
+            // matching on the raw event name instead would break a pin the moment a series
+            // is renamed
+            expect(extractBreakdownValuesByTile([tile])).toEqual([
+                [
+                    { breakdownValue: 'Views', breakdownType: 'event', breakdownProperty: 'series' },
+                    { breakdownValue: 'signup', breakdownType: 'event', breakdownProperty: 'series' },
+                    { breakdownValue: 'Formula (A/B)', breakdownType: 'event', breakdownProperty: 'series' },
+                ],
+            ])
+        })
+
+        it('keeps a tile out of series coloring when two of its series render under one name', () => {
+            const tile = trendsTile([
+                { action: { order: 0, name: '$pageview', math: 'total' }, label: '$pageview' },
+                { action: { order: 1, name: '$pageview', math: 'dau' }, label: '$pageview' },
+            ])
+
+            // one color would merge the two lines on that very chart, so the tile keeps
+            // position colors and stays out of series sharing
+            expect(extractBreakdownValuesByTile([tile])).toEqual([])
+        })
+
+        it('skips series of displays that draw no palette-colored series', () => {
+            const tile = createTestTile({
+                result: [{ action: { order: 0, name: '$pageview' }, label: '$pageview' }],
+                query: {
+                    kind: NodeKind.InsightVizNode,
+                    source: { kind: NodeKind.TrendsQuery, trendsFilter: { display: ChartDisplayType.BoldNumber } },
+                } as InsightVizNode<InsightQueryNode>,
+            })
+
+            // a bold number shows no series color, so counting it would hand a dashboard
+            // color to a series that is visibly colored on just one chart
+            expect(extractBreakdownValuesByTile([tile])).toEqual([])
+        })
+
+        it('extracts series from stickiness tiles', () => {
+            const tile = createTestTile({
+                result: [{ action: { order: 0, name: '$pageview' }, label: '$pageview' }],
+                query: {
+                    kind: NodeKind.InsightVizNode,
+                    source: { kind: NodeKind.StickinessQuery },
+                } as InsightVizNode<InsightQueryNode>,
+            })
+
+            expect(extractBreakdownValuesByTile([tile])).toEqual([
+                [{ breakdownValue: '$pageview', breakdownType: 'event', breakdownProperty: 'series' }],
+            ])
+        })
     })
 
     describe('groupBreakdownValuesByProperty', () => {
@@ -470,9 +542,26 @@ describe('dashboardBreakdownColors', () => {
                 false,
             ],
             [
+                // once loaded it would contribute series, so its values are unknown, not absent
                 'trends tile without a breakdown and no results',
                 createTestTile({ result: null, query: vizQuery({ kind: NodeKind.TrendsQuery }) }),
+                true,
+            ],
+            [
+                'bold number trends tile with no results, which never contributes series',
+                createTestTile({
+                    result: null,
+                    query: vizQuery({
+                        kind: NodeKind.TrendsQuery,
+                        trendsFilter: { display: ChartDisplayType.BoldNumber },
+                    }),
+                }),
                 false,
+            ],
+            [
+                'stickiness tile with no results',
+                createTestTile({ result: null, query: vizQuery({ kind: NodeKind.StickinessQuery }) }),
+                true,
             ],
             [
                 'funnel steps tile with a breakdown and no results',

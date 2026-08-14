@@ -18,6 +18,7 @@ import {
     BreakdownColorConfig,
     BreakdownValueAndType,
     COHORT_BREAKDOWN_PROPERTY_KEY,
+    SERIES_PROPERTY_KEY,
     denormalizeBreakdownValue,
     findBreakdownColorConfig,
     parseBreakdownPropertyKey,
@@ -34,6 +35,9 @@ function BreakdownPropertyGroupTitle({ breakdownProperty }: { breakdownProperty?
     }
     if (breakdownProperty === COHORT_BREAKDOWN_PROPERTY_KEY) {
         return <LemonTag type="muted">Cohorts</LemonTag>
+    }
+    if (breakdownProperty === SERIES_PROPERTY_KEY) {
+        return <LemonTag type="muted">Series</LemonTag>
     }
     return (
         <div className="flex flex-wrap items-center gap-1">
@@ -88,9 +92,14 @@ export function DashboardInsightColorsModal(): JSX.Element {
 
     const columns: LemonTableColumns<BreakdownColorRow> = [
         {
-            title: 'Breakdown',
+            title: 'Value',
             key: 'breakdown_value',
-            render: (_, { breakdownValue, breakdownType }) => {
+            render: (_, { breakdownValue, breakdownType, breakdownProperty }) => {
+                // Series entries hold the name the series renders under, which needs no
+                // property-value formatting.
+                if (breakdownProperty === SERIES_PROPERTY_KEY) {
+                    return <span>{stringWithWBR(breakdownValue, 20)}</span>
+                }
                 const breakdownFilter: BreakdownFilter = { breakdown_type: breakdownType }
                 const breakdownLabel = formatBreakdownLabel(
                     denormalizeBreakdownValue(breakdownValue),
@@ -156,7 +165,7 @@ export function DashboardInsightColorsModal(): JSX.Element {
 
     return (
         <LemonModal
-            title="Customize breakdown colors"
+            title="Customize insight colors"
             isOpen={isOpen}
             onClose={hideInsightColorsModal}
             maxWidth="42rem"
@@ -212,12 +221,13 @@ export function DashboardInsightColorsModal(): JSX.Element {
                 info={
                     <>
                         <p className="mb-1">
-                            Colors are grouped by breakdown property, so each property picks its colors on its own.
+                            Colors are grouped by breakdown property, and the series of insights without a breakdown
+                            form a group of their own. Each group picks its colors on its own.
                         </p>
                         <ul className="list-disc pl-4 space-y-1">
                             <li>
-                                A value shown on two or more insights gets one color across the dashboard, and keeps it
-                                under every property it appears in, as far as the palette allows.
+                                A value or series shown on two or more insights gets one color across the dashboard, and
+                                keeps it in every group it appears in, as far as the palette allows.
                             </li>
                             <li>Values on a single insight keep their own colors.</li>
                             <li>Pick a color to pin a value to it.</li>
@@ -225,7 +235,7 @@ export function DashboardInsightColorsModal(): JSX.Element {
                     </>
                 }
             >
-                Breakdown colors
+                Series and breakdown colors
             </LemonLabel>
             {breakdownValueGroups.length === 0 ? (
                 <LemonTable columns={columns} dataSource={[]} loading={insightTilesLoading || undefined} />
@@ -240,7 +250,7 @@ export function DashboardInsightColorsModal(): JSX.Element {
                 ))
             )}
             {insightTilesLoading ? (
-                <p className="text-muted-alt mt-2">Tiles are still loading. More breakdown values may appear.</p>
+                <p className="text-muted-alt mt-2">Tiles are still loading. More values may appear.</p>
             ) : null}
         </LemonModal>
     )

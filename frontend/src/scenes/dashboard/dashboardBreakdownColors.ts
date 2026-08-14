@@ -2,8 +2,15 @@ import { DataColorToken, dataColorVars } from 'lib/colors'
 import { getFunnelDatasetKey, getTrendDatasetKey, isNullBreakdown, isOtherBreakdown } from 'scenes/insights/utils'
 
 import { BreakdownFilter } from '~/queries/schema/schema-general'
-import { hasBreakdownFilter, isFunnelsQuery, isInsightVizNode, isRetentionQuery, isTrendsQuery } from '~/queries/utils'
-import { DashboardTile, FunnelVizType, QueryBasedInsightModel } from '~/types'
+import {
+    hasBreakdownFilter,
+    isFunnelsQuery,
+    isInsightVizNode,
+    isRetentionQuery,
+    isStickinessQuery,
+    isTrendsQuery,
+} from '~/queries/utils'
+import { ChartDisplayType, DashboardTile, FunnelVizType, QueryBasedInsightModel } from '~/types'
 
 export type BreakdownColorSource = 'auto' | 'manual'
 
@@ -33,6 +40,11 @@ export const MULTI_BREAKDOWN_SEPARATOR = '\u001f'
  * property, so all cohort breakdowns form one color group, matching their pre-scoping
  * behavior of one identity per cohort id. */
 export const COHORT_BREAKDOWN_PROPERTY_KEY = 'cohort'
+
+/** Property key of series entries: the named series of trends and stickiness insights
+ * without a breakdown. A series name identifies across insights the way a breakdown value
+ * does within a property, so series form one color group of their own. */
+export const SERIES_PROPERTY_KEY = 'series'
 
 /** Breakdown values arrive as string | number | boolean | array depending on insight type and
  * persistence round-trips, while configs compare with strict equality. One canonical string form
@@ -187,6 +199,88 @@ function funnelVizRendersBreakdownSeries(funnelVizType: FunnelVizType | undefine
     )
 }
 
+// Displays that draw each series in its own palette color. Single-value and intensity
+// displays (bold number, world map, heatmaps) render no palette series, so their tiles
+// must not count toward series sharing.
+const SERIES_COLORED_DISPLAYS = new Set<ChartDisplayType>([
+    ChartDisplayType.Auto,
+    ChartDisplayType.ActionsLineGraph,
+    ChartDisplayType.ActionsLineGraphCumulative,
+    ChartDisplayType.ActionsAreaGraph,
+    ChartDisplayType.ActionsBar,
+    ChartDisplayType.ActionsUnstackedBar,
+    ChartDisplayType.ActionsStackedBar,
+    ChartDisplayType.ActionsPie,
+    ChartDisplayType.ActionsBarValue,
+    ChartDisplayType.ActionsTable,
+    ChartDisplayType.SlopeGraph,
+])
+
+/** True when the query's rendered series take dashboard series colors: trends and
+ * stickiness insights without a breakdown, on displays that draw each series in a palette
+ * color. Insights with a breakdown color by breakdown value instead. */
+export function querySupportsSeriesColors(querySource: Record<string, any> | null | undefined): boolean {
+    if (isTrendsQuery(querySource)) {
+        const display = querySource.trendsFilter?.display
+        return (
+            !hasBreakdownFilter(querySource.breakdownFilter) &&
+            (display == null || SERIES_COLORED_DISPLAYS.has(display))
+        )
+    }
+    if (isStickinessQuery(querySource)) {
+        const display = querySource.stickinessFilter?.display
+        return display == null || SERIES_COLORED_DISPLAYS.has(display)
+    }
+    return false
+}
+
+type SeriesColorDataset = {
+    action?: { custom_name?: string | null; name?: string | null } | null
+    label?: string
+    compare_label?: string | null
+}
+
+/** The name a series dataset renders under, which is what dashboard series colors key on:
+ * the user's rename when there is one, else the raw event or action name, else the label
+ * (formula results carry no action). Colors follow the name a reader sees, so two insights
+ * showing one name show one color, whatever else their queries differ in. */
+export function getSeriesColorIdentity(dataset: SeriesColorDataset): string | null {
+    return normalizeBreakdownValue(dataset.action?.custom_name || dataset.action?.name || dataset.label || null)
+}
+
+/** True when two of a tile's datasets render under one name, say one event counted two
+ * ways. One color would merge them on that very chart, so such tiles keep position colors
+ * and stay out of series sharing. Compare pairs are exempt, because a current and previous
+ * period dataset of one series share the name and the color by design. */
+export function hasAmbiguousSeriesColorIdentities(datasets: SeriesColorDataset[]): boolean {
+    const seen = new Set<string>()
+    for (const dataset of datasets) {
+        const identity = getSeriesColorIdentity(dataset)
+        if (identity == null) {
+            continue
+        }
+        const key = `${identity}\u0000${dataset.compare_label ?? ''}`
+        if (seen.has(key)) {
+            return true
+        }
+        seen.add(key)
+    }
+    return false
+}
+
+function extractSeriesColorValues(
+    querySource: Record<string, any> | null | undefined,
+    results: any[]
+): (BreakdownValueAndType | null)[] {
+    if (!querySupportsSeriesColors(querySource) || hasAmbiguousSeriesColorIdentities(results)) {
+        return []
+    }
+    return results.map((result: any): BreakdownValueAndType | null => {
+        const identity = getSeriesColorIdentity(result)
+        return identity == null ? null : makeBreakdownValue(identity, 'event', SERIES_PROPERTY_KEY)
+    })
+}
+
 function makeBreakdownValue(
     breakdownValue: string,
     breakdownType: BreakdownFilter['breakdown_type'],
@@ -231,14 +325,23 @@ function extractTileBreakdownValues(tile: DashboardTile<QueryBasedInsightModel>)
             )
         })
     } else if (isTrendsQuery(querySource)) {
-        const breakdownType = querySource.breakdownFilter?.breakdown_type || 'event'
-        const propertyKey = getBreakdownPropertyKey(querySource.breakdownFilter)
-        breakdownValues =
-            tile.insight?.result?.map((result: any): BreakdownValueAndType | null => {
+        const results: any[] = tile.insight?.result || []
+        // After a breakdown is removed from the query, stale results still carry breakdown
+        // values; those keep contributing as breakdown values (property-less once the filter
+        // is gone) rather than switching to series entries.
+        if (hasBreakdownFilter(querySource.breakdownFilter) || results.some((r) => r.breakdown_value !== undefined)) {
+            const breakdownType = querySource.breakdownFilter?.breakdown_type || 'event'
+            const propertyKey = getBreakdownPropertyKey(querySource.breakdownFilter)
+            breakdownValues = results.map((result: any): BreakdownValueAndType | null => {
                 const key = getTrendDatasetKey(result)
                 const breakdownValue = normalizeBreakdownValue(JSON.parse(key)['breakdown_value'])
                 return breakdownValue == null ? null : makeBreakdownValue(breakdownValue, breakdownType, propertyKey)
-            }) || []
+            })
+        } else {
+            breakdownValues = extractSeriesColorValues(querySource, results)
+        }
+    } else if (isStickinessQuery(querySource)) {
+        breakdownValues = extractSeriesColorValues(querySource, tile.insight?.result || [])
     } else if (isRetentionQuery(querySource) && hasBreakdownFilter(querySource.breakdownFilter)) {
         const breakdownType = querySource.breakdownFilter.breakdown_type || 'event'
         const propertyKey = getBreakdownPropertyKey(querySource.breakdownFilter)
@@ -263,8 +366,10 @@ function extractTileBreakdownValues(tile: DashboardTile<QueryBasedInsightModel>)
 }
 
 /** Breakdown values per tile, deduplicated within each tile; tiles without values are dropped.
- * Tile identity matters for assignment: which values co-occur on one chart decides which
- * colors may collide, and how many tiles share a value decides whether it gets one at all. */
+ * Tiles without a breakdown contribute their series names instead, scoped to the series
+ * group. Tile identity matters for assignment: which values co-occur on one chart decides
+ * which colors may collide, and how many tiles share a value decides whether it gets one at
+ * all. */
 export function extractBreakdownValuesByTile(
     insightTiles: DashboardTile<QueryBasedInsightModel>[] | null
 ): BreakdownValueAndType[][] {
@@ -274,10 +379,11 @@ export function extractBreakdownValuesByTile(
     return insightTiles.map(extractTileBreakdownValues).filter((values) => values.length > 0)
 }
 
-/** True when any tile's query would contribute breakdown values once loaded, but its results are
- * unavailable (a refresh errored or was aborted before the insight ever got results). Such a
- * tile's breakdown values are unknown rather than absent, so tile counts under-report sharing:
- * pruning or persisting auto colors in this state would drop entries that are still valid. */
+/** True when any tile's query would contribute breakdown or series values once loaded, but its
+ * results are unavailable (a refresh errored or was aborted before the insight ever got
+ * results). Such a tile's values are unknown rather than absent, so tile counts under-report
+ * sharing: pruning or persisting auto colors in this state would drop entries that are still
+ * valid. */
 export function hasUnresolvedBreakdownTiles(insightTiles: DashboardTile<QueryBasedInsightModel>[] | null): boolean {
     return (insightTiles ?? []).some((tile) => {
         if (tile.insight?.result != null || !isInsightVizNode(tile.insight?.query)) {
@@ -290,7 +396,13 @@ export function hasUnresolvedBreakdownTiles(insightTiles: DashboardTile<QueryBas
                 hasBreakdownFilter(querySource.breakdownFilter)
             )
         }
-        if (isTrendsQuery(querySource) || isRetentionQuery(querySource)) {
+        if (isTrendsQuery(querySource)) {
+            return hasBreakdownFilter(querySource.breakdownFilter) || querySupportsSeriesColors(querySource)
+        }
+        if (isStickinessQuery(querySource)) {
+            return querySupportsSeriesColors(querySource)
+        }
+        if (isRetentionQuery(querySource)) {
             return hasBreakdownFilter(querySource.breakdownFilter)
         }
         return false

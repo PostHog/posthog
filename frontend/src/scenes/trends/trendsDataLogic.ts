@@ -5,9 +5,13 @@ import { dayjs } from 'lib/dayjs'
 import { isMultiSeriesFormula } from 'lib/utils/strings'
 import {
     BreakdownColorConfig,
+    SERIES_PROPERTY_KEY,
     computeTileFallbackTokens,
     findBreakdownColorConfig,
     getBreakdownPropertyKey,
+    getSeriesColorIdentity,
+    hasAmbiguousSeriesColorIdentities,
+    querySupportsSeriesColors,
 } from 'scenes/dashboard/dashboardBreakdownColors'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { getColorFromToken } from 'scenes/dataThemeLogic'
@@ -900,6 +904,38 @@ export const trendsDataLogic = kea<trendsDataLogicType>([
                 indexedResults: IndexedTrendResult[]
             ) => {
                 const breakdownPropertyKey = getBreakdownPropertyKey(breakdownFilter)
+                // Series of an insight without a breakdown take dashboard colors keyed by the
+                // name they render under; datasets carrying a breakdown value keep matching by
+                // that value. Tiles where two series render under one name opt out, because one
+                // color would merge them on this very chart.
+                const seriesColorsApply =
+                    querySupportsSeriesColors(querySource) &&
+                    !hasAmbiguousSeriesColorIdentities(
+                        indexedResults.filter((result) => result.breakdown_value === undefined)
+                    )
+                const findDatasetColorOverride = (
+                    overrides: BreakdownColorConfig[] | undefined | null,
+                    dataset: IndexedTrendResult
+                ): BreakdownColorConfig | undefined => {
+                    const breakdownValue = JSON.parse(getTrendDatasetKey(dataset))['breakdown_value']
+                    if (breakdownValue != null) {
+                        return findBreakdownColorConfig(
+                            overrides,
+                            breakdownValue,
+                            breakdownFilter?.breakdown_type,
+                            breakdownPropertyKey
+                        )
+                    }
+                    if (seriesColorsApply) {
+                        return findBreakdownColorConfig(
+                            overrides,
+                            getSeriesColorIdentity(dataset),
+                            'event',
+                            SERIES_PROPERTY_KEY
+                        )
+                    }
+                    return undefined
+                }
                 // The dashboard's colors live in another logic and are read at call time, so the
                 // per-tile fallback map is memoized here on the identity of what it derives from.
                 let fallbackSource: { overrides: BreakdownColorConfig[]; theme: DataColorTheme } | null = null
@@ -916,13 +952,7 @@ export const trendsDataLogic = kea<trendsDataLogicType>([
                         // Once active, customized series claim their slots like overrides do.
                         let hasDashboardOverride = false
                         const series = indexedResults.map((result) => {
-                            const overrideToken =
-                                findBreakdownColorConfig(
-                                    overrides,
-                                    JSON.parse(getTrendDatasetKey(result))['breakdown_value'],
-                                    breakdownFilter?.breakdown_type,
-                                    breakdownPropertyKey
-                                )?.colorToken ?? null
+                            const overrideToken = findDatasetColorOverride(overrides, result)?.colorToken ?? null
                             hasDashboardOverride = hasDashboardOverride || !!overrideToken
                             return {
                                 position: getTrendDatasetPosition(result),
@@ -941,16 +971,9 @@ export const trendsDataLogic = kea<trendsDataLogicType>([
                 }
 
                 return (dataset: IndexedTrendResult): [DataColorTheme | null, DataColorToken | null] => {
-                    const breakdownValue = JSON.parse(getTrendDatasetKey(dataset))['breakdown_value']
-
                     // dashboard color overrides
                     const logic = dashboardLogic.findMounted({ id: props.dashboardId })
-                    const colorOverride = findBreakdownColorConfig(
-                        logic?.values.effectiveBreakdownColors,
-                        breakdownValue,
-                        breakdownFilter?.breakdown_type,
-                        breakdownPropertyKey
-                    )
+                    const colorOverride = findDatasetColorOverride(logic?.values.effectiveBreakdownColors, dataset)
 
                     if (colorOverride?.colorToken) {
                         // use the dashboard theme, or fallback to the default theme
