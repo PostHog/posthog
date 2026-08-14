@@ -128,6 +128,13 @@ describe('replayScannerLogic', () => {
                 scanner: expect.objectContaining({ name: '', scanner_type: 'monitor' }),
             })
         })
+
+        it('strips the consumed ?filters= param, so a reload does not re-seed over the user edits', async () => {
+            const query = { kind: 'RecordingsQuery', events: [{ id: '$pageview', type: 'events' }] }
+            router.actions.push('/replay-vision/new', { filters: JSON.stringify(query) })
+            await expectLogic(logic, () => logic.actions.loadScanner()).toFinishAllListeners()
+            expect(router.values.searchParams.filters).toBeUndefined()
+        })
     })
 
     describe('draftScannerFromGoal', () => {
@@ -472,6 +479,23 @@ describe('replayScannerLogic', () => {
             logic.unmount()
 
             router.actions.push(urls.replayVisionScannerConfigure('new'), { experiment: '7' })
+            logic = replayScannerLogic({ id: 'new' })
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(readScannerDraft(teamId)?.scanner.name).toBe('Drafted')
+        })
+
+        it('preserves an existing draft when the wizard is entered from a ?filters= deep link', async () => {
+            // The prefill outranks the draft for this entry but must not delete it; without the
+            // restoringDraft guard, persistDraft sees scanner === originalScanner and clears it.
+            const teamId = teamLogic.values.currentTeamId!
+            logic.actions.setScannerValues({ name: 'Drafted' })
+            expect(readScannerDraft(teamId)?.scanner.name).toBe('Drafted')
+            logic.unmount()
+
+            const query = { kind: 'RecordingsQuery', events: [{ id: '$pageview', type: 'events' }] }
+            router.actions.push(urls.replayVisionScannerConfigure('new'), { filters: JSON.stringify(query) })
             logic = replayScannerLogic({ id: 'new' })
             logic.mount()
             await expectLogic(logic).toFinishAllListeners()
