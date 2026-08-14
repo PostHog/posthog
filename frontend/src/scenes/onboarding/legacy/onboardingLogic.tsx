@@ -309,6 +309,10 @@ export const onboardingLogic = kea<onboardingLogicType>([
                 clearProductKey: () => null,
             },
         ],
+        // Deliberately shared across the onboarding logics. A connected action keeps the action type
+        // of its source, so this flips whenever any logic reports the event, including
+        // `productSelectionLogic` on the branch this logic never sees. That is what stops the two
+        // branches from both reporting one entry.
         onboardingStartedReported: [
             false,
             {
