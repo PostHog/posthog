@@ -117,26 +117,30 @@ class HobbyTester:
     def _get_node_image_fallback_script(self):
         """Return bash script to resolve the posthog-node image tag.
 
-        ci-nodejs-container.yml tags images as pr-<number> for PRs.
-        Checks DockerHub for that tag; if found, exports POSTHOG_NODE_TAG
-        so the hobby-installer writes it to .env and docker-compose uses
-        the branch image. Otherwise falls back to 'latest'.
+        ci-nodejs-container.yml publishes PR images to GHCR as pr-<number>.
+        If that manifest exists, the hobby-installer persists its registry
+        and tag for docker-compose. Otherwise it uses the released image.
         """
         if self.pr_number and self.pr_number != "unknown":
             tag = f"pr-{self.pr_number}"
-        else:
-            tag = "$CURRENT_COMMIT"
-        return (
-            "if curl -sf "
-            f"https://hub.docker.com/v2/repositories/posthog/posthog-node/tags/{tag} "
-            "> /dev/null 2>&1; then "
-            f"echo posthog-node image found on DockerHub with tag {tag}; "
-            f"export POSTHOG_NODE_TAG={tag}; "
-            "else "
-            "echo posthog-node image not found, using latest; "
-            "export POSTHOG_NODE_TAG=latest; "
-            "fi"
-        )
+            return (
+                "GHCR_TOKEN=$(curl -fsSL "
+                "'https://ghcr.io/token?scope=repository:posthog/posthog-node:pull' "
+                '| sed -n \'s/.*"token":"\\([^"]*\\)".*/\\1/p\'); '
+                'if curl -sf -H "Authorization: Bearer $GHCR_TOKEN" '
+                "-H 'Accept: application/vnd.oci.image.index.v1+json' "
+                f"https://ghcr.io/v2/posthog/posthog-node/manifests/{tag} "
+                "> /dev/null; then "
+                f"echo posthog-node image found on GHCR with tag {tag}; "
+                "export POSTHOG_NODE_REGISTRY_URL=ghcr.io/posthog/posthog-node; "
+                f"export POSTHOG_NODE_TAG={tag}; "
+                "else "
+                "echo posthog-node PR image not found, using released image; "
+                "export POSTHOG_NODE_TAG=latest; "
+                "fi"
+            )
+
+        return "export POSTHOG_NODE_TAG=latest"
 
     def _get_installer_commands(self):
         """Return cloud-init commands to obtain the hobby-installer binary.

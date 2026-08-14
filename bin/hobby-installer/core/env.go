@@ -10,14 +10,15 @@ import (
 )
 
 type EnvConfig struct {
-	PosthogSecret        string
-	EncryptionSaltKeys   string
-	Domain               string
-	TLSBlock             string
-	RegistryURL          string
-	PosthogAppTag        string
-	PosthogNodeTag       string
-	SessionRecordingDate string
+	PosthogSecret          string
+	EncryptionSaltKeys     string
+	Domain                 string
+	TLSBlock               string
+	RegistryURL            string
+	PosthogAppTag          string
+	PosthogNodeRegistryURL string
+	PosthogNodeTag         string
+	SessionRecordingDate   string
 }
 
 func NewEnvConfig(domain, version string) (*EnvConfig, error) {
@@ -43,15 +44,21 @@ func NewEnvConfig(domain, version string) (*EnvConfig, error) {
 		nodeTag = "latest"
 	}
 
+	nodeRegistryURL := os.Getenv("POSTHOG_NODE_REGISTRY_URL")
+	if nodeRegistryURL == "" {
+		nodeRegistryURL = registryURL + "-node"
+	}
+
 	return &EnvConfig{
-		PosthogSecret:        secret,
-		EncryptionSaltKeys:   encryptionKey,
-		Domain:               domain,
-		TLSBlock:             tlsBlock,
-		RegistryURL:          registryURL,
-		PosthogAppTag:        version,
-		PosthogNodeTag:       nodeTag,
-		SessionRecordingDate: time.Now().Format(time.RFC3339),
+		PosthogSecret:          secret,
+		EncryptionSaltKeys:     encryptionKey,
+		Domain:                 domain,
+		TLSBlock:               tlsBlock,
+		RegistryURL:            registryURL,
+		PosthogAppTag:          version,
+		PosthogNodeRegistryURL: nodeRegistryURL,
+		PosthogNodeTag:         nodeTag,
+		SessionRecordingDate:   time.Now().Format(time.RFC3339),
 	}, nil
 }
 
@@ -64,6 +71,7 @@ REGISTRY_URL=%s
 CADDY_TLS_BLOCK=%s
 CADDY_HOST="%s, http://, https://"
 POSTHOG_APP_TAG=%s
+POSTHOG_NODE_REGISTRY_URL=%s
 POSTHOG_NODE_TAG=%s
 SESSION_RECORDING_V2_METADATA_SWITCHOVER=%s
 `,
@@ -75,6 +83,7 @@ SESSION_RECORDING_V2_METADATA_SWITCHOVER=%s
 		c.TLSBlock,
 		c.Domain,
 		c.PosthogAppTag,
+		c.PosthogNodeRegistryURL,
 		c.PosthogNodeTag,
 		c.SessionRecordingDate,
 	)
@@ -91,6 +100,7 @@ func LoadExistingEnv() map[string]string {
 		"TLS_BLOCK",
 		"REGISTRY_URL",
 		"POSTHOG_APP_TAG",
+		"POSTHOG_NODE_REGISTRY_URL",
 		"POSTHOG_NODE_TAG",
 		"SESSION_RECORDING_V2_METADATA_SWITCHOVER",
 		"SESSION_RECORDING_STORAGE_MIGRATED_TO_SEAWEEDFS",
