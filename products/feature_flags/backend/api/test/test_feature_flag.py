@@ -14239,6 +14239,8 @@ class TestFeatureFlagFiltersMetrics(APIBaseTest):
 
         self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.json())
         self.assertEqual(self._violation_count("cross_field", "not_evaluated", "create"), not_evaluated_before + 1)
+
+
 class TestFeatureFlagReplayLinkFollowsRename(APIBaseTest):
     def _link_flag(self, team: Team, linked_flag: dict[str, Any]) -> None:
         team.session_recording_linked_flag = linked_flag
