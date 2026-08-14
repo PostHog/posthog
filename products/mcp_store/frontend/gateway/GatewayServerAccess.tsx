@@ -16,7 +16,7 @@ import { dayjs } from 'lib/dayjs'
 
 import { defaultAgentGrantPolicy, isPolicyStateAllowedByCeiling } from './gatewayPolicyUtils'
 import { AgentToolPolicyState, gatewayServerLogic } from './gatewayServerLogic'
-import { AgentGrantScopeControl, RemoveAllSharesButton, toProfileUser } from './gatewayUtils'
+import { AGENT_GRANT_SCOPE_OPTIONS, AgentGrantScopeControl, RemoveAllSharesButton, toProfileUser } from './gatewayUtils'
 import { agentServerAccessKey, mcpGatewayLogic, memberServerAccessKey } from './mcpGatewayLogic'
 
 const AGENT_POLICY_OPTIONS = [
@@ -258,6 +258,7 @@ function GatewayAgentAccessModal(): JSX.Element | null {
     const {
         agentAccessModalOpen,
         agentAccessPolicyMap,
+        agentAccessScope,
         agentAccessSelectedId,
         agentShareDisabledReason,
         agentServerAccessLoadingKeys,
@@ -270,6 +271,7 @@ function GatewayAgentAccessModal(): JSX.Element | null {
     const {
         closeAgentAccessModal,
         loadTeamToolPolicies,
+        setAgentAccessScope,
         setAgentAccessSelectedId,
         setAgentAccessToolPolicy,
         setAllAgentAccessTools,
@@ -340,6 +342,21 @@ function GatewayAgentAccessModal(): JSX.Element | null {
 
                 {agentAccessSelectedId && (
                     <>
+                        <div className="flex items-center justify-between gap-3">
+                            <div>
+                                <div className="font-semibold">Share with</div>
+                                <div className="text-sm text-secondary">
+                                    A team share lets the agent use your connection for every run in this project.
+                                </div>
+                            </div>
+                            <LemonSegmentedButton
+                                size="small"
+                                value={agentAccessScope}
+                                options={AGENT_GRANT_SCOPE_OPTIONS}
+                                onChange={setAgentAccessScope}
+                            />
+                        </div>
+
                         <div className="flex items-center justify-between gap-3">
                             <div>
                                 <div className="font-semibold">Tool access</div>

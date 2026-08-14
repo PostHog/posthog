@@ -8,7 +8,7 @@ import { getReplayVisionEditDisabledReason } from '../../utils/accessControl'
 import { replayScannerLogic } from '../replayScannerLogic'
 
 /** "Tell PostHog AI what you want to accomplish" box on the template step and the zero-scanner
- * empty state: drafts a full scanner from the stated goal and drops the user into the configure
+ * empty state: drafts a full scanner from the stated goal and drops the user into the details
  * step to review it. */
 export function ScannerGoalDraft({
     gateSubmit,
@@ -40,9 +40,7 @@ export function ScannerGoalDraft({
         <div className="space-y-6">
             <div className="flex items-center gap-4">
                 <div className="flex-1 border-t border-border" />
-                <span className="text-xs text-tertiary uppercase tracking-wide">
-                    or tell PostHog AI what you want to accomplish
-                </span>
+                <span className="text-xs text-tertiary uppercase tracking-wide">or describe what you want to find</span>
                 <div className="flex-1 border-t border-border" />
             </div>
 
