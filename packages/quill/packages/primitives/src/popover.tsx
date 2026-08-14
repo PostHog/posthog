@@ -14,12 +14,7 @@ function PopoverTrigger({ ...props }: PopoverPrimitive.Trigger.Props): React.Rea
 
 function PopoverArrow({ className, ...props }: PopoverPrimitive.Arrow.Props): React.ReactElement {
     return (
-        <PopoverPrimitive.Arrow data-slot="popover-arrow" className={cn('quill-popover__arrow', className)} {...props}>
-            {/* an open path so the stroke traces only the two slanted sides, leaving the base seamless */}
-            <svg width="16" height="8" viewBox="0 0 16 8" aria-hidden="true" focusable="false">
-                <path d="M0.5 8 L8 0.5 L15.5 8" />
-            </svg>
-        </PopoverPrimitive.Arrow>
+        <PopoverPrimitive.Arrow data-slot="popover-arrow" className={cn('quill-popover__arrow', className)} {...props} />
     )
 }
 
@@ -29,7 +24,7 @@ function PopoverContent({
     alignOffset = 0,
     side = 'bottom',
     arrow = false,
-    // the arrow is 8px tall, so it needs a wider gap than a flush popover to clear the trigger
+    // the arrow tip juts ~7px past the popup, so it needs a wider gap than a flush popover to clear the trigger
     sideOffset = arrow ? 9 : 4,
     arrowPadding,
     collisionAvoidance,

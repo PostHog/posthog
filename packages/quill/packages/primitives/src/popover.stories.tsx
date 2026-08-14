@@ -42,6 +42,20 @@ export const WithArrow: Story = {
     ),
 } satisfies Story
 
+// the arrow inherits the popup's border and background, so a restyled popover keeps its arrow
+export const WithCustomBorder: Story = {
+    render: () => (
+        <div className="flex items-center justify-center p-24">
+            <Popover open>
+                <PopoverTrigger render={<Button variant="outline">Open</Button>} />
+                <PopoverContent side="bottom" arrow className="w-56 rounded-lg border-2 border-primary">
+                    <p>Artifacts placed here</p>
+                </PopoverContent>
+            </Popover>
+        </div>
+    ),
+} satisfies Story
+
 // PopoverArrow is exported for popovers that compose their own content order
 export const WithComposedArrow: Story = {
     render: () => (

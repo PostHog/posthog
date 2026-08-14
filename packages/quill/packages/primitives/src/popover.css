@@ -22,57 +22,75 @@
         transform: scale(0.97);
     }
 
+    /*
+     * A square rotated onto its corner and half-buried in the popup: the buried half
+     * hides the border segment it stands on, the two exposed edges continue it, and
+     * the other two are dropped. `inherit` is what makes the arrow follow whatever
+     * border and background the popup ends up with, including a consumer's own.
+     */
     .quill-popover__arrow {
-        display: flex;
-        /* the arrow overlaps the popup by 1px so its fill hides the border segment it stands on */
-        --quill-popover-arrow-inset: -7px;
-        /* a 16x8 arrow rotated onto a side edge shifts by (16 - 8) / 2 */
-        --quill-popover-arrow-side-inset: -11px;
+        width: 0.625rem;
+        height: 0.625rem;
+        background: inherit;
+        border: inherit;
+        rotate: 45deg;
     }
 
-    .quill-popover__arrow svg {
-        fill: var(--card);
-        stroke: var(--border);
-        stroke-width: 1px;
-        stroke-linejoin: round;
+    /*
+     * Which corner points out is physical, because the rotation is. The logical sides
+     * take their left-to-right meaning here and get remapped under `[dir='rtl']` below
+     * — `:dir()` would read better, but it compiles down to a list of RTL languages,
+     * which misses a page that sets the direction without a matching `lang`.
+     */
+    .quill-popover__arrow[data-side='bottom'] {
+        top: -0.3125rem;
+        border-right: none;
+        border-bottom: none;
+        border-top-left-radius: 2px;
     }
 
     .quill-popover__arrow[data-side='top'] {
-        bottom: var(--quill-popover-arrow-inset);
-        rotate: 180deg;
+        bottom: -0.3125rem;
+        border-top: none;
+        border-left: none;
+        border-bottom-right-radius: 2px;
     }
 
-    .quill-popover__arrow[data-side='bottom'] {
-        top: var(--quill-popover-arrow-inset);
-    }
-
-    .quill-popover__arrow[data-side='left'] {
-        right: var(--quill-popover-arrow-side-inset);
-        rotate: 90deg;
-    }
-
-    .quill-popover__arrow[data-side='right'] {
-        left: var(--quill-popover-arrow-side-inset);
-        rotate: -90deg;
-    }
-
-    /* logical sides follow the writing direction, so the inset does too — the rotation can't, and flips below */
+    .quill-popover__arrow[data-side='right'],
     .quill-popover__arrow[data-side='inline-end'] {
-        inset-inline-start: var(--quill-popover-arrow-side-inset);
-        rotate: -90deg;
+        left: -0.3125rem;
+        border-top: none;
+        border-right: none;
+        border-bottom-left-radius: 2px;
     }
 
+    .quill-popover__arrow[data-side='left'],
     .quill-popover__arrow[data-side='inline-start'] {
-        inset-inline-end: var(--quill-popover-arrow-side-inset);
-        rotate: 90deg;
+        right: -0.3125rem;
+        border-bottom: none;
+        border-left: none;
+        border-top-right-radius: 2px;
     }
 
-    .quill-popover__arrow[data-side='inline-end']:dir(rtl) {
-        rotate: 90deg;
+    /* clears the left-to-right mapping so the two rules below can apply the mirror of it */
+    [dir='rtl'] .quill-popover__arrow[data-side^='inline-'] {
+        inset-inline: auto;
+        border: inherit;
+        border-radius: 0;
     }
 
-    .quill-popover__arrow[data-side='inline-start']:dir(rtl) {
-        rotate: -90deg;
+    [dir='rtl'] .quill-popover__arrow[data-side='inline-end'] {
+        right: -0.3125rem;
+        border-bottom: none;
+        border-left: none;
+        border-top-right-radius: 2px;
+    }
+
+    [dir='rtl'] .quill-popover__arrow[data-side='inline-start'] {
+        left: -0.3125rem;
+        border-top: none;
+        border-right: none;
+        border-bottom-left-radius: 2px;
     }
 
     .quill-popover__title {
