@@ -5,15 +5,9 @@ from django.db import migrations
 
 def backfill_initial_history(apps, schema_editor):
     FeatureRequest = apps.get_model("customer_analytics", "FeatureRequest")
-    FeatureRequestAccountLink = apps.get_model(
-        "customer_analytics", "FeatureRequestAccountLink"
-    )
-    FeatureRequestHistory = apps.get_model(
-        "customer_analytics", "FeatureRequestHistory"
-    )
-    FeatureRequestProductAreaLink = apps.get_model(
-        "customer_analytics", "FeatureRequestProductAreaLink"
-    )
+    FeatureRequestAccountLink = apps.get_model("customer_analytics", "FeatureRequestAccountLink")
+    FeatureRequestHistory = apps.get_model("customer_analytics", "FeatureRequestHistory")
+    FeatureRequestProductAreaLink = apps.get_model("customer_analytics", "FeatureRequestProductAreaLink")
 
     last_request_id = None
     while True:
@@ -33,9 +27,7 @@ def backfill_initial_history(apps, schema_editor):
         )
         accounts_by_request_id = {
             account["feature_request_id"]: account
-            for account in FeatureRequestAccountLink._base_manager.filter(
-                feature_request_id__in=request_ids
-            ).values(
+            for account in FeatureRequestAccountLink._base_manager.filter(feature_request_id__in=request_ids).values(
                 "feature_request_id",
                 "account_id",
                 "account__name",
@@ -43,12 +35,8 @@ def backfill_initial_history(apps, schema_editor):
         }
         product_areas_by_request_id = defaultdict(list)
         for product_area in (
-            FeatureRequestProductAreaLink._base_manager.filter(
-                feature_request_id__in=request_ids
-            )
-            .order_by(
-                "product_area__display_order", "product_area__name", "product_area_id"
-            )
+            FeatureRequestProductAreaLink._base_manager.filter(feature_request_id__in=request_ids)
+            .order_by("product_area__display_order", "product_area__name", "product_area_id")
             .values("feature_request_id", "product_area_id", "product_area__name")
         ):
             product_areas_by_request_id[product_area["feature_request_id"]].append(
@@ -98,9 +86,7 @@ def backfill_initial_history(apps, schema_editor):
                     changed_at=request.created_at,
                 )
             )
-        FeatureRequestHistory._base_manager.bulk_create(
-            history_batch, batch_size=1000, ignore_conflicts=True
-        )
+        FeatureRequestHistory._base_manager.bulk_create(history_batch, batch_size=1000, ignore_conflicts=True)
         last_request_id = request_batch[-1].id
 
 
