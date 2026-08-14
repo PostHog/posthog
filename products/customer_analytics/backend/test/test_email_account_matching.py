@@ -10,6 +10,7 @@ from products.customer_analytics.backend.facade.email_matching import (
     match_email_accounts,
     recalculate_email_thread_links,
     schedule_email_thread_link_recalculation,
+    schedule_email_thread_link_recalculation_for_threads,
 )
 from products.customer_analytics.backend.logic.email_account_matching import MatchedAccount
 from products.customer_analytics.backend.models import Account
@@ -148,8 +149,8 @@ class TestEmailAccountMatching(BaseTest):
 
     @parameterized.expand(
         [
-            ("active_run", True, False),
-            ("run_finished_during_schedule", False, True),
+            ("active_run", False, False),
+            ("run_finished_during_schedule", True, True),
         ]
     )
     @patch("products.customer_analytics.backend.facade.email_matching.current_app.send_task")
@@ -157,14 +158,12 @@ class TestEmailAccountMatching(BaseTest):
     def test_recalculation_requested_during_a_run_is_not_lost(
         self,
         _name: str,
-        lock_still_active: bool,
+        second_lock_acquired: bool,
         expected_enqueue: bool,
         mock_cache: MagicMock,
         mock_send_task: MagicMock,
     ) -> None:
-        mock_cache.add.side_effect = [False, True]
-        mock_cache.get.return_value = lock_still_active
-        mock_cache.delete.return_value = True
+        mock_cache.add.side_effect = [False, second_lock_acquired]
 
         with self.captureOnCommitCallbacks(execute=True):
             schedule_email_thread_link_recalculation(self.team.id)
@@ -174,6 +173,16 @@ class TestEmailAccountMatching(BaseTest):
             mock_send_task.assert_called_once()
         else:
             mock_send_task.assert_not_called()
+
+    @patch("products.customer_analytics.backend.facade.email_matching.current_app.send_task")
+    def test_targeted_recalculation_is_enqueued_after_commit(self, mock_send_task: MagicMock) -> None:
+        with self.captureOnCommitCallbacks(execute=True):
+            schedule_email_thread_link_recalculation_for_threads(self.team.id, ["thread-1", "thread-1"])
+
+        mock_send_task.assert_called_once_with(
+            "customer_analytics.recalculate_email_thread_account_links_for_threads",
+            args=[self.team.id, ["thread-1"]],
+        )
 
     @patch("products.customer_analytics.backend.facade.email_matching.schedule_email_thread_link_recalculation")
     @patch("products.customer_analytics.backend.facade.email_matching.cache")

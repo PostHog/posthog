@@ -7,7 +7,6 @@ from freezegun import freeze_time
 from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, patch
 
-from django.apps import apps
 from django.test import Client, RequestFactory, SimpleTestCase
 from django.utils import timezone
 
@@ -381,29 +380,23 @@ class TestCustomerEmailIngestion(BaseTest):
             [] if header_kind == "in_reply_to" else ["<older@customer.example>", root_message_id]
         )
 
-    def test_forwarded_message_links_to_matching_customer_account(self) -> None:
-        account_model = apps.get_model("customer_analytics", "Account")
-        account = account_model.objects.for_team(self.team.id).create(
-            team=self.team,
-            name="Customer account",
-            external_id="customer-account",
-            _properties={"email_domains": ["customer.example"]},
-        )
-
+    @patch(
+        "products.conversations.backend.services.email_thread_ingestion.schedule_email_thread_link_recalculation_for_threads"
+    )
+    def test_forwarded_message_schedules_account_matching(self, mock_schedule: MagicMock) -> None:
         response = self._post_email(message_id="<linked@customer.example>")
 
         assert response.status_code == 200
-        link = EmailThreadAccountLink.objects.for_team(self.team.id).get()
-        assert link.account_id == str(account.id)
-        assert link.account_external_id == "customer-account"
-        assert link.match_source == "email_domain"
+        thread = EmailThread.objects.for_team(self.team.id).get()
+        mock_schedule.assert_called_once_with(self.team.id, [str(thread.id)])
 
     @patch(
-        "products.conversations.backend.services.email_thread_ingestion.recalculate_email_thread_links",
+        "products.customer_analytics.backend.facade.email_matching.current_app.send_task",
         side_effect=Exception("account matching backend unavailable"),
     )
-    def test_account_link_recalculation_failure_does_not_fail_ingestion(self, _mock_recalc: MagicMock) -> None:
-        response = self._post_email(message_id="<recalc-fails@customer.example>")
+    def test_account_link_recalculation_failure_does_not_fail_ingestion(self, _mock_send_task: MagicMock) -> None:
+        with self.captureOnCommitCallbacks(execute=True):
+            response = self._post_email(message_id="<recalc-fails@customer.example>")
 
         assert response.status_code == 200
         thread = EmailThread.objects.for_team(self.team.id).get()
