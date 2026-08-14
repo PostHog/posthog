@@ -103,6 +103,13 @@ DATA_WAREHOUSE_OOM_INFRA_BURST_MIN_SCHEMAS = get_from_env(
 # tenant's schemas at once, which is not infrastructure and must not suppress other tenants' counting.
 DATA_WAREHOUSE_OOM_INFRA_BURST_MIN_TEAMS = get_from_env("DATA_WAREHOUSE_OOM_INFRA_BURST_MIN_TEAMS", 10, type_cast=int)
 
+# A merge-phase death whose own peak buffer crossed this blocks coarsening whatever the classification
+# rules concluded, because enlarging the merge of a table last seen holding real memory is not a safe
+# bet to make on a plausible exclusion.
+DATA_WAREHOUSE_COARSEN_BLOCK_MERGE_PEAK_BYTES = get_from_env(
+    "DATA_WAREHOUSE_COARSEN_BLOCK_MERGE_PEAK_BYTES", 1_048_576, type_cast=int
+)
+
 # Pre-write vacuum runs when this many delta commits have accrued since the last vacuum. Decoupled from
 # merge success so tables that OOM their merge still get their tombstones cleared (the compact-after-merge
 # path never runs for them). Vacuum only deletes dead files, so it's memory-safe even on oversized tables.
