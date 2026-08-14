@@ -399,7 +399,7 @@ class TestBillingManager(BaseTest):
         ]
         assert self.team.logs_settings == {"retention_days": 30}
 
-    def test_billing_sync_does_not_revert_manual_deactivation(self) -> None:
+    def test_update_org_details_does_not_clobber_stale_org_deactivation(self) -> None:
         license = super(LicenseManager, cast(LicenseManager, License.objects)).create(
             key="key123::key123",
             plan="enterprise",
@@ -410,10 +410,10 @@ class TestBillingManager(BaseTest):
         organization.customer_id = "cus_old"
         organization.save()
 
-        # Org gets disabled out-of-band after this sync loaded its (stale, active) snapshot.
         Organization.objects.filter(id=organization.id).update(
             is_active=False, is_not_active_reason=Organization.DeactivationReason.DESKTOP_ABUSE
         )
+        # Keep the instance stale; update_org_details should save only fields it owns.
         organization.is_active = True
         organization.is_not_active_reason = None
 
