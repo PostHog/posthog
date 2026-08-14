@@ -1786,7 +1786,13 @@ export interface TrendsFilterApi {
     xAxisLabel?: string | null
     /** Custom label rendered alongside the Y axis. */
     yAxisLabel?: string | null
+    /** Pins the top of the y-axis; unset means automatic. Ignored in the same cases as `yAxisStartAtZero`, and when `yAxisMin` is not below it. */
+    yAxisMax?: number | null
+    /** Pins the bottom of the y-axis; unset means automatic. Ignored in the same cases as `yAxisStartAtZero`, while it is on, and when not below `yAxisMax`. */
+    yAxisMin?: number | null
     yAxisScaleType?: YAxisScaleTypeApi | null
+    /** Y-axis baseline. When false the axis floats to the data range instead of starting at zero. Ignored on bar displays (bars always draw from zero), on a logarithmic scale, and while showing percentages. */
+    yAxisStartAtZero?: boolean | null
 }
 
 export interface TrendsQueryApi {
