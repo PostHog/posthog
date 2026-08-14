@@ -687,6 +687,7 @@ runcmd:
         print(f"⏳ Polling for session recording (timeout {timeout_seconds}s)...", flush=True)
         deadline = time.time() + timeout_seconds
         attempt = 0
+        replay_found = False
         while time.time() < deadline:
             attempt += 1
             try:
@@ -700,7 +701,8 @@ runcmd:
                     results = recordings_resp.json().get("results", [])
                     if any(recording.get("id") == session_id for recording in results):
                         print(f"✅ Session recording found after {attempt} poll(s)", flush=True)
-                        return True, "Events, log, exception issue, and session recording ingested successfully"
+                        replay_found = True
+                        break
                     print(f"   Poll {attempt}: no session recording yet", flush=True)
                 else:
                     print(f"   Poll {attempt}: HTTP {recordings_resp.status_code}", flush=True)
@@ -708,7 +710,138 @@ runcmd:
                 print(f"   Poll {attempt}: {type(e).__name__}", flush=True)
             time.sleep(poll_interval)
 
-        return False, f"Session recording did not appear within {timeout_seconds}s ({attempt} polls)"
+        if not replay_found:
+            return False, f"Session recording did not appear within {timeout_seconds}s ({attempt} polls)"
+
+        trace_id = uuid.uuid4().hex
+        span_id = uuid.uuid4().hex[:16]
+        metric_name = f"hobby_ci_smoke_test_{time.time_ns()}"
+        apm_date_from = datetime.datetime.now(datetime.UTC).isoformat()
+        start_time_ns = time.time_ns()
+        print("📤 Sending test trace and metric...", flush=True)
+        try:
+            trace_resp = requests.post(
+                f"{base_url}/i/v1/traces",  # nosemgrep: python.lang.security.audit.insecure-transport.requests.request-with-http.request-with-http
+                params={"token": project_api_token},
+                json={
+                    "resourceSpans": [
+                        {
+                            "resource": {"attributes": [{"key": "service.name", "value": {"stringValue": "hobby-ci"}}]},
+                            "scopeSpans": [
+                                {
+                                    "scope": {"name": "hobby-ci"},
+                                    "spans": [
+                                        {
+                                            "traceId": trace_id,
+                                            "spanId": span_id,
+                                            "name": "hobby-ci-smoke-test",
+                                            "kind": 1,
+                                            "startTimeUnixNano": str(start_time_ns),
+                                            "endTimeUnixNano": str(start_time_ns + 1_000_000),
+                                            "status": {"code": 1},
+                                        }
+                                    ],
+                                }
+                            ],
+                        }
+                    ]
+                },
+                timeout=30,
+            )
+            metric_resp = requests.post(
+                f"{base_url}/i/v1/metrics",  # nosemgrep: python.lang.security.audit.insecure-transport.requests.request-with-http.request-with-http
+                params={"token": project_api_token},
+                json={
+                    "resourceMetrics": [
+                        {
+                            "resource": {"attributes": [{"key": "service.name", "value": {"stringValue": "hobby-ci"}}]},
+                            "scopeMetrics": [
+                                {
+                                    "scope": {"name": "hobby-ci"},
+                                    "metrics": [
+                                        {
+                                            "name": metric_name,
+                                            "gauge": {
+                                                "dataPoints": [{"timeUnixNano": str(time.time_ns()), "asDouble": 1.0}]
+                                            },
+                                        }
+                                    ],
+                                }
+                            ],
+                        }
+                    ]
+                },
+                timeout=30,
+            )
+        except requests.RequestException as e:
+            return False, f"APM capture request failed: {e}"
+        if trace_resp.status_code != 200:
+            return False, f"Trace capture failed: HTTP {trace_resp.status_code} - {trace_resp.text[:200]}"
+        if metric_resp.status_code != 200:
+            return False, f"Metric capture failed: HTTP {metric_resp.status_code} - {metric_resp.text[:200]}"
+
+        print(f"⏳ Polling for trace and metric (timeout {timeout_seconds}s)...", flush=True)
+        deadline = time.time() + timeout_seconds
+        attempt = 0
+        trace_found = False
+        metric_found = False
+        while time.time() < deadline:
+            attempt += 1
+            try:
+                if not trace_found:
+                    trace_query_resp = requests.post(
+                        f"{base_url}/api/projects/@current/tracing/spans/query",  # nosemgrep: python.lang.security.audit.insecure-transport.requests.request-with-http.request-with-http
+                        json={
+                            "query": {
+                                "dateRange": {"date_from": apm_date_from},
+                                "traceId": trace_id,
+                                "limit": 1,
+                            }
+                        },
+                        headers=headers,
+                        timeout=10,
+                    )
+                    if trace_query_resp.status_code == 200:
+                        trace_found = bool(trace_query_resp.json().get("results", []))
+                    else:
+                        print(f"   Poll {attempt}: trace HTTP {trace_query_resp.status_code}", flush=True)
+
+                if not metric_found:
+                    metric_query_resp = requests.post(
+                        f"{base_url}/api/projects/@current/metrics/query",  # nosemgrep: python.lang.security.audit.insecure-transport.requests.request-with-http.request-with-http
+                        json={
+                            "query": {
+                                "metricName": metric_name,
+                                "metricType": "gauge",
+                                "aggregation": "sum",
+                                "dateFrom": apm_date_from,
+                            }
+                        },
+                        headers=headers,
+                        timeout=10,
+                    )
+                    if metric_query_resp.status_code == 200:
+                        metric_found = bool(metric_query_resp.json().get("results", []))
+                    else:
+                        print(f"   Poll {attempt}: metric HTTP {metric_query_resp.status_code}", flush=True)
+
+                if trace_found and metric_found:
+                    print(f"✅ Trace and metric found after {attempt} poll(s)", flush=True)
+                    return (
+                        True,
+                        "Events, log, exception issue, session recording, trace, and metric ingested successfully",
+                    )
+                print(
+                    f"   Poll {attempt}: trace={'found' if trace_found else 'pending'}, "
+                    f"metric={'found' if metric_found else 'pending'}",
+                    flush=True,
+                )
+            except Exception as e:
+                print(f"   Poll {attempt}: {type(e).__name__}", flush=True)
+            time.sleep(poll_interval)
+
+        missing = [name for name, found in (("trace", trace_found), ("metric", metric_found)) if not found]
+        return False, f"APM {' and '.join(missing)} did not appear within {timeout_seconds}s ({attempt} polls)"
 
     @staticmethod
     def find_existing_droplet_for_pr(token, pr_number):
