@@ -11,6 +11,7 @@ a per-recipient sent marker to store.
 """
 
 from collections.abc import Callable, Mapping
+from urllib.parse import urlencode
 from uuid import UUID
 
 from django.conf import settings
@@ -146,7 +147,7 @@ def send_comment_slack_dms(*, team_id: int, comment_id: UUID, task_id: UUID, rec
             if not slack_user_id:
                 _skip(comment_id, "recipient_not_found_in_slack", user_id=user_id)
                 continue
-            fallback, blocks = _message(
+            heading, blocks = _message(
                 kind=kind,
                 comment=comment,
                 task=task,
@@ -161,8 +162,8 @@ def send_comment_slack_dms(*, team_id: int, comment_id: UUID, task_id: UUID, rec
             )
             slack.client.chat_postMessage(
                 channel=slack_user_id,
-                text=fallback,
-                attachments=[{"color": _ACCENT, "blocks": blocks}],
+                text=heading,
+                attachments=[{"color": _ACCENT, "blocks": blocks}] if blocks else None,
                 unfurl_links=False,
             )
         except Exception as exc:
@@ -334,6 +335,14 @@ def _author_name(comment: Comment) -> str:
     return f"{author.first_name} {author.last_name}".strip() or author.email or "Someone"
 
 
+def _bridge_url(*, comment: Comment, task: Task) -> str:
+    params = {"comment": str(comment.source_comment_id or comment.id)}
+    if comment.scope in _LOCATIONS and comment.item_id:
+        params["scope"] = comment.scope
+        params["item"] = comment.item_id
+    return f"{settings.SITE_URL}/code/task/{task.id}?{urlencode(params)}"
+
+
 def _message(
     *,
     kind: str,
@@ -342,15 +351,13 @@ def _message(
     organization_id: str | UUID | None,
     slack_user_id_by_email: Callable[[str], str | None] | None = None,
 ) -> tuple[str, list[dict]]:
-    url = f"{settings.SITE_URL}/project/{task.team_id}/tasks/{task.id}"
+    url = _bridge_url(comment=comment, task=task)
     title = task.title or "a task"
     author = _author_name(comment)
     template = _HEADINGS.get(kind, _HEADINGS[TaskCommentActivity.Kind.MENTION])
     # A pipe in the title would end the link label early, so it can't survive into the label.
     label = escape_slack_mrkdwn(title).replace("|", "-")
     heading = template.format(author=f"*{escape_slack_mrkdwn(author)}*", link=f"<{url}|{label}>")
-    # Plain-text twin for the notification preview and older clients.
-    fallback = template.format(author=escape_slack_mrkdwn(author), link=escape_slack_mrkdwn(title))
 
     body, _ = rich_content_to_slack_payload(
         comment.rich_content,
@@ -360,10 +367,11 @@ def _message(
         slack_user_id_by_email=slack_user_id_by_email,
     )
     body = _truncate_body(body.strip())
-    text = f"{heading}\n\n{body}" if body else heading
-    blocks: list[dict] = [{"type": "section", "text": {"type": "mrkdwn", "text": text}}]
+    blocks: list[dict] = []
+    if body:
+        blocks.append({"type": "section", "text": {"type": "mrkdwn", "text": body}})
     # Three canvases in one task otherwise produce three identical headings.
     location = _LOCATIONS.get(comment.scope)
     if location:
         blocks.append({"type": "context", "elements": [{"type": "mrkdwn", "text": location}]})
-    return fallback, blocks
+    return heading, blocks
