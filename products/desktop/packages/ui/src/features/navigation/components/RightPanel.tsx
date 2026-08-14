@@ -22,6 +22,10 @@ import { preloadReviewPages } from "@posthog/ui/features/code-review/components/
 import { useReviewNavigationStore } from "@posthog/ui/features/code-review/reviewNavigationStore";
 import { openRightPanelSide } from "@posthog/ui/features/navigation/rightPanelSide";
 import { useCommentFocusRequest } from "@posthog/ui/features/sessions/useCommentFocusRequest";
+import {
+  useSessionArtifactCount,
+  useSessionIsWorking,
+} from "@posthog/ui/features/sessions/useSessionArtifactCount";
 import { taskDetailQuery } from "@posthog/ui/features/tasks/queries";
 import { useTasks } from "@posthog/ui/features/tasks/useTasks";
 import { useIsCloudTask } from "@posthog/ui/features/workspace/useWorkspace";
@@ -29,6 +33,10 @@ import {
   ResizableSidebar,
   SLIDE_MS,
 } from "@posthog/ui/primitives/ResizableSidebar";
+import {
+  retireTeachingTip,
+  TeachingTip,
+} from "@posthog/ui/primitives/TeachingTip";
 import { useQuery } from "@tanstack/react-query";
 import { useParams } from "@tanstack/react-router";
 import { useCallback, useEffect, useState } from "react";
@@ -36,6 +44,7 @@ import {
   DEFAULT_RIGHT_PANEL_SIDE,
   RIGHT_PANEL_MIN_WIDTH,
   type RightPanelSide,
+  resolveArtifactMark,
   resolveRightPanelSide,
   useRightPanelStore,
 } from "../rightPanelStore";
@@ -62,6 +71,9 @@ const SIDE_ORDER: readonly RightPanelSide[] = [
  */
 export const SWITCHER_WIDTH_PX = 112;
 
+/** The one lesson this switcher teaches: where a run's deliverables land. */
+const ARTIFACTS_PANEL_TIP = "right-panel-artifacts";
+
 /** The task the right panel talks about: the one on the current route. */
 function useRightPanelTask(taskId: string): Task | null {
   const { data: tasks } = useTasks();
@@ -86,49 +98,135 @@ function useActiveSide(taskId: string): RightPanelSide | null {
   });
 }
 
+/** One side's button: opens that panel, or closes it when it is the one open. */
+function SideButton({
+  side,
+  active,
+  taskId,
+  marked = false,
+  retiresTip = false,
+}: {
+  side: RightPanelSide;
+  active: RightPanelSide | null;
+  taskId: string;
+  /** Something has arrived on this side that the panel hasn't shown yet. */
+  marked?: boolean;
+  retiresTip?: boolean;
+}) {
+  const { label, Icon } = SIDES[side];
+  return (
+    <Tooltip>
+      <TooltipTrigger
+        render={
+          <Button
+            variant="default"
+            size="icon-sm"
+            aria-label={marked ? `${label} (new)` : label}
+            data-selected={active === side || undefined}
+            onClick={() => {
+              if (retiresTip) retireTeachingTip(ARTIFACTS_PANEL_TIP);
+              openRightPanelSide(active === side ? null : side, taskId);
+            }}
+            className="relative text-muted-foreground data-selected:bg-fill-selected data-selected:text-foreground"
+          >
+            <Icon size={16} />
+            {marked && (
+              // Ringed in the row's own background so the dot still reads
+              // where it overlaps the icon's strokes.
+              <span
+                aria-hidden
+                className="absolute top-0.5 right-0.5 size-1.5 rounded-full bg-primary ring-2 ring-background"
+              />
+            )}
+          </Button>
+        }
+      />
+      <TooltipContent side="bottom">{label}</TooltipContent>
+    </Tooltip>
+  );
+}
+
 /**
  * The panel's own switcher: one button per side, the active one toggling the
  * panel closed. It sits a row below the header band, pinned to the right edge,
  * and stays there whether the panel is open or closed, because the panel slides
  * out from under it.
  */
-function RightPanelButtons({
+export function RightPanelButtons({
   active,
   taskId,
+  hasNewArtifacts,
+  offerArtifactsTip = false,
 }: {
   active: RightPanelSide | null;
   taskId: string;
+  /** Artifacts have arrived that this session's panel hasn't shown yet. */
+  hasNewArtifacts: boolean;
+  /** The turn that produced them has ended, so the tip can point at where they went. */
+  offerArtifactsTip?: boolean;
 }) {
   return (
     <TooltipProvider delay={400}>
       <div className="pointer-events-auto flex shrink-0 items-center gap-0.5">
-        {SIDE_ORDER.map((side) => {
-          const { label, Icon } = SIDES[side];
-          return (
-            <Tooltip key={side}>
-              <TooltipTrigger
-                render={
-                  <Button
-                    variant="default"
-                    size="icon-sm"
-                    aria-label={label}
-                    data-selected={active === side || undefined}
-                    onClick={() =>
-                      openRightPanelSide(active === side ? null : side, taskId)
-                    }
-                    className="text-muted-foreground data-selected:bg-fill-selected data-selected:text-foreground"
-                  >
-                    <Icon size={16} />
-                  </Button>
-                }
+        {SIDE_ORDER.map((side) =>
+          side === "artifacts" ? (
+            <TeachingTip
+              key={side}
+              id={ARTIFACTS_PANEL_TIP}
+              open={offerArtifactsTip}
+              message="Artifacts placed here"
+            >
+              <SideButton
+                side={side}
+                active={active}
+                taskId={taskId}
+                marked={hasNewArtifacts}
+                // Opening the panel while the tip is up is the lesson landing,
+                // so it is also the last time it is taught. Only while it is
+                // up: a reader who opens the panel on their own has not been
+                // shown anything to retire.
+                retiresTip={offerArtifactsTip}
               />
-              <TooltipContent side="bottom">{label}</TooltipContent>
-            </Tooltip>
-          );
-        })}
+            </TeachingTip>
+          ) : (
+            <SideButton
+              key={side}
+              side={side}
+              active={active}
+              taskId={taskId}
+            />
+          ),
+        )}
       </div>
     </TooltipProvider>
   );
+}
+
+/**
+ * Whether a session has artifacts its panel hasn't shown yet. The first count a
+ * session reports is taken as seen, so a session opened long after its run
+ * doesn't announce work the reader already knows about; from there the mark
+ * clears whenever the panel is on Artifacts.
+ */
+function useNewArtifacts(
+  taskId: string,
+  task: Task | null,
+  active: RightPanelSide | null,
+): boolean {
+  const count = useSessionArtifactCount(task);
+  const seen = useRightPanelStore((s) => s.seenArtifactCountByKey[taskId]);
+  const markArtifactsSeen = useRightPanelStore((s) => s.markArtifactsSeen);
+  const { markSeen, hasNew } = resolveArtifactMark({
+    count,
+    seen,
+    isShowingArtifacts: active === "artifacts",
+  });
+
+  useEffect(() => {
+    if (markSeen) markArtifactsSeen(taskId, count);
+  }, [count, markArtifactsSeen, markSeen, taskId]);
+
+  return hasNew;
 }
 
 function ChangesPanelContent({ task }: { task: Task }) {
@@ -192,6 +290,10 @@ export function RightPanel() {
 function SessionRightPanel({ taskId }: { taskId: string }) {
   const task = useRightPanelTask(taskId);
   const active = useActiveSide(taskId);
+  const hasNewArtifacts = useNewArtifacts(taskId, task, active);
+  // Only once the agent has stopped: a tip that lands mid-turn points at a
+  // list that is still filling.
+  const isWorking = useSessionIsWorking(task);
   useCommentFocusRequest(taskId, () => openRightPanelSide("comments", taskId));
 
   const width = useRightPanelStore((s) => s.width);
@@ -268,7 +370,12 @@ function SessionRightPanel({ taskId }: { taskId: string }) {
         className="pointer-events-none absolute top-0 right-0 z-60 flex h-[32px] items-center justify-end pr-2"
         style={{ width: SWITCHER_WIDTH_PX }}
       >
-        <RightPanelButtons active={active} taskId={taskId} />
+        <RightPanelButtons
+          active={active}
+          taskId={taskId}
+          hasNewArtifacts={hasNewArtifacts}
+          offerArtifactsTip={hasNewArtifacts && !isWorking}
+        />
       </div>
     </>
   );
