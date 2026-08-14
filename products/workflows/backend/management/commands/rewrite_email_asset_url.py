@@ -1,12 +1,15 @@
 import json
 import logging
+from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any, Final
 
 from django.core.management.base import BaseCommand, CommandError
-from django.db import models
+from django.db import models, transaction
 from django.db.models.functions import Cast
 from django.utils import timezone
+
+from posthog.plugins.plugin_server_api import reload_hog_flows_on_workers, reload_hog_functions_on_workers
 
 from products.cdp.backend.models.hog_functions.hog_function import HogFunction
 from products.messaging.backend.models.message_template import MessageTemplate
@@ -14,6 +17,17 @@ from products.workflows.backend.models.hog_flow.hog_flow import HogFlow
 from products.workflows.backend.models.hog_flow.hog_flow_template import HogFlowTemplate
 
 logger = logging.getLogger(__name__)
+
+WorkerReload = Callable[[int, str], None]
+
+# Only executed config has a worker-side cache to invalidate; templates are copied at creation time
+# and never read by a worker, so they need no reload.
+WORKER_RELOADS: Final[dict[str, WorkerReload]] = {
+    "hog_flows": lambda team_id, row_id: reload_hog_flows_on_workers(team_id=team_id, hog_flow_ids=[row_id]),
+    "hog_functions": lambda team_id, row_id: reload_hog_functions_on_workers(
+        team_id=team_id, hog_function_ids=[row_id]
+    ),
+}
 
 # Every column that can hold rendered email content, mapped to the timestamp that tracks it.
 # `actions`/`inputs` carry both the editable value (html, design) and the compiled hog bytecode the
@@ -154,57 +168,90 @@ class Command(BaseCommand):
         batch_size: int = options["batch_size"]
         for start in range(0, len(row_ids), batch_size):
             batch = row_ids[start : start + batch_size]
-            for row in base_queryset.filter(id__in=batch).order_by("id"):
+            for row_id in batch:
                 counts.rows_scanned += 1
                 try:
-                    occurrences = self._rewrite_row(row, field_timestamps, from_url, to_url, dry_run=options["dry_run"])
+                    occurrences = self._rewrite_row(
+                        base_queryset,
+                        row_id,
+                        field_timestamps,
+                        WORKER_RELOADS.get(target),
+                        from_url,
+                        to_url,
+                        dry_run=options["dry_run"],
+                    )
                 except Exception as e:
                     counts.errors += 1
-                    logger.exception("Failed to rewrite %s %s: %s", target, row.pk, e)
-                    self.stdout.write(self.style.ERROR(f"  {row.pk}: {e}"))
+                    logger.exception("Failed to rewrite %s %s: %s", target, row_id, e)
+                    self.stdout.write(self.style.ERROR(f"  {row_id}: {e}"))
                     continue
                 if occurrences:
                     counts.rows_changed += 1
                     counts.occurrences += occurrences
                     if options["list_rows"]:
-                        self.stdout.write(f"  {row.pk}: {occurrences} occurrence(s)")
+                        self.stdout.write(f"  {row_id}: {occurrences} occurrence(s)")
 
         return counts
 
     def _rewrite_row(
-        self, row: models.Model, field_timestamps: dict[str, str], from_url: str, to_url: str, dry_run: bool
+        self,
+        base_queryset: models.QuerySet,
+        row_id: Any,
+        field_timestamps: dict[str, str],
+        publish_reload: WorkerReload | None,
+        from_url: str,
+        to_url: str,
+        dry_run: bool,
     ) -> int:
-        changed_fields: list[str] = []
-        occurrences = 0
+        if dry_run:
+            row = base_queryset.get(pk=row_id)
+            return sum(rewrite_blob(getattr(row, field), from_url, to_url)[1] for field in field_timestamps)
 
-        for field in field_timestamps:
-            new_value, found = rewrite_blob(getattr(row, field), from_url, to_url)
-            if found:
-                setattr(row, field, new_value)
-                changed_fields.append(field)
-                occurrences += found
+        # Read the row again under a row lock and rewrite that value, not the one the id scan saw.
+        # A customer saving the same workflow in between would otherwise have their edit overwritten
+        # by the stale blob this command is holding - the same lost write the API path guards against
+        # with select_for_update plus its staleness fence.
+        with transaction.atomic():
+            row = base_queryset.select_for_update().get(pk=row_id)
 
-        if not occurrences or dry_run:
-            return occurrences
+            changed_fields: list[str] = []
+            occurrences = 0
+            for field in field_timestamps:
+                new_value, found = rewrite_blob(getattr(row, field), from_url, to_url)
+                if found:
+                    setattr(row, field, new_value)
+                    changed_fields.append(field)
+                    occurrences += found
 
-        # Bump the timestamp that tracks each column we touched, so the editor's stale-write
-        # detection sees the change instead of letting an open tab save the dead URL back. Keeping a
-        # draft-only rewrite on draft_updated_at also keeps it out of the live row's history, and
-        # lets the post_save receivers skip a worker reload nothing is executing yet.
-        timestamp_fields: list[str] = []
-        for field in changed_fields:
-            timestamp_field = field_timestamps[field]
-            if timestamp_field in timestamp_fields:
-                continue
-            timestamp_fields.append(timestamp_field)
-            # updated_at is auto_now, so listing it is enough; the rest need an explicit value.
-            if timestamp_field != "updated_at":
-                setattr(row, timestamp_field, timezone.now())
+            if not occurrences:
+                return 0
 
-        # One row per save, never bulk_update: the post_save signal is what publishes
-        # reload-hog-flows / reload-hog-functions to the workers, which otherwise keep serving the
-        # old blob from their cache. The save runs in autocommit (no wrapping transaction) so the
-        # UPDATE commits before the receiver publishes; otherwise a worker could re-read the
-        # pre-commit row and cache the old blob for another TTL.
-        row.save(update_fields=[*changed_fields, *timestamp_fields])
+            # Bump the timestamp that tracks each column we touched, so the editor's stale-write
+            # detection sees the change instead of letting an open tab save the dead URL back.
+            # Keeping a draft-only rewrite on draft_updated_at also keeps it out of the live row's
+            # history, and lets the post_save receivers skip a worker reload nothing is executing yet.
+            timestamp_fields: list[str] = []
+            live_change = False
+            for field in changed_fields:
+                timestamp_field = field_timestamps[field]
+                live_change = live_change or timestamp_field == "updated_at"
+                if timestamp_field in timestamp_fields:
+                    continue
+                timestamp_fields.append(timestamp_field)
+                # updated_at is auto_now, so listing it is enough; the rest need an explicit value.
+                if timestamp_field != "updated_at":
+                    setattr(row, timestamp_field, timezone.now())
+
+            # One row per save, never bulk_update: workers only drop their cached copy when a reload
+            # is published for the row, and bulk_update fires no signal at all.
+            row.save(update_fields=[*changed_fields, *timestamp_fields])
+
+            # The post_save receiver publishes from inside this transaction, so a worker can re-read
+            # the row before the UPDATE commits and cache the old blob for another refresh window.
+            # Publishing again on commit is what workers actually act on; the duplicate is harmless.
+            # Draft-only rewrites publish nothing, matching the receiver that skips them.
+            if live_change and publish_reload is not None:
+                team_id, row_pk = row.team_id, str(row.pk)
+                transaction.on_commit(lambda: publish_reload(team_id, row_pk))
+
         return occurrences
