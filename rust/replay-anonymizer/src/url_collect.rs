@@ -218,19 +218,28 @@ mod tests {
     }
 
     #[test]
-    fn two_signatures_of_one_image_share_a_ref() {
+    fn two_cache_busters_of_one_image_share_a_ref() {
         let mut c = collector();
         let first = c
-            .collect("https://cdn.example.com/a.png?X-Amz-Signature=aaa")
+            .collect("https://cdn.example.com/a.png?nocache=aaa")
             .unwrap();
         let second = c
-            .collect("https://cdn.example.com/a.png?X-Amz-Signature=bbb")
+            .collect("https://cdn.example.com/a.png?nocache=bbb")
             .unwrap();
         assert_eq!(first, second);
-        // One entry, and it keeps the URL of the first sighting, which is a URL that still works.
+        // One entry, and it keeps the URL the lane saw first.
         let urls = c.into_urls();
         assert_eq!(urls.len(), 1);
-        assert!(urls[0].url.contains("X-Amz-Signature=aaa"));
+        assert!(urls[0].url.contains("nocache=aaa"));
+    }
+
+    #[test]
+    fn a_signed_url_is_never_collected() {
+        let mut c = collector();
+        assert!(c
+            .collect("https://cdn.example.com/a.png?X-Amz-Signature=aaa")
+            .is_none());
+        assert!(c.into_urls().is_empty());
     }
 
     #[test]

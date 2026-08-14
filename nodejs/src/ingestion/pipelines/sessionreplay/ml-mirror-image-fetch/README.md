@@ -174,11 +174,12 @@ write, so an attacker chooses them, and the request leaves from inside our netwo
     resolves a name, checks the IP address, then passes the name to a second resolver checks one
     address and connects to another.
 34. The collector is the URL policy the mirror runs before it publishes. It drops a URL that a later
-    check refuses, so that URL never reaches the topic. It drops four kinds:
+    check refuses, so that URL never reaches the topic. It drops:
     - a host that is not public
     - a scheme that is not HTTPS
     - a port that the scheme does not own
     - a URL that is too long
+    - a URL that carries a signature the lane recognises
 35. Every check in rule 34 runs again in the lane, on the first URL and on every redirect target.
     The network layer performs none of them. Smokescreen limits which IP addresses we reach, not
     which service we reach at those addresses.
@@ -190,6 +191,17 @@ the name, checks the IP addresses it got, and hands that list to undici, which c
 The lane repeats the collector's checks because nothing below the lane performs them. Smokescreen
 sees an IP address, not a scheme, a port, or a hostname, so the collector and the lane are the only
 two places these run, and the two must agree. Both allow HTTPS on port 443 and nothing else.
+
+The signature check is best effort by design. A signature says the operator serves that URL to a
+holder of the signature rather than to anyone who asks, so principle two sends an ambiguous case the
+way of not fetching. It also expires, so a URL that waits in a delay topic arrives dead and records
+a 403 as a permanent answer.
+
+The lane names the schemes it recognises rather than trying to detect a signature in general. It
+reads `X-Amz-Signature`, `X-Amz-Credential`, `X-Amz-SignedHeaders` and `Signature` on any host, `s`
+on an imgix host, and a Cloudinary `/s--<token>--/` path segment. A name is host-scoped when it means
+something else elsewhere: `s` sizes a Gravatar avatar. An unrecognised scheme still reaches the
+fetcher, so a signed fetch has to fail safely rather than be impossible.
 
 The host check is the one that needs both layers. An IP address check at connect time refuses a
 private address, so it covers `169.254.169.254`, the cloud instance metadata endpoint. It cannot

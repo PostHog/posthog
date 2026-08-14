@@ -86,6 +86,48 @@ const SCOPED_VOLATILE_PARAMS: &[(&str, &[&str])] = &[
 /// Hosts whose short signature parameter is safe to remove, because the vendor owns the host.
 const HOST_SCOPED_VOLATILE_PARAMS: &[(&str, &[&str])] = &[(".imgix.net", &["s", "expires"])];
 
+/// Names that mean the URL carries a credential rather than an address.
+///
+/// A signature says the operator chose not to serve this to anyone who asks. Fetching it spends
+/// someone else's credential, and principle two says an ambiguous case goes the way of not
+/// fetching. A signature also expires, so a URL that waits in a delay topic arrives dead and
+/// records a 403 as a permanent answer.
+///
+/// Best effort, and deliberately so. This names the schemes we recognise. An unrecognised one
+/// still reaches the fetcher, which is why the fetcher checks again rather than trusting this.
+const SIGNATURE_PARAMS: &[&str] = &[
+    "x-amz-signature",
+    "x-amz-credential",
+    "x-amz-signedheaders",
+    "signature",
+];
+
+/// A name that means a signature only on the host that signs with it. `s` sizes a Gravatar avatar
+/// and signs an imgix URL, which is the same split [`HOST_SCOPED_VOLATILE_PARAMS`] makes.
+const HOST_SCOPED_SIGNATURE_PARAMS: &[(&str, &[&str])] = &[(".imgix.net", &["s"])];
+
+/// Whether the URL carries a signature we recognise.
+///
+/// Cloudinary signs in a path segment rather than the query, as `/s--<token>--/`, so the path is
+/// checked as well as the parameters.
+fn has_signature(url: &Url, host: &str) -> bool {
+    for (name, _) in url.query_pairs() {
+        let lower = name.to_ascii_lowercase();
+        if SIGNATURE_PARAMS.contains(&lower.as_str()) {
+            return true;
+        }
+        for (suffix, names) in HOST_SCOPED_SIGNATURE_PARAMS {
+            if host.ends_with(suffix) && names.contains(&lower.as_str()) {
+                return true;
+            }
+        }
+    }
+    url.path_segments()
+        .into_iter()
+        .flatten()
+        .any(|segment| segment.len() >= 6 && segment.starts_with("s--") && segment.ends_with("--"))
+}
+
 /// Longer than this and we neither collect nor fetch it. Well past what a real image URL needs,
 /// and it bounds what one message can pin in memory alongside the count cap.
 pub const MAX_URL_LEN: usize = 2048;
@@ -289,6 +331,8 @@ pub enum Decline {
     NoHost,
     /// Loopback, private, link-local or an internal-only name. See [`is_public_host`].
     NonPublicHost,
+    /// Carries a signature we recognise. See [`SIGNATURE_PARAMS`].
+    Signed,
 }
 
 impl Decline {
@@ -301,6 +345,7 @@ impl Decline {
             Decline::BadPort => "bad_port",
             Decline::NoHost => "no_host",
             Decline::NonPublicHost => "non_public_host",
+            Decline::Signed => "signed",
         }
     }
 }
@@ -341,6 +386,9 @@ pub fn try_canonicalize(raw: &str) -> Result<CanonicalUrl, Decline> {
     }
     if host != host_str {
         url.set_host(Some(&host)).map_err(|_| Decline::NoHost)?;
+    }
+    if has_signature(&url, &host) {
+        return Err(Decline::Signed);
     }
 
     remove_credentials_and_fragment(&mut url);
@@ -432,13 +480,40 @@ mod tests {
     }
 
     #[test]
-    fn the_signature_stays_on_the_fetch_url_and_leaves_the_dedup_url() {
-        let signed = "https://cdn.example.com/a.png?w=200&X-Amz-Signature=deadbeef&X-Amz-Date=20260810T000000Z";
-        let c = canonicalize(signed).unwrap();
-        // The fetcher needs the signature, or the request 403s.
-        assert!(c.fetch.contains("X-Amz-Signature=deadbeef"));
-        // The ref must not move when the signature does.
+    fn a_volatile_parameter_stays_on_the_fetch_url_and_leaves_the_dedup_url() {
+        let raw = "https://cdn.example.com/a.png?w=200&nocache=12345";
+        let c = canonicalize(raw).unwrap();
+        // The fetcher requests the URL as the page wrote it.
+        assert!(c.fetch.contains("nocache=12345"));
+        // The ref must not move when a cache buster does.
         assert_eq!(c.dedup, "https://cdn.example.com/a.png?w=200");
+    }
+
+    #[test]
+    fn a_signed_url_is_not_collected() {
+        // A signature says the operator serves this to a holder of the signature rather than to
+        // anyone who asks. It also expires, so a URL that waits in a delay topic arrives dead.
+        for raw in [
+            "https://cdn.example.com/a.png?X-Amz-Signature=deadbeef",
+            "https://cdn.example.com/a.png?X-Amz-Credential=AKIA%2F20260810%2Fus-east-1",
+            "https://cdn.example.com/a.png?X-Amz-SignedHeaders=host",
+            "https://cdn.example.com/a.png?Expires=1&Signature=zz&Key-Pair-Id=K1",
+            // Cloudinary signs in a path segment rather than the query.
+            "https://res.cloudinary.com/demo/image/upload/s--abc123--/sample.png",
+            // imgix signs with `s`.
+            "https://images.imgix.net/a.png?s=abcdef",
+        ] {
+            assert_eq!(try_canonicalize(raw), Err(Decline::Signed), "{raw}");
+        }
+    }
+
+    #[test]
+    fn a_short_name_is_only_a_signature_where_the_vendor_owns_it() {
+        // `s` sizes a Gravatar avatar. Declining it everywhere would drop every avatar.
+        assert!(canonicalize("https://www.gravatar.com/avatar/abc?s=200").is_some());
+        // A path segment that merely starts with an s is not Cloudinary's marker.
+        assert!(canonicalize("https://cdn.example.com/s-sale/a.png").is_some());
+        assert!(canonicalize("https://cdn.example.com/summer--sale/a.png").is_some());
     }
 
     #[test]
@@ -616,12 +691,11 @@ mod tests {
     }
 
     #[test]
-    fn the_dedup_url_does_not_depend_on_whether_a_signature_rode_along() {
+    fn the_dedup_url_does_not_depend_on_whether_a_cache_buster_rode_along() {
         // The query used to be re-encoded only when something was stripped, so one image could
         // hold two refs depending on an unrelated condition.
         let plain = canonicalize("https://cdn.example.com/a.png?a=1&b=2").unwrap();
-        let signed =
-            canonicalize("https://cdn.example.com/a.png?a=1&b=2&X-Amz-Signature=zz").unwrap();
-        assert_eq!(plain.dedup, signed.dedup);
+        let busted = canonicalize("https://cdn.example.com/a.png?a=1&b=2&nocache=zz").unwrap();
+        assert_eq!(plain.dedup, busted.dedup);
     }
 }

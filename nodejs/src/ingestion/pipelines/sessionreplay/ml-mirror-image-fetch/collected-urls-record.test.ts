@@ -106,6 +106,38 @@ describe('parseCollectedUrlsRecord', () => {
         expect(bare.ok && bare.candidates[0].domain).toBe('example.com')
     })
 
+    it.each([
+        ['an S3 signature', 'https://cdn.example.com/a.png?X-Amz-Signature=deadbeef'],
+        ['an S3 credential', 'https://cdn.example.com/a.png?X-Amz-Credential=AKIA'],
+        ['signed headers', 'https://cdn.example.com/a.png?X-Amz-SignedHeaders=host'],
+        ['a CloudFront signature', 'https://cdn.example.com/a.png?Signature=zz&Key-Pair-Id=K1'],
+        ['a Cloudinary signed path', 'https://cdn.example.com/image/upload/s--abc123--/a.png'],
+        ['an imgix signature', 'https://images.imgix.net/a.png?s=abcdef'],
+    ])('drops %s', (_name, imageUrl) => {
+        // A signature says the operator serves this to a holder of the signature rather than to
+        // anyone who asks. It also expires while the URL waits in a delay topic.
+        const host = new URL(imageUrl).hostname
+        const value = Buffer.from(
+            `{"v":1,"pseudoTeam":"${TEAM}","capturedAtMs":1700000000000,` +
+                `"urls":[{"ref":"imageurl:${TEAM}:${HASH}","url":"${imageUrl}","host":"${host}"}]}`
+        )
+
+        const parsed = parseCollectedUrlsRecord(value, host)
+
+        expect(parsed.ok && parsed.rejected).toEqual([{ reason: 'bad_url' }])
+    })
+
+    it('keeps a Gravatar size, which uses the same name imgix signs with', () => {
+        const value = Buffer.from(
+            `{"v":1,"pseudoTeam":"${TEAM}","capturedAtMs":1700000000000,` +
+                `"urls":[{"ref":"imageurl:${TEAM}:${HASH}","url":"https://www.gravatar.com/avatar/abc?s=200","host":"www.gravatar.com"}]}`
+        )
+
+        const parsed = parseCollectedUrlsRecord(value, 'gravatar.com')
+
+        expect(parsed.ok && parsed.candidates).toHaveLength(1)
+    })
+
     it('accepts an ordinary timestamp', () => {
         const parsed = parseCollectedUrlsRecord(body('"capturedAtMs":1700000000000'), 'example.com')
 
