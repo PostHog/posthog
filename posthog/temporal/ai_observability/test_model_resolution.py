@@ -1,7 +1,7 @@
 import uuid
 
 import pytest
-from unittest.mock import patch
+from unittest.mock import PropertyMock, patch
 
 from django.db import OperationalError
 
@@ -113,6 +113,22 @@ class TestDefaultModelSpec:
         with pytest.raises(ApplicationError) as exc_info:
             DefaultModelSpec().resolve(team.id)
         assert _error_type(exc_info) == "provider_key_required"
+
+    def test_active_key_load_recovers_from_transient_operational_error(self, team):
+        # The active_provider_key FK dereference is a separate DB read from the get_or_create;
+        # a pgbouncer query_wait_timeout landing on it must retry, not fail the eval run.
+        key = _key(team, "anthropic")
+        EvaluationConfig.objects.create(team=team, active_provider_key=key)
+        with patch.object(
+            EvaluationConfig,
+            "active_provider_key",
+            new_callable=PropertyMock,
+            side_effect=[OperationalError("query_wait_timeout"), key],
+        ) as mock_key:
+            resolved = DefaultModelSpec().resolve(team.id)
+
+        assert resolved.provider_key == key
+        assert mock_key.call_count == 2
 
     def test_anthropic_active_key_resolves_to_anthropic_default(self, team):
         # Regression: a null config with an Anthropic active key used to resolve to openai/gpt-5-mini

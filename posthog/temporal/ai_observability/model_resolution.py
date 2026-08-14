@@ -64,7 +64,8 @@ class DefaultModelSpec:
     """Null config: defer to the team's active BYOK key."""
 
     def resolve(self, team_id: int) -> ResolvedModel:
-        key = _eval_config(team_id).active_provider_key
+        config = _eval_config(team_id)
+        key = retry_on_db_connection_drop(lambda: config.active_provider_key)
         if key is None:
             raise _provider_key_required()
 
@@ -90,7 +91,7 @@ def model_spec(model_configuration: dict[str, Any] | None) -> ModelSpec:
 
 def active_key_fallback(config: EvaluationConfig, provider: str) -> LLMProviderKey | None:
     """The BYOK key a config with no pinned key resolves to, or None when there is no usable active key."""
-    key = config.active_provider_key
+    key = retry_on_db_connection_drop(lambda: config.active_provider_key)
     return key if key is not None and key.provider == provider else None
 
 
