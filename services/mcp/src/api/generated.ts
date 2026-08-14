@@ -5352,6 +5352,38 @@ export namespace Schemas {
       start?: number | null;
     }
 
+    export type PredicateIndexVerdict = typeof PredicateIndexVerdict[keyof typeof PredicateIndexVerdict];
+
+
+    export const PredicateIndexVerdict = {
+      Indexed: 'indexed',
+      Blocked: 'blocked',
+      UnindexedColumn: 'unindexed_column',
+      UnindexedJson: 'unindexed_json',
+      OperatorNotIndexable: 'operator_not_indexable',
+    } as const;
+
+    export interface PredicateIndexUsage {
+      column_name?: string | null;
+      end?: number | null;
+      fix?: string | null;
+      message: string;
+      operator: string;
+      /** Type the value is physically stored as. */
+      physical_type: string;
+      property_name: string;
+      /** `event`, `person`, `group` or `unknown`. */
+      scope: string;
+      /** Type the property definition declares. */
+      semantic_type: string;
+      /** Where the value is physically read from, e.g. `materialized column` or `JSON blob`. */
+      source_label: string;
+      start?: number | null;
+      /** Skip indexes this predicate can actually use. */
+      usable_indexes: string[];
+      verdict: PredicateIndexVerdict;
+    }
+
     export type QueryIndexUsage = typeof QueryIndexUsage[keyof typeof QueryIndexUsage];
 
 
@@ -5365,6 +5397,8 @@ export namespace Schemas {
     export interface HogQLMetadataResponse {
       ch_table_names?: string[] | null;
       errors: HogQLNotice[];
+      /** One entry per property filter, in query order. */
+      index_usage?: PredicateIndexUsage[] | null;
       isUsingIndices?: QueryIndexUsage | null;
       isValid?: boolean | null;
       notices: HogQLNotice[];
@@ -69995,6 +70029,8 @@ export namespace Schemas {
     export interface QueryResponseAlternative9 {
       ch_table_names?: string[] | null;
       errors: HogQLNotice[];
+      /** One entry per property filter, in query order. */
+      index_usage?: PredicateIndexUsage[] | null;
       isUsingIndices?: QueryIndexUsage | null;
       isValid?: boolean | null;
       notices: HogQLNotice[];
