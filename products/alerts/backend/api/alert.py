@@ -1,4 +1,5 @@
 import uuid
+from collections import Counter
 from typing import Annotated, Any, cast
 from zoneinfo import ZoneInfo
 
@@ -217,6 +218,22 @@ class ThresholdSerializer(serializers.ModelSerializer):
         return data
 
 
+def _destination_deliveries(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    # Same-named destinations (two Discord servers) need a discriminator; use the hog
+    # function id, never the webhook URL, which is the credential.
+    labels = [row.get("target") or "Destination" for row in rows]
+    colliding = {label for label, count in Counter(labels).items() if count > 1}
+    return [
+        {
+            **row,
+            "display_label": (
+                f"{label} · {row['target_id'][-4:]}" if label in colliding and row.get("target_id") else label
+            ),
+        }
+        for row, label in zip(rows, labels)
+    ]
+
+
 class AlertDeliverySerializer(serializers.Serializer):
     channel = serializers.CharField(help_text="Delivery channel: 'email' or 'hog_function' (destinations).")
     target = serializers.CharField(help_text="Email address, or destination name, that received the notification.")
@@ -298,11 +315,7 @@ class AlertCheckSerializer(serializers.ModelSerializer):
                 }
                 for email in users
             ]
-            destinations = [
-                {**delivery, "display_label": delivery.get("target") or "Destination"}
-                for delivery in notified.get("destinations") or []
-            ]
-            return emails + destinations
+            return emails + _destination_deliveries(notified.get("destinations") or [])
         if users:
             return [
                 {"channel": "email", "target": email, "status": "unknown", "display_label": f"Email: {email}"}
