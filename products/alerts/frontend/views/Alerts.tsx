@@ -1,31 +1,21 @@
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
-import { Suspense } from 'react'
 
-import { LemonTabs, SpinnerOverlay } from '@posthog/lemon-ui'
+import { LemonTabs } from '@posthog/lemon-ui'
 
 import { AccessDenied } from 'lib/components/AccessDenied'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { getAppContext } from 'lib/utils/getAppContext'
-import { lazyWithRetry } from 'lib/utils/retryImport'
 import { urls } from 'scenes/urls'
 
+import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
+import { LogsAlertingSection } from 'products/logs/frontend/components/LogsAlerting/LogsAlertingSection'
+
 import { AlertType } from '../types'
-import { AlertsTab, getActiveAlertsTab, getAlertsTabs } from '../utils'
-
-const InsightAlerts = lazyWithRetry(() =>
-    import('./InsightAlerts').then((module) => ({
-        default: module.InsightAlerts,
-    }))
-)
-
-const LogsAlertingSection = lazyWithRetry(() =>
-    import('products/logs/frontend/components/LogsAlerting/LogsAlertingSection').then((module) => ({
-        default: module.LogsAlertingSection,
-    }))
-)
+import { AlertsTab, getActiveAlertsTab, getAlertsDescription, getAlertsTabs } from '../utils'
+import { InsightAlerts } from './InsightAlerts'
 
 interface AlertsProps {
     alertId: AlertType['id'] | null
@@ -64,10 +54,13 @@ export function Alerts({ alertId }: AlertsProps): JSX.Element {
 
     return (
         <>
+            <SceneTitleSection
+                name="Alerts"
+                description={getAlertsDescription(activeTab)}
+                resourceType={{ type: 'inbox' }}
+            />
             <LemonTabs<AlertsTab> activeKey={activeTab} onChange={switchTab} tabs={tabs} sceneInset />
-            <Suspense fallback={<SpinnerOverlay />}>
-                {activeTab === AlertsTab.LOGS ? <LogsAlertingSection /> : <InsightAlerts alertId={alertId} />}
-            </Suspense>
+            {activeTab === AlertsTab.LOGS ? <LogsAlertingSection /> : <InsightAlerts alertId={alertId} />}
         </>
     )
 }

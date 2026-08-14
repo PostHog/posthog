@@ -1,0 +1,177 @@
+import { BindLogic, useActions, useValues } from 'kea'
+import { Form } from 'kea-forms'
+
+import { LemonButton, LemonDialog, LemonModal, LemonSwitch } from '@posthog/lemon-ui'
+
+import { urls } from 'scenes/urls'
+
+import { AlertEditor, AlertEditorFormDetails } from 'products/alerts/frontend/components/AlertEditor'
+import { AlertSummaryParts } from 'products/alerts/frontend/components/alertSummary'
+import { SnoozeButton } from 'products/alerts/frontend/components/SnoozeButton'
+import { EditAlertTabs } from 'products/alerts/frontend/views/EditAlertModal/EditAlertTabs'
+import { LogsAlertConfigurationApi } from 'products/logs/frontend/generated/api.schemas'
+
+import { LogsAlertEventHistoryContent } from './LogsAlertEventHistory'
+import { LogsAlertFilters, LogsAlertTrigger } from './LogsAlertForm'
+import { logsAlertFormLogic } from './logsAlertFormLogic'
+import { logsAlertingLogic } from './logsAlertingLogic'
+import { logsAlertNotificationLogic } from './logsAlertNotificationLogic'
+import { LogsAlertNotifications } from './LogsAlertNotifications'
+import { LogsAlertSimulation } from './LogsAlertSimulation'
+import { LogsAlertStateIndicator } from './LogsAlertStateIndicator'
+
+interface LogsAlertEditModalProps {
+    alert: LogsAlertConfigurationApi | null
+    onClose: () => void
+}
+
+export function LogsAlertEditModal({ alert, onClose }: LogsAlertEditModalProps): JSX.Element {
+    return (
+        <LemonModal isOpen={alert !== null} onClose={onClose} title="" simple width={900}>
+            {alert ? <LogsAlertEditModalContent alert={alert} onClose={onClose} /> : null}
+        </LemonModal>
+    )
+}
+
+function LogsAlertEditModalContent({
+    alert,
+    onClose,
+}: {
+    alert: LogsAlertConfigurationApi
+    onClose: () => void
+}): JSX.Element {
+    const formLogicProps = { alert, onSubmitSuccess: onClose }
+    const notificationLogicProps = { alertId: alert.id }
+    const { isAlertFormSubmitting, alertFormChanged, alertFormErrors, alertForm } = useValues(
+        logsAlertFormLogic(formLogicProps)
+    )
+    const { touchAlertFormField } = useActions(logsAlertFormLogic(formLogicProps))
+    const { destinationGroups } = useValues(logsAlertNotificationLogic(notificationLogicProps))
+    const { snoozingAlertIds } = useValues(logsAlertingLogic)
+    const { deleteAlert, snoozeAlertUntil, toggleAlertEnabled, unsnoozeAlert } = useActions(logsAlertingLogic)
+    const nameError = alertFormErrors.name as string | undefined
+    let snoozeDisabledReason: string | undefined
+    if (!(alert.enabled ?? true)) {
+        snoozeDisabledReason = 'Only enabled alerts can be snoozed'
+    } else if (snoozingAlertIds.has(alert.id)) {
+        snoozeDisabledReason = 'Updating snooze'
+    }
+    const filterParts: string[] = []
+    if (alertForm.severityLevels.length > 0) {
+        filterParts.push(`${alertForm.severityLevels.join(', ')} logs`)
+    }
+    if (alertForm.serviceNames.length > 0) {
+        filterParts.push(`from ${alertForm.serviceNames.join(', ')}`)
+    }
+    if (alertForm.filterGroup.values.length > 0) {
+        const attributeCount = alertForm.filterGroup.values.length
+        filterParts.push(`${attributeCount} ${attributeCount === 1 ? 'attribute filter' : 'attribute filters'}`)
+    }
+    const summary: AlertSummaryParts = {
+        fires: `count ${alertForm.thresholdOperator} ${alertForm.thresholdCount} in the last ${alertForm.windowMinutes} minutes`,
+        cadence: '',
+        notifies: destinationGroups.length
+            ? `${destinationGroups.length} ${destinationGroups.length === 1 ? 'destination' : 'destinations'}`
+            : '',
+        filters: filterParts.join(' '),
+    }
+
+    const leadingActions = (
+        <div className="flex flex-wrap items-center gap-2">
+            <LemonButton
+                type="secondary"
+                status="danger"
+                onClick={() => {
+                    LemonDialog.open({
+                        title: `Delete "${alert.name}"?`,
+                        description: 'This alert will be permanently deleted. This action cannot be undone.',
+                        primaryButton: {
+                            children: 'Delete',
+                            type: 'primary',
+                            status: 'danger',
+                            onClick: () => {
+                                deleteAlert(alert.id)
+                                onClose()
+                            },
+                        },
+                        secondaryButton: { children: 'Cancel' },
+                    })
+                }}
+            >
+                Delete alert
+            </LemonButton>
+            <SnoozeButton
+                onChange={(snoozeUntil) => snoozeAlertUntil(alert.id, snoozeUntil)}
+                onClear={(alert.enabled ?? true) && alert.snooze_until ? () => unsnoozeAlert(alert.id) : undefined}
+                value={alert.snooze_until}
+                disabledReason={snoozeDisabledReason}
+            />
+        </div>
+    )
+
+    return (
+        <BindLogic logic={logsAlertFormLogic} props={formLogicProps}>
+            <BindLogic logic={logsAlertNotificationLogic} props={notificationLogicProps}>
+                <Form
+                    logic={logsAlertFormLogic}
+                    props={formLogicProps}
+                    formKey="alertForm"
+                    enableFormOnSubmit
+                    className="LemonModal__layout"
+                >
+                    <AlertEditor
+                        title="Edit alert"
+                        className="min-h-0 flex-1 overflow-hidden"
+                        contentClassName="min-h-0 flex-1 overflow-y-auto"
+                        onBack={onClose}
+                        isEditing
+                        isSubmitting={isAlertFormSubmitting}
+                        hasChanges={alertFormChanged}
+                        onSubmitAttempted={() => touchAlertFormField('name')}
+                        leadingActions={leadingActions}
+                        trailingActions={
+                            <LemonSwitch
+                                checked={alert.enabled ?? true}
+                                label="Enabled"
+                                onChange={() => toggleAlertEnabled(alert)}
+                            />
+                        }
+                    >
+                        <EditAlertTabs
+                            summary={summary}
+                            summaryHeader={
+                                <div className="flex items-center justify-between gap-3">
+                                    <span className="font-medium">Current status</span>
+                                    <LogsAlertStateIndicator
+                                        state={alert.state}
+                                        enabled={alert.enabled ?? true}
+                                        firstEnabledAt={alert.first_enabled_at}
+                                        lastErrorMessage={alert.last_error_message}
+                                        snoozeUntil={alert.snooze_until}
+                                    />
+                                </div>
+                            }
+                            nameNode={<AlertEditorFormDetails nameError={nameError} />}
+                            previewNode={null}
+                            definitionNode={
+                                <div className="max-w-2xl space-y-6">
+                                    <LogsAlertFilters />
+                                </div>
+                            }
+                            triggerNode={
+                                <div className="max-w-2xl space-y-6">
+                                    <LogsAlertTrigger />
+                                    <LogsAlertSimulation embedded />
+                                </div>
+                            }
+                            notifyNode={<LogsAlertNotifications alertId={alert.id} />}
+                            historyNode={<LogsAlertEventHistoryContent alert={alert} />}
+                            observedLogsUrl={urls.logsAlertDetail(alert.id, 'logs')}
+                            showCadence={false}
+                        />
+                    </AlertEditor>
+                </Form>
+            </BindLogic>
+        </BindLogic>
+    )
+}

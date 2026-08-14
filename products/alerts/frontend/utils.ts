@@ -7,6 +7,13 @@ export enum AlertsTab {
     LOGS = 'logs',
 }
 
+export function getAlertsDescription(tab: AlertsTab): string {
+    if (tab === AlertsTab.LOGS) {
+        return 'Monitor matching logs and get notified when they cross a threshold.'
+    }
+    return 'Monitor insight metrics and get notified when conditions are met.'
+}
+
 interface AlertsAccessState {
     alertId: string | null
     requestedTab: string | undefined

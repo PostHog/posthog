@@ -185,6 +185,14 @@ function AlertHeader(): JSX.Element {
                             <LemonButton size="small" type="secondary" onClick={unsnoozeAlert}>
                                 Unsnooze
                             </LemonButton>
+                        ) : !isEnabled ? (
+                            <LemonButton
+                                size="small"
+                                type="secondary"
+                                disabledReason="Only enabled alerts can be snoozed"
+                            >
+                                Snooze
+                            </LemonButton>
                         ) : (
                             <LemonMenu
                                 placement="bottom-end"

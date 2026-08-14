@@ -8,9 +8,14 @@ import { teamLogic } from 'scenes/teamLogic'
 
 import { initKeaTests } from '~/test/init'
 
-import { logsAlertsCreate, logsAlertsList, logsAlertsResetCreate } from 'products/logs/frontend/generated/api'
+import {
+    logsAlertsCreate,
+    logsAlertsList,
+    logsAlertsPartialUpdate,
+    logsAlertsResetCreate,
+} from 'products/logs/frontend/generated/api'
 
-import { logsAlertingLogic } from '../logsAlertingLogic'
+import { logsAlertingLogic, resolveSnoozeUntil } from '../logsAlertingLogic'
 
 jest.mock('products/logs/frontend/generated/api', () => ({
     __esModule: true,
@@ -32,6 +37,7 @@ jest.mock('@posthog/lemon-ui', () => ({
 const mockReset = logsAlertsResetCreate as jest.MockedFunction<typeof logsAlertsResetCreate>
 const mockList = logsAlertsList as jest.MockedFunction<typeof logsAlertsList>
 const mockCreate = logsAlertsCreate as jest.MockedFunction<typeof logsAlertsCreate>
+const mockPartialUpdate = logsAlertsPartialUpdate as jest.MockedFunction<typeof logsAlertsPartialUpdate>
 
 function deferred<T>(): { promise: Promise<T>; resolve: (value: T) => void } {
     let resolve!: (value: T) => void
@@ -175,6 +181,115 @@ describe('logsAlertingLogic', () => {
             expect(mockCreate).not.toHaveBeenCalled()
 
             logic.unmount()
+        })
+    })
+
+    describe('edit alert modal', () => {
+        it('opens for the selected alert and clears it on close', async () => {
+            const logic = logsAlertingLogic()
+            const alert = { id: 'alert-1', name: 'Errors' } as any
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+
+            await expectLogic(logic, () => {
+                logic.actions.openEditAlertModal(alert)
+            }).toMatchValues({ editingAlert: alert })
+
+            await expectLogic(logic, () => {
+                logic.actions.closeEditAlertModal()
+            }).toMatchValues({ editingAlert: null })
+
+            logic.unmount()
+        })
+
+        it('updates the open editor after disabling an alert', async () => {
+            const logic = logsAlertingLogic()
+            const alert = { id: 'alert-1', name: 'Errors', enabled: true } as any
+            const updatedAlert = { ...alert, enabled: false }
+            mockPartialUpdate.mockResolvedValue(updatedAlert)
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+
+            logic.actions.openEditAlertModal(alert)
+            await expectLogic(logic, () => {
+                logic.actions.toggleAlertEnabled(alert)
+            })
+                .toFinishAllListeners()
+                .toMatchValues({ editingAlert: updatedAlert })
+
+            expect(mockPartialUpdate).toHaveBeenCalledWith(expect.any(String), alert.id, {
+                enabled: false,
+                snooze_until: null,
+            })
+
+            logic.unmount()
+        })
+
+        it('updates the open editor after snoozing an alert', async () => {
+            const logic = logsAlertingLogic()
+            const alert = { id: 'alert-1', name: 'Errors', snooze_until: null } as any
+            const updatedAlert = { ...alert, snooze_until: '2026-08-13T12:00:00.000Z' }
+            mockPartialUpdate.mockResolvedValue(updatedAlert)
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+
+            logic.actions.openEditAlertModal(alert)
+            await expectLogic(logic, () => {
+                logic.actions.snoozeAlertUntil(alert.id, '+1d')
+            })
+                .toFinishAllListeners()
+                .toMatchValues({ editingAlert: updatedAlert })
+
+            logic.unmount()
+        })
+
+        it('does not open the editor after snoozing from the alert list', async () => {
+            const logic = logsAlertingLogic()
+            const alert = { id: 'alert-1', name: 'Errors', snooze_until: null } as any
+            mockPartialUpdate.mockResolvedValue({ ...alert, snooze_until: '2026-08-13T12:00:00.000Z' })
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+
+            await expectLogic(logic, () => {
+                logic.actions.snoozeAlertUntil(alert.id, '+1d')
+            })
+                .toFinishAllListeners()
+                .toMatchValues({ editingAlert: null })
+
+            logic.unmount()
+        })
+
+        it('updates the open editor after unsnoozing an alert', async () => {
+            const logic = logsAlertingLogic()
+            const alert = { id: 'alert-1', name: 'Errors', snooze_until: '2026-08-13T12:00:00.000Z' } as any
+            const updatedAlert = { ...alert, snooze_until: null }
+            mockPartialUpdate.mockResolvedValue(updatedAlert)
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+
+            logic.actions.openEditAlertModal(alert)
+            await expectLogic(logic, () => {
+                logic.actions.unsnoozeAlert(alert.id)
+            })
+                .toFinishAllListeners()
+                .toMatchValues({ editingAlert: updatedAlert })
+
+            logic.unmount()
+        })
+    })
+
+    describe('resolveSnoozeUntil', () => {
+        it.each([
+            ['+1d', '2026-08-13T12:00:00.000Z'],
+            ['+1w', '2026-08-19T12:00:00.000Z'],
+            ['+1M', '2026-09-12T12:00:00.000Z'],
+            ['+1y', '2027-08-12T12:00:00.000Z'],
+        ])('converts %s into an ISO datetime', (value: string, expected: string) => {
+            jest.useFakeTimers().setSystemTime(new Date('2026-08-12T12:00:00.000Z'))
+
+            expect(resolveSnoozeUntil(value)).toBe(expected)
+
+            jest.useRealTimers()
         })
     })
 })

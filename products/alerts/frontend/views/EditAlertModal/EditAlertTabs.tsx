@@ -1,8 +1,10 @@
 import { useState } from 'react'
 
-import { IconBell, IconClock, IconGraph, IconPulse } from '@posthog/icons'
+import { IconBell, IconClock, IconGraph, IconList, IconPulse, IconTarget } from '@posthog/icons'
 import { LemonTabs } from '@posthog/lemon-ui'
 import type { LemonTab } from '@posthog/lemon-ui'
+
+import { IconOpenInNew } from 'lib/lemon-ui/icons'
 
 import { AlertSummaryBanner, AlertSummarySection } from 'products/alerts/frontend/components/AlertSummaryBanner'
 
@@ -12,10 +14,13 @@ interface EditAlertTabsProps {
     nameNode: React.ReactNode
     previewNode: React.ReactNode
     definitionNode: React.ReactNode
-    scheduleNode: React.ReactNode
-    advancedNode: React.ReactNode
+    triggerNode?: React.ReactNode
+    scheduleNode?: React.ReactNode
+    advancedNode?: React.ReactNode
     notifyNode: React.ReactNode
     historyNode: React.ReactNode | null
+    observedLogsUrl?: string
+    showCadence?: boolean
 }
 
 export function EditAlertTabs({
@@ -24,10 +29,13 @@ export function EditAlertTabs({
     nameNode,
     previewNode,
     definitionNode,
+    triggerNode,
     scheduleNode,
     advancedNode,
     notifyNode,
     historyNode,
+    observedLogsUrl,
+    showCadence,
 }: EditAlertTabsProps): JSX.Element {
     const [activeKey, setActiveKey] = useState<string>('monitor')
 
@@ -48,21 +56,35 @@ export function EditAlertTabs({
                 </div>
             ),
         },
-        {
-            key: 'schedule',
-            label: (
-                <span className="flex items-center gap-1.5">
-                    <IconClock className="size-4" />
-                    Schedule
-                </span>
-            ),
-            content: (
-                <div className="space-y-3 pt-3">
-                    {scheduleNode}
-                    {advancedNode}
-                </div>
-            ),
-        },
+        triggerNode
+            ? {
+                  key: 'trigger',
+                  label: (
+                      <span className="flex items-center gap-1.5">
+                          <IconTarget className="size-4" />
+                          Trigger
+                      </span>
+                  ),
+                  content: <div className="space-y-3 pt-3">{triggerNode}</div>,
+              }
+            : null,
+        scheduleNode || advancedNode
+            ? {
+                  key: 'schedule',
+                  label: (
+                      <span className="flex items-center gap-1.5">
+                          <IconClock className="size-4" />
+                          Schedule
+                      </span>
+                  ),
+                  content: (
+                      <div className="space-y-3 pt-3">
+                          {scheduleNode}
+                          {advancedNode}
+                      </div>
+                  ),
+              }
+            : null,
         {
             key: 'notify',
             label: (
@@ -85,16 +107,37 @@ export function EditAlertTabs({
                   content: <div className="pt-3">{historyNode}</div>,
               }
             : null,
+        observedLogsUrl
+            ? {
+                  key: 'observed-logs',
+                  label: (
+                      <span className="flex items-center gap-1.5">
+                          <IconList className="size-4" />
+                          Observed logs
+                          <IconOpenInNew className="size-3" />
+                      </span>
+                  ),
+                  link: observedLogsUrl,
+                  linkTarget: '_blank',
+              }
+            : null,
     ]
 
     let activeSummarySection: AlertSummarySection | undefined
-    if (['monitor', 'schedule', 'notify'].includes(activeKey)) {
+    if (activeKey === 'trigger') {
+        activeSummarySection = 'monitor'
+    } else if (['monitor', 'schedule', 'notify'].includes(activeKey)) {
         activeSummarySection = activeKey as AlertSummarySection
     }
 
     return (
         <div className="space-y-3">
-            <AlertSummaryBanner summary={summary} header={summaryHeader} activeSection={activeSummarySection} />
+            <AlertSummaryBanner
+                summary={summary}
+                header={summaryHeader}
+                activeSection={activeSummarySection}
+                showCadence={showCadence}
+            />
             <LemonTabs tabs={tabs} activeKey={activeKey} onChange={setActiveKey} className="flex-1 min-h-0" />
         </div>
     )

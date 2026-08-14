@@ -57,6 +57,7 @@ export interface DateFilterProps {
     resolvedDateRange?: ResolvedDateRangeResponse
     showJumpToTimestamp?: boolean
     showCustomRelativeRange?: boolean
+    clearOption?: { label: string; onClick: () => void }
     /**
      * When true, surfaces every option — presets, rolling picker, "Custom date…" (single exact),
      * "Custom fixed date range…", and "Custom relative range…" — in one flat list. Callers opt
@@ -129,6 +130,7 @@ export const DateFilter = forwardRef<HTMLButtonElement, RawDateFilterProps>(func
         showCustomRelativeRange = false,
         allowSingleAndRange = false,
         onOpenChange,
+        clearOption,
     },
     ref
 ) {
@@ -202,7 +204,12 @@ export const DateFilter = forwardRef<HTMLButtonElement, RawDateFilterProps>(func
     const showFixedRangeTimeToggle = allowTimePrecision || allowFixedRangeWithTime
     const showExclusions =
         (showIncompletePeriodExclusion || showDaysOfWeekExclusions) && !!exclusions && !!onExclusionsChange
-    const showFooter = showCustomRangeOptions || showExplicitDateToggle || showExclusions || showJumpToTimestamp
+    const showFooter =
+        showCustomRangeOptions ||
+        showExplicitDateToggle ||
+        showExclusions ||
+        showJumpToTimestamp ||
+        Boolean(clearOption)
 
     const popoverOverlay =
         view === DateFilterView.FixedRange ? (
@@ -403,6 +410,22 @@ export const DateFilter = forwardRef<HTMLButtonElement, RawDateFilterProps>(func
                                         Custom relative range…
                                     </LemonButton>
                                 )}
+                            </>
+                        )}
+                        {clearOption && (
+                            <>
+                                <LemonDivider />
+                                <LemonButton
+                                    onClick={() => {
+                                        clearOption.onClick()
+                                        close()
+                                    }}
+                                    size={optionsSize}
+                                    status="danger"
+                                    fullWidth
+                                >
+                                    {clearOption.label}
+                                </LemonButton>
                             </>
                         )}
                         {showCustomRangeOptions && (showExplicitDateToggle || showExclusions) && <LemonDivider />}
