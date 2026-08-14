@@ -17,6 +17,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from django.db import transaction
 from django.utils import timezone as django_timezone
 
 import structlog
@@ -92,6 +93,22 @@ def handle_task_run_completed(task_run: Any) -> None:
 
 
 def _mark_failed(training_run: AutoresearchTrainingRun, error: str) -> None:
+    with transaction.atomic():
+        # The status was read before the agent's own complete request may have committed.
+        # Re-read under the same lock completion takes, so a run that promoted a champion in
+        # that window is not flipped to FAILED (which would also revert its pipeline to draft).
+        locked = AutoresearchTrainingRun.objects.select_for_update().select_related("pipeline").get(pk=training_run.pk)
+        if locked.status != AutoresearchTrainingRun.Status.RUNNING:
+            logger.info(
+                "autoresearch_training_failure_skipped_after_completion",
+                training_run_id=str(locked.pk),
+                status=locked.status,
+            )
+            return
+        _apply_failure(locked, error)
+
+
+def _apply_failure(training_run: AutoresearchTrainingRun, error: str) -> None:
     training_run.status = AutoresearchTrainingRun.Status.FAILED
     training_run.completed_at = django_timezone.now()
     training_run.error = error[:2000]

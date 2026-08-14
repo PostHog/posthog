@@ -25,6 +25,7 @@ from products.autoresearch.backend.models import (
     AutoresearchTrainingRun,
 )
 from products.autoresearch.backend.training import artifacts
+from products.autoresearch.backend.training.recipe_validation import RecipeValidationError, validate_feature_sql
 
 logger = structlog.get_logger(__name__)
 
@@ -143,12 +144,18 @@ def _detect_uploaded_bundle(training_run: AutoresearchTrainingRun) -> str | None
         training_run_id=str(training_run.id),
     )
     try:
-        artifacts.read_bundle(prefix)
+        bundle = artifacts.read_bundle(prefix)
     except artifacts.BundleNotFound:
         return None
     except Exception:
         logger.exception("autoresearch_bundle_read_failed", training_run_id=str(training_run.id), prefix=prefix)
         raise
+    # The uploaded features.sql is what fitting and scoring actually execute, and the agent
+    # can upload SQL that never went through iteration recording — validate the real file.
+    try:
+        validate_feature_sql(bundle.features_sql)
+    except RecipeValidationError as exc:
+        raise PromotionError(f"Uploaded bundle's features.sql failed validation: {exc}") from exc
     return prefix
 
 

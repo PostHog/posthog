@@ -54,7 +54,9 @@ function cssVar(name: string, fallback: string): string {
 function buildMermaidConfig(isDarkModeOn: boolean): Record<string, unknown> {
     const palette = DATA_COLOR_FALLBACKS.map((fallback, i) => cssVar(`--data-color-${i + 1}`, fallback))
     const text = cssVar('--text-3000', isDarkModeOn ? '#ffffff' : '#111827')
-    const line = cssVar('--border-bold', isDarkModeOn ? '#4b4b4b' : '#d0d1d4')
+    // --border-bold is a single translucent black, so it disappears on dark surfaces; the
+    // -3000 variable is the theme-switched one.
+    const line = cssVar('--border-bold-3000', isDarkModeOn ? '#3f4046' : '#c1c2b9')
 
     const seriesVars = palette.reduce<Record<string, string>>((acc, color, i) => {
         acc[`pie${i + 1}`] = color

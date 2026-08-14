@@ -166,6 +166,23 @@ class TestCompleteTrainingRun(BaseTest):
         assert result["promoted"] is True
         assert self._champion().artifact_prefix != ""
 
+    def test_bundle_sql_without_anchors_blocks_promotion(self):
+        # The uploaded features.sql is what fitting runs, and it need not match the validated
+        # iteration snapshot — SQL without {anchors} reads the outcome window.
+        run = self._run()
+        self._iteration(run, number=0, holdout=0.8)
+
+        leaky = ArtifactBundle(
+            train_py="pass",
+            predict_py="pass",
+            features_sql="SELECT person_id AS distinct_id, count() AS c FROM events GROUP BY person_id",
+        )
+        with patch("products.autoresearch.backend.training.artifacts.read_bundle", return_value=leaky):
+            with self.assertRaises(PromotionError):
+                complete_training_run(run)
+
+        assert not AutoresearchModel.objects.filter(pipeline=self.pipeline).exists()
+
     def test_second_completion_is_a_noop(self):
         run = self._run()
         self._iteration(run, number=0, holdout=0.8)
