@@ -77,18 +77,18 @@ Each of these is numbered so a test can name the one it covers.
 8. Every redirect target passes the same checks the first candidate passed. See "Security: what we
    never connect to".
 9. The lane never follows a redirect from HTTPS to plain HTTP.
-10. A republished message carries the original ref. The ref is a hash of the original URL, so a ref
-    built from a redirect target matches nothing in the recording that wanted the image.
+10. A republished message carries the original ref. The ref is a hash of the original URL. A ref
+    built from a redirect target matches no recording.
 
 ### Hops and retries share one budget
 
-11. Every message carries a hop budget. A republish and a retry each spend one. A redirect that
-    stays on the same domain is bounded separately, by the redirect limit of one fetch, so a chain
-    is bounded by the two limits together rather than by the budget alone.
+11. Every message carries a hop budget. A republish and a retry each spend one hop. A redirect that
+    stays on the same domain spends no hop. The redirect limit of one fetch bounds those instead, so
+    two limits bound a chain rather than one.
 12. A URL can spend its whole hop budget without an answer. The lane then makes no further attempt
     on it, and writes it to the crawl history under rule 24.
-13. Only a transient failure spends a hop on a retry: a timeout, a connection error, HTTP 429, HTTP
-    503, or a refusal by the host budget. HTTP 404 and HTTP 403 are answers.
+13. Only a transient failure spends a hop on a retry. A transient failure is a timeout, a connection
+    error, HTTP 429, HTTP 503, or a refusal by the host budget. HTTP 404 and HTTP 403 are answers.
 14. A retry is a publish to a delay topic. The lane does not sleep and try again in place.
 15. Every message carries the earliest time to try again.
 
@@ -106,12 +106,11 @@ Each of these is numbered so a test can name the one it covers.
 21. An offset commits only after the work behind it is durable: fetched and recorded, republished,
     or given up.
 22. A duplicate is acceptable. The crawl history absorbs it.
-23. A message that does not parse is counted and dropped. There is no dead letter topic: the lane
-    cannot record what it cannot read, and replaying it helps nobody until the format disagreement
-    is fixed.
+23. The lane counts a message it cannot parse, and drops it. There is no dead letter topic. The lane
+    cannot record a URL it cannot read, and a replay gives the same result until someone fixes the format.
 24. The lane writes a URL to the crawl history when it has an answer for that URL. An answer is a
     fetched image, a refusal such as a 404 or a 403, or a hop budget the URL spent in full. The lane
-    does not fetch that URL again while the entry lives.
+    reads that entry before a later fetch, and does not request the URL again while the entry lives.
 
 **Keeping one record uncommitted means restarting the pod.** Kafka commits one offset for each
 partition, and that offset is a high water mark. Committing it commits every record below it, so a
@@ -141,13 +140,13 @@ clearing it.
 26. The hops a URL took, and the time it spent in the system.
 27. The rate of republishing, so amplification is visible.
 28. Requests in flight, and the domains that are blocked.
-29. The busiest teams, as a bounded top N with an `other` bucket, using the Space-Saving algorithm
-    for heavy hitters. Nothing on this path holds the team ID, so a team here is the pseudonym the
+29. The busiest teams, as a bounded top N with an `other` bucket. The Space-Saving algorithm keeps
+    that list bounded. Nothing on this path holds the team ID, so a team here is the pseudonym the
     mirror sends.
 30. The number of distinct teams, as one gauge, estimated with HyperLogLog.
-31. No metric carries a URL, and no metric carries an unbounded team label. The team ID space is in
-    the low millions, so a `team_id` label on a per-request metric is unbounded both in the time
-    series database and in the memory of the pod exporting it.
+31. No metric carries a URL. No metric carries an unbounded team label. The team ID space is in the
+    low millions, so a `team_id` label on a per-request metric is unbounded. The time series database and the pod that exports the metric
+    both pay that cost.
 
 ### Security: what we never connect to
 
@@ -158,14 +157,16 @@ write, so an attacker chooses them, and the request leaves from inside our netwo
     loopback, the RFC 1918 private ranges, link-local, carrier-grade NAT, multicast, and the
     reserved ranges, in IPv4 and IPv6. Smokescreen, the egress proxy, enforces this in production.
     `httpStaticLookup`, our DNS hook for undici, enforces it when no proxy is set.
-33. The check must use the same DNS answer as the connection, so that DNS rebinding cannot slip an
-    IP address past it. An attacker who owns a name can return a different IP address on every
-    lookup. Code that resolves a name, checks the IP address, then hands the name to something that
-    resolves it again has checked one address and connected to another.
-34. The collector, which is the URL policy the mirror runs before it publishes, drops a URL that a
-    later check would refuse, so it never reaches the topic. It drops four kinds: a host that is not
-    public, a scheme that is not HTTPS, a port that the scheme does not own, and a URL that is too
-    long.
+33. The check must use the same DNS answer as the connection. DNS rebinding defeats any other
+    order. An attacker who owns a name can return a different IP address on every lookup. Code that
+    resolves a name, checks the IP address, then passes the name to a second resolver checks one
+    address and connects to another.
+34. The collector is the URL policy the mirror runs before it publishes. It drops a URL that a later
+    check refuses, so that URL never reaches the topic. It drops four kinds:
+    - a host that is not public
+    - a scheme that is not HTTPS
+    - a port that the scheme does not own
+    - a URL that is too long
 35. Every check in rule 34 runs again in the lane, on the first URL and on every redirect target.
     The network layer performs none of them. Smokescreen limits which IP addresses we reach, not
     which service we reach at those addresses.
@@ -216,11 +217,11 @@ The ACL says nothing about ports, which is why rule 35 exists.
     429 as unreachable. Google makes the same exception.
 41. A 5xx, a timeout, or a connection error means the origin is unreachable. The lane must then treat
     every URL on that origin as disallowed. The lane holds the origin for one hour. Each further
-    failure doubles the hold. The lane records no URL it holds this way, so each one comes back.
+    failure doubles the hold. The lane records no URL it holds this way, so the mirror offers each one again.
 42. A cached answer may stay in use past its 24 hours while the origin is unreachable. RFC 9309
     allows this. If the lane holds an answer for that origin, the hold uses that answer.
 43. A URL that robots.txt disallows is an answer. The lane writes it to the crawl history, as it
-    writes a 404. The URL then does not come back.
+    writes a 404. The lane does not request that URL again while the entry lives.
 44. The lane matches its own product token and the `*` group. It also counts every URL that a common
     AI training token disallows. It fetches those URLs and only counts them, so phase 0 measures the cost of
     the stricter rule.
