@@ -109,8 +109,7 @@ class TestDuckgresStreamingClientCursor(SimpleTestCase):
         results = iter([terminal_result, None])
 
         def fake_fetch(_connection: object) -> Generator[None, None, object | None]:
-            if False:
-                yield None
+            yield from ()
             return next(results)
 
         cursor = MagicMock()
@@ -123,8 +122,7 @@ class TestDuckgresStreamingClientCursor(SimpleTestCase):
         postgres_query = object()
 
         def empty_generator(*_args: object, **_kwargs: object) -> Generator[None]:
-            if False:
-                yield None
+            yield from ()
 
         cursor = MagicMock()
         cursor._start_query.side_effect = empty_generator

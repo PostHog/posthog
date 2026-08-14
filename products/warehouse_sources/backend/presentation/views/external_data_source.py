@@ -4654,7 +4654,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
             ) and not self.user_access_control.has_any_specific_access_for_resource(
                 "external_data_source", required_level="viewer"
             ):
-                accessible_external_sources = accessible_external_sources.filter(created_by=request.user)
+                accessible_external_sources = accessible_external_sources.filter(created_by=cast(User, request.user))
         options = ([managed_source] if managed_source is not None else []) + list(accessible_external_sources)
 
         serializer = ExternalDataSourceConnectionOptionSerializer(options, many=True)

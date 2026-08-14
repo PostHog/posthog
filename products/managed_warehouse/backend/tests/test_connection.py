@@ -224,6 +224,8 @@ class TestEnsureManagedWarehouseDirectSource:
             should_sync=True,
         )
         source.refresh_from_db()
+        assert isinstance(source.job_inputs, dict)
+        assert isinstance(source.connection_metadata, dict)
         original_job_inputs = dict(source.job_inputs)
         original_metadata = dict(source.connection_metadata)
 
@@ -240,6 +242,7 @@ class TestEnsureManagedWarehouseDirectSource:
         org = Organization.objects.create(name="Org")
         team = Team.objects.create(organization=org)
         source = _create_project_reader_source(team)
+        assert isinstance(source.connection_metadata, dict)
         source.connection_metadata = {**source.connection_metadata, "provisioner_marker": "keep"}
         source.save(update_fields=["connection_metadata"])
         source.refresh_from_db()
@@ -249,6 +252,8 @@ class TestEnsureManagedWarehouseDirectSource:
             name="posthog.events_prod",
             should_sync=True,
         )
+        assert isinstance(source.job_inputs, dict)
+        assert isinstance(source.connection_metadata, dict)
         original_job_inputs = dict(source.job_inputs)
         original_metadata = dict(source.connection_metadata)
 
@@ -268,6 +273,7 @@ class TestEnsureManagedWarehouseDirectSource:
         team = Team.objects.create(organization=org)
         ready_source = _create_project_reader_source(team)
         malformed_source = _create_project_reader_source(team)
+        assert isinstance(malformed_source.job_inputs, dict)
         malformed_source.job_inputs = {**malformed_source.job_inputs, "user": "root"}
         malformed_source.save(update_fields=["job_inputs"])
 
@@ -293,6 +299,7 @@ class TestEnsureManagedWarehouseDirectSource:
             direct_query_enabled=direct_query_enabled,
         )
         source.refresh_from_db()
+        assert isinstance(source.job_inputs, dict)
         original_job_inputs = dict(source.job_inputs)
 
         with pytest.raises(ExternalDataSource.DoesNotExist, match="project reader is not configured"):
@@ -300,6 +307,7 @@ class TestEnsureManagedWarehouseDirectSource:
 
         source.refresh_from_db()
         assert source.job_inputs == original_job_inputs
+        assert isinstance(source.connection_metadata, dict)
         assert source.connection_metadata["reader_configured"] is reader_configured
         assert source.direct_query_enabled is direct_query_enabled
 

@@ -196,10 +196,12 @@ class DuckgresRawAdapter:
         ):
             raise ExposedHogQLError(MANAGED_WAREHOUSE_UNAVAILABLE_ERROR)
 
-        try:
+        if isinstance(raw_port, int):
+            port = raw_port
+        elif isinstance(raw_port, str) and raw_port.isdigit():
             port = int(raw_port)
-        except (TypeError, ValueError) as error:
-            raise ExposedHogQLError(MANAGED_WAREHOUSE_UNAVAILABLE_ERROR) from error
+        else:
+            raise ExposedHogQLError(MANAGED_WAREHOUSE_UNAVAILABLE_ERROR)
         if not 1 <= port <= 65535:
             raise ExposedHogQLError(MANAGED_WAREHOUSE_UNAVAILABLE_ERROR)
 
