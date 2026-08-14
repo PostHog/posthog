@@ -124,6 +124,7 @@ export function newScanner(templateKey?: string | null): ScannerFormValues {
     const base = {
         id: 'new',
         enabled: true,
+        tags: [] as string[],
         sampling_rate: 1,
         sampling_mode: 'comprehensive' as const,
         query: { kind: NodeKind.RecordingsQuery },

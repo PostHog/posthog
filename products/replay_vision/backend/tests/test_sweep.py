@@ -60,7 +60,7 @@ from products.replay_vision.backend.temporal.vision_actions.types import DueVisi
 from products.replay_vision.backend.tests.helpers import seed_scanner_spend, snapshot_for
 
 # Every scanner built below runs on this model, so its price sets what one observation draws.
-_OBSERVATION_CREDITS = observation_credits_for_model(ScannerModel.GEMINI_3_6_FLASH)
+_OBSERVATION_CREDITS = observation_credits_for_model(ScannerModel.GEMINI_3_7_FLASH)
 
 
 def _make_scanner(**overrides) -> ReplayScanner:
@@ -71,7 +71,7 @@ def _make_scanner(**overrides) -> ReplayScanner:
         "name": "sweep-scanner",
         "scanner_type": ScannerType.MONITOR,
         "scanner_config": {"prompt": "p"},
-        "model": ScannerModel.GEMINI_3_6_FLASH,
+        "model": ScannerModel.GEMINI_3_7_FLASH,
     }
     defaults.update(overrides)
     return ReplayScanner.objects.create(**defaults)

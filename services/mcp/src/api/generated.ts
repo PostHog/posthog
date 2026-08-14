@@ -21344,6 +21344,8 @@ export namespace Schemas {
      * * `Depot` - Depot
      * * `Schematic` - Schematic
      * * `Dokploy` - Dokploy
+     * * `Hootsuite` - Hootsuite
+     * * `WisprFlow` - WisprFlow
      */
     export type ExternalDataSourceTypeEnum = typeof ExternalDataSourceTypeEnum[keyof typeof ExternalDataSourceTypeEnum];
 
@@ -22644,6 +22646,8 @@ export namespace Schemas {
       Depot: 'Depot',
       Schematic: 'Schematic',
       Dokploy: 'Dokploy',
+      Hootsuite: 'Hootsuite',
+      WisprFlow: 'WisprFlow',
     } as const;
 
     /**
@@ -23957,7 +23961,9 @@ export namespace Schemas {
        * * `MSG91` - MSG91
        * * `Depot` - Depot
        * * `Schematic` - Schematic
-       * * `Dokploy` - Dokploy */
+       * * `Dokploy` - Dokploy
+       * * `Hootsuite` - Hootsuite
+       * * `WisprFlow` - WisprFlow */
       source_type: ExternalDataSourceTypeEnum;
     }
 
@@ -25959,7 +25965,9 @@ export namespace Schemas {
        * * `MSG91` - MSG91
        * * `Depot` - Depot
        * * `Schematic` - Schematic
-       * * `Dokploy` - Dokploy */
+       * * `Dokploy` - Dokploy
+       * * `Hootsuite` - Hootsuite
+       * * `WisprFlow` - WisprFlow */
       readonly source_type: ExternalDataSourceTypeEnum;
       /** Human-readable name to show in the picker (falls back to the source type). */
       readonly label: string;
@@ -26153,6 +26161,54 @@ export namespace Schemas {
          * @nullable
          */
       error: string | null;
+    }
+
+    /**
+     * Body of POST /vision/scanners/draft/ — the user's goal, stated in their own words.
+     */
+    export interface DraftScannerRequest {
+      /**
+         * What the user wants to accomplish, e.g. 'find out where users get stuck during onboarding'.
+         * @maxLength 2000
+         */
+      goal: string;
+    }
+
+    /**
+     * * `monitor` - Monitor
+     * * `classifier` - Classifier
+     * * `scorer` - Scorer
+     * * `summarizer` - Summarizer
+     */
+    export type ScannerTypeEnum = typeof ScannerTypeEnum[keyof typeof ScannerTypeEnum];
+
+
+    export const ScannerTypeEnum = {
+      Monitor: 'monitor',
+      Classifier: 'classifier',
+      Scorer: 'scorer',
+      Summarizer: 'summarizer',
+    } as const;
+
+    /**
+     * An AI-drafted scanner configuration, ready to seed the creation wizard. Nothing is persisted.
+     */
+    export interface DraftScannerResponse {
+      /** Drafted scanner name. */
+      name: string;
+      /** Drafted one-sentence description. */
+      description: string;
+      /** The scanner type the draft picked for the goal.
+       *
+       * * `monitor` - Monitor
+       * * `classifier` - Classifier
+       * * `scorer` - Scorer
+       * * `summarizer` - Summarizer */
+      scanner_type: ScannerTypeEnum;
+      /** Type-specific config for the drafted `scanner_type`; always includes `prompt`. */
+      scanner_config: unknown;
+      /** Why the draft picked this scanner type and configuration, addressed to the user. */
+      rationale: string;
     }
 
     export interface DraftStatusResponse {
@@ -28915,7 +28971,7 @@ export namespace Schemas {
     /**
      * * `gemini-3.5-flash-lite` - Gemini 3.5 Flash Lite
      * * `gemini-3-flash-preview` - Gemini 3 Flash
-     * * `gemini-3.6-flash` - Gemini 3.6 Flash
+     * * `gemini-3.7-flash` - Gemini 3.7 Flash
      */
     export type ScannerModelEnum = typeof ScannerModelEnum[keyof typeof ScannerModelEnum];
 
@@ -28923,7 +28979,7 @@ export namespace Schemas {
     export const ScannerModelEnum = {
       Gemini35FlashLite: 'gemini-3.5-flash-lite',
       Gemini3FlashPreview: 'gemini-3-flash-preview',
-      Gemini36Flash: 'gemini-3.6-flash',
+      Gemini37Flash: 'gemini-3.7-flash',
     } as const;
 
     /**
@@ -28953,7 +29009,7 @@ export namespace Schemas {
        *
        * * `gemini-3.5-flash-lite` - Gemini 3.5 Flash Lite
        * * `gemini-3-flash-preview` - Gemini 3 Flash
-       * * `gemini-3.6-flash` - Gemini 3.6 Flash */
+       * * `gemini-3.7-flash` - Gemini 3.7 Flash */
       model?: ScannerModelEnum;
     }
 
@@ -33705,7 +33761,9 @@ export namespace Schemas {
        * * `MSG91` - MSG91
        * * `Depot` - Depot
        * * `Schematic` - Schematic
-       * * `Dokploy` - Dokploy */
+       * * `Dokploy` - Dokploy
+       * * `Hootsuite` - Hootsuite
+       * * `WisprFlow` - WisprFlow */
       readonly source_type: ExternalDataSourceTypeEnum;
       /** 'direct' for pure live-query sources; 'warehouse' for synced sources with direct query enabled.
        *
@@ -35037,7 +35095,9 @@ export namespace Schemas {
        * * `MSG91` - MSG91
        * * `Depot` - Depot
        * * `Schematic` - Schematic
-       * * `Dokploy` - Dokploy */
+       * * `Dokploy` - Dokploy
+       * * `Hootsuite` - Hootsuite
+       * * `WisprFlow` - WisprFlow */
       source_type: ExternalDataSourceTypeEnum;
       /** Connection credentials and a 'schemas' array. Keys depend on source_type. */
       payload: ExternalDataSourceCreatePayload;
@@ -41016,22 +41076,6 @@ export namespace Schemas {
     }
 
     /**
-     * * `monitor` - Monitor
-     * * `classifier` - Classifier
-     * * `scorer` - Scorer
-     * * `summarizer` - Summarizer
-     */
-    export type ScannerTypeEnum = typeof ScannerTypeEnum[keyof typeof ScannerTypeEnum];
-
-
-    export const ScannerTypeEnum = {
-      Monitor: 'monitor',
-      Classifier: 'classifier',
-      Scorer: 'scorer',
-      Summarizer: 'summarizer',
-    } as const;
-
-    /**
      * Body of POST /vision/scanners/inline_scan/ - a prompt plus the sessions to point it at.
      */
     export interface InlineScanRequest {
@@ -41059,7 +41103,7 @@ export namespace Schemas {
        *
        * * `gemini-3.5-flash-lite` - Gemini 3.5 Flash Lite
        * * `gemini-3-flash-preview` - Gemini 3 Flash
-       * * `gemini-3.6-flash` - Gemini 3.6 Flash */
+       * * `gemini-3.7-flash` - Gemini 3.7 Flash */
       model?: ScannerModelEnum;
     }
 
@@ -47369,6 +47413,13 @@ export namespace Schemas {
       readonly created_at: string;
     }
 
+    export interface OrganizationRemoveBlockedMembersResponse {
+      /** Whether verified-domain enforcement was turned on. */
+      success: boolean;
+      /** How many members with an email outside the verified domains were removed from the organization. Owners are never removed. */
+      removed_members: number;
+    }
+
     /**
      * * `onboarding` - Onboarding
      * * `error_tracking` - Error Tracking
@@ -49668,6 +49719,12 @@ export namespace Schemas {
          * @maxLength 1000
          */
       description?: string;
+      /**
+         * Organizational tags for this scanner. Distinct from a classifier's tag vocabulary in scanner_config. Tags cannot contain commas.
+         * @maxItems 32
+         * @items.maxLength 255
+         */
+      tags?: string[];
       /** What the scanner does: monitor, classifier, scorer, or summarizer.
        *
        * * `monitor` - Monitor
@@ -49706,7 +49763,7 @@ export namespace Schemas {
        *
        * * `gemini-3.5-flash-lite` - Gemini 3.5 Flash Lite
        * * `gemini-3-flash-preview` - Gemini 3 Flash
-       * * `gemini-3.6-flash` - Gemini 3.6 Flash */
+       * * `gemini-3.7-flash` - Gemini 3.7 Flash */
       model: ScannerModelEnum;
       /** When false, the reconciler removes the scanner's Temporal schedule. On-demand triggers still work. */
       enabled?: boolean;
@@ -58877,6 +58934,12 @@ export namespace Schemas {
          * @maxLength 1000
          */
       description?: string;
+      /**
+         * Organizational tags for this scanner. Distinct from a classifier's tag vocabulary in scanner_config. Tags cannot contain commas.
+         * @maxItems 32
+         * @items.maxLength 255
+         */
+      tags?: string[];
       /** What the scanner does: monitor, classifier, scorer, or summarizer.
        *
        * * `monitor` - Monitor
@@ -58915,7 +58978,7 @@ export namespace Schemas {
        *
        * * `gemini-3.5-flash-lite` - Gemini 3.5 Flash Lite
        * * `gemini-3-flash-preview` - Gemini 3 Flash
-       * * `gemini-3.6-flash` - Gemini 3.6 Flash */
+       * * `gemini-3.7-flash` - Gemini 3.7 Flash */
       model?: ScannerModelEnum;
       /** When false, the reconciler removes the scanner's Temporal schedule. On-demand triggers still work. */
       enabled?: boolean;
@@ -71762,7 +71825,9 @@ export namespace Schemas {
        * * `MSG91` - MSG91
        * * `Depot` - Depot
        * * `Schematic` - Schematic
-       * * `Dokploy` - Dokploy */
+       * * `Dokploy` - Dokploy
+       * * `Hootsuite` - Hootsuite
+       * * `WisprFlow` - WisprFlow */
       source_type: ExternalDataSourceTypeEnum;
       /** Connection details as flat keys for the source_type — the same fields the create flow accepts (host, port, password, API key, …). Checked against a live connection before being stored. */
       payload: SourceCredentialCreatePayload;
@@ -73104,7 +73169,9 @@ export namespace Schemas {
        * * `MSG91` - MSG91
        * * `Depot` - Depot
        * * `Schematic` - Schematic
-       * * `Dokploy` - Dokploy */
+       * * `Dokploy` - Dokploy
+       * * `Hootsuite` - Hootsuite
+       * * `WisprFlow` - WisprFlow */
       source_type: ExternalDataSourceTypeEnum;
       /** Source config as flat keys. For source_type 'Custom': 'manifest_json' (a stringified RESTAPIConfig describing client.base_url, auth, and resources) plus the credential for the manifest's declared auth type — 'auth_token' (bearer), 'auth_api_key' (api_key), or 'auth_password' (http_basic). Secrets stay in these auth_* keys, never inline in the manifest. */
       payload?: SourcePreviewRequestPayload;
@@ -74436,7 +74503,9 @@ export namespace Schemas {
        * * `MSG91` - MSG91
        * * `Depot` - Depot
        * * `Schematic` - Schematic
-       * * `Dokploy` - Dokploy */
+       * * `Dokploy` - Dokploy
+       * * `Hootsuite` - Hootsuite
+       * * `WisprFlow` - WisprFlow */
       source_type: ExternalDataSourceTypeEnum;
       /** Connection details as flat keys for the source_type (discover required fields with the wizard tool). Prefer references over raw secrets: pass {'credential_id': <id>} referencing the connection details the user stored via the connect-link page (discover ids with the stored_credentials endpoint) — they are merged in server-side and deleted once consumed. An already-connected OAuth integration can be passed via its id key instead (e.g. {'hubspot_integration_id': 123}). For source_type 'Custom' (a user-defined REST API) the keys are 'manifest_json' (a stringified RESTAPIConfig describing client.base_url, auth, and resources) plus the credential for the auth type the manifest declares — 'auth_token' (bearer), 'auth_api_key' (api_key), or 'auth_password' (http_basic); keep secrets in these auth_* keys, never inline in the manifest. A 'schemas' array is NOT required — all discovered tables are enabled automatically with sensible sync defaults. */
       payload?: SourceSetupPayload;
@@ -81230,6 +81299,14 @@ export namespace Schemas {
 
     export type MembersListParams = {
     /**
+     * Only return members whose email address is on this domain (case-insensitive).
+     */
+    email_domain?: string;
+    /**
+     * Comma-separated membership levels to return, e.g. `1,8`. Levels are 1 member, 8 admin, 15 owner.
+     */
+    levels?: string;
+    /**
      * Number of results to return per page.
      */
     limit?: number;
@@ -81241,6 +81318,10 @@ export namespace Schemas {
      * Sort order. Defaults to `-joined_at`.
      */
     order?: string;
+    /**
+     * When `true`, only return members whose email domain is not one of the organization's verified domains — the members who would lose access under verified-domain enforcement.
+     */
+    outside_verified_domains?: boolean;
     /**
      * Match against member `first_name`, `last_name`, and `email`. Returns exact (case-insensitive substring) matches only; if no exact match exists, returns similar (fuzzy trigram — typos, prefix-as-you-type) matches instead. Each result's `search_match_type` is `exact` or `similar`. Capped at 200 characters.
      */
@@ -90057,6 +90138,10 @@ export namespace Schemas {
      * Case-insensitive substring match across name, description, and the prompt in scanner_config.
      */
     search?: string;
+    /**
+     * Filter to scanners carrying at least one of the given tags (comma-separated).
+     */
+    tags?: string;
     };
 
     export type VisionScannersImpactRetrieveParams = {
