@@ -10,6 +10,7 @@ from django.conf import settings
 import redis
 from statshog.defaults.django import statsd
 
+from posthog.dataclasses import frozen
 from posthog.redis import get_client
 
 logger = logging.getLogger(__name__)
@@ -141,7 +142,7 @@ def _get_redis() -> redis.Redis | None:
     )
 
 
-@dataclass(frozen=True, kw_only=True, slots=True)
+@frozen
 class _BreakerKeys:
     fails: str
     open_until: str
