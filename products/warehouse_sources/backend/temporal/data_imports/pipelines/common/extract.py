@@ -1,5 +1,4 @@
 from contextlib import asynccontextmanager
-from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, NoReturn
 
 from django.conf import settings
@@ -9,6 +8,7 @@ import posthoganalytics
 from structlog.typing import FilteringBoundLogger
 from temporalio import activity
 
+from posthog.dataclasses import frozen
 from posthog.exceptions_capture import capture_exception
 from posthog.redis import get_async_client
 from posthog.sync import database_sync_to_async_pool
@@ -599,7 +599,7 @@ def cleanup_memory(pa_memory_pool: pa.MemoryPool, py_table: pa.Table | None = No
     pa_memory_pool.release_unused()
 
 
-@dataclass(frozen=True, kw_only=True, slots=True)
+@frozen
 class IncrementalFieldValues:
     last_value: Any
     earliest_value: Any

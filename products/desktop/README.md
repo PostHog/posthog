@@ -66,11 +66,11 @@ Scripts in `scripts/` for development and debugging:
 ## Project Structure
 
 ```
-posthog-code/
+products/desktop/
 ├── apps/
 │   ├── code/            # Electron desktop app (React, Vite)
 │   ├── mobile/          # React Native mobile app (Expo)
-│   └── cli/             # CLI for stacked PRs
+│   └── web/             # Web host (cloud-only)
 ├── packages/
 │   ├── agent/           # TypeScript agent framework
 │   ├── core/            # Shared business logic
@@ -84,7 +84,6 @@ posthog-code/
 |------|-------------|
 | [apps/code/README.md](./apps/code/README.md) | Desktop app: building, signing, distribution, and workspace configuration |
 | [apps/mobile/README.md](./apps/mobile/README.md) | Mobile app: Expo setup, EAS builds, and TestFlight deployment |
-| [apps/cli/README.md](./apps/cli/README.md) | CLI: stacked PR management with Jujutsu |
 | [AGENTS.md](./AGENTS.md) | Architecture rules, code style, patterns, and testing guidelines (read by Claude Code, Codex, Cursor, Aider, etc.) |
 | [CONTRIBUTING.md](./CONTRIBUTING.md) | How to contribute to PostHog |
 | [docs/LOCAL-DEVELOPMENT.md](./docs/LOCAL-DEVELOPMENT.md) | Connecting the desktop app to a local PostHog instance |

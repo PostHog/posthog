@@ -677,6 +677,12 @@ async def _spawn_and_run(
         verbose=verbose,
         origin_product=tasks_facade.TaskOriginProduct.SIGNALS_SCOUT,
         mcp_builtin_agent_key="scout",
+        # No credential owner on purpose: a scout is a team resource, so its runs mount only
+        # connections members shared to the whole team, never anyone's personal grants. That
+        # keeps runs identical no matter who created or edits the scout, and covers ownerless
+        # coordinator-discovered scouts. The per-scout selection below picks which of those
+        # team-shared servers this scout's runs mount. Empty selects none.
+        mcp_gateway_server_ids=[str(server_id) for server_id in (config.mcp_gateway_server_ids or [])],
         # Tag every scout $ai_generation with its stage AND its scout, so scout spend is both
         # splittable out of the ai_product='signals' bucket (scouts carry no signal_report_id)
         # and attributable to one scout. `ai_stage` is the only run-shaped value the harness

@@ -41,12 +41,13 @@ const scanner = (overrides: Partial<ReplayScannerApi> = {}): ReplayScannerApi =>
         id: '00000000-0000-0000-0000-00000000000a',
         name: 'Scanner',
         description: '',
+        tags: [],
         scanner_type: 'monitor',
         scanner_config: { prompt: 'Did the user struggle?' },
         query: null,
         sampling_rate: 1,
         provider: 'google',
-        model: 'gemini-3.6-flash',
+        model: 'gemini-3.7-flash',
         enabled: true,
         emits_signals: false,
         scanner_version: 1,
@@ -72,6 +73,7 @@ const scanners = {
             credits_this_month: 1250,
             observations_this_month: 1250,
             description: 'Flags sessions where the user hesitated at payment.',
+            tags: ['checkout', 'core flows'],
             scanner_type: 'monitor',
             sampling_rate: 1,
             created_by: alice,
@@ -183,7 +185,7 @@ const observation = (overrides: Partial<ReplayObservationApi> = {}): ReplayObser
             name: summarizerScanner.name,
             scanner_type: 'summarizer',
             scanner_version: 1,
-            model: 'gemini-3.6-flash',
+            model: 'gemini-3.7-flash',
             provider: 'google',
             emits_signals: false,
             scanner_config: { prompt: 'Summarize this session.', length: 'medium' },
@@ -451,6 +453,7 @@ const meta: Meta = {
     decorators: [
         mswDecorator({
             get: {
+                '/api/projects/:team_id/tags/': ['checkout', 'core flows'],
                 '/api/projects/:team_id/vision/scanners/': scanners,
                 '/api/projects/:team_id/vision/scanners/stats/': scannerStats,
                 '/api/projects/:team_id/vision/scanners/creators/': { creators: [alice, bob] },
@@ -488,25 +491,48 @@ export default meta
 
 export const ScannersList: StoryObj = {}
 
-// Zero scanners: snapshot-covers the table empty state and its docs link, which no other story renders.
+// A project that has never created a scanner: the surface of the empty-state experiment.
+const emptyProjectDecorators = [
+    mswDecorator({
+        get: {
+            '/api/projects/:team_id/vision/scanners/': { count: 0, next: null, previous: null, results: [] },
+            '/api/projects/:team_id/vision/scanners/stats/': {
+                total: 0,
+                enabled: 0,
+                by_type: {
+                    monitor: { enabled: 0, total: 0 },
+                    classifier: { enabled: 0, total: 0 },
+                    scorer: { enabled: 0, total: 0 },
+                    summarizer: { enabled: 0, total: 0 },
+                },
+            } satisfies ScannerStatsResponseApi,
+            '/api/projects/:team_id/vision/scanners/creators/': { creators: [] },
+        },
+    }),
+]
+
 export const ScannersListEmpty: StoryObj = {
-    decorators: [
-        mswDecorator({
-            get: {
-                '/api/projects/:team_id/vision/scanners/': { count: 0, next: null, previous: null, results: [] },
-                '/api/projects/:team_id/vision/scanners/stats/': {
-                    total: 0,
-                    enabled: 0,
-                    by_type: {
-                        monitor: { enabled: 0, total: 0 },
-                        classifier: { enabled: 0, total: 0 },
-                        scorer: { enabled: 0, total: 0 },
-                        summarizer: { enabled: 0, total: 0 },
-                    },
-                } satisfies ScannerStatsResponseApi,
-            },
-        }),
-    ],
+    decorators: emptyProjectDecorators,
+}
+
+// Both arm stories run with the goal-draft flag on, matching the launch state where each arm
+// also offers the "tell PostHog AI what you want to accomplish" box.
+export const ScannersListEmptyTemplates: StoryObj = {
+    decorators: emptyProjectDecorators,
+    parameters: {
+        featureFlags: {
+            [FEATURE_FLAGS.REPLAY_VISION_EMPTY_STATE_EXPERIMENT]: 'templates',
+        },
+    },
+}
+
+export const ScannersListEmptyExampleObservations: StoryObj = {
+    decorators: emptyProjectDecorators,
+    parameters: {
+        featureFlags: {
+            [FEATURE_FLAGS.REPLAY_VISION_EMPTY_STATE_EXPERIMENT]: 'example-observations',
+        },
+    },
 }
 
 export const UsageTab: StoryObj = {
@@ -615,6 +641,7 @@ export const StartupProgramCap: StoryObj = {
     decorators: [
         mswDecorator({
             get: {
+                '/api/projects/:team_id/tags/': ['checkout', 'core flows'],
                 '/api/projects/:team_id/vision/scanners/': scanners,
                 '/api/projects/:team_id/vision/scanners/stats/': scannerStats,
                 '/api/projects/:team_id/vision/quota/': { ...quota, credit_limit: null, remaining: null },
