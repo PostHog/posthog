@@ -560,10 +560,6 @@ class BillingManager:
                 organization.customer_trust_scores = updated_customer_trust_scores
                 modified_fields.add("customer_trust_scores")
 
-        # Field-scoped so a stale in-memory snapshot can never write back is_active /
-        # is_not_active_reason over a concurrent (manual/admin) deactivation. Billing no longer
-        # writes those fields itself — deactivation is an out-of-band org action now — but this
-        # sync still loads the org before that action and must not resurrect a just-disabled org.
         if modified_fields:
             organization.save(update_fields=[*modified_fields, "updated_at"])
 

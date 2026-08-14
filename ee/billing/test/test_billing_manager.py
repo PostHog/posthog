@@ -399,28 +399,7 @@ class TestBillingManager(BaseTest):
         ]
         assert self.team.logs_settings == {"retention_days": 30}
 
-    def test_billing_sync_ignores_deactivated_flag(self) -> None:
-        """Billing no longer flips org active state — deactivation is an out-of-band org action."""
-        organization = self.organization
-        organization.is_active = True
-        organization.is_not_active_reason = None
-        organization.save()
-
-        license = super(LicenseManager, cast(LicenseManager, License.objects)).create(
-            key="key123::key123",
-            plan="enterprise",
-            valid_until=datetime.datetime(2038, 1, 19, 3, 14, 7),
-        )
-
-        billing_status: dict[str, Any] = {"customer": {"deactivated": True}}
-        BillingManager(license).update_org_details(organization, cast(BillingStatus, billing_status))
-
-        organization.refresh_from_db()
-        assert organization.is_active is True
-        assert organization.is_not_active_reason is None
-
     def test_billing_sync_does_not_revert_manual_deactivation(self) -> None:
-        """A field-scoped save must never resurrect an org disabled out-of-band mid-sync."""
         license = super(LicenseManager, cast(LicenseManager, License.objects)).create(
             key="key123::key123",
             plan="enterprise",

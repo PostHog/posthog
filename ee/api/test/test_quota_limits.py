@@ -59,12 +59,12 @@ class TestQuotaLimitsAPI(APIBaseTest):
         # Org holds no billing-granted Desktop usage feature -> reads as not paying
         self.assertIs(data["code_usage_billing_active"], False)
 
-    def test_deactivated_org_limits_only_credit_buckets_and_reads_unbilled(self) -> None:
+    def test_any_deactivated_org_limits_only_credit_buckets_and_reads_unbilled(self) -> None:
         self.organization.available_product_features = [
             {"key": AvailableFeature.POSTHOG_CODE_USAGE, "name": "PostHog Desktop usage billing"}
         ]
         self.organization.is_active = False
-        self.organization.is_not_active_reason = Organization.DeactivationReason.DESKTOP_ABUSE
+        self.organization.is_not_active_reason = "Past due invoice"
         self.organization.save()
 
         # The deactivated-org answer must not depend on Redis being reachable.

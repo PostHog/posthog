@@ -11159,8 +11159,9 @@ class TestCloudUsageGate(BaseTaskAPITest):
         mock_workflow.assert_called_once()
 
     @patch("products.tasks.backend.logic.services.code_usage_gate.get_posthog_code_usage")
-    def test_run_for_deactivated_org_returns_429_without_gateway_check(self, mock_gate):
+    def test_run_for_any_deactivated_org_returns_429_without_gateway_check(self, mock_gate):
         self.organization.is_active = False
+        self.organization.is_not_active_reason = "Past due invoice"
         self.organization.save()
         task = self.create_task()
 

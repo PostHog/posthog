@@ -38,8 +38,9 @@ class TestComputeQuota:
         limited.assert_not_called()
 
     @override_settings(TASKS_COMPUTE_QUOTA_ENFORCEMENT_ENABLED=False)
-    def test_deactivated_org_blocks_even_with_enforcement_off(self):
+    def test_any_deactivated_org_blocks_even_with_enforcement_off(self):
         self.team.organization.is_active = False
+        self.team.organization.is_not_active_reason = "Past due invoice"
         self.team.organization.save()
 
         assert is_compute_quota_exhausted(self.task())
