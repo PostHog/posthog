@@ -38,7 +38,9 @@ def _write_parent_table(tmp_path: Path) -> str:
 def _patched_reader(uri: str, version: int | None = None, **kwargs):
     ref = ParentTableRef(uri=uri, version=deltalake.DeltaTable(uri).version() if version is None else version)
     with patch.object(warehouse_parent, "delta_storage_options", return_value={}):
-        return list(iter_parent_pages_from_warehouse(table=ref, parent_name="issues", **kwargs))
+        return list(
+            iter_parent_pages_from_warehouse(table=ref, parent_name="issues", schema_name="issue_tag_values", **kwargs)
+        )
 
 
 def _patched_resolve(uri: str, snapshot_timestamp=None):
@@ -106,6 +108,43 @@ def test_reader_pages_and_rekeys_to_api_field_names(tmp_path: Path) -> None:
         "3": "2026-03-02",
     }
     assert all(set(row) == {"id", "lastSeen"} for row in rows)
+
+
+@pytest.mark.parametrize(
+    "ending,expected_rows,expected_outcome",
+    [("drained", 3, "completed"), ("closed", 1, "stopped"), ("raised", 1, "failed")],
+)
+def test_reader_logs_the_row_count_and_how_the_scan_ended(
+    tmp_path: Path, ending: str, expected_rows: int, expected_outcome: str
+) -> None:
+    # A resumable child checkpoints mid-fan-out and the pipeline closes the generator, so a
+    # count logged after the loop would be lost for exactly the runs worth measuring. Only a
+    # drained scan carries a full count, and a crash must not read as a clean early stop.
+    uri = _write_parent_table(tmp_path)
+    ref = ParentTableRef(uri=uri, version=deltalake.DeltaTable(uri).version())
+
+    with (
+        patch.object(warehouse_parent, "delta_storage_options", return_value={}),
+        patch.object(warehouse_parent, "logger") as mock_logger,
+    ):
+        pages = warehouse_parent.iter_parent_pages_from_warehouse(
+            table=ref, parent_name="issues", columns=["id"], page_size=1, schema_name="issue_hashes"
+        )
+        if ending == "drained":
+            list(pages)
+        else:
+            next(pages)
+            if ending == "closed":
+                pages.close()
+            else:
+                with pytest.raises(RuntimeError):
+                    pages.throw(RuntimeError("consumer blew up"))
+
+    logged = mock_logger.info.call_args
+    assert logged.args[0] == "data_imports.fanout_parent_rows_streamed"
+    assert logged.kwargs["schema"] == "issue_hashes"
+    assert logged.kwargs["rows"] == expected_rows
+    assert logged.kwargs["outcome"] == expected_outcome
 
 
 def test_resolve_raises_when_parent_has_no_synced_table(tmp_path: Path) -> None:
@@ -219,7 +258,11 @@ def test_reader_stays_on_the_pinned_version_when_the_parent_re_syncs(tmp_path: P
     )
 
     with patch.object(warehouse_parent, "delta_storage_options", return_value={}):
-        pages = list(iter_parent_pages_from_warehouse(table=pinned, parent_name="issues", columns=["id"], page_size=10))
+        pages = list(
+            iter_parent_pages_from_warehouse(
+                table=pinned, parent_name="issues", columns=["id"], page_size=10, schema_name="issue_tag_values"
+            )
+        )
 
     assert sorted(row["id"] for page in pages for row in page) == ["1", "2", "3"]
 

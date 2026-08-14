@@ -33,6 +33,16 @@ USE_LOCAL_SETUP = get_from_env("USE_LOCAL_SETUP", USE_LOCAL_SETUP_DEFAULT, type_
 
 PYARROW_DEBUG_LOGGING = get_from_env("PYARROW_DEBUG_LOGGING", False, type_cast=str_to_bool)
 
+# Load the full warehouse source catalog (every vendor SDK) at web-worker startup, before
+# the worker starts serving, so its first warehouse query doesn't pay the multi-second
+# catalog import at request time. WSGI workers load while importing posthog.wsgi, ASGI
+# workers during lifespan startup; a failed prewarm logs and leaves the worker to lazy
+# loading. Off by default everywhere, including the shared web launcher: deployment
+# config enables it only for the dedicated Granian deployment that serves warehouse
+# queries, so web and report workers, shells, migrations, tests, and Celery keep lazy
+# source loading.
+PREWARM_WAREHOUSE_SOURCE_REGISTRY = get_from_env("PREWARM_WAREHOUSE_SOURCE_REGISTRY", False, type_cast=str_to_bool)
+
 # Region hosting BUCKET_URL. Only used to build the bucket's virtual-hosted hostname for the
 # egress-proxy bypass in products/data_warehouse/backend/s3_proxy.py; the AWS clients resolve their
 # own region as before. Falls back to the ambient AWS_REGION, and an empty value leaves the bypass

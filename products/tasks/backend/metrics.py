@@ -90,6 +90,12 @@ RUN_LOG_MIRROR_OTLP_BATCHES_TOTAL = Counter(
     labelnames=["outcome"],
 )
 
+LOG_APPEND_UNSERIALIZED_TOTAL = Counter(
+    "posthog_tasks_log_append_unserialized_total",
+    "Task-run log appends that ran without the per-object lock (redis unavailable, or contention "
+    "past the blocking timeout), where a concurrent append can still drop entries.",
+)
+
 PREWARMED_ACTIVATED_TOTAL = Counter(
     "posthog_tasks_prewarmed_activated_total",
     "Pre-warmed Runs that received their first user message (the warm sandbox got used, not reaped)",
