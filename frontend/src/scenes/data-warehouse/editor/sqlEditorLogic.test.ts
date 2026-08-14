@@ -2768,6 +2768,80 @@ describe('sqlEditorLogic', () => {
             editorDataNodeLogic.unmount()
             viewsLogic.unmount()
         })
+
+        // Regression: dropping the incremental spread from the create payload silently saves the
+        // view as a full refresh even though the user configured incremental in the save dialog.
+        it('sends the incremental config with the created view', async () => {
+            const viewsLogic = dataWarehouseViewsLogic()
+            viewsLogic.mount()
+
+            logic = sqlEditorLogic({
+                tabId: TAB_ID,
+                monaco: createMockMonaco(),
+                editor: createMockEditor(),
+            })
+            logic.mount()
+
+            logic.actions.createTab('SELECT 1')
+            await expectLogic(logic).toDispatchActions(['createTab', 'updateTab'])
+            logic.actions.setQueryInput('SELECT 1')
+
+            const editorDataNodeLogic = dataNodeLogic({
+                key: logic.values.dataLogicKey,
+                query: { kind: NodeKind.HogQLQuery, query: 'SELECT 1' },
+            })
+            editorDataNodeLogic.mount()
+
+            let createBody: Record<string, any> | undefined
+            useMocks({
+                post: {
+                    '/api/environments/:team_id/warehouse_saved_queries/': async ({ request }) => {
+                        createBody = (await request.json()) as Record<string, any>
+                        return [
+                            200,
+                            {
+                                id: 'created-view-id',
+                                name: 'Incremental view',
+                                query: { kind: NodeKind.HogQLQuery, query: 'SELECT 1' },
+                                is_materialized: false,
+                                latest_history_id: null,
+                                sync_frequency: null,
+                                status: null,
+                                last_run_at: null,
+                                latest_error: null,
+                            },
+                        ]
+                    },
+                    '/api/projects/:team_id/warehouse_saved_queries/:id/materialize/': materializeEndpointMock,
+                },
+            })
+
+            const incremental = {
+                enabled: true,
+                incremental_key: 'timestamp',
+                unique_key: ['id'],
+                lookback_seconds: 3600,
+            }
+            logic.actions.saveAsViewSubmit(
+                'Incremental view',
+                true,
+                undefined,
+                undefined,
+                undefined,
+                false,
+                undefined,
+                incremental
+            )
+
+            await expectLogic(viewsLogic).toDispatchActions(['createDataWarehouseSavedQuerySuccess'])
+            await expectLogic(viewsLogic).toFinishAllListeners()
+
+            expect(createBody?.incremental).toEqual(incremental)
+            expect(materializeEndpointMock).toHaveBeenCalledTimes(1)
+
+            editorDataNodeLogic.unmount()
+            viewsLogic.unmount()
+        })
     })
 
     describe('query history', () => {

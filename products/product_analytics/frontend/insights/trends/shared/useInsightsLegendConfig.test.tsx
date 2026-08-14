@@ -34,11 +34,7 @@ function setup({
     trendsFilter,
     compareFilter,
     results,
-}: {
-    trendsFilter?: TrendsFilter
-    compareFilter?: CompareFilter
-    results?: InsightModel['result']
-} = {}): void {
+}: { trendsFilter?: TrendsFilter; compareFilter?: CompareFilter; results?: InsightModel['result'] } = {}): void {
     initKeaTests()
     featureFlagLogic.mount()
 
