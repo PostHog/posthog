@@ -73,9 +73,14 @@ from products.customer_analytics.backend.presentation.views.serializers import (
     EventStreamSerializer,
     EventStreamTestMessageSerializer,
     FeatureRequestCreateSerializer,
+    FeatureRequestHistorySerializer,
+    FeatureRequestListQuerySerializer,
     FeatureRequestProductAreaListQuerySerializer,
     FeatureRequestProductAreaSerializer,
     FeatureRequestSerializer,
+    FeatureRequestStatusHistorySerializer,
+    FeatureRequestUpdateSerializer,
+    FeatureRequestVersionSerializer,
     MeetingSerializer,
     SupportTicketSerializer,
 )
@@ -279,6 +284,7 @@ class FeatureRequestViewSet(
     mixins.ListModelMixin,
     mixins.RetrieveModelMixin,
     mixins.CreateModelMixin,
+    mixins.UpdateModelMixin,
     viewsets.GenericViewSet,
 ):
     scope_object = "customer_analytics"
@@ -287,12 +293,26 @@ class FeatureRequestViewSet(
     permission_classes = [PostHogFeatureFlagPermission]
     posthog_feature_flag = CUSTOMER_ANALYTICS_FEATURE_REQUESTS_FLAG
 
-    def list(self, request: Request, *args, **kwargs) -> Response:
+    @validated_request(
+        query_serializer=FeatureRequestListQuerySerializer,
+        responses={200: OpenApiResponse(response=FeatureRequestSerializer(many=True))},
+    )
+    def list(self, request: ValidatedRequest, *args, **kwargs) -> Response:
+        data = request.validated_query_data
         return self._paginate_via_facade(
             request,
             lambda offset, limit: api.list_feature_requests(
                 team_id=self.team_id,
                 user_access_control=self.user_access_control,
+                filters=contracts.FeatureRequestListFilters(
+                    search=data.get("search", ""),
+                    statuses=tuple(data.get("statuses", ())),
+                    priorities=tuple(data.get("priorities", ())),
+                    product_area_ids=tuple(data.get("product_area_ids", ())),
+                    account_ids=tuple(data.get("account_ids", ())),
+                    archive_state=data["archive_state"],
+                    ordering=data["request_ordering"],
+                ),
                 offset=offset,
                 limit=limit,
             ),
@@ -334,6 +354,92 @@ class FeatureRequestViewSet(
             raise ValidationError({error.field: error.message})
         response_status = status.HTTP_201_CREATED if outcome.created else status.HTTP_200_OK
         return Response(FeatureRequestSerializer(instance=outcome.request).data, status=response_status)
+
+    @extend_schema(request=FeatureRequestUpdateSerializer, responses={200: FeatureRequestSerializer})
+    def update(self, request: Request, *args, **kwargs) -> Response:
+        serializer = FeatureRequestUpdateSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        data = serializer.validated_data
+        try:
+            feature_request = api.update_feature_request(
+                team_id=self.team_id,
+                feature_request_id=self.kwargs["pk"],
+                input=contracts.UpdateFeatureRequestInput(
+                    expected_version=data["expected_version"],
+                    title=data.get("title"),
+                    description=data.get("description"),
+                    account_id=data.get("account_id"),
+                    product_area_ids=(tuple(data["product_area_ids"]) if "product_area_ids" in request.data else None),
+                    request_status=data.get("request_status"),
+                    request_priority=data.get("request_priority"),
+                    request_priority_is_set="request_priority" in request.data,
+                ),
+                actor_id=cast(User, request.user).id,
+                user_access_control=self.user_access_control,
+            )
+        except api.FeatureRequestValidationError as error:
+            raise ValidationError({error.field: error.message})
+        except api.FeatureRequestConflictError as error:
+            raise Conflict(str(error))
+        if feature_request is None:
+            return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
+        return Response(FeatureRequestSerializer(instance=feature_request).data)
+
+    @extend_schema(request=FeatureRequestUpdateSerializer, responses={200: FeatureRequestSerializer})
+    def partial_update(self, request: Request, *args, **kwargs) -> Response:
+        return self.update(request, *args, **kwargs)
+
+    def _set_archived(self, request: Request, *, archived: bool) -> Response:
+        serializer = FeatureRequestVersionSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        try:
+            feature_request = api.set_feature_request_archived(
+                team_id=self.team_id,
+                feature_request_id=self.kwargs["pk"],
+                expected_version=serializer.validated_data["expected_version"],
+                archived=archived,
+                actor_id=cast(User, request.user).id,
+                user_access_control=self.user_access_control,
+            )
+        except api.FeatureRequestConflictError as error:
+            raise Conflict(str(error))
+        if feature_request is None:
+            return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
+        return Response(FeatureRequestSerializer(instance=feature_request).data)
+
+    @extend_schema(request=FeatureRequestVersionSerializer, responses={200: FeatureRequestSerializer})
+    @action(methods=["POST"], detail=True)
+    def archive(self, request: Request, *args, **kwargs) -> Response:
+        return self._set_archived(request, archived=True)
+
+    @extend_schema(request=FeatureRequestVersionSerializer, responses={200: FeatureRequestSerializer})
+    @action(methods=["POST"], detail=True)
+    def restore(self, request: Request, *args, **kwargs) -> Response:
+        return self._set_archived(request, archived=False)
+
+    @extend_schema(responses={200: FeatureRequestHistorySerializer(many=True)})
+    @action(methods=["GET"], detail=True, pagination_class=None)
+    def history(self, request: Request, *args, **kwargs) -> Response:
+        history = api.list_feature_request_history(
+            team_id=self.team_id,
+            feature_request_id=self.kwargs["pk"],
+            user_access_control=self.user_access_control,
+        )
+        if history is None:
+            return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
+        return Response(FeatureRequestHistorySerializer(instance=history, many=True).data)
+
+    @extend_schema(responses={200: FeatureRequestStatusHistorySerializer(many=True)})
+    @action(methods=["GET"], detail=True, pagination_class=None)
+    def status_history(self, request: Request, *args, **kwargs) -> Response:
+        history = api.list_feature_request_status_history(
+            team_id=self.team_id,
+            feature_request_id=self.kwargs["pk"],
+            user_access_control=self.user_access_control,
+        )
+        if history is None:
+            return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
+        return Response(FeatureRequestStatusHistorySerializer(instance=history, many=True).data)
 
 
 class CustomerProfileConfigViewSet(
