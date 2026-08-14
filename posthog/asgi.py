@@ -99,6 +99,28 @@ def _ensure_post_fork_init():
     _post_fork_initialized = True
 
 
+def _prewarm_warehouse_source_registry() -> None:
+    """Synchronously load the full warehouse source catalog (every vendor SDK) so this
+    worker's first warehouse query doesn't pay the multi-second import at request time.
+
+    Called from lifespan startup, before the worker reports ready, so probes never route
+    traffic to a cold worker. Granian spawns workers as separate processes, which means
+    each one runs its own lifespan startup and warms itself.
+    """
+    from products.warehouse_sources.backend.facade.source_management import (  # noqa: PLC0415 — keeps the source catalog's vendor SDKs off startup for processes that don't opt in
+        SourceRegistry,
+    )
+
+    logger.info("warehouse_source_registry_prewarm_started")
+    start = time.monotonic()
+    sources = SourceRegistry.get_all_sources()
+    logger.info(
+        "warehouse_source_registry_prewarm_completed",
+        elapsed_ms=round((time.monotonic() - start) * 1000),
+        source_count=len(sources),
+    )
+
+
 # Django 5 sends ASGI lifespan events during startup/shutdown. Earlier versions
 # would raise when receiving them, so we intercept the handshake here and
 # acknowledge it ourselves to avoid noisy errors while still delegating other
@@ -113,6 +135,22 @@ def lifetime_wrapper(func):
                 message_type = message.get("type")
 
                 if message_type == "lifespan.startup":
+                    if settings.PREWARM_WAREHOUSE_SOURCE_REGISTRY:
+                        try:
+                            _prewarm_warehouse_source_registry()
+                        except Exception:
+                            # The registry already tolerates individual source-module failures,
+                            # so an exception here means the catalog machinery itself broke.
+                            # Fail readiness rather than silently serving as the cold worker
+                            # the prewarm exists to prevent.
+                            logger.exception("warehouse_source_registry_prewarm_failed")
+                            await send(
+                                {
+                                    "type": "lifespan.startup.failed",
+                                    "message": "warehouse source registry prewarm failed; see worker logs",
+                                }
+                            )
+                            return
                     await send({"type": "lifespan.startup.complete"})
                 elif message_type == "lifespan.shutdown":
                     await send({"type": "lifespan.shutdown.complete"})

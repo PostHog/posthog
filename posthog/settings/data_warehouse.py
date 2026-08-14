@@ -33,6 +33,13 @@ USE_LOCAL_SETUP = get_from_env("USE_LOCAL_SETUP", USE_LOCAL_SETUP_DEFAULT, type_
 
 PYARROW_DEBUG_LOGGING = get_from_env("PYARROW_DEBUG_LOGGING", False, type_cast=str_to_bool)
 
+# Load the full warehouse source catalog (every vendor SDK) during ASGI lifespan startup,
+# before the worker reports ready, so a worker's first warehouse query doesn't pay the
+# multi-second catalog import at request time. Off by default: only the production Granian
+# launcher (bin/docker-server-unit) opts in, so shells, migrations, tests, and Celery keep
+# lazy source loading.
+PREWARM_WAREHOUSE_SOURCE_REGISTRY = get_from_env("PREWARM_WAREHOUSE_SOURCE_REGISTRY", False, type_cast=str_to_bool)
+
 # Region hosting BUCKET_URL. Only used to build the bucket's virtual-hosted hostname for the
 # egress-proxy bypass in products/data_warehouse/backend/s3_proxy.py; the AWS clients resolve their
 # own region as before. Falls back to the ambient AWS_REGION, and an empty value leaves the bypass
