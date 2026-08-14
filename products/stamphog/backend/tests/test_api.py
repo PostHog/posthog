@@ -19,6 +19,8 @@ from products.stamphog.backend.presentation.views import _INSTALL_STATE_SALT
 from products.stamphog.backend.tests.conftest import PRODUCT_DATABASES, StamphogTeamScopedTestMixin
 
 _VIEWS = "products.stamphog.backend.presentation.views"
+# The repo enumeration moved behind the facade with the sync logic; the rest is still looked up in views.
+_GITHUB_FACADE = "products.stamphog.backend.facade.github"
 _CLIENT = "products.stamphog.backend.logic.github_client.StamphogGitHubClient"
 
 
@@ -312,7 +314,7 @@ class TestSyncInstallationAPI(StamphogTeamScopedTestMixin, APIBaseTest):
         self.url = f"/api/projects/{self.team.id}/stamphog/repo_configs/sync_installation/"
         self.state = _install_state(self.team.id, self.user.id)
 
-    @patch(f"{_VIEWS}.list_user_accessible_repositories", return_value=["PostHog/posthog", "PostHog/other"])
+    @patch(f"{_GITHUB_FACADE}.list_user_accessible_repositories", return_value=["PostHog/posthog", "PostHog/other"])
     @patch(f"{_VIEWS}.user_can_access_installation", return_value=True)
     @patch(f"{_VIEWS}.exchange_oauth_code_for_user_token", return_value="user-token")
     def test_verified_installation_binds_repos(self, mock_exchange, mock_verify, mock_list) -> None:
@@ -334,7 +336,7 @@ class TestSyncInstallationAPI(StamphogTeamScopedTestMixin, APIBaseTest):
         # The caller becomes the connecting user — the identity review-sandbox credentials are minted under.
         assert all(config.connected_by_user_id == self.user.id for config in bound)
 
-    @patch(f"{_VIEWS}.list_user_accessible_repositories", return_value=["PostHog/posthog"])
+    @patch(f"{_GITHUB_FACADE}.list_user_accessible_repositories", return_value=["PostHog/posthog"])
     @patch(f"{_VIEWS}.user_can_access_installation", return_value=True)
     @patch(f"{_VIEWS}.exchange_oauth_code_for_user_token", return_value="user-token")
     def test_sync_adopts_preexisting_manual_config(self, mock_exchange, mock_verify, mock_list) -> None:
@@ -359,7 +361,7 @@ class TestSyncInstallationAPI(StamphogTeamScopedTestMixin, APIBaseTest):
         assert manual.enabled is False
         assert manual.digest_enabled is False
 
-    @patch(f"{_VIEWS}.list_user_accessible_repositories", return_value=["PostHog/posthog"])
+    @patch(f"{_GITHUB_FACADE}.list_user_accessible_repositories", return_value=["PostHog/posthog"])
     @patch(f"{_VIEWS}.user_can_access_installation", return_value=True)
     @patch(f"{_VIEWS}.exchange_oauth_code_for_user_token", return_value="user-token")
     def test_sync_rebinds_repo_after_reinstall(self, mock_exchange, mock_verify, mock_list) -> None:
@@ -379,7 +381,7 @@ class TestSyncInstallationAPI(StamphogTeamScopedTestMixin, APIBaseTest):
         assert stale.installation_id == "42"
         assert stale.enabled is True  # settings survive the rebind
 
-    @patch(f"{_VIEWS}.list_user_accessible_repositories")
+    @patch(f"{_GITHUB_FACADE}.list_user_accessible_repositories")
     @patch(f"{_VIEWS}.user_can_access_installation", return_value=False)
     @patch(f"{_VIEWS}.exchange_oauth_code_for_user_token", return_value="user-token")
     def test_installation_not_owned_by_caller_is_rejected(self, mock_exchange, mock_verify, mock_list) -> None:
@@ -394,7 +396,7 @@ class TestSyncInstallationAPI(StamphogTeamScopedTestMixin, APIBaseTest):
         mock_list.assert_not_called()
         assert not StamphogRepoConfig.objects.unscoped().filter(installation_id="999").exists()
 
-    @patch(f"{_VIEWS}.list_user_accessible_repositories")
+    @patch(f"{_GITHUB_FACADE}.list_user_accessible_repositories")
     @patch(f"{_VIEWS}.user_can_access_installation")
     @patch(f"{_VIEWS}.exchange_oauth_code_for_user_token", return_value=None)
     def test_unexchangeable_code_fails_closed(self, mock_exchange, mock_verify, mock_list) -> None:
@@ -410,7 +412,7 @@ class TestSyncInstallationAPI(StamphogTeamScopedTestMixin, APIBaseTest):
         assert not StamphogRepoConfig.objects.unscoped().filter(installation_id="42").exists()
 
     @parameterized.expand(["team", "user"])
-    @patch(f"{_VIEWS}.list_user_accessible_repositories")
+    @patch(f"{_GITHUB_FACADE}.list_user_accessible_repositories")
     @patch(f"{_VIEWS}.exchange_oauth_code_for_user_token")
     def test_state_for_another_team_or_user_is_rejected(self, mismatch, mock_exchange, mock_list) -> None:
         # CSRF guard: the callback binds an installation to the team AND the member named in the signed
@@ -443,7 +445,7 @@ class TestSyncInstallationAPI(StamphogTeamScopedTestMixin, APIBaseTest):
         response = self.client.post(self.url, {"installation_id": "42", "state": self.state}, format="json")
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
 
-    @patch(f"{_VIEWS}.list_user_accessible_repositories", return_value=["PostHog/posthog"])
+    @patch(f"{_GITHUB_FACADE}.list_user_accessible_repositories", return_value=["PostHog/posthog"])
     @patch(f"{_VIEWS}.list_user_installations", return_value=[{"id": "42", "account_login": "PostHog"}])
     @patch(f"{_VIEWS}.exchange_oauth_code_for_user_token", return_value="user-token")
     def test_discovery_without_installation_id_syncs_discovered_installation(
@@ -463,7 +465,7 @@ class TestSyncInstallationAPI(StamphogTeamScopedTestMixin, APIBaseTest):
         bound = StamphogRepoConfig.objects.unscoped().filter(team_id=self.team.id, installation_id="42")
         assert bound.count() == 1
 
-    @patch(f"{_VIEWS}.list_user_accessible_repositories")
+    @patch(f"{_GITHUB_FACADE}.list_user_accessible_repositories")
     @patch(
         f"{_VIEWS}.list_user_installations",
         return_value=[{"id": "100", "account_login": "AlphaOrg"}, {"id": "200", "account_login": "SharedOrg"}],
@@ -489,7 +491,7 @@ class TestSyncInstallationAPI(StamphogTeamScopedTestMixin, APIBaseTest):
         mock_list.assert_not_called()
         assert not StamphogRepoConfig.objects.unscoped().filter(team_id=self.team.id).exists()
 
-    @patch(f"{_VIEWS}.list_user_accessible_repositories")
+    @patch(f"{_GITHUB_FACADE}.list_user_accessible_repositories")
     @patch(f"{_VIEWS}.list_user_installations", return_value=[])
     @patch(f"{_VIEWS}.exchange_oauth_code_for_user_token", return_value="user-token")
     def test_discovery_with_no_installations_reports_app_not_installed(

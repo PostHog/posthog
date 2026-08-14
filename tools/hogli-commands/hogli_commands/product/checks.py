@@ -313,6 +313,57 @@ class RequiredRootFilesCheck(ProductCheck):
         return CheckResult(lines=["✓ ok"])
 
 
+class BackendPackageMarkerCheck(ProductCheck):
+    """backend/ needs an __init__.py or every import contract silently skips the product.
+
+    import-linter builds its graph from `products`, which is a regular package (it carries an
+    __init__.py so file-based mypy resolves `products.<name>.backend` rather than `<name>.backend`).
+    grimp does not descend from a regular package into PEP 420 namespace sub-directories, so a
+    backend without the marker is absent from the graph entirely — and a contract that never sees a
+    module reports success for it. The failure is silent in both directions: nothing warns, and the
+    contract passes.
+    """
+
+    label = "backend package marker"
+
+    # Only the paths import contracts actually target. Test directories and generated trees
+    # (warehouse_sources' per-source connectors) are namespace dirs on purpose and stay that way.
+    CONTRACT_TREES = ("facade", "presentation")
+
+    def should_run(self, ctx: CheckContext) -> bool:
+        return ctx.backend_dir.is_dir()
+
+    def _missing_markers(self, ctx: CheckContext) -> list[str]:
+        missing = []
+        if not (ctx.backend_dir / "__init__.py").exists():
+            missing.append("backend/")
+        for tree in self.CONTRACT_TREES:
+            root = ctx.backend_dir / tree
+            if not root.is_dir():
+                continue
+            for directory in sorted(d for d in root.rglob("*") if d.is_dir()):
+                if directory.name == "__pycache__" or not any(directory.glob("*.py")):
+                    continue
+                if not (directory / "__init__.py").exists():
+                    missing.append(f"backend/{directory.relative_to(ctx.backend_dir)}/")
+            if not (root / "__init__.py").exists():
+                missing.append(f"backend/{tree}/")
+        return sorted(set(missing))
+
+    def run(self, ctx: CheckContext) -> CheckResult:
+        missing = self._missing_markers(ctx)
+        if not missing:
+            return CheckResult(lines=["✓ ok"])
+        return CheckResult(
+            lines=[f"✗ missing __init__.py: {', '.join(missing)}"],
+            issues=[
+                f"missing __init__.py in {', '.join(missing)} — grimp stops descending at the first "
+                "directory without one, so import-linter cannot see what is below it and every "
+                "contract passes there vacuously. Add the marker (empty, like every other product's)"
+            ],
+        )
+
+
 def _has_test_files(backend_dir: Path) -> bool:
     """Check if backend/ contains any pytest-discoverable test files."""
     return any(backend_dir.rglob("test_*.py")) or any(backend_dir.rglob("*_test.py"))
@@ -1086,6 +1137,7 @@ class OrphanedTestFilesCheck(ProductCheck):
 CHECKS: list[ProductCheck] = [
     ProductYamlCheck(),
     RequiredRootFilesCheck(),
+    BackendPackageMarkerCheck(),
     PackageJsonScriptsCheck(),
     MisplacedFilesCheck(),
     FileFolderConflictsCheck(),
