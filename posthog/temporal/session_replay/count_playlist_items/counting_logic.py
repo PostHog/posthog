@@ -122,11 +122,12 @@ def safe_seconds_difference(dt1: datetime, dt2: datetime) -> int:
     return int((dt1 - dt2).total_seconds())
 
 
-def should_skip_task(existing_value: dict[str, Any], playlist_filters: dict[str, Any]) -> bool:
+def should_skip_task(existing_value: dict[str, Any], playlist_filters: Any) -> bool:
+    # playlist.filters is a JSONField, so it can hold a JSON string, not only a dict.
     # The exposure filter refuses userless callers because cached counts reach playlist
     # viewers without an access check, and this task has no principal to offer. Skip rather
     # than error into the park/retry cycle; counting these needs a principal-scoped recount.
-    if (playlist_filters or {}).get("experiment_exposure"):
+    if isinstance(playlist_filters, dict) and playlist_filters.get("experiment_exposure"):
         REPLAY_TEAM_PLAYLIST_COUNT_SKIPPED.labels(reason="experiment_exposure").inc()
         return True
 

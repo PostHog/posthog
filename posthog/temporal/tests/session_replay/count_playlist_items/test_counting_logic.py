@@ -9,6 +9,8 @@ from unittest.mock import MagicMock, patch
 
 from django.utils import timezone
 
+from parameterized import parameterized
+
 from posthog.schema import (
     FilterLogicalOperator,
     PropertyOperator,
@@ -28,6 +30,7 @@ from posthog.temporal.session_replay.count_playlist_items.counting_logic import 
     DEFAULT_RECORDING_FILTERS,
     count_recordings_that_match_playlist_filters,
     fetch_playlists_to_count,
+    should_skip_task,
 )
 
 
@@ -557,3 +560,17 @@ class TestRecordingsThatMatchPlaylistFilters(APIBaseTest, QueryMatchingTest):
         )
         playlist_ids = fetch_playlists_to_count()
         assert playlist.id not in playlist_ids
+
+
+class TestShouldSkipTask:
+    @parameterized.expand(
+        [
+            ("non_empty_string", "some legacy string"),
+            ("empty_string", ""),
+            ("none", None),
+        ]
+    )
+    def test_tolerates_non_dict_filters(self, _name: str, filters: object):
+        # filters is a JSONField, so some rows hold a JSON string rather than a dict. The
+        # experiment_exposure guard used to call .get() on it directly and raised AttributeError.
+        assert should_skip_task({}, filters) is False
