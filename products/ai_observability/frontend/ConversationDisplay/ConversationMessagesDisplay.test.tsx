@@ -1,6 +1,6 @@
 import '@testing-library/jest-dom'
 
-import { cleanup, render, screen, waitFor } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { Provider } from 'kea'
 
 import { initKeaTests } from '~/test/init'
@@ -415,6 +415,31 @@ describe('ConversationMessagesDisplay', () => {
         for (const text of hidden) {
             expect(screen.queryByText(text)).not.toBeInTheDocument()
         }
+    })
+
+    it('mounts one message actions menu only after a trigger is used', async () => {
+        const { container } = render(
+            <Provider>
+                <ConversationMessagesDisplay
+                    inputNormalized={inputNormalized}
+                    outputNormalized={outputNormalized}
+                    errorData={null}
+                    raisedError={false}
+                />
+            </Provider>
+        )
+
+        expect(container.querySelectorAll('[data-attr="llma-message-actions-trigger"]')).toHaveLength(5)
+        expect(container.querySelectorAll('[aria-haspopup="true"]')).toHaveLength(0)
+
+        fireEvent.click(container.querySelectorAll('[data-attr="llma-message-actions-trigger"]')[0])
+
+        expect(container.querySelectorAll('[aria-haspopup="true"]')).toHaveLength(1)
+        expect(await screen.findByText('Translate')).toBeInTheDocument()
+
+        fireEvent.click(container.querySelectorAll('[data-attr="llma-message-actions-trigger"]')[1])
+
+        expect(container.querySelectorAll('[aria-haspopup="true"]')).toHaveLength(1)
     })
 })
 

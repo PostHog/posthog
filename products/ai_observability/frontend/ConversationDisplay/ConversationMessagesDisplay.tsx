@@ -36,7 +36,7 @@ import {
 } from '../utils'
 import { HighlightedLemonMarkdown } from './HighlightedLemonMarkdown'
 import { HighlightedXMLViewer } from './HighlightedXMLViewer'
-import { MessageActionsMenu } from './MessageActionsMenu'
+import { MessageActionsMenu, MessageActionsMenuProvider } from './MessageActionsMenu'
 import { XMLViewer } from './XMLViewer'
 
 export type ConversationDisplayOption =
@@ -256,6 +256,7 @@ export function ConversationMessagesDisplay({
                             className={isHighlighted ? 'ring-2 ring-primary/30 rounded' : undefined}
                         >
                             <LLMMessageDisplay
+                                actionMenuKey={`input-${i}`}
                                 message={message}
                                 show={inputMessageShowStates[i] || false}
                                 onToggle={() => toggleMessage('input', i)}
@@ -281,7 +282,7 @@ export function ConversationMessagesDisplay({
     const showOutputSection = outputNormalized.length > 0 || !raisedError
 
     return (
-        <>
+        <MessageActionsMenuProvider>
             <LLMInputOutput
                 inputDisplay={inputDisplay}
                 outputDisplay={
@@ -290,6 +291,7 @@ export function ConversationMessagesDisplay({
                             outputNormalized.map((message, i) => (
                                 <LLMMessageDisplay
                                     key={i}
+                                    actionMenuKey={`output-${i}`}
                                     message={message}
                                     show={outputMessageShowStates[i] || false}
                                     isOutput
@@ -348,7 +350,7 @@ export function ConversationMessagesDisplay({
                     </div>
                 </div>
             )}
-        </>
+        </MessageActionsMenuProvider>
     )
 }
 
@@ -629,6 +631,7 @@ export const LLMMessageDisplay = React.memo(
         onToggleMarkdownRendering,
         onToggleXmlRendering,
         messageSentiment,
+        actionMenuKey,
     }: {
         message: CompatMessage
         isOutput?: boolean
@@ -644,6 +647,7 @@ export const LLMMessageDisplay = React.memo(
         onToggleMarkdownRendering?: () => void
         onToggleXmlRendering?: () => void
         messageSentiment?: { label: string; score: number }
+        actionMenuKey?: string
     }): JSX.Element => {
         const { currentTeamId } = useValues(teamLogic)
         const { role, content, ...additionalKwargs } = message
@@ -865,6 +869,7 @@ export const LLMMessageDisplay = React.memo(
                                     explicitValue={typeof content === 'string' ? content : JSON.stringify(content)}
                                 />
                                 <MessageActionsMenu
+                                    menuKey={actionMenuKey}
                                     content={
                                         typeof content === 'string' ? content : (JSON.stringify(content, null, 2) ?? '')
                                     }

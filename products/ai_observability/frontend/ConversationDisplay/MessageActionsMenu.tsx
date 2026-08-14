@@ -1,4 +1,5 @@
 import { useActions, useValues } from 'kea'
+import { ReactNode, createContext, useContext, useState } from 'react'
 
 import { IconEllipsis } from '@posthog/icons'
 import { LemonMenu, LemonMenuItems } from '@posthog/lemon-ui'
@@ -21,9 +22,31 @@ const MAX_QUOTE_LENGTH = 500
 export interface MessageActionsMenuProps {
     content: string
     traceId?: string | null
+    menuKey?: string
 }
 
-export const MessageActionsMenu = ({ content, traceId }: MessageActionsMenuProps): JSX.Element | null => {
+interface MessageActionsMenuContextValue {
+    activeMenuKey: string | null
+    setActiveMenuKey: (menuKey: string) => void
+}
+
+const MessageActionsMenuContext = createContext<MessageActionsMenuContextValue | null>(null)
+
+export function MessageActionsMenuProvider({ children }: { children: ReactNode }): JSX.Element {
+    const [activeMenuKey, setActiveMenuKey] = useState<string | null>(null)
+
+    return (
+        <MessageActionsMenuContext.Provider value={{ activeMenuKey, setActiveMenuKey }}>
+            {children}
+        </MessageActionsMenuContext.Provider>
+    )
+}
+
+const ActiveMessageActionsMenu = ({
+    content,
+    traceId,
+    startVisible,
+}: MessageActionsMenuProps & { startVisible: boolean }): JSX.Element | null => {
     const { openSidePanel } = useActions(sidePanelStateLogic)
     const commentsLogicProps = {
         scope: ActivityScope.LLM_TRACE,
@@ -117,8 +140,14 @@ export const MessageActionsMenu = ({ content, traceId }: MessageActionsMenuProps
 
     return (
         <>
-            <LemonMenu items={menuItems} placement="bottom-end">
-                <LemonButton size="small" noPadding icon={<IconEllipsis />} tooltip="More actions" />
+            <LemonMenu items={menuItems} placement="bottom-end" startVisible={startVisible}>
+                <LemonButton
+                    size="small"
+                    noPadding
+                    icon={<IconEllipsis />}
+                    tooltip="More actions"
+                    data-attr="llma-message-actions-trigger"
+                />
             </LemonMenu>
 
             {/* AI consent popover - shown first if user hasn't consented */}
@@ -135,4 +164,31 @@ export const MessageActionsMenu = ({ content, traceId }: MessageActionsMenuProps
             <TranslatePopover content={content} title="Translate message" />
         </>
     )
+}
+
+export function MessageActionsMenu({
+    content,
+    traceId,
+    menuKey = 'standalone',
+}: MessageActionsMenuProps): JSX.Element | null {
+    const sharedMenu = useContext(MessageActionsMenuContext)
+
+    if (!content || content.trim().length === 0) {
+        return null
+    }
+
+    if (sharedMenu && sharedMenu.activeMenuKey !== menuKey) {
+        return (
+            <LemonButton
+                size="small"
+                noPadding
+                icon={<IconEllipsis />}
+                tooltip="More actions"
+                data-attr="llma-message-actions-trigger"
+                onClick={() => sharedMenu.setActiveMenuKey(menuKey)}
+            />
+        )
+    }
+
+    return <ActiveMessageActionsMenu content={content} traceId={traceId} startVisible={!!sharedMenu} />
 }
