@@ -6,7 +6,14 @@ import { createPortal } from 'react-dom'
 import EmailEditor, { EditorRef } from 'react-email-editor'
 
 import { IconCollapse, IconExpand, IconExternal, IconPlus, IconX } from '@posthog/icons'
-import { LemonButton, LemonCard, LemonLabel, LemonModal, LemonSegmentedButton, LemonSelect } from '@posthog/lemon-ui'
+import {
+    LemonButton,
+    LemonCard,
+    LemonInputSelect,
+    LemonLabel,
+    LemonModal,
+    LemonSegmentedButton,
+} from '@posthog/lemon-ui'
 
 import { CyclotronJobTemplateSuggestionsButton } from 'lib/components/CyclotronJob/CyclotronJobTemplateSuggestions'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
@@ -245,18 +252,22 @@ function NativeEmailIntegrationChoice({
     const { integrationsLoading, integrations } = useValues(integrationsLogic)
     const { logicProps } = useValues(emailTemplaterLogic)
     const integrationsOfKind = integrations?.filter((x) => x.kind === 'email')
+    const selectedIntegrationIds = value?.integrationIds?.length
+        ? value.integrationIds
+        : value?.integrationId
+          ? [value.integrationId]
+          : []
 
     // Presence of the override keys is what reveals the inputs, so a saved override is
     // visible again on reopen without any separate reveal state.
     const overridesVisible = value?.email !== undefined || value?.name !== undefined
 
-    const onChangeIntegration = (integrationId: number): void => {
-        if (integrationId === -1) {
-            // Open new integration modal
-            window.open(urls.workflows('channels'), '_blank')
-            return
-        }
-        onChange({ ...value, integrationId })
+    const onChangeIntegrations = (integrationIds: number[]): void => {
+        onChange({
+            ...value,
+            integrationId: integrationIds[0],
+            integrationIds: integrationIds.length > 1 ? integrationIds : undefined,
+        })
     }
 
     if (!integrationsLoading && integrationsOfKind?.length === 0) {
@@ -284,34 +295,35 @@ function NativeEmailIntegrationChoice({
         <div className="flex flex-col">
             <div className="flex gap-2 items-center">
                 {label}
-                <LemonSelect
-                    className="m-1 flex-1"
-                    type="tertiary"
-                    placeholder="Choose email sender"
-                    loading={integrationsLoading}
-                    options={[
-                        {
-                            title: 'Email senders',
-                            options: (integrationsOfKind || []).map((integration) => ({
-                                label: integration.display_name,
-                                value: integration.id,
-                            })),
-                        },
-                        {
-                            options: [
-                                {
-                                    label: 'Add new email sender',
-                                    icon: <IconExternal />,
-                                    value: -1,
-                                },
-                            ],
-                        },
-                    ]}
-                    value={value?.integrationId}
-                    size="small"
-                    fullWidth
-                    onChange={onChangeIntegration}
-                />
+                <div className="flex flex-col flex-1">
+                    <LemonInputSelect<number>
+                        className="m-1 flex-1"
+                        mode="multiple"
+                        placeholder="Choose email senders"
+                        loading={integrationsLoading}
+                        options={(integrationsOfKind || []).map((integration) => ({
+                            key: String(integration.id),
+                            label: integration.display_name,
+                            value: integration.id,
+                        }))}
+                        value={selectedIntegrationIds}
+                        size="small"
+                        fullWidth
+                        autoWidth={false}
+                        onChange={onChangeIntegrations}
+                        data-attr="workflow-email-sender-select"
+                        action={{
+                            children: 'Add new email sender',
+                            icon: <IconExternal />,
+                            onClick: () => window.open(urls.workflows('channels'), '_blank'),
+                        }}
+                    />
+                    {selectedIntegrationIds.length > 1 && (
+                        <span className="px-2 pb-1 text-xs text-muted">
+                            Each workflow run uses one sender from this list.
+                        </span>
+                    )}
+                </div>
                 {!overridesVisible && (
                     <LemonButton
                         size="xsmall"
@@ -331,7 +343,7 @@ function NativeEmailIntegrationChoice({
                     <div className="flex gap-2 items-center border-t">
                         <LemonLabel
                             className="min-w-30 shrink-0"
-                            info="The address to send from. Templates are supported, so the address can come from the triggering event. It must be on the selected sender's verified domain. Leave empty to use the sender's address."
+                            info="The address to send from. Templates are supported, so the address can come from the triggering event. It must be on every selected sender's verified domain. Leave empty to use the sender's address."
                         >
                             Custom address
                         </LemonLabel>
@@ -346,7 +358,7 @@ function NativeEmailIntegrationChoice({
                             icon={<IconX />}
                             className="mr-2"
                             data-attr="email-from-custom-sender-remove"
-                            onClick={() => onChange({ integrationId: value?.integrationId })}
+                            onClick={() => onChange({ ...value, email: undefined, name: undefined })}
                             tooltip="Remove custom sender"
                         />
                     </div>
