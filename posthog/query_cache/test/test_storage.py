@@ -10,7 +10,11 @@ from django.test import SimpleTestCase, override_settings
 import zstd
 from parameterized import parameterized
 
-from posthog.query_cache import QueryCache, get_stale_insights
+from posthog.query_cache import (
+    QueryCache,
+    get_stale_insights,
+    storage as qc_storage,
+)
 from posthog.query_cache.serialization import QUERY_CACHE_SPLIT_MAGIC, encode_split_cached_response
 from posthog.query_cache.storage import (
     S3_POINTER_MAGIC,
@@ -20,7 +24,6 @@ from posthog.query_cache.storage import (
     encode_pointer,
     entry_redis_key,
     is_s3_pointer,
-    query_cache_raw_client,
     s3_write_mode,
 )
 from posthog.storage.object_storage import ObjectStorageError
@@ -113,7 +116,8 @@ class TestS3WriteMode(SimpleTestCase):
 
 
 def _redis_raw(cache_key: str) -> bytes | None:
-    return query_cache_raw_client().get(entry_redis_key(cache_key))
+    # Reach the client through the module so the fakeredis monkeypatch in conftest applies.
+    return qc_storage.query_cache_raw_client().get(entry_redis_key(cache_key))
 
 
 def _incompressible_rows(count: int) -> list[str]:
@@ -147,7 +151,7 @@ class TestStoredValueFormats(BaseTest):
         legacy_value = pickle.dumps(encode_split_cached_response(response))
         if compressed:
             legacy_value = zstd.compress(legacy_value, 0, 1)
-        query_cache_raw_client().set(entry_redis_key(cache_key), legacy_value)
+        qc_storage.query_cache_raw_client().set(entry_redis_key(cache_key), legacy_value)
 
         entry = QueryCache(team_id=self.team.pk, cache_key=cache_key).lookup().entry
         assert entry is not None

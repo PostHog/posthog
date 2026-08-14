@@ -1,7 +1,8 @@
+import io
 import time
 import pickle
 from datetime import timedelta
-from typing import Literal, Optional, cast
+from typing import Literal, NoReturn, Optional, cast
 
 from django.conf import settings
 from django.core.cache import caches
@@ -207,6 +208,14 @@ def decode_stored_value(value: bytes, *, team_id: int, cache_key: str) -> Option
     return value
 
 
+class _LegacyValueUnpickler(pickle.Unpickler):
+    """django_redis pickled entry values as plain bytes objects, which never reference a global,
+    so any attempt to resolve one marks a crafted value rather than a legacy entry."""
+
+    def find_class(self, module: str, name: str) -> NoReturn:
+        raise pickle.UnpicklingError(f"legacy cache value must not reference {module}.{name}")
+
+
 def _unpickle_if_legacy(payload: bytes, *, team_id: int, cache_key: str) -> Optional[bytes]:
     """Unwrap values written through django_redis, which pickled entry bytes before storing them.
 
@@ -218,9 +227,7 @@ def _unpickle_if_legacy(payload: bytes, *, team_id: int, cache_key: str) -> Opti
     if not payload.startswith(PICKLE_PROTO_MARKER):
         return payload
     try:
-        # Only values our own django_redis backend wrote reach this, the same trust that
-        # backend's deserialization always placed in this Redis.
-        legacy = pickle.loads(payload)
+        legacy = _LegacyValueUnpickler(io.BytesIO(payload)).load()
     except Exception:
         logger.warning("query_cache_legacy_unpickle_failed", team_id=team_id, cache_key=cache_key, exc_info=True)
         _delete_entry_silently(cache_key)

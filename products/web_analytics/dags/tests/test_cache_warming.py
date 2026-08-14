@@ -731,7 +731,7 @@ class TestWarmQueriesOp(BaseTest):
             entry = None
             if has_entry:
                 entry = MagicMock()
-                entry.as_full_response.return_value = {"last_refresh": "2026-07-01T00:00:00Z"}
+                entry.header = {"last_refresh": "2026-07-01T00:00:00Z"}
             mock_cm.return_value.lookup.return_value.entry = entry
             warm_queries_op(
                 dagster.build_op_context(),
@@ -888,7 +888,7 @@ class TestWarmQueriesOp(BaseTest):
             patch("products.web_analytics.dags.cache_warming.QueryCache") as mock_cm,
         ):
             entry = MagicMock()
-            entry.as_full_response.return_value = {"last_refresh": "2026-07-01T00:00:00Z"}
+            entry.header = {"last_refresh": "2026-07-01T00:00:00Z"}
             mock_cm.return_value.lookup.return_value.entry = entry
             warm_queries_op(
                 dagster.build_op_context(),
