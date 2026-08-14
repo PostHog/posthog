@@ -22,7 +22,11 @@ from posthog.schema import (
 )
 
 from posthog.constants import AvailableFeature
-from posthog.exceptions import ClickHouseAtCapacity
+from posthog.exceptions import (
+    ClickHouseAtCapacity,
+    ClickHouseClusterMemoryLimitExceeded,
+    ClickHouseQueryMemoryLimitExceeded,
+)
 from posthog.models import User
 from posthog.slo.types import SloOperation, SloOutcome
 from posthog.tasks.alerts.utils import (
@@ -30,12 +34,20 @@ from posthog.tasks.alerts.utils import (
     get_alert_error_notification_recipients,
     send_notifications_for_errors,
 )
-from posthog.temporal.alerts.activities import cleanup_alert_checks, evaluate_alert, notify_alert, prepare_alert
+from posthog.temporal.alerts.activities import (
+    cleanup_alert_checks,
+    evaluate_alert,
+    notify_alert,
+    prepare_alert,
+    record_failed_evaluation,
+)
+from posthog.temporal.alerts.retry_policy import alert_timeouts
 from posthog.temporal.alerts.types import (
     EvaluateAlertActivityInputs,
     NotifyAlertActivityInputs,
     PrepareAction,
     PrepareAlertActivityInputs,
+    RecordFailedEvaluationActivityInputs,
     SkipReason,
 )
 
@@ -55,6 +67,12 @@ def _valid_trends_query() -> dict:
 
 def _default_threshold_configuration() -> dict:
     return {"type": "absolute", "bounds": {"upper": 100.0}}
+
+
+def _memory_limit_error() -> ClickHouseQueryMemoryLimitExceeded:
+    error = ClickHouseQueryMemoryLimitExceeded()
+    error.is_per_query_limit = True
+    return error
 
 
 async def _create_alert(
@@ -444,20 +462,41 @@ class TestEvaluateAlert:
         assert "2 numeric columns" in reason
         assert targets  # the subscribed owner's email
 
-    async def test_evaluate_reraises_ch_transient_error(self, alert) -> None:
-        # Transient CH errors bubble up so Temporal's retry policy handles them.
-        # Capacity errors (codes 202/439) surface as ClickHouseAtCapacity, so that's what we simulate.
+    # Transient CH errors bubble up so Temporal's retry policy handles them.
+    # Capacity errors (codes 202/439) surface as ClickHouseAtCapacity, so that's what we simulate.
+    # A server-wide or per-user memory limit is the same kind of cluster pressure: recording it as
+    # an error instead sends the alert silent until its next cadence slot, an hour for hourly ones.
+    @pytest.mark.parametrize(
+        "error_class",
+        [ClickHouseAtCapacity, ClickHouseClusterMemoryLimitExceeded],
+    )
+    async def test_evaluate_reraises_ch_transient_error(self, alert, error_class) -> None:
         with patch(
             "posthog.temporal.alerts.activities.check_alert_for_insight",
-            side_effect=ClickHouseAtCapacity(),
+            side_effect=error_class(),
         ):
             env = ActivityEnvironment()
-            with pytest.raises(ClickHouseAtCapacity):
+            with pytest.raises(error_class):
                 await env.run(evaluate_alert, EvaluateAlertActivityInputs(alert_id=str(alert.id)))
 
         # No AlertCheck should have been written
         count = await sync_to_async(AlertCheck.objects.filter(alert_configuration=alert).count)()
         assert count == 0
+
+    async def test_evaluate_records_error_when_the_query_ran_out_of_memory(self, alert) -> None:
+        # The query hit its own memory ceiling, so retrying it fails identically. It has to stay on
+        # the recorded-error path rather than joining the transient class above.
+        with patch(
+            "posthog.temporal.alerts.activities.check_alert_for_insight",
+            side_effect=_memory_limit_error(),
+        ):
+            env = ActivityEnvironment()
+            result = await env.run(evaluate_alert, EvaluateAlertActivityInputs(alert_id=str(alert.id)))
+
+        assert result.new_state == AlertState.ERRORED
+
+        check = await sync_to_async(AlertCheck.objects.get)(pk=result.alert_check_id)
+        assert check.error is not None
 
     async def test_evaluate_non_retryable_when_alert_deleted_mid_workflow(self) -> None:
         env = ActivityEnvironment()
@@ -472,6 +511,29 @@ class TestEvaluateAlert:
         with pytest.raises(ApplicationError) as exc_info:
             await env.run(evaluate_alert, EvaluateAlertActivityInputs(alert_id=str(alert.id)))
         assert exc_info.value.non_retryable is True
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db
+class TestRecordFailedEvaluation:
+    async def test_skips_disabled_alert_without_recording_or_notifying(self, alert_with_user) -> None:
+        # Disabling an alert mid-check makes evaluate_alert raise into this activity. A normal
+        # disable must not become an errored check or a "could not evaluate" email to subscribers.
+        await sync_to_async(AlertConfiguration.objects.filter(pk=alert_with_user.id).update)(enabled=False)
+
+        env = ActivityEnvironment()
+        result = await env.run(
+            record_failed_evaluation,
+            RecordFailedEvaluationActivityInputs(
+                alert_id=str(alert_with_user.id),
+                error_message="Alert disabled between prepare and evaluate",
+            ),
+        )
+
+        assert result.alert_check_id is None
+        assert result.should_notify is False
+        count = await sync_to_async(AlertCheck.objects.filter(alert_configuration=alert_with_user).count)()
+        assert count == 0
 
 
 @pytest.mark.asyncio
@@ -815,6 +877,15 @@ class TestNotifyAlert:
         mock_breaches.assert_called_once()
         refreshed = await sync_to_async(AlertCheck.objects.get)(pk=check.id)
         assert refreshed.targets_notified == {"users": ["alice@posthog.com"]}
+
+
+@pytest.mark.parametrize("calculation_interval", [None, AlertCalculationInterval.REAL_TIME])
+def test_cluster_memory_limit_stays_retryable_for_the_evaluate_policy(calculation_interval) -> None:
+    # The evaluate policy takes its non-retryable list from the exports user-error class names, and
+    # the cluster class subclasses one of them. Listing it there too would stop every retry, so the
+    # re-raise out of evaluate_alert would fail the workflow on the first attempt instead.
+    policy = alert_timeouts(calculation_interval).evaluate_retry_policy
+    assert ClickHouseClusterMemoryLimitExceeded.__name__ not in (policy.non_retryable_error_types or [])
 
 
 @pytest.mark.asyncio
