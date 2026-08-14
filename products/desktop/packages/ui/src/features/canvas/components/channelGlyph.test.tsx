@@ -5,9 +5,9 @@ import { channelGlyph, isPrivateChannel } from "./channelGlyph";
 
 describe("isPrivateChannel", () => {
   it.each([
-    ["personal space", true],
-    ["  Personal Space  ", true],
-    ["PERSONAL SPACE", true],
+    ["personal", true],
+    ["  Personal  ", true],
+    ["PERSONAL", true],
     // The backend's own name for it, which no longer reaches here: every name
     // a reader sees has been through `channelDisplayName` first.
     ["me", false],
@@ -28,8 +28,7 @@ describe("channelGlyph", () => {
     ["channel", false, HashIcon],
     ["private space", true, LockSimpleIcon],
   ])("renders the %s glyph", (_, space, expectedIcon) => {
-    const name =
-      expectedIcon === LockSimpleIcon ? "personal space" : "engineering";
+    const name = expectedIcon === LockSimpleIcon ? "personal" : "engineering";
     const glyph = channelGlyph(name, { space }) as ReactElement;
 
     expect(glyph.type).toBe(expectedIcon);

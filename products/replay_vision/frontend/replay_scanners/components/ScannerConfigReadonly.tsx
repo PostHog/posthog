@@ -35,6 +35,7 @@ import { FilterLogicalOperator, UniversalFilterValue } from '~/types'
 import { BooleanTag } from '../../components/BooleanTag'
 import { CardHeader } from '../../components/CardHeader'
 import { LabeledRow } from '../../components/LabeledRow'
+import { CreditPriceNote } from '../../components/PricingLink'
 import { ScannerTypeBadge } from '../../components/ScannerTypeBadge'
 import { visionQuotaLogic } from '../../logics/visionQuotaLogic'
 import { getReplayVisionEditDisabledReason } from '../../utils/accessControl'
@@ -567,6 +568,9 @@ export function ScannerConfigReadonly({ scanner }: { scanner: ReplayScanner }): 
                                 {observationStats.ineligible.toLocaleString()} ineligible
                             </span>
                         </LabeledRow>
+                        <div className="text-xs text-muted">
+                            <CreditPriceNote dataAttr="vision-pricing-link-scanner-usage" />
+                        </div>
                     </div>
                 </LemonCard>
             </div>

@@ -2583,6 +2583,10 @@ class ScatterChartSettings(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    showBestFit: bool | None = Field(
+        default=None,
+        description=("Whether to draw a least-squares fit line through each series' points."),
+    )
     xScale: XScale | None = Field(
         default=None,
         description=(
@@ -6805,7 +6809,6 @@ class SessionRecordingType(BaseModel):
     external_references: list[SessionRecordingExternalReference] | None = Field(
         default=None, description="External references to third party issues."
     )
-    has_summary: bool | None = None
     id: str
     inactive_seconds: float | None = None
     keypress_count: float | None = None
