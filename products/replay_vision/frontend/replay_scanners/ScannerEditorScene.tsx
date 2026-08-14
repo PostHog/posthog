@@ -3,10 +3,12 @@ import { Form } from 'kea-forms'
 import { router } from 'kea-router'
 
 import * as construction2Png from '@posthog/brand/hoggies/png/construction-2'
+import * as imTheDriverPng from '@posthog/brand/hoggies/png/im-the-driver'
 import * as magnifyingGlassPng from '@posthog/brand/hoggies/png/magnifying-glass-1'
+import * as moneyPng from '@posthog/brand/hoggies/png/money'
 import * as xRayPng from '@posthog/brand/hoggies/png/x-ray'
 import { IconSparkles } from '@posthog/icons'
-import { LemonButton, LemonSelect, LemonSwitch, LemonTag, Link } from '@posthog/lemon-ui'
+import { LemonButton, LemonCard, LemonSelect, LemonSwitch, LemonTag, Link } from '@posthog/lemon-ui'
 
 import { pngHoggie } from 'lib/brand/hoggies'
 import { SceneTags } from 'lib/components/Scenes/SceneTags'
@@ -43,7 +45,9 @@ import { ScannerSceneMenuBar } from './ScannerSceneMenuBar'
 import { SCANNER_TYPE_OPTIONS, getModelOptions, modelNamingVariant } from './types'
 
 const HedgehogConstruction2 = pngHoggie(construction2Png)
+const HedgehogImTheDriver = pngHoggie(imTheDriverPng)
 const HedgehogMagnifyingGlass = pngHoggie(magnifyingGlassPng)
+const HedgehogMoney = pngHoggie(moneyPng)
 const HedgehogXRay = pngHoggie(xRayPng)
 
 export const scene: SceneExport = {
@@ -68,7 +72,7 @@ const STEP_HEADERS: Record<
         subtitle: 'Narrow down which sessions this scanner watches.',
     },
     budget: {
-        hedgehog: <HedgehogMagnifyingGlass className="h-16 sm:h-24 w-auto shrink-0" />,
+        hedgehog: <HedgehogMoney className="h-16 sm:h-24 w-auto shrink-0" />,
         title: 'Set your budget',
         subtitle: 'How much of the matching traffic to scan, and what to spend on it.',
     },
@@ -335,20 +339,30 @@ function ConfigureStep(): JSX.Element {
 
             <LemonField name="emits_signals">
                 {({ value, onChange }) => (
-                    <div className="flex items-center gap-3">
-                        <LemonSwitch checked={!!value} onChange={onChange} />
-                        <div>
-                            <div className="text-sm font-medium">Emit findings as Signals</div>
-                            <div className="text-xs text-muted">
-                                Clear, actionable product issues are emitted as PostHog Signals, where agents dig into
-                                the root cause and draft a pull request. You stay in control of what ships.{' '}
-                                <Link to="https://posthog.com/self-driving" target="_blank">
-                                    Learn more about PostHog self-driving
-                                </Link>
-                                .
+                    <LemonCard hoverEffect={false} className="p-3">
+                        <div className="flex items-center gap-4">
+                            <HedgehogImTheDriver className="h-16 sm:h-20 w-auto shrink-0" />
+                            <div className="flex-1 space-y-1">
+                                <div className="text-sm font-medium">Self-driving</div>
+                                <div className="text-xs text-muted">
+                                    Don't just find problems, fix them. Issues this scanner spots flow into PostHog
+                                    Signals, where agents dig into the root cause and draft a pull request. You stay in
+                                    control of what ships.{' '}
+                                    <Link to="https://posthog.com/self-driving" target="_blank">
+                                        Learn more about PostHog self-driving
+                                    </Link>
+                                    .
+                                </div>
                             </div>
+                            <LemonSwitch
+                                checked={!!value}
+                                onChange={onChange}
+                                label="Emit findings as Signals"
+                                bordered
+                                className="shrink-0"
+                            />
                         </div>
-                    </div>
+                    </LemonCard>
                 )}
             </LemonField>
         </div>
