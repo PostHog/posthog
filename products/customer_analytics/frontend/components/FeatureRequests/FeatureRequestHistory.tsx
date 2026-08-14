@@ -14,6 +14,7 @@ type RelationSnapshot = { id: string; name: string }
 
 const FEATURE_REQUEST_STATUSES = new Set<string>(['requested', 'planned', 'completed', 'wont_fix', 'duplicate'])
 const FEATURE_REQUEST_PRIORITIES = new Set<string>(['high', 'medium', 'low'])
+const FEATURE_REQUEST_HISTORY_PREVIEW_SIZE = 5
 
 function relationSnapshot(value: unknown): RelationSnapshot | null {
     if (
@@ -112,10 +113,19 @@ export interface FeatureRequestHistoryProps {
     history: readonly FeatureRequestHistoryApi[]
     loading: boolean
     error: string | null
+    showingAll: boolean
     onRetry: () => void
+    onSetShowingAll: (showingAll: boolean) => void
 }
 
-export function FeatureRequestHistory({ history, loading, error, onRetry }: FeatureRequestHistoryProps): JSX.Element {
+export function FeatureRequestHistory({
+    history,
+    loading,
+    error,
+    showingAll,
+    onRetry,
+    onSetShowingAll,
+}: FeatureRequestHistoryProps): JSX.Element {
     if (loading) {
         return (
             <div className="flex flex-col gap-2">
@@ -144,24 +154,41 @@ export function FeatureRequestHistory({ history, loading, error, onRetry }: Feat
     if (history.length === 0) {
         return <div className="text-secondary">No history yet.</div>
     }
+    const visibleHistory = showingAll ? history : history.slice(0, FEATURE_REQUEST_HISTORY_PREVIEW_SIZE)
+
     return (
-        <div className="flex flex-col divide-y divide-border">
-            {history.map((entry) => (
-                <div key={entry.id} className="flex flex-col gap-1.5 py-3 first:pt-0 last:pb-0">
-                    <div className="font-medium">
-                        {entry.actor_name ?? 'Unknown user'}{' '}
-                        {entry.is_initial ? 'created this request' : 'updated this request'}
+        <div className="flex flex-col gap-3">
+            <div className="flex flex-col divide-y divide-border">
+                {visibleHistory.map((entry) => (
+                    <div key={entry.id} className="flex flex-col gap-1.5 py-3 first:pt-0 last:pb-0">
+                        <div className="font-medium">
+                            {entry.actor_name ?? 'Unknown user'}{' '}
+                            {entry.is_initial ? 'created this request' : 'updated this request'}
+                        </div>
+                        <div className="flex flex-col gap-1 text-secondary">
+                            {entry.changes.map((change, index) => (
+                                <div key={`${change.field}-${index}`}>{describeChange(change, entry.is_initial)}</div>
+                            ))}
+                        </div>
+                        <div className="text-xs text-tertiary">
+                            <TZLabel time={entry.changed_at} />
+                        </div>
                     </div>
-                    <div className="flex flex-col gap-1 text-secondary">
-                        {entry.changes.map((change, index) => (
-                            <div key={`${change.field}-${index}`}>{describeChange(change, entry.is_initial)}</div>
-                        ))}
-                    </div>
-                    <div className="text-xs text-tertiary">
-                        <TZLabel time={entry.changed_at} />
-                    </div>
-                </div>
-            ))}
+                ))}
+            </div>
+            {history.length > FEATURE_REQUEST_HISTORY_PREVIEW_SIZE && (
+                <LemonButton
+                    type="tertiary"
+                    size="small"
+                    onClick={() => onSetShowingAll(!showingAll)}
+                    data-attr="feature-request-history-show-all"
+                    className="self-start"
+                >
+                    {showingAll
+                        ? `Show latest ${FEATURE_REQUEST_HISTORY_PREVIEW_SIZE} entries`
+                        : `Show all ${history.length} entries`}
+                </LemonButton>
+            )}
         </div>
     )
 }

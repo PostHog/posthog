@@ -203,6 +203,7 @@ export interface featureRequestsLogicValues {
     requestHistory: FeatureRequestHistoryApi[]
     requestHistoryError: string | null
     requestHistoryLoading: boolean
+    requestHistoryShowingAll: boolean
     requestOrdering: FeatureRequestOrdering
     savingProductArea: boolean
     savingRequestChanges: boolean
@@ -392,6 +393,9 @@ export interface featureRequestsLogicActions {
     setProductAreaName: (productAreaName: string) => {
         productAreaName: string
     }
+    setRequestHistoryShowingAll: (showingAll: boolean) => {
+        showingAll: boolean
+    }
     setRequestOrdering: (requestOrdering: FeatureRequestOrdering) => {
         requestOrdering: FeatureRequestOrdering
     }
@@ -548,6 +552,7 @@ export const featureRequestsLogic = kea<featureRequestsLogicType>([
         archiveActiveRequest: true,
         restoreActiveRequest: true,
         setMutatingArchive: (mutatingArchive: boolean) => ({ mutatingArchive }),
+        setRequestHistoryShowingAll: (showingAll: boolean) => ({ showingAll }),
     }),
     loaders(({ values }) => ({
         featureRequestsResponse: [
@@ -708,6 +713,14 @@ export const featureRequestsLogic = kea<featureRequestsLogicType>([
                 loadRequestHistorySuccess: () => null,
                 loadRequestHistoryFailure: () => "Couldn't load request history.",
                 setActiveRequestId: () => null,
+            },
+        ],
+        requestHistoryShowingAll: [
+            false,
+            {
+                setRequestHistoryShowingAll: (_, { showingAll }) => showingAll,
+                loadRequestHistory: () => false,
+                setActiveRequestId: () => false,
             },
         ],
         productAreasError: [

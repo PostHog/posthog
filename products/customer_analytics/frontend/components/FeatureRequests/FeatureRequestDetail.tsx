@@ -1,15 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { combineUrl } from 'kea-router'
 
-import {
-    IconArchive,
-    IconArrowLeft,
-    IconBuilding,
-    IconClock,
-    IconDocument,
-    IconFolder,
-    IconPencil,
-} from '@posthog/icons'
+import { IconArchive, IconArrowLeft, IconBuilding, IconDocument, IconFolder, IconPencil } from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonTag, Link } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
@@ -22,16 +14,14 @@ import { AccessControlLevel, AccessControlResourceType } from '~/types'
 import type { FeatureRequestApi } from '../../generated/api.schemas'
 import { FeatureRequestDetailSection } from './FeatureRequestDetailSection'
 import { FeatureRequestEditModal } from './FeatureRequestEditModal'
-import { FeatureRequestHistory } from './FeatureRequestHistory'
+import { FeatureRequestHistorySection } from './FeatureRequestHistorySection'
 import { FeatureRequestPriorityBadge } from './FeatureRequestPriorityBadge'
 import { featureRequestsLogic } from './featureRequestsLogic'
 import { FeatureRequestStatusBadge } from './FeatureRequestStatusBadge'
 
 export function FeatureRequestDetail({ request }: { request: FeatureRequestApi }): JSX.Element {
-    const { requestHistory, requestHistoryLoading, requestHistoryError, mutatingArchive, listSearchParams } =
-        useValues(featureRequestsLogic)
-    const { openEditRequest, archiveActiveRequest, restoreActiveRequest, loadRequestHistory } =
-        useActions(featureRequestsLogic)
+    const { mutatingArchive, listSearchParams } = useValues(featureRequestsLogic)
+    const { openEditRequest, archiveActiveRequest, restoreActiveRequest } = useActions(featureRequestsLogic)
     const editorDisabledReason = getAccessControlDisabledReason(
         AccessControlResourceType.CustomerAnalytics,
         AccessControlLevel.Editor
@@ -134,14 +124,7 @@ export function FeatureRequestDetail({ request }: { request: FeatureRequestApi }
                         </div>
                     </FeatureRequestDetailSection>
 
-                    <FeatureRequestDetailSection icon={<IconClock />} title="History">
-                        <FeatureRequestHistory
-                            history={requestHistory}
-                            loading={requestHistoryLoading}
-                            error={requestHistoryError}
-                            onRetry={() => loadRequestHistory(request.id)}
-                        />
-                    </FeatureRequestDetailSection>
+                    <FeatureRequestHistorySection requestId={request.id} />
                 </aside>
             </div>
             <FeatureRequestEditModal />
