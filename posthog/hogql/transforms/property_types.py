@@ -1,5 +1,5 @@
 from datetime import datetime
-from typing import Literal, Optional
+from typing import Literal, Optional, cast
 
 from posthog.hogql import ast
 from posthog.hogql.constants import EXCEPTION_STRING_ARRAY_PROPERTIES
@@ -18,7 +18,7 @@ from posthog.hogql.errors import QueryError
 from posthog.hogql.escape_sql import escape_hogql_identifier
 from posthog.hogql.helpers.timestamp_visitor import parse_zoned_datetime_string
 from posthog.hogql.property_metadata import load_property_metadata
-from posthog.hogql.property_planner import PropertySourceKind, plan_property_access
+from posthog.hogql.property_planner import PropertySourceKind, metadata_constant_type, plan_property_access
 from posthog.hogql.restricted_properties import restricted_property_keys_for_table_type
 from posthog.hogql.type_system import normalized_runtime_type, parse_sql_runtime_type
 from posthog.hogql.visitor import CloningVisitor, TraversingVisitor
@@ -134,6 +134,17 @@ class PropertySwapper(CloningVisitor):
         ast.CompareOperationOp.GtEq,
         ast.CompareOperationOp.Lt,
         ast.CompareOperationOp.LtEq,
+    }
+
+    _COERCIBLE_OPS: set[str] = {
+        ast.CompareOperationOp.Eq,
+        ast.CompareOperationOp.NotEq,
+        ast.CompareOperationOp.Gt,
+        ast.CompareOperationOp.GtEq,
+        ast.CompareOperationOp.Lt,
+        ast.CompareOperationOp.LtEq,
+        ast.CompareOperationOp.In,
+        ast.CompareOperationOp.NotIn,
     }
 
     # ClickHouse string-parsing conversions (toFloat64OrZero, toInt64OrZero,
@@ -516,6 +527,7 @@ class PropertySwapper(CloningVisitor):
 
     def visit_compare_operation(self, node: ast.CompareOperation):
         result = super().visit_compare_operation(node)
+        result = self._coerce_untyped_property_comparison(result) or result
 
         if (
             not self.setTimeZones
@@ -526,6 +538,69 @@ class PropertySwapper(CloningVisitor):
             return result
 
         return self._move_timezone_from_field_to_constant(result) or result
+
+    def _coerce_untyped_property_comparison(self, node: ast.CompareOperation) -> ast.CompareOperation | None:
+        """Compare an untyped (String) property against a numeric or boolean constant the
+        same way a Numeric/Boolean-typed property would be compared.
+
+        Without this, the comparison prints as e.g. equals(<String expr>, 200), which
+        ClickHouse rejects with NO_COMMON_TYPE (String has no common supertype with
+        numeric types), so `properties.status = 200` errors instead of matching '200'.
+        """
+        if node.op not in self._COERCIBLE_OPS:
+            return None
+        for property_is_left in (True, False):
+            property_side = node.left if property_is_left else node.right
+            value_side = node.right if property_is_left else node.left
+            field = property_side.expr if isinstance(property_side, ast.Alias) else property_side
+            if not (isinstance(field, ast.Field) and isinstance(field.type, ast.PropertyType)):
+                continue
+            # Typed (Numeric/Boolean/DateTime) properties are converted by the type swap in
+            # visit_field, possibly by a later swapper pass, so don't double-convert here.
+            semantic_type = metadata_constant_type(field.type, self.context)
+            if semantic_type is not None and not isinstance(semantic_type, ast.StringType):
+                continue
+            coercion_type = self._comparison_value_coercion_type(node.op, value_side)
+            if coercion_type is None:
+                continue
+            converted: ast.Expr = self._field_type_to_property_call(field, coercion_type)
+            if converted is field:
+                continue
+            if isinstance(property_side, ast.Alias):
+                converted = ast.Alias(
+                    alias=property_side.alias, expr=converted, hidden=property_side.hidden, type=property_side.type
+                )
+            if property_is_left:
+                return ast.CompareOperation(op=node.op, left=converted, right=value_side, type=node.type)
+            return ast.CompareOperation(op=node.op, left=value_side, right=converted, type=node.type)
+        return None
+
+    @staticmethod
+    def _comparison_value_coercion_type(op: ast.CompareOperationOp, value_expr: ast.Expr) -> str | None:
+        """Return the property conversion ('Float' or 'Boolean') matching the constant on
+        the value side of a comparison, or None when no coercion applies."""
+        if isinstance(value_expr, ast.Alias):
+            value_expr = value_expr.expr
+
+        values: list[object]
+        if isinstance(value_expr, ast.Constant):
+            values = [value_expr.value]
+        elif op in (ast.CompareOperationOp.In, ast.CompareOperationOp.NotIn) and isinstance(
+            value_expr, (ast.Tuple, ast.Array)
+        ):
+            if not all(isinstance(expr, ast.Constant) for expr in value_expr.exprs):
+                return None
+            values = [cast(ast.Constant, expr).value for expr in value_expr.exprs]
+        else:
+            return None
+
+        if not values:
+            return None
+        if all(isinstance(value, bool) for value in values):
+            return "Boolean"
+        if all(isinstance(value, (int, float)) and not isinstance(value, bool) for value in values):
+            return "Float"
+        return None
 
     def _move_timezone_from_field_to_constant(self, node: ast.CompareOperation) -> ast.CompareOperation | None:
         """Move toTimeZone() from the field side to the constant side of a range comparison.

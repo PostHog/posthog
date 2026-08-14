@@ -252,6 +252,10 @@ def prepare_ast_for_printing(
             # could pass through the swapper. However, in the PropertySwapper, the group_properties and the S3 Table join
             # rely on the existence of lazy tables in the AST. They must be run before we resolve lazy tables. Because groups are
             # not currently used in any sort of where clause optimization (WhereClauseExtractor or PersonsTable), this is okay.
+            # This pass is not limited to group properties, though: visit_compare_operation also coerces untyped
+            # event/person property comparisons against numeric/boolean constants, so the WhereClauseExtractor must keep
+            # lifting the resulting call-wrapped predicates into the persons subquery (pinned in
+            # test_person_where_clause_extractor.py).
             # We also have to call the group property swapper manually in `lazy_tables.py` after we do a join
             node = PropertySwapper(
                 timezone=context.property_swapper.timezone,

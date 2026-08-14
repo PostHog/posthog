@@ -5526,7 +5526,8 @@ class TestMaterializedColumnOptimization(ClickhouseTestMixin, APIBaseTest):
         with materialized("events", "test_prop", is_nullable=False) as mat_col:
             self._test_materialized_column_comparison(
                 "properties.test_prop = 123",
-                f"ifNull(equals(nullIf(nullIf(events.{mat_col.name}, ''), 'null'), 123), 0)",
+                f"ifNull(equals(accurateCastOrNull(nullIf(nullIf(events.{mat_col.name}, ''), 'null'), %(hogql_val_0)s), 123), 0)",
+                expected_context_values={"hogql_val_0": "Float64"},
             )
 
     def test_materialized_column_equality_not_optimized_for_null_comparison(self) -> None:
