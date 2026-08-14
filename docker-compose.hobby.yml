@@ -169,7 +169,6 @@ services:
             DEPLOYMENT: 'hobby'
             PERSONHOG_ADDR: 'personhog-router:50052'
             PERSONHOG_ENABLED: 'true'
-            POSTHOG_FEATURE_FLAGS_FORCE_ENABLED: ${POSTHOG_FEATURE_FLAGS_FORCE_ENABLED:-}
             # Point Django at the Rust feature-flags container; the setting
             # otherwise defaults to localhost:3001.
             FEATURE_FLAGS_SERVICE_URL: 'http://feature-flags:3001'
@@ -196,7 +195,7 @@ services:
         extends:
             file: docker-compose.base.yml
             service: plugins
-        image: ${POSTHOG_NODE_REGISTRY_URL:-${REGISTRY_URL}-node}:${POSTHOG_NODE_TAG:-latest}
+        image: ${REGISTRY_URL}-node:${POSTHOG_NODE_TAG:-latest}
         logging: *default-logging
         environment:
             SITE_URL: https://$DOMAIN
@@ -233,7 +232,7 @@ services:
         extends:
             file: docker-compose.base.yml
             service: ingestion-general
-        image: ${POSTHOG_NODE_REGISTRY_URL:-${REGISTRY_URL}-node}:${POSTHOG_NODE_TAG:-latest}
+        image: ${REGISTRY_URL}-node:${POSTHOG_NODE_TAG:-latest}
         logging: *default-logging
         environment:
             PERSONS_DATABASE_URL: 'postgres://posthog:posthog@db:5432/posthog'
@@ -255,7 +254,7 @@ services:
         extends:
             file: docker-compose.base.yml
             service: ingestion-sessionreplay
-        image: ${POSTHOG_NODE_REGISTRY_URL:-${REGISTRY_URL}-node}:${POSTHOG_NODE_TAG:-latest}
+        image: ${REGISTRY_URL}-node:${POSTHOG_NODE_TAG:-latest}
         logging: *default-logging
         environment:
             SESSION_RECORDING_V2_S3_ACCESS_KEY_ID: 'any'
@@ -273,7 +272,7 @@ services:
         extends:
             file: docker-compose.base.yml
             service: recording-api
-        image: ${POSTHOG_NODE_REGISTRY_URL:-${REGISTRY_URL}-node}:${POSTHOG_NODE_TAG:-latest}
+        image: ${REGISTRY_URL}-node:${POSTHOG_NODE_TAG:-latest}
         logging: *default-logging
         environment:
             ENCRYPTION_SALT_KEYS: $ENCRYPTION_SALT_KEYS
@@ -290,7 +289,7 @@ services:
         extends:
             file: docker-compose.base.yml
             service: ingestion-error-tracking
-        image: ${POSTHOG_NODE_REGISTRY_URL:-${REGISTRY_URL}-node}:${POSTHOG_NODE_TAG:-latest}
+        image: ${REGISTRY_URL}-node:${POSTHOG_NODE_TAG:-latest}
         logging: *default-logging
         environment:
             ENCRYPTION_SALT_KEYS: $ENCRYPTION_SALT_KEYS
@@ -304,23 +303,10 @@ services:
         extends:
             file: docker-compose.base.yml
             service: ingestion-logs
-        image: ${POSTHOG_NODE_REGISTRY_URL:-${REGISTRY_URL}-node}:${POSTHOG_NODE_TAG:-latest}
+        image: ${REGISTRY_URL}-node:${POSTHOG_NODE_TAG:-latest}
         logging: *default-logging
         environment:
             LOGS_REDIS_TLS: 'false'
-        depends_on:
-            - db
-            - redis7
-            - kafka
-
-    ingestion-metrics:
-        extends:
-            file: docker-compose.base.yml
-            service: ingestion-metrics
-        image: ${POSTHOG_NODE_REGISTRY_URL:-${REGISTRY_URL}-node}:${POSTHOG_NODE_TAG:-latest}
-        logging: *default-logging
-        environment:
-            METRICS_REDIS_HOST: redis7
         depends_on:
             - db
             - redis7
@@ -330,7 +316,7 @@ services:
         extends:
             file: docker-compose.base.yml
             service: ingestion-traces
-        image: ${POSTHOG_NODE_REGISTRY_URL:-${REGISTRY_URL}-node}:${POSTHOG_NODE_TAG:-latest}
+        image: ${REGISTRY_URL}-node:${POSTHOG_NODE_TAG:-latest}
         logging: *default-logging
         environment:
             TRACES_REDIS_TLS: 'false'

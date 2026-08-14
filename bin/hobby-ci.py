@@ -117,30 +117,26 @@ class HobbyTester:
     def _get_node_image_fallback_script(self):
         """Return bash script to resolve the posthog-node image tag.
 
-        ci-nodejs-container.yml publishes PR images to GHCR as pr-<number>.
-        If that manifest exists, the hobby-installer persists its registry
-        and tag for docker-compose. Otherwise it uses the released image.
+        ci-nodejs-container.yml tags images as pr-<number> for PRs.
+        Checks DockerHub for that tag; if found, exports POSTHOG_NODE_TAG
+        so the hobby-installer writes it to .env and docker-compose uses
+        the branch image. Otherwise falls back to 'latest'.
         """
         if self.pr_number and self.pr_number != "unknown":
             tag = f"pr-{self.pr_number}"
-            return (
-                "GHCR_TOKEN=$(curl -fsSL "
-                "'https://ghcr.io/token?scope=repository:posthog/posthog-node:pull' "
-                '| sed -n \'s/.*"token":"\\([^"]*\\)".*/\\1/p\'); '
-                'if curl -sf -H "Authorization: Bearer $GHCR_TOKEN" '
-                "-H 'Accept: application/vnd.oci.image.index.v1+json' "
-                f"https://ghcr.io/v2/posthog/posthog-node/manifests/{tag} "
-                "> /dev/null; then "
-                f"echo posthog-node image found on GHCR with tag {tag}; "
-                "export POSTHOG_NODE_REGISTRY_URL=ghcr.io/posthog/posthog-node; "
-                f"export POSTHOG_NODE_TAG={tag}; "
-                "else "
-                "echo posthog-node PR image not found, using released image; "
-                "export POSTHOG_NODE_TAG=latest; "
-                "fi"
-            )
-
-        return "export POSTHOG_NODE_TAG=latest"
+        else:
+            tag = "$CURRENT_COMMIT"
+        return (
+            "if curl -sf "
+            f"https://hub.docker.com/v2/repositories/posthog/posthog-node/tags/{tag} "
+            "> /dev/null 2>&1; then "
+            f"echo posthog-node image found on DockerHub with tag {tag}; "
+            f"export POSTHOG_NODE_TAG={tag}; "
+            "else "
+            "echo posthog-node image not found, using latest; "
+            "export POSTHOG_NODE_TAG=latest; "
+            "fi"
+        )
 
     def _get_installer_commands(self):
         """Return cloud-init commands to obtain the hobby-installer binary.
@@ -216,7 +212,6 @@ runcmd:
             self._get_node_image_fallback_script(),
             *self._get_installer_commands(),
             *tls_commands,
-            "export POSTHOG_FEATURE_FLAGS_FORCE_ENABLED=metrics",
             'echo "$LOG_PREFIX Starting hobby installer (CI mode)"',
             f"./hobby-installer --ci --domain {safe_hostname} --version $CURRENT_COMMIT",
             "DEPLOY_EXIT=$?",
@@ -720,10 +715,9 @@ runcmd:
 
         trace_id = uuid.uuid4().hex
         span_id = uuid.uuid4().hex[:16]
-        metric_name = f"hobby_ci_smoke_test_{time.time_ns()}"
-        apm_date_from = datetime.datetime.now(datetime.UTC).isoformat()
+        date_from = datetime.datetime.now(datetime.UTC).isoformat()
         start_time_ns = time.time_ns()
-        print("📤 Sending test trace and metric...", flush=True)
+        print("📤 Sending test trace...", flush=True)
         try:
             trace_resp = requests.post(
                 f"{base_url}/i/v1/traces",  # nosemgrep: python.lang.security.audit.insecure-transport.requests.request-with-http.request-with-http
@@ -753,104 +747,35 @@ runcmd:
                 },
                 timeout=30,
             )
-            metric_resp = requests.post(
-                f"{base_url}/i/v1/metrics",  # nosemgrep: python.lang.security.audit.insecure-transport.requests.request-with-http.request-with-http
-                params={"token": project_api_token},
-                json={
-                    "resourceMetrics": [
-                        {
-                            "resource": {"attributes": [{"key": "service.name", "value": {"stringValue": "hobby-ci"}}]},
-                            "scopeMetrics": [
-                                {
-                                    "scope": {"name": "hobby-ci"},
-                                    "metrics": [
-                                        {
-                                            "name": metric_name,
-                                            "gauge": {
-                                                "dataPoints": [{"timeUnixNano": str(time.time_ns()), "asDouble": 1.0}]
-                                            },
-                                        }
-                                    ],
-                                }
-                            ],
-                        }
-                    ]
-                },
-                timeout=30,
-            )
         except requests.RequestException as e:
-            return False, f"APM capture request failed: {e}"
+            return False, f"Trace capture request failed: {e}"
         if trace_resp.status_code != 200:
             return False, f"Trace capture failed: HTTP {trace_resp.status_code} - {trace_resp.text[:200]}"
-        if metric_resp.status_code != 200:
-            return False, f"Metric capture failed: HTTP {metric_resp.status_code} - {metric_resp.text[:200]}"
 
-        print(f"⏳ Polling for trace and metric (timeout {timeout_seconds}s)...", flush=True)
+        print(f"⏳ Polling for trace (timeout {timeout_seconds}s)...", flush=True)
         deadline = time.time() + timeout_seconds
         attempt = 0
-        trace_found = False
-        metric_found = False
         while time.time() < deadline:
             attempt += 1
             try:
-                if not trace_found:
-                    trace_query_resp = requests.post(
-                        f"{base_url}/api/projects/@current/tracing/spans/query",  # nosemgrep: python.lang.security.audit.insecure-transport.requests.request-with-http.request-with-http
-                        json={
-                            "query": {
-                                "dateRange": {"date_from": apm_date_from},
-                                "traceId": trace_id,
-                                "limit": 1,
-                            }
-                        },
-                        headers=headers,
-                        timeout=10,
-                    )
-                    if trace_query_resp.status_code == 200:
-                        trace_found = bool(trace_query_resp.json().get("results", []))
-                    else:
-                        print(f"   Poll {attempt}: trace HTTP {trace_query_resp.status_code}", flush=True)
-
-                if not metric_found:
-                    metric_query_resp = requests.post(
-                        f"{base_url}/api/projects/@current/metrics/query",  # nosemgrep: python.lang.security.audit.insecure-transport.requests.request-with-http.request-with-http
-                        json={
-                            "query": {
-                                "metricName": metric_name,
-                                "metricType": "gauge",
-                                "aggregation": "sum",
-                                "dateFrom": apm_date_from,
-                            }
-                        },
-                        headers=headers,
-                        timeout=10,
-                    )
-                    if metric_query_resp.status_code == 200:
-                        metric_found = any(
-                            point.get("value") == 1.0
-                            for series in metric_query_resp.json().get("results", [])
-                            for point in series.get("points", [])
-                        )
-                    else:
-                        print(f"   Poll {attempt}: metric HTTP {metric_query_resp.status_code}", flush=True)
-
-                if trace_found and metric_found:
-                    print(f"✅ Trace and metric found after {attempt} poll(s)", flush=True)
-                    return (
-                        True,
-                        "Events, log, exception issue, session recording, trace, and metric ingested successfully",
-                    )
-                print(
-                    f"   Poll {attempt}: trace={'found' if trace_found else 'pending'}, "
-                    f"metric={'found' if metric_found else 'pending'}",
-                    flush=True,
+                query_resp = requests.post(
+                    f"{base_url}/api/projects/@current/tracing/spans/query",  # nosemgrep: python.lang.security.audit.insecure-transport.requests.request-with-http.request-with-http
+                    json={"query": {"dateRange": {"date_from": date_from}, "traceId": trace_id, "limit": 1}},
+                    headers=headers,
+                    timeout=10,
                 )
+                if query_resp.status_code == 200 and query_resp.json().get("results", []):
+                    print(f"✅ Trace found after {attempt} poll(s)", flush=True)
+                    return True, "Events, log, exception issue, session recording, and trace ingested successfully"
+                if query_resp.status_code != 200:
+                    print(f"   Poll {attempt}: trace HTTP {query_resp.status_code}", flush=True)
+                else:
+                    print(f"   Poll {attempt}: trace pending", flush=True)
             except Exception as e:
                 print(f"   Poll {attempt}: {type(e).__name__}", flush=True)
             time.sleep(poll_interval)
 
-        missing = [name for name, found in (("trace", trace_found), ("metric", metric_found)) if not found]
-        return False, f"APM {' and '.join(missing)} did not appear within {timeout_seconds}s ({attempt} polls)"
+        return False, f"Trace did not appear within {timeout_seconds}s ({attempt} polls)"
 
     @staticmethod
     def find_existing_droplet_for_pr(token, pr_number):
