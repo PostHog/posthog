@@ -6219,6 +6219,16 @@
                   "table": null,
                   "type": "string"
               },
+              "severity": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "severity",
+                  "id": null,
+                  "name": "severity",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
               "name": {
                   "chain": null,
                   "fields": null,
@@ -16425,6 +16435,16 @@
                   "hogql_value": "status",
                   "id": null,
                   "name": "status",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "severity": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "severity",
+                  "id": null,
+                  "name": "severity",
                   "schema_valid": true,
                   "table": null,
                   "type": "string"
