@@ -15,11 +15,54 @@ export interface EvidencePreview {
   detail?: string;
   /** Short scannable attributes, e.g. "100% rollout" or "42 clicks". */
   facts?: string[];
+  /** Mini chart of the object's recent activity, oldest point first. */
+  spark?: { points: number[]; render: "line" | "bar" };
   /**
    * Canonical id when it differs from the cited one (a feature flag cited by
-   * key), so the caller can build the object's web URL.
+   * key, an event cited by name), so the caller can build the object's URL.
    */
   resolvedId?: string;
+}
+
+/** Escape a value for interpolation into a single-quoted HogQL string. */
+export function hogqlEscape(value: string): string {
+  return value.replace(/\\/g, "\\\\").replace(/'/g, "\\'");
+}
+
+/** 87342 -> "87.3K"; keeps small numbers plain. */
+export function compactCount(value: number): string {
+  const abs = Math.abs(value);
+  const format = (scaled: number, suffix: string): string => {
+    const rounded =
+      scaled >= 100 ? Math.round(scaled) : Number(scaled.toFixed(1));
+    return `${rounded}${suffix}`;
+  };
+  if (abs >= 1e9) return format(value / 1e9, "B");
+  if (abs >= 1e6) return format(value / 1e6, "M");
+  if (abs >= 1e3) return format(value / 1e3, "K");
+  return Number.isInteger(value) ? String(value) : value.toFixed(1);
+}
+
+/** A `/query/` grid: rows of cells plus column names. */
+export interface HogqlGrid {
+  results?: unknown;
+  [key: string]: unknown;
+}
+
+export function gridRows(grid: Record<string, unknown>): unknown[][] {
+  return (Array.isArray(grid.results) ? grid.results : []).filter(
+    (row): row is unknown[] => Array.isArray(row),
+  );
+}
+
+function cellNumber(value: unknown): number | null {
+  const parsed = typeof value === "number" ? value : Number(value);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+/** (day, count) rows -> sparkline points, oldest first. */
+export function dailySparkPoints(rows: unknown[][]): number[] {
+  return rows.map((row) => cellNumber(row[1]) ?? 0);
 }
 
 function count(n: number, noun: string): string {
@@ -185,6 +228,82 @@ export function shapeActionPreview(action: Schemas.Action): EvidencePreview {
     facts: action.steps?.length
       ? [count(action.steps.length, "match step")]
       : undefined,
+  };
+}
+
+export function shapeTicketPreview(ticket: Schemas.Ticket): EvidencePreview {
+  const status = ticket.status ? humanizeStatus(ticket.status) : null;
+  const priority =
+    typeof ticket.priority === "string" && ticket.priority
+      ? humanizeStatus(ticket.priority)
+      : null;
+  const channel = ticket.channel_source
+    ? humanizeStatus(String(ticket.channel_source))
+    : null;
+
+  const facts: string[] = [];
+  const statusLine = [status, priority, channel].filter(Boolean).join(" · ");
+  if (statusLine) facts.push(statusLine);
+  if (typeof ticket.message_count === "number") {
+    const messages = count(ticket.message_count, "message");
+    facts.push(
+      ticket.last_message_at
+        ? `${messages} · last reply ${formatDay(ticket.last_message_at)}`
+        : messages,
+    );
+  }
+  const assignedUser = isRecord(ticket.assignee) ? ticket.assignee.user : null;
+  if (assignedUser) {
+    const name =
+      assignedUser.name ||
+      [assignedUser.first_name, assignedUser.last_name]
+        .filter(Boolean)
+        .join(" ") ||
+      assignedUser.email;
+    if (name) facts.push(`Assigned to ${name}`);
+  }
+
+  const snippet = ticket.last_message_text?.trim();
+  return {
+    title: ticket.email_subject?.trim() || `Ticket #${ticket.ticket_number}`,
+    detail: snippet
+      ? `“${snippet.length > 120 ? `${snippet.slice(0, 120)}…` : snippet}”`
+      : undefined,
+    facts,
+  };
+}
+
+export function shapePersonPreview(
+  person: Schemas.PersonRecord,
+): EvidencePreview {
+  const properties = isRecord(person.properties) ? person.properties : {};
+  const email = typeof properties.email === "string" ? properties.email : null;
+  const title = person.name?.trim() || email || "Anonymous person";
+
+  const parts: string[] = [];
+  if (person.last_seen_at) {
+    parts.push(`Last seen ${formatDay(person.last_seen_at)}`);
+  }
+  if (person.created_at) {
+    parts.push(`First seen ${formatDay(person.created_at)}`);
+  }
+  return {
+    title,
+    detail: parts.join(" · ") || undefined,
+    facts: email && email !== title ? [email] : undefined,
+    resolvedId: person.uuid,
+  };
+}
+
+export function shapeEventDefinitionPreview(
+  definition: Schemas.EventDefinitionRecord,
+): EvidencePreview {
+  return {
+    title: definition.name,
+    detail: definition.last_seen_at
+      ? `Last seen ${formatDay(definition.last_seen_at)}`
+      : undefined,
+    resolvedId: definition.id,
   };
 }
 

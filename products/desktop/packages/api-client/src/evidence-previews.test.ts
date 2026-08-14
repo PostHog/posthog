@@ -1,11 +1,18 @@
 import { describe, expect, it } from "vitest";
 import {
+  compactCount,
+  dailySparkPoints,
+  gridRows,
+  hogqlEscape,
   shapeCohortPreview,
   shapeErrorIssuePreview,
+  shapeEventDefinitionPreview,
   shapeExperimentPreview,
   shapeFlagPreview,
+  shapePersonPreview,
   shapeRecordingPreview,
   shapeSurveyPreview,
+  shapeTicketPreview,
 } from "./evidence-previews";
 import type { Schemas } from "./generated";
 
@@ -118,6 +125,87 @@ describe("evidence preview shaping", () => {
         description: "Weekly active users",
       } as Schemas.Cohort).detail,
     ).toBe("Weekly active users");
+  });
+
+  it("summarizes a ticket with its snippet, state line, and traffic", () => {
+    const preview = shapeTicketPreview({
+      id: "t1",
+      ticket_number: 841,
+      email_subject: "Coupon code rejected at checkout",
+      status: "on_hold",
+      priority: "high",
+      channel_source: "email",
+      message_count: 12,
+      last_message_at: "2024-01-03T10:00:00Z",
+      last_message_text: "Still failing after clearing cookies",
+      assignee: { id: "u1", type: "user", user: { first_name: "Ann" } },
+    } as unknown as Schemas.Ticket);
+    expect(preview.title).toBe("Coupon code rejected at checkout");
+    expect(preview.detail).toBe("“Still failing after clearing cookies”");
+    expect(preview.facts).toEqual([
+      "On hold · High · Email",
+      "12 messages · last reply Jan 3, 2024",
+      "Assigned to Ann",
+    ]);
+  });
+
+  it("falls back to the ticket number when there is no subject", () => {
+    const preview = shapeTicketPreview({
+      id: "t1",
+      ticket_number: 841,
+      channel_source: "widget",
+    } as unknown as Schemas.Ticket);
+    expect(preview.title).toBe("Ticket #841");
+  });
+
+  it("identifies a person by name or email and carries the uuid for links", () => {
+    expect(
+      shapePersonPreview({
+        id: 1,
+        name: "",
+        uuid: "0192-aaaa",
+        distinct_ids: ["d1"],
+        properties: { email: "ann@example.com" },
+        created_at: "2024-03-01T00:00:00Z",
+        last_seen_at: "2024-01-03T10:00:00Z",
+      } as unknown as Schemas.PersonRecord),
+    ).toMatchObject({
+      title: "ann@example.com",
+      detail: expect.stringMatching(/^Last seen Jan 3/),
+      resolvedId: "0192-aaaa",
+    });
+  });
+
+  it("verifies an event by its definition and resolves the page id", () => {
+    expect(
+      shapeEventDefinitionPreview({
+        id: "def-1",
+        name: "cart_saved",
+        last_seen_at: "2024-01-03T10:00:00Z",
+      } as unknown as Schemas.EventDefinitionRecord),
+    ).toMatchObject({
+      title: "cart_saved",
+      detail: expect.stringMatching(/^Last seen Jan 3/),
+      resolvedId: "def-1",
+    });
+  });
+
+  it.each([
+    ["quotes", "it's", "it\\'s"],
+    ["backslashes", "a\\b", "a\\\\b"],
+  ])("escapes %s for hogql interpolation", (_name, input, expected) => {
+    expect(hogqlEscape(input)).toBe(expected);
+  });
+
+  it("reduces a daily grid to spark points and compact totals", () => {
+    const rows = gridRows({
+      results: [
+        ["2024-01-01", 5100000],
+        ["2024-01-02", 4900000],
+      ],
+    });
+    expect(dailySparkPoints(rows)).toEqual([5100000, 4900000]);
+    expect(compactCount(10000000)).toBe("10M");
   });
 
   it("describes a survey that has not started as a draft", () => {

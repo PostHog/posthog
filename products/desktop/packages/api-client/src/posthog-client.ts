@@ -117,15 +117,22 @@ import {
   shapeAgentAnalytics,
 } from "./agent-analytics";
 import {
+  compactCount,
+  dailySparkPoints,
   type EvidencePreview,
+  gridRows,
+  hogqlEscape,
   shapeActionPreview,
   shapeCohortPreview,
   shapeDashboardPreview,
   shapeErrorIssuePreview,
+  shapeEventDefinitionPreview,
   shapeExperimentPreview,
   shapeFlagPreview,
+  shapePersonPreview,
   shapeRecordingPreview,
   shapeSurveyPreview,
+  shapeTicketPreview,
 } from "./evidence-previews";
 import {
   ApiRequestError,
@@ -7108,11 +7115,80 @@ export class PostHogAPIClient {
         return shapeExperimentPreview(experiment);
       }
       case "error": {
-        const issue = await this.api.get(
-          "/api/environments/{project_id}/error_tracking/issues/{id}/",
+        // The issue's identity plus its 30-day activity: total events, users
+        // affected, and a daily-occurrence spark answering "still firing?".
+        const scope = `event = '$exception' AND properties.$exception_issue_id = '${hogqlEscape(id)}' AND timestamp >= now() - INTERVAL 30 DAY`;
+        const [issue, totals, daily] = await Promise.all([
+          this.api.get(
+            "/api/environments/{project_id}/error_tracking/issues/{id}/",
+            { path: { project_id: projectId, id } },
+          ),
+          this.runQuery({
+            kind: "HogQLQuery",
+            query: `SELECT count(), uniq(person_id) FROM events WHERE ${scope}`,
+          }).catch(() => ({})),
+          this.runQuery({
+            kind: "HogQLQuery",
+            query: `SELECT toDate(timestamp) AS day, count() FROM events WHERE ${scope} GROUP BY day ORDER BY day`,
+          }).catch(() => ({})),
+        ]);
+        const preview = shapeErrorIssuePreview(issue);
+        const totalRow = gridRows(totals)[0];
+        const facts = [...(preview.facts ?? [])];
+        const users = totalRow ? Number(totalRow[1]) : 0;
+        const events = totalRow ? Number(totalRow[0]) : 0;
+        if (Number.isFinite(users) && users > 0) {
+          facts.unshift(
+            `${compactCount(users)} users · ${compactCount(events)} events (30d)`,
+          );
+        }
+        const points = dailySparkPoints(gridRows(daily));
+        return {
+          ...preview,
+          facts,
+          spark:
+            points.length > 1 ? { points, render: "bar" as const } : undefined,
+        };
+      }
+      case "event": {
+        // Verify the event against its definition (also yields the id that
+        // makes the reference clickable), then chart its 14-day volume.
+        const definition = await this.api
+          .get("/api/projects/{project_id}/event_definitions/by_name/", {
+            path: { project_id: projectId },
+            query: { name: id },
+          })
+          .catch(() => null);
+        if (!definition) return null;
+        const volume = await this.runQuery({
+          kind: "HogQLQuery",
+          query: `SELECT toDate(timestamp) AS day, count() FROM events WHERE event = '${hogqlEscape(id)}' AND timestamp >= now() - INTERVAL 14 DAY GROUP BY day ORDER BY day`,
+        }).catch(() => ({}));
+        const preview = shapeEventDefinitionPreview(definition);
+        const points = dailySparkPoints(gridRows(volume));
+        const total = points.reduce((sum, value) => sum + value, 0);
+        return {
+          ...preview,
+          facts:
+            total > 0 ? [`${compactCount(total)} events (14d)`] : undefined,
+          spark:
+            points.length > 1 ? { points, render: "line" as const } : undefined,
+        };
+      }
+      case "ticket": {
+        const ticket = await this.api.get(
+          "/api/projects/{project_id}/conversations/tickets/{id}/",
           { path: { project_id: projectId, id } },
         );
-        return shapeErrorIssuePreview(issue);
+        return shapeTicketPreview(ticket);
+      }
+      case "person": {
+        const page = await this.api.get("/api/projects/{project_id}/persons/", {
+          path: { project_id: projectId },
+          query: { search: id },
+        });
+        const person = page.results?.[0];
+        return person ? shapePersonPreview(person) : null;
       }
       case "replay": {
         const recording = await this.api.get(

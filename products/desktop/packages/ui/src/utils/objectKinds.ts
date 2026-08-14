@@ -120,6 +120,12 @@ export const OBJECT_KINDS: Record<string, ObjectKindDef> = {
     icon: LightningIcon,
     kindLabel: "Events",
     source: "Product analytics",
+    // Cited by name; the page needs the definition id, which the hover
+    // preview resolves (resolvedId) before the card can link out.
+    webPath: (id, raw) =>
+      /^[0-9a-f]{8}-[0-9a-f-]{27,}$/i.test(raw)
+        ? `/data-management/events/${id}`
+        : null,
   },
   cohort: {
     icon: UsersThreeIcon,

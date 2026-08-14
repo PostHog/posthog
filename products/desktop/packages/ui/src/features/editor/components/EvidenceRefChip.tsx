@@ -295,11 +295,30 @@ function EvidenceHoverCardLoader({
       : query.isFetched
         ? (query.data ?? null)
         : undefined;
+  // A reference whose cited id has no page (an event name, a flag key) can
+  // still link out once the preview resolves the canonical id.
+  const resolvedUrl = useEvidenceUrl(
+    target.kind,
+    preview?.resolvedId ?? target.id,
+  );
   return (
-    <EvidenceHoverCard target={target} url={url} preview={preview}>
+    <EvidenceHoverCard
+      target={target}
+      url={url ?? resolvedUrl}
+      preview={preview}
+    >
       {children}
     </EvidenceHoverCard>
   );
+}
+
+/** PostHog web URL for a reference in the current project, when it has one. */
+function useEvidenceUrl(kind: string, id: string): string | null {
+  const projectId = useAuthStateValue((state) => state.currentProjectId);
+  const cloudRegion = useAuthStateValue((state) => state.cloudRegion);
+  const path = evidenceWebPath(kind, id);
+  if (!path || !cloudRegion || !projectId) return null;
+  return `${getCloudUrlFromRegion(cloudRegion)}/project/${projectId}${path}`;
 }
 
 export function EvidenceRefChip({
@@ -311,14 +330,7 @@ export function EvidenceRefChip({
 }) {
   const meta = getObjectKind(target.kind);
   const KindIcon = meta.icon;
-  const projectId = useAuthStateValue((state) => state.currentProjectId);
-  const cloudRegion = useAuthStateValue((state) => state.cloudRegion);
-
-  const path = evidenceWebPath(target.kind, target.id);
-  const url =
-    path && cloudRegion && projectId
-      ? `${getCloudUrlFromRegion(cloudRegion)}/project/${projectId}${path}`
-      : null;
+  const url = useEvidenceUrl(target.kind, target.id);
 
   const open = (event: MouseEvent<HTMLAnchorElement>) => {
     event.preventDefault();
