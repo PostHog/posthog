@@ -47,7 +47,7 @@ domain's partition.
 | Pass deadline                           | one pass                                          | 20 seconds |
 | Pass wall time, worst case              | one pass                                          | 30 seconds |
 | Domains tracked                         | pod                                               | 20000      |
-| Crawl history entry                     | one URL, one team                                 | 30 days    |
+| Crawl history entry                     | one URL                                           | 30 days    |
 
 Every back queue runs at the same time. This is how the pod reaches its limit rather than a
 fairness rule: one domain holds at most 6 requests, so about 50 domains must be active together to
