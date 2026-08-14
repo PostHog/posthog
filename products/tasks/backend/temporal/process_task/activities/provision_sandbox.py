@@ -27,7 +27,7 @@ from products.tasks.backend.exceptions import (
     TaskNotFoundError,
 )
 from products.tasks.backend.logic.services.agentsh import _get_debug_only_domains, enforced_egress_domains
-from products.tasks.backend.logic.services.compute_quota import is_compute_quota_exhausted
+from products.tasks.backend.logic.services.compute_quota import get_compute_quota_denial_reason
 from products.tasks.backend.logic.services.connection_token import (
     SANDBOX_JWT_STATE_KID_KEY,
     get_primary_sandbox_jwt_kid,
@@ -264,6 +264,9 @@ def _resolve_sandbox_github_token(
             else "Read-only GitHub token unavailable, continuing without GitHub access",
         )
         return github_token
+
+    if not has_repo and task.origin_product in (Task.OriginProduct.SIGNALS_CHAT, Task.OriginProduct.SIGNAL_REPORT):
+        return ""
 
     should_inject_github_token = ctx.has_github_credentials and (
         has_repo or ctx.github_user_integration_id is not None or ctx.github_integration_id is not None
@@ -615,10 +618,12 @@ def _create_sandbox_for_repository(input: CreateSandboxForRepositoryInput) -> Cr
         image_source=prepared.image_source,
         **ctx.to_log_context(),
     ):
-        if settings.TASKS_COMPUTE_QUOTA_ENFORCEMENT_ENABLED and not (ctx.state or {}).get("await_user_message"):
+        if not (ctx.state or {}).get("await_user_message"):
             task = _load_task(ctx)
-            if is_compute_quota_exhausted(task):
-                raise ComputeBillingLimitError({"team_id": ctx.team_id, "task_id": ctx.task_id, "run_id": ctx.run_id})
+            if reason := get_compute_quota_denial_reason(task):
+                raise ComputeBillingLimitError(
+                    {"team_id": ctx.team_id, "task_id": ctx.task_id, "run_id": ctx.run_id}, reason
+                )
         _emit_image_source_log(ctx, prepared)
         emit_agent_log(
             ctx.run_id,

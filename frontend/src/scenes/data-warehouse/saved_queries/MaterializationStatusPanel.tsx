@@ -18,6 +18,7 @@ import { userLogic } from 'scenes/userLogic'
 
 import { AccessControlLevel, AccessControlResourceType, DataModelingJob, LogEntryLevel } from '~/types'
 
+import { IncrementalConfigOptions } from '../editor/IncrementalConfigFields'
 import { dataWarehouseViewsLogic } from './dataWarehouseViewsLogic'
 import { materializationJobsLogic } from './materializationJobsLogic'
 import { computeJobDuration, jobLogsWindow } from './materializationJobUtils'
@@ -42,6 +43,17 @@ interface MaterializationStatusPanelProps {
      * when `kind === 'endpoint'` — those mutations bypass the endpoint's `_disable_materialization` flow.
      */
     kind?: 'view' | 'endpoint'
+}
+
+// Watermarks are only ISO strings for date/datetime incremental keys. Numeric and arbitrary
+// string keys must render as-is: pushing them through a date formatter shows a bogus timestamp.
+const ISO_DATE_PREFIX = /^\d{4}-\d{2}-\d{2}([T ]|$)/
+
+function formatWatermark(watermark: string | null | undefined): string {
+    if (watermark == null || watermark === '') {
+        return 'the last run'
+    }
+    return ISO_DATE_PREFIX.test(watermark) ? humanFriendlyDetailedTime(watermark) : watermark
 }
 
 function getMaterializationStatusMessage(
@@ -95,7 +107,7 @@ function getMaterializationDisabledReasons(
 }
 
 export function MaterializationStatusPanel({ viewId, kind = 'view' }: MaterializationStatusPanelProps): JSX.Element {
-    const jobsLogic = materializationJobsLogic({ viewId })
+    const jobsLogic = materializationJobsLogic({ viewId, kind })
     const {
         dataModelingJobs,
         dataModelingJobsLoading,
@@ -105,6 +117,8 @@ export function MaterializationStatusPanel({ viewId, kind = 'view' }: Materializ
         savedQuery,
         savedQueryLoading,
         initialSyncFrequency,
+        incrementalCheck,
+        incrementalDraft,
     } = useValues(jobsLogic)
     const {
         loadDataModelingJobs,
@@ -112,6 +126,7 @@ export function MaterializationStatusPanel({ viewId, kind = 'view' }: Materializ
         setStartingMaterialization,
         resumeMaterialization,
         setInitialSyncFrequency,
+        setIncrementalDraft,
     } = useActions(jobsLogic)
     const { featureFlags } = useValues(featureFlagLogic)
 
@@ -142,6 +157,31 @@ export function MaterializationStatusPanel({ viewId, kind = 'view' }: Materializ
 
     const currentJobStatus = dataModelingJobs?.results?.[0]?.status || null
     const { sync, cancel, revert } = getMaterializationDisabledReasons(currentJobStatus, startingMaterialization)
+    const incrementalFlagOn = kind !== 'endpoint' && !!featureFlags[FEATURE_FLAGS.DATA_MODELING_INCREMENTAL_VIEWS]
+    const showIncremental = incrementalFlagOn && !!savedQuery.incremental?.enabled
+    const lastRunMode = savedQuery.incremental_state?.last_run_mode
+    // Blocks the Materialize/save buttons while the incremental picks are incomplete, mirroring
+    // the save-as-view form's validation.
+    const incrementalDraftError = !incrementalDraft.enabled
+        ? undefined
+        : !incrementalDraft.incrementalKey
+          ? 'Select the incremental column'
+          : incrementalDraft.uniqueKey.length === 0
+            ? 'Select at least one unique key column'
+            : undefined
+    const savedIncremental = savedQuery.incremental
+    // Key or unique-key edits change what the stored rows mean, so the next run rebuilds (via the
+    // definition fingerprint). A lookback-only change is operational and does not.
+    const structuralChange = savedIncremental?.enabled
+        ? !incrementalDraft.enabled ||
+          incrementalDraft.incrementalKey !== savedIncremental.incremental_key ||
+          [...incrementalDraft.uniqueKey].sort().join(',') !== [...savedIncremental.unique_key].sort().join(',')
+        : incrementalDraft.enabled
+    const lookbackChanged =
+        !!savedIncremental?.enabled &&
+        incrementalDraft.enabled &&
+        incrementalDraft.lookbackSeconds !== (savedIncremental.lookback_seconds ?? 0)
+    const refreshModeChanged = structuralChange || lookbackChanged
     const startingFrequency = defaultCadenceWithin(savedQuery.sync_frequency_bounds, initialSyncFrequency)
     const noCadenceReason = unsatisfiableReason(savedQuery.sync_frequency_bounds)
     const isPaused = !savedQuery.sync_frequency || savedQuery.sync_frequency === 'never'
@@ -203,6 +243,15 @@ export function MaterializationStatusPanel({ viewId, kind = 'view' }: Materializ
                                         <span>Materialization scheduled</span>
                                     </div>
                                 )}
+                                {showIncremental && (
+                                    <div className="text-xs text-secondary mt-1">
+                                        {lastRunMode === 'incremental'
+                                            ? `Updating new rows only, up to ${formatWatermark(
+                                                  savedQuery.incremental_state?.watermark
+                                              )}`
+                                            : 'The last run rebuilt the whole table. The next one will update only new rows.'}
+                                    </div>
+                                )}
                                 <div className="flex flex-col gap-2 items-start mt-2">
                                     {kind !== 'endpoint' && (
                                         <SyncFrequencySelect
@@ -244,6 +293,32 @@ export function MaterializationStatusPanel({ viewId, kind = 'view' }: Materializ
                                                   ? 'Running...'
                                                   : 'Sync now'}
                                         </LemonButton>
+                                        {showIncremental && (
+                                            <LemonButton
+                                                type="secondary"
+                                                size="small"
+                                                tooltip="Rebuild the whole table from scratch instead of updating it"
+                                                disabledReason={sync || materializationAccessReason}
+                                                onClick={() => {
+                                                    LemonDialog.open({
+                                                        title: 'Rebuild this table',
+                                                        maxWidth: '30rem',
+                                                        description:
+                                                            'This runs the query over all of your data and replaces the table, instead of updating only new rows. It takes as long as the first materialization did. Use it after correcting upstream data.',
+                                                        primaryButton: {
+                                                            children: 'Rebuild',
+                                                            onClick: () => {
+                                                                setStartingMaterialization(true)
+                                                                runDataWarehouseSavedQuery(viewId, true)
+                                                            },
+                                                        },
+                                                        secondaryButton: { children: 'Cancel' },
+                                                    })
+                                                }}
+                                            >
+                                                Rebuild
+                                            </LemonButton>
+                                        )}
                                         {kind !== 'endpoint' && (
                                             <LemonButton
                                                 type="secondary"
@@ -294,6 +369,56 @@ export function MaterializationStatusPanel({ viewId, kind = 'view' }: Materializ
                                         )}
                                     </div>
                                 </div>
+                                {incrementalFlagOn && !savedQuery.managed_viewset_kind && (
+                                    <div className="mt-4 max-w-160">
+                                        <h4 className="mb-0">Refresh mode</h4>
+                                        <IncrementalConfigOptions
+                                            check={incrementalCheck}
+                                            draft={incrementalDraft}
+                                            onChange={setIncrementalDraft}
+                                        />
+                                        {refreshModeChanged && (
+                                            <div className="mt-2">
+                                                <LemonButton
+                                                    type="primary"
+                                                    size="small"
+                                                    loading={updatingDataWarehouseSavedQuery}
+                                                    disabledReason={
+                                                        materializationAccessReason || incrementalDraftError || sync
+                                                    }
+                                                    onClick={() =>
+                                                        updateDataWarehouseSavedQuery({
+                                                            id: viewId,
+                                                            incremental:
+                                                                incrementalDraft.enabled &&
+                                                                incrementalDraft.incrementalKey
+                                                                    ? {
+                                                                          enabled: true,
+                                                                          incremental_key:
+                                                                              incrementalDraft.incrementalKey,
+                                                                          unique_key: incrementalDraft.uniqueKey,
+                                                                          lookback_seconds:
+                                                                              incrementalDraft.lookbackSeconds,
+                                                                      }
+                                                                    : null,
+                                                            types: [[]],
+                                                            lifecycle: 'update',
+                                                        })
+                                                    }
+                                                >
+                                                    Save refresh mode
+                                                </LemonButton>
+                                                <div className="text-xs text-secondary mt-1">
+                                                    {!incrementalDraft.enabled
+                                                        ? 'Every run will rebuild the whole table.'
+                                                        : structuralChange
+                                                          ? 'Changing these settings rebuilds the whole table on the next run. After that, runs update only new rows.'
+                                                          : 'The new lookback applies from the next run.'}
+                                                </div>
+                                            </div>
+                                        )}
+                                    </div>
+                                )}
                             </div>
                         ) : (
                             <div>
@@ -322,14 +447,38 @@ export function MaterializationStatusPanel({ viewId, kind = 'view' }: Materializ
                                     )}
                                     <LemonButton
                                         size="small"
-                                        onClick={() => materializeDataWarehouseSavedQuery(viewId, startingFrequency)}
+                                        onClick={() =>
+                                            materializeDataWarehouseSavedQuery(
+                                                viewId,
+                                                startingFrequency,
+                                                incrementalDraft.enabled && incrementalDraft.incrementalKey
+                                                    ? {
+                                                          enabled: true,
+                                                          incremental_key: incrementalDraft.incrementalKey,
+                                                          unique_key: incrementalDraft.uniqueKey,
+                                                          lookback_seconds: incrementalDraft.lookbackSeconds,
+                                                      }
+                                                    : undefined
+                                            )
+                                        }
                                         type="primary"
                                         loading={updatingDataWarehouseSavedQuery}
-                                        disabledReason={materializationAccessReason || noCadenceReason}
+                                        disabledReason={
+                                            materializationAccessReason || noCadenceReason || incrementalDraftError
+                                        }
                                     >
                                         Materialize
                                     </LemonButton>
                                 </div>
+                                {incrementalFlagOn && (
+                                    <div className="max-w-160">
+                                        <IncrementalConfigOptions
+                                            check={incrementalCheck}
+                                            draft={incrementalDraft}
+                                            onChange={setIncrementalDraft}
+                                        />
+                                    </div>
+                                )}
                             </div>
                         )}
                     </div>
@@ -391,23 +540,52 @@ export function MaterializationStatusPanel({ viewId, kind = 'view' }: Materializ
                                     )
                                 }
 
-                                return error && status !== 'Completed' ? (
-                                    <Tooltip title={error} interactive>
+                                const statusTag =
+                                    error && status !== 'Completed' ? (
+                                        <Tooltip title={error} interactive>
+                                            <LemonTag type={type}>{status}</LemonTag>
+                                        </Tooltip>
+                                    ) : (
                                         <LemonTag type={type}>{status}</LemonTag>
-                                    </Tooltip>
-                                ) : (
-                                    <LemonTag type={type}>{status}</LemonTag>
+                                    )
+                                return (
+                                    <div className="flex items-center gap-1">
+                                        {statusTag}
+                                        {showIncremental && job.run_mode && (
+                                            <LemonTag type="muted">
+                                                {job.run_mode === 'incremental' ? 'incremental' : 'full refresh'}
+                                            </LemonTag>
+                                        )}
+                                    </div>
                                 )
                             },
                         },
                         {
                             title: 'Rows',
                             dataIndex: 'rows_materialized',
-                            render: (_, { rows_materialized, status }: DataModelingJob) =>
-                                (status === 'Running' || status === 'Cancelled' || status === 'Skipped') &&
-                                rows_materialized === 0
-                                    ? '~'
-                                    : humanFriendlyNumber(rows_materialized),
+                            render: (_, { rows_materialized, status, run_mode }: DataModelingJob) => {
+                                if (
+                                    (status === 'Running' || status === 'Cancelled' || status === 'Skipped') &&
+                                    rows_materialized === 0
+                                ) {
+                                    return '~'
+                                }
+                                const count = humanFriendlyNumber(rows_materialized)
+                                if (!run_mode) {
+                                    return count
+                                }
+                                return (
+                                    <Tooltip
+                                        title={
+                                            run_mode === 'incremental'
+                                                ? 'Rows this run synced, including the re-read lookback window.'
+                                                : 'This run rebuilt the whole table. This is its full row count.'
+                                        }
+                                    >
+                                        <span>{count}</span>
+                                    </Tooltip>
+                                )
+                            },
                         },
                         {
                             title: 'Updated',

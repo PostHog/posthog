@@ -154,6 +154,24 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, UpdatedMetaFields, 
         "regeneration when nothing relevant changed. Not user-facing.",
     )
 
+    # Config and progress are split because the API writes the first and the materialization
+    # activity writes the second, concurrently. Two fields let the worker save its progress with
+    # update_fields without clobbering a config edit that landed mid-run.
+    incremental_config = models.JSONField(
+        default=None,
+        null=True,
+        blank=True,
+        help_text="Incremental materialization settings: enabled, incremental_key, unique_key, "
+        "lookback_seconds. Null means this view is always fully refreshed.",
+    )
+    incremental_state = models.JSONField(
+        default=None,
+        null=True,
+        blank=True,
+        help_text="Incremental materialization progress: watermark, definition_fingerprint, "
+        "last_full_refresh_at, last_run_mode. System-written, not user-editable.",
+    )
+
     def save(self, *args, **kwargs):
         if self.is_test and not self.expires_at:
             from django.utils import timezone

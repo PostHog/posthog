@@ -198,6 +198,9 @@ const viewCreate = (): ToolBase<typeof ViewCreateSchema, WithPostHogUrl<Schemas.
         if (params.query !== undefined) {
             body['query'] = params.query
         }
+        if (params.incremental !== undefined) {
+            body['incremental'] = params.incremental
+        }
         if (params.description !== undefined) {
             body['description'] = params.description
         }
@@ -310,48 +313,21 @@ const ViewRunSchema = WarehouseSavedQueriesRunCreateParams.omit({ project_id: tr
     WarehouseSavedQueriesRunCreateBody.shape
 )
 
-const viewRun = (): ToolBase<typeof ViewRunSchema, WithPostHogUrl<Schemas.DataWarehouseSavedQuery>> => ({
+const viewRun = (): ToolBase<typeof ViewRunSchema, unknown> => ({
     name: 'view-run',
     schema: ViewRunSchema,
     handler: async (context: Context, params: z.infer<typeof ViewRunSchema>) => {
         const projectId = await context.stateManager.getProjectId()
         const body: Record<string, unknown> = {}
-        if (params.deleted !== undefined) {
-            body['deleted'] = params.deleted
+        if (params.full_refresh !== undefined) {
+            body['full_refresh'] = params.full_refresh
         }
-        if (params.name !== undefined) {
-            body['name'] = params.name
-        }
-        if (params.query !== undefined) {
-            body['query'] = params.query
-        }
-        if (params.description !== undefined) {
-            body['description'] = params.description
-        }
-        if (params.sync_frequency !== undefined) {
-            body['sync_frequency'] = params.sync_frequency
-        }
-        if (params.folder_id !== undefined) {
-            body['folder_id'] = params.folder_id
-        }
-        if (params.edited_history_id !== undefined) {
-            body['edited_history_id'] = params.edited_history_id
-        }
-        if (params.soft_update !== undefined) {
-            body['soft_update'] = params.soft_update
-        }
-        if (params.dag_id !== undefined) {
-            body['dag_id'] = params.dag_id
-        }
-        if (params.is_test !== undefined) {
-            body['is_test'] = params.is_test
-        }
-        const result = await context.api.request<Schemas.DataWarehouseSavedQuery>({
+        const result = await context.api.request<unknown>({
             method: 'POST',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/warehouse_saved_queries/${encodeURIComponent(String(params.id))}/run/`,
             body,
         })
-        return await withPostHogUrl(context, result, `/sql?open_view=${result.id}`)
+        return await withPostHogUrl(context, result, `/sql?open_view=${params.id}`)
     },
 })
 
@@ -391,6 +367,9 @@ const viewUnmaterialize = (): ToolBase<
         }
         if (params.query !== undefined) {
             body['query'] = params.query
+        }
+        if (params.incremental !== undefined) {
+            body['incremental'] = params.incremental
         }
         if (params.description !== undefined) {
             body['description'] = params.description
@@ -444,6 +423,9 @@ const viewUpdate = (): ToolBase<typeof ViewUpdateSchema, WithPostHogUrl<Schemas.
         }
         if (params.query !== undefined) {
             body['query'] = params.query
+        }
+        if (params.incremental !== undefined) {
+            body['incremental'] = params.incremental
         }
         if (params.description !== undefined) {
             body['description'] = params.description
