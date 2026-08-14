@@ -11,6 +11,7 @@ import { useChannelsSidebarStore } from "@posthog/ui/features/canvas/components/
 import { useChannelPaneSwipe } from "@posthog/ui/features/canvas/hooks/useChannelPaneSwipe";
 import { useChannelsLayout } from "@posthog/ui/features/canvas/hooks/useChannelsLayout";
 import { useCurrentChannel } from "@posthog/ui/features/canvas/hooks/useCurrentChannel";
+import { useMarkChannelSeen } from "@posthog/ui/features/canvas/hooks/useMarkChannelSeen";
 import { useTrackChannelsSpaceViewed } from "@posthog/ui/features/canvas/hooks/useTrackChannelsSpaceViewed";
 import {
   consumeKeepListForNextRoute,
@@ -61,6 +62,8 @@ function ChannelPanes({
   channelId: string | null;
   showList: boolean;
 }) {
+  const visibleChannelId = showList ? undefined : (channelId ?? undefined);
+  useMarkChannelSeen(visibleChannelId);
   const panesRef = useRef<HTMLDivElement | null>(null);
   useChannelPaneSwipe(panesRef, {
     // With no channel to slide to, the list is all there is — leave the gesture

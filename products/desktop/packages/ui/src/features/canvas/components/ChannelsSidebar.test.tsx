@@ -17,6 +17,7 @@ const mocks = vi.hoisted(() => ({
   navigateToArchived: vi.fn(),
   track: vi.fn(),
   routeChannelId: undefined as string | undefined,
+  markChannelSeen: vi.fn(),
 }));
 
 vi.mock("@posthog/ui/shell/analytics", () => ({
@@ -34,6 +35,10 @@ vi.mock("@posthog/ui/features/canvas/hooks/useChannels", () => ({
     channels: mocks.channels,
     isLoading: mocks.channelsLoading,
   }),
+}));
+vi.mock("@posthog/ui/features/canvas/hooks/useMarkChannelSeen", () => ({
+  useMarkChannelSeen: (channelId: string | undefined) =>
+    mocks.markChannelSeen(channelId),
 }));
 vi.mock("@posthog/ui/features/archive/useArchivedTaskIds", () => ({
   useArchivedTaskIds: () => mocks.archivedTaskIds,
@@ -155,6 +160,16 @@ describe("ChannelsSidebar", () => {
 
       expect(listIsInteractive()).toBe(true);
       expect(useCurrentChannelStore.getState().currentChannelId).toBe(ENG.id);
+    });
+
+    it("marks a channel seen only while its pane is visible", () => {
+      mocks.routeChannelId = ENG.id;
+      renderSidebar();
+      expect(mocks.markChannelSeen).toHaveBeenLastCalledWith(ENG.id);
+
+      act(() => showChannelList());
+
+      expect(mocks.markChannelSeen).toHaveBeenLastCalledWith(undefined);
     });
 
     // Opening a channel from anywhere — a deep link, a mention, ⌘1-9 — has to

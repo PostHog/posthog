@@ -947,13 +947,10 @@ const ChannelSection = memo(
     const spacesLayout = useChannelsLayout();
     const noun = spacesLayout ? "space" : "channel";
     const pathname = useRouterState({ select: (s) => s.location.pathname });
-    const isCurrentChannel = useCurrentChannelStore(
-      (s) => s.currentChannelId === channel.id,
-    );
     const openChannel = useOpenChannel();
     const base = `/website/${channel.id}`;
-    const routeIsActive = pathname === base || pathname.startsWith(`${base}/`);
-    const isActive = spacesLayout ? isCurrentChannel : routeIsActive;
+    // Highlight the row whenever any of the channel's routes is open.
+    const isActive = pathname === base || pathname.startsWith(`${base}/`);
     // Lifted so the hover button group stays visible while the menu is open.
     const [menuOpen, setMenuOpen] = useState(false);
     // The "+" dropdown (New task / New canvas). Keeps the hover actions pinned
@@ -1391,19 +1388,14 @@ const PersonalChannelRow = memo(function PersonalChannelRow({
   // Personal channels are provisioned lazily server-side when the channel list
   // is fetched; `undefined` just means the list hasn't loaded it yet.
   const meChannel = channels.find((c) => c.channelType === "personal");
-  const isCurrentChannel = useCurrentChannelStore(
-    (s) => !!meChannel && s.currentChannelId === meChannel.id,
-  );
   const isUnread = useIsChannelUnread()(meChannel?.id);
   const unreadSessions = useUnreadSessionCount()(meChannel?.id);
   const blockedSessions = useBlockedSessionCount()(meChannel?.id);
   const createAndOpenCanvas = useCreateAndOpenDashboard(meChannel?.id);
-  const routeIsActive =
+  const isActive =
     !!meChannel &&
     (pathname === `/website/${meChannel.id}` ||
       pathname.startsWith(`/website/${meChannel.id}/`));
-  const isActive =
-    !!meChannel && (spacesLayout ? isCurrentChannel : routeIsActive);
 
   const newTask = () => {
     const channelId = ensureChannelId();
