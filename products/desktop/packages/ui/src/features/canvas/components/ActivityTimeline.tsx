@@ -397,6 +397,7 @@ export function ActivityTimeline({
                 <ArtifactEventDetail
                   payload={row.event.payload}
                   onOpen={openArtifact(row.event.payload)}
+                  taskId={canOpenInPlace ? task.id : undefined}
                 />
               ) : undefined
             }
