@@ -80,6 +80,7 @@ const DELTA_RESPONSE = {
     sessions_truncated: false,
     events_truncated: false,
     min_arm_persons: 50,
+    max_card_recordings: 20,
     too_early: false,
 }
 

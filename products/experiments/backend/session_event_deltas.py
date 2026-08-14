@@ -391,6 +391,10 @@ class ExperimentWatchResult:
     sessions_truncated: bool
     events_truncated: bool
     min_arm_persons: int
+    # Reported so a reader can tell a card carrying every recording of its event from one that ran
+    # into the ceiling. A count sitting on the cap is a floor, and printed as a plain number beside
+    # an event name it reads as a measurement of that event.
+    max_card_recordings: int
     too_early: bool
 
 
@@ -590,6 +594,7 @@ def get_experiment_session_event_deltas(team: Team, user: User, experiment: Expe
         sessions_truncated=scan.sessions_truncated,
         events_truncated=scan.events_truncated,
         min_arm_persons=MIN_ARM_PERSONS,
+        max_card_recordings=MAX_CARD_RECORDINGS,
         too_early=too_early,
     )
     safe_cache_set(cache_key, result, timeout=DELTA_CACHE_TTL)
