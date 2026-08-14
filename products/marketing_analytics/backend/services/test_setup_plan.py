@@ -42,6 +42,8 @@ def _integration(
     last_error=None,
     schema_missing=None,
     unmatched=0,
+    paid=0,
+    tagged_medium=0,
 ) -> IntegrationDiagnostic:
     data_source = None
     if status != "events_only":
@@ -80,6 +82,8 @@ def _integration(
             last_event_with_matching_utm_at=None,
             matched_pct=0.0,
             sample_unmatched_utm_sources=[],
+            events_matched_paid_last_7d=paid,
+            events_matched_tagged_medium_last_7d=tagged_medium,
         )
 
     return IntegrationDiagnostic(
@@ -558,6 +562,50 @@ class TestConversionGoals(SetupPlanTestCase):
         flags = [s for s in plan.suggestions if s.kind in flag_kinds]
         assert flags
         assert all(s.safe_to_batch is False for s in flags)
+
+
+class TestConnectSourceNeedsPaidEvidence(SetupPlanTestCase):
+    """`utm_source` maps to an ad platform on the source alone, so `google` also catches
+    gmail links and `linkedin` catches organic posts. Suggesting someone connect an ad
+    account they don't run is worse than saying nothing."""
+
+    async def _plan_for(self, **kwargs):
+        self.diagnostic = MarketingDiagnosticResponse(
+            integrations=[_integration("linkedin_ads", "LinkedinAds", status="events_only", unmatched=900, **kwargs)],
+            overall_status="broken",
+            conversion_goals=ConversionGoalsListResponse(goals=[_goal()]),
+        )
+        return await get_setup_plan(self.team)
+
+    def _connects(self, plan) -> list:
+        return [s for s in plan.suggestions if s.kind == SuggestionKind.CONNECT_SOURCE]
+
+    @pytest.mark.asyncio
+    async def test_organic_traffic_alone_does_not_ask_you_to_connect_an_ad_account(self):
+        plan = await self._plan_for(tagged_medium=900, paid=0)
+
+        assert self._connects(plan) == []
+
+    @pytest.mark.asyncio
+    async def test_paid_traffic_still_asks_you_to_connect(self):
+        plan = await self._plan_for(tagged_medium=900, paid=900)
+
+        assert len(self._connects(plan)) == 1
+
+    @pytest.mark.asyncio
+    async def test_one_paid_event_among_organic_is_enough_to_ask(self):
+        # Spend exists; the mix says the team runs both, not that it runs neither.
+        plan = await self._plan_for(tagged_medium=900, paid=1)
+
+        assert len(self._connects(plan)) == 1
+
+    @pytest.mark.asyncio
+    async def test_untagged_traffic_still_asks_because_absence_is_not_evidence(self):
+        # A team that never sets utm_medium tells us nothing either way, and staying
+        # silent there would hide the case this suggestion exists for.
+        plan = await self._plan_for(tagged_medium=0, paid=0)
+
+        assert len(self._connects(plan)) == 1
 
 
 class TestIntegrationSuggestions(SetupPlanTestCase):

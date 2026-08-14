@@ -174,10 +174,20 @@ class TestGetAttributionHealth(APIBaseTest):
         assert counts == sorted(counts, reverse=True)
 
 
-def _pageview(team: object, distinct_id: str, utm_source: str | None = None) -> None:
+def _pageview(
+    team: object,
+    distinct_id: str,
+    utm_source: str | None = None,
+    utm_medium: str | None = None,
+    gclid: str | None = None,
+) -> None:
     props: dict = {}
     if utm_source is not None:
         props["utm_source"] = utm_source
+    if utm_medium is not None:
+        props["utm_medium"] = utm_medium
+    if gclid is not None:
+        props["gclid"] = gclid
     _create_event(
         distinct_id=distinct_id,
         event="$pageview",
@@ -352,3 +362,47 @@ class TestAttributionHealthSourceTypeFilterClickhouse(ClickhouseTestMixin, BaseT
         assert response.integrations[0].integration_key == "google_ads"
         assert response.total_events_with_utm == 2
         assert response.total_events_matched_to_any_integration == 2
+
+
+class TestAttributionHealthPaidSignalClickhouse(ClickhouseTestMixin, BaseTest):
+    """Paid is decided the way PostHog decides it everywhere else — the channel-type
+    rule at posthog.com/docs/data/channel-type — so a `linkedin` utm_source from an
+    organic post isn't counted as ad traffic."""
+
+    CLASS_DATA_LEVEL_SETUP = False
+
+    def setUp(self) -> None:
+        super().setUp()
+        _pageview(self.team, "u1", utm_source="linkedin", utm_medium="cpc")
+        _pageview(self.team, "u2", utm_source="linkedin", utm_medium="paid-social")
+        _pageview(self.team, "u3", utm_source="linkedin", utm_medium="organic-social")
+        _pageview(self.team, "u4", utm_source="linkedin")
+        _pageview(self.team, "u5", utm_source="google", gclid="abc123")
+        flush_persons_and_events()
+
+    def tearDown(self) -> None:
+        flush_persons_and_events()
+        super().tearDown()
+
+    async def _entry(self, key: str):
+        response = await get_attribution_health(self.team, lookback_days=30)
+        return next(e for e in response.integrations if e.integration_key == key)
+
+    @pytest.mark.asyncio
+    async def test_counts_cost_bearing_and_paid_prefixed_mediums(self) -> None:
+        linkedin = await self._entry("linkedin_ads")
+
+        assert linkedin.events_matched_last_7d == 4
+        # `cpc` by name, `paid-social` by prefix. `organic-social` and the untagged one
+        # are not paid — and only the three tagged ones count as tagged.
+        assert linkedin.events_matched_paid_last_7d == 2
+        assert linkedin.events_matched_tagged_medium_last_7d == 3
+
+    @pytest.mark.asyncio
+    async def test_a_click_id_is_paid_even_with_no_medium(self) -> None:
+        # Ad platforms attach gclid; nothing else does. Requiring utm_medium here would
+        # miss every team that relies on auto-tagging.
+        google = await self._entry("google_ads")
+
+        assert google.events_matched_paid_last_7d == 1
+        assert google.events_matched_tagged_medium_last_7d == 0

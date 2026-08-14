@@ -284,6 +284,14 @@ def _integration_suggestion(integration: IntegrationDiagnostic) -> Suggestion | 
     volume = integration.attribution.events_unmatched_likely_yours_last_7d if integration.attribution else 0
 
     if status == "events_only":
+        # `utm_source` alone doesn't mean paid — `google` also covers gmail links and
+        # `linkedin` organic posts, so this fired "connect an ad account you don't
+        # have" at error severity. Suppressed only on positive evidence: mediums are
+        # tagged and none of them is paid. Untagged stays a suggestion.
+        attr = integration.attribution
+        if attr is not None and attr.events_matched_tagged_medium_last_7d > 0 and attr.events_matched_paid_last_7d == 0:
+            return None
+
         # Traffic arrives but no spend data, so cost, ROAS and CAC are all unavailable.
         return Suggestion(
             id=f"connect_source:{key}",
