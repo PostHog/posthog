@@ -492,7 +492,7 @@ export interface pagePerformanceLogicMeta {
         ) => AiSectionQueries
         overviewHumanQuery: (window: PagePerformanceWindow, pathExpr: string) => string
         overviewCrawlerQuery: (window: PagePerformanceWindow) => string
-        overviewInput: (overviewHumanQuery: string, overviewCrawlerQuery: string) => string
+        overviewInput: (overviewHumanQuery: string, overviewCrawlerQuery: string, filterTestAccounts: boolean) => string
         candidatesInput: (pageCandidateQuery: WebStatsTableQuery) => string
         breakdownQuery: (
             breakdownModal: PagePerformanceBreakdownState | null,
@@ -852,9 +852,9 @@ export const pagePerformanceLogic = kea<pagePerformanceLogicType>([
             (window: PagePerformanceWindow): string => buildOverviewCrawlerQuery(window),
         ],
         overviewInput: [
-            (s) => [s.overviewHumanQuery, s.overviewCrawlerQuery],
-            (overviewHumanQuery: string, overviewCrawlerQuery: string): string =>
-                JSON.stringify([overviewHumanQuery, overviewCrawlerQuery]),
+            (s) => [s.overviewHumanQuery, s.overviewCrawlerQuery, s.filterTestAccounts],
+            (overviewHumanQuery: string, overviewCrawlerQuery: string, filterTestAccounts: boolean): string =>
+                JSON.stringify([overviewHumanQuery, overviewCrawlerQuery, filterTestAccounts]),
         ],
         candidatesInput: [
             (s) => [s.pageCandidateQuery],
