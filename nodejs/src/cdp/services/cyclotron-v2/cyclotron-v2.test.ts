@@ -903,6 +903,8 @@ describe('Cyclotron V2', () => {
             it.each([
                 ['no selector', {}],
                 ['two selectors', { jobIds: [uuidv7()], all: true }],
+                // An empty parentRunId must not silently widen to whole-workflow cancel.
+                ['an empty parentRunId', { parentRunId: '' }],
             ])('rejects a call with %s instead of guessing scope', async (_name, selector) => {
                 await expect(manager.cancelJobs({ teamId: 1, functionId: uuidv7(), ...selector })).rejects.toThrow(
                     /exactly one selector/

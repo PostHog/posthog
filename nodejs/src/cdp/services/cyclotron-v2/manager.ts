@@ -617,7 +617,10 @@ export class CyclotronV2Manager {
         const { teamId, functionId } = options
         const selectorCount = [
             options.jobIds !== undefined,
-            options.parentRunId !== undefined,
+            // Truthiness, not `!== undefined`: an empty parentRunId is not a selector.
+            // Counting it as one would pass this guard yet leave `selectorClause` empty
+            // below (that branch also tests truthiness), widening to whole-workflow cancel.
+            !!options.parentRunId,
             options.all === true,
         ].filter(Boolean).length
         if (selectorCount !== 1) {
