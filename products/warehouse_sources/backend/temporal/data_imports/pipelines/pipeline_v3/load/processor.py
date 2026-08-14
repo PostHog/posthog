@@ -517,8 +517,6 @@ def _trigger_ducklake_register_data_imports(export_signal: ExportSignalMessage, 
                 id=build_register_data_imports_workflow_id(
                     team_id=export_signal.team_id,
                     schema_id=export_signal.schema_id,
-                    job_id=export_signal.job_id,
-                    prepared_queryable_folder=prepared_queryable_folder,
                 ),
                 task_queue=settings.DUCKLAKE_TASK_QUEUE,
             )
@@ -531,8 +529,8 @@ def _trigger_ducklake_register_data_imports(export_signal: ExportSignalMessage, 
             external_data_job_id=export_signal.job_id,
         )
     except WorkflowAlreadyStartedError:
-        # The id is scoped to this prepared generation, so a collision means this exact
-        # generation is already being registered and dropping the duplicate is correct.
+        # The id is one per schema, so a collision means a register is already
+        # in flight. The next import after that run finishes can start.
         logger.info(
             "ducklake_registration_workflow_already_started",
             team_id=export_signal.team_id,
@@ -701,7 +699,6 @@ def _process_message_reported(
     progress_callback: Callable[[], None] | None,
     verify_ownership: Callable[[], None] | None,
 ) -> None:
-
     # Reconnect stale app-DB connections up front so the ORM queries below don't burn all batch attempts.
     close_old_connections()
 
