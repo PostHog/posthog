@@ -173,7 +173,7 @@ def list_active_alert_destinations(
         ActiveAlertDestination(
             id=str(hog_function_id),
             name=name or "Destination",
-            destination_type=_TEMPLATE_ID_TO_DESTINATION_TYPE.get(template_id),
+            destination_type=_TEMPLATE_ID_TO_DESTINATION_TYPE.get(template_id) if template_id else None,
         )
         for hog_function_id, name, template_id in rows
     ]
