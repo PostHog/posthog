@@ -389,10 +389,9 @@ def ssh_tunnel_connection_changed(existing: Any, incoming: Any) -> bool:
 # ServiceNow `auth_method`) keep their secrets one level down, not at the top level.
 _NESTED_AUTH_CONTAINERS = ("auth_method", "auth_type")
 
-# Secrets the edit form can never re-supply (parsed into the individual fields on create, then
-# stripped from API reads and hidden in the edit form), so gating credential re-entry on them would
-# permanently block host changes. Excluded from the gate but still preserved by the merge: MongoDB
-# connects via `connection_string`, while SQL sources use the individual fields and gate `password`.
+# Secrets a host change can never rely on the edit form re-supplying, so gating credential re-entry on
+# them would permanently block that change. MongoDB has no `host`, so the gate never fires for it.
+# Excluded from the gate either way, and still preserved by the merge when left blank.
 _CREATION_ONLY_SECRET_FIELDS = frozenset({"connection_string"})
 
 

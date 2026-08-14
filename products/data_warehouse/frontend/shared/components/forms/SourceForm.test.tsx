@@ -1,6 +1,14 @@
-import { SourceConfig, SourceFieldSelectConfig, SourceFieldSwitchGroupConfig } from '~/queries/schema/schema-general'
+import {
+    ExternalDataSourceType,
+    SourceConfig,
+    SourceFieldInputConfig,
+    SourceFieldSelectConfig,
+    SourceFieldSwitchGroupConfig,
+} from '~/queries/schema/schema-general'
 
 import { sourceFieldToElement } from './SourceForm'
+
+const sourceConfig = (name: ExternalDataSourceType): SourceConfig => ({ name, fields: [], iconPath: '' })
 
 const SELECT_FIELD: SourceFieldSelectConfig = {
     type: 'select',
@@ -15,7 +23,16 @@ const SELECT_FIELD: SourceFieldSelectConfig = {
     caption: 'Changing this triggers a full refresh of the responses table.',
 }
 
-const SOURCE_CONFIG = { name: 'Typeform', fields: [] } as unknown as SourceConfig
+const SOURCE_CONFIG = sourceConfig('Typeform')
+
+const connectionStringField = (type: 'text' | 'password'): SourceFieldInputConfig => ({
+    type,
+    name: 'connection_string',
+    label: 'Connection string',
+    required: true,
+    placeholder: '',
+    secret: true,
+})
 
 const SWITCH_GROUP_FIELD: SourceFieldSwitchGroupConfig = {
     type: 'switch-group',
@@ -73,5 +90,27 @@ describe('sourceFieldToElement', () => {
             checked: expected,
             childrenVisible: expected,
         })
+    })
+
+    // A text connection string only prefills the credential fields the connection uses, so the edit
+    // form has nothing to offer for it. An empty fragment renders no children.
+    it('hides a text connection string on update', () => {
+        const element = sourceFieldToElement(connectionStringField('text'), sourceConfig('Postgres'), undefined, true)
+        expect(element.props.children).toBeUndefined()
+    })
+
+    // Rotating a credential that lives entirely in the connection string used to require deleting and
+    // recreating the source. A password-typed field skips the create-only branch and stays editable,
+    // starting blank because the stored secret is redacted out of API reads.
+    it('renders a password connection string as a blank masked input on update', () => {
+        const element = sourceFieldToElement(
+            connectionStringField('password'),
+            sourceConfig('MongoDB'),
+            undefined,
+            true
+        )
+        const input = element.props.children({ value: '', onChange: jest.fn() })
+        expect(input.props.type).toBe('password')
+        expect(input.props.value).toBe('')
     })
 })

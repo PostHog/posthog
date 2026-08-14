@@ -154,6 +154,8 @@ export const sourceFieldToElement = (
 
     // It doesn't make sense for this to show on an update to an existing connection since we likely just want to change
     // a field or two. There is also some divergence in creates vs. updates that make this a bit more complex to handle.
+    // A source whose connection string is its whole credential declares it `password` instead, so it skips this branch
+    // and stays editable on update for rotation.
     if (field.type === 'text' && field.name === 'connection_string') {
         if (isUpdateMode) {
             return <React.Fragment key={field.name} />
