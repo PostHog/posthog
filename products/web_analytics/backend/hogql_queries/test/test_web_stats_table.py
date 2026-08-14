@@ -1778,7 +1778,7 @@ class TestWebStatsTableQueryRunner(
 
     def test_conversion_goal_viewport_breakdown_surfaces_unattributed_conversions(self):
         # A conversion event without $viewport_width/$viewport_height must not be silently
-        # dropped — it should surface in a (none) row, same as Browser/OS, instead of vanishing
+        # dropped, so it should surface in a (none) row (like Browser/OS) instead of vanishing
         # with 0 conversions and no signal that anything was dropped.
         s1 = str(uuid7("2023-12-01"))
         self._create_events(

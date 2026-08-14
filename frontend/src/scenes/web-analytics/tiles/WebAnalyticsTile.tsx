@@ -418,13 +418,16 @@ const BreakdownValueCell: QueryContextColumnComponent = (props) => {
         case WebStatsBreakdown.Viewport:
             if (Array.isArray(value)) {
                 const [width, height] = value
+                if (width == null && height == null) {
+                    return <NotSetBreakdownLabel />
+                }
                 return (
                     <>
                         {width}x{height}
                     </>
                 )
             }
-            break
+            return <NotSetBreakdownLabel />
         case WebStatsBreakdown.Country:
             if (typeof value === 'string') {
                 const countryCode = value
@@ -1197,6 +1200,9 @@ const getBreakdownValue = (record: unknown, breakdownBy: WebStatsBreakdown): str
             break
         case WebStatsBreakdown.Viewport:
             if (Array.isArray(breakdownValue)) {
+                if (breakdownValue[0] == null && breakdownValue[1] == null) {
+                    return null // null signals "no click handler" — (none) rows aren't filterable
+                }
                 return `${breakdownValue[0]}x${breakdownValue[1]}`
             }
             break
