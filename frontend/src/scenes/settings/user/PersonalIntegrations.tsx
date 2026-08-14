@@ -7,6 +7,7 @@ import { TZLabel } from 'lib/components/TZLabel'
 import { GitHubRepoSummary } from 'lib/integrations/GitHubRepoSummary'
 import { userGithubIntegrationLogic } from 'lib/integrations/userGithubIntegrationLogic'
 import { IconSlack } from 'lib/lemon-ui/icons'
+import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 
 import {
     LinkableSlackWorkspace,
@@ -162,6 +163,7 @@ function SlackLinkRow({ integration }: { integration: PersonalSlackIntegration }
 export function PersonalGitHubIntegrations(): JSX.Element {
     const { integrations, integrationsLoading, githubConnecting } = useValues(personalIntegrationsLogic)
     const { connectGitHub } = useActions(personalIntegrationsLogic)
+    const { reportPersonalIntegrationConnectClicked } = useActions(eventUsageLogic)
 
     if (integrationsLoading && integrations.length === 0) {
         return (
@@ -192,7 +194,10 @@ export function PersonalGitHubIntegrations(): JSX.Element {
                     type="secondary"
                     size="small"
                     icon={<IconPlus />}
-                    onClick={connectGitHub}
+                    onClick={() => {
+                        reportPersonalIntegrationConnectClicked('github')
+                        connectGitHub()
+                    }}
                     loading={githubConnecting}
                     disabledReason={githubConnecting ? 'Starting GitHub installation…' : undefined}
                 >

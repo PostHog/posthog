@@ -14,8 +14,12 @@ import type {
     CanvasBuildApi,
     CanvasBuildsResponseApi,
     CanvasCreateApi,
+    CanvasErrorReportResultApi,
+    CanvasFixRequestResultApi,
     CanvasPromoteApi,
     CanvasPublishCurrentVersionApi,
+    CanvasReportErrorApi,
+    CanvasRequestFixApi,
     CanvasRevertApi,
     CanvasSourceDraftApi,
     CanvasSourceDraftResponseApi,
@@ -356,6 +360,60 @@ export const canvasesPublishCurrentVersionCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(canvasPublishCurrentVersionApi),
+    })
+}
+
+export const getCanvasesReportErrorCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/canvases/${id}/report_error/`
+}
+
+/**
+ * Report a runtime error observed while rendering a canvas build.
+ *
+ * Files the report in the authoring task's thread (deduped per build and
+ * error type) so the canvas's agent can be asked to fix it. Reports never
+ * start an agent run by themselves — dispatch is `request_fix`. Only the
+ * error class crosses the server; full messages and stacks stay
+ * client-side because rendering sessions can carry viewer data.
+ */
+export const canvasesReportErrorCreate = async (
+    projectId: string,
+    id: string,
+    canvasReportErrorApi: CanvasReportErrorApi,
+    options?: RequestInit
+): Promise<CanvasErrorReportResultApi> => {
+    return apiMutator<CanvasErrorReportResultApi>(getCanvasesReportErrorCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(canvasReportErrorApi),
+    })
+}
+
+export const getCanvasesRequestFixCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/canvases/${id}/request_fix/`
+}
+
+/**
+ * Wake the canvas's authoring agent to fix a failing build or runtime error.
+ *
+ * Starts (or signals) an agent run on the authoring task, instructed to
+ * stage the fix as a draft the user reviews and promotes. This is the
+ * human-initiated dispatch step behind error reports; it spends agent
+ * compute, so it never fires automatically, and only the authoring
+ * task's creator may dispatch — the run executes with their credentials.
+ */
+export const canvasesRequestFixCreate = async (
+    projectId: string,
+    id: string,
+    canvasRequestFixApi: CanvasRequestFixApi,
+    options?: RequestInit
+): Promise<CanvasFixRequestResultApi> => {
+    return apiMutator<CanvasFixRequestResultApi>(getCanvasesRequestFixCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(canvasRequestFixApi),
     })
 }
 
