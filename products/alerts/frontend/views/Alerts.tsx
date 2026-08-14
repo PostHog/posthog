@@ -14,11 +14,16 @@ import { AccessControlLevel, AccessControlResourceType } from '~/types'
 import { LogsAlertingSection } from 'products/logs/frontend/components/LogsAlerting/LogsAlertingSection'
 
 import { AlertType } from '../types'
-import { AlertsTab, getActiveAlertsTab, getAlertsDescription, getAlertsTabs } from '../utils'
+import { AlertsTab, getActiveAlertsTab, getAlertsTabs } from '../utils'
 import { InsightAlerts } from './InsightAlerts'
 
 interface AlertsProps {
     alertId: AlertType['id'] | null
+}
+
+const ALERTS_DESCRIPTION: Record<AlertsTab, string> = {
+    [AlertsTab.INSIGHTS]: 'Monitor insight metrics and get notified when conditions are met.',
+    [AlertsTab.LOGS]: 'Monitor matching logs and get notified when they cross a threshold.',
 }
 
 function hasEffectiveResourceAccess(resourceType: AccessControlResourceType): boolean {
@@ -56,7 +61,7 @@ export function Alerts({ alertId }: AlertsProps): JSX.Element {
         <>
             <SceneTitleSection
                 name="Alerts"
-                description={getAlertsDescription(activeTab)}
+                description={ALERTS_DESCRIPTION[activeTab]}
                 resourceType={{ type: 'inbox' }}
             />
             <LemonTabs<AlertsTab> activeKey={activeTab} onChange={switchTab} tabs={tabs} sceneInset />

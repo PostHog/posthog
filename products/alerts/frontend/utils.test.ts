@@ -1,7 +1,7 @@
 import { AlertState } from '~/queries/schema/schema-general'
 
 import type { AlertCheck, AlertCheckDelivery } from './types'
-import { AlertsTab, getActiveAlertsTab, getAlertsDescription, isFailedDelivery, summarizeDeliveries } from './utils'
+import { AlertsTab, getActiveAlertsTab, isFailedDelivery, summarizeDeliveries } from './utils'
 
 describe('alerts utils', () => {
     describe('getActiveAlertsTab', () => {
@@ -103,14 +103,5 @@ describe('alerts utils', () => {
         ])('$name', ({ overrides, expected }) => {
             expect(isFailedDelivery(check(overrides))).toBe(expected)
         })
-    })
-})
-
-describe('getAlertsDescription', () => {
-    it.each([
-        [AlertsTab.INSIGHTS, 'Monitor insight metrics and get notified when conditions are met.'],
-        [AlertsTab.LOGS, 'Monitor matching logs and get notified when they cross a threshold.'],
-    ])('returns the correct description for %s', (tab: AlertsTab, expected: string) => {
-        expect(getAlertsDescription(tab)).toBe(expected)
     })
 })
