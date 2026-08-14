@@ -1,9 +1,10 @@
 // Which PostHog surface a request came from, stamped as `source` so the MCP server's own
 // events sit in the same breakdown as the product events they cause.
 //
-// The vocabulary is Django's: `EventSource` in `posthog/event_usage.py` is the source of
-// truth, and `test_event_source_vocabulary_matches_django` keeps this subset honest against
-// the checked-in list both sides read.
+// The vocabulary is Django's: `EventSource` in `posthog/event_usage.py` owns it, and this is a
+// subset. `tests/event-source.test.ts` pins the values below, and the API holds the same list in
+// `test_mcp_server_only_emits_sources_this_enum_knows`, so a surface added on one side alone fails
+// on the other.
 
 import { POSTHOG_CODE_CONSUMER } from './client-detection'
 

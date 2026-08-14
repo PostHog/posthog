@@ -1,8 +1,13 @@
+from datetime import UTC, datetime
+
 from posthog.test.base import APIBaseTest
 from unittest.mock import AsyncMock, patch
 
 from rest_framework import status
 
+from posthog.schema import CachedTeamTaxonomyQueryResponse
+
+from posthog.event_usage import EventSource
 from posthog.models import Organization, Team
 
 
@@ -69,12 +74,6 @@ class TestMCPToolsAPI(APIBaseTest):
 
     @patch("ee.hogai.utils.helpers.TeamTaxonomyQueryRunner")
     def test_invoke_read_taxonomy_attributes_query_executed_to_user_and_mcp_source(self, mock_runner_cls):
-        from datetime import UTC, datetime
-
-        from posthog.schema import CachedTeamTaxonomyQueryResponse
-
-        from posthog.event_usage import EventSource
-
         now = datetime.now(UTC)
         mock_runner_cls.return_value.run.return_value = CachedTeamTaxonomyQueryResponse(
             cache_key="cache_key",

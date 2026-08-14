@@ -1,5 +1,3 @@
-import json
-from pathlib import Path
 from types import SimpleNamespace
 from typing import cast
 
@@ -13,7 +11,6 @@ from rest_framework.test import APIRequestFactory
 from posthog.auth import OAuthAccessTokenAuthentication
 from posthog.clickhouse.query_tagging import AccessMethod, tags_context
 from posthog.event_usage import (
-    AGENT_EVENT_SOURCES,
     EventSource,
     get_event_source,
     get_mcp_properties,
@@ -25,7 +22,8 @@ from posthog.event_usage import (
 from posthog.models.oauth import OAuthAccessToken
 from posthog.temporal.oauth import ARRAY_APP_CLIENT_ID_DEV, POSTHOG_AI_APP_CLIENT_ID_DEV
 
-# The MCP server's catch-all consumer, sent by the Electron app and every sandbox agent alike.
+# The MCP server's catch-all consumer, sent by every sandbox agent and by the agent PostHog
+# Desktop hosts locally.
 _POSTHOG_CODE_CONSUMER = "posthog-code"
 
 
@@ -383,17 +381,12 @@ class TestGetEventSource(BaseTest):
         assert get_event_source(request) == EventSource.MCP
 
     def test_mcp_server_only_emits_sources_this_enum_knows(self):
-        # The MCP server stamps the same `source` property on its own events. A value it emits
-        # that isn't an EventSource drops out of every breakdown that joins the two. Both sides
-        # assert against this contract file, so neither can add a surface on its own.
-        repo_root = Path(__file__).resolve().parents[2]
-        contract = json.loads((repo_root / "services/mcp/src/lib/event-sources.json").read_text())
-        assert set(contract["sources"]) <= {source.value for source in EventSource}
-
-    def test_agent_sources_cover_every_llm_driven_surface(self):
-        # Membership here holds agent writes to a review-then-apply path, so a surface missing
-        # from it silently loses that gate. Both of these used to arrive as MCP or POSTHOG_CODE.
-        assert {EventSource.DESKTOP, EventSource.SLACK} <= AGENT_EVENT_SOURCES
+        # The MCP server stamps the same `source` property on its own events, so a value it emits
+        # that is not an EventSource drops out of every breakdown that joins the two. This list is
+        # EVENT_SOURCE in `services/mcp/src/lib/event-source.ts`, which its own test pins; removing
+        # a surface here without removing it there fails this.
+        mcp_server_sources = {"mcp", "cli", "wizard", "slack", "posthog_ai", "posthog_code"}
+        assert mcp_server_sources <= {source.value for source in EventSource}
 
     @parameterized.expand(
         [

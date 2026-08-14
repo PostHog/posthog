@@ -1,4 +1,0 @@
-{
-    "comment": "Surfaces the MCP server can stamp as `source`. Every value must exist in EventSource in posthog/event_usage.py, which owns the vocabulary — both sides assert against this file so neither can drift alone. Add a value here only once Django knows it.",
-    "sources": ["mcp", "cli", "wizard", "slack", "posthog_ai", "posthog_code"]
-}

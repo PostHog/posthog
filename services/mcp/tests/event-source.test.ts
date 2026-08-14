@@ -1,7 +1,11 @@
 import { describe, expect, it } from 'vitest'
 
 import { EVENT_SOURCE, resolveEventSource } from '@/lib/event-source'
-import eventSourcesContract from '@/lib/event-sources.json'
+
+// Every surface this server is allowed to stamp. `test_mcp_server_only_emits_sources_this_enum_knows`
+// in `posthog/test/test_event_usage.py` holds the same list against Django's EventSource, so adding
+// one here without adding it there fails on that side.
+const SURFACES_THE_API_KNOWS = ['mcp', 'cli', 'wizard', 'slack', 'posthog_ai', 'posthog_code']
 
 const SANDBOX_SCOPES = ['insight:read', 'internal_run:read']
 const CONSENTED_SCOPES = ['insight:read']
@@ -66,9 +70,8 @@ describe('resolveEventSource', () => {
     })
 
     it('emits only surfaces the PostHog API also knows', () => {
-        // The API asserts the same file against its own EventSource enum, so a value added on
-        // one side without the other fails on that side rather than silently emitting a source
-        // that drops out of every joined breakdown.
-        expect(Object.values(EVENT_SOURCE).sort()).toEqual([...eventSourcesContract.sources].sort())
+        // A source the API's EventSource does not carry drops out of every breakdown that joins
+        // the MCP events with the product events they cause.
+        expect(Object.values(EVENT_SOURCE).sort()).toEqual([...SURFACES_THE_API_KNOWS].sort())
     })
 })
