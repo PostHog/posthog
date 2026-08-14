@@ -1618,6 +1618,7 @@ export const ChartDisplayTypeApi = {
     TwoDimensionalHeatmap: 'TwoDimensionalHeatmap',
     BoxPlot: 'BoxPlot',
     SlopeGraph: 'SlopeGraph',
+    ScatterPlot: 'ScatterPlot',
 } as const
 
 export interface TrendsFormulaNodeApi {
@@ -7706,6 +7707,20 @@ export interface PieChartSettingsApi {
     valueDisplay?: ValueDisplayApi | null
 }
 
+export type XScaleApi = (typeof XScaleApi)[keyof typeof XScaleApi]
+
+export const XScaleApi = {
+    Linear: 'linear',
+    Logarithmic: 'logarithmic',
+} as const
+
+export interface ScatterChartSettingsApi {
+    /** X-axis scale. A `logarithmic` axis can't place a non-positive value, so those points are dropped. */
+    xScale?: XScaleApi | null
+    /** Whether the X axis should start at zero. Off by default, because pinning either axis of two independent measures to zero squashes the correlation into a corner. */
+    xStartAtZero?: boolean | null
+}
+
 export type DisplayTypeApi = (typeof DisplayTypeApi)[keyof typeof DisplayTypeApi]
 
 export const DisplayTypeApi = {
@@ -7771,6 +7786,7 @@ export interface ChartSettingsApi {
     /** Per-breakdown-value color customizations. Keyed by the raw breakdown column value. */
     resultCustomizations?: ChartSettingsApiResultCustomizations
     rightYAxisSettings?: YAxisSettingsApi | null
+    scatter?: ScatterChartSettingsApi | null
     seriesBreakdownColumn?: string | null
     showLegend?: boolean | null
     showNullsAsZero?: boolean | null
