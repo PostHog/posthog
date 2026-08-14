@@ -25668,7 +25668,9 @@
                 "Dokploy",
                 "RakutenAdvertising",
                 "Zitadel",
-                "DeelFlows"
+                "DeelFlows",
+                "Hootsuite",
+                "WisprFlow"
             ],
             "type": "string"
         },

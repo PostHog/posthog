@@ -2854,6 +2854,8 @@ export interface CredentialApi {
  * * `Depot` - Depot
  * * `Schematic` - Schematic
  * * `Dokploy` - Dokploy
+ * * `Hootsuite` - Hootsuite
+ * * `WisprFlow` - WisprFlow
  */
 export type ExternalDataSourceTypeEnumApi =
     (typeof ExternalDataSourceTypeEnumApi)[keyof typeof ExternalDataSourceTypeEnumApi]
@@ -4154,6 +4156,8 @@ export const ExternalDataSourceTypeEnumApi = {
     Depot: 'Depot',
     Schematic: 'Schematic',
     Dokploy: 'Dokploy',
+    Hootsuite: 'Hootsuite',
+    WisprFlow: 'WisprFlow',
 } as const
 
 export interface SimpleExternalDataSourceSerializersApi {
