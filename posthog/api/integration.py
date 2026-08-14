@@ -869,6 +869,20 @@ class IntegrationSerializer(serializers.ModelSerializer, UserAccessControlSerial
                                 "Stripe install signature could not be verified.",
                                 code="stripe_install_signature_invalid",
                             )
+                        logger.info(
+                            "stripe.marketplace_install_signature_verified",
+                            team_id=team_id,
+                            stripe_user_id=stripe_user_id,
+                            user_id=request.user.id,
+                        )
+                    else:
+                        # Only signal for the phishing gap accepted in #56373. Nothing else records this path.
+                        logger.warning(
+                            "stripe.marketplace_install_no_signature",
+                            team_id=team_id,
+                            stripe_user_id=stripe_user_id,
+                            user_id=request.user.id,
+                        )
 
                     conflicting = (
                         Integration.objects.filter(team_id=team_id, kind="stripe")
