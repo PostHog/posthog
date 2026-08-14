@@ -44,7 +44,7 @@ class ScannerModel(models.TextChoices):
 
     GEMINI_3_5_FLASH_LITE = "gemini-3.5-flash-lite", "Gemini 3.5 Flash Lite"
     GEMINI_3_FLASH_PREVIEW = "gemini-3-flash-preview", "Gemini 3 Flash"
-    GEMINI_3_6_FLASH = "gemini-3.6-flash", "Gemini 3.6 Flash"
+    GEMINI_3_7_FLASH = "gemini-3.7-flash", "Gemini 3.7 Flash"
 
 
 class ScannerOrigin(models.TextChoices):
