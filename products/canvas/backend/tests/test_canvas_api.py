@@ -1565,6 +1565,9 @@ class TestCanvasActions(CanvasAPIBaseTest):
         assert annotation.created_by_id == self.user.id
         assert annotation.scope == Annotation.Scope.PROJECT
         assert annotation.content == "Marked from the canvas"
+        # An omitted date_marker must resolve to a timestamp; a null marker
+        # would leave the annotation off every chart and out of AI context.
+        assert annotation.date_marker is not None
 
     def test_undeclared_and_unknown_verbs_are_refused(self):
         canvas_id = self._actions_canvas(verbs=("tasks.create",))
