@@ -1634,19 +1634,23 @@ export class PostHogAPIClient {
     const teamId = await this.getTeamId();
     const urlPath = `/api/projects/${teamId}/desktop_file_system/${encodeURIComponent(folderId)}/context_generation/`;
     const url = new URL(`${this.api.baseUrl}${urlPath}`);
-    const response = await this.api.fetcher.fetch({
-      method: "get",
-      url,
-      path: urlPath,
-    });
-    if (response.status === 404) return null;
-    if (!response.ok) {
+    try {
+      const response = await this.api.fetcher.fetch({
+        method: "get",
+        url,
+        path: urlPath,
+      });
+      const data = (await response.json()) as { task_id?: string | null };
+      return data.task_id ?? null;
+    } catch (error) {
+      if (requestErrorStatus(error) === 404) return null;
       throw new Error(
-        `Failed to fetch folder generation task: ${response.statusText}`,
+        extractRequestErrorMessage(
+          error,
+          "Failed to fetch folder generation task.",
+        ),
       );
     }
-    const data = (await response.json()) as { task_id?: string | null };
-    return data.task_id ?? null;
   }
 
   // Record (or clear, with null) the task generating this folder's CONTEXT.md.
@@ -2685,18 +2689,22 @@ export class PostHogAPIClient {
   ): Promise<ChannelInstructions | null> {
     const teamId = await this.getTeamId();
     const urlPath = `/api/projects/${teamId}/task_channels/${encodeURIComponent(channelId)}/instructions/`;
-    const response = await this.api.fetcher.fetch({
-      method: "get",
-      url: new URL(`${this.api.baseUrl}${urlPath}`),
-      path: urlPath,
-    });
-    if (response.status === 404) return null;
-    if (!response.ok) {
+    try {
+      const response = await this.api.fetcher.fetch({
+        method: "get",
+        url: new URL(`${this.api.baseUrl}${urlPath}`),
+        path: urlPath,
+      });
+      return (await response.json()) as ChannelInstructions;
+    } catch (error) {
+      if (requestErrorStatus(error) === 404) return null;
       throw new Error(
-        `Failed to fetch channel instructions: ${response.statusText}`,
+        extractRequestErrorMessage(
+          error,
+          "Failed to fetch channel instructions.",
+        ),
       );
     }
-    return (await response.json()) as ChannelInstructions;
   }
 
   async putChannelInstructions(
@@ -2705,25 +2713,33 @@ export class PostHogAPIClient {
   ): Promise<ChannelInstructions> {
     const teamId = await this.getTeamId();
     const urlPath = `/api/projects/${teamId}/task_channels/${encodeURIComponent(channelId)}/instructions/`;
-    const response = await this.api.fetcher.fetch({
-      method: "put",
-      url: new URL(`${this.api.baseUrl}${urlPath}`),
-      path: urlPath,
-      overrides: {
-        body: JSON.stringify({
-          content: input.content,
-          ...(input.baseVersion !== undefined
-            ? { base_version: input.baseVersion }
-            : {}),
-        }),
-      },
-    });
-    if (response.status === 409) {
-      throw new FolderInstructionsConflictError();
-    }
-    if (!response.ok) {
+    // The shared fetcher throws ApiRequestError for any non-2xx, so unwrap
+    // the concurrent-edit 409 into its typed error — without this the
+    // conflict UI in WebsiteContext.tsx can never trigger.
+    let response: Response;
+    try {
+      response = await this.api.fetcher.fetch({
+        method: "put",
+        url: new URL(`${this.api.baseUrl}${urlPath}`),
+        path: urlPath,
+        overrides: {
+          body: JSON.stringify({
+            content: input.content,
+            ...(input.baseVersion !== undefined
+              ? { base_version: input.baseVersion }
+              : {}),
+          }),
+        },
+      });
+    } catch (error) {
+      if (requestErrorStatus(error) === 409) {
+        throw new FolderInstructionsConflictError();
+      }
       throw new Error(
-        `Failed to publish channel instructions: ${response.statusText}`,
+        extractRequestErrorMessage(
+          error,
+          "Failed to publish channel instructions.",
+        ),
       );
     }
     return (await response.json()) as ChannelInstructions;
@@ -3453,19 +3469,19 @@ export class PostHogAPIClient {
     const url = new URL(
       `${this.api.baseUrl}/api/projects/${teamId}/tasks/${taskId}/runs/${runId}/task_session/`,
     );
-    const response = await this.api.fetcher.fetch({
-      method: "get",
-      url,
-      path: `/api/projects/${teamId}/tasks/${taskId}/runs/${runId}/task_session/`,
-    });
-    if (response.status === 404) {
-      return null;
+    try {
+      const response = await this.api.fetcher.fetch({
+        method: "get",
+        url,
+        path: `/api/projects/${teamId}/tasks/${taskId}/runs/${runId}/task_session/`,
+      });
+      return (await response.json()) as TaskSessionStorageAccess;
+    } catch (error) {
+      if (requestErrorStatus(error) === 404) return null;
+      throw new Error(
+        extractRequestErrorMessage(error, "Failed to load task session."),
+      );
     }
-    if (!response.ok) {
-      throw new Error(`Failed to load task session: ${response.statusText}`);
-    }
-
-    return (await response.json()) as TaskSessionStorageAccess;
   }
 
   async resumeRunInCloud(taskId: string, runId: string): Promise<TaskRun> {
@@ -4314,26 +4330,6 @@ export class PostHogAPIClient {
         path,
       });
 
-      if (!response.ok) {
-        const responseText = await response.text();
-        const unavailableReason =
-          response.status === 403
-            ? "forbidden"
-            : response.status === 404
-              ? "not_found"
-              : "request_failed";
-
-        log.warn("Signal report artefacts unavailable", {
-          teamId,
-          reportId,
-          status: response.status,
-          statusText: response.statusText,
-          body: responseText || undefined,
-        });
-
-        return { results: [], count: 0, unavailableReason };
-      }
-
       const data = (await response.json()) as unknown;
       const parsed = parseSignalReportArtefactsPayload(data);
 
@@ -4346,16 +4342,33 @@ export class PostHogAPIClient {
 
       return parsed;
     } catch (error) {
-      log.warn("Failed to fetch signal report artefacts", {
-        teamId,
-        reportId,
-        error,
-      });
-      return {
-        results: [],
-        count: 0,
-        unavailableReason: "request_failed",
-      };
+      const status = requestErrorStatus(error);
+      const unavailableReason =
+        status === 403
+          ? "forbidden"
+          : status === 404
+            ? "not_found"
+            : "request_failed";
+
+      if (status === 403 || status === 404) {
+        log.warn("Signal report artefacts unavailable", {
+          teamId,
+          reportId,
+          status,
+          body:
+            error instanceof ApiRequestError
+              ? JSON.stringify(error.body)
+              : undefined,
+        });
+      } else {
+        log.warn("Failed to fetch signal report artefacts", {
+          teamId,
+          reportId,
+          error,
+        });
+      }
+
+      return { results: [], count: 0, unavailableReason };
     }
   }
 
@@ -5485,26 +5498,32 @@ export class PostHogAPIClient {
     const url = new URL(
       `${this.api.baseUrl}/api/projects/${teamId}/sandbox_custom_images/`,
     );
-    const response = await this.api.fetcher.fetch({
-      method: "get",
-      url,
-      path: `/api/projects/${teamId}/sandbox_custom_images/`,
-    });
-    if (!response.ok) {
-      if (response.status === 403) {
-        const errorData = (await response.json().catch(() => ({}))) as {
-          detail?: string;
-        };
-        throw new SandboxCustomImagesDisabledError(errorData.detail);
+    try {
+      const response = await this.api.fetcher.fetch({
+        method: "get",
+        url,
+        path: `/api/projects/${teamId}/sandbox_custom_images/`,
+      });
+      const data = (await response.json()) as {
+        results?: SandboxCustomImage[];
+      };
+      return data.results ?? [];
+    } catch (error) {
+      if (requestErrorStatus(error) === 403) {
+        const apiError = error as ApiRequestError;
+        const detail =
+          apiError.body && typeof apiError.body === "object"
+            ? (apiError.body as { detail?: string }).detail
+            : undefined;
+        throw new SandboxCustomImagesDisabledError(detail);
       }
       throw new Error(
-        `Failed to fetch sandbox custom images: ${response.statusText}`,
+        extractRequestErrorMessage(
+          error,
+          "Failed to fetch sandbox custom images.",
+        ),
       );
     }
-    const data = (await response.json()) as {
-      results?: SandboxCustomImage[];
-    };
-    return data.results ?? [];
   }
 
   async createSandboxCustomImage(input: {
@@ -5743,17 +5762,22 @@ export class PostHogAPIClient {
     if (options.category !== undefined) {
       url.searchParams.set("category", options.category);
     }
-    const response = await this.api.fetcher.fetch({
-      method: "get",
-      url,
-      path: urlPath,
-    });
-    if (response.status === 403) return null;
-    if (!response.ok) {
-      throw new Error(`Failed to fetch team skills: ${response.statusText}`);
+    try {
+      const response = await this.api.fetcher.fetch({
+        method: "get",
+        url,
+        path: urlPath,
+      });
+      const data = (await response.json()) as {
+        results?: LlmSkillListItem[];
+      };
+      return data.results ?? [];
+    } catch (error) {
+      if (requestErrorStatus(error) === 403) return null;
+      throw new Error(
+        extractRequestErrorMessage(error, "Failed to fetch team skills."),
+      );
     }
-    const data = (await response.json()) as { results?: LlmSkillListItem[] };
-    return data.results ?? [];
   }
 
   /** Fetches the latest version of a team skill, including body and file manifest. */
