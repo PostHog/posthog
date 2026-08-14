@@ -16,6 +16,10 @@ Its source lives in PostHog — not in a repository — and you read and write i
 `canvas-*` tools. Never write a canvas to a local file; publishing through the tool is what
 saves it.
 
+Canvas work can start from any ordinary task. A dedicated canvas mode or pre-created canvas is
+not required. When the user asks for a board, document, form, visualization, or small app that
+should live in PostHog, treat that as a canvas request and follow this skill.
+
 ## Resolve the target canvas
 
 - If the task names a canvas id (canvas-initiated tasks do), that is the target. Do not create another.
@@ -42,6 +46,31 @@ saves it.
 
 This is a judgment call, not a persisted mode — ask the user only when the choice changes a
 user-visible requirement you cannot infer.
+
+## Common request patterns
+
+Use these as starting shapes, not fixed templates:
+
+- **Product dashboard:** React + Quill. Lead with KPI cards, follow with trend charts and useful
+  breakdown tables, and include an in-canvas date control. Back every metric with verified PostHog
+  data and load saved insights by short id.
+- **Web analytics board** (including a `web-analytics` requested pattern): React + Quill. Show
+  visitors, page views, sessions, session duration, and bounce rate, followed by visitors over
+  time and compact path, source, device, and geography tables. Use PostHog web analytics query
+  kinds rather than recreating sessionization, attribution, or bounce-rate logic in HogQL.
+- **Interactive explorer:** React + Quill. Use native Quill inputs for the dimensions or events a
+  viewer can choose, keep result sets small, and refresh every dependent result when controls
+  change.
+- **Checklist, form, or lightweight workflow:** React + Quill. Model clear local UI state and
+  capture only the declared interaction events the request needs. Do not imply persistence that
+  the available canvas APIs do not provide.
+- **Document or narrative report:** semantic HTML for a mostly static reading experience; React +
+  Quill when it needs live PostHog data, filters, or application-like interactions.
+- **Generative graphic or animation:** semantic HTML and browser graphics APIs. Keep controls
+  accessible and use React only when it materially simplifies application state or chrome.
+
+When the task carries a legacy requested pattern such as `dashboard` or `web-analytics`, apply the
+matching shape above. The pattern is a hint; the user's actual request remains authoritative.
 
 ## The iteration loop
 

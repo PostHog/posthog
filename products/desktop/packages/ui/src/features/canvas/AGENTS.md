@@ -178,9 +178,9 @@ The root `AGENTS.md` architecture rules still apply.
   inside a space. Autocomplete has no API for setting the highlight, so moving it
   means synthesizing the arrow keys it listens for — and moving *before*
   collapsing, while the rows still exist.
-- One `ChannelsFab` serves both panes: given a `channelId` it creates inside
-  that channel (task, canvas); from the list, where nothing else offers it, it
-  creates a space instead. Off the layout it keeps its original two-item menu.
+- One `ChannelsFab` serves both panes: given a `channelId` it creates a task in
+  that channel; from the list, where nothing else offers it, it creates a space
+  instead. Off the layout it keeps its original two-item menu.
   Archived moves out of the sidebar and into the account menu
   (`ProjectSwitcher`), beside Settings.
 - **Which pane shows is view state, not a route.** `channelPaneStore` holds it,
@@ -213,9 +213,8 @@ The root `AGENTS.md` architecture rules still apply.
 ## Canvas naming
 
 - **A canvas's name is its own field on the record**, set at creation
-  (`Untitled canvas` by default; the template picker / `useCreateAndOpenDashboard`
-  drive it). It is independent of any heading the agent renders inside the
-  React app.
+  (`Untitled canvas` by default; `useCreateAndOpenDashboard` drives it). It is
+  independent of any heading the agent renders inside the React app.
 
 ## Storage
 

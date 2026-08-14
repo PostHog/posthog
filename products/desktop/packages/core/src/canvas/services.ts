@@ -18,7 +18,7 @@ import type {
   CanvasDataResult,
   CanvasLoadInsightInput,
 } from "./freeformSchemas";
-import type { CanvasTemplate, CanvasTemplateSummary } from "./templateSchemas";
+import type { CanvasTemplateSummary } from "./templateSchemas";
 
 // Structural service interfaces the host-router routers depend on. The concrete
 // implementations live in the desktop app's main process and are bound to the
@@ -26,12 +26,6 @@ import type { CanvasTemplate, CanvasTemplateSummary } from "./templateSchemas";
 
 export interface ICanvasTemplatesService {
   list(): CanvasTemplateSummary[];
-  get(id: string): CanvasTemplate | undefined;
-  /**
-   * The freeform (React iframe) system prompt for a template, falling back to
-   * the generic freeform sandbox prompt.
-   */
-  freeformSystemPromptFor(id: string | undefined): string;
 }
 
 export interface IDashboardsService {
