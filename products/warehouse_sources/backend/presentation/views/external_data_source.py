@@ -103,8 +103,6 @@ from products.managed_warehouse.backend.facade import feature_flags as managed_w
 from products.revenue_analytics.backend.facade.api import ensure_person_join, remove_person_join
 from products.warehouse_sources.backend.facade.api import validate_source_prefix
 from products.warehouse_sources.backend.facade.models import (
-    MANAGED_WAREHOUSE_LEGACY_CREDENTIAL_KINDS,
-    MANAGED_WAREHOUSE_PROJECT_READER_CREDENTIAL_KIND,
     MANAGED_WAREHOUSE_SOURCE_PREFIX,
     DataWarehouseTable,
     ExternalDataJob,
@@ -186,15 +184,7 @@ def _canonical_legacy_managed_warehouse_source(
 ) -> ExternalDataSource | None:
     candidates = (
         queryset.select_related(None)
-        .filter(
-            source_type=ExternalDataSourceType.POSTGRES,
-            access_method=ExternalDataSource.AccessMethod.DIRECT,
-            direct_query_enabled=True,
-            prefix=MANAGED_WAREHOUSE_SOURCE_PREFIX,
-            connection_metadata__engine="duckdb",
-            connection_metadata__system_managed=True,
-            connection_metadata__credential_kind__in=MANAGED_WAREHOUSE_LEGACY_CREDENTIAL_KINDS,
-        )
+        .filter(ExternalDataSource.legacy_managed_warehouse_q())
         .only(
             "id",
             "team_id",
@@ -4689,17 +4679,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
         managed_warehouse_enabled = managed_warehouse_feature_flags.is_managed_warehouse_sql_editor_enabled(self.team)
         managed_source = None
         if managed_warehouse_enabled:
-            managed_warehouse_filter = Q(
-                source_type=ExternalDataSourceType.POSTGRES,
-                access_method=ExternalDataSource.AccessMethod.DIRECT,
-                direct_query_enabled=True,
-                prefix=MANAGED_WAREHOUSE_SOURCE_PREFIX,
-                connection_metadata__engine="duckdb",
-                connection_metadata__system_managed=True,
-                connection_metadata__credential_kind=MANAGED_WAREHOUSE_PROJECT_READER_CREDENTIAL_KIND,
-                connection_metadata__reader_configured=True,
-            )
-            managed_candidates = connection_sources.filter(managed_warehouse_filter).only(
+            managed_candidates = connection_sources.filter(ExternalDataSource.ready_managed_warehouse_q()).only(
                 "id",
                 "team_id",
                 "prefix",

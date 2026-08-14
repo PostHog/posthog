@@ -145,6 +145,31 @@ class ExternalDataSource(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
             and metadata.get("engine") == "duckdb"
         )
 
+    @classmethod
+    def managed_warehouse_identity_q(cls) -> models.Q:
+        return models.Q(
+            source_type=ExternalDataSourceType.POSTGRES,
+            access_method=cls.AccessMethod.DIRECT,
+            prefix=MANAGED_WAREHOUSE_SOURCE_PREFIX,
+            connection_metadata__engine="duckdb",
+            connection_metadata__system_managed=True,
+        )
+
+    @classmethod
+    def legacy_managed_warehouse_q(cls) -> models.Q:
+        return cls.managed_warehouse_identity_q() & models.Q(
+            direct_query_enabled=True,
+            connection_metadata__credential_kind__in=MANAGED_WAREHOUSE_LEGACY_CREDENTIAL_KINDS,
+        )
+
+    @classmethod
+    def ready_managed_warehouse_q(cls) -> models.Q:
+        return cls.managed_warehouse_identity_q() & models.Q(
+            direct_query_enabled=True,
+            connection_metadata__credential_kind=MANAGED_WAREHOUSE_PROJECT_READER_CREDENTIAL_KIND,
+            connection_metadata__reader_configured=True,
+        )
+
     def _has_valid_managed_warehouse_connection_inputs(self, *, expected_user: str | None = None) -> bool:
         job_inputs = self.job_inputs
         if not isinstance(job_inputs, dict):
