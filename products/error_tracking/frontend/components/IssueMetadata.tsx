@@ -64,7 +64,7 @@ export const Metadata = ({
                             }
                         }}
                         data-quill
-                        className="relative items-stretch gap-0 border-b border-primary bg-[var(--background)] after:pointer-events-none after:absolute after:inset-y-0 after:left-10 after:z-10 after:border-l after:border-primary after:content-['']"
+                        className="relative items-stretch gap-0 bg-[var(--background)] after:pointer-events-none after:absolute after:inset-y-0 after:left-10 after:z-10 after:border-l after:border-primary after:content-['']"
                     >
                         <TabsList
                             variant="line"
