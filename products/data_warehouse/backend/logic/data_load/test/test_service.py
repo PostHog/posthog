@@ -499,9 +499,7 @@ def test_reconcile_creates_missing_resumes_paused_and_leaves_active():
     source = _make_source(team)
     missing, paused, active = (_make_schema(team, source) for _ in range(3))
 
-    conn, upd, crt, trg = _patch_reconcile(
-        {str(missing.id): _not_found(), str(paused.id): True, str(active.id): False}
-    )
+    conn, upd, crt, trg = _patch_reconcile({str(missing.id): _not_found(), str(paused.id): True, str(active.id): False})
     with conn, upd as update_mock, crt as create_mock, trg as trigger_mock:
         result = bulk_reconcile_external_data_schedules([missing, paused, active])
 
