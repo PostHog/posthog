@@ -1234,8 +1234,13 @@ def get_compare_period_dates(
     return new_date_from, new_date_to
 
 
+def generate_cache_key_prefix(team_pk: int) -> str:
+    """The query cache is a single keyspace shared by every team, so each key carries its own team."""
+    return f"cache_{team_pk}_"
+
+
 def generate_cache_key(team_pk: int, stringified: str) -> str:
-    return f"cache_{team_pk}_{hashlib.sha256(stringified.encode('utf-8')).hexdigest()}"
+    return f"{generate_cache_key_prefix(team_pk)}{hashlib.sha256(stringified.encode('utf-8')).hexdigest()}"
 
 
 def get_celery_heartbeat() -> Union[str, int]:
