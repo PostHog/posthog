@@ -6,7 +6,7 @@ It produces the numbers you will cite back to them. The queries reuse the templa
 read that file for the full rationale and edge cases; this is the customer-support-focused
 subset plus the numbers each cause needs.
 
-## 1. Config — `experiment-get`
+## 1. Config — `posthog:experiment-get`
 
 Pull these fields; they are inputs to almost every cause:
 
@@ -30,10 +30,10 @@ Pull these fields; they are inputs to almost every cause:
   precedence. Absent / `"distinct_id"` is the default.
 - `feature_flag.filters.holdout` — if present, a **global holdout** deterministically excludes a
   slice of users from the experiment (see the holdout note below). Cross-check with
-  `experiment-holdouts-list`.
+  `posthog:experiment-holdouts-list`.
 - Flag dependencies — a property of type `flag` inside `feature_flag.filters.groups[].properties`
   means this flag **depends on another flag** and fails _closed_ when the parent isn't matched (see
-  the dependency note below). List dependents with `feature-flags-dependent-flags-retrieve`.
+  the dependency note below). List dependents with `posthog:feature-flags-dependent-flags-retrieve`.
 - `feature_flag.active`, status, `start_date`, `end_date`, `stats_config`.
 
 **Group-aggregated experiments.** When `aggregation_group_type_index` is set, the flag buckets and
@@ -63,10 +63,10 @@ When the customer says "fewer users than I expected," a holdout is a common beni
 conditions. Dependencies **fail closed**: a user who doesn't match the parent evaluates to `false`
 (no variant) rather than being randomized. So a dependency can both _shrink_ a population (users drop
 to `false`) and _skew_ it if the parent's own rollout correlates with anything. Detect with
-`feature-flags-dependent-flags-retrieve` or the type-`flag` property in `filters.groups[]`; the fix
+`posthog:feature-flags-dependent-flags-retrieve` or the type-`flag` property in `filters.groups[]`; the fix
 (widen/align the parent, or drop the dependency) is in the customer's flag config.
 
-## 2. Metrics + exposure totals — `experiment-results-get`
+## 2. Metrics + exposure totals — `posthog:experiment-results-get`
 
 Returns per-variant exposure totals and metric results in one call:
 
@@ -76,17 +76,17 @@ Returns per-variant exposure totals and metric results in one call:
 - `metrics.primary.results[]` / `metrics.secondary.results[]` — each row carries `index`, a `metric`
   summary, and `data` (the primary/secondary object itself also has a `count`); a `data: null` row is
   failed-or-not-yet-computed, not necessarily broken. Re-pull, or force one recompute with
-  `experiment-results-get { refresh: true }`, before reporting a metric as failing (see the
+  `posthog:experiment-results-get { refresh: true }`, before reporting a metric as failing (see the
   transient-vs-real protocol in `diagnostic-snapshot.md`).
 
-## 3. Exposure shape — `execute-sql`
+## 3. Exposure shape — `posthog:execute-sql`
 
 Default exposure event:
 
 ```sql
 SELECT
   properties.$feature_flag_response AS variant,
-  count() AS exposures,
+  count() AS exposure_events,
   count(DISTINCT person_id) AS persons,
   count(DISTINCT distinct_id) AS distinct_ids,
   min(timestamp) AS first_seen,
@@ -96,8 +96,14 @@ WHERE event = '$feature_flag_called'
   AND properties.$feature_flag = '<flag-key>'
   AND timestamp >= '<start_date>'
 GROUP BY variant
-ORDER BY exposures DESC
+ORDER BY exposure_events DESC
 ```
+
+**`exposure_events` is not the SRM input.** It counts raw `$feature_flag_called` events, and one
+user fires as many as their app evaluates the flag — a variant that re-renders or adds a route reads
+it more often, so the event ratio drifts from the person ratio with nothing wrong. Use this column
+for volume and liveness (is anything arriving, has one arm gone quiet), and take the SRM counts from
+§2's `total_exposures`, which is already one row per person. See the chi-squared section in §4.
 
 If `exposure_criteria.exposure_config.event` is set, the variant attribution lives on
 `properties.$feature/<flag-key>` instead of `$feature_flag_response`, and the event filter is
@@ -122,7 +128,7 @@ loaded get `false`/`undefined` and are dropped from their arm instead of showing
 | Cause                                     | The number that confirms it                                                                                                                |
 | ----------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
 | Uneven split + Exclude bias               | uneven `rollout_percentage` split **and** `$multiple` share > 0.1% (banner threshold), handling = `exclude`                                |
-| Sample ratio mismatch                     | chi-squared p < 0.001 (see below); only meaningful once totals are healthy                                                                 |
+| Sample ratio mismatch                     | chi-squared p < 0.001 on §2's per-person `total_exposures` (see below); only meaningful once totals are healthy                            |
 | Assignment override (assignment-side SRM) | hash-recomputation agreement well under 100% (the decisive test below); then localize with the SDK split / bootstrap mix below             |
 | Capture-by-surface (capture-side SRM)     | a `$pathname`/`$screen_name` where one variant's share jumps to ~100% while other paths sit near the split                                 |
 | Flag read before load (capture-side SRM)  | `false`/`null` person count near the short-arm gap and concentrated on that arm's `$lib`/surface                                           |
@@ -134,15 +140,24 @@ loaded get `false`/`undefined` and are dropped from their arm instead of showing
 | Missing exposures                         | total exposures ~0, or a variant `last_seen` days behind the other, or a flat timeseries tail                                              |
 | Test-account exclusion                    | count of exposures matching the project's test-account filter                                                                              |
 | Holdout population loss                   | size of the `holdout-<id>` bucket vs the expected-minus-actual N (removes users evenly, no directional SRM)                                |
-| Flag dependency (fail-closed)             | `false` responses concentrated on users failing a type-`flag` release condition; `feature-flags-dependent-flags-retrieve` names the parent |
+| Flag dependency (fail-closed)             | `false` responses concentrated on users failing a type-`flag` release condition; `posthog:feature-flags-dependent-flags-retrieve` names the parent |
 | Capture disabled                          | exposures ~0 while the flag is demonstrably read — `send_feature_flag_events`/events-off in the SDK config, not a wrong accessor           |
 
 ### Sample ratio mismatch (SRM) — chi-squared
 
-Compare observed exposure counts to the configured split. For observed counts `Oᵢ` with total
+**Count people, not events.** The unit is one row per person at first exposure — take `Oᵢ` from §2's
+`exposures.total_exposures[variant]`, which the product already collapses per person, _not_ from
+§3's `exposure_events`. The test assumes each user is one independent draw from the split; raw
+`$feature_flag_called` counts break that, because events-per-user varies by arm. Running χ² on event
+counts inflates it and manufactures an SRM on a perfectly balanced experiment — which then sends the
+decisive test below to ~100% agreement and the diagnosis off hunting a capture-side surface split
+that was never there. On a group-aggregated experiment the unit is the group key, not the person
+(see §1).
+
+Compare those observed counts to the configured split. For observed counts `Oᵢ` with total
 `N` and configured proportions `pᵢ`, expected `Eᵢ = N·pᵢ`, and
 `χ² = Σ (Oᵢ − Eᵢ)² / Eᵢ` with `k − 1` degrees of freedom. Flag SRM only at **p < 0.001**.
-Don't call SRM below ~1,000 exposures/variant — small-sample variance dominates. Exclude the
+Don't call SRM below ~1,000 exposed persons/variant — small-sample variance dominates. Exclude the
 `$multiple` bucket from this test (it isn't a variant). For a two-variant split the equivalent
 z-test is `z = (O₁ − E₁) / sqrt(N·p₁·(1−p₁))`; |z| ≳ 6 is the ~4.7e-11 range and unmistakable.
 **Multivariate (3+ arms):** the chi-squared test above already generalizes (`k − 1` d.o.f.), and
@@ -241,7 +256,7 @@ LIMIT 800
 #### Localization queries
 
 **Daily first-exposure ratio** — flat = standing/structural bias; a step change on one day = a
-change made then (cross-check `feature-flags-activity-retrieve` for that date).
+change made then (cross-check `posthog:feature-flags-activity-retrieve` for that date).
 
 ```sql
 WITH first_exposures AS (
@@ -327,19 +342,19 @@ true` concentrated on the heavier arm is the signature of a bootstrap value inhe
 
 - **Timezone.** HogQL compares `timestamp` in the **project timezone**, not UTC. A launch bound
   written as UTC can be off by the project's offset (e.g. an hour on Europe/London) — verify the
-  total exposures the query returns matches `experiment-results-get` before trusting any slice.
+  total exposures the query returns matches `posthog:experiment-results-get` before trusting any slice.
 - **Property access.** If the parser rejects `properties.$feature_flag`, use
   `properties['$feature_flag']`.
-- **Attributing edits.** The `advanced-activity-logs-list` "feature flag updated" row does **not**
-  carry the flag key — use `feature-flags-activity-retrieve { id: <feature_flag_id> }` for the
+- **Attributing edits.** The `posthog:advanced-activity-logs-list` "feature flag updated" row does **not**
+  carry the flag key — use `posthog:feature-flags-activity-retrieve { id: <feature_flag_id> }` for the
   field-level diff when you need to prove _which_ flag changed.
 
 ## 5. Change history
 
-- **`feature-flags-activity-retrieve { id: <feature_flag_id> }`** — flag edits with
+- **`posthog:feature-flags-activity-retrieve { id: <feature_flag_id> }`** — flag edits with
   field-level diffs. Most "why did the numbers change?" surprises are a variant/rollout/
   condition change visible here.
-- **`advanced-activity-logs-list { scopes: ["Experiment"], item_ids: [<experiment_id>] }`** —
+- **`posthog:advanced-activity-logs-list { scopes: ["Experiment"], item_ids: [<experiment_id>] }`** —
   experiment-level timeline (who/when; no change diff, so use it for _when_, not _what_).
 
 ## Handing off

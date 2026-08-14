@@ -11,9 +11,12 @@ you still have to route on it.
 
 Algorithm is byte-exact with the PostHog implementation in
 `rust/feature-flags/src/flags/flag_matching.rs` (get_matching_variant) and
-`flag_matching_utils.rs` (calculate_hash). Run `--selftest` first: it replays the repo's
-golden hash vectors so you know the reimplementation matches this build before you trust
-a verdict.
+`flag_matching_utils.rs` (calculate_hash). Run `--selftest` first — it checks all three
+parts a wrong verdict would come from, and exits non-zero on any mismatch:
+
+    hash pipeline    replayed against the repo's golden vectors
+    variant hash key the `{flag_key}.` prefix and the `variant` salt
+    variant walk     stored order and the strict `<` bound
 
 Stdlib only (hashlib, csv, argparse) — no PostHog install required. distinct_ids are
 often emails; run this customer-side and paste back only the aggregate lines it prints.
@@ -39,18 +42,30 @@ import sys
 __LONG_SCALE__ = 0xFFFFFFFFFFFFFFF
 
 
-def calculate_hash(prefix: str, identifier: str, salt: str = "") -> float:
-    """Deterministic hash in [0, 1). Mirrors calculate_hash() in flag_matching_utils.rs:
-    first 15 hex chars of sha1(prefix + identifier + salt), divided by LONG_SCALE."""
-    hash_key = f"{prefix}{identifier}{salt}"
+def hash_of(hash_key: str) -> float:
+    """The pipeline half of calculate_hash() in flag_matching_utils.rs: first 15 hex
+    chars of sha1(hash_key), divided by LONG_SCALE. Deterministic, in [0, 1)."""
     return int(hashlib.sha1(hash_key.encode("utf-8")).hexdigest()[:15], 16) / __LONG_SCALE__
 
 
-def variant_for(flag_key: str, identifier: str, variants: list[tuple[str, float]]) -> str | None:
-    """Recompute the assigned variant. Mirrors get_matching_variant(): hash with the
-    `variant` salt, then walk the variants in stored order by cumulative percentage.
-    `variants` must be in the flag's stored order — a wrong order inverts the result."""
-    h = calculate_hash(f"{flag_key}.", identifier, "variant")
+def calculate_hash(prefix: str, identifier: str, salt: str = "") -> float:
+    """Mirrors calculate_hash() in flag_matching_utils.rs, which concatenates
+    prefix + identifier + salt before hashing."""
+    return hash_of(f"{prefix}{identifier}{salt}")
+
+
+def variant_hash_key(flag_key: str, identifier: str) -> str:
+    """The exact string get_hash() feeds to sha1 for the variant walk: the `{flag_key}.`
+    prefix, the identifier, then the `variant` salt. The plain rollout gate hashes the
+    same identifier with an *empty* salt, and mixing the two is the classic
+    reimplementation bug — so --selftest pins this string."""
+    return f"{flag_key}.{identifier}variant"
+
+
+def pick_variant(h: float, variants: list[tuple[str, float]]) -> str | None:
+    """Walk the variants in stored order accumulating rollout_percentage / 100; the first
+    bound strictly above `h` wins. Mirrors the loop in get_matching_variant(). `variants`
+    must be in the flag's stored order — a wrong order inverts the result."""
     cumulative = 0.0
     for name, pct in variants:
         cumulative += pct / 100.0
@@ -59,19 +74,28 @@ def variant_for(flag_key: str, identifier: str, variants: list[tuple[str, float]
     return None
 
 
+def variant_for(flag_key: str, identifier: str, variants: list[tuple[str, float]]) -> str | None:
+    """Recompute the assigned variant, as get_matching_variant() would."""
+    return pick_variant(hash_of(variant_hash_key(flag_key, identifier)), variants)
+
+
 def parse_variants(spec: str) -> list[tuple[str, float]]:
     out: list[tuple[str, float]] = []
     for part in spec.split(","):
         name, _, pct = part.partition("=")
         if not name or not pct:
             raise ValueError(f"bad --variants entry {part!r}; expected name=pct")
-        out.append((name.strip(), float(pct)))
+        try:
+            out.append((name.strip(), float(pct)))
+        except ValueError:
+            raise ValueError(f"bad --variants entry {part!r}; {pct!r} is not a number") from None
     return out
 
 
 # Golden vectors from rust/feature-flags/src/flags/flag_matching_utils.rs
 # (test_calculate_hash: prefix="holdout-", salt=""). If these fail, the local
 # hashing does not match PostHog and any verdict below would be meaningless.
+# They cover the sha1 -> first-15-hex -> LONG_SCALE pipeline only.
 _GOLDEN = [
     ("some_distinct_id", 0.7270002403585725),
     ("test-identifier", 0.4493881716040236),
@@ -79,21 +103,55 @@ _GOLDEN = [
     ("example_id2", 0.6292740389966519),
 ]
 
+# The variant path has no golden vector upstream — the Rust tests assert set membership
+# (test_get_matching_variant_with_cache) and a +/-5pp distribution, never a fixed value.
+# So pin the two things a reimplementation actually gets wrong, which the vectors above
+# cannot see: the `{flag_key}.` prefix and the `variant` salt. A distribution check can't
+# stand in for these — a wrong-but-deterministic hash still splits 50/50.
+_GOLDEN_VARIANT_KEYS = [
+    ("my-flag", "user_1", "my-flag.user_1variant"),
+    ("experiment-flag", "some_distinct_id", "experiment-flag.some_distinct_idvariant"),
+]
+
+# (hash, stored-order variants, expected) — covers the strict `<` bound, order
+# sensitivity, and the sub-100% case that falls through to None.
+_WALK_CASES: list[tuple[float, list[tuple[str, float]], str | None]] = [
+    (0.0, [("control", 50.0), ("test", 50.0)], "control"),
+    (0.4999, [("control", 50.0), ("test", 50.0)], "control"),
+    (0.5, [("control", 50.0), ("test", 50.0)], "test"),
+    (0.9999, [("control", 50.0), ("test", 50.0)], "test"),
+    (0.5, [("test", 50.0), ("control", 50.0)], "control"),
+    (0.25, [("a", 10.0), ("b", 30.0), ("c", 60.0)], "b"),
+    (0.95, [("a", 10.0), ("b", 30.0), ("c", 60.0)], "c"),
+    (0.95, [("a", 10.0), ("b", 30.0)], None),
+]
+
 
 def selftest() -> int:
     ok = True
+
+    print("hash pipeline (golden vectors from flag_matching_utils.rs):")
     for ident, expected in _GOLDEN:
         got = calculate_hash("holdout-", ident, "")
         match = abs(got - expected) < 1e-12
         ok = ok and match
         print(f"  {ident:20s} {got!r} {'ok' if match else f'MISMATCH (want {expected!r})'}")
-    # Sanity-check the variant walk splits ~evenly on synthetic ids.
-    counts: dict[str | None, int] = {}
-    variants = [("control", 50.0), ("test", 50.0)]
-    for i in range(4000):
-        v = variant_for("selftest-flag", f"user_{i}", variants)
-        counts[v] = counts.get(v, 0) + 1
-    print(f"  variant walk (50/50 over 4000 ids): {counts}")
+
+    print("variant hash key (`{flag_key}.` prefix + `variant` salt):")
+    for flag_key, ident, expected in _GOLDEN_VARIANT_KEYS:
+        got = variant_hash_key(flag_key, ident)
+        match = got == expected
+        ok = ok and match
+        print(f"  {got!r} {'ok' if match else f'MISMATCH (want {expected!r})'}")
+
+    print("variant walk (stored order, strict < bound):")
+    for h, variants, expected in _WALK_CASES:
+        got = pick_variant(h, variants)
+        match = got == expected
+        ok = ok and match
+        order = ",".join(f"{name}={pct:g}" for name, pct in variants)
+        print(f"  h={h:<7g} [{order}] -> {got!r} {'ok' if match else f'MISMATCH (want {expected!r})'}")
+
     print("SELFTEST PASS" if ok else "SELFTEST FAILED")
     return 0 if ok else 1
 
@@ -130,7 +188,8 @@ def run(flag_key: str, variants: list[tuple[str, float]], csv_path: str,
     print(f"predicted variants:  {dict(sorted(predicted_counts.items(), key=lambda x: str(x[0])))}")
     print()
     if pct >= 99.0:
-        print("=> ~100% agreement: assignment matches the hash for everyone recorded.")
+        print(f"=> {pct:.2f}% agreement: assignment matches the hash for all but {total - agree} of the")
+        print("   users recorded, so assignment is not what is skewing the split.")
         print("   The skew is CAPTURE-side. Work the capture-side causes")
         print("   (uneven-split exclusion, capture-by-surface, flag-read-before-load, wrong SDK method).")
     else:
@@ -155,7 +214,11 @@ def main(argv: list[str]) -> int:
         return selftest()
     if not (args.flag_key and args.variants and args.csv):
         p.error("--flag-key, --variants and --csv are required (or use --selftest)")
-    return run(args.flag_key, parse_variants(args.variants), args.csv, args.id_col, args.variant_col)
+    try:
+        variants = parse_variants(args.variants)
+    except ValueError as e:
+        p.error(str(e))
+    return run(args.flag_key, variants, args.csv, args.id_col, args.variant_col)
 
 
 if __name__ == "__main__":
