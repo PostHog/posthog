@@ -81,7 +81,7 @@ tracer = trace.get_tracer(__name__)
 TRANSIENT_S3_ERROR_RETRY_DELAY_SECONDS = 1.0
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=False)
 class HogQLQueryExecutor:
     query: Union[str, ast.SelectQuery, ast.SelectSetQuery] | None
     team: Team
