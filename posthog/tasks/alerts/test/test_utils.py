@@ -302,5 +302,7 @@ class TestDisableInvalidAlert(APIBaseTest):
 
         check.refresh_from_db()
         assert check.targets_notified == {"users": [self.user.email]}
-        assert check.deliveries[0]["channel"] == "email"
+        deliveries = check.deliveries
+        assert isinstance(deliveries, list)
+        assert deliveries[0]["channel"] == "email"
         mock_send.assert_called_once()

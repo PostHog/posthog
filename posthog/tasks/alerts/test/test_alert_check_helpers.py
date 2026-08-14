@@ -121,5 +121,7 @@ class TestRunAlertCheck(APIBaseTest):
 
         check.refresh_from_db()
         assert check.targets_notified == {"users": []}
-        assert check.deliveries[0]["channel"] == "hog_function"
+        deliveries = check.deliveries
+        assert isinstance(deliveries, list)
+        assert deliveries[0]["channel"] == "hog_function"
         assert check.notification_sent_at is not None
