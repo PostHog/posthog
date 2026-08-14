@@ -30,8 +30,10 @@ import {
     CyclotronJobInputsValidationResult,
 } from 'lib/components/CyclotronJob/CyclotronJobInputsValidation'
 import { dayjs } from 'lib/dayjs'
+import { scrollToFormError } from 'lib/forms/scrollToFormError'
 import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
 import { uuid } from 'lib/utils/dom'
+import { hasFormErrors } from 'lib/utils/objects'
 import { addProductIntent } from 'lib/utils/product-intents'
 import { asDisplay } from 'scenes/persons/person-utils'
 import { projectLogic } from 'scenes/projectLogic'
@@ -109,6 +111,30 @@ const VALIDATION_RULES = {
             ? 'You must choose a filter'
             : undefined,
 } as const
+
+// Names the form fields that block a save, so the failure toast can point the user at them.
+// Input errors are keyed by input schema key, so map each one back to its display label.
+function getSubmitBlockingFieldLabels(
+    errors: Record<string, any>,
+    inputsSchema: CyclotronJobInputSchemaType[]
+): string[] {
+    const labels: string[] = []
+    if (errors.name) {
+        labels.push('Name')
+    }
+    if (errors.filters) {
+        labels.push('Filters')
+    }
+    if (errors.mappings) {
+        labels.push('Mappings')
+    }
+    for (const [key, error] of Object.entries((errors.inputs ?? {}) as Record<string, string>)) {
+        if (error) {
+            labels.push(inputsSchema.find((schema) => schema.key === key)?.label || key)
+        }
+    }
+    return labels
+}
 
 const NEW_FUNCTION_TEMPLATE: HogFunctionTemplateType = {
     id: 'new',
@@ -1963,6 +1989,24 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
         },
         upsertHogFunctionSuccess: () => {
             actions.resetForm()
+        },
+
+        submitConfigurationFailure: () => {
+            // A save blocked by client-side validation is otherwise silent: the inline errors are
+            // already on screen (alwaysShowErrors), so nothing changes on the click. Point the user
+            // at the blocking fields and scroll the first one into view.
+            // No field errors means the submit itself threw, which upsertHogFunctionFailure handles.
+            const errors = values.configurationErrors
+            if (!hasFormErrors(errors)) {
+                return
+            }
+            const fields = getSubmitBlockingFieldLabels(errors, values.configuration.inputs_schema ?? [])
+            lemonToast.error(
+                fields.length
+                    ? `Check these fields before saving: ${fields.join(', ')}`
+                    : 'Some fields need attention before saving'
+            )
+            scrollToFormError()
         },
 
         upsertHogFunctionFailure: ({ errorObject }) => {

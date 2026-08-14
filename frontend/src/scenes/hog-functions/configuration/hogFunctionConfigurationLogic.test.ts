@@ -162,6 +162,9 @@ describe('hogFunctionConfigurationLogic', () => {
         })
 
         it('sets rejects submission if missing inputs', async () => {
+            // A blocked submit must give visible feedback: without the failure toast the click is
+            // a silent dead end, since the inline errors are already on screen (alwaysShowErrors).
+            const toastSpy = jest.spyOn(lemonToast, 'error').mockImplementation(() => 'id')
             logic.mount()
             await expectLogic(logic).toDispatchActions(['loadTemplate', 'loadTemplateSuccess'])
 
@@ -174,6 +177,7 @@ describe('hogFunctionConfigurationLogic', () => {
                     url: 'This field is required',
                 },
             })
+            expect(toastSpy).toHaveBeenCalledWith('Check these fields before saving: Webhook URL')
         })
 
         it('saves if form valid', async () => {
