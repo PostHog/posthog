@@ -33,7 +33,7 @@ export function InvestigationAgentSettings({
                         <span className="flex items-center gap-1">
                             Run investigation agent when this alert fires
                             <Tooltip
-                                title="On the transition to firing, an agent validates the anomaly with read-only queries, writes a notebook with its findings, and links it from the alert check history. Runs once per transition."
+                                title="Each time this alert fires, an agent validates the anomaly with read-only queries, writes a notebook with its findings, and links it from the alert check history. Alerts that check more often than hourly are investigated at most once an hour."
                                 placement="right"
                                 delayMs={0}
                             >

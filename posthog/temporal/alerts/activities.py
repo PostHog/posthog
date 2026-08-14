@@ -304,7 +304,7 @@ async def evaluate_alert(inputs: EvaluateAlertActivityInputs) -> EvaluateAlertRe
 
         # A non-transient failure: write the errored check and return. Transient errors were
         # re-raised above for the retry policy, and the investigation gating below only fires on a
-        # FIRING transition, so the errored path skips it.
+        # FIRING check, so the errored path skips it.
         if error is not None:
             with transaction.atomic():
                 alert = (
@@ -334,7 +334,6 @@ async def evaluate_alert(inputs: EvaluateAlertActivityInputs) -> EvaluateAlertRe
                 .select_related("insight", "team", "threshold")
                 .get(id=inputs.alert_id)
             )
-            previous_state = alert.state
             alert_check, should_notify = add_alert_check(
                 alert,
                 value,
@@ -347,20 +346,16 @@ async def evaluate_alert(inputs: EvaluateAlertActivityInputs) -> EvaluateAlertRe
                 triggered_metadata,
             )
 
-            if should_trigger_investigation(
-                alert,
-                previous_state=previous_state,
-                new_state=alert_check.state,
-            ):
+            # Claim the cooldown slot inside the transaction so a flapping or
+            # concurrently-retried alert can't pile up investigations.
+            if should_trigger_investigation(alert, new_state=alert_check.state):
                 if claim_investigation_slot(alert, alert_check):
                     should_start_investigation = True
                     should_gate_notification = bool(alert.investigation_gates_notifications)
 
-            # Claim the cooldown slot inside the transaction so a flapping or
-            # concurrently-retried alert can't pile up investigations.
-            if should_investigate_metrics_alert(
-                alert, previous_state=previous_state, new_state=alert_check.state
-            ) and claim_investigation_slot(alert, alert_check):
+            if should_investigate_metrics_alert(alert, new_state=alert_check.state) and claim_investigation_slot(
+                alert, alert_check
+            ):
                 should_run_metrics_investigation = True
 
         # Outside the persistence transaction: the metrics investigation issues

@@ -163,9 +163,9 @@ class AlertConfiguration(ModelActivityMixin, CreatedMetaFields, UUIDTModel):
 
     schedule_restriction = models.JSONField(null=True, blank=True, default=None)
 
-    # When enabled and the alert transitions to FIRING, an investigation agent runs
-    # and writes its findings to a linked Notebook. Only effective for detector-based
-    # (anomaly) alerts. See posthog/temporal/alerts/workflows.py for the trigger logic.
+    # When enabled, an investigation agent runs on every FIRING check and writes its
+    # findings to a linked Notebook. Only effective for detector-based (anomaly) alerts.
+    # See posthog/temporal/alerts/investigation.py for the trigger logic and cooldown.
     investigation_agent_enabled = models.BooleanField(default=False)
 
     # When enabled (and investigation_agent_enabled is on), notification dispatch is
@@ -447,7 +447,7 @@ class AlertCheck(UUIDTModel):
         null=True, blank=True
     )  # Additional trigger context (e.g. series_index, breakdown_value)
 
-    # Investigation agent linkage — populated when the alert transitions to FIRING and
+    # Investigation agent linkage — populated when the check is FIRING and
     # investigation_agent_enabled is true. Lives on the check record so the notebook is
     # surfaced inline with the specific firing event it investigated.
     investigation_status = models.CharField(max_length=10, choices=InvestigationStatus.choices, null=True, blank=True)

@@ -14,25 +14,32 @@ from posthog.schema import AlertState
 
 from products.alerts.backend.models.alert import AlertCheck, AlertConfiguration, InvestigationStatus
 
-INVESTIGATION_COOLDOWN = timedelta(hours=1)
+# Hourly and slower alerts get an investigation per firing check. The guard only has to
+# separate a retried or concurrent evaluation of the same check — those land seconds
+# apart — from the next scheduled check an hour or more later.
+INVESTIGATION_COOLDOWN = timedelta(minutes=5)
+
+# Sub-hourly alerts (real time, every 15 minutes) can fire many times an hour and each
+# investigation is a full agent run, so they stay on an hourly leash instead.
+HIGH_FREQUENCY_INVESTIGATION_COOLDOWN = timedelta(hours=1)
 
 
-def should_trigger_investigation(
-    alert: AlertConfiguration,
-    *,
-    previous_state: str | None,
-    new_state: str,
-) -> bool:
+def investigation_cooldown(alert: AlertConfiguration) -> timedelta:
+    """Minimum spacing between two investigations of the same alert."""
+    return HIGH_FREQUENCY_INVESTIGATION_COOLDOWN if alert.is_high_frequency_interval else INVESTIGATION_COOLDOWN
+
+
+def should_trigger_investigation(alert: AlertConfiguration, *, new_state: str) -> bool:
     """True when this fire is eligible for an investigation, ignoring cooldown.
 
-    Cooldown is enforced by `claim_investigation_slot`, which does the read-then-write
-    inside the caller's transaction.
+    Every firing check is eligible, not just the transition into FIRING: an alert that
+    stays firing keeps producing notifications, and each one needs its own verdict to
+    gate on. Frequency is bounded by `claim_investigation_slot`, which does the
+    read-then-write inside the caller's transaction.
     """
     if not alert.investigation_agent_enabled:
         return False
     if not alert.detector_config:
-        return False
-    if previous_state == AlertState.FIRING:
         return False
     if new_state != AlertState.FIRING:
         return False
@@ -48,7 +55,7 @@ def claim_investigation_slot(alert: AlertConfiguration, alert_check: AlertCheck)
 
     Caller must run this inside a transaction so the read-then-write is atomic.
     """
-    cooldown_since = datetime.now(UTC) - INVESTIGATION_COOLDOWN
+    cooldown_since = datetime.now(UTC) - investigation_cooldown(alert)
     recent = AlertCheck.objects.filter(
         alert_configuration=alert,
         created_at__gte=cooldown_since,

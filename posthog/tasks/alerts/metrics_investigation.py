@@ -1,9 +1,9 @@
 """Synchronous investigation for firing metrics alerts.
 
-When a threshold alert on a metrics insight transitions into FIRING and the
-alert has the investigation agent enabled, the metrics facade investigates the
-window around the fire and the outcome lands on the AlertCheck's existing
-investigation fields — so the alert page carries the why, not just the that.
+When a threshold alert on a metrics insight fires and the alert has the
+investigation agent enabled, the metrics facade investigates the window around
+the fire and the outcome lands on the AlertCheck's existing investigation
+fields — so the alert page carries the why, not just the that.
 Distinct from the detector alerts' agent workflow: this is a bounded set of
 metric queries, run in-line with the check, no agent or notebook involved.
 
@@ -47,15 +47,11 @@ class _InvestigationTarget(NamedTuple):
     unscoped_service_op: str | None
 
 
-def should_investigate_metrics_alert(
-    alert: AlertConfiguration,
-    *,
-    previous_state: str | None,
-    new_state: str,
-) -> bool:
+def should_investigate_metrics_alert(alert: AlertConfiguration, *, new_state: str) -> bool:
     """True when this check is eligible for a synchronous metrics investigation:
     a threshold (non-detector) alert on a metrics insight, opted in via the
-    investigation flag, on a transition into FIRING (not on every re-fire).
+    investigation flag, on any firing check — a re-fire is a fresh notification
+    and deserves a fresh explanation of the window it fired on.
 
     Cooldown is enforced separately by `claim_investigation_slot`, mirroring the
     detector path. Never raises — an unexpected error reading the insight kind
@@ -64,7 +60,7 @@ def should_investigate_metrics_alert(
     """
     if not alert.investigation_agent_enabled or alert.detector_config:
         return False
-    if previous_state == AlertState.FIRING or new_state != AlertState.FIRING:
+    if new_state != AlertState.FIRING:
         return False
     try:
         return alert.insight.alertable_query_kind == NodeKind.METRICS_QUERY

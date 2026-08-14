@@ -16,7 +16,6 @@ def run_alert_check(alert_id: str) -> None:
 
     error = None
     result = None
-    previous_state = alert.state
     try:
         result = check_alert_for_insight(alert)
     except Exception as e:
@@ -38,9 +37,9 @@ def run_alert_check(alert_id: str) -> None:
 
         # Claim the cooldown slot inside the transaction (read-then-write stays
         # consistent with the check insert), mirroring the detector path.
-        if should_investigate_metrics_alert(
-            alert, previous_state=previous_state, new_state=alert_check.state
-        ) and claim_investigation_slot(alert, alert_check):
+        if should_investigate_metrics_alert(alert, new_state=alert_check.state) and claim_investigation_slot(
+            alert, alert_check
+        ):
             should_run_metrics_investigation = True
 
     # Outside the persistence transaction: the investigation issues ClickHouse
