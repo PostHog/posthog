@@ -1,0 +1,9 @@
+[project]
+name = "person-merge-bench"
+version = "0.1.0"
+description = "Standalone SQL-level benchmark harness for person merge strategies"
+requires-python = ">=3.11"
+dependencies = ["psycopg[binary]>=3.2"]
+
+[tool.uv]
+package = false

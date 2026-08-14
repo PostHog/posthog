@@ -1,0 +1,43 @@
+#!/usr/bin/env bash
+# Local throwaway Postgres 16 for the merge benchmarks (port 5544).
+# Usage: bin/pg-sandbox {init|start|stop|status}
+set -euo pipefail
+
+PGBIN=${PGBIN:-/usr/lib/postgresql/16/bin}
+PGROOT=${PGROOT:-"${TMPDIR:-/tmp}/person-merge-pg16"}
+PGDATA="$PGROOT/data"
+PORT=5544
+
+case "${1:-}" in
+    init)
+        mkdir -p "$PGROOT"
+        "$PGBIN/initdb" -D "$PGDATA" -U posthog --auth=trust -E UTF8
+        cat >> "$PGDATA/postgresql.conf" <<EOF
+listen_addresses = '127.0.0.1'
+port = $PORT
+shared_buffers = 512MB
+max_connections = 60
+shared_preload_libraries = 'pg_stat_statements'
+track_io_timing = on
+wal_compression = off
+autovacuum_naptime = 15s
+unix_socket_directories = '$PGROOT'
+EOF
+        "$0" start
+        psql -h 127.0.0.1 -p $PORT -U posthog postgres -c "CREATE DATABASE merge_bench"
+        psql -h 127.0.0.1 -p $PORT -U posthog merge_bench -c "CREATE EXTENSION pg_stat_statements"
+        ;;
+    start)
+        "$PGBIN/pg_ctl" -D "$PGDATA" -l "$PGROOT/server.log" start
+        ;;
+    stop)
+        "$PGBIN/pg_ctl" -D "$PGDATA" stop
+        ;;
+    status)
+        "$PGBIN/pg_ctl" -D "$PGDATA" status
+        ;;
+    *)
+        echo "usage: $0 {init|start|stop|status}" >&2
+        exit 1
+        ;;
+esac
