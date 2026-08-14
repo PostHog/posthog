@@ -670,6 +670,8 @@ describe('TrendsLineChart', () => {
             await waitFor(() => {
                 expect(personsModal.actorNames()).toEqual(['spike-fan@example.com'])
             })
+            // The pin outlives the click unless the drill-down drops it, leaving the tooltip over the modal.
+            expect(chart.getTooltip()).not.toBeInTheDocument()
         })
 
         it('fires context.onDataPointClick instead of opening the persons modal', async () => {

@@ -338,14 +338,17 @@ export function InsightSeriesTooltip<Meta extends InsightSeriesMetaBase>({
         return formattedDate
     }, [context.seriesData, datumByKey, interval, dateRange, timezone, weekStartDay, altTitle])
 
+    const onUnpin = context.onUnpin
     const onRowClickEntry = useCallback(
         (entry: InsightSeriesTooltipEntry<Meta>): void => {
             const datum = datumByKey.get(entry.series.key)
             if (datum) {
+                // The drill-down opens a modal over the chart, so a pin left behind would float on top of it.
+                onUnpin?.()
                 onRowClick?.(datum)
             }
         },
-        [datumByKey, onRowClick]
+        [datumByKey, onRowClick, onUnpin]
     )
 
     return (
