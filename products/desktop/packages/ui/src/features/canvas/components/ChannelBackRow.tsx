@@ -62,6 +62,7 @@ export function ChannelBackRow({ channelId }: { channelId: string }) {
   const current = channels.find((c) => c.id === channelId);
   const showStar = current != null && current.channelType !== "personal";
   const glyph = channelGlyph(current?.name, {
+    personal: current?.channelType === "personal",
     size: 14,
     space: spacesLayout,
     className: "text-muted-foreground",

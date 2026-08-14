@@ -319,7 +319,8 @@
                                 "ActionsPie",
                                 "ActionsStackedBar",
                                 "ActionsAreaGraph",
-                                "TwoDimensionalHeatmap"
+                                "TwoDimensionalHeatmap",
+                                "ScatterPlot"
                             ],
                             "type": "string"
                         },

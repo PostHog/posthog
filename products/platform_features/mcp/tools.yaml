@@ -485,6 +485,9 @@ tools:
     personal-api-keys-list:
         operation: personal_api_keys_list
         enabled: false
+    remove-blocked-members-and-enforce-verified-domains-create:
+        operation: remove_blocked_members_and_enforce_verified_domains_create
+        enabled: false
     request-ai-access-create:
         operation: request_ai_access_create
         enabled: false
