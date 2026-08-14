@@ -447,33 +447,72 @@ def test_registration_stops_after_glob_query_cancellation(monkeypatch):
     assert not any("RENAME TO" in query for query in executed)
 
 
-def test_copy_activity_does_not_touch_catalog_for_stale_generation(monkeypatch):
+@pytest.mark.parametrize(
+    ("is_current", "newer_completed", "expected"),
+    [
+        (True, None, True),
+        (False, False, True),
+        (False, True, False),
+        (False, None, False),
+    ],
+)
+def test_should_publish_prepared_generation(
+    is_current: bool,
+    newer_completed: bool | None,
+    expected: bool,
+    monkeypatch,
+) -> None:
+    monkeypatch.setattr(registration_module, "_prepared_generation_is_current", lambda inputs: is_current)
+    monkeypatch.setattr(
+        registration_module,
+        "_current_prepared_queryable_folder",
+        lambda inputs: None if newer_completed is None and not is_current else "customers__query_9999999999_ffffffff",
+    )
+    monkeypatch.setattr(
+        registration_module,
+        "_register_completed_for_generation",
+        lambda **kwargs: bool(newer_completed),
+    )
+
+    assert registration_module._should_publish_prepared_generation(_activity_inputs()) is expected
+
+
+def test_copy_activity_registers_when_prepared_generation_is_no_longer_current(monkeypatch):
     monkeypatch.setattr(
         registration_module,
         "_copy_prepared_parquet_files",
         lambda source_uri, landing_uri: ([f"{landing_uri}/file.parquet"], 100),
     )
     monkeypatch.setattr(registration_module, "_prepared_generation_is_current", lambda inputs: False)
+    monkeypatch.setattr(registration_module, "_should_publish_prepared_generation", lambda inputs: True)
+    conn = MagicMock()
+
+    def execute(query: object) -> MagicMock:
+        if "SELECT count(*) FROM" in str(query):
+            return MagicMock(fetchone=MagicMock(return_value=(1,)))
+        return MagicMock()
+
+    conn.execute.side_effect = execute
     monkeypatch.setattr(
         registration_module,
         "_connect_to_duckgres_for_team",
-        MagicMock(side_effect=AssertionError("stale generations must not update the catalog")),
+        lambda team_id: contextlib.nullcontext(conn),
     )
+    monkeypatch.setattr(registration_module, "setup_duckgres_session", MagicMock())
     heartbeater = MagicMock()
     heartbeater.__enter__ = MagicMock(return_value=heartbeater)
     heartbeater.__exit__ = MagicMock(return_value=False)
     monkeypatch.setattr(registration_module, "HeartbeaterSync", MagicMock(return_value=heartbeater))
-    stale_counter = MagicMock()
-    stale_metric = MagicMock(return_value=stale_counter)
-    monkeypatch.setattr(registration_module, "get_ducklake_register_data_imports_stale_metric", stale_metric)
     workload_metrics = _mock_activity_workload_metrics(monkeypatch)
 
-    assert copy_and_register_ducklake_data_imports_activity(_activity_inputs()) is False
-    stale_metric.assert_called_once_with(team_id=1, schema_id="schema", stage="post_copy")
-    stale_counter.add.assert_called_once_with(1)
-    workload_metrics.files.record.assert_not_called()
-    workload_metrics.rows.record.assert_not_called()
-    workload_metrics.bytes.record.assert_not_called()
+    assert copy_and_register_ducklake_data_imports_activity(_activity_inputs()) is True
+
+    executed = [str(call.args[0]) for call in conn.execute.call_args_list]
+    assert any("ducklake_add_data_files" in query for query in executed)
+    assert sum("RENAME TO" in query for query in executed) == 2
+    workload_metrics.files.record.assert_called_once_with(1.0)
+    workload_metrics.rows.record.assert_called_once_with(1.0)
+    workload_metrics.bytes.record.assert_called_once_with(100.0)
 
 
 def test_copy_activity_does_not_publish_a_row_count_mismatch_when_cleanup_fails(monkeypatch):
@@ -515,14 +554,13 @@ def test_copy_activity_does_not_publish_a_row_count_mismatch_when_cleanup_fails(
     assert not any("RENAME TO" in query for query in executed)
 
 
-def test_copy_activity_cleans_shadow_when_generation_becomes_stale_before_publish(monkeypatch):
+def test_copy_activity_skips_publish_when_newer_generation_already_landed(monkeypatch):
     monkeypatch.setattr(
         registration_module,
         "_copy_prepared_parquet_files",
         lambda source_uri, landing_uri: ([f"{landing_uri}/file.parquet"], 100),
     )
-    freshness = MagicMock(side_effect=[True, False])
-    monkeypatch.setattr(registration_module, "_prepared_generation_is_current", freshness)
+    monkeypatch.setattr(registration_module, "_should_publish_prepared_generation", lambda inputs: False)
     conn = MagicMock()
 
     def execute(query: object) -> MagicMock:
@@ -548,8 +586,8 @@ def test_copy_activity_cleans_shadow_when_generation_becomes_stale_before_publis
     assert copy_and_register_ducklake_data_imports_activity(_activity_inputs()) is False
 
     executed = [str(call.args[0]) for call in conn.execute.call_args_list]
-    assert freshness.call_count == 2
     conn.transaction.assert_not_called()
+    assert any("ducklake_add_data_files" in query for query in executed)
     assert sum("DROP TABLE IF EXISTS" in query and "__ph_register_" in query for query in executed) == 1
     assert not any("RENAME TO" in query for query in executed)
     stale_metric.assert_called_once_with(team_id=1, schema_id="schema", stage="publish")
