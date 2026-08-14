@@ -1,4 +1,3 @@
-from dataclasses import dataclass
 from typing import cast
 from urllib.parse import parse_qsl
 
@@ -15,6 +14,7 @@ from posthog.api.github_callback.types import (
     GitHubAuthorizeState,
     team_id_from_next_url,
 )
+from posthog.dataclasses import frozen
 from posthog.models import Team, User
 from posthog.models.organization import OrganizationMembership
 from posthog.user_permissions import UserPermissions
@@ -151,7 +151,7 @@ def consume_authorize_state(token: str, *, user_id: int | None = None) -> GitHub
     return state
 
 
-@dataclass(frozen=True, kw_only=True, slots=True)
+@frozen
 class ConsumedAuthorizeState:
     state_token: str
     next_url: str

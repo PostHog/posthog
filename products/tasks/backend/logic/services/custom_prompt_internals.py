@@ -13,6 +13,7 @@ from django.db import InterfaceError, OperationalError, close_old_connections
 
 from asgiref.sync import sync_to_async
 
+from posthog.dataclasses import frozen
 from posthog.models.team.team import Team
 from posthog.storage import object_storage
 from posthog.storage.object_storage import ObjectStorageError
@@ -285,7 +286,7 @@ async def _refresh_task_run(task_run_id) -> TaskRun:
         return await sync_to_async(_read)()
 
 
-@dataclass(frozen=True, kw_only=True, slots=True)
+@frozen
 class TurnPollResult:
     last_message: str
     full_log: str | None
@@ -760,7 +761,7 @@ def _stream_new_lines(
     return max(printed_lines, len(lines))
 
 
-@dataclass(frozen=True, kw_only=True, slots=True)
+@frozen
 class TurnLogState:
     agent_finished: bool
     last_message: str | None
