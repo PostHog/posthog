@@ -1288,6 +1288,8 @@ export interface ScatterChartSettings {
     /** Whether the X axis should start at zero. Off by default, because pinning either axis of two
      *  independent measures to zero squashes the correlation into a corner. */
     xStartAtZero?: boolean
+    /** Whether to draw a least-squares fit line through each series' points. */
+    showBestFit?: boolean
 }
 
 export interface YAxisSettings {
