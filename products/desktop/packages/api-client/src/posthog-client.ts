@@ -124,6 +124,7 @@ import {
 } from "./fetcher";
 import { createApiClient, type Schemas } from "./generated";
 import type {
+  McpAgentGrantScope,
   McpAuditCounts,
   McpAuditEvent,
   McpAuditPage,
@@ -5234,6 +5235,11 @@ export class PostHogAPIClient {
     options: {
       gateway_server_id: string;
       enabled: boolean;
+      /**
+       * Reach of the caller's own share. The server defaults an omitted
+       * scope to "personal", so re-enabling without it resets a team share.
+       */
+      scope?: McpAgentGrantScope;
       /** Agent-scope tool policies to set alongside the grant. */
       policies?: McpToolPolicyEntry[];
     },

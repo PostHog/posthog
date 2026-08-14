@@ -68,6 +68,16 @@ async def _purge_s3_prefix_once(s3: Any, uri: str) -> None:
         await s3._rm(uri, recursive=True)
 
 
+def build_delta_table_uri(folder_path: str, resource_name: str) -> str:
+    """Canonical S3 URI of a schema's Delta table.
+
+    The writer (`DeltaTableRef`) and readers (e.g. the fan-out warehouse parent reader)
+    must agree byte-for-byte on where a table lives; both derive it here.
+    """
+    normalized_name = NamingConvention.normalize_identifier(resource_name)
+    return f"{settings.BUCKET_URL}/{folder_path}/{normalized_name}"
+
+
 def delta_storage_options() -> dict[str, str]:
     """delta-rs storage options for the data-warehouse bucket, independent of any import job — so a
     read path (e.g. the person-property backfill) can open a Delta table without constructing a full
@@ -150,9 +160,8 @@ class DeltaTableRef:
         return delta_storage_options()
 
     async def _get_delta_table_uri(self) -> str:
-        normalized_resource_name = NamingConvention.normalize_identifier(self._resource_name)
         folder_path = await database_sync_to_async_pool(self._job.folder_path)()
-        return f"{settings.BUCKET_URL}/{folder_path}/{normalized_resource_name}"
+        return build_delta_table_uri(folder_path, self._resource_name)
 
     async def get_table_uri(self) -> str:
         """Public accessor for the live Delta table S3 URI (used by the in-place repartitioner)."""
