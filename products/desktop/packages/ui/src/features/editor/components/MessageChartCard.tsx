@@ -15,6 +15,7 @@ import {
 import { useAuthenticatedQuery } from "@posthog/ui/hooks/useAuthenticatedQuery";
 import type { ChartBlockSpec } from "@posthog/ui/utils/chartBlocks";
 import { useMemo } from "react";
+import { ReplayBlockCard } from "./ReplayBlockCard";
 
 /**
  * Full-size chart card for a block-display object tag in an agent message
@@ -178,6 +179,9 @@ export function MessageChartCard({
 }) {
   if (spec.mode === "insight") {
     return <InsightChartCard spec={spec} blockKey={blockKey} />;
+  }
+  if (spec.mode === "replay") {
+    return <ReplayBlockCard spec={spec} />;
   }
   return <HogqlChartCard spec={spec} blockKey={blockKey} />;
 }

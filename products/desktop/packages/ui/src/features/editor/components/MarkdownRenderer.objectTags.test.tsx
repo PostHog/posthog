@@ -12,8 +12,11 @@ vi.mock("@posthog/quill-charts", () => ({
   useChartTheme: () => ({}),
 }));
 
-// Chart cards resolve their data through the app shell's query client; here
-// they stay in their loading state, which is all the dispatch tests need.
+// Cards resolve their data through the app shell; without it they render
+// their loading state, which is all the dispatch tests need.
+vi.mock("../../auth/authClient", () => ({
+  useOptionalAuthenticatedClient: () => null,
+}));
 vi.mock("../../../hooks/useAuthenticatedQuery", () => ({
   useAuthenticatedQuery: () => ({
     isPending: true,
@@ -83,6 +86,11 @@ describe("object tags in agent markdown", () => {
     expect(screen.getByTestId("report-chart")).toBeDefined();
     expect(screen.getByText("DAU, last 7 days")).toBeDefined();
     expect(screen.queryByText(/SELECT 1/)).toBeNull();
+  });
+
+  it("renders a block replay tag as a watchable card", () => {
+    renderMarkdown('Watch it:\n\n<replay id="s_01HQ4K" display="block"/>\n');
+    expect(screen.getByTestId("replay-card")).toBeDefined();
   });
 
   it("lifts a single-line block tag out of its paragraph into a card", () => {

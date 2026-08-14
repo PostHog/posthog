@@ -28,6 +28,17 @@ describe("chartBlocks", () => {
     expect(spec?.title?.length).toBe(120);
   });
 
+  it("parses a replay reference", () => {
+    expect(parseChartBlock('{"mode":"replay","sessionId":"s_01HQ4K"}')).toEqual(
+      {
+        mode: "replay",
+        sessionId: "s_01HQ4K",
+        title: undefined,
+        caption: undefined,
+      },
+    );
+  });
+
   it.each([
     ["malformed JSON", '{"mode":"hogql","query":'],
     ["unknown mode", '{"mode":"data","series":[]}'],

@@ -117,6 +117,9 @@ function blockNode(tag: ParsedTag): RootContent | null {
   } else if (tag.kind === "insight") {
     const shortId = tag.attrs.id?.trim();
     if (shortId) spec = { mode: "insight", shortId, title, caption };
+  } else if (tag.kind === "replay") {
+    const sessionId = tag.attrs.id?.trim();
+    if (sessionId) spec = { mode: "replay", sessionId, title, caption };
   }
   if (!spec) return null;
   return { type: "code", lang: "posthog-chart", value: JSON.stringify(spec) };

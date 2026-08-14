@@ -77,6 +77,7 @@ export const OBJECT_KINDS: Record<string, ObjectKindDef> = {
     kindLabel: "Session replay",
     source: "Session replay",
     webPath: (id) => `/replay/${id}`,
+    block: true,
   },
   flag: {
     icon: FlagIcon,

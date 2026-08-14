@@ -154,7 +154,7 @@ export function EvidenceHoverCard({
   const [showQuery, setShowQuery] = useState(false);
   return (
     <div className="w-80 p-3.5">
-      <div className="flex items-center gap-1.5 text-[10.5px] text-(--gray-9)">
+      <div className="flex items-center gap-1.5 text-(--gray-9) text-[10.5px]">
         <KindIcon size={12} aria-hidden />
         <span className="truncate uppercase tracking-[0.06em]">
           {meta.kindLabel}
@@ -313,7 +313,7 @@ function EvidenceHoverCardLoader({
 }
 
 /** PostHog web URL for a reference in the current project, when it has one. */
-function useEvidenceUrl(kind: string, id: string): string | null {
+export function useEvidenceUrl(kind: string, id: string): string | null {
   const projectId = useAuthStateValue((state) => state.currentProjectId);
   const cloudRegion = useAuthStateValue((state) => state.cloudRegion);
   const path = evidenceWebPath(kind, id);

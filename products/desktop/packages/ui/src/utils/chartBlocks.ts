@@ -19,7 +19,8 @@ const MAX_QUERY_LENGTH = 20_000;
 
 export type ChartBlockSpec =
   | { mode: "insight"; shortId: string; title?: string; caption?: string }
-  | { mode: "hogql"; query: string; title?: string; caption?: string };
+  | { mode: "hogql"; query: string; title?: string; caption?: string }
+  | { mode: "replay"; sessionId: string; title?: string; caption?: string };
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -60,6 +61,10 @@ export function parseChartBlock(source: string): ChartBlockSpec | null {
   if (raw.mode === "hogql") {
     const query = capText(raw.query, MAX_QUERY_LENGTH);
     return query ? { mode: "hogql", query, title, caption } : null;
+  }
+  if (raw.mode === "replay") {
+    const sessionId = capText(raw.sessionId, 200);
+    return sessionId ? { mode: "replay", sessionId, title, caption } : null;
   }
   return null;
 }

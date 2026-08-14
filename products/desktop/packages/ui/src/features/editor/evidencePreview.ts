@@ -76,9 +76,7 @@ async function hogqlPreview(
   if (data.type === "series" && preview.spark) {
     return {
       ...preview,
-      facts: [
-        `${data.labels.length} rows · ${data.series.length + 1} columns`,
-      ],
+      facts: [`${data.labels.length} rows · ${data.series.length + 1} columns`],
     };
   }
   return preview;
