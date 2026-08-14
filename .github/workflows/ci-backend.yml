@@ -546,6 +546,9 @@ jobs:
         runs-on: depot-ubuntu-24.04
         timeout-minutes: 45
         continue-on-error: true
+        permissions:
+            actions: read
+            contents: read
         steps:
             - name: Look up schema cache
               id: schema-cache
@@ -572,7 +575,10 @@ jobs:
                       echo "Base revision is not fresh; building the missing dump in this run"
                       exit 0
                   fi
-                  master_run_id=$(gh run list --repo "$GITHUB_REPOSITORY" --workflow=ci-backend.yml --event=push --commit="$BASE_SHA" --limit=1 --json databaseId --jq '.[0].databaseId // empty')
+                  if ! master_run_id=$(gh run list --repo "$GITHUB_REPOSITORY" --workflow=ci-backend.yml --event=push --commit="$BASE_SHA" --limit=1 --json databaseId --jq '.[0].databaseId // empty'); then
+                      echo "::warning::Could not query the master cache-warming run; building the dump in this run"
+                      exit 0
+                  fi
                   if [ -z "$master_run_id" ]; then
                       echo "No master cache-warming run found; building the missing dump in this run"
                       exit 0
