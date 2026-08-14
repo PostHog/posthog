@@ -49,9 +49,7 @@ describe('projectTreeDataLogic', () => {
             },
         ])
 
-        const paths = logic.values
-            .getCustomProductTreeItems('')
-            .map((item) => (item.record as { path?: string } | undefined)?.path)
+        const paths = logic.values.getCustomProductTreeItems('').map((item) => item.record?.path)
 
         expect(paths).toContain('Session replay')
         expect(paths).toContain('Replay vision')

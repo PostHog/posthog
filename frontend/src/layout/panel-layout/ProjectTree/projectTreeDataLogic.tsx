@@ -75,8 +75,7 @@ const MOVE_TIMEOUT_MS = 30000
 export const PAGINATION_LIMIT = 100
 const PRODUCTS_SHOWN_WITH_SELECTED_PRODUCTS: Record<string, string[]> = {
     'LLM analytics': ['MCP analytics'],
-    // Replay vision only analyzes recordings Session replay captured, so on its own it has
-    // nothing to scan.
+    // Replay vision scans the recordings Session replay captures, so alone it has nothing to work on.
     'Session replay': ['Replay vision'],
 }
 
