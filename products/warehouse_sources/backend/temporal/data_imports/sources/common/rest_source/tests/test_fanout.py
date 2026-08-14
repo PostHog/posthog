@@ -505,6 +505,9 @@ def test_warehouse_parent_builds_data_iterator_and_404_ignore(
         parent_name="parents",
         columns=["id"],
         page_size=3,
+        # Without this the reader's rows-streamed log has no schema, so snapshot drift can't
+        # be attributed to a child.
+        schema_name="children",
     )
     assert child_resource["endpoint"]["response_actions"] == [{"status_code": 404, "action": "ignore"}]
 
