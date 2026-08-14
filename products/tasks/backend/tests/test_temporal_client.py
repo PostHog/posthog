@@ -23,6 +23,7 @@ from products.tasks.backend.temporal.constants import (
     STEERING_PROTOCOL_QUERY,
     STEERING_PROTOCOL_QUERY_TIMEOUT,
 )
+from products.tasks.backend.temporal.process_task.workflow import PendingFollowup
 
 
 @override_settings(DEBUG=False)
@@ -117,6 +118,46 @@ class TestSignalTaskFollowupMessage(SimpleTestCase):
             )
         else:
             handle.query.assert_not_awaited()
+
+
+class TestDeferredTaskWorkflowDispatch(SimpleTestCase):
+    @patch("products.tasks.backend.tasks.tasks.dispatch_task_processing_workflow.delay")
+    def test_defers_temporal_work_outside_request(self, mock_delay):
+        execute_task_processing_workflow(
+            task_id="task-id",
+            run_id="run-id",
+            team_id=1,
+            user_id=2,
+            posthog_mcp_scopes="full",
+            initial_message=PendingFollowup(
+                message="Continue",
+                artifact_ids=["artifact-id"],
+                actor_user_id=2,
+                message_id="message-id",
+            ),
+            defer=True,
+        )
+
+        mock_delay.assert_called_once_with(
+            task_id="task-id",
+            run_id="run-id",
+            team_id=1,
+            user_id=2,
+            create_pr=True,
+            slack_thread_context=None,
+            posthog_mcp_scopes="full",
+            prewarmed=False,
+            workflow_id_prefix=None,
+            initial_message={
+                "message": "Continue",
+                "artifact_ids": ["artifact-id"],
+                "actor_user_id": 2,
+                "message_id": "message-id",
+                "context": {},
+                "steer": False,
+                "sequence": 0,
+            },
+        )
 
 
 @override_settings(DEBUG=False)

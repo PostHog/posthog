@@ -1,6 +1,7 @@
 import uuid
 import asyncio
 import logging
+from dataclasses import asdict
 from typing import TYPE_CHECKING, Any, Literal, Optional
 
 from django.conf import settings
@@ -281,17 +282,35 @@ def execute_task_processing_workflow(
     team_id: int,
     user_id: Optional[int] = None,
     create_pr: bool = True,
-    slack_thread_context: Optional["SlackThreadContext"] = None,
+    slack_thread_context: Optional["SlackThreadContext | dict[str, Any]"] = None,
     skip_user_check: bool = False,
     posthog_mcp_scopes: PosthogMcpScopes = "read_only",
     prewarmed: bool = False,
     workflow_id_prefix: Optional[str] = None,
     initial_message: PendingFollowup | None = None,
+    defer: bool = False,
 ) -> None:
     """
     Start the task processing workflow synchronously. Fire-and-forget.
     Use this from sync contexts (e.g., API endpoints).
     """
+    if defer:
+        from products.tasks.backend.tasks.tasks import dispatch_task_processing_workflow
+
+        dispatch_task_processing_workflow.delay(
+            task_id=task_id,
+            run_id=run_id,
+            team_id=team_id,
+            user_id=user_id,
+            create_pr=create_pr,
+            slack_thread_context=_normalize_slack_context(slack_thread_context),
+            posthog_mcp_scopes=posthog_mcp_scopes,
+            prewarmed=prewarmed,
+            workflow_id_prefix=workflow_id_prefix,
+            initial_message=asdict(initial_message) if initial_message else None,
+        )
+        return
+
     # Metrics lookups stay inside the try so a failure here can't bypass terminalization and
     # leave the run orphaned in QUEUED (see the async variant above).
     task_run_for_metrics: TaskRun | None = None

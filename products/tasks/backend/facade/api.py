@@ -4030,6 +4030,7 @@ def _trigger_task_processing_workflow(
                     actor_user_id=user_id,
                     message_id=str(uuid4()),
                 ),
+                defer=True,
             )
         else:
             execute_task_processing_workflow(
@@ -4038,6 +4039,7 @@ def _trigger_task_processing_workflow(
                 team_id=task.team.id,
                 user_id=user_id,
                 posthog_mcp_scopes=posthog_mcp_scopes,
+                defer=True,
             )
         logger.info("Workflow trigger completed for task %s, run %s", task.id, run.id)
     except Exception as e:

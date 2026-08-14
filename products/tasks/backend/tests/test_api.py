@@ -2198,6 +2198,7 @@ class TestTaskAPI(BaseTaskAPITest):
             team_id=task.team.id,
             user_id=self.user.id,
             posthog_mcp_scopes="full",
+            defer=True,
         )
 
         self.assertEqual(latest_run["task"], str(task.id))

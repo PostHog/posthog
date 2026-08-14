@@ -3,8 +3,41 @@ from uuid import UUID
 
 from celery import shared_task
 
+from posthog.temporal.oauth import PosthogMcpScopes
+
 from products.tasks.backend.facade.api import record_comment_activity
 from products.tasks.backend.logic.services.comment_slack_dm import send_comment_slack_dms
+
+
+@shared_task(ignore_result=True)
+def dispatch_task_processing_workflow(
+    *,
+    task_id: str,
+    run_id: str,
+    team_id: int,
+    user_id: int | None,
+    create_pr: bool,
+    slack_thread_context: dict | None,
+    posthog_mcp_scopes: PosthogMcpScopes,
+    prewarmed: bool,
+    workflow_id_prefix: str | None,
+    initial_message: dict | None,
+) -> None:
+    from products.tasks.backend.temporal.client import execute_task_processing_workflow
+    from products.tasks.backend.temporal.process_task.workflow import PendingFollowup
+
+    execute_task_processing_workflow(
+        task_id=task_id,
+        run_id=run_id,
+        team_id=team_id,
+        user_id=user_id,
+        create_pr=create_pr,
+        slack_thread_context=slack_thread_context,
+        posthog_mcp_scopes=posthog_mcp_scopes,
+        prewarmed=prewarmed,
+        workflow_id_prefix=workflow_id_prefix,
+        initial_message=PendingFollowup(**initial_message) if initial_message else None,
+    )
 
 
 @shared_task(ignore_result=True, autoretry_for=(Exception,), retry_backoff=True, max_retries=5)
