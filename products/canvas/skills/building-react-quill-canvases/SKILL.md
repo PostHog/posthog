@@ -47,6 +47,7 @@ control or a styled `<div>` standing in for one:
 
 - Style with Tailwind utilities and Quill components; reserve inline `style` for genuinely dynamic
   runtime values (fixed sizes use arbitrary-value utilities like `h-[280px]`).
+- Write specific interface copy. Never use lorem ipsum or placeholder labels in a finished canvas.
 - The canvas follows the user's PostHog theme; a `.dark` class on the document root flips at runtime.
   Color only from the design-token utilities — surfaces `bg-background bg-card bg-muted bg-primary
 bg-success bg-warning bg-info bg-destructive`; text `text-foreground text-muted-foreground
@@ -74,6 +75,41 @@ message plus a Retry button wired to the refresh nonce, as in the starter scaffo
 through to zeros, an empty chart, or a "no data yet" message. A query that silently swallows its
 error makes real breakage (a missing table, an auth failure, a bad query) look like missing data.
 Reserve the empty state for a query that succeeded with no rows.
+
+## Data-product patterns
+
+Treat these as starting shapes and adapt them to the request and available data.
+
+### Product dashboard
+
+- Build a live board from verified PostHog data, never a static mockup.
+- Start with a `Heading`, then a responsive grid of compact `Card` KPIs, trend charts, and useful
+  breakdown tables.
+- Show a `Badge` delta for KPIs when a meaningful comparison period exists.
+- Use a `LineChart` for time series and a `BarChart` for discrete categories. Do not turn every
+  result into a table.
+- Give every KPI, chart, and table its own loading, empty, and error state.
+
+### Web analytics board
+
+Use this shape when the request or legacy requested pattern says `web-analytics`:
+
+1. Show Visitors, Page views, Sessions, Session duration, and Bounce rate as KPI cards, with deltas
+   against the previous equal-length period.
+2. Plot unique visitors over time, with a second line for the previous period when comparison data
+   is available.
+3. Follow with compact tables for top paths, traffic sources or channels, devices, and geography.
+4. Prefix countries with flag emoji. Add retention or active-hours views only when the available
+   data makes them useful.
+
+Use the web analytics query kinds described in `querying-canvas-data`; do not recreate bounce rate,
+sessionization, attribution, or unique visitors in HogQL. Format large values for display, such as
+`236K`, while preserving the raw value for calculations and accessible labels.
+
+### Interactive explorer
+
+Use controlled Quill inputs for each dimension, event, or date choice. Keep result sets small and
+refresh every dependent query when a control changes.
 
 ## Date window
 
