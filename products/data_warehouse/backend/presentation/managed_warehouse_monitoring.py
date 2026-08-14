@@ -1,4 +1,5 @@
 from collections.abc import Mapping
+from typing import cast
 
 from rest_framework import serializers
 
@@ -149,7 +150,9 @@ class ManagedWarehouseMonitoringCoverageSerializer(serializers.Serializer):
         min_value=0,
         help_text="Number of control planes queried for live data.",
     )
-    partial = serializers.BooleanField(help_text="Whether one or more control planes failed to contribute live data.")
+    partial = serializers.BooleanField(  # type: ignore[assignment]  # Response field shadows DRF's partial option.
+        help_text="Whether one or more control planes failed to contribute live data."
+    )
 
 
 class ManagedWarehouseMonitoringSnapshotResponseSerializer(serializers.Serializer):
@@ -243,7 +246,7 @@ def serialize_monitoring_series(
     if data["metric"] != expected_metric:
         raise ManagedWarehouseMonitoringUpstreamError("Monitoring service returned a different metric")
     allowed_labels = MANAGED_WAREHOUSE_MONITORING_LABELS[expected_metric]
-    for series in data["series"]:
+    for series in cast(list[object], data["series"]):
         if not isinstance(series, Mapping) or not isinstance(series.get("labels"), Mapping):
             raise ManagedWarehouseMonitoringUpstreamError("Monitoring service returned invalid series labels")
         if not set(series["labels"]).issubset(allowed_labels):
