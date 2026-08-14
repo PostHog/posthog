@@ -188,6 +188,99 @@ mod tests {
         assert!(!match_result.matches);
     }
 
+    /// Regression test for the silent-denial case: when no person profile resolves for the
+    /// distinct ID, a person-property condition still fails closed, but the non-match reason
+    /// must report that the person was not found so the denial is diagnosable. A person that
+    /// exists with a non-matching property keeps the plain `NoConditionMatch` reason.
+    #[tokio::test]
+    async fn test_person_not_found_reason_distinguishes_missing_profile() {
+        let context = TestContext::new(None).await;
+        let cohort_cache = Arc::new(CohortCacheManager::new(
+            context.non_persons_reader.clone(),
+            None,
+            None,
+        ));
+
+        let team = context
+            .insert_new_team(None)
+            .await
+            .expect("Failed to insert team in pg");
+
+        let existing_distinct_id = "existing_person".to_string();
+        context
+            .insert_person(
+                team.id,
+                existing_distinct_id.clone(),
+                Some(json!({ "email": "someone@example.com" })),
+            )
+            .await
+            .expect("Failed to insert person");
+
+        let flag: FeatureFlag = serde_json::from_value(json!(
+            {
+                "id": 1,
+                "team_id": team.id,
+                "name": "flag1",
+                "key": "flag1",
+                "active": true,
+                "filters": {
+                    "groups": [
+                        {
+                            "properties": [
+                                {
+                                    "key": "email",
+                                    "value": "target@example.com",
+                                    "type": "person"
+                                }
+                            ],
+                            "rollout_percentage": 100
+                        }
+                    ]
+                }
+            }
+        ))
+        .unwrap();
+
+        // A person exists but their email does not match: plain NoConditionMatch.
+        let mut matcher = FeatureFlagMatcher::new(
+            existing_distinct_id.clone(),
+            None,
+            team.id,
+            context.create_postgres_router(),
+            cohort_cache.clone(),
+            empty_group_type_cache(),
+            None,
+        );
+        matcher
+            .prepare_flag_evaluation_state(&[&flag])
+            .await
+            .unwrap();
+        let found = matcher.get_match(&flag, None, None, None, &None).unwrap();
+        assert!(!found.matches);
+        assert_eq!(found.reason, FeatureFlagMatchReason::NoConditionMatch);
+
+        // No person profile resolves for this distinct ID: NoConditionMatchPersonNotFound.
+        let mut matcher = FeatureFlagMatcher::new(
+            "missing_person".to_string(),
+            None,
+            team.id,
+            context.create_postgres_router(),
+            cohort_cache.clone(),
+            empty_group_type_cache(),
+            None,
+        );
+        matcher
+            .prepare_flag_evaluation_state(&[&flag])
+            .await
+            .unwrap();
+        let missing = matcher.get_match(&flag, None, None, None, &None).unwrap();
+        assert!(!missing.matches);
+        assert_eq!(
+            missing.reason,
+            FeatureFlagMatchReason::NoConditionMatchPersonNotFound
+        );
+    }
+
     #[tokio::test]
     async fn test_person_property_overrides() {
         let (_context, mut matcher, team_id) = matcher_for_team("test_user").await;
