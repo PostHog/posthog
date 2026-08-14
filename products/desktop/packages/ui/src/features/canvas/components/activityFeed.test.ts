@@ -1,9 +1,6 @@
 import type { TaskActivityItem } from "@posthog/core/canvas/taskActivity";
 import { describe, expect, it } from "vitest";
-import {
-  getActivityItemsForView,
-  markLoadedReadLabel,
-} from "./activityFeed";
+import { getActivityItemsForView, markLoadedReadLabel } from "./activityFeed";
 
 describe("activityFeed", () => {
   it('says "Mark visible as read" while unread activity stays on unloaded pages', () => {

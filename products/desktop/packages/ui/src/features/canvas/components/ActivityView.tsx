@@ -380,9 +380,7 @@ export function ActivityView() {
   const unreadsOnly = useActivityFilterStore((state) => state.unreadsOnly);
   const shownItems = unreadsOnly ? unreadItems : viewItems;
   const visibleUnreadCount =
-    view === "all"
-      ? unreadCount
-      : unreadItems.length + (hasNextPage ? 1 : 0);
+    view === "all" ? unreadCount : unreadItems.length + (hasNextPage ? 1 : 0);
   // Opening a row is what marks it read. The server does the same when the task is
   // reached any other way, so the feed converges either way.
   const markRead = useCallback(
