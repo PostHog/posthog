@@ -7715,6 +7715,8 @@ export const XScaleApi = {
 } as const
 
 export interface ScatterChartSettingsApi {
+    /** Whether to draw a least-squares fit line through each series' points. */
+    showBestFit?: boolean | null
     /** X-axis scale. A `logarithmic` axis can't place a non-positive value, so those points are dropped. */
     xScale?: XScaleApi | null
     /** Whether the X axis should start at zero. Off by default, because pinning either axis of two independent measures to zero squashes the correlation into a corner. */
