@@ -1,7 +1,6 @@
 import random
 import string
 from collections.abc import Callable
-from dataclasses import dataclass
 from datetime import datetime
 from typing import Optional, cast
 
@@ -20,6 +19,7 @@ from posthog.hogql.functions.mapping import HOGQL_COMPARISON_MAPPING
 from posthog.hogql.helpers.timestamp_visitor import is_simple_timestamp_field_expression, is_time_or_interval_constant
 from posthog.hogql.visitor import CloningVisitor, TraversingVisitor, clone_expr
 
+from posthog.dataclasses import frozen
 from posthog.uuidt import UUIDT
 
 SESSION_BUFFER_DAYS = 3
@@ -1299,7 +1299,7 @@ def references_joined_table(
     return finder.found_joined_reference
 
 
-@dataclass(frozen=True, kw_only=True, slots=True)
+@frozen
 class PushdownSplit:
     inner_where: Optional[ast.Expr]
     outer_where: Optional[ast.Expr]

@@ -1,4 +1,3 @@
-from dataclasses import dataclass
 from datetime import datetime
 from typing import Literal, Optional
 
@@ -26,6 +25,7 @@ from posthog.hogql.visitor import CloningVisitor, TraversingVisitor
 
 from posthog.clickhouse.events_json import EVENTS_PROPERTIES_JSON_SUBCOLUMNS, PERSON_PROPERTIES_JSON_SUBCOLUMNS
 from posthog.clickhouse.materialized_column_types import MATERIALIZATION_VALID_TABLES, MaterializedColumn
+from posthog.dataclasses import frozen
 
 _JSON_EXTRACT_SCALAR_CASTS: dict[str, tuple[str, object]] = {
     "JSONExtractString": ("String", ""),
@@ -129,7 +129,7 @@ class PropertyFinder(TraversingVisitor):
             self.found_timestamps = True
 
 
-@dataclass(frozen=True, kw_only=True, slots=True)
+@frozen
 class ToTimeZoneParts:
     bare_field: ast.Expr
     timezone: str

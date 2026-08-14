@@ -32,6 +32,7 @@ from posthog.hogql.query import execute_hogql_query
 from posthog.hogql.timings import HogQLTimings
 
 from posthog.constants import AUTOCAPTURE_EVENT
+from posthog.dataclasses import frozen
 from posthog.hogql_queries.insights.funnels import FunnelUDF
 from posthog.hogql_queries.insights.funnels.funnel_query_context import FunnelQueryContext
 from posthog.hogql_queries.insights.funnels.utils import funnel_window_interval_unit_to_sql
@@ -83,7 +84,7 @@ class EventContingencyTable:
 PRIOR_COUNT = 1
 
 
-@dataclasses.dataclass(frozen=True, kw_only=True, slots=True)
+@frozen
 class CorrelationCalculation:
     events: list[EventOddsRatio]
     skewed_totals: bool

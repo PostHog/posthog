@@ -1,8 +1,8 @@
-from dataclasses import dataclass
 from typing import Any, TypedDict
 
 from posthog.schema import DashboardFilter, HogQLVariable, NodeKind
 
+from posthog.dataclasses import frozen
 from posthog.exceptions_capture import capture_exception
 from posthog.hogql_queries.query_runner import get_query_runner
 from posthog.hogql_queries.utils.dashboard_filter_conflicts import filters_contradict
@@ -265,7 +265,7 @@ def _has_data_warehouse_series(query: dict) -> bool:
     )
 
 
-@dataclass(frozen=True)
+@frozen
 class EffectiveDashboardFilters:
     """Result of combining dashboard and tile filter layers.
 

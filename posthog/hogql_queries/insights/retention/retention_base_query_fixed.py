@@ -1,4 +1,3 @@
-from dataclasses import dataclass
 from typing import TYPE_CHECKING, Literal
 
 import posthoganalytics
@@ -9,6 +8,7 @@ from posthog.hogql import ast
 from posthog.hogql.parser import parse_expr
 from posthog.hogql.property import property_to_expr
 
+from posthog.dataclasses import frozen
 from posthog.hogql_queries.insights.retention.retention_base_query_builder import RetentionBaseQueryBuilder
 from posthog.hogql_queries.insights.utils.breakdowns import ALL_USERS_COHORT_ID, has_breakdown_filter
 
@@ -42,7 +42,7 @@ def retention_fixed_interval_base_query_use_dwh_variant(team: "Team") -> bool:
     )
 
 
-@dataclass(frozen=True, kw_only=True, slots=True)
+@frozen
 class IntervalsFromBaseExprs:
     intervals_from_base: ast.Expr
     retention_value: ast.Expr | None

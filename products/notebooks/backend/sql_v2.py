@@ -14,7 +14,6 @@ hardening swaps them for the RS256 sandbox event-ingest JWTs used by PostHog Des
 import hmac
 import time
 import hashlib
-from dataclasses import dataclass
 
 from django.conf import settings
 from django.core import signing
@@ -23,6 +22,7 @@ import requests
 import structlog
 import posthoganalytics
 
+from posthog.dataclasses import frozen
 from posthog.models.user import User
 
 from products.notebooks.backend.kernel_package import SANDBOX_PACKAGE_NAME, kernel_package_bytes_and_hash
@@ -197,7 +197,7 @@ def mint_data_plane_token(notebook_short_id: str, team_id: int, user_id: int | N
     )
 
 
-@dataclass(frozen=True, kw_only=True, slots=True)
+@frozen
 class DataPlaneClaims:
     notebook_short_id: str
     team_id: int

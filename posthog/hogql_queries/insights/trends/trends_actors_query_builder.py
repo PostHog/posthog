@@ -1,5 +1,4 @@
 import typing
-from dataclasses import dataclass
 from datetime import datetime
 from functools import cached_property
 from typing import Optional, cast
@@ -27,6 +26,7 @@ from posthog.hogql.parser import parse_expr
 from posthog.hogql.property import action_to_expr, property_to_expr
 from posthog.hogql.timings import HogQLTimings
 
+from posthog.dataclasses import frozen
 from posthog.hogql_queries.insights.trends.aggregation_operations import (
     AggregationOperations,
     FirstTimeForUserEventsQueryAlternator,
@@ -45,7 +45,7 @@ from products.web_analytics.backend.hogql_queries.first_pageview_attribution imp
 )
 
 
-@dataclass(frozen=True, kw_only=True, slots=True)
+@frozen
 class DateWhereExprs:
     date_from_expr: ast.Expr
     date_to_expr: ast.Expr

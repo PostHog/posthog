@@ -5,7 +5,6 @@ import random
 import threading
 import importlib.metadata
 from collections.abc import Callable
-from dataclasses import dataclass
 from enum import StrEnum
 from types import FrameType
 from typing import Any, cast
@@ -33,6 +32,7 @@ from posthog.hogql.placeholders import replace_placeholders
 from posthog.hogql.timings import HogQLTimings
 from posthog.hogql.visitor import clear_locations
 
+from posthog.dataclasses import frozen
 from posthog.exceptions_capture import capture_exception
 from posthog.schema_enums import ParserMode
 
@@ -168,7 +168,7 @@ RULE_TO_HISTOGRAM: dict[ParseRule, Histogram] = {
 DEFAULT_BACKEND: HogQLParserBackend = "cpp-json"
 
 
-@dataclass(frozen=True, kw_only=True, slots=True)
+@frozen
 class ResolvedParserBackends:
     primary: HogQLParserBackend
     shadow: HogQLParserBackend | None = None

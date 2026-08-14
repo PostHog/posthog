@@ -1,5 +1,4 @@
 import os
-from dataclasses import dataclass
 from functools import cache
 from typing import Any, Optional
 
@@ -9,6 +8,8 @@ import openai
 import posthoganalytics
 from posthoganalytics.ai.openai import OpenAI
 
+from posthog.dataclasses import frozen
+
 
 @cache
 def _get_openai_client() -> Optional[OpenAI]:
@@ -17,7 +18,7 @@ def _get_openai_client() -> Optional[OpenAI]:
     return OpenAI(posthog_client=posthoganalytics.setup(), base_url=settings.OPENAI_BASE_URL)
 
 
-@dataclass(frozen=True, kw_only=True, slots=True)
+@frozen
 class OpenAICompletion:
     content: str
     prompt_tokens: int

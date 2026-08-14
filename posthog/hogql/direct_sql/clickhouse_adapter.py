@@ -1,5 +1,4 @@
 from collections.abc import Iterator
-from dataclasses import dataclass
 from time import perf_counter
 from typing import TYPE_CHECKING, Any, cast
 
@@ -15,6 +14,8 @@ from posthog.hogql.direct_sql.adapter import DirectQueryRequest, DirectQueryResu
 from posthog.hogql.direct_sql.capability import is_direct_capable
 from posthog.hogql.direct_sql.raw_sql import ensure_single_direct_statement
 from posthog.hogql.errors import ExposedHogQLError
+
+from posthog.dataclasses import frozen
 
 if TYPE_CHECKING:
     from clickhouse_connect.driver.client import Client as ClickHouseClient
@@ -199,7 +200,7 @@ def ensure_read_only_raw_clickhouse_statement(sql: str) -> str:
     return sql
 
 
-@dataclass(frozen=True, kw_only=True, slots=True)
+@frozen
 class CappedClickHouseRows:
     rows: list
     column_names: list[str]

@@ -15,7 +15,6 @@ semantic layers — fetched lazily only when these tables are queried.
 
 import json
 import hashlib
-from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, NamedTuple, Optional
 
 from django.db.models import Q
@@ -52,6 +51,8 @@ from posthog.hogql.database.models import (
 )
 from posthog.hogql.database.schema.table_descriptions import TableDescriptions
 from posthog.hogql.errors import BaseHogQLError
+
+from posthog.dataclasses import frozen
 
 if TYPE_CHECKING:
     from posthog.hogql.context import HogQLContext
@@ -450,7 +451,7 @@ def _rows_select(
     )
 
 
-@dataclass(frozen=True, kw_only=True, slots=True)
+@frozen
 class _CollectedCatalog:
     table_rows: list[list[Any]]
     column_rows: list[list[Any]]

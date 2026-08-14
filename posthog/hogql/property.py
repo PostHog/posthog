@@ -1,6 +1,5 @@
 import re
 from collections.abc import Callable
-from dataclasses import dataclass
 from typing import Literal, Optional, TypeGuard, cast
 
 from django.db import models
@@ -55,6 +54,7 @@ from posthog.hogql.visitor import CloningVisitor, TraversingVisitor, clone_expr
 
 from posthog.clickhouse.query_tagging import tag_contains_user_hogql
 from posthog.constants import AUTOCAPTURE_EVENT, TREND_FILTER_TYPE_ACTIONS, PropertyOperatorType
+from posthog.dataclasses import frozen
 from posthog.models import Property, PropertyDefinition, Team
 from posthog.models.element import Element
 from posthog.models.event import Selector
@@ -77,7 +77,7 @@ from products.warehouse_sources.backend.facade.hogql import get_view_or_table_by
 PERSON_METADATA_FIELDS = {"created_at"}
 
 
-@dataclass(frozen=True, kw_only=True, slots=True)
+@frozen
 class SemverParts:
     major: str
     minor: str
