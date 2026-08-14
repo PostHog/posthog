@@ -77,10 +77,15 @@ export function SidebarItem({
       className={cn(
         "group flex w-full cursor-default text-left text-[13px] leading-snug transition-colors",
         "disabled:opacity-100 data-active:bg-fill-selected data-selected:bg-(--gray-3)",
+        // A bar on the leading edge rather than another background: the open
+        // session already owns its background, and this lets it also say it is
+        // part of a bulk selection.
+        "relative data-in-selection:before:absolute data-in-selection:before:inset-y-0 data-in-selection:before:left-0 data-in-selection:before:w-0.5 data-in-selection:before:bg-(--accent-9) data-in-selection:before:content-['']",
         isDimmed && "opacity-50",
       )}
       data-active={isActive || undefined}
       data-selected={(isSelected && !isActive) || undefined}
+      data-in-selection={isSelected || undefined}
       draggable={draggable}
       onDragStart={onDragStart}
       style={{

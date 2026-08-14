@@ -176,6 +176,10 @@ def _required_scopes_for_query_payload(query: object) -> list[str] | None:
     current_query = query
     while isinstance(current_query, dict):
         kind = current_query.get("kind")
+        # The experiment_exposure recordings filter reads experiment data, so it needs
+        # experiment:read on top of query:read — keyed on query content, not kind alone.
+        if kind == "RecordingsQuery" and current_query.get("experiment_exposure"):
+            return ["query:read", "experiment:read"]
         if isinstance(kind, str) and kind in _QUERY_KIND_SCOPES:
             return _QUERY_KIND_SCOPES[kind]
         current_query = current_query.get("source")

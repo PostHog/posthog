@@ -257,6 +257,16 @@ export interface DashboardBasicApi {
      * @nullable
      */
     readonly folder: string | null
+    /**
+     * Id of this dashboard's file system entry, or null when it has none. Together with `file_system_path` this is everything a caller needs to move the dashboard between folders, so a list page does not have to look the entry up separately.
+     * @nullable
+     */
+    readonly file_system_id: string | null
+    /**
+     * Full path of this dashboard's file system entry, e.g. 'Unfiled/Dashboards/Revenue'. Unlike `folder` this keeps the dashboard's own name as the last segment, which is what a move needs in order to compute the destination path. Null when it has no entry.
+     * @nullable
+     */
+    readonly file_system_path: string | null
     readonly is_shared: boolean
     readonly deleted: boolean
     readonly creation_mode: CreationModeEnumApi
@@ -332,6 +342,16 @@ export interface DashboardApi {
      * @nullable
      */
     readonly folder: string | null
+    /**
+     * Id of this dashboard's file system entry, or null when it has none. Together with `file_system_path` this is everything a caller needs to move the dashboard between folders, so a list page does not have to look the entry up separately.
+     * @nullable
+     */
+    readonly file_system_id: string | null
+    /**
+     * Full path of this dashboard's file system entry, e.g. 'Unfiled/Dashboards/Revenue'. Unlike `folder` this keeps the dashboard's own name as the last segment, which is what a move needs in order to compute the destination path. Null when it has no entry.
+     * @nullable
+     */
+    readonly file_system_path: string | null
     readonly is_shared: boolean
     deleted?: boolean
     readonly creation_mode: CreationModeEnumApi
@@ -1740,6 +1760,14 @@ export const CountPerActorMathTypeApi = {
     P99CountPerActor: 'p99_count_per_actor',
 } as const
 
+export type GroupMathTypeApi = (typeof GroupMathTypeApi)[keyof typeof GroupMathTypeApi]
+
+export const GroupMathTypeApi = {
+    UniqueGroup: 'unique_group',
+    FirstTimeForGroup: 'first_time_for_group',
+    FirstMatchingEventForGroup: 'first_matching_event_for_group',
+} as const
+
 export type ExperimentMetricMathTypeApi = (typeof ExperimentMetricMathTypeApi)[keyof typeof ExperimentMetricMathTypeApi]
 
 export const ExperimentMetricMathTypeApi = {
@@ -1974,9 +2002,9 @@ export interface EventsNodeApi {
         | FunnelMathTypeApi
         | PropertyMathTypeApi
         | CountPerActorMathTypeApi
+        | GroupMathTypeApi
         | ExperimentMetricMathTypeApi
         | CalendarHeatmapMathTypeApi
-        | 'unique_group'
         | 'hogql'
         | null
     math_group_type_index?: MathGroupTypeIndexApi | null
@@ -2061,9 +2089,9 @@ export interface ActionsNodeApi {
         | FunnelMathTypeApi
         | PropertyMathTypeApi
         | CountPerActorMathTypeApi
+        | GroupMathTypeApi
         | ExperimentMetricMathTypeApi
         | CalendarHeatmapMathTypeApi
-        | 'unique_group'
         | 'hogql'
         | null
     math_group_type_index?: MathGroupTypeIndexApi | null
@@ -2149,9 +2177,9 @@ export interface DataWarehouseNodeApi {
         | FunnelMathTypeApi
         | PropertyMathTypeApi
         | CountPerActorMathTypeApi
+        | GroupMathTypeApi
         | ExperimentMetricMathTypeApi
         | CalendarHeatmapMathTypeApi
-        | 'unique_group'
         | 'hogql'
         | null
     math_group_type_index?: MathGroupTypeIndexApi | null
@@ -2236,9 +2264,9 @@ export interface GroupNodeApi {
         | FunnelMathTypeApi
         | PropertyMathTypeApi
         | CountPerActorMathTypeApi
+        | GroupMathTypeApi
         | ExperimentMetricMathTypeApi
         | CalendarHeatmapMathTypeApi
-        | 'unique_group'
         | 'hogql'
         | null
     math_group_type_index?: MathGroupTypeIndexApi | null
@@ -2638,9 +2666,9 @@ export interface FunnelExclusionEventsNodeApi {
         | FunnelMathTypeApi
         | PropertyMathTypeApi
         | CountPerActorMathTypeApi
+        | GroupMathTypeApi
         | ExperimentMetricMathTypeApi
         | CalendarHeatmapMathTypeApi
-        | 'unique_group'
         | 'hogql'
         | null
     math_group_type_index?: MathGroupTypeIndexApi | null
@@ -2727,9 +2755,9 @@ export interface FunnelExclusionActionsNodeApi {
         | FunnelMathTypeApi
         | PropertyMathTypeApi
         | CountPerActorMathTypeApi
+        | GroupMathTypeApi
         | ExperimentMetricMathTypeApi
         | CalendarHeatmapMathTypeApi
-        | 'unique_group'
         | 'hogql'
         | null
     math_group_type_index?: MathGroupTypeIndexApi | null
@@ -2927,9 +2955,9 @@ export interface FunnelsDataWarehouseNodeApi {
         | FunnelMathTypeApi
         | PropertyMathTypeApi
         | CountPerActorMathTypeApi
+        | GroupMathTypeApi
         | ExperimentMetricMathTypeApi
         | CalendarHeatmapMathTypeApi
-        | 'unique_group'
         | 'hogql'
         | null
     math_group_type_index?: MathGroupTypeIndexApi | null
@@ -3803,9 +3831,9 @@ export interface LifecycleDataWarehouseNodeApi {
         | FunnelMathTypeApi
         | PropertyMathTypeApi
         | CountPerActorMathTypeApi
+        | GroupMathTypeApi
         | ExperimentMetricMathTypeApi
         | CalendarHeatmapMathTypeApi
-        | 'unique_group'
         | 'hogql'
         | null
     math_group_type_index?: MathGroupTypeIndexApi | null
@@ -5810,9 +5838,9 @@ export interface ExperimentDataWarehouseNodeApi {
         | FunnelMathTypeApi
         | PropertyMathTypeApi
         | CountPerActorMathTypeApi
+        | GroupMathTypeApi
         | ExperimentMetricMathTypeApi
         | CalendarHeatmapMathTypeApi
-        | 'unique_group'
         | 'hogql'
         | null
     math_group_type_index?: MathGroupTypeIndexApi | null
@@ -6971,9 +6999,9 @@ export interface ConversionGoalFilter1Api {
         | FunnelMathTypeApi
         | PropertyMathTypeApi
         | CountPerActorMathTypeApi
+        | GroupMathTypeApi
         | ExperimentMetricMathTypeApi
         | CalendarHeatmapMathTypeApi
-        | 'unique_group'
         | 'hogql'
         | null
     math_group_type_index?: MathGroupTypeIndexApi | null
@@ -7067,9 +7095,9 @@ export interface ConversionGoalFilter2Api {
         | FunnelMathTypeApi
         | PropertyMathTypeApi
         | CountPerActorMathTypeApi
+        | GroupMathTypeApi
         | ExperimentMetricMathTypeApi
         | CalendarHeatmapMathTypeApi
-        | 'unique_group'
         | 'hogql'
         | null
     math_group_type_index?: MathGroupTypeIndexApi | null
@@ -7164,9 +7192,9 @@ export interface ConversionGoalFilter3Api {
         | FunnelMathTypeApi
         | PropertyMathTypeApi
         | CountPerActorMathTypeApi
+        | GroupMathTypeApi
         | ExperimentMetricMathTypeApi
         | CalendarHeatmapMathTypeApi
-        | 'unique_group'
         | 'hogql'
         | null
     math_group_type_index?: MathGroupTypeIndexApi | null

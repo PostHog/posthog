@@ -49,6 +49,7 @@ from products.tasks.backend.logic.services.connection_token import (
     get_sandbox_jwt_public_key,
     reset_sandbox_jwt_key_cache,
 )
+from products.tasks.backend.logic.services.model_catalogue import GatewayModel
 from products.tasks.backend.logic.services.staged_artifacts import (
     RUN_ARTIFACT_TTL_DAYS,
     build_task_artifact_entry,
@@ -79,6 +80,7 @@ from products.tasks.backend.presentation.serializers import (
     TASK_RUN_ARTIFACT_MAX_SIZE_BYTES,
     TASK_RUN_PDF_ARTIFACT_MAX_SIZE_BYTES,
     TaskRunLivingArtifactChartRequestSerializer,
+    TaskSerializer,
 )
 from products.tasks.backend.temporal.process_task.utils import get_cached_github_user_token
 
@@ -5171,6 +5173,7 @@ class TestTaskRunAPI(BaseTaskAPITest):
                 "provider": "anthropic",
                 "model": "claude-sonnet-5",
                 "reasoning_effort": "low",
+                "loop_terminal_bookkeeping_complete": True,
             },
         )
 
@@ -5224,6 +5227,7 @@ class TestTaskRunAPI(BaseTaskAPITest):
                     "provider": "openai",
                     "model": "claude-opus-4-8",
                     "reasoning_effort": "high",
+                    "loop_terminal_bookkeeping_complete": False,
                     "scratch": "ok",
                 }
             },
@@ -5259,6 +5263,7 @@ class TestTaskRunAPI(BaseTaskAPITest):
         assert run.state["provider"] == "anthropic"
         assert run.state["model"] == "claude-sonnet-5"
         assert run.state["reasoning_effort"] == "low"
+        assert run.state["loop_terminal_bookkeeping_complete"] is True
         assert run.state["scratch"] == "ok"  # non-protected keys still merge
 
         # Nor can a caller remove a protected key to force a fallback or unguarded path.
@@ -5284,6 +5289,7 @@ class TestTaskRunAPI(BaseTaskAPITest):
                     "provider",
                     "model",
                     "reasoning_effort",
+                    "loop_terminal_bookkeeping_complete",
                     "scratch",
                 ],
             },
@@ -5311,6 +5317,7 @@ class TestTaskRunAPI(BaseTaskAPITest):
         assert run.state["provider"] == "anthropic"  # protected key survives removal
         assert run.state["model"] == "claude-sonnet-5"  # protected key survives removal
         assert run.state["reasoning_effort"] == "low"  # protected key survives removal
+        assert run.state["loop_terminal_bookkeeping_complete"] is True
         assert "scratch" not in run.state  # non-protected key removed
 
     @patch("products.tasks.backend.facade.api.signal_workflow_completion")
@@ -5620,6 +5627,47 @@ class TestTaskRunAPI(BaseTaskAPITest):
         self.assertEqual(log_entries[0]["message"], "Starting task")
         self.assertEqual(log_entries[1]["type"], "progress")
         self.assertEqual(log_entries[1]["message"], "Step 1 complete")
+
+    def test_clear_conversation_records_the_boundary(self):
+        task = self.create_task()
+        run = TaskRun.objects.create(task=task, team=self.team, status=TaskRun.Status.COMPLETED)
+
+        response = self.client.post(f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/clear_conversation/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        log_content = object_storage.read(run.log_url)
+        assert log_content is not None
+        entries = [json.loads(line)["notification"] for line in log_content.strip().split("\n")]
+
+        # The typed message first, so rehydration drops it with the rest of the pre-clear side.
+        self.assertEqual(entries[0]["method"], "session/update")
+        self.assertEqual(entries[0]["params"]["update"]["content"]["text"], "/clear")
+        # The desktop client renders user turns from session/prompt requests and drops raw
+        # user_message_chunks; this tag tells its log replay to promote the chunk into one.
+        self.assertEqual(entries[0]["params"]["update"]["_meta"], {"importedUserPrompt": True})
+        self.assertEqual(entries[1]["method"], "_posthog/conversation_cleared")
+        # No agent session stands behind this marker, and resume reads sessionId to pick the
+        # session it continues — carrying one would resume the conversation just cleared.
+        self.assertNotIn("sessionId", entries[1]["params"])
+
+        # A repeat clear with nothing recorded since must not stack another boundary.
+        response = self.client.post(f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/clear_conversation/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        log_content = object_storage.read(run.log_url)
+        assert log_content is not None
+        self.assertEqual(len(log_content.strip().split("\n")), 2)
+
+    @parameterized.expand([("queued", TaskRun.Status.QUEUED), ("in_progress", TaskRun.Status.IN_PROGRESS)])
+    def test_clear_conversation_rejects_an_active_run(self, _name, run_status):
+        # An active run's agent owns the clear, and its log has a live writer this
+        # read-modify-write append would race.
+        task = self.create_task()
+        run = TaskRun.objects.create(task=task, team=self.team, status=run_status)
+
+        response = self.client.post(f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/clear_conversation/")
+
+        self.assertEqual(response.status_code, status.HTTP_409_CONFLICT)
+        self.assertIsNone(object_storage.read(run.log_url, missing_ok=True))
 
     @patch("products.tasks.backend.temporal.process_task.activities.post_slack_update.post_slack_update")
     def test_set_output_with_pr_url_posts_slack_update_when_mapping_exists(self, mock_post_slack_update):
@@ -11862,3 +11910,72 @@ class TestTaskRunSlackTaskApiAccess(BaseTaskAPITest):
             response = self.client.get(url)
 
         self.assertEqual(response.status_code, expected_status)
+
+
+class TestModelCatalogueAPI(BaseTaskAPITest):
+    GATEWAY_MODELS = (
+        GatewayModel(id="claude-opus-4-8", owned_by="anthropic", context_window=200_000),
+        GatewayModel(id="gpt-5.5", owned_by="openai", context_window=400_000),
+        GatewayModel(id="titan-express", owned_by="bedrock", context_window=8_000),
+    )
+
+    def test_returns_routable_gateway_models_with_their_efforts(self):
+        with patch(
+            "products.tasks.backend.logic.services.model_catalogue.list_gateway_models",
+            return_value=self.GATEWAY_MODELS,
+        ):
+            response = self.client.get("/api/projects/@current/tasks/models/")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        models = response.json()["models"]
+        # Bedrock has no runtime adapter, so `titan-express` can't be offered.
+        self.assertEqual([m["model"] for m in models], ["claude-opus-4-8", "gpt-5.5"])
+        self.assertEqual(models[0]["runtime_adapter"], "claude")
+        self.assertEqual(models[0]["display_name"], "Claude Opus 4.8")
+        self.assertIn("max", models[0]["supported_efforts"])
+
+    def test_unreachable_cache_yields_an_empty_catalogue_rather_than_an_error(self):
+        # The cache is an optimization in front of the gateway; if Redis is down the endpoint still has to
+        # answer with the documented empty catalogue rather than 500 every caller.
+        with patch(
+            "products.tasks.backend.logic.services.model_catalogue.cache.get",
+            side_effect=RuntimeError("redis down"),
+        ):
+            response = self.client.get("/api/projects/@current/tasks/models/")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json(), {"models": []})
+
+    def test_unreachable_gateway_yields_an_empty_catalogue_rather_than_an_error(self):
+        # `list_gateway_models` swallows gateway failures into an empty tuple; the endpoint must pass
+        # that through so a client falls back to its own default instead of showing an error state.
+        with patch(
+            "products.tasks.backend.logic.services.model_catalogue.list_gateway_models",
+            return_value=(),
+        ):
+            response = self.client.get("/api/projects/@current/tasks/models/")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json(), {"models": []})
+
+
+class TestTaskSerializerResponseRoundTrip(BaseTaskAPITest):
+    def test_task_response_can_be_read_back(self):
+        # `@validated_request` re-reads its own response through `to_internal_value` whenever DEBUG is
+        # on (posthog/api/mixins.py). That read drops read-only fields, so declaring one that
+        # `TaskDetailDTO` requires makes the dataclass constructor raise pydantic's ValidationError —
+        # which `is_valid(raise_exception=False)` doesn't catch, 500ing the endpoint in local dev.
+        # CI runs with DEBUG off, so this round trip is the only thing guarding the response shape.
+        #
+        # The creator needs a surname: `created_by.last_name` rejects a blank string, and that
+        # field-level error short-circuits DRF before it builds the dataclass, masking the bug.
+        self.user.last_name = "Tester"
+        self.user.save()
+        task = self.create_task()
+
+        response = self.client.get(f"/api/projects/@current/tasks/{task.id}/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        reread = TaskSerializer(data=response.json())
+        self.assertTrue(reread.is_valid(), reread.errors)
+        self.assertEqual(reread.validated_data.runtime, task.runtime)

@@ -1389,6 +1389,7 @@
         margin-bottom: 0.5rem !important;
         font-family: var(--font-sans);
         font-size: 1rem;
+        pointer-events: auto;
         cursor: unset;
         border: 1px solid var(--secondary-3000-button-border);
         border-radius: var(--radius);
@@ -1398,6 +1399,7 @@
 
     .Toastify__toast-container {
         padding: 0;
+        pointer-events: none;
     }
 
     // react-toastify defaults its container to 9999, above everything. A modal keeps its actions in
@@ -2040,6 +2042,28 @@
     position: relative !important;
     border-radius: var(--radius);
     animation: setup-highlight-pulse 1s ease-in-out 3 !important;
+}
+
+// One cell is one period along the 135deg axis, so the loop is seamless.
+@keyframes VolumeSparkline__spikeStripes {
+    to {
+        background-position: 0 -12px;
+    }
+}
+
+// A class, not a Tailwind `animate-[…]` utility: the keyframe name's `__` would need
+// underscore-escaping there, and Tailwind's raw-source scanner and the JSX-evaluated
+// class attribute disagree on backslashes, so the utility's selector never matches.
+.VolumeSparkline__spikeStripes {
+    animation: VolumeSparkline__spikeStripes 1.5s linear infinite;
+
+    .storybook-test-runner & {
+        animation: none;
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+        animation: none;
+    }
 }
 
 /* stylelint-disable-next-line keyframes-name-pattern */

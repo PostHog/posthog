@@ -44,6 +44,7 @@ export const visionActionsCreateBodySynthesisConfigOnePromptGuideMax = 500
 export const visionActionsCreateBodyAlertConfigOneFrequencyDefault = `on_breach`
 export const visionActionsCreateBodyAlertConfigOneMetricDefault = `count`
 export const visionActionsCreateBodyAlertConfigOneDirectionDefault = `above`
+export const visionActionsCreateBodyAlertConfigOneIncludeReasoningDefault = false
 
 export const VisionActionsCreateBody = /* @__PURE__ */ zod
     .object({
@@ -170,6 +171,12 @@ export const VisionActionsCreateBody = /* @__PURE__ */ zod
                     .describe(
                         "Rolling lookback window for on_breach conditions, ending at each check. Defaults to 1 day. every_match ignores it (each check covers what's new since the previous one).\n\n\* `1` - 1 day\n\* `3` - 3 days\n\* `7` - 7 days\n\* `14` - 14 days\n\* `30` - 30 days"
                     ),
+                include_reasoning: zod
+                    .boolean()
+                    .default(visionActionsCreateBodyAlertConfigOneIncludeReasoningDefault)
+                    .describe(
+                        "When true, each example line in the alert message includes the scanner's full reasoning for that observation, not just its verdict\/score\/tags. Useful when piping the message somewhere else to read or act on. Defaults to false."
+                    ),
             })
             .describe(
                 "The alert condition for mode='alert', applied after `selection` targeting. 'every_match'\nnotifies about each new match since the previous check; 'on_breach' compares a metric to a\nthreshold over a rolling window and notifies on the transition into breach."
@@ -244,6 +251,7 @@ export const visionActionsPartialUpdateBodySynthesisConfigOnePromptGuideMax = 50
 export const visionActionsPartialUpdateBodyAlertConfigOneFrequencyDefault = `on_breach`
 export const visionActionsPartialUpdateBodyAlertConfigOneMetricDefault = `count`
 export const visionActionsPartialUpdateBodyAlertConfigOneDirectionDefault = `above`
+export const visionActionsPartialUpdateBodyAlertConfigOneIncludeReasoningDefault = false
 
 export const VisionActionsPartialUpdateBody = /* @__PURE__ */ zod
     .object({
@@ -371,6 +379,12 @@ export const VisionActionsPartialUpdateBody = /* @__PURE__ */ zod
                     .optional()
                     .describe(
                         "Rolling lookback window for on_breach conditions, ending at each check. Defaults to 1 day. every_match ignores it (each check covers what's new since the previous one).\n\n\* `1` - 1 day\n\* `3` - 3 days\n\* `7` - 7 days\n\* `14` - 14 days\n\* `30` - 30 days"
+                    ),
+                include_reasoning: zod
+                    .boolean()
+                    .default(visionActionsPartialUpdateBodyAlertConfigOneIncludeReasoningDefault)
+                    .describe(
+                        "When true, each example line in the alert message includes the scanner's full reasoning for that observation, not just its verdict\/score\/tags. Useful when piping the message somewhere else to read or act on. Defaults to false."
                     ),
             })
             .describe(
@@ -639,6 +653,10 @@ export const VisionScannersListQueryParams = /* @__PURE__ */ zod.object({
         .string()
         .optional()
         .describe('Case-insensitive substring match across name, description, and the prompt in scanner_config.'),
+    tags: zod
+        .string()
+        .optional()
+        .describe('Filter to scanners carrying at least one of the given tags (comma-separated).'),
 })
 
 /**
@@ -656,8 +674,14 @@ export const visionScannersCreateBodyNameMax = 255
 
 export const visionScannersCreateBodyDescriptionMax = 1000
 
+export const visionScannersCreateBodyTagsItemMax = 255
+
+export const visionScannersCreateBodyTagsMax = 32
+
 export const visionScannersCreateBodySamplingRateMin = 0
 export const visionScannersCreateBodySamplingRateMax = 1
+
+export const visionScannersCreateBodyCreditLimitMax = 2147483647
 
 export const visionScannersCreateBodyExperimentTargetingOneVariantKeysItemMax = 400
 
@@ -674,6 +698,13 @@ export const VisionScannersCreateBody = /* @__PURE__ */ zod
             .max(visionScannersCreateBodyDescriptionMax)
             .optional()
             .describe('Free-form description shown in the scanner management UI.'),
+        tags: zod
+            .array(zod.string().max(visionScannersCreateBodyTagsItemMax))
+            .max(visionScannersCreateBodyTagsMax)
+            .optional()
+            .describe(
+                "Organizational tags for this scanner. Distinct from a classifier's tag vocabulary in scanner_config. Tags cannot contain commas."
+            ),
         scanner_type: zod
             .enum(['monitor', 'classifier', 'scorer', 'summarizer'])
             .describe(
@@ -707,6 +738,14 @@ export const VisionScannersCreateBody = /* @__PURE__ */ zod
             .optional()
             .describe(
                 'Quality pre-filter applied before random sampling. focused = top sessions only, balanced = drops the lowest-quality, comprehensive = no filter (default).\n\n\* `focused` - Focused\n\* `balanced` - Balanced\n\* `comprehensive` - Comprehensive'
+            ),
+        credit_limit: zod
+            .number()
+            .min(1)
+            .max(visionScannersCreateBodyCreditLimitMax)
+            .nullish()
+            .describe(
+                "Optional cap on this scanner's own credit spend per billing period. Null means no scanner-level cap. When reached, this scanner stops scanning until the period resets. It stays enabled and does not scan the sessions it skipped."
             ),
         provider: zod
             .enum(['google'])
@@ -787,8 +826,14 @@ export const visionScannersPartialUpdateBodyNameMax = 255
 
 export const visionScannersPartialUpdateBodyDescriptionMax = 1000
 
+export const visionScannersPartialUpdateBodyTagsItemMax = 255
+
+export const visionScannersPartialUpdateBodyTagsMax = 32
+
 export const visionScannersPartialUpdateBodySamplingRateMin = 0
 export const visionScannersPartialUpdateBodySamplingRateMax = 1
+
+export const visionScannersPartialUpdateBodyCreditLimitMax = 2147483647
 
 export const visionScannersPartialUpdateBodyExperimentTargetingOneVariantKeysItemMax = 400
 
@@ -806,6 +851,13 @@ export const VisionScannersPartialUpdateBody = /* @__PURE__ */ zod
             .max(visionScannersPartialUpdateBodyDescriptionMax)
             .optional()
             .describe('Free-form description shown in the scanner management UI.'),
+        tags: zod
+            .array(zod.string().max(visionScannersPartialUpdateBodyTagsItemMax))
+            .max(visionScannersPartialUpdateBodyTagsMax)
+            .optional()
+            .describe(
+                "Organizational tags for this scanner. Distinct from a classifier's tag vocabulary in scanner_config. Tags cannot contain commas."
+            ),
         scanner_type: zod
             .enum(['monitor', 'classifier', 'scorer', 'summarizer'])
             .describe(
@@ -841,6 +893,14 @@ export const VisionScannersPartialUpdateBody = /* @__PURE__ */ zod
             .optional()
             .describe(
                 'Quality pre-filter applied before random sampling. focused = top sessions only, balanced = drops the lowest-quality, comprehensive = no filter (default).\n\n\* `focused` - Focused\n\* `balanced` - Balanced\n\* `comprehensive` - Comprehensive'
+            ),
+        credit_limit: zod
+            .number()
+            .min(1)
+            .max(visionScannersPartialUpdateBodyCreditLimitMax)
+            .nullish()
+            .describe(
+                "Optional cap on this scanner's own credit spend per billing period. Null means no scanner-level cap. When reached, this scanner stops scanning until the period resets. It stays enabled and does not scan the sessions it skipped."
             ),
         provider: zod
             .enum(['google'])
