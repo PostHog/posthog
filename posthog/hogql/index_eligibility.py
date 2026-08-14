@@ -1,0 +1,381 @@
+"""Per-predicate index eligibility for a query, decided before it runs.
+
+``property_planner`` already resolves where a property physically lives (materialized column,
+dynamic materialized column, property group, or the raw JSON blob) and which skip indexes sit on
+that source. This module turns those facts into a per-predicate answer to "will this filter prune
+data, and if not, why not" by pairing the source plan with the comparison operator: a minmax index
+prunes range comparisons, a bloom filter prunes equality and IN, and neither prunes anything under
+a negation.
+
+The analysis runs on the AST as it looks straight after ``resolve_types``, which is the only point
+where property reads are still recognizable as ``PropertyType``. Later stages lower them into bare
+physical-column expressions.
+"""
+
+from __future__ import annotations
+
+from dataclasses import dataclass
+from enum import StrEnum
+
+from posthog.hogql import ast
+from posthog.hogql.base import AST
+from posthog.hogql.context import HogQLContext
+from posthog.hogql.property_planner import (
+    PropertyComparisonPlan,
+    PropertyMinmaxBlocker,
+    PropertyScope,
+    PropertySourceKind,
+    plan_property_comparison,
+)
+from posthog.hogql.visitor import TraversingVisitor, clone_expr
+
+from posthog.schema_enums import QueryIndexUsage
+
+
+class IndexKind(StrEnum):
+    MINMAX = "minmax"
+    BLOOM_FILTER = "bloom_filter"
+    NGRAM_LOWER = "ngram_lower"
+    BLOOM_FILTER_LOWER = "bloom_filter_lower"
+
+
+class PredicateIndexVerdict(StrEnum):
+    INDEXED = "indexed"
+    """A skip index on the source column prunes granules for this predicate."""
+
+    BLOCKED = "blocked"
+    """The source carries an index this operator could use, but a type mismatch defeats it."""
+
+    UNINDEXED_COLUMN = "unindexed_column"
+    """The property reads from a dedicated column, but no index prunes this operator."""
+
+    UNINDEXED_JSON = "unindexed_json"
+    """The property is parsed out of the JSON blob on every row."""
+
+    OPERATOR_NOT_INDEXABLE = "operator_not_indexable"
+    """Negations, regexes and case-sensitive LIKE match granules that skip indexes cannot exclude."""
+
+
+# Which skip indexes ClickHouse can use to drop granules for a given operator. Negated operators are
+# absent on purpose: a granule holding one non-matching row still satisfies `!=`, so no skip index
+# can exclude it. `like` is absent because only a prefix pattern prunes, and whether a pattern is a
+# prefix is decided at runtime from the literal rather than from the operator.
+_OPERATOR_INDEXES: dict[ast.CompareOperationOp, frozenset[IndexKind]] = {
+    ast.CompareOperationOp.Eq: frozenset({IndexKind.MINMAX, IndexKind.BLOOM_FILTER}),
+    ast.CompareOperationOp.In: frozenset({IndexKind.MINMAX, IndexKind.BLOOM_FILTER}),
+    ast.CompareOperationOp.GlobalIn: frozenset({IndexKind.MINMAX, IndexKind.BLOOM_FILTER}),
+    ast.CompareOperationOp.Gt: frozenset({IndexKind.MINMAX}),
+    ast.CompareOperationOp.GtEq: frozenset({IndexKind.MINMAX}),
+    ast.CompareOperationOp.Lt: frozenset({IndexKind.MINMAX}),
+    ast.CompareOperationOp.LtEq: frozenset({IndexKind.MINMAX}),
+    ast.CompareOperationOp.ILike: frozenset({IndexKind.NGRAM_LOWER, IndexKind.BLOOM_FILTER_LOWER}),
+}
+
+_COLUMN_SOURCE_KINDS = frozenset(
+    {
+        PropertySourceKind.MATERIALIZED_COLUMN,
+        PropertySourceKind.DYNAMIC_MATERIALIZED_COLUMN,
+        PropertySourceKind.PROPERTY_GROUP,
+    }
+)
+
+_SCOPE_LABELS: dict[PropertyScope, str] = {
+    PropertyScope.EVENT: "Event property",
+    PropertyScope.PERSON: "Person property",
+    PropertyScope.GROUP: "Group property",
+    PropertyScope.UNKNOWN: "Property",
+}
+
+_INDEX_LABELS: dict[IndexKind, str] = {
+    IndexKind.MINMAX: "min-max",
+    IndexKind.BLOOM_FILTER: "bloom filter",
+    IndexKind.NGRAM_LOWER: "n-gram",
+    IndexKind.BLOOM_FILTER_LOWER: "bloom filter",
+}
+
+_SOURCE_LABELS: dict[PropertySourceKind, str] = {
+    PropertySourceKind.JSON: "JSON blob",
+    PropertySourceKind.MATERIALIZED_COLUMN: "materialized column",
+    PropertySourceKind.DYNAMIC_MATERIALIZED_COLUMN: "materialized column",
+    PropertySourceKind.PROPERTY_GROUP: "property group",
+}
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class PredicateIndexEligibility:
+    property_name: str
+    scope: PropertyScope
+    operator: ast.CompareOperationOp
+    source_kind: PropertySourceKind
+    source_label: str
+    column_name: str | None
+    semantic_type: str
+    physical_type: str
+    available_indexes: tuple[IndexKind, ...]
+    usable_indexes: tuple[IndexKind, ...]
+    verdict: PredicateIndexVerdict
+    blocker: PropertyMinmaxBlocker | None
+    message: str
+    fix: str | None
+    start: int | None
+    end: int | None
+
+    @property
+    def prunes_data(self) -> bool:
+        return self.verdict == PredicateIndexVerdict.INDEXED
+
+
+@dataclass(frozen=True, slots=True)
+class IndexEligibilityReport:
+    predicates: tuple[PredicateIndexEligibility, ...] = ()
+
+    @property
+    def usage(self) -> QueryIndexUsage:
+        if not self.predicates:
+            return QueryIndexUsage.UNDECISIVE
+        pruning = sum(1 for predicate in self.predicates if predicate.prunes_data)
+        if pruning == len(self.predicates):
+            return QueryIndexUsage.YES
+        if pruning == 0:
+            return QueryIndexUsage.NO
+        return QueryIndexUsage.PARTIAL
+
+    @property
+    def actionable(self) -> tuple[PredicateIndexEligibility, ...]:
+        return tuple(predicate for predicate in self.predicates if predicate.fix is not None)
+
+
+def analyze_index_eligibility(node: AST, context: HogQLContext) -> IndexEligibilityReport:
+    """Build the report from an AST that has been through ``resolve_types`` and nothing further."""
+    collector = _FilterPredicateCollector(context)
+    collector.visit(node)
+    return IndexEligibilityReport(predicates=tuple(collector.predicates))
+
+
+def build_index_eligibility_report(
+    node: ast.SelectQuery | ast.SelectSetQuery,
+    context: HogQLContext,
+) -> IndexEligibilityReport:
+    """Resolve a copy of the user's query far enough to plan its property reads, then analyze it.
+
+    Resolution happens on a clone because the analysis has to see the AST at a stage the print
+    pipeline has already moved past, and because callers hand us the node they still intend to use.
+    The property-definition registry is reused when the caller's context already loaded it, so a
+    caller that has printed the query first pays no extra Postgres round trip.
+
+    That second resolution is the cost of running outside the print pipeline. Analyzing in-pipeline
+    (between ``build_property_swapper`` and the first ``PropertySwapper`` pass, the one window where
+    property types are still intact and the registry is loaded) would make it free, but the AST there
+    has already been through simplification and projection pushdown, so the character offsets the
+    editor squiggles with are no longer guaranteed to be the ones the user typed.
+    """
+    # Deferred: these pull in the resolver and the Django-side property-definition loader, neither of
+    # which should sit on this module's import path (it is imported by the metadata endpoint).
+    from posthog.hogql.resolver import resolve_types  # noqa: PLC0415
+    from posthog.hogql.transforms.property_types import build_property_swapper  # noqa: PLC0415
+
+    if context.database is None:
+        return IndexEligibilityReport()
+
+    with context.timings.measure("index_eligibility"):
+        resolved = resolve_types(clone_expr(node), context, dialect="clickhouse")
+        if context.property_metadata is None:
+            build_property_swapper(resolved, context)
+        return analyze_index_eligibility(resolved, context)
+
+
+def eligibility_from_plan(
+    plan: PropertyComparisonPlan,
+    *,
+    negated: bool = False,
+    start: int | None = None,
+    end: int | None = None,
+) -> PredicateIndexEligibility:
+    source = plan.access.source
+    available = _available_indexes(plan)
+    relevant = frozenset() if negated else _OPERATOR_INDEXES.get(plan.operator, frozenset())
+    # `_minmax_blocker` reports the absent-index case first, so any other value it returns is a type
+    # problem that makes the printer wrap the column in a cast. A cast defeats every skip index on
+    # that column, not just the minmax one.
+    type_blocker = plan.minmax_blocker if plan.minmax_blocker != PropertyMinmaxBlocker.NO_MINMAX_INDEX else None
+    usable: tuple[IndexKind, ...] = () if type_blocker is not None else tuple(sorted(available & relevant))
+
+    verdict = _verdict(
+        source_kind=source.kind,
+        relevant=relevant,
+        available=available,
+        usable=usable,
+        type_blocker=type_blocker,
+    )
+    semantic_type = plan.access.semantic_type.print_type()
+    physical_type = source.physical_type.print_type()
+    message, fix = _copy_for(
+        verdict=verdict,
+        plan=plan,
+        usable=usable,
+        type_blocker=type_blocker,
+        semantic_type=semantic_type,
+        physical_type=physical_type,
+    )
+
+    return PredicateIndexEligibility(
+        property_name=plan.access.property_name,
+        scope=plan.access.scope,
+        operator=plan.operator,
+        source_kind=source.kind,
+        source_label=_SOURCE_LABELS[source.kind],
+        column_name=source.column_name,
+        semantic_type=semantic_type,
+        physical_type=physical_type,
+        available_indexes=tuple(sorted(available)),
+        usable_indexes=usable,
+        verdict=verdict,
+        blocker=type_blocker,
+        message=message,
+        fix=fix,
+        start=start,
+        end=end,
+    )
+
+
+def _available_indexes(plan: PropertyComparisonPlan) -> frozenset[IndexKind]:
+    source = plan.access.source
+    indexes: set[IndexKind] = set()
+    if source.has_minmax_index:
+        indexes.add(IndexKind.MINMAX)
+    if source.has_bloom_filter_index:
+        indexes.add(IndexKind.BLOOM_FILTER)
+    if source.has_ngram_lower_index:
+        indexes.add(IndexKind.NGRAM_LOWER)
+    if source.has_bloom_filter_lower_index:
+        indexes.add(IndexKind.BLOOM_FILTER_LOWER)
+    return frozenset(indexes)
+
+
+def _verdict(
+    source_kind: PropertySourceKind,
+    relevant: frozenset[IndexKind],
+    available: frozenset[IndexKind],
+    usable: tuple[IndexKind, ...],
+    type_blocker: PropertyMinmaxBlocker | None,
+) -> PredicateIndexVerdict:
+    if not relevant:
+        return PredicateIndexVerdict.OPERATOR_NOT_INDEXABLE
+    if usable:
+        return PredicateIndexVerdict.INDEXED
+    if type_blocker is not None and available & relevant:
+        return PredicateIndexVerdict.BLOCKED
+    if source_kind in _COLUMN_SOURCE_KINDS:
+        return PredicateIndexVerdict.UNINDEXED_COLUMN
+    return PredicateIndexVerdict.UNINDEXED_JSON
+
+
+def _copy_for(
+    verdict: PredicateIndexVerdict,
+    plan: PropertyComparisonPlan,
+    usable: tuple[IndexKind, ...],
+    type_blocker: PropertyMinmaxBlocker | None,
+    semantic_type: str,
+    physical_type: str,
+) -> tuple[str, str | None]:
+    label = _SCOPE_LABELS[plan.access.scope]
+    name = plan.access.property_name
+    source = plan.access.source
+
+    if verdict == PredicateIndexVerdict.INDEXED:
+        index_names = ", ".join(sorted({_INDEX_LABELS[index] for index in usable}))
+        return f"{label} '{name}' filters on column '{source.column_name}' using its {index_names} index.", None
+
+    if verdict == PredicateIndexVerdict.BLOCKED:
+        if type_blocker == PropertyMinmaxBlocker.SOURCE_TYPE_DIFFERS_FROM_PROPERTY_TYPE:
+            return (
+                f"{label} '{name}' is stored as {physical_type} but its type is set to {semantic_type}. "
+                f"Every row has to be converted, so the index on '{source.column_name}' goes unused.",
+                f"Materialize '{name}' as {semantic_type}, or set its type to {physical_type} to match how it is stored.",
+            )
+        return (
+            f"{label} '{name}' is compared against a value of another type, so every row has to be "
+            f"converted and the index on '{source.column_name}' goes unused.",
+            f"Compare '{name}' against a {physical_type} value.",
+        )
+
+    if verdict == PredicateIndexVerdict.UNINDEXED_JSON:
+        if source.restricted:
+            return (
+                f"{label} '{name}' is restricted for your role, so it is read from the properties JSON "
+                "and no index applies.",
+                None,
+            )
+        return (
+            f"{label} '{name}' is read out of the properties JSON on every row, with no index to skip data.",
+            f"Materialize '{name}' so this filter reads a dedicated column instead of parsing the JSON.",
+        )
+
+    if verdict == PredicateIndexVerdict.UNINDEXED_COLUMN:
+        return (
+            f"{label} '{name}' reads from column '{source.column_name}', but no index on it covers '{plan.operator}'.",
+            None,
+        )
+
+    return (
+        f"{label} '{name}' is filtered with '{plan.operator}', which reads every row because no index "
+        "can rule one out.",
+        None,
+    )
+
+
+class _FilterPredicateCollector(TraversingVisitor):
+    """Collects property comparisons from filtering positions only.
+
+    A comparison in a select expression or a HAVING clause never prunes a read, so reporting it as
+    unindexed would send the reader after a fix that changes nothing. Descends through and/or/not so
+    a predicate nested in a boolean tree is still found, and treats anything under a negation as
+    unprunable for the same reason `!=` is.
+    """
+
+    def __init__(self, context: HogQLContext) -> None:
+        super().__init__()
+        self.context = context
+        self.predicates: list[PredicateIndexEligibility] = []
+        self._seen: set[tuple[int | None, int | None, str]] = set()
+
+    def visit_select_query(self, node: ast.SelectQuery) -> None:
+        for filter_expr in (node.where, node.prewhere):
+            if filter_expr is not None:
+                self._collect(filter_expr, negated=False)
+        super().visit_select_query(node)
+
+    def _collect(self, node: ast.Expr, negated: bool) -> None:
+        if isinstance(node, ast.Not):
+            self._collect(node.expr, negated=not negated)
+            return
+        if isinstance(node, ast.And | ast.Or):
+            for child in node.exprs:
+                self._collect(child, negated=negated)
+            return
+        # `not x` parses to a Call rather than an ast.Not, and `and`/`or` can be written in call form,
+        # so the boolean connectives have to be recognized in both shapes.
+        if isinstance(node, ast.Call):
+            name = node.name.lower()
+            if name == "not" and len(node.args) == 1:
+                self._collect(node.args[0], negated=not negated)
+            elif name in ("and", "or"):
+                for arg in node.args:
+                    self._collect(arg, negated=negated)
+            return
+        if isinstance(node, ast.CompareOperation):
+            self._record(node, negated=negated)
+
+    def _record(self, node: ast.CompareOperation, negated: bool) -> None:
+        plan = plan_property_comparison(node, self.context)
+        if plan is None:
+            return
+
+        # A rewritten query can carry the same predicate twice with identical spans; the property
+        # name keeps distinct predicates that share a span (JSON-sourced nodes without locations).
+        key = (node.start, node.end, plan.access.property_name)
+        if key in self._seen:
+            return
+        self._seen.add(key)
+
+        self.predicates.append(eligibility_from_plan(plan, negated=negated, start=node.start, end=node.end))

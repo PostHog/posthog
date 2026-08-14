@@ -28655,6 +28655,13 @@
                     },
                     "type": "array"
                 },
+                "index_usage": {
+                    "description": "One entry per property filter, in query order.",
+                    "items": {
+                        "$ref": "#/definitions/PredicateIndexUsage"
+                    },
+                    "type": "array"
+                },
                 "isUsingIndices": {
                     "$ref": "#/definitions/QueryIndexUsage"
                 },
@@ -38440,6 +38447,75 @@
             "enum": ["pending", "in_progress", "completed"],
             "type": "string"
         },
+        "PredicateIndexUsage": {
+            "additionalProperties": false,
+            "description": "How one property filter in the query will read and prune data, decided before the query runs.",
+            "properties": {
+                "column_name": {
+                    "type": "string"
+                },
+                "end": {
+                    "$ref": "#/definitions/integer"
+                },
+                "fix": {
+                    "type": "string"
+                },
+                "message": {
+                    "type": "string"
+                },
+                "operator": {
+                    "type": "string"
+                },
+                "physical_type": {
+                    "description": "Type the value is physically stored as.",
+                    "type": "string"
+                },
+                "property_name": {
+                    "type": "string"
+                },
+                "scope": {
+                    "description": "`event`, `person`, `group` or `unknown`.",
+                    "type": "string"
+                },
+                "semantic_type": {
+                    "description": "Type the property definition declares.",
+                    "type": "string"
+                },
+                "source_label": {
+                    "description": "Where the value is physically read from, e.g. `materialized column` or `JSON blob`.",
+                    "type": "string"
+                },
+                "start": {
+                    "$ref": "#/definitions/integer"
+                },
+                "usable_indexes": {
+                    "description": "Skip indexes this predicate can actually use.",
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": "array"
+                },
+                "verdict": {
+                    "$ref": "#/definitions/PredicateIndexVerdict"
+                }
+            },
+            "required": [
+                "property_name",
+                "scope",
+                "operator",
+                "source_label",
+                "semantic_type",
+                "physical_type",
+                "usable_indexes",
+                "verdict",
+                "message"
+            ],
+            "type": "object"
+        },
+        "PredicateIndexVerdict": {
+            "enum": ["indexed", "blocked", "unindexed_column", "unindexed_json", "operator_not_indexable"],
+            "type": "string"
+        },
         "PreprocessingConfig": {
             "additionalProperties": false,
             "description": "Preprocessing transforms applied to the time series before detection",
@@ -39765,6 +39841,13 @@
                         "errors": {
                             "items": {
                                 "$ref": "#/definitions/HogQLNotice"
+                            },
+                            "type": "array"
+                        },
+                        "index_usage": {
+                            "description": "One entry per property filter, in query order.",
+                            "items": {
+                                "$ref": "#/definitions/PredicateIndexUsage"
                             },
                             "type": "array"
                         },

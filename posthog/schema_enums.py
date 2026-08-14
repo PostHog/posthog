@@ -3458,6 +3458,14 @@ class PlanningStepStatus(StrEnum):
     COMPLETED = "completed"
 
 
+class PredicateIndexVerdict(StrEnum):
+    INDEXED = "indexed"
+    BLOCKED = "blocked"
+    UNINDEXED_COLUMN = "unindexed_column"
+    UNINDEXED_JSON = "unindexed_json"
+    OPERATOR_NOT_INDEXABLE = "operator_not_indexable"
+
+
 class ProductIntentContext(StrEnum):
     ONBOARDING_PRODUCT_SELECTED___PRIMARY = "onboarding product selected - primary"
     ONBOARDING_PRODUCT_SELECTED___SECONDARY = "onboarding product selected - secondary"

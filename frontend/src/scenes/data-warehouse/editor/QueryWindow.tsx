@@ -25,6 +25,7 @@ import { Scene } from 'scenes/sceneTypes'
 import { iconForType } from '~/layout/panel-layout/ProjectTree/defaultTree'
 import { SceneTitlePanelButton } from '~/layout/scenes/components/SceneTitleSection'
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
+import { QueryIndexUsage } from '~/queries/schema/schema-general'
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import { useAttachedContext, useMcpToolApplyBack } from 'products/posthog_ai/frontend/api/logics'
@@ -460,7 +461,9 @@ function RunButton({
     const { responseLoading } = useValues(dataNodeLogic)
     const { metadata, queryInput, isSourceQueryLastRun } = useValues(sqlEditorLogic)
 
-    const isUsingIndices = metadata?.isUsingIndices === 'yes'
+    // `undecisive` means the query has no property filters to judge, so it is not a reason to warn.
+    const scansEveryRow =
+        metadata?.isUsingIndices === QueryIndexUsage.No || metadata?.isUsingIndices === QueryIndexUsage.Partial
     const isRunning = onRunQuery ? !!runQueryLoading : responseLoading
     // The external-run path shows a cancel affordance only when a canceller is provided.
     const showCancel = isRunning && (!onRunQuery || !!onCancelQuery)
@@ -477,18 +480,17 @@ function RunButton({
             return ['var(--primary)', 'No changes to run']
         }
 
-        if (!metadata || isUsingIndices || queryInput?.trim().length === 0) {
+        if (!metadata || !scansEveryRow || queryInput?.trim().length === 0) {
             return ['var(--success)', 'New changes to run']
         }
 
-        const tooltip = !isUsingIndices
-            ? 'This query is not using indices optimally, which may result in slower performance.'
-            : undefined
-
-        return ['var(--warning)', tooltip]
+        return [
+            'var(--warning)',
+            'Some filters in this query read every row. Open the Info tab to see which ones and how to fix them.',
+        ]
     }, [
         metadata,
-        isUsingIndices,
+        scansEveryRow,
         queryInput,
         isSourceQueryLastRun,
         onRunQuery,
