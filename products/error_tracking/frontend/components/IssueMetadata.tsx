@@ -64,12 +64,12 @@ export const Metadata = ({
                             }
                         }}
                         data-quill
-                        className="items-stretch gap-0 border-b border-primary bg-[var(--background)]"
+                        className="relative items-stretch gap-0 border-b border-primary bg-[var(--background)] after:pointer-events-none after:absolute after:inset-y-0 after:left-10 after:z-10 after:border-l after:border-primary after:content-['']"
                     >
                         <TabsList
                             variant="line"
                             aria-label="Issue filter previews"
-                            className="sticky top-0 z-20 !h-auto w-10 shrink-0 justify-start self-start rounded-none border-r border-primary bg-[var(--background)] p-1"
+                            className="sticky top-0 z-20 !h-auto w-10 shrink-0 justify-start self-start rounded-none bg-[var(--background)] p-1"
                         >
                             <QuillTooltip>
                                 <TooltipTrigger
