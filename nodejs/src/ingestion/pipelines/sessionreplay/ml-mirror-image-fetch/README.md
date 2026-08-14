@@ -285,8 +285,6 @@ or in a file the lane already fetches, so none of them costs an extra request.
 59. `Content-Signal` uses the label `ai-train`. The AIPREF draft uses `train-ai` for the same idea.
     The lane reads both spellings, because they belong to two different specifications.
 
-### TDMRep
-
 TDMRep gives a rightsholder three ways to reserve their rights over text and data mining. The lane
 reads two of them. Article 4 of the EU DSM Directive grants a permission unless the rightsholder
 reserves those rights by machine-readable means, so a reservation removes a permission rather than
@@ -321,6 +319,24 @@ adds a prohibition.
     share one server, and the domain limit of rule 2 does not see that.
 70. Rule 69 counts inside one pod. A pod owns whole partitions, so it sees only the domains those
     partitions carry. Nothing counts across pods, as rule 19 says of the rest of this knowledge.
+
+### Conditional requests
+
+A crawl history entry lives 30 days, and then the lane wants the image again. Most images do not
+change in 30 days. A conditional request asks the server to send the image only when it changed.
+
+71. The lane stores the `ETag` a server sends with an image, and stores the `Last-Modified` value as
+    well. Both live beside the crawl history entry for that URL, so the entry holds more than a
+    timestamp.
+72. The lane sends `If-None-Match` with the stored `ETag` when it fetches that URL again.
+73. The lane sends `If-Modified-Since` with the stored `Last-Modified` only when it holds no `ETag`.
+    An `ETag` carries no date, so it avoids the date format problems a `Last-Modified` value has.
+74. A `304` answer means the image did not change. The server sends no body, so the answer costs a
+    few hundred bytes rather than the whole image.
+75. A response can name a freshness lifetime, and `immutable` names one that does not change. The
+    lane sends no request for that URL while that lifetime lasts.
+76. A `304` answer means the lane never reads the bytes. A change to the scrub lane or to the model
+    therefore needs a way to fetch every image again, and the lane provides one.
 
 ## How a message waits
 
