@@ -159,10 +159,10 @@ export function ScannerTemplatePicker(): JSX.Element {
         <div className="flex flex-col gap-6">
             <ResumeDraftBanner />
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                <TemplateCard template="blank" />
                 {defaultScannerTemplates.map((template) => (
                     <TemplateCard key={template.key} template={template} />
                 ))}
+                <TemplateCard template="blank" />
             </div>
         </div>
     )

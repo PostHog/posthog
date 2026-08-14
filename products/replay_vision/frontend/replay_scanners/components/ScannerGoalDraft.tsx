@@ -28,9 +28,7 @@ export function ScannerGoalDraft(): JSX.Element {
         <div className="space-y-6">
             <div className="flex items-center gap-4">
                 <div className="flex-1 border-t border-border" />
-                <span className="text-xs text-tertiary uppercase tracking-wide">
-                    or tell PostHog AI what you want to accomplish
-                </span>
+                <span className="text-xs text-tertiary uppercase tracking-wide">or describe what you want to find</span>
                 <div className="flex-1 border-t border-border" />
             </div>
 
