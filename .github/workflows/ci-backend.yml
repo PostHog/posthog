@@ -40,7 +40,7 @@ env:
     # (key is posthog-schema-mig-<epoch>-<hash>). Single-sourced so it can't drift
     # between the merge-base (PR) and HEAD (push) key computations below.
     # ci-e2e-playwright.yml, ci-dagster.yml, and ci-mcp.yml restore by the same key; keep their copies in sync when bumping.
-    SCHEMA_CACHE_EPOCH: v2-pr83181-full-miss-test-2
+    SCHEMA_CACHE_EPOCH: v2
     SECRET_KEY: '6b01eee4f945ca25045b5aab440b953461faf08693a9abbf1166dc7c6b9772da' # unsafe - for testing only
     DATABASE_URL: 'postgres://posthog:posthog@localhost:5432/posthog'
     REDIS_URL: 'redis://localhost'
@@ -423,7 +423,7 @@ jobs:
                       exit 0
                   fi
                   # Exact branch-point key, kept as the fallback restore key below.
-                  echo "key=posthog-schema-master-pr83181-full-miss-test-${MERGE_BASE}" >> $GITHUB_OUTPUT
+                  echo "key=posthog-schema-master-${MERGE_BASE}" >> $GITHUB_OUTPUT
                   # Shared key: hash merge-base schema inputs, not PR head, so PR migrations still
                   # apply as the pytest delta. uv.lock covers third-party migration changes; the
                   # postgres image is folded in so a server-version bump invalidates the key.
