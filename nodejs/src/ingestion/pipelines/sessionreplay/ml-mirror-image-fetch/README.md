@@ -122,7 +122,7 @@ answers.
 **4.1** One network failure for a domain applies to every URL queued for that domain in the same
 pass.
 
-**4.2** A `Retry-After` header holds the whole domain for the period it names.
+**4.2** A `Retry-After` header holds the whole domain for the period it names, up to the length of the longest delay topic. That topic holds one hour. A `Retry-After` longer than that is a refusal rather than a delay: the lane treats every URL on the domain as disallowed and writes each one to the crawl history, as requirement 8.11 does. Requirement 11.7 reads a long `Crawl-delay` the same way. The lane never holds a URL for more than one wait, whoever asked for the wait and whatever the reason.
 
 **4.3** Repeated failures open the circuit breaker for the domain, and its cooldown grows each time.
 
