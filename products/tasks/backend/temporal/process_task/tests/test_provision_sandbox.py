@@ -224,6 +224,40 @@ def test_restricted_vm_applies_compiled_modal_policy() -> None:
     assert config.network_policy_fingerprint == "policy-hash"
 
 
+@override_settings(DEBUG=False)
+def test_restricted_vm_recompiles_modal_policy_for_legacy_context() -> None:
+    config = SandboxConfig(name="restricted-vm", vm_runtime=True)
+    context = _context(
+        allowed_domains=["example.com"],
+        use_modal_vm_sandbox=True,
+        use_modal_network_allowlist=True,
+    )
+
+    _apply_modal_network_policy(config, context, use_vm_sandbox=True)
+
+    assert config.outbound_domain_allowlist is not None
+    assert "example.com" in config.outbound_domain_allowlist
+    assert "*.posthog.com" in config.outbound_domain_allowlist
+    assert "api.anthropic.com" in config.outbound_domain_allowlist
+    assert config.network_policy_fingerprint is not None
+
+
+@override_settings(DEBUG=False)
+def test_restricted_vm_rejects_invalid_legacy_context() -> None:
+    config = SandboxConfig(name="restricted-vm", vm_runtime=True)
+    context = _context(
+        allowed_domains=["https://example.com/path"],
+        use_modal_vm_sandbox=True,
+        use_modal_network_allowlist=True,
+    )
+
+    with pytest.raises(SandboxNetworkPolicyError) as error:
+        _apply_modal_network_policy(config, context, use_vm_sandbox=True)
+
+    assert error.value.non_retryable is True
+    assert config.outbound_domain_allowlist is None
+
+
 @patch(f"{_PROVISION}.get_git_identity_env_vars", return_value={})
 @patch(f"{_PROVISION}.get_sandbox_jwt_public_key", return_value="pub")
 @patch(f"{_PROVISION}.get_sandbox_api_url", return_value="https://api.example")

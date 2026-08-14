@@ -38,7 +38,11 @@ from products.tasks.backend.logic.services.connection_token import (
     get_primary_sandbox_jwt_kid,
     get_sandbox_jwt_public_key,
 )
-from products.tasks.backend.logic.services.network_policy import compile_network_policy
+from products.tasks.backend.logic.services.network_policy import (
+    EffectiveNetworkPolicy,
+    NetworkPolicyValidationError,
+    compile_network_policy,
+)
 from products.tasks.backend.logic.services.sandbox import (
     ExecutionResult,
     Sandbox,
@@ -204,14 +208,17 @@ class InvalidateResumeSnapshotInput:
     snapshot_external_id: str | None = None
 
 
-def _to_modal_domain_allowlist(allowed_domains: list[str]) -> list[str]:
-    policy = compile_network_policy(
+def _compile_sandbox_network_policy(allowed_domains: list[str]) -> EffectiveNetworkPolicy:
+    return compile_network_policy(
         allowed_domains,
         infrastructure_domains=enforced_egress_domains(),
         debug_domains=_get_debug_only_domains() if settings.DEBUG else [],
         debug_ports=_get_debug_only_ports() if settings.DEBUG else [],
     )
-    return list(policy.modal_domains)
+
+
+def _to_modal_domain_allowlist(allowed_domains: list[str]) -> list[str]:
+    return list(_compile_sandbox_network_policy(allowed_domains).modal_domains)
 
 
 def _apply_modal_network_policy(
@@ -232,14 +239,20 @@ def _apply_modal_network_policy(
     if not ctx.use_modal_network_allowlist:
         return
     if ctx.modal_domain_allowlist is None or ctx.network_policy_fingerprint is None:
-        record_network_enforcement(
-            "configuration_validation", sandbox_runtime_label(use_vm_sandbox), "modal", "failure"
-        )
-        raise SandboxNetworkPolicyError(
-            "This sandbox environment has no valid Modal network policy. Update its network settings and run the task again.",
-            {"run_id": ctx.run_id, "sandbox_environment_id": ctx.sandbox_environment_id},
-            cause=RuntimeError("compiled Modal network policy is missing"),
-        )
+        try:
+            policy = _compile_sandbox_network_policy(ctx.allowed_domains)
+        except NetworkPolicyValidationError as error:
+            record_network_enforcement(
+                "configuration_validation", sandbox_runtime_label(use_vm_sandbox), "modal", "failure"
+            )
+            raise SandboxNetworkPolicyError(
+                "This sandbox environment has no valid Modal network policy. Update its network settings and run the task again.",
+                {"run_id": ctx.run_id, "sandbox_environment_id": ctx.sandbox_environment_id},
+                cause=error,
+            ) from error
+        config.outbound_domain_allowlist = list(policy.modal_domains)
+        config.network_policy_fingerprint = policy.fingerprint
+        return
     config.outbound_domain_allowlist = list(ctx.modal_domain_allowlist)
     config.network_policy_fingerprint = ctx.network_policy_fingerprint
 

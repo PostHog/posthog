@@ -7,6 +7,8 @@ from dataclasses import dataclass
 from django.core.exceptions import ValidationError
 from django.core.validators import DomainNameValidator
 
+import idna
+
 _domain_name_validator = DomainNameValidator(accept_idna=False)
 _MODAL_UNSUPPORTED_HOSTS = {"localhost", "host.docker.internal"}
 MAX_SANDBOX_ALLOWED_DOMAINS = 100
@@ -48,8 +50,8 @@ def normalize_domain(domain: str) -> str:
         raise ValueError("Wildcards are only supported as the leftmost '*.' label")
 
     try:
-        hostname = hostname.encode("idna").decode("ascii")
-    except UnicodeError as error:
+        hostname = idna.encode(hostname, uts46=True).decode("ascii")
+    except idna.IDNAError as error:
         raise ValueError("Domain is not valid IDNA") from error
 
     if hostname in _MODAL_UNSUPPORTED_HOSTS:

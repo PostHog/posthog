@@ -37,6 +37,7 @@ def test_requested_domains_reject_values_modal_cannot_enforce(_name: str, domain
     [
         ("case_whitespace_and_duplicates", [" EXAMPLE.com ", "example.com"], ("example.com",)),
         ("idna_label", ["täst.example"], ("xn--tst-qla.example",)),
+        ("idna_2008_deviation", ["faß.de"], ("xn--fa-hia.de",)),
         ("unicode_label_separator", ["example。com"], ("example.com",)),
     ]
 )

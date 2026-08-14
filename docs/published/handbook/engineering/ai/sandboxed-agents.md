@@ -340,10 +340,10 @@ without relying on AgentSH process tracing.
 Modal applies domain restrictions using the requested hostname or TLS SNI. Raw IP connections without
 an allowed SNI fail, while a connection to an IP with an allowed SNI can pass the boundary. This is an
 SNI allowlist, not DNS-to-destination-IP binding. AgentSH repeats the domain policy for the processes it
-traces, but it has the same allowed-SNI behavior and does not cover independently started VM services or
-nested Docker containers. Use an externally enforced egress proxy with a provider CIDR allowlist if those
-workloads require strict hostname-to-destination binding. Test both host and container traffic because
-their network paths differ.
+traces as a second layer. It is not authoritative for VM egress: traffic that bypasses its proxy or process
+tree is outside that layer, and AgentSH does not add strict hostname-to-destination binding. Use an externally
+enforced egress proxy with a provider CIDR allowlist if a workload needs that binding. Test both host and
+container traffic because their network paths differ.
 The `use_modal_vm_sandbox` run-state key force-selects the VM runtime for trusted server-created runs
 (image builders) and is never accepted from client input.
 
