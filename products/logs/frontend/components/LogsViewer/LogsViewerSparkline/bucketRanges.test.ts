@@ -15,8 +15,9 @@ describe('bucketRanges', () => {
     })
 
     it('leaves a drag selection open-ended when it runs to the final bucket', () => {
-        // No bucket follows the last one, and the query reads a missing end as "now".
-        expect(selectedDateRange(BUCKET_TIMES, 2, 3)).toEqual({ date_from: BUCKET_TIMES[2], date_to: undefined })
+        // Null, not undefined: `utcDateRange` normalizes with `dayjs(date_to)`, which reads undefined
+        // as the current time and would pin the end instead of leaving the range open at "now".
+        expect(selectedDateRange(BUCKET_TIMES, 2, 3)).toEqual({ date_from: BUCKET_TIMES[2], date_to: null })
     })
 
     it('returns no drag selection when it does not start on a charted bucket', () => {

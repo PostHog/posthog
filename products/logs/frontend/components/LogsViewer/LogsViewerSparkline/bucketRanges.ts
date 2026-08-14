@@ -2,16 +2,20 @@ import { DateRange } from '~/queries/schema/schema-general'
 
 /**
  * Date range for a drag-selected run of buckets. The end is the *next* bucket's start, which keeps
- * the selection's last bucket inclusive. Past the final bucket that start does not exist, and the
- * resulting undefined `date_to` is what the query reads as "now". Returns null when the selection
- * does not start on a charted bucket.
+ * the selection's last bucket inclusive. Returns null when the selection does not start on a charted
+ * bucket.
+ *
+ * Selecting through the final bucket has no next start, and the end is left open as `null` rather
+ * than undefined: `utcDateRange` in `logsViewerFiltersLogic` normalizes via `dayjs(date_to)`, which
+ * reads undefined as the current time and would freeze the range end at whenever that selector last
+ * ran. `null` is invalid to dayjs, so it passes through and the range stays open at "now".
  */
 export function selectedDateRange(bucketTimes: string[], startIndex: number, endIndex: number): DateRange | null {
     const dateFrom = bucketTimes[startIndex]
     if (!dateFrom) {
         return null
     }
-    return { date_from: dateFrom, date_to: bucketTimes[endIndex + 1] }
+    return { date_from: dateFrom, date_to: bucketTimes[endIndex + 1] ?? null }
 }
 
 /** Index of the last bucket starting at or before `ms`. Assumes ascending bucket times. */
