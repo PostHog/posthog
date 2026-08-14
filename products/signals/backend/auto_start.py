@@ -465,7 +465,9 @@ def _resolve_autostart_assignee(
         login = reviewer.get("github_login")
         if not login:
             continue
-        candidate = login_to_user.get(login.lower())
+        # strip + lower matches the resolver's key normalization, so a legacy padded login
+        # (stored before the schema stripped on write) still resolves.
+        candidate = login_to_user.get(str(login).strip().lower())
         if isinstance(candidate, User):
             candidate_users.append(candidate)
 

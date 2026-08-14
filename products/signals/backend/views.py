@@ -3435,34 +3435,40 @@ class SignalReportArtefactViewSet(
         Deleting or editing a reviewers artefact changes the report's canonical reviewer set
         without going through an append path, so the "latest event per report" read would
         otherwise keep describing the removed row. An empty login list is a valid state (the
-        deletion removed the only row)."""
-        latest = (
-            SignalReportArtefact.objects.filter(
+        deletion removed the only row).
+
+        Fully best-effort: this runs in a non-robust on_commit callback after the mutation
+        committed, so an exception here would turn an already-successful request into a 500."""
+        try:
+            latest = (
+                SignalReportArtefact.objects.filter(
+                    team_id=self.team.id,
+                    report_id=report_id,
+                    type=SignalReportArtefact.ArtefactType.SUGGESTED_REVIEWERS,
+                )
+                .order_by("-created_at")
+                .first()
+            )
+            logins: list[str] = []
+            if latest is not None:
+                try:
+                    parsed = json.loads(latest.content)
+                except (json.JSONDecodeError, TypeError, ValueError):
+                    parsed = []
+                if isinstance(parsed, list):
+                    logins = [
+                        str(entry.get("github_login"))
+                        for entry in parsed
+                        if isinstance(entry, dict) and entry.get("github_login")
+                    ]
+            capture_suggested_reviewers_resolved(
                 team_id=self.team.id,
                 report_id=report_id,
-                type=SignalReportArtefact.ArtefactType.SUGGESTED_REVIEWERS,
+                github_logins=logins,
+                source="api",
             )
-            .order_by("-created_at")
-            .first()
-        )
-        logins: list[str] = []
-        if latest is not None:
-            try:
-                parsed = json.loads(latest.content)
-            except (json.JSONDecodeError, TypeError, ValueError):
-                parsed = []
-            if isinstance(parsed, list):
-                logins = [
-                    str(entry.get("github_login"))
-                    for entry in parsed
-                    if isinstance(entry, dict) and entry.get("github_login")
-                ]
-        capture_suggested_reviewers_resolved(
-            team_id=self.team.id,
-            report_id=report_id,
-            github_logins=logins,
-            source="api",
-        )
+        except Exception:
+            logger.exception("failed to re-emit canonical reviewer state", report_id=report_id)
 
     @validated_request(
         request_serializer=SignalReportArtefactLogUpdateSerializer,
