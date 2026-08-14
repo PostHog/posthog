@@ -868,9 +868,8 @@ class TestGetTaskProcessingContextActivity:
         payload_mock.assert_not_called()
 
     def test_modal_vm_sandbox_restricted_egress_overrides_default_base(self):
-        # Restricted egress must win over the default-base allowlist: VM can't enforce Modal's
-        # outbound domain allowlist, so a default-base origin with a custom domain list stays on
-        # gVisor and the flag is never consulted (the egress gate returns before the fetch).
+        # A restricted run cannot use any VM routing source until the independent network-policy
+        # flag is enabled, so the runtime flag is not consulted on this path.
         with patch(
             VM_FLAG_PAYLOAD_TARGET,
             return_value='{"default_base_origin_products": ["user_created"]}',
@@ -887,6 +886,54 @@ class TestGetTaskProcessingContextActivity:
             )
 
         payload_mock.assert_not_called()
+
+    def test_modal_vm_sandbox_restricted_egress_uses_vm_when_provider_policy_is_enabled(self):
+        with patch(
+            VM_FLAG_PAYLOAD_TARGET,
+            return_value='{"origin_products": ["user_created"]}',
+        ):
+            decision = _resolve_modal_vm_sandbox(
+                distinct_id="distinct-id",
+                organization_id="organization-id",
+                run_id="run-id",
+                origin_product="user_created",
+                allowed_domains=["github.com"],
+                use_modal_network_allowlist=True,
+                custom_image_available=True,
+            )
+
+        assert decision.use_vm_sandbox is True
+
+    def test_modal_vm_sandbox_restricted_state_override_requires_provider_policy(self):
+        with patch(VM_FLAG_PAYLOAD_TARGET, return_value=None) as payload_mock:
+            decision = _resolve_modal_vm_sandbox(
+                distinct_id="distinct-id",
+                organization_id="organization-id",
+                run_id="run-id",
+                origin_product="image_builder",
+                allowed_domains=["github.com"],
+                use_modal_network_allowlist=True,
+                state={"use_modal_vm_sandbox": True},
+            )
+
+        assert decision.use_vm_sandbox is True
+        payload_mock.assert_not_called()
+
+    def test_modal_vm_sandbox_restricted_default_base_requires_provider_policy(self):
+        with patch(
+            VM_FLAG_PAYLOAD_TARGET,
+            return_value='{"default_base_origin_products": ["user_created"]}',
+        ):
+            decision = _resolve_modal_vm_sandbox(
+                distinct_id="distinct-id",
+                organization_id="organization-id",
+                run_id="run-id",
+                origin_product="user_created",
+                allowed_domains=["github.com"],
+                use_modal_network_allowlist=True,
+            )
+
+        assert decision.use_vm_sandbox is True
 
     def test_modal_vm_sandbox_false_state_override_forces_gvisor_over_default_base(self):
         # A trusted server-set use_modal_vm_sandbox=False forces gVisor even when the org's payload
