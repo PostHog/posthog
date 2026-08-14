@@ -75,7 +75,6 @@ const STEP_HEADERS: Record<
 
 export function ScannerEditorSceneComponent(): JSX.Element {
     const { scannerId, step, isNew, visibleSteps } = useValues(scannerEditorSceneLogic)
-    const { featureFlags } = useValues(featureFlagLogic)
 
     const scannerLogic = replayScannerLogic({ id: scannerId })
     useAttachedLogic(scannerLogic, scannerEditorSceneLogic)
@@ -160,7 +159,7 @@ export function ScannerEditorSceneComponent(): JSX.Element {
                                 </p>
                             </div>
                             <ScannerTemplatePicker />
-                            {featureFlags[FEATURE_FLAGS.REPLAY_VISION_GOAL_DRAFT] ? <ScannerGoalDraft /> : null}
+                            <ScannerGoalDraft />
                         </>
                     ) : (
                         <Form

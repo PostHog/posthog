@@ -3,7 +3,7 @@ import { SortableContext, arrayMove, useSortable, verticalListSortingStrategy } 
 import { CSS } from '@dnd-kit/utilities'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
-import { Suspense, useEffect, useMemo, useRef, useState } from 'react'
+import { ReactNode, Suspense, useEffect, useMemo, useRef, useState } from 'react'
 
 import {
     IconBrackets,
@@ -118,6 +118,10 @@ export type CyclotronJobInputsProps = {
     // Per-field messages for an email input, rendered next to its sender/recipient/subject/body
     // fields. Only the email input type reads this; other input types ignore it.
     emailFieldErrors?: EmailFieldErrors
+    // Live propagation and a save-state slot for an email input whose host persists changes itself
+    // (the workflow builder's auto-save). Only the email input types read these.
+    emailLiveChanges?: boolean
+    emailSaveIndicator?: ReactNode
     parentConfiguration?: CyclotronJobInputConfiguration
     onInputSchemaChange?: (schema: CyclotronJobInputSchemaType[]) => void
     showSource: boolean
@@ -132,6 +136,8 @@ export function CyclotronJobInputs({
     errors,
     warnings,
     emailFieldErrors,
+    emailLiveChanges,
+    emailSaveIndicator,
     showSource,
     sampleGlobalsWithInputs,
 }: CyclotronJobInputsProps): JSX.Element | null {
@@ -172,6 +178,8 @@ export function CyclotronJobInputs({
                                     errors={errors}
                                     warnings={warnings}
                                     emailFieldErrors={emailFieldErrors}
+                                    emailLiveChanges={emailLiveChanges}
+                                    emailSaveIndicator={emailSaveIndicator}
                                 />
                             )
                         })}
@@ -269,12 +277,16 @@ function EmailTemplateField({
     onChange,
     sampleGlobalsWithInputs,
     fieldErrors,
+    liveChanges,
+    saveIndicator,
 }: {
     schema: CyclotronJobInputSchemaType
     value: any
     onChange: (value: any) => void
     sampleGlobalsWithInputs: CyclotronJobInvocationGlobalsWithInputs | null
     fieldErrors?: EmailFieldErrors
+    liveChanges?: boolean
+    saveIndicator?: ReactNode
 }): JSX.Element {
     return (
         <EmailTemplater
@@ -285,6 +297,8 @@ function EmailTemplateField({
             onChange={onChange}
             templating={schema.templating}
             fieldErrors={fieldErrors}
+            liveChanges={liveChanges}
+            saveIndicator={saveIndicator}
         />
     )
 }
@@ -546,6 +560,8 @@ type CyclotronJobInputProps = {
     parentConfiguration?: CyclotronJobInputConfiguration
     sampleGlobalsWithInputs: CyclotronJobInvocationGlobalsWithInputs | null
     emailFieldErrors?: EmailFieldErrors
+    emailLiveChanges?: boolean
+    emailSaveIndicator?: ReactNode
 }
 
 function NonFailureStatusCodesField({
@@ -598,6 +614,8 @@ function CyclotronJobInputRenderer({
     parentConfiguration,
     sampleGlobalsWithInputs,
     emailFieldErrors,
+    emailLiveChanges,
+    emailSaveIndicator,
 }: CyclotronJobInputProps): JSX.Element {
     const templating = schema.templating ?? true
 
@@ -711,6 +729,8 @@ function CyclotronJobInputRenderer({
                     onChange={onValueChange}
                     sampleGlobalsWithInputs={sampleGlobalsWithInputs}
                     fieldErrors={emailFieldErrors}
+                    liveChanges={emailLiveChanges}
+                    saveIndicator={emailSaveIndicator}
                 />
             )
         case 'non_failure_status_codes':
@@ -897,6 +917,8 @@ function CyclotronJobInputWithSchema({
     errors,
     warnings,
     emailFieldErrors,
+    emailLiveChanges,
+    emailSaveIndicator,
 }: CyclotronJobInputWithSchemaProps): JSX.Element | null {
     const { attributes, listeners, setNodeRef, transform, transition } = useSortable({ id: schema.key })
     const [editing, setEditing] = useState(false)
@@ -1046,6 +1068,8 @@ function CyclotronJobInputWithSchema({
                                 parentConfiguration={parentConfiguration}
                                 sampleGlobalsWithInputs={sampleGlobalsWithInputs}
                                 emailFieldErrors={emailFieldErrors}
+                                emailLiveChanges={emailLiveChanges}
+                                emailSaveIndicator={emailSaveIndicator}
                             />
                         )}
                         {warning && !value?.secret ? (
