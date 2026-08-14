@@ -220,7 +220,7 @@ export function AlertHistorySection({
                 if (summary.kind === 'none') {
                     if (isFailedDelivery(check)) {
                         return (
-                            <Tooltip title="No email or destination accepted this notification. Check the alert's notification settings.">
+                            <Tooltip title="This alert fired but nothing was sent. Check who's subscribed and which destinations are set up.">
                                 <span>No</span>
                             </Tooltip>
                         )

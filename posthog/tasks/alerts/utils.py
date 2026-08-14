@@ -146,8 +146,9 @@ def next_check_at_after_schedule_restriction_change(alert: AlertConfiguration) -
 def trigger_alert_hog_functions(alert: AlertConfiguration, properties: dict) -> list[AlertDelivery]:
     """Trigger all HogFunctions linked to the alert as notification destinations by producing an internal event.
 
-    Empty means nothing was accepted, which includes having no destinations configured —
-    so a caller branching on truthiness must have counted with the same allowed_event_ids.
+    Returns one receipt per destination that accepted the notification. An empty list also
+    covers an alert with no destinations configured, so callers cannot use it to tell
+    "there was nothing to send" apart from "sending failed".
     """
 
     logger.info(
@@ -168,8 +169,6 @@ def trigger_alert_hog_functions(alert: AlertConfiguration, properties: dict) -> 
         **properties,
     }
 
-    # Enumerated before the produce so a lookup failure retries cleanly, without a
-    # second produce sending destinations duplicate messages.
     destinations = list_active_alert_destinations(
         team_id=alert.team_id,
         alert_id=str(alert.id),
