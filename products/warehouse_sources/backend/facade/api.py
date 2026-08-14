@@ -245,13 +245,15 @@ def _revenue_source_queryset(
     source_types: Collection[str] | None,
     source_ids: Collection[UUID] | None,
 ) -> QuerySet[_ExternalDataSource]:
-    sources = _ExternalDataSource.objects.select_related("revenue_analytics_config").filter(team_id=team_id)
-    if not include_deleted:
-        sources = sources.exclude(deleted=True)
-    if source_types is not None:
-        sources = sources.filter(source_type__in=source_types)
+    sources = _ExternalDataSource.objects.select_related("revenue_analytics_config")
+    if source_types is None:
+        sources = sources.filter(team_id=team_id)
+    else:
+        sources = sources.filter(team_id=team_id, source_type__in=source_types)
     if source_ids is not None:
         sources = sources.filter(id__in=source_ids)
+    if not include_deleted:
+        sources = sources.exclude(deleted=True)
     return sources
 
 
