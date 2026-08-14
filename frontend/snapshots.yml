@@ -20,6 +20,10 @@ snapshots:
         hash: v1.k794b7964.8e7770037014d788ef5b7299b6b2f834c2afcad14dd6c6033ddd8ac885faa1c6.buSflXKIcQC5dcm7fbQWsczrZY8TleOkvO86ugYW8yw
     charts-heatmap--linear-color-scale--light:
         hash: v1.k794b7964.c94c02704b7f9b4972f811336d019e15b77cff047551902ca74d65c1571ea6ff.PA6k_wyPYr-SNYm1-Mv8sa0DFCLb2-8QxOVNlDn4hE8
+    charts-scatterchart--best-fit--dark:
+        hash: v1.k794b7964.16cd70cbd14b6b074187753443b03c278fe2c1232a3964fb3cecc43db143022a.cW424mhub6jtCjmXr_ka4Tpy1H103wjp5syvHYhLkGk
+    charts-scatterchart--best-fit--light:
+        hash: v1.k794b7964.512d62c420b1c1cd4859e3f5b54b3c143790ffe97dbf612a0433d176815bbb9d.SDshqmWYkWbvkPR0uVwaM-eSys8hE9549vav7A3m96w
     charts-scatterchart--clusters-with-centroids--dark:
         hash: v1.k794b7964.21db57f09c276546fb27d3a6ba87bdb6e91c323ea1070df94f9ab87a8c1945d3.tANHwlLV16_HsvrEm1NqaeZNbmXRJRRk1P26nJ1hH6c
     charts-scatterchart--clusters-with-centroids--light:
@@ -5444,6 +5448,26 @@ snapshots:
         hash: v1.k794b7964.5cdaae6b72efa77261704903c3b14197bd4996f9db290718a4a585758aaa6cf2.xbF6ujFL2OI5SqKxuBM4wYp4MT4t2IC_HjI5-9mkT4c
     scenes-app-ai-observability-prompts--prompts-list--light:
         hash: v1.k794b7964.f4a3e9e0c94c327fbf41ea4698bb4d9cb92b5112848b3ee7f31c57466f0075b2.MoyySImBvALTiYl2FHqO1UG4XLCdcaJJzoUG56t_7gI
+    scenes-app-ai-observability-self-driving-signal-source-toggle--load-failed--dark:
+        hash: v1.k794b7964.594419147aefa58da5dddcb6b52c77c2f0c89f4830115a85cb93be8a719cfcc3.-0XtR5ua7OLwsi_LNT4ez5y9XsLqX4eQLrRsOX25y9U
+    scenes-app-ai-observability-self-driving-signal-source-toggle--load-failed--light:
+        hash: v1.k794b7964.666b8ed873bf7556fcbc614b1eff5d35be355cf20ae802d17a4296a7c28f4695.EhTofW4HGRg0NTr6BzBVSYLZtX7cj6H1r6u3Y06eICY
+    scenes-app-ai-observability-self-driving-signal-source-toggle--loading--dark:
+        hash: v1.k794b7964.4ccfbd9c7bc2fd77e7921b99926ca649cf2d278f3f52ad6aeef4a833877a0763.TIxsDf72HoX3oaW_c3Y1Vgauvkm8r_BMkiTnk-JqaC8
+    scenes-app-ai-observability-self-driving-signal-source-toggle--loading--light:
+        hash: v1.k794b7964.e4c2dbbde9aa9afcf7be121e5d357173a7da8cb243aac62f78a62dc4d63f198b.dWlu0w4h48kprw6oJpUUnFhruNVseXvmk7tgOexgGr8
+    scenes-app-ai-observability-self-driving-signal-source-toggle--off--dark:
+        hash: v1.k794b7964.8b44e85a56d3b162b3768808a1b3792d090a04eb2eeb24570ccde26757774aa0.KQZsisW5PcYcBbSNnuePRg1HErLXOhvMd7PTkDsCQXg
+    scenes-app-ai-observability-self-driving-signal-source-toggle--off--light:
+        hash: v1.k794b7964.32444d7760fdd3fe980414e14d0c29510dbcc79e53ac2e68480547ee798cf4b2.lWBrIzdl1fKU_qkGaN2mD1PdBRfYv1rGKzxWoXVmoSo
+    scenes-app-ai-observability-self-driving-signal-source-toggle--on--dark:
+        hash: v1.k794b7964.0947900b570417a054728ab484ebd682d108bbee215c93ad3c778c37a802c9e9.s-j4c2rVP1u58Lccoz68vFvzfVcN9VZAC5p0MeFhqSE
+    scenes-app-ai-observability-self-driving-signal-source-toggle--on--light:
+        hash: v1.k794b7964.65507eafae6b5eaf562fe40465076636506836ecdd66d27a4b99b381dbfb81ef.tRa6_ayTerymDxICixAGiw5Ps1nRLfxpXHrp3cyenfk
+    scenes-app-ai-observability-self-driving-signal-source-toggle--toggling--dark:
+        hash: v1.k794b7964.698da88937d031d692634a6f51af5cd6a45073adb0ececbe2c4f5ccee21c1390.lOPHKqkKlf_TQsmBTx5c2EyzsNDp2MeNqX_D8mjtguI
+    scenes-app-ai-observability-self-driving-signal-source-toggle--toggling--light:
+        hash: v1.k794b7964.c965506f3fa35369674cf3940c90a5c2de5776e3d8ed68db83089ec1480ed7d5.uBDe4ORwPrZR2iyF9JYRLhLzi5-pwke4LrzIicgf4aE
     scenes-app-ai-observability-sentiment--bar-full-width--dark:
         hash: v1.k794b7964.c85f4138877bf5f706d5675ad8ebca39a87300e45359ba3f5325551815fb5885.E-9wb0W7JxbRPXtj3-swTXq2QVbMKq-BpfDn-PXxcfU
     scenes-app-ai-observability-sentiment--bar-full-width--light:
@@ -6101,7 +6125,7 @@ snapshots:
     scenes-app-experiments--experiment-stopped-with-conclusion--light:
         hash: v1.k794b7964.793a4b6109b2c0ab65b07d9eaefd1c8862f12bfc7f33b2f452ad20044396b2a7.6B0Meq7yO75vBEoBmuP2dNl2oKTugzzr_IKTcJHhEi0
     scenes-app-experiments--experiment-with-funnel-metric--dark:
-        hash: v1.k794b7964.bd425da753ec6f788f968fb15c6a7783af3c8479103849bf3ab4fad4f4276287.KPZegtTwokdMxA6_KV2bsmFYxTZO1AYRlPZp4tZ6y7E
+        hash: v1.k794b7964.fd0d0ad7569f50079a322a8901513f854823ce694796a2a24a1e6714ac9c5902.fBtAQkm1LZ7xYp6DTXoQSDqDFjsUkxMCP-aNAZJ1Fmc
     scenes-app-experiments--experiment-with-funnel-metric--light:
         hash: v1.k794b7964.a608f24a82fc56569fb7029e98bab3121baa3fd6c5c63492fe9952aa6a43afc5.ZgTLiUZPjDNcaChht0ijSp2F7HoqRkdn__-6JKI7p4A
     scenes-app-experiments--experiment-with-legacy-funnels-query--dark:
@@ -6119,7 +6143,7 @@ snapshots:
     scenes-app-experiments--experiment-with-multi-step-funnel-metric--dark:
         hash: v1.k794b7964.b59d17fc7aa41c9d54d50ebcad07ee995472e82d0509a99a3534f689402d8014.SWRehUneMfgPHvrdCTfEc6TWMR2LSyxma5jGOhO-iSA
     scenes-app-experiments--experiment-with-multi-step-funnel-metric--light:
-        hash: v1.k794b7964.0f81873b7b3e44139ef64b33d35aaa9c9857943789e7f88fe0dd8eb9d84b6125.0yFYuT8reEOckBG0v7K4CTlrcHgCWGlaDbiVhp7Euck
+        hash: v1.k794b7964.97d7402f9b51d0c2d446c61c0022bb257b60230ee9ef045fb98f9a6f6881021a.u-DOTSJ-2l7aMIVwI4CBomzduA0B_q6-6kfVwbLKl5M
     scenes-app-experiments--experiment-with-multiple-metrics--dark:
         hash: v1.k794b7964.935a9474cbc0ab0c65ece0051d8ebc3a88c8f40de3bb8a7a7621dbe1766a4105.2TXN7Cqx8Qd7XzXBjoaslAsm-r4qbXmG0Vlch8j6ph0
     scenes-app-experiments--experiment-with-multiple-metrics--light:
@@ -6583,7 +6607,7 @@ snapshots:
     scenes-app-insights-error-empty-states--query-server-error--dark:
         hash: v1.k794b7964.5e0a4f13fb00ef944649228004095f84fd1d859bd66cdd5ec9e25bd745d6828d.k4NYuOAkHqlOwwSIUSHJiywF8FxVwqlIbahs9NdgpF4
     scenes-app-insights-error-empty-states--query-server-error--light:
-        hash: v1.k794b7964.2b569e38b9188a1b6651645db04fc1861a1fbca67c8a36c59a717d949b3e9cb6.6wC07yLeoObvqkr-b3JIDgOLa-iqmpa8aO-eLLzWoEw
+        hash: v1.k794b7964.8cbd2901888aa723067ddea0dc2c6045628c0cb872438beca4e667592d25aaf6.4GmhzW21hmldOgELAwHy522bovvzkaq8b4i0NowPhb8
     scenes-app-insights-error-empty-states--server-error--dark:
         hash: v1.k794b7964.c78c9eaddad034d4747bccc025468e045b9e641e8f70daa75c428ac94def566c.WSvKXlMMIMORSx1W_7pTEH4AQMQUtr_4cSHSVfBGl_0
     scenes-app-insights-error-empty-states--server-error--light:
