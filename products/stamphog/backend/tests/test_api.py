@@ -2,6 +2,7 @@ from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
 from django.core import signing
+from django.test import SimpleTestCase
 
 from parameterized import parameterized
 from rest_framework import status
@@ -13,6 +14,7 @@ from posthog.models.utils import generate_random_token_personal
 
 from products.stamphog.backend.facade.enums import ReviewRunStatus
 from products.stamphog.backend.models import DigestChannel, PullRequest, ReviewRun, StamphogRepoConfig
+from products.stamphog.backend.presentation.serializers import StamphogRepoConfigSerializer
 from products.stamphog.backend.presentation.views import _INSTALL_STATE_SALT
 from products.stamphog.backend.tests.conftest import PRODUCT_DATABASES, StamphogTeamScopedTestMixin
 
@@ -167,6 +169,36 @@ class TestStamphogRepoConfigAPI(StamphogTeamScopedTestMixin, APIBaseTest):
         assert mine.enabled is False
         assert mine.digest_enabled is False
         assert in_flight.status == ReviewRunStatus.SUPERSEDED
+
+    def test_cannot_enable_digest_without_reviews(self) -> None:
+        # Wiring guard for the serializer matrix below: the viewset must actually reject the
+        # combination. A digest-on/review-off repo captures no merges at all, so it would look
+        # configured and silently never post.
+        response = self.client.post(self.url, {"repository": "PostHog/quiet", "enabled": False, "digest_enabled": True})
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
+        assert not StamphogRepoConfig.objects.unscoped().filter(repository="PostHog/quiet").exists()
+
+
+class TestStamphogRepoConfigSerializerValidation(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("create", None, {"repository": "PostHog/posthog", "enabled": False, "digest_enabled": True}),
+            (
+                "disable_reviews_on_digesting_repo",
+                StamphogRepoConfig(enabled=True, digest_enabled=True),
+                {"enabled": False},
+            ),
+            (
+                "enable_digest_on_review_off_repo",
+                StamphogRepoConfig(enabled=False, digest_enabled=False),
+                {"digest_enabled": True},
+            ),
+        ]
+    )
+    def test_digest_requires_reviews(self, _name: str, instance: StamphogRepoConfig | None, data: dict) -> None:
+        serializer = StamphogRepoConfigSerializer(instance=instance, data=data, partial=instance is not None)
+        assert not serializer.is_valid()
+        assert "digest_enabled" in serializer.errors
 
 
 class TestReviewRunAPI(StamphogTeamScopedTestMixin, APIBaseTest):
