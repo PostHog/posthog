@@ -19,6 +19,7 @@ from posthog.hogql.resolver import ResolverFactory
 
 from posthog.models import User
 from posthog.sync import database_sync_to_async
+from posthog.temporal.common.clickhouse import ClickHouseMemoryLimitExceededError
 from posthog.temporal.data_modeling.activities import (
     CreateDataModelingJobInputs,
     FailMaterializationInputs,
@@ -33,12 +34,15 @@ from posthog.temporal.data_modeling.activities import (
 )
 from posthog.temporal.data_modeling.activities.materialize_view import (
     LOGGER,
+    MEMORY_LIMIT_USER_MESSAGE,
     InvalidNodeTypeException,
+    MaterializationMemoryLimitError,
     _get_aws_storage_options,
     get_s3_client,
     hogql_table,
 )
 from posthog.temporal.data_modeling.activities.notify_materialization_failure import _SavedQueryViewers
+from posthog.temporal.data_modeling.workflows.materialize_view import NON_RETRYABLE_ERRORS
 
 from products.data_modeling.backend.facade.api import compute_enrichment_hash
 from products.data_modeling.backend.facade.modeling import bounded_resolver_factory_for_view
@@ -1539,6 +1543,46 @@ class TestMaterializeViewActivity:
             )
             with pytest.raises(RuntimeError, match="boom"):
                 await activity_environment.run(materialize_view_activity, inputs)
+
+    async def test_memory_limit_is_classified_non_retryable_with_guidance(
+        self, activity_environment, ateam, anode, asaved_query, ajob, bucket_name, adag
+    ):
+        # regression: a ClickHouse memory-limit error must reach the user as guidance on
+        # latest_error and raise a class the workflow treats as non-retryable, rather than
+        # escaping raw and retrying twice more.
+        def mock_hogql_table(*args, **kwargs):
+            del args, kwargs
+
+            async def async_generator():
+                raise ClickHouseMemoryLimitExceededError("Code: 241. MEMORY_LIMIT_EXCEEDED ... /mnt/lvm/store/d9a/part")
+                yield  # type: ignore[unreachable]  # makes this an async generator
+
+            return async_generator()
+
+        with (
+            override_settings(
+                BUCKET_URL=f"s3://{bucket_name}",
+                DATAWAREHOUSE_LOCAL_ACCESS_KEY=settings.OBJECT_STORAGE_ACCESS_KEY_ID,
+                DATAWAREHOUSE_LOCAL_ACCESS_SECRET=settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
+                DATAWAREHOUSE_LOCAL_BUCKET_REGION="us-east-1",
+            ),
+            unittest.mock.patch(
+                "posthog.temporal.data_modeling.activities.materialize_view.hogql_table", mock_hogql_table
+            ),
+        ):
+            inputs = MaterializeViewInputs(
+                team_id=ateam.pk,
+                dag_id=str(adag.id),
+                node_id=str(anode.id),
+                job_id=str(ajob.id),
+            )
+            with pytest.raises(MaterializationMemoryLimitError):
+                await activity_environment.run(materialize_view_activity, inputs)
+
+        await database_sync_to_async(asaved_query.refresh_from_db)()
+        assert asaved_query.latest_error == MEMORY_LIMIT_USER_MESSAGE
+        # the raised class name must be in the workflow list, or Temporal retries the doomed query
+        assert MaterializationMemoryLimitError.__name__ in NON_RETRYABLE_ERRORS
 
 
 class _EmptyArrowClient:

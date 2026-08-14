@@ -27,7 +27,10 @@ from posthog.ph_client import feature_enabled_or_false
 from posthog.settings import HOGQL_INCREASED_MAX_EXECUTION_TIME
 from posthog.settings.base_variables import TEST
 from posthog.sync import database_sync_to_async_pool
-from posthog.temporal.common.clickhouse import get_client as get_clickhouse_client
+from posthog.temporal.common.clickhouse import (
+    ClickHouseMemoryLimitExceededError,
+    get_client as get_clickhouse_client,
+)
 from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.common.logger import get_logger
 from posthog.temporal.data_modeling.activities.incremental_write import (
@@ -86,6 +89,24 @@ _clickhouse_query_semaphore = asyncio.Semaphore(MAX_CONCURRENT_CLICKHOUSE_QUERIE
 class EmptyHogQLResponseColumnsError(Exception):
     def __init__(self):
         super().__init__("After running a HogQL query, no columns were returned")
+
+
+# Shown to the user on `saved_query.latest_error` when the model query blows the ClickHouse memory
+# budget. Static so error tracking groups every occurrence into one issue instead of one per
+# reported memory figure.
+MEMORY_LIMIT_USER_MESSAGE = "Query exceeded memory limit. Try reducing its scope by changing the time range."
+
+
+class MaterializationMemoryLimitError(Exception):
+    """The model query exceeded ClickHouse's memory budget.
+
+    Non-retryable: a rerun blows the same budget, so its name is in the workflow's
+    NON_RETRYABLE_ERRORS. The message is static so it never leaks memory figures or storage paths
+    into the job error or error tracking.
+    """
+
+    def __init__(self) -> None:
+        super().__init__(MEMORY_LIMIT_USER_MESSAGE)
 
 
 def _incremental_enabled(team_id: int) -> bool:
@@ -576,6 +597,12 @@ class MatviewInputObjects:
 
 
 @database_sync_to_async_pool
+def _record_memory_limit_error(saved_query: DataWarehouseSavedQuery) -> None:
+    saved_query.latest_error = MEMORY_LIMIT_USER_MESSAGE
+    saved_query.save(update_fields=["latest_error"])
+
+
+@database_sync_to_async_pool
 def _get_matview_input_objects(
     inputs: MaterializeViewInputs,
 ) -> MatviewInputObjects:
@@ -829,14 +856,20 @@ async def materialize_view_activity(inputs: MaterializeViewInputs) -> Materializ
     async with Heartbeater():
         hogql_query = typing.cast(dict, objects.saved_query.query)["query"]
 
-        if plan.incremental:
-            row_count, file_uris = await _materialize_incrementally(
-                objects, plan, hogql_query, table_uri, storage_options, logger
-            )
-        else:
-            row_count, file_uris = await _materialize_fully(
-                objects, plan, hogql_query, table_uri, storage_options, logger
-            )
+        try:
+            if plan.incremental:
+                row_count, file_uris = await _materialize_incrementally(
+                    objects, plan, hogql_query, table_uri, storage_options, logger
+                )
+            else:
+                row_count, file_uris = await _materialize_fully(
+                    objects, plan, hogql_query, table_uri, storage_options, logger
+                )
+        except ClickHouseMemoryLimitExceededError as err:
+            # Surface the guidance we already have and stop retrying: a rerun blows the same budget.
+            await _record_memory_limit_error(objects.saved_query)
+            await logger.awarning(f"Node {objects.node.name} exceeded the ClickHouse memory budget")
+            raise MaterializationMemoryLimitError() from err
 
         await logger.ainfo(f"Materialized node {objects.node.name} with {row_count} rows")
     return MaterializeViewResult(

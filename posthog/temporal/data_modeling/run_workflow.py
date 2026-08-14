@@ -53,7 +53,7 @@ from posthog.settings import HOGQL_INCREASED_MAX_EXECUTION_TIME
 from posthog.settings.base_variables import TEST
 from posthog.sync import database_sync_to_async
 from posthog.temporal.common.base import PostHogWorkflow
-from posthog.temporal.common.clickhouse import get_client
+from posthog.temporal.common.clickhouse import ClickHouseMemoryLimitExceededError, get_client
 from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.common.logger import get_logger
 from posthog.temporal.data_modeling.activities.fail_materialization import (
@@ -605,19 +605,21 @@ async def materialize_model(
         raise
     except DataModelingCancelledException:
         raise
+    except ClickHouseMemoryLimitExceededError as e:
+        # Match on the exception type, not the message: ClickHouse's memory-limit prose has drifted
+        # across upgrades, so a substring check silently stopped firing.
+        error_message = "Query exceeded memory limit. Try reducing its scope by changing the time range."
+        await logger.aerror(f"Error materializing model {model_label}: memory limit exceeded")
+        saved_query.latest_error = error_message
+        await database_sync_to_async(saved_query.save)()
+        await mark_job_as_failed(job, error_message, logger)
+        raise CHQueryErrorMemoryLimitExceeded(
+            f"Query for model {model_label} exceeds memory limits. Try reducing its scope by changing the time range."
+        ) from e
     except Exception as e:
         error_message = str(e)
         await logger.aerror(f"Error materializing model {model_label}: {strip_hostname_from_error(error_message)}")
-        if "Query exceeds memory limits" in error_message:
-            error_message = f"Query exceeded memory limit. Try reducing its scope by changing the time range."
-            saved_query.latest_error = error_message
-            await database_sync_to_async(saved_query.save)()
-            await mark_job_as_failed(job, error_message, logger)
-            raise CHQueryErrorMemoryLimitExceeded(
-                f"Query for model {model_label} exceeds memory limits. Try reducing its scope by changing the time range."
-            ) from e
-
-        elif "Cannot coerce type" in error_message:
+        if "Cannot coerce type" in error_message:
             error_message = f"Type coercion error. If you believe this is an error, please contact support."
             saved_query.latest_error = error_message
             await database_sync_to_async(saved_query.save)()
@@ -650,13 +652,6 @@ async def materialize_model(
             await revert_materialization(saved_query, logger)
             await mark_job_as_failed(job, error_message, logger)
             raise Exception(f"Table reference missing for model {model_label}: {error_message}") from e
-        elif "Memory limit" in error_message:
-            error_message = f"Query exceeded memory limit. Try reducing its scope by changing the time range."
-            saved_query.latest_error = error_message
-            await logger.ainfo("Query exceeded memory limit for model %s", model_label)
-            await database_sync_to_async(saved_query.save)()
-            await mark_job_as_failed(job, error_message, logger)
-            raise Exception(f"Query exceeded memory limit for model {model_label}: {error_message}") from e
         elif "Timeout exceeded" in error_message or "exceeded timeout" in error_message.lower():
             error_message = f"Query exceeded timeout - we limit queries to a 10-minute timeout."
             saved_query.latest_error = error_message
