@@ -46,6 +46,7 @@ import { QueryExecutionDetails } from '~/queries/nodes/DataNode/QueryExecutionDe
 import { DataTableRow } from '~/queries/nodes/DataTable/dataTableLogic'
 import { PieChart } from '~/queries/nodes/DataVisualization/Components/Charts/PieChart'
 import { SqlChart } from '~/queries/nodes/DataVisualization/Components/Charts/SqlChart'
+import { SqlScatterGraph } from '~/queries/nodes/DataVisualization/Components/Charts/SqlScatterGraph'
 import { TwoDimensionalHeatmap } from '~/queries/nodes/DataVisualization/Components/Heatmap/TwoDimensionalHeatmap'
 import { seriesBreakdownLogic } from '~/queries/nodes/DataVisualization/Components/seriesBreakdownLogic'
 import { SideBar } from '~/queries/nodes/DataVisualization/Components/SideBar'
@@ -981,6 +982,16 @@ function InternalDataTableVisualization(
                 presetChartHeight={presetChartHeight}
             />
         )
+    } else if (effectiveVisualizationType === ChartDisplayType.ScatterPlot) {
+        component = (
+            <SqlScatterGraph
+                className="p-2"
+                xData={xData}
+                yData={yData}
+                chartSettings={chartSettings}
+                presetChartHeight={presetChartHeight}
+            />
+        )
     } else if (effectiveVisualizationType === ChartDisplayType.TwoDimensionalHeatmap) {
         component = <TwoDimensionalHeatmap />
     } else if (effectiveVisualizationType === ChartDisplayType.BoldNumber) {
@@ -1123,6 +1134,10 @@ const Content = ({
     showVisualizationSettings,
     isEmbeddedMode,
 }: any): JSX.Element | null => {
+    const { selectedDirectSource } = useValues(sqlEditorLogic)
+    // dataNodeLogic's timer resets on every loadData dispatch, so a rerun issued while a
+    // query is still in flight restarts the count (a local isLoading-keyed timer wouldn't).
+    const { loadingTimeSeconds } = useValues(dataNodeLogic)
     const [sortColumns, setSortColumns] = useState<SortColumn[]>([])
 
     const sortedRows = useMemo(() => {
@@ -1217,6 +1232,15 @@ const Content = ({
                     pollResponse={pollResponse}
                     setProgress={setProgress}
                     progress={progress}
+                    suggestion={
+                        // Only worth saying once the query is demonstrably slow.
+                        selectedDirectSource?.source_type === 'Motherduck' && loadingTimeSeconds >= 60 ? (
+                            <p className="text-xs m-0 text-center">
+                                This query runs live on your MotherDuck database. Speed depends on its capacity and
+                                current load.
+                            </p>
+                        ) : undefined
+                    }
                 />
             </div>
         )

@@ -48,6 +48,12 @@ export interface IDashboardsService {
     taskId: string | null;
   }): Promise<DashboardRecord>;
   setPinned(input: { id: string; pinned: boolean }): Promise<DashboardRecord>;
+  // File a rendering error against the build that threw it (best-effort).
+  reportError(input: {
+    id: string;
+    buildId: string;
+    errorType: string;
+  }): Promise<void>;
   // Read the canvas's source project (the head, or a historical version).
   getSource(input: { id: string; versionId?: string }): Promise<CanvasSource>;
   // The canvas's source-version history, newest first (metadata only).

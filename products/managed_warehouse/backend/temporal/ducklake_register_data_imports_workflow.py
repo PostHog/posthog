@@ -2,10 +2,12 @@ from __future__ import annotations
 
 import re
 import json
+import time
 import uuid
 import typing
 import hashlib
 import datetime as dt
+import threading
 import contextlib
 import dataclasses
 from collections.abc import Iterator
@@ -45,6 +47,7 @@ from products.managed_warehouse.backend.facade.contracts import (
     ManagedWarehouseSourceJobUpdate,
     ManagedWarehouseSourceJobWorkflow,
 )
+from products.managed_warehouse.backend.models import ManagedWarehouseSourceJob
 from products.managed_warehouse.backend.storage import connect_to_duckgres, setup_duckgres_session
 from products.managed_warehouse.backend.temporal.metrics import (
     get_ducklake_register_data_imports_bytes_metric,
@@ -66,6 +69,14 @@ DATA_IMPORTS_GENERATIONS_PREFIX = "_imports"
 DUCKLAKE_REGISTER_STAGE_DURATION_METRIC = "ducklake_register_data_imports_stage_duration"
 S3_COPY_BATCH_SIZE = 16
 _PARQUET_FILE_GLOB = "**/*.[pP][aA][rR][qQ][uU][eE][tT]"
+_DUCKGRES_CANCEL_MARGIN = dt.timedelta(minutes=1)
+_DUCKGRES_CANCEL_MAX_ATTEMPTS = 10
+_DUCKGRES_CANCEL_RETRY_SECONDS = 0.5
+_DUCKGRES_CANCEL_TIMEOUT_SECONDS = 5.0
+# Duckgres cancel fires one minute before this deadline. One attempt: a
+# StartToClose timeout has an unknown catalog outcome, so a retry could race
+# the original CALL.
+_REGISTER_COPY_START_TO_CLOSE = dt.timedelta(hours=4)
 _SOURCE_JOB_STATE_PATCH_ID = "ducklake-register-source-job-state-2026-08"
 
 
@@ -310,6 +321,7 @@ async def prepare_ducklake_data_imports_registration_activity(
 
 @activity.defn
 def copy_and_register_ducklake_data_imports_activity(inputs: DuckLakeRegisterDataImportsActivityInputs) -> bool:
+    activity_started_monotonic = time.monotonic()
     schema_id = inputs.metadata.source_schema_id
     _bind_registration_activity_context(team_id=inputs.team_id, schema_id=schema_id, job_id=inputs.job_id)
     logger = LOGGER.bind(
@@ -334,16 +346,16 @@ def copy_and_register_ducklake_data_imports_activity(inputs: DuckLakeRegisterDat
                 inputs.metadata.prepared_source_uri,
                 landing_uri,
             )
-        if not _prepared_generation_is_current(inputs):
-            get_ducklake_register_data_imports_stale_metric(
-                team_id=inputs.team_id, schema_id=schema_id, stage="post_copy"
-            ).add(1)
-            logger.info("Skipping stale prepared Parquet generation after object copy")
-            return False
-
         try:
             with _connect_to_duckgres_for_team(inputs.team_id) as conn:
-                registered_rows = _register_prepared_parquet_files(inputs, conn, landing_paths)
+                cancel_delay = _duckgres_cancel_delay(activity_started_monotonic)
+                with _cancel_duckgres_query_after(conn, cancel_delay) as cancel_requested:
+                    registered_rows = _register_prepared_parquet_files(
+                        inputs,
+                        conn,
+                        landing_paths,
+                        cancel_requested=cancel_requested,
+                    )
         except _StalePreparedGenerationError:
             get_ducklake_register_data_imports_stale_metric(
                 team_id=inputs.team_id, schema_id=schema_id, stage="publish"
@@ -387,28 +399,15 @@ def _generation_token(prepared_queryable_folder: str) -> str:
     return hashlib.sha256(prepared_queryable_folder.encode()).hexdigest()[:12]
 
 
-def build_register_data_imports_workflow_id(
-    *,
-    team_id: int,
-    schema_id: str,
-    job_id: str,
-    prepared_queryable_folder: str,
-) -> str:
-    """Workflow id for one registration attempt, scoped to a single prepared generation.
+def build_register_data_imports_workflow_id(*, team_id: int, schema_id: str) -> str:
+    """Workflow id for one in-flight registration per schema.
 
-    The generation belongs in the id because one job can publish several prepared
-    generations: the v3 load consumer re-runs post-load on a redelivered final batch, and
-    each run mints a new timestamped queryable folder. A job-scoped id makes every
-    generation after the first collide with the in-flight run, and the caller treats
-    WorkflowAlreadyStartedError as "already handled" and drops the trigger. The in-flight
-    run is pinned to the older generation and correctly refuses to publish it, so the
-    newest generation reaches DuckLake only on the next sync. Including the generation
-    gives each one its own run, and a same-generation duplicate still coalesces, which is
-    what that error should mean.
+    Callers treat WorkflowAlreadyStartedError as "already running" and drop the
+    trigger. Job and generation stay out of the id so a later sync cannot start
+    until this run finishes. The next import after that can start and pick up
+    the latest prepared folder.
     """
-    return (
-        f"ducklake-register-data-imports-{team_id}-{schema_id}-{job_id}-{_generation_token(prepared_queryable_folder)}"
-    )
+    return f"ducklake-register-data-imports-{team_id}-{schema_id}"
 
 
 def _resolve_data_imports_landing_uri(
@@ -494,15 +493,56 @@ def _copy_prepared_parquet_files(source_uri: str, landing_uri: str) -> tuple[lis
     return landing_paths, copied_bytes
 
 
-def _prepared_generation_is_current(inputs: DuckLakeRegisterDataImportsActivityInputs) -> bool:
+def _current_prepared_queryable_folder(inputs: DuckLakeRegisterDataImportsActivityInputs) -> str | None:
     try:
         schema = ExternalDataSchema.objects.select_related("table").get(
             id=inputs.metadata.source_schema_id,
             team_id=inputs.team_id,
         )
     except ExternalDataSchema.DoesNotExist:
+        return None
+    if schema.table is None:
+        return None
+    return schema.table.queryable_folder
+
+
+def _prepared_generation_is_current(inputs: DuckLakeRegisterDataImportsActivityInputs) -> bool:
+    return _current_prepared_queryable_folder(inputs) == inputs.metadata.prepared_queryable_folder
+
+
+def _register_completed_for_generation(*, team_id: int, schema_id: str, prepared_queryable_folder: str) -> bool:
+    try:
+        schema_uuid = uuid.UUID(schema_id)
+    except ValueError:
         return False
-    return schema.table is not None and schema.table.queryable_folder == inputs.metadata.prepared_queryable_folder
+    token = _generation_token(prepared_queryable_folder)
+    return (
+        ManagedWarehouseSourceJob.objects.for_team(team_id)
+        .filter(
+            schema_id=schema_uuid,
+            workflow_type=ManagedWarehouseSourceJob.WorkflowType.REGISTER,
+            status=ManagedWarehouseSourceJob.Status.COMPLETED,
+            attempt_id__endswith=f":{token}",
+        )
+        .exists()
+    )
+
+
+def _should_publish_prepared_generation(inputs: DuckLakeRegisterDataImportsActivityInputs) -> bool:
+    # A newer folder appearing mid-run is the common case for large generations.
+    # Aborting after ducklake_add_data_files leaves the live table unchanged and
+    # the next run can lose the same race. Publish this verified snapshot unless
+    # the newer folder has already landed, so the live table does not move backward.
+    if _prepared_generation_is_current(inputs):
+        return True
+    current_folder = _current_prepared_queryable_folder(inputs)
+    if current_folder is None:
+        return False
+    return not _register_completed_for_generation(
+        team_id=inputs.team_id,
+        schema_id=inputs.metadata.source_schema_id,
+        prepared_queryable_folder=current_folder,
+    )
 
 
 @contextlib.contextmanager
@@ -521,10 +561,75 @@ def _connect_to_duckgres_for_team(team_id: int) -> Iterator[psycopg.Connection]:
         yield conn
 
 
+def _duckgres_cancel_delay(activity_started_monotonic: float) -> float | None:
+    try:
+        start_to_close_timeout = activity.info().start_to_close_timeout
+    except RuntimeError:
+        return None
+    if start_to_close_timeout is None:
+        return None
+
+    elapsed = time.monotonic() - activity_started_monotonic
+    return max(0.0, start_to_close_timeout.total_seconds() - elapsed - _DUCKGRES_CANCEL_MARGIN.total_seconds())
+
+
+@contextlib.contextmanager
+def _cancel_duckgres_query_after(
+    conn: psycopg.Connection,
+    delay_seconds: float | None,
+) -> Iterator[threading.Event]:
+    cancel_requested = threading.Event()
+    if delay_seconds is None:
+        yield cancel_requested
+        return
+    if delay_seconds <= 0:
+        raise TimeoutError("Duckgres registration started too close to the Temporal activity deadline")
+
+    stop_canceling = threading.Event()
+
+    def cancel_query() -> None:
+        if stop_canceling.is_set():
+            return
+        cancel_requested.set()
+        LOGGER.warning("Canceling Duckgres query before Temporal activity timeout")
+        cancellation_failure_logged = False
+        for attempt in range(_DUCKGRES_CANCEL_MAX_ATTEMPTS):
+            if stop_canceling.is_set():
+                return
+            try:
+                conn.cancel_safe(timeout=_DUCKGRES_CANCEL_TIMEOUT_SECONDS)
+            except Exception:
+                if not cancellation_failure_logged:
+                    LOGGER.exception("Failed to cancel Duckgres query before Temporal activity timeout")
+                    cancellation_failure_logged = True
+            if attempt == _DUCKGRES_CANCEL_MAX_ATTEMPTS - 1:
+                LOGGER.error("Stopped retrying Duckgres query cancellation before Temporal activity timeout")
+                return
+            if stop_canceling.wait(_DUCKGRES_CANCEL_RETRY_SECONDS):
+                return
+
+    timer = threading.Timer(delay_seconds, cancel_query)
+    timer.daemon = True
+    timer.start()
+    try:
+        yield cancel_requested
+    finally:
+        stop_canceling.set()
+        timer.cancel()
+        timer.join(timeout=_DUCKGRES_CANCEL_TIMEOUT_SECONDS + 1)
+
+
+def _raise_if_duckgres_cancel_requested(cancel_requested: threading.Event | None) -> None:
+    if cancel_requested is not None and cancel_requested.is_set():
+        raise TimeoutError("Duckgres registration reached the Temporal activity deadline")
+
+
 def _register_prepared_parquet_files(
     inputs: DuckLakeRegisterDataImportsActivityInputs,
     conn: psycopg.Connection,
     landing_paths: list[str],
+    *,
+    cancel_requested: threading.Event | None = None,
 ) -> int:
     schema_name = inputs.metadata.ducklake_schema_name
     table_name = inputs.metadata.ducklake_table_name
@@ -537,12 +642,15 @@ def _register_prepared_parquet_files(
     parquet_glob = psql.Literal(f"{landing_uri}/{_PARQUET_FILE_GLOB}")
     partition_columns = _hive_partition_columns(landing_uri, landing_paths)
 
+    _raise_if_duckgres_cancel_requested(cancel_requested)
     setup_duckgres_session(conn, extensions=("ducklake", "httpfs"))
     shadow_is_published = False
     publish_attempted = False
     try:
         with _stage_timer(stage="register", team_id=inputs.team_id, schema_id=inputs.metadata.source_schema_id):
+            _raise_if_duckgres_cancel_requested(cancel_requested)
             conn.execute(psql.SQL("CREATE SCHEMA IF NOT EXISTS {}").format(psql.Identifier(schema_name)))
+            _raise_if_duckgres_cancel_requested(cancel_requested)
             conn.execute(
                 psql.SQL(
                     "CREATE TABLE {}.{} AS SELECT * FROM "
@@ -554,6 +662,7 @@ def _register_prepared_parquet_files(
                 )
             )
             if partition_columns:
+                _raise_if_duckgres_cancel_requested(cancel_requested)
                 conn.execute(
                     psql.SQL("ALTER TABLE {}.{} SET PARTITIONED BY ({})").format(
                         psql.Identifier(schema_name),
@@ -561,6 +670,7 @@ def _register_prepared_parquet_files(
                         psql.SQL(", ").join(psql.Identifier(column) for column in partition_columns),
                     )
                 )
+            _raise_if_duckgres_cancel_requested(cancel_requested)
             conn.execute(
                 psql.SQL(
                     "CALL ducklake_add_data_files({}, {}, {}, schema => {}, "
@@ -574,11 +684,13 @@ def _register_prepared_parquet_files(
             )
 
         with _stage_timer(stage="verify", team_id=inputs.team_id, schema_id=inputs.metadata.source_schema_id):
+            _raise_if_duckgres_cancel_requested(cancel_requested)
             source_row = conn.execute(
                 psql.SQL("SELECT count(*) FROM read_parquet({}, union_by_name=true, hive_partitioning=true)").format(
                     parquet_glob
                 )
             ).fetchone()
+            _raise_if_duckgres_cancel_requested(cancel_requested)
             registered_row = conn.execute(
                 psql.SQL("SELECT count(*) FROM {}.{}").format(
                     psql.Identifier(schema_name),
@@ -596,7 +708,9 @@ def _register_prepared_parquet_files(
 
         generation_is_stale = False
         with _stage_timer(stage="publish", team_id=inputs.team_id, schema_id=inputs.metadata.source_schema_id) as timer:
-            if _prepared_generation_is_current(inputs):
+            _raise_if_duckgres_cancel_requested(cancel_requested)
+            if _should_publish_prepared_generation(inputs):
+                _raise_if_duckgres_cancel_requested(cancel_requested)
                 publish_attempted = True
                 # Keep this transaction limited to publication. DuckLake flushes staged file
                 # metadata at commit, so including registration makes the catalog commit expensive.
@@ -608,6 +722,7 @@ def _register_prepared_parquet_files(
                             psql.Identifier(registration_names.previous_name),
                         )
                     )
+                    _raise_if_duckgres_cancel_requested(cancel_requested)
                     conn.execute(
                         psql.SQL("ALTER TABLE {}.{} RENAME TO {}").format(
                             psql.Identifier(schema_name),
@@ -742,9 +857,9 @@ class DuckLakeRegisterDataImportsWorkflow(PostHogWorkflow):
             copy_applied = await workflow.execute_activity(
                 copy_and_register_ducklake_data_imports_activity,
                 activity_inputs,
-                start_to_close_timeout=dt.timedelta(minutes=30),
+                start_to_close_timeout=_REGISTER_COPY_START_TO_CLOSE,
                 heartbeat_timeout=dt.timedelta(minutes=2),
-                retry_policy=RetryPolicy(maximum_attempts=2),
+                retry_policy=RetryPolicy(maximum_attempts=1),
             )
             if not copy_applied:
                 status = "stale"

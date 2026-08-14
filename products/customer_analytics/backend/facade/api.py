@@ -88,6 +88,7 @@ from products.customer_analytics.backend.logic import (
     announcements as _announcements_logic,
     channel_summaries as _channel_summaries_logic,
     custom_property_values as _custom_property_values_logic,
+    feature_requests as _feature_requests_logic,
     relationships as _relationships_logic,
 )
 from products.customer_analytics.backend.logic.custom_property_definitions import (
@@ -219,6 +220,7 @@ def get_account_context_data(
         name=account.name,
         external_id=account.external_id,
         created_at=account.created_at,
+        churned_at=account.churned_at,
         properties=_to_account_properties(account.properties),
         tags=_account_tags(account),
         notes=_account_notes(account),
@@ -358,8 +360,8 @@ def _to_external_account(account: Account) -> contracts.ExternalAccount:
     """Map an account to the verbatim external wire shape.
 
     ``properties`` is the exact ``model_dump(mode="json")`` of the validated
-    pydantic properties and ``tags`` the sorted tag names — byte-identical to
-    what the CDP worker consumed before this moved behind the facade.
+    pydantic properties, ``tags`` the sorted tag names, and ``churned_at`` the
+    account lifecycle timestamp.
 
     ``custom_properties`` includes every team definition keyed by name, with the
     account's active value (scalar) or ``None`` when unset, so workflow result
@@ -393,6 +395,7 @@ def _to_external_account(account: Account) -> contracts.ExternalAccount:
         id=str(account.id),
         external_id=account.external_id,
         name=account.name,
+        churned_at=account.churned_at,
         properties=account.properties.model_dump(mode="json"),
         tags=sorted(account.tagged_items.values_list("tag__name", flat=True)),
         relationships=relationships,
@@ -565,6 +568,7 @@ def list_external_accounts(
         contracts.ExternalAccountListItem(
             external_id=cast(str, account.external_id),
             name=account.name,
+            churned_at=account.churned_at,
             relationships=relationships_by_account.get(account.id, {}),
         )
         for account in accounts
@@ -655,13 +659,15 @@ def update_external_account(
     relationship_assignments: dict[str, int | None],
     tags: list[str] | None,
     tags_mode: str,
+    churned_at: datetime | None = None,
+    churned_at_provided: bool = False,
     workflow_id: str | None = None,
 ) -> contracts.ExternalAccountUpdateResult:
-    """Apply relationship assignments and tags to an account, transactionally, for the
-    external API.
+    """Apply relationship assignments, tags, and churn state to an account,
+    transactionally, for the external API.
 
-    Assignments and tags are all-or-nothing — a tag failure must not leave the
-    relationship changes committed. Returns a result the view maps to the exact HTTP
+    All changes are all-or-nothing — a tag failure must not leave relationship or churn
+    changes committed. Returns a result the view maps to the exact HTTP
     status/body: not found, a per-assignment failure (unknown definition, non-member
     user), a generic write failure, or success carrying the re-serialized account.
     """
@@ -683,6 +689,8 @@ def update_external_account(
                 return error_result
             if tags is not None:
                 _apply_external_tags(account, tags, tags_mode, workflow_id=workflow_id)
+            if churned_at_provided:
+                update_account(account, churned_at=churned_at)
     except Exception as e:
         capture_exception(e, {"team_id": team_id, "external_id": external_id, "account_id": str(account.id)})
         return contracts.ExternalAccountUpdateResult(error=contracts.ExternalAccountUpdateError.UPDATE_FAILED)
@@ -1960,6 +1968,82 @@ def list_custom_property_sync_runs(
     return [_to_sync_run_view(run) for run in page], total_count
 
 
+FeatureRequestValidationError = _feature_requests_logic.FeatureRequestValidationError
+FeatureRequestProductAreaConflictError = _feature_requests_logic.FeatureRequestProductAreaConflictError
+
+
+def list_feature_request_product_areas(
+    team_id: int, *, include_inactive: bool = False
+) -> list[contracts.FeatureRequestProductAreaView]:
+    return _feature_requests_logic.list_product_areas(team_id, include_inactive=include_inactive)
+
+
+def create_feature_request_product_area(
+    *, team_id: int, name: str, display_order: int, actor_id: int
+) -> contracts.FeatureRequestProductAreaView:
+    return _feature_requests_logic.create_product_area(
+        team_id=team_id,
+        name=name,
+        display_order=display_order,
+        actor_id=actor_id,
+    )
+
+
+def update_feature_request_product_area(
+    *,
+    team_id: int,
+    product_area_id: UUID,
+    name: str | None,
+    display_order: int | None,
+    is_active: bool | None,
+    actor_id: int,
+) -> contracts.FeatureRequestProductAreaView | None:
+    return _feature_requests_logic.update_product_area(
+        team_id=team_id,
+        product_area_id=product_area_id,
+        name=name,
+        display_order=display_order,
+        is_active=is_active,
+        actor_id=actor_id,
+    )
+
+
+def list_feature_requests(
+    *, team_id: int, user_access_control: "UserAccessControl", offset: int, limit: int
+) -> tuple[list[contracts.FeatureRequestView], int]:
+    return _feature_requests_logic.list_feature_requests(
+        team_id=team_id,
+        user_access_control=user_access_control,
+        offset=offset,
+        limit=limit,
+    )
+
+
+def get_feature_request(
+    *, team_id: int, feature_request_id: UUID, user_access_control: "UserAccessControl"
+) -> contracts.FeatureRequestView | None:
+    return _feature_requests_logic.get_feature_request(
+        team_id=team_id,
+        feature_request_id=feature_request_id,
+        user_access_control=user_access_control,
+    )
+
+
+def create_feature_request(
+    *,
+    team_id: int,
+    input: contracts.CreateFeatureRequestInput,
+    actor_id: int,
+    user_access_control: "UserAccessControl",
+) -> contracts.FeatureRequestCreateOutcome:
+    return _feature_requests_logic.create_feature_request(
+        team_id=team_id,
+        input=input,
+        actor_id=actor_id,
+        user_access_control=user_access_control,
+    )
+
+
 # --- CustomerJourney ---
 
 
@@ -2123,6 +2207,7 @@ def _to_account_view(account: Account) -> contracts.AccountView:
         tags=_account_view_tags(account),
         notebooks=_account_view_notebooks(account),
         slack_summary_cadence=account.slack_summary_cadence,
+        churned_at=account.churned_at,
         created_at=account.created_at,
         created_by=account.created_by_id,
         updated_at=account.updated_at,
@@ -2151,6 +2236,8 @@ def _account_table_field_values(
                 values[field] = account.created_at.isoformat() if account.created_at else None
             case contracts.AccountTableField.UPDATED_AT:
                 values[field] = account.updated_at.isoformat() if account.updated_at else None
+            case contracts.AccountTableField.CHURNED_AT:
+                values[field] = account.churned_at.isoformat() if account.churned_at else None
             case contracts.AccountTableField.STRIPE_CUSTOMER_ID:
                 values[field] = properties.stripe_customer_id
             case contracts.AccountTableField.HUBSPOT_DEAL_ID:
@@ -2414,6 +2501,7 @@ def _apply_account_table_sort(
             contracts.AccountTableField.EXTERNAL_ID: "external_id",
             contracts.AccountTableField.CREATED_AT: "created_at",
             contracts.AccountTableField.UPDATED_AT: "updated_at",
+            contracts.AccountTableField.CHURNED_AT: "churned_at",
         }
         if direct_field := direct_fields.get(sort.account_field):
             queryset = queryset.annotate(_account_table_sort=F(direct_field))
@@ -2496,6 +2584,7 @@ def query_accounts_metrics(
     user_access_control: "UserAccessControl",
     filters: tuple[contracts.AccountTableFilter, ...],
     metrics: tuple[contracts.AccountTableMetric, ...],
+    include_churned: bool = False,
 ) -> list[float | int | None]:
     definition_ids = frozenset(
         metric.definition_id
@@ -2512,8 +2601,11 @@ def query_accounts_metrics(
         if DATA_TYPE_BY_DISPLAY_TYPE[custom_property_display_types[definition_id]] != DataType.NUMERIC:
             raise InvalidAccountTableColumn("Account table metrics require numeric custom properties.")
 
+    accounts = _accounts_queryset(team_id, user_access_control)
+    if not include_churned:
+        accounts = accounts.filter(churned_at__isnull=True)
     accounts = _apply_account_table_filters(
-        _accounts_queryset(team_id, user_access_control),
+        accounts,
         team_id=team_id,
         filters=filters,
         custom_property_display_types=custom_property_display_types,
@@ -2577,6 +2669,7 @@ def query_accounts_table(
     sort: contracts.AccountTableSort | None,
     offset: int,
     limit: int,
+    include_churned: bool = False,
 ) -> contracts.AccountTablePage:
     custom_property_display_types = _validate_account_table_definitions(
         team_id=team_id,
@@ -2585,8 +2678,11 @@ def query_accounts_table(
         sort=sort,
     )
 
+    queryset = _accounts_queryset(team_id, user_access_control)
+    if not include_churned:
+        queryset = queryset.filter(churned_at__isnull=True)
     queryset = _apply_account_table_filters(
-        _accounts_queryset(team_id, user_access_control),
+        queryset,
         team_id=team_id,
         filters=filters,
         custom_property_display_types=custom_property_display_types,
@@ -2709,6 +2805,7 @@ def list_accounts_for_view(
     search: str | None = None,
     tags: list[str] | None = None,
     all_roles_unassigned: bool = False,
+    include_churned: bool = False,
     ordering: str | None = None,
 ) -> tuple[list[contracts.AccountView], int]:
     """The accounts list endpoint, behind the facade: team + object-level access filtering,
@@ -2719,6 +2816,9 @@ def list_accounts_for_view(
         Prefetch("notebooks", queryset=ResourceNotebook.objects.select_related("notebook")),
         Prefetch("tagged_items", queryset=TaggedItem.objects.select_related("tag"), to_attr="prefetched_tags"),
     )
+
+    if not include_churned:
+        queryset = queryset.filter(churned_at__isnull=True)
 
     if search:
         queryset = queryset.filter(Q(name__icontains=search) | Q(external_id__icontains=search))
@@ -2781,6 +2881,7 @@ def update_account(
     external_id: str | None | _Unset = _UNSET,
     properties: "dict | _ModelAccountProperties | _Unset" = _UNSET,
     slack_summary_cadence: "str | None | _Unset" = _UNSET,
+    churned_at: "datetime | None | _Unset" = _UNSET,
     allow_matching_updates: bool = False,
 ) -> Account:
     """Field-write primitive shared by every account update path. Only the fields passed are
@@ -2810,6 +2911,9 @@ def update_account(
     if not isinstance(slack_summary_cadence, _Unset):
         account.slack_summary_cadence = slack_summary_cadence
         update_fields.append("slack_summary_cadence")
+    if not isinstance(churned_at, _Unset):
+        account.churned_at = churned_at
+        update_fields.append("churned_at")
     if update_fields:
         account.save(update_fields=update_fields)
     if matching_expanded:
@@ -2826,6 +2930,7 @@ def create_account(
     properties: "dict | _ModelAccountProperties | None" = None,
     tags: list[str] | None = None,
     slack_summary_cadence: str | None = None,
+    churned_at: datetime | None = None,
     was_impersonated: bool = False,
     trigger: Trigger | None = None,
 ) -> Account:
@@ -2843,6 +2948,7 @@ def create_account(
                 external_id=_cap_to_field_length("external_id", external_id) if external_id is not None else None,
                 _properties=validated.model_dump(mode="json", exclude_unset=True),
                 slack_summary_cadence=slack_summary_cadence,
+                churned_at=churned_at,
             )
             _set_tags(tags, account, actor=created_by)
     except PydanticValidationError as exc:
@@ -2878,6 +2984,7 @@ def create_account_for_view(
         properties=input.properties,
         tags=input.tags,
         slack_summary_cadence=input.slack_summary_cadence,
+        churned_at=input.churned_at,
         was_impersonated=was_impersonated,
     )
     return _to_account_view(account)
@@ -2908,6 +3015,8 @@ def update_account_for_view(
         update_kwargs["properties"] = input.properties if input.properties is not None else {}
     if input.slack_summary_cadence_provided:
         update_kwargs["slack_summary_cadence"] = input.slack_summary_cadence
+    if input.churned_at_provided:
+        update_kwargs["churned_at"] = input.churned_at
     update_kwargs["allow_matching_updates"] = allow_matching_updates
 
     try:

@@ -458,6 +458,20 @@ class TestAccountViewSet(APIBaseTest):
         self.assertEqual(data["name"], "Bare Account")
         self.assertIsNone(data["external_id"])
         self.assertEqual(data["properties"], {})
+        self.assertIsNone(data["churned_at"])
+
+    def test_create_with_churned_at(self):
+        response = self.client.post(
+            self.endpoint_base,
+            {"name": "Former customer", "churned_at": "2026-08-01T12:30:00Z"},
+            format="json",
+        )
+
+        self.assertEqual(status.HTTP_201_CREATED, response.status_code, response.json())
+        self.assertEqual(response.json()["churned_at"], "2026-08-01T12:30:00Z")
+        account = Account.objects.unscoped().get(id=response.json()["id"])  # nosemgrep: idor-lookup-without-team
+        assert account.churned_at is not None
+        self.assertEqual(account.churned_at.isoformat(), "2026-08-01T12:30:00+00:00")
 
     def test_list(self):
         a1 = self._create_account(name="Account 1")
@@ -473,6 +487,21 @@ class TestAccountViewSet(APIBaseTest):
         self.assertEqual(data["count"], 2)
         ids = {r["id"] for r in data["results"]}
         self.assertEqual(ids, {str(a1.id), str(a2.id)})
+
+    @parameterized.expand(
+        [
+            ("default", {}, {"Active"}),
+            ("include_churned", {"include_churned": "true"}, {"Active", "Churned"}),
+        ]
+    )
+    def test_list_churned_visibility(self, _name: str, params: dict[str, str], expected_names: set[str]) -> None:
+        self._create_account(name="Active")
+        self._create_account(name="Churned", churned_at=timezone.now())
+
+        response = self.client.get(self.endpoint_base, data=params)
+
+        self.assertEqual(status.HTTP_200_OK, response.status_code)
+        self.assertEqual({account["name"] for account in response.json()["results"]}, expected_names)
 
     def test_retrieve(self):
         account = self._create_account(
@@ -516,6 +545,24 @@ class TestAccountViewSet(APIBaseTest):
         account.refresh_from_db()
         self.assertEqual(account.name, "Renamed")
         self.assertEqual(account.properties.sfdc_id, "001xx")
+
+    def test_update_and_clear_churned_at(self):
+        account = self._create_account()
+        url = f"{self.endpoint_base}{account.id}/"
+
+        response = self.client.patch(url, {"churned_at": "2026-08-02T09:00:00Z"}, format="json")
+
+        self.assertEqual(status.HTTP_200_OK, response.status_code, response.json())
+        self.assertEqual(response.json()["churned_at"], "2026-08-02T09:00:00Z")
+        account.refresh_from_db()
+        self.assertEqual(account.churned_at.isoformat(), "2026-08-02T09:00:00+00:00")
+
+        response = self.client.patch(url, {"churned_at": None}, format="json")
+
+        self.assertEqual(status.HTTP_200_OK, response.status_code, response.json())
+        self.assertIsNone(response.json()["churned_at"])
+        account.refresh_from_db()
+        self.assertIsNone(account.churned_at)
 
     @parameterized.expand(
         [
@@ -1966,6 +2013,38 @@ class TestCustomPropertySourceViewSet(APIBaseTest):
         assert body["column_property_map"] == {"plan": "plan_tier"}
         assert body["saved_query"] is None
 
+    @patch("products.customer_analytics.backend.presentation.views.views.report_user_action")
+    def test_mapping_lifecycle_emits_usage_events(self, report_user_action):
+        definition, schema = self._person_definition_and_schema()
+
+        created = self.client.post(
+            self.endpoint,
+            {
+                "definition": str(definition.id),
+                "external_data_schema": str(schema.id),
+                "column_property_map": {"plan": "plan_tier", "seats": "seat_count"},
+                "key_column": "distinct_id",
+            },
+            format="json",
+        )
+        assert created.status_code == status.HTTP_201_CREATED, created.content
+        source_id = created.json()["id"]
+
+        patched = self.client.patch(f"{self.endpoint}{source_id}/", {"is_enabled": False}, format="json")
+        assert patched.status_code == status.HTTP_200_OK
+        deleted = self.client.delete(f"{self.endpoint}{source_id}/")
+        assert deleted.status_code == status.HTTP_204_NO_CONTENT
+
+        assert [call.args[1] for call in report_user_action.call_args_list] == [
+            "warehouse property mapping created",
+            "warehouse property mapping updated",
+            "warehouse property mapping deleted",
+        ]
+        create_properties = report_user_action.call_args_list[0].args[2]
+        assert create_properties["target_type"] == TargetType.PERSON.value
+        assert create_properties["mapped_column_count"] == 2
+        assert create_properties["reads_warehouse_table"] is True
+
     def test_create_person_source_with_account_binding_is_rejected(self):
         definition, _schema = self._person_definition_and_schema()
 
@@ -2775,7 +2854,6 @@ class TestCalendarSyncViewSet(APIBaseTest):
 
 
 def _immediate_future():
-
     async def _done():
         return None
 

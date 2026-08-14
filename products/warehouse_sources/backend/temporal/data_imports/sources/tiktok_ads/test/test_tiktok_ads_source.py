@@ -18,6 +18,7 @@ from posthog.schema import ReleaseStatus
 
 from posthog.models.integration import Integration
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import error_message_matches
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.integration_accounts import (
     IntegrationAccountListingError,
 )
@@ -28,6 +29,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.tiktok_ads.source import TikTokAdsSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.tiktok_ads.utils import (
+    TIKTOK_NON_RETRYABLE_ERROR_PREFIX,
     TIKTOK_TRANSIENT_ERROR_MESSAGE,
     TikTokAdsAPIError,
     TikTokAdsPaginator,
@@ -81,6 +83,99 @@ class TestTikTokAdsSource:
 
     @parameterized.expand(
         [
+            ("video", "advertiser does not grant you /file/video/ad/search/:GET permission"),
+            ("image", "advertiser does not grant you /file/image/ad/search/:GET permission"),
+        ]
+    )
+    def test_creative_permission_denied_is_non_retryable(self, name, message):
+        """Reconnecting is the only fix for a denial, so retrying it would loop forever."""
+        paginator = TikTokAdsPaginator()
+        mock_response = Mock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = {"code": 40001, "message": message, "data": {}}
+
+        with pytest.raises(ValueError) as exc_info:
+            paginator.update_state(mock_response)
+
+        error_message = str(exc_info.value)
+        patterns = self.source.get_non_retryable_errors()
+        assert any(pattern in error_message for pattern in patterns)
+
+    @parameterized.expand(
+        [
+            ("video", "advertiser does not grant you /file/video/ad/search/:GET permission"),
+            ("image", "advertiser does not grant you /file/image/ad/search/:GET permission"),
+        ]
+    )
+    def test_creative_permission_denied_surfaces_friendly_message(self, name, message):
+        """Fails if the dict entries are reordered, which would shadow this message with None."""
+        error_message = f"{TIKTOK_NON_RETRYABLE_ERROR_PREFIX} {message} (code: 40001)"
+
+        friendly = [
+            friendly_error
+            for pattern, friendly_error in self.source.get_non_retryable_errors().items()
+            if error_message_matches(error_message, [pattern])
+        ]
+
+        assert friendly, "permission denial matched no non-retryable pattern"
+        assert friendly[0] is not None, "generic prefix shadowed the creative-permission message"
+        assert "creative_videos" in friendly[0]
+        assert "creative_images" in friendly[0]
+
+    @parameterized.expand(
+        [
+            ("report", "advertiser does not grant you /report/integrated/get/:GET permission"),
+            ("campaign", "advertiser does not grant you /campaign/get/:GET permission"),
+        ]
+    )
+    def test_non_creative_permission_denied_keeps_raw_message(self, name, message):
+        """A denial elsewhere shares the wording, so creative-library advice would contradict it."""
+        error_message = f"{TIKTOK_NON_RETRYABLE_ERROR_PREFIX} {message} (code: 40001)"
+
+        friendly = [
+            friendly_error
+            for pattern, friendly_error in self.source.get_non_retryable_errors().items()
+            if error_message_matches(error_message, [pattern])
+        ]
+
+        assert friendly, "permission denial matched no non-retryable pattern"
+        assert friendly[0] is None
+
+    def test_advertiser_deleted_40001_still_has_no_friendly_message(self):
+        """The raw message names the advertiser, so the creative key must not over-match it."""
+        error_message = (
+            f"{TIKTOK_NON_RETRYABLE_ERROR_PREFIX} The advertiser 123 doesn't exist or has been deleted. (code: 40001)"
+        )
+
+        friendly = [
+            friendly_error
+            for pattern, friendly_error in self.source.get_non_retryable_errors().items()
+            if error_message_matches(error_message, [pattern])
+        ]
+
+        assert friendly, "deleted advertiser matched no non-retryable pattern"
+        assert friendly[0] is None
+
+    def test_creative_permission_denied_does_not_match_get_retryable_errors(self):
+        """A permission denial must not be swallowed as a benign retryable error."""
+        paginator = TikTokAdsPaginator()
+        mock_response = Mock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = {
+            "code": 40001,
+            "message": "advertiser does not grant you /file/video/ad/search/:GET permission",
+            "data": {},
+        }
+
+        with pytest.raises(ValueError) as exc_info:
+            paginator.update_state(mock_response)
+
+        error_message = str(exc_info.value)
+        patterns = self.source.get_retryable_errors()
+        assert not any(pattern in error_message for pattern in patterns)
+
+    @parameterized.expand(
+        [
             ("deleted_integration", "ValueError: Integration not found: 173586"),
             ("missing_integration", "Integration not found: 456"),
         ]
@@ -123,6 +218,9 @@ class TestTikTokAdsSource:
             ("system_error", 50000, "System error"),
             ("rate_limited", 40100, "Requests made too frequently"),
             ("maintenance", 60001, "The system is in maintenance"),
+            # Internal service error TikTok itself asks callers to retry — must not raise the
+            # non-retryable ValueError the else-branch raises for unclassified codes.
+            ("internal_service_error", 51002, "Internal service error. Please retry later."),
         ]
     )
     def test_retryable_paginator_error_matches_get_retryable_errors(self, name, api_code, message):
@@ -299,15 +397,17 @@ class TestTikTokAdsSource:
                 assert schema.supports_incremental is False
                 assert schema.incremental_fields == []
 
-    def test_only_breakdown_reports_are_off_by_default(self):
+    def test_only_breakdown_and_creative_tables_are_off_by_default(self):
         # New tables land in the schema picker pre-ticked. The breakdown reports fan every
-        # entity-day out across its dimension values, so they must stay opt-in while the
-        # tables that shipped before this stay selected.
+        # entity-day out across its dimension values, and the creative tables need a grant most
+        # advertisers withhold, so both stay opt-in while the rest stay selected.
         should_sync = {schema.name: schema.should_sync_default for schema in self.source.get_schemas(self.config, 1)}
 
         off_by_default = {name for name, default in should_sync.items() if not default}
 
         assert off_by_default == {
+            "creative_videos",
+            "creative_images",
             "campaign_demographic_report",
             "campaign_country_report",
             "campaign_platform_report",

@@ -28,7 +28,7 @@ with workflow.unsafe.imports_passed_through():
     from posthog.sync import database_sync_to_async
     from posthog.temporal.common.heartbeat import Heartbeater
 
-    from products.conversations.backend.models import EmailChannel, Ticket, ZendeskImportJob
+    from products.conversations.backend.models import EmailChannel, EmailChannelKind, Ticket, ZendeskImportJob
     from products.conversations.backend.models.constants import Status
     from products.conversations.backend.services.attachments import (
         CONVERSATIONS_MAX_IMAGE_BYTES,
@@ -208,7 +208,7 @@ def _import_ticket_batch_sync(input: ImportBatchInput) -> ImportBatchOutput:
     # customer originally emailed) resolves to the matching EmailChannel. Unmatched/absent
     # recipients fall back to the caller-selected default channel, if any. Bounded to
     # MAX_EMAIL_CONFIGS_PER_TEAM rows, so a single query up front is cheap.
-    email_channels = list(EmailChannel.objects.filter(team_id=team.id))
+    email_channels = list(EmailChannel.objects.filter(team_id=team.id, kind=EmailChannelKind.SUPPORT))
     email_channels_by_addr = {(c.from_email or "").strip().lower(): c for c in email_channels}
     default_email_channel = None
     if input.default_email_channel_id:

@@ -180,6 +180,17 @@ fn record_transition(from: &str, to: &str) {
     );
 }
 
+/// Count settled per-source outcomes. Shared by the saga's terminal record
+/// and the entrance's inline settlement, so the counter covers every
+/// requested source — not just the ones that entered the saga.
+pub(crate) fn record_outcome_count(outcome: &str, count: u64) {
+    common_metrics::inc(
+        OUTCOMES_TOTAL,
+        &[("outcome".to_string(), outcome.to_string())],
+        count,
+    );
+}
+
 fn record_outcomes(outcome: &Value) {
     let Ok(parsed) = serde_json::from_value::<MergeOutcome>(outcome.clone()) else {
         return;
@@ -194,11 +205,7 @@ fn record_outcomes(outcome: &Value) {
     ] {
         let count = parsed.results.iter().filter(|r| r.outcome == label).count();
         if count > 0 {
-            common_metrics::inc(
-                OUTCOMES_TOTAL,
-                &[("outcome".to_string(), label.to_string())],
-                count as u64,
-            );
+            record_outcome_count(label, count as u64);
         }
     }
 }
@@ -225,7 +232,7 @@ struct ClaimRecord {
 
 /// The fence snapshot persisted per source row (`sealed`), and the exact
 /// inputs the fold and the committed release replay from. `created_at` is
-/// in the unit `Person.created_at` carries (epoch seconds today).
+/// in the unit `Person.created_at` carries (epoch milliseconds).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct SealedSnapshot {
     version: i64,
@@ -274,7 +281,10 @@ impl MergeOpExecutor {
             OpRow,
             r#"
             SELECT op_id, op_type, team_id::bigint as "team_id!", step, attempt,
-                   request as "request: Value", outcome as "outcome: Value", completed_at
+                   request as "request: Value", outcome as "outcome: Value",
+                   created_at, completed_at,
+                   (lease_expires_at IS NOT NULL AND lease_expires_at >= now())
+                       as "lease_live!"
             FROM lifecycle_op
             WHERE op_id = $1
             "#,
@@ -299,6 +309,18 @@ impl MergeOpExecutor {
             .execute(&self.driver, op_id, team_id, frozen)
             .await
             .map_err(|err| {
+                // The entrance only reaches this create path after finding
+                // no op row, so an engine-level mismatch means the row
+                // appeared in the race window since — a transient loss,
+                // not op_id misuse (which the entrance's attach-first
+                // comparison answers). Both client stacks treat
+                // FAILED_PRECONDITION as terminal, so surfacing the race
+                // as one would fail a request whose retry attaches fine.
+                if matches!(err, SagaError::RequestMismatch(_)) {
+                    return Status::unavailable(format!(
+                        "another call is initializing op {op_id}; retry with the same op_id"
+                    ));
+                }
                 if matches!(err, SagaError::Db(_) | SagaError::CorruptState(_)) {
                     tracing::error!(op_id = %op_id, error = %err, "MergePersons failed");
                 }

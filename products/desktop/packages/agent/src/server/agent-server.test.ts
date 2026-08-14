@@ -229,6 +229,7 @@ interface TestableServer {
   ): Promise<void>;
   detectedPrUrl: string | null;
   slackArtifactDelivery: "none" | "message" | "canvas_file" | null;
+  slackChartDelivery: boolean;
   buildCloudSystemPrompt(
     prUrl?: string | null,
     slackThreadUrl?: string | null,
@@ -2777,6 +2778,90 @@ describe("AgentServer HTTP Mode", () => {
       expect(resetTurnMessages).not.toHaveBeenCalled();
     }, 20000);
 
+    it("declines steering while an initial or resume turn is starting", async () => {
+      const s = createServer();
+      await s.start();
+      const prompt = vi.fn();
+      const serverInternals = s as unknown as {
+        activeOwnedTurnCount: number;
+        activeStartupTurnCount: number;
+        session: { clientConnection: { prompt: typeof prompt } };
+      };
+      serverInternals.activeOwnedTurnCount = 1;
+      serverInternals.activeStartupTurnCount = 1;
+      serverInternals.session.clientConnection.prompt = prompt;
+
+      const response = await fetch(`http://localhost:${port}/command`, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${createToken()}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          jsonrpc: "2.0",
+          id: "steer-during-resume",
+          method: "user_message",
+          params: {
+            content: "status?",
+            messageId: "steer-during-resume",
+            steer: true,
+          },
+        }),
+      });
+
+      expect(response.status).toBe(200);
+      await expect(response.json()).resolves.toMatchObject({
+        result: { stopReason: "steer_declined", steered: false },
+      });
+      expect(prompt).not.toHaveBeenCalled();
+    }, 20000);
+
+    it("declines steering while a prewarmed first turn is starting", async () => {
+      const s = createServer();
+      await s.start();
+      let finishTurn!: (result: { stopReason: "end_turn" }) => void;
+      const prompt = vi.fn(
+        () =>
+          new Promise<{ stopReason: "end_turn" }>((resolve) => {
+            finishTurn = resolve;
+          }),
+      );
+      const serverInternals = s as unknown as {
+        prewarmedStartupTurnPending: boolean;
+        session: { clientConnection: { prompt: typeof prompt } };
+      };
+      serverInternals.prewarmedStartupTurnPending = true;
+      serverInternals.session.clientConnection.prompt = prompt;
+
+      const token = createToken();
+      const send = (id: string, steer = false) =>
+        fetch(`http://localhost:${port}/command`, {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${token}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            jsonrpc: "2.0",
+            id,
+            method: "user_message",
+            params: { content: id, messageId: id, ...(steer && { steer }) },
+          }),
+        });
+
+      const firstTurn = send("first-turn");
+      await vi.waitFor(() => expect(prompt).toHaveBeenCalledOnce());
+
+      const steerResponse = await send("steer-during-first-turn", true);
+      await expect(steerResponse.json()).resolves.toMatchObject({
+        result: { stopReason: "steer_declined", steered: false },
+      });
+      expect(prompt).toHaveBeenCalledOnce();
+
+      finishTurn({ stopReason: "end_turn" });
+      await firstTurn;
+    }, 20000);
+
     it("does not queue steering behind an active non-steering turn", async () => {
       const s = createServer();
       await s.start();
@@ -4147,6 +4232,59 @@ describe("AgentServer HTTP Mode", () => {
 
       expect(s.buildCloudSystemPrompt()).not.toContain(
         "## Delivering to Slack",
+      );
+    });
+
+    // Charts need only the rollout flag, while canvas/file also needs Slack scopes still in
+    // review, so the chart offer has to be independent of the delivery mode in both
+    // directions: present on a message-only workspace, absent on a canvas_file one whose
+    // backend never sent the key.
+    it.each([
+      { delivery: "canvas_file" as const, charts: true },
+      { delivery: "message" as const, charts: true },
+    ])(
+      "offers the chart endpoint on a $delivery workspace when charts are on",
+      ({ delivery, charts }) => {
+        const s = createServer() as unknown as TestableServer;
+        s.slackArtifactDelivery = delivery;
+        s.slackChartDelivery = charts;
+
+        const prompt = s.buildCloudSystemPrompt();
+
+        expect(prompt).toContain("living_artifacts/chart/");
+        expect(prompt).toContain("deliver a chart image by default");
+      },
+    );
+
+    it.each([
+      { delivery: "canvas_file" as const },
+      { delivery: "message" as const },
+      { delivery: "none" as const },
+    ])(
+      "never mentions charts on a $delivery workspace when charts are off",
+      ({ delivery }) => {
+        const s = createServer() as unknown as TestableServer;
+        s.slackArtifactDelivery = delivery;
+        s.slackChartDelivery = false;
+
+        expect(s.buildCloudSystemPrompt()).not.toContain(
+          "living_artifacts/chart/",
+        );
+      },
+    );
+
+    it("tells a message-only workspace that charts are the exception to the no-file rule", () => {
+      // Without this the two bullets contradict each other: one forbids file delivery, the
+      // other tells the agent to deliver an image.
+      const s = createServer() as unknown as TestableServer;
+      s.slackArtifactDelivery = "message";
+      s.slackChartDelivery = true;
+
+      const prompt = s.buildCloudSystemPrompt();
+
+      expect(prompt).toContain("Chart images are the one exception");
+      expect(prompt).toContain(
+        "cannot be expressed as a Slack message or a chart image",
       );
     });
 

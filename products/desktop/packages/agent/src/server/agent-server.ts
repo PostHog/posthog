@@ -97,6 +97,7 @@ import type {
 } from "../types";
 import { resourceLink } from "../utils/acp-content";
 import { AsyncMutex } from "../utils/async-mutex";
+import { withTimeout } from "../utils/common";
 import { resolveGatewayProduct, resolveGatewayTarget } from "../utils/gateway";
 import { resolveGithubToken } from "../utils/github-token";
 import { Logger } from "../utils/logger";
@@ -128,6 +129,8 @@ const agentErrorClassificationSchema = z.enum([
   "upstream_provider_failure",
   "agent_error",
 ]) satisfies z.ZodType<AgentErrorClassification>;
+
+const INITIAL_TASK_RUN_REFRESH_TIMEOUT_MS = 5_000;
 
 export const UPSTREAM_PROVIDER_FAILURE_MESSAGE =
   "The upstream AI provider failed to process the request. Please retry the task in a few minutes.";
@@ -317,6 +320,19 @@ function isManualCompactPrompt(prompt: ContentBlock[]): boolean {
   return /^\/compact(?:\s|$)/.test(promptBlocksToText(prompt).trimStart());
 }
 
+/** True when the agent implements `/clear` and honours the conversation-cleared boundary. */
+function extractConversationClearCapability(result: unknown): boolean {
+  return (
+    (
+      result as {
+        agentCapabilities?: {
+          _meta?: { posthog?: { conversationClear?: unknown } };
+        };
+      }
+    )?.agentCapabilities?._meta?.posthog?.conversationClear === true
+  );
+}
+
 function extractSteeringCapability(result: unknown): string | undefined {
   const steering = (
     result as {
@@ -367,6 +383,22 @@ function readSlackArtifactDelivery(
   return SLACK_ARTIFACT_DELIVERY_MODES.find((known) => known === mode) ?? null;
 }
 
+/**
+ * Charts ride on their own key rather than a delivery mode: they need only the rollout
+ * flag, while canvas and file delivery also needs Slack scopes that are still in review,
+ * so a workspace can have charts and nothing else. Absent or non-boolean means a backend
+ * that predates charts, which is the same as off.
+ */
+function readSlackChartDelivery(taskRun: TaskRun | null): boolean {
+  const state = taskRun?.state;
+
+  if (!state || typeof state !== "object") {
+    return false;
+  }
+
+  return (state as Record<string, unknown>).slack_chart_delivery === true;
+}
+
 // Prompt block we hand the agent when the user attached files but we could not
 // load any of them into the session (missing from the run manifest, no storage
 // path, etc.). Without this the caller falls back to the bare task description —
@@ -401,6 +433,7 @@ export class AgentServer {
   private runUsage = new RunUsageAccumulator();
   private detectedPrUrl: string | null = null;
   private slackArtifactDelivery: SlackArtifactDelivery | null = null;
+  private slackChartDelivery = false;
   private taskRepositories: string[] = [];
   // Reset per session. `evaluatedPrUrls` dedupes per URL; `prAttributionChain` serializes
   // attributions so the most recently created PR in a run wins.
@@ -414,6 +447,7 @@ export class AgentServer {
   // --autoPublish flag can't carry the user's choice; it is resolved from run
   // state when the first message arrives (see resolveWarmActivationSettings).
   private prewarmedRun = false;
+  private prewarmedStartupTurnPending = false;
   private warmAutoPublishResolved = false;
   private warmReasoningEffortResolved = false;
   private installedSkillBundles = new Set<string>();
@@ -432,6 +466,7 @@ export class AgentServer {
   private pendingCompactContinuationMessageIds = new Set<string>();
   private inFlightMessageDeliveries = new Map<string, Promise<unknown>>();
   private activeOwnedTurnCount = 0;
+  private activeStartupTurnCount = 0;
   // Normal follow-ups own turns in arrival order. Explicit steering bypasses
   // this tail so it can still reach the active adapter turn immediately.
   private nonSteerDeliveryTail: Promise<void> = Promise.resolve();
@@ -1188,7 +1223,10 @@ export class AgentServer {
           };
 
           if (params.steer === true) {
-            if (this.activeOwnedTurnCount > 0) {
+            if (
+              this.activeOwnedTurnCount > 0 &&
+              this.activeStartupTurnCount === 0
+            ) {
               const result = await commandSession.clientConnection.prompt({
                 sessionId: commandSession.acpSessionId,
                 prompt,
@@ -1238,7 +1276,7 @@ export class AgentServer {
                 this.pendingCompactContinuationMessageIds.delete(messageId);
               }
             } else {
-              result = await this.runOwnedTurn(() => {
+              const runPrompt = () => {
                 const promptResult = commandSession.clientConnection.prompt({
                   sessionId: commandSession.acpSessionId,
                   prompt,
@@ -1250,7 +1288,13 @@ export class AgentServer {
                   throw new Error("Agent connection did not accept the prompt");
                 }
                 return promptResult;
-              });
+              };
+              if (this.prewarmedStartupTurnPending) {
+                this.prewarmedStartupTurnPending = false;
+                result = await this.runStartupTurn(runPrompt);
+              } else {
+                result = await this.runOwnedTurn(runPrompt);
+              }
 
               if (result.stopReason === "end_turn" && manualCompactPrompt) {
                 commitDelivery();
@@ -1569,6 +1613,7 @@ export class AgentServer {
     this.nativeResume = null;
     this.preSessionEvents = [];
     this.prewarmedRun = false;
+    this.prewarmedStartupTurnPending = false;
     this.warmAutoPublishResolved = false;
     this.warmReasoningEffortResolved = false;
 
@@ -1608,6 +1653,7 @@ export class AgentServer {
     this.prewarmedRun =
       (preTaskRun?.state as Record<string, unknown> | undefined)?.prewarmed ===
       true;
+    this.prewarmedStartupTurnPending = this.prewarmedRun;
 
     const gatewayEnv = this.configureEnvironment({
       isInternal: preTask?.internal === true,
@@ -1643,6 +1689,7 @@ export class AgentServer {
     // Unconditional for the same reason as detectedPrUrl: a re-init on this
     // instance must not keep the previous run's delivery capability.
     this.slackArtifactDelivery = readSlackArtifactDelivery(preTaskRun);
+    this.slackChartDelivery = readSlackChartDelivery(preTaskRun);
 
     // Web backlink to the inbox report that spawned this task, so the
     // auto-generated PR can point back at it. Built from the same pieces as the
@@ -1757,6 +1804,8 @@ export class AgentServer {
       clientCapabilities: {},
     });
     const steering = extractSteeringCapability(initializeResult);
+    const conversationClear =
+      extractConversationClearCapability(initializeResult);
 
     const runState = preTaskRun?.state as Record<string, unknown> | undefined;
     // Preserve native Codex modes for cloud runs so they behave the same as
@@ -1955,6 +2004,8 @@ export class AgentServer {
         taskId: payload.task_id,
         agentVersion: this.config.version ?? packageJson.version,
         ...(steering ? { steering } : {}),
+        // Absent on older agents, which is exactly what the host gates on.
+        ...(conversationClear ? { conversationClear } : {}),
       },
     };
     this.broadcastEvent({
@@ -2023,6 +2074,15 @@ export class AgentServer {
       return await operation();
     } finally {
       this.activeOwnedTurnCount -= 1;
+    }
+  }
+
+  private async runStartupTurn<T>(operation: () => Promise<T>): Promise<T> {
+    this.activeStartupTurnCount += 1;
+    try {
+      return await this.runOwnedTurn(operation);
+    } finally {
+      this.activeStartupTurnCount -= 1;
     }
   }
 
@@ -2175,21 +2235,19 @@ export class AgentServer {
   ): Promise<void> {
     if (!this.session) return;
 
-    // Fetch TaskRun early — needed for both resume detection and initial prompt
     let taskRun = prefetchedRun ?? null;
-    if (!taskRun) {
-      try {
-        taskRun = await this.posthogAPI.getTaskRun(
-          payload.task_id,
-          payload.run_id,
-        );
-      } catch (error) {
-        this.logger.debug("Failed to fetch task run", {
-          taskId: payload.task_id,
-          runId: payload.run_id,
-          error,
-        });
-      }
+    try {
+      const refresh = await withTimeout(
+        this.posthogAPI.getTaskRun(payload.task_id, payload.run_id),
+        INITIAL_TASK_RUN_REFRESH_TIMEOUT_MS,
+      );
+      if (refresh.result === "success") taskRun = refresh.value;
+    } catch (error) {
+      this.logger.debug("Failed to refresh task run before initial message", {
+        taskId: payload.task_id,
+        runId: payload.run_id,
+        error,
+      });
     }
 
     if (this.nativeResume) {
@@ -2259,7 +2317,7 @@ export class AgentServer {
         throw new Error("Agent session is missing its ACP session ID");
       }
 
-      const result = await this.runOwnedTurn(() =>
+      const result = await this.runStartupTurn(() =>
         this.promptWithUpstreamRetry({
           sessionId: acpSessionId,
           prompt: initialPrompt,
@@ -2497,7 +2555,7 @@ export class AgentServer {
         throw new Error("Agent session is missing its ACP session ID");
       }
 
-      const result = await this.runOwnedTurn(() =>
+      const result = await this.runStartupTurn(() =>
         this.promptWithUpstreamRetry({
           sessionId: acpSessionId,
           prompt: builtPrompt.prompt,
@@ -3674,16 +3732,33 @@ export class AgentServer {
 - Do not say a file, report, PDF, spreadsheet, document, or other artifact is attached, uploaded, or shared unless a tool explicitly confirms that delivery.
 - Run artifacts that are not your uploaded outputs (plans, context, tree snapshots, checkpoints, user uploads) are internal: never deliver them to Slack or mention them in your reply.`;
 
+    // Charts attach to both modes: they post as an image block referencing a PostHog-hosted
+    // url, so they work wherever the workspace can post at all.
+    const chartBullets = this.slackChartDelivery
+      ? `
+- When an analytics answer is naturally visual (a trend over time, funnel, breakdown comparison, retention curve), deliver a chart image by default alongside the summary. Do not wait for the user to say "chart". Skip the image only when the result is a single number, a short list, or the user asked for raw data.
+- To show a chart in Slack (a saved insight or an ad-hoc analytics query result), make a single call: POST to \`${endpoint}chart/\` with \`$POSTHOG_PERSONAL_API_KEY\` and body \`{"name": "<chart title>", "query": <query JSON, e.g. {"kind": "InsightVizNode", "source": {"kind": "TrendsQuery", ...}}>}\`, or \`{"name": "<chart title>", "insight_id": <numeric insight id>}\` for a saved insight. It renders the chart server-side and registers it for Slack delivery in one step, blocking until done (typically a few seconds).
+- The chart renders directly under your answer text with its name as the title, so do not restate the title or announce the chart ("Here's a chart of…"). Spend your answer text on the takeaway instead: the trend, inflection points, spikes, or drops a reader should notice, with numbers where they matter. Each chart is delivered with an "Open in PostHog" button, so do not paste the response \`url\` into your answer unless the user explicitly asks for a link. Do not download, view, or re-upload the image yourself.
+- Report a chart failure rather than retrying blindly: a 400 carries the reason in \`error\`, or in \`detail\` when the request body itself was rejected, and a 429 means the project's chart render limit is saturated, so answer without the chart.
+- SQL results cannot be charted yet, because the chart endpoint rejects SQL queries. Chart with an insight query (e.g. TrendsQuery) when the question can be expressed as one; otherwise summarize the SQL result in your answer text.`
+      : "";
+
     if (this.slackArtifactDelivery === "message") {
+      const chartException = this.slackChartDelivery
+        ? " Chart images are the one exception: deliver them through the dedicated chart endpoint below, never through the generic living-artifacts endpoint."
+        : "";
+      const unsupportedDeliverable = this.slackChartDelivery
+        ? "- If a deliverable cannot be expressed as a Slack message or a chart image (for example .xlsx/.pdf/.docx), say that plainly and summarize the result in Slack instead."
+        : "- If a deliverable cannot be expressed as a Slack message (for example .xlsx/.pdf/.docx), say that plainly and summarize the result in Slack instead.";
       return `${preamble}
-- You do not have canvas or file delivery in this workspace: do not use the \`slack_canvas\` or \`slack_file\` adapters, and do not promise a canvas, uploaded spreadsheet, or downloadable file.
-- For Slack deliverables, create a living artifact before claiming delivery. POST to \`${endpoint}\` with \`$POSTHOG_PERSONAL_API_KEY\` using adapter \`slack_message\`. To update a prior deliverable, GET the returned artifact id or POST new \`content\` to \`${endpoint}<artifact_id>/edit/\`.
-- If a deliverable cannot be expressed as a Slack message (for example .xlsx/.pdf/.docx), say that plainly and summarize the result in Slack instead.`;
+- You do not have canvas or file delivery in this workspace: do not use the \`slack_canvas\` or \`slack_file\` adapters, and do not promise a canvas, uploaded spreadsheet, or downloadable file.${chartException}
+- For Slack deliverables, create a living artifact before claiming delivery. POST to \`${endpoint}\` with \`$POSTHOG_PERSONAL_API_KEY\` using adapter \`slack_message\`. To update a prior deliverable, GET the returned artifact id or POST new \`content\` to \`${endpoint}<artifact_id>/edit/\`.${chartBullets}
+${unsupportedDeliverable}`;
     }
 
     return `${preamble}
 - For Slack deliverables, create a living artifact before claiming delivery. POST to \`${endpoint}\` with \`$POSTHOG_PERSONAL_API_KEY\`; choose adapter \`slack_canvas\`, \`slack_message\`, \`slack_file\`, or \`document_connector\`. Use \`adapter=slack_file\` with \`content_base64\` for binary deliverables such as .xlsx/.pdf/.docx, or \`source_artifact_id\` / \`source_storage_path\` for a file you already uploaded as a \`type=output\` run artifact.
-- To update a prior deliverable, GET the returned artifact id or POST new \`content\`, \`content_base64\`, or source artifact fields to \`${endpoint}<artifact_id>/edit/\`.
+- To update a prior deliverable, GET the returned artifact id or POST new \`content\`, \`content_base64\`, or source artifact fields to \`${endpoint}<artifact_id>/edit/\`.${chartBullets}
 - Do not paste living-artifact Slack file links or permalinks into your final Slack answer unless the user explicitly asks for the URL. The Slack relay attaches pending file artifacts to your final answer automatically, so mention the artifact by name only if useful.
 - If you created a local file but no upload or delivery tool is available, say that plainly and summarize the result in Slack instead.`;
   }
@@ -4329,7 +4404,7 @@ ${commonInstructions}
 
         // Tools on relayed MCP servers execute on the user's machine with
         // their local privileges: always ask, regardless of permission mode
-        // (docs/cloud-mcp-relay.md). Without a reachable client, deny rather
+        // (docs/CLOUD-MCP-RELAY.md). Without a reachable client, deny rather
         // than auto-approve.
         {
           // Read the MCP server through the adapter-neutral `_meta.posthog`

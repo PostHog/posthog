@@ -1697,6 +1697,7 @@ class TestProcessTaskWorkflowUnit:
         workflow._context = _build_context(
             github_integration_id=123,
             state={"repositories": ["posthog/posthog", "posthog/code"]},
+            custom_image_name="posthog-dev-stack",
         )
         prepared = PrepareSandboxForRepositoryOutput(
             sandbox_name="sandbox-name",
@@ -1718,6 +1719,7 @@ class TestProcessTaskWorkflowUnit:
             connect_token="connect-token",
         )
         cloned: list[str] = []
+        clone_options: dict[str, dict[str, Any]] = {}
 
         async def fake_execute_activity(activity_fn: Any, *args: Any, **kwargs: Any) -> Any:
             if activity_fn is prepare_sandbox_for_repository:
@@ -1726,6 +1728,7 @@ class TestProcessTaskWorkflowUnit:
                 return created
             if activity_fn is clone_repository_in_sandbox:
                 cloned.append(args[0].repository)
+                clone_options[args[0].repository] = kwargs
                 return None
             if activity_fn is emit_progress_activity:
                 return None
@@ -1737,7 +1740,58 @@ class TestProcessTaskWorkflowUnit:
         result = await workflow._get_sandbox_for_repository()
 
         assert cloned == ["posthog/posthog", "posthog/code"]
+        assert clone_options["posthog/posthog"]["start_to_close_timeout"] == timedelta(minutes=20)
+        assert clone_options["posthog/posthog"]["retry_policy"].maximum_attempts == 3
+        assert clone_options["posthog/code"]["start_to_close_timeout"] == timedelta(minutes=5)
+        assert clone_options["posthog/code"]["retry_policy"].maximum_attempts == 3
         assert result.clone_ms is None
+
+    async def test_get_sandbox_for_repository_uses_desktop_budget_for_snapshot_checkout(self, monkeypatch):
+        workflow = ProcessTaskWorkflow()
+        workflow._context = _build_context(
+            github_integration_id=123,
+            repository="posthog/posthog",
+            custom_image_name="posthog-dev-stack",
+        )
+        prepared = PrepareSandboxForRepositoryOutput(
+            sandbox_name="sandbox-name",
+            repository="posthog/posthog",
+            github_token="ghs_token",
+            branch="feature-branch",
+            environment_variables={},
+            snapshot_id="repo-snapshot-id",
+            snapshot_external_id=None,
+            used_snapshot=True,
+            should_create_snapshot=False,
+            shallow_clone=True,
+            image_source="repository_snapshot",
+            image_source_label="repository snapshot x",
+        )
+        created = CreateSandboxForRepositoryOutput(
+            sandbox_id="sandbox-123",
+            sandbox_url="https://sandbox.example",
+            connect_token="connect-token",
+        )
+        checkout_options: dict[str, Any] = {}
+
+        async def fake_execute_activity(activity_fn: Any, *args: Any, **kwargs: Any) -> Any:
+            if activity_fn is prepare_sandbox_for_repository:
+                return prepared
+            if activity_fn is create_sandbox_for_repository:
+                return created
+            if activity_fn is checkout_branch_in_sandbox:
+                checkout_options.update(kwargs)
+                return None
+            if activity_fn is emit_progress_activity:
+                return None
+            raise AssertionError(f"Unexpected activity call: {activity_fn}")
+
+        monkeypatch.setattr(process_task_workflow_module.workflow, "execute_activity", fake_execute_activity)
+
+        await workflow._get_sandbox_for_repository()
+
+        assert checkout_options["start_to_close_timeout"] == timedelta(minutes=20)
+        assert checkout_options["retry_policy"].maximum_attempts == 3
 
     async def test_overlap_releases_agent_after_primary_clone_and_materializes_failed_secondary(self, monkeypatch):
         workflow = ProcessTaskWorkflow()
@@ -2152,7 +2206,7 @@ class TestProcessTaskWorkflowUnit:
 
         cleanup_sandbox_mock.assert_awaited_once_with("sandbox-123", complete_stream=True)
         if expect_resume_snapshot_call:
-            create_resume_snapshot_mock.assert_awaited_once_with("sandbox-123")
+            create_resume_snapshot_mock.assert_awaited_once_with("sandbox-123", reason="teardown", allow_pruning=True)
         else:
             create_resume_snapshot_mock.assert_not_awaited()
 
@@ -2247,6 +2301,7 @@ class TestContinueAsNew:
         wf._ci_repetitions = 2
         wf._pr_fingerprint = "fp-1"
         wf._pr_progress_emitted = True
+        wf._ci_resume_snapshot_created = True
         wf._first_user_message_received = True
         wf._is_agent_design_enabled = True
         wf._last_active_time = datetime(2026, 7, 16, 10, 30, tzinfo=UTC)
@@ -2268,6 +2323,7 @@ class TestContinueAsNew:
         assert restored._ci_repetitions == 2
         assert restored._pr_fingerprint == "fp-1"
         assert restored._pr_progress_emitted is True
+        assert restored._ci_resume_snapshot_created is True
         assert restored._first_user_message_received is True
         assert restored._is_agent_design_enabled is True
         # The datetime survives the ISO round-trip.
@@ -2279,6 +2335,7 @@ class TestContinueAsNew:
         second_hop = restored._build_resumed_input(ProcessTaskInput(run_id="run-id"), sandbox_id="sb-2")
         assert second_hop.resumed_sandbox is not None
         assert second_hop.resumed_sandbox.chain_started_at == chain_start.isoformat()
+        assert second_hop.resumed_sandbox.ci_resume_snapshot_created is True
 
     @parameterized.expand(
         [
