@@ -16,6 +16,7 @@ import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { ProductKey } from '~/queries/schema/schema-general'
 import { ActivityScope } from '~/types'
 
+import { DataQualityChecksPanel } from 'products/data_quality/frontend/DataQualityChecksPanel'
 import { cleanSourceId } from 'products/data_warehouse/frontend/utils'
 
 import { shouldShowManagedSourceMetricsTab, shouldShowManagedSourceSyncsTab } from '../SourceScene/SourceScene'
@@ -67,6 +68,8 @@ function SchemaSceneContent({ sourceId, schemaId }: SchemaSceneProps): JSX.Eleme
     const showSyncs = shouldShowManagedSourceSyncsTab(source)
     const showMetrics = shouldShowManagedSourceMetricsTab(source, !!featureFlags[FEATURE_FLAGS.DWH_SOURCE_METRICS])
     const showDescriptions = !!featureFlags[FEATURE_FLAGS.DATA_WAREHOUSE_SEMANTIC_ENRICHMENT]
+    // The warehouse table only exists once the schema has synced, and checks hang off that table.
+    const showDataQuality = !!featureFlags[FEATURE_FLAGS.DATA_QUALITY_CHECKS] && !!schema?.table?.id
     const showColumnsSection = supportsColumnSelection
     const visibleSections = SCHEMA_CONFIGURATION_SECTIONS.filter(
         (key) => (key !== 'columns' || showColumnsSection) && (key !== 'descriptions' || showDescriptions)
@@ -86,6 +89,13 @@ function SchemaSceneContent({ sourceId, schemaId }: SchemaSceneProps): JSX.Eleme
             setCurrentTab('configuration')
         }
     }, [source, showSyncs, showMetrics, currentTab, setCurrentTab])
+
+    useEffect(() => {
+        // Wait for the schema, for the same reason the tab check above waits for the source.
+        if (schema && !showDataQuality && currentTab === 'data-quality') {
+            setCurrentTab('configuration')
+        }
+    }, [schema, showDataQuality, currentTab, setCurrentTab])
 
     useEffect(() => {
         if (!showColumnsSection && currentSection === 'columns') {
@@ -163,6 +173,20 @@ function SchemaSceneContent({ sourceId, schemaId }: SchemaSceneProps): JSX.Eleme
         })
     }
 
+    if (showDataQuality && schema.table) {
+        tabs.push({
+            label: 'Data quality',
+            key: 'data-quality',
+            content: (
+                <DataQualityChecksPanel
+                    subjectType="table"
+                    subjectId={schema.table.id}
+                    columns={schema.table.columns ?? []}
+                />
+            ),
+        })
+    }
+
     tabs.push({
         label: 'History',
         key: 'history',
@@ -170,7 +194,9 @@ function SchemaSceneContent({ sourceId, schemaId }: SchemaSceneProps): JSX.Eleme
     })
 
     const activeTab =
-        (!showMetrics && currentTab === 'metrics') || (!showSyncs && currentTab === 'syncs')
+        (!showMetrics && currentTab === 'metrics') ||
+        (!showSyncs && currentTab === 'syncs') ||
+        (!showDataQuality && currentTab === 'data-quality')
             ? 'configuration'
             : currentTab
 

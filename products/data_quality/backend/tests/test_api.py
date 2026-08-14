@@ -346,6 +346,11 @@ class TestDataQualityCheckAPI(APIBaseTest):
         suite_run = DataQualitySuiteRun.objects.for_team(self.team.id).get(id=response.json()["id"])
         assert suite_run.status == "running"
         assert response.json()["workflow_id"] == suite_run.workflow_id
+        # The handle is only pollable if it carries the subject: the nested routes filter on it.
+        polled = self.client.get(f"{self._suite_runs_url()}/{suite_run.id}/")
+        assert polled.status_code == status.HTTP_200_OK
+        listed = self.client.get(f"{self._suite_runs_url()}/")
+        assert str(suite_run.id) in {row["id"] for row in listed.json()["results"]}
 
     def test_run_all_records_the_subject_on_the_report(self) -> None:
         self._create_check()
