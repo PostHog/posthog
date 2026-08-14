@@ -387,6 +387,44 @@ describe('exportsLogic', () => {
             )
         })
 
+        it('carries one toast from kickoff through to polled completion', async () => {
+            // An async render acknowledges the kickoff, then lands minutes later. Both toasts are
+            // about the same export, so the first must go when the second arrives.
+            const rendering = asset({ id: 41, export_format: ExporterFormat.PNG, dashboard: 7 })
+            jest.spyOn(api.exports, 'create').mockResolvedValue(rendering)
+
+            logic.actions.createExport({ exportData: { export_format: ExporterFormat.PNG, dashboard: 7 } })
+            await flush()
+            const kickoffToastId = jest.mocked(lemonToast.promise).mock.calls[0][2]?.toastId
+
+            logic.actions.loadExportsSuccess([{ ...rendering, has_content: true }])
+            await flush()
+
+            expect(lemonToast.dismiss).toHaveBeenCalledWith(kickoffToastId)
+            expect(jest.mocked(lemonToast.success).mock.calls).toHaveLength(1)
+        })
+
+        it('claims the offer once across the kickoff and completion toasts', async () => {
+            // Claiming twice reports two exposures for one export and asks the same person twice.
+            jest.mocked(lookUpExportNudge).mockReturnValue({
+                status: 'eligible',
+                candidate: { subject: DASHBOARD_SUBJECT, name: 'Weekly numbers' },
+            })
+            jest.mocked(claimExportNudgeMessage).mockReturnValue(NUDGE_MESSAGE)
+            const rendering = asset({ id: 42, export_format: ExporterFormat.PNG, dashboard: 7 })
+            jest.spyOn(api.exports, 'create').mockResolvedValue(rendering)
+
+            logic.actions.createExport({ exportData: { export_format: ExporterFormat.PNG, dashboard: 7 } })
+            await flush()
+            logic.actions.loadExportsSuccess([{ ...rendering, has_content: true }])
+            await flush()
+
+            expect(claimExportNudgeMessage).toHaveBeenCalledTimes(1)
+            // The offer follows the export to the toast it finishes on, for anyone who did not
+            // answer it while the render was running.
+            expect(jest.mocked(lemonToast.success).mock.calls[0][0]).toEqual('nudge:Export complete!')
+        })
+
         it('does not claim the nudge for an export that failed', async () => {
             jest.mocked(resolveExportNudgeEligibility).mockResolvedValue({
                 subject: { kind: 'dashboard', dashboardId: 9 },
