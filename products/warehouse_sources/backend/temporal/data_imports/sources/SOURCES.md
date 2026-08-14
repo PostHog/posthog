@@ -923,13 +923,16 @@ doesn't conflict with concurrent PRs.
 - datorama
 - dayforce
 - db2
+- deelflows
 - deno_deploy
+- depot
 - deputy
 - develocity
 - dialpad
 - directus
 - discord
 - display_video_360
+- dokploy
 - dolibarr
 - donorbox
 - doorloop
@@ -1062,6 +1065,7 @@ doesn't conflict with concurrent PRs.
 - holded
 - honeybadger
 - honeycomb
+- hootsuite
 - hostaway
 - housecall_pro
 - hubplanner
@@ -1255,6 +1259,7 @@ doesn't conflict with concurrent PRs.
 - railz
 - raisely
 - raken
+- rakuten_advertising
 - rapid7_insightvm
 - raygun
 - rb2b
@@ -1292,6 +1297,7 @@ doesn't conflict with concurrent PRs.
 - scale_ai
 - scaleway
 - scalr
+- schematic
 - search_ads_360
 - sec_edgar
 - secureframe
@@ -1427,6 +1433,7 @@ doesn't conflict with concurrent PRs.
 - who_gho
 - wikipedia_pageviews
 - windsor_ai
+- wisprflow
 - wix
 - wiz
 - wompi
@@ -1451,6 +1458,7 @@ doesn't conflict with concurrent PRs.
 - zenefits
 - zenloop
 - zero
+- zitadel
 - zluri
 - zoho_analytics
 - zoho_bigin

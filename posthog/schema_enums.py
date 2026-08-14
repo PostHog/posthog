@@ -2544,6 +2544,14 @@ class ExternalDataSourceType(StrEnum):
     UPLOADCARE = "Uploadcare"
     WHMCS = "WHMCS"
     MSG91 = "MSG91"
+    DEPOT = "Depot"
+    SCHEMATIC = "Schematic"
+    DOKPLOY = "Dokploy"
+    RAKUTEN_ADVERTISING = "RakutenAdvertising"
+    ZITADEL = "Zitadel"
+    DEEL_FLOWS = "DeelFlows"
+    HOOTSUITE = "Hootsuite"
+    WISPR_FLOW = "WisprFlow"
 
 
 class ExternalQueryErrorCode(StrEnum):

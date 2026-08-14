@@ -25,7 +25,7 @@ from products.replay_vision.backend.models.replay_scanner_backfill import (
     ReplayScannerBackfill,
 )
 from products.replay_vision.backend.queries.scanner_candidate_query import BackfillCandidateQuery
-from products.replay_vision.backend.quota import quota_state
+from products.replay_vision.backend.quota import compute_scanner_budget, quota_state
 from products.replay_vision.backend.temporal.activities.count_in_flight_applies import (
     count_in_flight,
     count_in_flight_rows,
@@ -98,6 +98,13 @@ def prepare_backfill_tick_activity(inputs: BackfillTickInputs) -> PrepareBackfil
         record_backfill_tick_outcome("paused_quota")
         return PrepareBackfillTickOutput(action=BackfillTickAction.PAUSE)
 
+    scanner_budget = compute_scanner_budget(backfill.scanner) if backfill.scanner.credit_limit is not None else None
+    if scanner_budget is not None and scanner_budget.would_exceed(backfill.credits_per_observation):
+        # Children would decline at create while the cursor walks past their sessions; the hold lets
+        # the backfill resume when the period resets or the limit rises.
+        record_backfill_tick_outcome("skipped_scanner_limit")
+        return PrepareBackfillTickOutput(action=BackfillTickAction.SKIP)
+
     in_flight = count_in_flight(inputs.team_id, backfill.scanner_id, backfill_id=backfill.id)
     budget = backfill_dispatch_budget(in_flight["scanner"], in_flight["team"], in_flight["backfill"])
     # Never dispatch more children than the quota can pay for: a child declined at create still advances
@@ -106,6 +113,11 @@ def prepare_backfill_tick_activity(inputs: BackfillTickInputs) -> PrepareBackfil
     affordable = quota.affordable_count(backfill.credits_per_observation)
     if affordable is not None:
         budget = min(budget, affordable)
+    if scanner_budget is not None:
+        # The scanner's own cap bounds the batch the same way the org quota does.
+        scanner_affordable = scanner_budget.affordable_count(backfill.credits_per_observation)
+        if scanner_affordable is not None:
+            budget = min(budget, scanner_affordable)
     if budget <= 0:
         record_backfill_tick_outcome("throttled")
         return PrepareBackfillTickOutput(action=BackfillTickAction.SKIP)
@@ -150,6 +162,7 @@ def find_backfill_candidates_activity(inputs: FindBackfillCandidatesInputs) -> F
         sampling_rate=snapshot.sampling_rate,
         # Same salt as the live sweep, so a sampled scanner backfills the same deterministic bucket it scans live.
         sampling_salt=str(backfill.scanner_id),
+        scanner_id=str(backfill.scanner_id),
         sampling_mode=snapshot.sampling_mode,
         cursor_end_time=backfill.cursor_end_time,
         cursor_session_id=backfill.cursor_session_id or None,

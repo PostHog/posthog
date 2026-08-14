@@ -18,6 +18,7 @@ import {
   PINNED_SECTION_KEY,
   sortChannelItems,
 } from "@posthog/core/canvas/channelItems";
+import { computeEffectiveBulkIds } from "@posthog/core/sidebar/selection";
 import {
   Button,
   Empty,
@@ -34,6 +35,7 @@ import {
   TabsTrigger,
 } from "@posthog/quill";
 import { LOOPS_FLAG } from "@posthog/shared";
+import type { Task } from "@posthog/shared/domain-types";
 import { ChannelBackRow } from "@posthog/ui/features/canvas/components/ChannelBackRow";
 import { ChannelFilterMenu } from "@posthog/ui/features/canvas/components/ChannelFilterMenu";
 import { ChannelItemRow } from "@posthog/ui/features/canvas/components/ChannelItemRow";
@@ -45,18 +47,24 @@ import {
 } from "@posthog/ui/features/canvas/components/channelPages";
 import { useChannelItems } from "@posthog/ui/features/canvas/hooks/useChannelItems";
 import { useChannels } from "@posthog/ui/features/canvas/hooks/useChannels";
+import { useChannelTasksRunState } from "@posthog/ui/features/canvas/hooks/useChannelTasksRunState";
 import { useLocalDayStart } from "@posthog/ui/features/canvas/hooks/useLocalDayStart";
-import { PERSONAL_CHANNEL_NAME } from "@posthog/ui/features/canvas/hooks/useTaskChannels";
 import { SHORTCUTS } from "@posthog/ui/features/command/keyboard-shortcuts";
 import { useCommandCenterStore } from "@posthog/ui/features/command-center/commandCenterStore";
 import { placeTaskInCommandCenter } from "@posthog/ui/features/command-center/placeTaskInCommandCenter";
 import { useFeatureFlag } from "@posthog/ui/features/feature-flags/useFeatureFlag";
 import { SidebarKbdHint } from "@posthog/ui/features/sidebar/components/items/SidebarKbdHint";
+import { MarqueeOverlay } from "@posthog/ui/features/sidebar/components/MarqueeOverlay";
+import { SidebarBulkActionFooter } from "@posthog/ui/features/sidebar/components/SidebarBulkActionFooter";
 import { SidebarItem } from "@posthog/ui/features/sidebar/components/SidebarItem";
+import { useTaskSelectionStore } from "@posthog/ui/features/sidebar/taskSelectionStore";
+import { useClearSelectionOnEscape } from "@posthog/ui/features/sidebar/useClearSelectionOnEscape";
+import { useMarqueeSelection } from "@posthog/ui/features/sidebar/useMarqueeSelection";
+import { useSidebarBulkActions } from "@posthog/ui/features/sidebar/useSidebarBulkActions";
 import { useRenameTask } from "@posthog/ui/features/tasks/useTaskMutations";
 import { logger } from "@posthog/ui/shell/logger";
 import { useNavigate, useRouterState } from "@tanstack/react-router";
-import { Fragment, useMemo, useState } from "react";
+import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 
 const RECENTS_CAP = 30;
 const log = logger.scope("channel-sidebar");
@@ -296,25 +304,10 @@ export function ChannelSidebar({ channelId }: { channelId: string }) {
   // as hidden — otherwise "Other people" carried in from a shared space would
   // empty this list with no visible control to undo it.
   const { channels } = useChannels();
+  // By type, not by name: the list relabels the personal channel on the way in,
+  // so its name is no longer the backend's.
   const isPersonalChannel =
-    channels.find((c) => c.id === channelId)?.name === PERSONAL_CHANNEL_NAME;
-  // A canvas has no run, so the three run filters can only ever empty the
-  // canvases tab. Same treatment as createdBy above: neutralised as well as
-  // hidden, or a choice made on the sessions tab would empty this one.
-  const filters = useMemo<ChannelItemFilters>(() => {
-    const scoped = isPersonalChannel
-      ? { ...rawFilters, createdBy: "anyone" as const }
-      : rawFilters;
-    return tab === "canvas"
-      ? {
-          ...scoped,
-          attention: "any",
-          environment: "any",
-          source: ANY_SOURCE,
-        }
-      : scoped;
-  }, [isPersonalChannel, rawFilters, tab]);
-  const filtersActive = hasActiveChannelItemFilters(filters);
+    channels.find((c) => c.id === channelId)?.channelType === "personal";
   // The tab is the list, so everything below it — the filters, the empty state,
   // the sections — is about one kind of thing at a time.
   const tabItems = useMemo(
@@ -325,6 +318,35 @@ export function ChannelSidebar({ channelId }: { channelId: string }) {
   // in the tab rather than from what the current filters left behind — picking
   // one source must not be what removes the others from the menu.
   const sources = useMemo(() => channelItemSources(tabItems), [tabItems]);
+  // A canvas has no run, so the three run filters can only ever empty the
+  // canvases tab. Same treatment as createdBy above: neutralised as well as
+  // hidden, or a choice made on the sessions tab would empty this one.
+  //
+  // A source the tab has none of goes the same way, and for the same reason: it
+  // would empty the list while its submenu shows no chosen option, so there'd be
+  // nothing to switch off. Rows arriving later put the source back, because the
+  // stored filter is untouched.
+  const filters = useMemo<ChannelItemFilters>(() => {
+    const sourceMissing =
+      rawFilters.source !== ANY_SOURCE && !sources.includes(rawFilters.source);
+    const scoped =
+      isPersonalChannel || sourceMissing
+        ? {
+            ...rawFilters,
+            ...(isPersonalChannel ? { createdBy: "anyone" as const } : {}),
+            ...(sourceMissing ? { source: ANY_SOURCE } : {}),
+          }
+        : rawFilters;
+    return tab === "canvas"
+      ? {
+          ...scoped,
+          attention: "any",
+          environment: "any",
+          source: ANY_SOURCE,
+        }
+      : scoped;
+  }, [isPersonalChannel, rawFilters, sources, tab]);
+  const filtersActive = hasActiveChannelItemFilters(filters);
 
   const base = `/website/${channelId}`;
   // Activeness is a key comparison rather than a flag baked into each item, so
@@ -367,6 +389,72 @@ export function ChannelSidebar({ channelId }: { channelId: string }) {
   // emptied it — and while a tab is empty, so you can leave that tab.
   const showHeader = listState === "ready" || listState === "empty";
 
+  // Only sessions take part in a bulk selection: a canvas can't be archived,
+  // filed, or tiled the way a session can, so modifier-clicking one just opens it.
+  const selectableTaskIds = useMemo(
+    () => recentItems.filter((i) => i.kind === "task").map((i) => i.id),
+    [recentItems],
+  );
+  const selectedTaskIds = useTaskSelectionStore((s) => s.selectedTaskIds);
+  const toggleTaskSelection = useTaskSelectionStore(
+    (s) => s.toggleTaskSelection,
+  );
+  const selectRange = useTaskSelectionStore((s) => s.selectRange);
+  const clearSelection = useTaskSelectionStore((s) => s.clearSelection);
+  const pruneSelection = useTaskSelectionStore((s) => s.pruneSelection);
+  useClearSelectionOnEscape();
+  const listAnchorRef = useRef<HTMLDivElement | null>(null);
+  const marquee = useMarqueeSelection(listAnchorRef);
+
+  useEffect(() => {
+    pruneSelection(selectableTaskIds);
+  }, [selectableTaskIds, pruneSelection]);
+
+  // The open session counts as selected, the same way it does in the code
+  // sidebar — a bulk action is expected to include what you're looking at. Only
+  // a task-kind active row folds in; a canvas can't join a session selection.
+  const activeTaskId = activeKey?.startsWith("task:")
+    ? activeKey.slice("task:".length)
+    : null;
+  const effectiveBulkIds = useMemo(
+    () => computeEffectiveBulkIds(selectedTaskIds, activeTaskId),
+    [selectedTaskIds, activeTaskId],
+  );
+
+  const selectedTasks = useMemo(() => {
+    const selected = new Set(effectiveBulkIds);
+    return recentItems
+      .filter(
+        (i): i is ChannelItemModel & { task: Task } =>
+          i.kind === "task" && i.task !== null && selected.has(i.id),
+      )
+      .map((i) => i.task);
+  }, [recentItems, effectiveBulkIds]);
+  const selectedTasksRunState = useChannelTasksRunState(selectedTasks);
+  const bulkActions = useSidebarBulkActions(
+    effectiveBulkIds,
+    selectedTasksRunState,
+  );
+
+  const handleRowClick = (item: ChannelItemModel, e: React.MouseEvent) => {
+    if (item.kind !== "task") {
+      actions.open(item);
+      return;
+    }
+    if (e.shiftKey) {
+      e.preventDefault();
+      selectRange(item.id, selectableTaskIds, activeTaskId);
+      return;
+    }
+    if (e.metaKey || e.ctrlKey) {
+      e.preventDefault();
+      toggleTaskSelection(item.id);
+      return;
+    }
+    clearSelection();
+    actions.open(item);
+  };
+
   const commandCenterAssigner = (taskId: string, taskTitle: string) => () =>
     placeTaskInCommandCenter(taskId, taskTitle);
 
@@ -376,8 +464,10 @@ export function ChannelSidebar({ channelId }: { channelId: string }) {
       item={item}
       channelId={channelId}
       isActive={item.key === activeKey}
+      isSelected={item.kind === "task" && effectiveBulkIds.includes(item.id)}
       showPinBadge={showPinBadge}
       actions={actions}
+      onClick={(e) => handleRowClick(item, e)}
       isEditing={item.kind === "task" && editingTaskId === item.id}
       onRename={
         item.kind === "task" ? () => setEditingTaskId(item.id) : undefined
@@ -412,7 +502,7 @@ export function ChannelSidebar({ channelId }: { channelId: string }) {
 
   // Label comes from the shared space-page table, so a sidebar row and the
   // header breadcrumb for the same page can never disagree. No icon: this is a
-  // four-row list of words, and glyphs here only compete with the status dots
+  // short list of words, and glyphs here only compete with the status dots
   // in the sessions list below for the eye's attention.
   const sectionRow = (
     page: ChannelPageKey,
@@ -473,21 +563,16 @@ export function ChannelSidebar({ channelId }: { channelId: string }) {
                 params: { channelId },
               }),
           )}
-        {sectionRow(
-          "artifacts",
-          `${base}/artifacts`,
-          () =>
-            void navigate({
-              to: "/website/$channelId/artifacts",
-              params: { channelId },
-            }),
-        )}
       </div>
 
-      {/* Relative so the FAB can float over the list. The tabs sit above the
-          scroll container rather than in it: they are how you leave whatever
-          the list is showing, so they can't scroll away with it. */}
-      <div className="relative mt-2 flex min-h-0 flex-1 flex-col">
+      {/* Relative so the FAB and the drag-selection band can float over the
+          list. The tabs sit above the scroll container rather than in it: they
+          are how you leave whatever the list is showing, so they can't scroll
+          away with it. */}
+      <div
+        ref={listAnchorRef}
+        className="relative mt-2 flex min-h-0 flex-1 flex-col"
+      >
         {showHeader && (
           <div className="border-border border-b px-2">
             <RecentSectionHeader
@@ -575,7 +660,15 @@ export function ChannelSidebar({ channelId }: { channelId: string }) {
             ))}
         </div>
         <ChannelsFab channelId={channelId} />
+        <MarqueeOverlay rect={marquee} />
       </div>
+
+      {/* Below the list rather than floating over it: the bottom rows are where
+          a shift-click range usually ends, and the FAB already sits there. */}
+      <SidebarBulkActionFooter
+        actions={bulkActions}
+        onClearSelection={clearSelection}
+      />
     </div>
   );
 }

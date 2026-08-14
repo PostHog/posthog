@@ -664,6 +664,12 @@ def _ensure_report_request(
     return (str(request_id) if request_id else None), True
 
 
+def _normalize_report_name(name: str) -> str:
+    # Apple's report names drift in case, spacing, and hyphenation ("Pre-Orders" vs "Pre-orders").
+    # Match on alphanumerics only, so a cosmetic rename cannot silently blank a stream.
+    return re.sub(r"[^a-z0-9]", "", name.casefold())
+
+
 def _find_analytics_report(
     session: requests.Session,
     token_provider: AppStoreConnectTokenProvider,
@@ -681,9 +687,11 @@ def _find_analytics_report(
             if row.get("name") and row.get("id"):
                 report_ids[str(row["name"])] = str(row["id"])
 
+    by_normalized = {_normalize_report_name(name): report_id for name, report_id in report_ids.items()}
     for name in config.analytics_report_names:
-        if name in report_ids:
-            return report_ids[name]
+        report_id = by_normalized.get(_normalize_report_name(name))
+        if report_id is not None:
+            return report_id
 
     logger.warning(
         f"App Store Connect: no report named {config.analytics_report_names} under this request "
