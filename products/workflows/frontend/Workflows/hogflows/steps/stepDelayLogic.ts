@@ -133,8 +133,10 @@ export function getDelayDescription(config: DelayActionConfig): string {
     return durationText ? `Wait for ${durationText}.` : LEGACY_DEFAULT_DESCRIPTION
 }
 
-export function shouldAutoUpdateDescription(description: string, config?: DelayActionConfig): boolean {
+export function shouldAutoUpdateDescription(description: string | undefined, config?: DelayActionConfig): boolean {
     return (
+        // Agent-created actions can arrive with no description at all, so treat an absent one like an empty one.
+        !description ||
         description.trim() === '' ||
         AUTO_DESCRIPTION_REGEX.test(description) ||
         description === LEGACY_DEFAULT_DESCRIPTION ||

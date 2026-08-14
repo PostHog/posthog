@@ -16,6 +16,7 @@ import {
     getDelayDescription,
     parseDelayExpression,
     parseDelayOffset,
+    shouldAutoUpdateDescription,
     stepDelayLogic,
 } from './stepDelayLogic'
 
@@ -153,6 +154,11 @@ describe('stepDelayLogic', () => {
 
     it('starts a fresh date delay on the date itself', () => {
         expect(parseDelayOffset(undefined).direction).toBe('on')
+    })
+
+    // Agent-created actions can omit description entirely, and editing such a delay must not throw.
+    it('treats an action with no description as auto-written', () => {
+        expect(shouldAutoUpdateDescription(undefined)).toBe(true)
     })
 
     // The API rejects a config carrying both modes, so a merge here would 400 every save.
