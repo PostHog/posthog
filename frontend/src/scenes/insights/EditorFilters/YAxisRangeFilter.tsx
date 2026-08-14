@@ -29,26 +29,22 @@ export function YAxisRangeFilter(): JSX.Element {
             : showPercentStackView
               ? 'Not available while showing percentages'
               : undefined
-    // "Begin at zero" sets the floor while it is on, so the minimum steps aside rather than
-    // competing with it. A value already typed stays in the field and applies again once the
-    // toggle goes off, so switching back and forth doesn't cost the user their number.
+    // Disabled rather than cleared, so the typed value applies again when the toggle goes off.
     const beginsAtZero = trendsFilter?.yAxisStartAtZero !== false
     const minDisabledReason =
         rangeDisabledReason ?? (beginsAtZero ? 'Turn off "Begin at zero" to set a minimum' : undefined)
 
-    // The chart falls back to its automatic range while the pair is inverted, so say why rather
-    // than leaving the controls looking unresponsive. Only worth saying while the minimum applies.
+    // An inverted pair sends the chart back to its automatic range, which otherwise just looks like
+    // the controls not responding. Nothing to warn about while the minimum is disabled.
     const invalidRange =
         !beginsAtZero &&
         typeof trendsFilter?.yAxisMin === 'number' &&
         typeof trendsFilter?.yAxisMax === 'number' &&
         trendsFilter.yAxisMin >= trendsFilter.yAxisMax
 
-    // Committing on blur rather than on change keeps a half-typed value out of the query — the
-    // number input reads as empty mid-entry, which on every keystroke would clear the bound.
-    // An emptied number input reports NaN, so clearing a field has to commit `undefined`: NaN would
-    // land in the query as a bound the chart ignores but the Options badge still counts, which the
-    // user has no way to clear, and it serializes to `null` in the saved insight.
+    // Commit on blur, not on change: a number input reads as empty mid-entry, so every keystroke
+    // would clear the bound. An emptied input reports NaN, which must become `undefined` because
+    // the chart ignores NaN while the Options badge still counts it, leaving no way to clear it.
     const asBound = (value: number | undefined): number | undefined =>
         typeof value === 'number' && isFinite(value) ? value : undefined
     const commitMin = (): void => updateInsightFilter({ yAxisMin: asBound(minDraft) })

@@ -375,30 +375,24 @@ export interface TooltipConfig {
     sortedByValue?: boolean
 }
 
-/** How the value axis domain is determined (y for vertical/line/area charts, x for horizontal
- *  bars). Omit it entirely for the default: a data-derived range with `d3.nice()`. Every field is
- *  optional and they compose, so the shape says which ends the caller is fixing rather than leaving
- *  it to a positional pair.
+/** Value-axis domain control (y for vertical/line/area charts, x for horizontal bars). Omit for the
+ *  default: a data-derived range with `d3.nice()`.
  *
- *  Setting **both** `min` and `max` pins the domain: the data-derived range and `d3.nice()` are
- *  skipped, `include` no longer stretches anything, and the pin beats `barLayout: 'percent'` /
- *  `percentStackView` — use it to keep independent charts visually comparable (e.g. funnel steps).
- *  Setting **one** clamps that end and leaves the other automatic, which is what a user-facing
- *  "y-axis min/max" control wants.
+ *  Setting **both** ends pins the domain, skipping `d3.nice()` and overriding percent layout, which
+ *  keeps independent charts visually comparable (e.g. funnel steps). Setting **one** clamps that end
+ *  and leaves the other automatic.
  *
- *  A non-finite bound is treated as unset, so `{ min: 0, max: Math.max(...[]) }` floors the axis at
- *  zero instead of collapsing it. An inverted pair (`min >= max`) falls back to the automatic domain
- *  rather than being swapped: these values reach charts from saved queries, the API, and MCP as well
- *  as from component source, and quietly reinterpreting one renders an axis nobody asked for. */
+ *  A non-finite bound counts as unset, so `{ min: 0, max: Math.max(...[]) }` floors at zero instead
+ *  of collapsing. An inverted pair falls back to the automatic domain rather than being swapped,
+ *  because these arrive from saved queries, the API, and MCP, where a silent reinterpretation would
+ *  render an axis nobody asked for. */
 export interface ValueDomain {
-    /** Stretch the domain to always cover these values (e.g. goal-line targets that sit outside the
-     *  data). Folded into the range before `d3.nice()`, so it widens rather than pins. Ignored once
-     *  both `min` and `max` are set. */
+    /** Widen the domain to cover these values (e.g. off-scale goal lines). Folded in before
+     *  `d3.nice()`. Ignored once both `min` and `max` are set. */
     include?: readonly number[]
-    /** Floor of the value axis. Applied after `include` folding, the zero-baseline clamp and
-     *  `d3.nice()`, and used verbatim rather than re-`nice()`d — rounding a bound the caller typed
-     *  would defeat the point of typing it, and interior ticks still land on round numbers. Ignored
-     *  under a percent layout, and dropped when non-positive on a log scale. */
+    /** Floor of the value axis, applied after `include` folding, the zero clamp and `d3.nice()`, and
+     *  used verbatim so a typed bound isn't rounded away. Ignored under a percent layout, and dropped
+     *  when non-positive on a log scale. */
     min?: number
     /** Ceiling of the value axis. See {@link ValueDomain.min}. */
     max?: number

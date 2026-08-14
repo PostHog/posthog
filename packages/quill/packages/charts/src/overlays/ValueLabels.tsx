@@ -323,10 +323,9 @@ function rectsOverlap(a: Rect, b: Rect, gap: number): boolean {
     return a.left < b.right + gap && a.right + gap > b.left && a.top < b.bottom + gap && a.bottom + gap > b.top
 }
 
-/** Whether a candidate's anchor sits inside the plot area along the value axis. A bounded axis
- *  (`valueBounds`) or a pinned `valueDomain` truncates the drawn line or bar, but a label is
- *  DOM-positioned straight off the scale — so without this an out-of-range point still prints its
- *  number over the title and legend. Same guard `ReferenceLine` applies to an off-scale goal line.
+/** Whether a candidate's anchor sits inside the plot area along the value axis. A bounded or pinned
+ *  `valueDomain` truncates the drawn line or bar, but a label is DOM-positioned straight off the
+ *  scale, so without this an out-of-range point still prints its number over the title and legend.
  *  Inclusive at both edges, so a value sitting exactly on the bound keeps its label. */
 function withinPlotArea(c: Candidate, dimensions: ChartDimensions, isHorizontal: boolean): boolean {
     if (isHorizontal) {

@@ -266,8 +266,8 @@ describe('hog-charts scales', () => {
     })
 
     describe('applyValueBounds', () => {
-        // Every chart's domain flows through this, so an unset-bounds path that alters the domain
-        // would silently re-scale every existing chart.
+        // Every chart's domain flows through this, so an unset-bounds path that shifts it would
+        // silently re-scale every existing chart.
         it.each([
             ['undefined', undefined],
             ['an empty object', {}],
@@ -302,9 +302,8 @@ describe('hog-charts scales', () => {
             expect(applyValueBounds([1, 100], bounds, { log: true })).toEqual([1, 100])
         })
 
-        // The caller's bound is vetted for positivity, but the end derived opposite it is not: on a
-        // log scale, carrying the domain's span across would put that end at or below zero, and d3
-        // maps every value in a domain straddling zero to NaN.
+        // Only the caller's bound is vetted for positivity, so on a log scale the end derived
+        // opposite it can land at or below zero, which maps every value to NaN.
         it.each([
             ['a max below the data', { max: 5 }, [0.05, 5]],
             ['a min above the data', { min: 2000 }, [2000, 200000]],
@@ -324,9 +323,9 @@ describe('hog-charts scales', () => {
             expect(scale.domain()[1]).toBe(40)
         })
 
-        // Both set the axis floor, and the explicit one wins: a caller passing `min` said what it
-        // wanted, while the zero clamp is only the default. Consumers that would rather their own
-        // baseline control win hold the bound back before it gets here, as the trends adapter does.
+        // Both set the axis floor and the explicit one wins, since the zero clamp is only a default.
+        // A consumer wanting its own baseline control to win holds the bound back before this point,
+        // as the trends adapter does.
         it('applies a min over the zero-baseline clamp', () => {
             const offset = [makeSeries({ key: 's1', data: [50, 60, 70] })]
             expect(createYScale(offset, dimensions).domain()[0]).toBe(0)
@@ -334,15 +333,14 @@ describe('hog-charts scales', () => {
         })
 
         // The empty-data domain is linear whatever scale type was asked for, so a non-positive bound
-        // is no longer a hazard and must not be dropped as though this were a log scale.
+        // is safe here and must not be dropped as though this were a log scale.
         it('honors a non-positive bound on a log scale with no data', () => {
             const scale = createYScale([], dimensions, { scaleType: 'log', valueDomain: { min: -5 } })
             expect(scale.domain()).toEqual([-5, 1])
         })
 
-        // How many ends are set decides which side of percent layout the domain lands on: a pin is a
-        // deliberate "show exactly this window" and wins, while a single clamp is an adjustment to a
-        // data-derived range that percent layout has already replaced with 0..1.
+        // A pin wins over percent layout because it asks for an exact window, while a single clamp
+        // only adjusts a data-derived range that percent layout has already replaced with 0..1.
         it.each([
             ['a pin overrides percentStack', { min: 5, max: 8 }, [5, 8]],
             ['a partial clamp is ignored under percentStack', { max: 8 }, [0, 1]],
@@ -461,8 +459,8 @@ describe('hog-charts scales', () => {
             expect(left(1)).not.toBeCloseTo(right(1), 0)
         })
 
-        // Bounds describe the axis the user is looking at. Applying them to every axis would crush
-        // a secondary axis onto a domain chosen for the primary one's units.
+        // Applying them to every axis would crush a secondary one onto a domain chosen for the
+        // primary axis's units.
         it('applies valueBounds to the primary axis only', () => {
             const small = makeSeries({ key: 'small', data: [0, 10], yAxisId: DEFAULT_Y_AXIS_ID })
             const large = makeSeries({ key: 'large', data: [0, 1000], yAxisId: 'y1' })

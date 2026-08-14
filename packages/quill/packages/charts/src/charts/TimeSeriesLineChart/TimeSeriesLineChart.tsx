@@ -132,7 +132,7 @@ export function TimeSeriesLineChart<Meta = unknown>({
     // Goal lines scale against the drawn (post-derived) series, unlike bar/combo.
     const { referenceLines, valueDomain: goalLineDomain } = useGoalLines(goalLines, finalSeries)
     const boundsDomain = useValueBounds(primaryYAxis)
-    // Merged rather than picked between: a capped axis still has to stretch to reach a goal line.
+    // A capped axis still has to stretch to reach an off-scale goal line.
     const valueDomain = useMemo(() => mergeValueDomains(goalLineDomain, boundsDomain), [goalLineDomain, boundsDomain])
 
     // `startAtZero === false` floats the primary axis to its data range; the default (undefined/true)

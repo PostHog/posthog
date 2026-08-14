@@ -88,9 +88,8 @@ describe('goal-lines', () => {
     })
 
     describe('mergeValueDomains', () => {
-        // A consumer pinning both ends still beats the goal lines, but that is settled when the
-        // domain resolves (both bounds set drops `include`), not here — so this merges every field
-        // and keeps the `include` a pin will later discard.
+        // A pin beating the goal lines is settled at resolution, not here, so a pinned pair still
+        // merges and keeps the `include` that resolution will discard.
         it.each([
             ['returns the defined side when the other is undefined', undefined, { include: [5] }, { include: [5] }],
             ['two include sets merge', { include: [5] }, { include: [50] }, { include: [5, 50] }],

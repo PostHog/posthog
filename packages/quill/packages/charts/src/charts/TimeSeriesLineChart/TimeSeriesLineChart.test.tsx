@@ -200,10 +200,9 @@ describe('TimeSeriesLineChart', () => {
             expect(pick(...ticks)).toBe(expected)
         })
 
-        // Same rule as the goal line below, for the other overlay positioned off the value scale.
-        // The bound truncates the drawn line, but a label is DOM-positioned, so without a guard the
-        // clipped point still prints its number over the title and legend. The point sitting exactly
-        // on the bound keeps its label.
+        // Same rule as the goal line below. The bound truncates the drawn line, but a label is
+        // DOM-positioned, so without a guard a clipped point still prints its number over the
+        // title and legend. A point exactly on the bound keeps its label.
         it('hides a value label for a point above the bounded window', () => {
             const { chart } = renderHogChart(
                 <TimeSeriesLineChart

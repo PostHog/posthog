@@ -1588,17 +1588,16 @@ export type TrendsFilter = {
      * @default false */
     stackBreakdownValues?: boolean
     yAxisScaleType?: TrendsFilterLegacy['y_axis_scale_type']
-    /** Y-axis baseline. When false the axis floats to the data range instead of starting at zero,
-     *  trimming the empty space below the lowest value. Ignored on bar displays (bars always draw
-     *  from zero), on a logarithmic scale, and while showing percentages.
+    /** Y-axis baseline. When false the axis floats to the data range instead of starting at zero.
+     *  Ignored on bar displays (bars always draw from zero), on a logarithmic scale, and while
+     *  showing percentages.
      * @default true */
     yAxisStartAtZero?: boolean
-    /** Pins the bottom of the y-axis. Leave unset for an automatic bound. Ignored on bar displays
-     *  (bars always draw from zero), on a logarithmic scale, while showing percentages, and when it
-     *  is not below `yAxisMax`. */
+    /** Pins the bottom of the y-axis; unset means automatic. Ignored in the same cases as
+     *  `yAxisStartAtZero`, while it is on, and when not below `yAxisMax`. */
     yAxisMin?: number
-    /** Pins the top of the y-axis. Leave unset for an automatic bound. Ignored in the same cases as
-     *  `yAxisMin`. */
+    /** Pins the top of the y-axis; unset means automatic. Ignored in the same cases as
+     *  `yAxisStartAtZero`, and when `yAxisMin` is not below it. */
     yAxisMax?: number
     /** @default false */
     showMultipleYAxes?: TrendsFilterLegacy['show_multiple_y_axes']

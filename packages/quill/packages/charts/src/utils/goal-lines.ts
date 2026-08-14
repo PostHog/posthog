@@ -58,10 +58,9 @@ export function goalLineValueDomain(referenceLines: readonly ReferenceLineProps[
 }
 
 /** Combine a consumer-set {@link ValueDomain} with the goal-line stretch, field by field, so a
- *  capped axis still stretches to reach an off-scale goal line. `a` wins a contested bound.
- *
- *  A consumer pinning both ends still overrides the goal lines, but that falls out of the resolution
- *  rather than being decided here: a domain with both bounds set drops `include` when it resolves. */
+ *  capped axis still stretches to reach an off-scale goal line. `a` wins a contested bound. A
+ *  consumer pinning both ends still overrides the goal lines, but that is settled when the domain
+ *  resolves and drops `include`, not here. */
 export function mergeValueDomains(a: ValueDomain | undefined, b: ValueDomain | undefined): ValueDomain | undefined {
     if (!a || !b) {
         return a ?? b

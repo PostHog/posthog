@@ -74,11 +74,8 @@ export function seriesValueRange(series: Series[]): SeriesValueRange {
 }
 
 /** Split a {@link ValueDomain} into a pinned `[min, max]` (both ends given) and the adjustments to
- *  an auto-scaled domain (either end left open).
- *
- *  A non-finite bound counts as unset, so `Math.max` over empty data degrades to a partial clamp
- *  rather than a domain that maps everything to NaN. An inverted pair is dropped outright — see
- *  {@link ValueDomain} for why it isn't swapped. */
+ *  an auto-scaled domain (either end left open). An inverted pair is dropped rather than swapped;
+ *  see {@link ValueDomain}. */
 function resolveValueDomain(valueDomain: ValueDomain | undefined): {
     fixed?: readonly [number, number]
     include?: readonly number[]
@@ -92,14 +89,14 @@ function resolveValueDomain(valueDomain: ValueDomain | undefined): {
     const max = usableBound(valueDomain.max)
 
     if (min !== undefined && max !== undefined) {
-        // `include` is deliberately dropped: both ends are pinned, so there's nothing left to stretch.
+        // Both ends pinned, so `include` has nothing left to stretch.
         return min < max ? { fixed: [min, max] } : { include }
     }
     return { include, bounds: { min, max } }
 }
 
-/** A bound the scale can actually use. A non-finite value is treated as absent rather than honored,
- *  since these arrive from stored queries and `Math.max`-style expressions, not just typed input. */
+/** A non-finite bound counts as absent rather than honored, since these arrive from stored queries
+ *  and `Math.max`-style expressions, not just typed input. */
 function usableBound(value: number | undefined): number | undefined {
     return typeof value === 'number' && isFinite(value) ? value : undefined
 }
@@ -173,19 +170,15 @@ export function sanitizeFixedDomain([min, max]: readonly [number, number]): [num
     return min < max ? [min, max] : [max, min]
 }
 
-/** Clamp an already-computed domain to the caller's {@link ValueDomain}. Runs last, so it composes
- *  with everything the domain went through to get here — `{ include }` folding, the zero-baseline
- *  clamp, and `nice()` — and either end may be left automatic.
- *
- *  Deliberately does *not* re-`nice()`: rounding a bound the user typed would defeat the point of
- *  typing it. Interior ticks still land on round numbers; only the extreme label is the raw bound. */
+/** Clamp an already-computed domain to the caller's {@link ValueDomain}, running last so it composes
+ *  with `include` folding, the zero-baseline clamp, and `nice()`. Deliberately does not re-`nice()`,
+ *  since rounding a typed bound would defeat the point of typing it. */
 export function applyValueBounds(
     domain: readonly [number, number],
     bounds: ValueDomain | undefined,
     options: { log?: boolean } = {}
 ): [number, number] {
-    // A log domain containing 0 maps every value to ±Infinity, so a non-positive bound is dropped
-    // rather than honored — bounds can arrive from a stored query, not just from a gated UI.
+    // A log domain containing 0 maps every value to ±Infinity, so a non-positive bound is dropped.
     const usable = (v: number | undefined): number | undefined =>
         typeof v === 'number' && isFinite(v) && (!options.log || v > 0) ? v : undefined
     const min = usable(bounds?.min)
@@ -195,8 +188,6 @@ export function applyValueBounds(
         return [domain[0], domain[1]]
     }
     if (min !== undefined && max !== undefined) {
-        // Swapping an inverted pair the way `sanitizeFixedDomain` does would render an axis the user
-        // never asked for. Falling back to the automatic domain is the honest response; the UI says why.
         return min < max ? [min, max] : [domain[0], domain[1]]
     }
 
@@ -205,11 +196,10 @@ export function applyValueBounds(
     if (lo < hi) {
         return [lo, hi]
     }
-    // The single bound sits past the whole data range (e.g. "min 50" on 0-10 data). Carry the
-    // original extent over to the other end so the axis stays well-formed instead of collapsing.
-    // A log axis has to carry the domain's *ratio* rather than its span: subtracting a span from a
-    // small positive bound lands at or below zero, and a log domain reaching zero maps every value
-    // to NaN, which blanks the chart. `usable` only vets the caller's bound, not the end derived here.
+    // The bound sits past the whole data range (e.g. "min 50" on 0-10 data), so carry the original
+    // extent over to the other end rather than collapsing the domain. A log axis carries the ratio
+    // instead, since subtracting a span from a small positive bound lands at or below zero and
+    // `usable` only vetted the caller's bound, not the end derived here.
     if (options.log) {
         const ratio = domain[0] > 0 && domain[1] > domain[0] ? domain[1] / domain[0] : 10
         return min !== undefined ? [lo, lo * ratio] : [hi / ratio, hi]
@@ -303,8 +293,7 @@ export function buildValueScale(options: {
     /** Skip the zero-baseline clamp entirely so the axis floats to its data range (a y-axis "start at
      *  zero = off"). The default clamps a non-negative axis down to 0. Has no effect on a log scale. */
     floatBaseline?: boolean
-    /** Partial user clamp applied to whichever domain this function ends up with. See
-     *  {@link applyValueBounds}. */
+    /** Partial user clamp. See {@link applyValueBounds}. */
     bounds?: ValueDomain
 }): D3YScale {
     const {
@@ -320,8 +309,7 @@ export function buildValueScale(options: {
     const isLog = scaleType === 'log'
 
     if (range.count === 0) {
-        // The empty-data domain is linear whatever `scaleType` asked for, so a non-positive bound is
-        // no longer a hazard and must not be dropped as if this were a log scale.
+        // This domain is linear whatever `scaleType` asked for, so a non-positive bound is safe here.
         return withValueBounds(scaleLinear().domain([0, 1]).range(valueRange), bounds, false)
     }
 

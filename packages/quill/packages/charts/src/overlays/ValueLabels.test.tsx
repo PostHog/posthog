@@ -21,9 +21,8 @@ const X_POSITIONS: Record<string, number> = { Mon: 60, Tue: 220, Wed: 380, Thu: 
 const xScale = (label: string): number | undefined => X_POSITIONS[label]
 // Left axis: 0 -> 368, 100 -> 16
 const yScale = (v: number): number => 368 - (v / 100) * 352
-// A real scale only maps its own domain into the plot, and the overlay drops anchors outside it.
-// Cases carrying values beyond 0..100 need a scale whose domain covers them, or every label is
-// dropped for sitting off-plot and the case stops testing what it was written for.
+// The overlay drops anchors outside the plot, so a case carrying values beyond 0..100 needs a scale
+// whose domain covers them or every label is dropped and the case stops testing what it was for.
 const wideYScale = (v: number): number => 368 - (v / 10000) * 352
 const signedYScale = (v: number): number => 192 - (v / 100) * 176
 
@@ -127,10 +126,9 @@ describe('ValueLabels', () => {
     })
 
     it('horizontal: flips a right-clipping label inside the bar instead of expanding margins', () => {
-        // A plot with almost no right margin, and a bar reaching its right edge: the label would
-        // overflow the wrapper's `overflow: hidden` anchored on its leading edge, so it flips to
-        // anchor on its trailing edge. The anchor sits on the plot edge rather than past it —
-        // beyond the plot a label is off-scale and dropped, not flipped.
+        // A bar reaching the edge of a plot with almost no right margin: anchored on its leading
+        // edge the label would overflow the wrapper's `overflow: hidden`, so it flips. The anchor
+        // stays on the plot edge rather than past it, since beyond that a label is dropped.
         const series: ResolvedSeries[] = [{ key: 's', label: 'S', color: '#f00', data: [1] }]
         const ctx = makeContext(series, {
             axisOrientation: 'horizontal',

@@ -1,8 +1,7 @@
 import { isTrendsQuery } from '~/queries/utils'
 import { ChartDisplayType } from '~/types'
 
-// Display groupings shared by the Options menu, its gating, and the individual option components.
-// They live in their own module so an option component can read them without importing the
+// Their own module so an option component can read these groupings without importing the
 // DisplayOptions registry that renders it.
 export const LINE_DISPLAYS = [
     ChartDisplayType.ActionsLineGraph,
