@@ -629,7 +629,7 @@ jobs:
                   git -C "$GITHUB_WORKSPACE" fetch --no-tags --depth 1 --filter=blob:none origin "pull/${PR}/head"
                   seed="$RUNNER_TEMP/preview-seed"
                   mkdir -p "$seed"
-                  for f in seed_preview.py generate_events.py recreate_dashboard.py dashboard-fixture.json; do
+                  for f in seed_preview.py generate_events.py recreate_dashboard.py mint_api_key.py dashboard-fixture.json; do
                     git -C "$GITHUB_WORKSPACE" show "FETCH_HEAD:.github/scripts/preview-seed/$f" > "$seed/$f"
                   done
                   uv run --no-project --with posthog-hogland==0.3.0 --python 3.12 \

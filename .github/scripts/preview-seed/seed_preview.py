@@ -16,44 +16,49 @@ preview box by pen name, then:
 3. inserts synthetic events/persons straight into ClickHouse/Postgres via the
    web image (posthog.local_bootstrap.importer — no ingestion pipeline runs on
    preview boxes),
-4. mints a personal API key via the seeded demo login, then recreates the
-   comparison dashboard from the fixture over REST in-box, clears the team's
-   test-account filters, and force-refreshes every tile so it opens warm.
+4. mints a personal API key via a Django-shell payload (HTTP + CSRF proved
+   fragile in-box), then recreates the comparison dashboard from the fixture
+   over REST in-box, clears the team's test-account filters, and
+   force-refreshes every tile so it opens warm.
 """
 
 import os
 import re
 import sys
+import time
 import shlex
 import pathlib
 import argparse
+from collections.abc import Callable
+from typing import TypeVar
 
 REPO = "/home/hog/posthog"
 COMPOSE = f"cd {REPO} && docker compose -f docker-compose.dev-full.yml -f docker-compose.preview.yml"
-PAYLOAD_FILES = ("generate_events.py", "recreate_dashboard.py", "dashboard-fixture.json")
+PAYLOAD_FILES = ("generate_events.py", "recreate_dashboard.py", "mint_api_key.py", "dashboard-fixture.json")
 FLAG_ENV_LINE = "      - PERSISTED_FEATURE_FLAGS=dashboard-colors"
 
-# Mirrors stack.py's deep-health probe: everything runs inside the box against
-# localhost:8000, one cookie jar for csrf + session.
-API_KEY_SCRIPT = """
-set -eu
-jar=$(mktemp)
-base=http://localhost:8000
-curl -sf -m 30 -c "$jar" -o /dev/null "$base/login"
-csrf=$(awk '/csrftoken/ {print $7}' "$jar" | tail -n1)
-curl -sf -m 30 -b "$jar" -c "$jar" -X POST -H 'Content-Type: application/json' \
-  -H "X-CSRFToken: $csrf" -H "Referer: $base/" \
-  -d '{"email":"test@posthog.com","password":"12345678"}' -o /dev/null "$base/api/login/"
-csrf=$(awk '/csrftoken/ {print $7}' "$jar" | tail -n1)
-resp=$(curl -sf -m 30 -b "$jar" -X POST -H 'Content-Type: application/json' \
-  -H "X-CSRFToken: $csrf" -H "Referer: $base/" \
-  -d '{"label":"preview-seed","scopes":["*"]}' "$base/api/personal_api_keys/")
-echo "APIKEY=$(printf '%s' "$resp" | sed -n 's/.*"value":"\\([^"]*\\)".*/\\1/p')"
-"""
+T = TypeVar("T")
 
 
 def log(msg: str) -> None:
     print(f"[preview-seed] {msg}", file=sys.stderr, flush=True)
+
+
+def with_retries(what: str, fn: Callable[[], T], attempts: int = 3, delay: int = 20) -> T:
+    """Retry hogland exec-layer blips (5xx ServerError: dial timeouts, no route
+    to host — two sank seed runs on 2026-07-30). Every seeded phase is
+    idempotent, so a blind re-run is safe."""
+    from hogland import ServerError
+
+    for attempt in range(1, attempts + 1):
+        try:
+            return fn()
+        except ServerError as e:
+            if attempt == attempts:
+                raise
+            log(f"{what}: transient hogland error, retrying in {delay}s ({e})")
+            time.sleep(delay)
+    raise AssertionError("unreachable")
 
 
 def main() -> None:
@@ -69,11 +74,11 @@ def main() -> None:
     payload = pathlib.Path(args.payload_dir)
     backend = HoglandBackend(host=args.host, name=args.name)
     log(f"attaching to {args.name}")
-    backend.attach()
+    with_retries("attach", backend.attach)
 
     # 1. Force the dashboard-colors flag via the persisted-flags mechanism.
     override_path = f"{REPO}/docker-compose.preview.yml"
-    override = backend.exec(f"cat {override_path}", timeout=60).stdout
+    override = with_retries("read override", lambda: backend.exec(f"cat {override_path}", timeout=60)).stdout
     if FLAG_ENV_LINE.strip() not in override:
         lines = override.splitlines()
         anchor = next(i for i, line in enumerate(lines) if line.strip().startswith("- SECRET_KEY="))
@@ -82,41 +87,60 @@ def main() -> None:
         log("override updated with PERSISTED_FEATURE_FLAGS; recreating web")
         # Clean `up` recreates web for the env change (never `restart` — the
         # Unit listener gotcha documented in stack.py).
-        backend.run_long(f"{COMPOSE} up -d --no-build web", name="seed-flag-web", timeout=900)
+        with_retries(
+            "recreate web",
+            lambda: backend.run_long(f"{COMPOSE} up -d --no-build web", name="seed-flag-web", timeout=900),
+        )
         backend.wait_http_ok("/_health", expect=200, timeout=900)
     else:
         log("persisted flag already present in override")
 
     # 2. Ship the payload into the bind-mounted backend source.
-    backend.exec(f"mkdir -p {REPO}/posthog/tmp_seed", timeout=60)
+    with_retries("mkdir payload", lambda: backend.exec(f"mkdir -p {REPO}/posthog/tmp_seed", timeout=60))
     for fname in PAYLOAD_FILES:
-        backend.write_file(f"{REPO}/posthog/tmp_seed/{fname}", (payload / fname).read_bytes())
+        with_retries(
+            f"ship {fname}",
+            lambda fname=fname: backend.write_file(f"{REPO}/posthog/tmp_seed/{fname}", (payload / fname).read_bytes()),
+        )
     log("payload shipped to posthog/tmp_seed/")
 
     # 3. Synthetic events + persons, straight into CH/PG (idempotent).
     log("inserting synthetic events (this wipes previous synth-% rows)")
     # PYTHONPATH: the script lives at /code/posthog/tmp_seed/, so sys.path[0] is
     # the script dir, not /code — `import posthog` needs /code on the path.
-    r = backend.run_long(
-        f"{COMPOSE} run --rm -T -e PYTHONPATH=/code web python posthog/tmp_seed/generate_events.py",
-        name="seed-events",
-        timeout=1500,
+    r = with_retries(
+        "insert events",
+        lambda: backend.run_long(
+            f"{COMPOSE} run --rm -T -e PYTHONPATH=/code web python posthog/tmp_seed/generate_events.py",
+            name="seed-events",
+            timeout=1500,
+        ),
     )
     log(f"events done: {r.stdout.strip().splitlines()[-1] if r.stdout.strip() else 'no output'}")
 
-    # 4. Personal API key via the demo session, then the dashboard.
-    r = backend.exec(API_KEY_SCRIPT, timeout=120)
+    # 4. Personal API key via the Django shell, then the dashboard.
+    r = with_retries(
+        "mint api key",
+        lambda: backend.run_long(
+            f"{COMPOSE} run --rm -T -e PYTHONPATH=/code web python posthog/tmp_seed/mint_api_key.py",
+            name="seed-api-key",
+            timeout=600,
+        ),
+    )
     match = re.search(r"APIKEY=(\S+)", r.stdout)
     if not match:
         raise RuntimeError(f"could not mint a personal API key:\n{r.stdout}\n{r.stderr}")
     api_key = match.group(1)
     log("personal API key minted; creating dashboard + refreshing tiles")
-    r = backend.run_long(
-        f"{COMPOSE} run --rm -T -e PYTHONPATH=/code web python posthog/tmp_seed/recreate_dashboard.py "
-        f"posthog/tmp_seed/dashboard-fixture.json --host http://web:8000 "
-        f"--api-key {shlex.quote(api_key)} --replace --clear-test-filters --refresh",
-        name="seed-dashboard",
-        timeout=1800,
+    r = with_retries(
+        "create dashboard",
+        lambda: backend.run_long(
+            f"{COMPOSE} run --rm -T -e PYTHONPATH=/code web python posthog/tmp_seed/recreate_dashboard.py "
+            f"posthog/tmp_seed/dashboard-fixture.json --host http://web:8000 "
+            f"--api-key {shlex.quote(api_key)} --replace --clear-test-filters --refresh",
+            name="seed-dashboard",
+            timeout=1800,
+        ),
     )
     tail = "\n".join(r.stdout.strip().splitlines()[-5:])
     log(f"dashboard done:\n{tail}")
