@@ -468,6 +468,28 @@ class TestUpdateResolutionStatusComment(BaseTest):
         assert "### reviewed" in patched
         assert "Resolving comments: 1/3 · 1 fixed" in patched
 
+    def test_empty_existing_body_keeps_the_marker_for_recovery(
+        self, mock_request: MagicMock, mock_paginated: MagicMock, mock_integration: MagicMock
+    ) -> None:
+        # An empty existing comment body must not drop the status marker: if status_comment_id is
+        # ever lost, _find_marker_comment re-adopts the comment by that marker, so the spliced body
+        # has to carry it even when there is nothing to splice into (else recovery posts a duplicate).
+        _wire_auth(mock_integration)
+        report = self._report()
+        report.status_comment_id = 777
+        report.save(update_fields=["status_comment_id"])
+        get_response = MagicMock()
+        get_response.json.return_value = {"body": ""}
+        mock_request.side_effect = [get_response, MagicMock()]
+
+        update_resolution_status_comment(
+            self.team.id, str(report.id), render_resolution_progress_section(done=1, total=3, fixed=1, left_for_you=0)
+        )
+
+        assert _patches(mock_request) == ["/repos/o/r/issues/comments/777"]
+        patched = mock_request.call_args_list[1].kwargs["json"]["body"]
+        assert status_marker(str(report.id)) in patched
+
     @patch(f"{_MODULE}.Integration")
     def test_pinned_integration_row_skips_the_selection_probe(
         self,

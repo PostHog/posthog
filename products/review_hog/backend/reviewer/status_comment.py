@@ -556,7 +556,10 @@ def update_resolution_status_comment(
                 if e.status != 404:
                     raise
                 comment_id = None  # the stored comment was deleted on GitHub; post fresh
-        new_body = _splice_resolution_section(body if body is not None else marker, section)
+        # An empty existing body falls back to the marker just like a missing one: splicing into an
+        # empty base drops the marker, and _find_marker_comment recovery relies on it surviving so a
+        # lost status_comment_id can re-adopt the comment instead of posting a duplicate.
+        new_body = _splice_resolution_section(body if body else marker, section)
         if comment_id is not None:
             _patch_comment(owner, repo, comment_id, new_body, token=token, installation_id=installation_id)
         else:
