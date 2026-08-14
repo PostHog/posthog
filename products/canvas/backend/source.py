@@ -226,11 +226,11 @@ def _validate_capabilities(path: str, code: str, capabilities: dict[str, Any]) -
                 )
             )
 
-    declared_actions = set(posthog_capabilities.get("actions") or [])
+    declared_action_verbs = set(posthog_capabilities.get("actions") or [])
     for match in _PH_ACTIONS_RE.finditer(code):
         verb = match.group(1)
         line = _line_of(code, match.start())
-        if verb is not None and verb not in declared_actions:
+        if verb is not None and verb not in declared_action_verbs:
             diagnostics.append(
                 diagnostic(
                     "error",
@@ -241,7 +241,7 @@ def _validate_capabilities(path: str, code: str, capabilities: dict[str, Any]) -
                     line=line,
                 )
             )
-        elif verb is None and not declared_actions:
+        elif verb is None and not declared_action_verbs:
             diagnostics.append(
                 diagnostic(
                     "warning",
