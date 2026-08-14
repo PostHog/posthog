@@ -184,6 +184,7 @@ class AccountTableField(str, Enum):
     EXTERNAL_ID = "external_id"
     CREATED_AT = "created_at"
     UPDATED_AT = "updated_at"
+    CHURNED_AT = "churned_at"
     STRIPE_CUSTOMER_ID = "stripe_customer_id"
     HUBSPOT_DEAL_ID = "hubspot_deal_id"
     BILLING_ID = "billing_id"
@@ -369,6 +370,7 @@ class AccountContextData:
     name: str
     external_id: str | None
     created_at: datetime | None
+    churned_at: datetime | None
     properties: AccountProperties
     tags: list[str] = field(default_factory=list)
     notes: list[AccountNote] = field(default_factory=list)
@@ -380,10 +382,9 @@ class ExternalAccount:
     """The account shape the external (CDP worker) API serializes verbatim.
 
     ``properties`` is carried as a plain dict set to exactly
-    ``account.properties.model_dump(mode="json")`` so the JSON the CDP worker
-    consumes stays byte-identical to the pre-facade response — a validated
-    pydantic pass-through, not a re-typed projection. ``id`` is the stringified
-    UUID, matching the wire shape.
+    ``account.properties.model_dump(mode="json")`` — a validated pydantic
+    pass-through, not a re-typed projection. ``id`` is the stringified UUID,
+    and ``churned_at`` carries the account lifecycle timestamp.
 
     ``custom_properties`` contains every team-defined custom property definition
     keyed by definition name, with the account's current scalar value (or ``None``
@@ -394,6 +395,7 @@ class ExternalAccount:
     id: str
     external_id: str | None
     name: str
+    churned_at: datetime | None
     properties: dict
     tags: list[str] = field(default_factory=list)
     relationships: dict[str, list[dict]] = field(default_factory=dict)
@@ -416,11 +418,12 @@ class ExternalAccountAssignment:
 
 @dataclass(frozen=True)
 class ExternalAccountListItem:
-    """One account row on the external list wire shape, with active relationship
-    assignments to current organization members keyed by definition name."""
+    """One account row on the external list wire shape, with its churn timestamp and
+    active relationship assignments to current organization members keyed by definition name."""
 
     external_id: str
     name: str
+    churned_at: datetime | None
     relationships: dict[str, list[ExternalAccountAssignment]] = field(default_factory=dict)
 
 
@@ -517,6 +520,7 @@ class AccountView:
     tags: list[str] = field(default_factory=list)
     notebooks: list[str] = field(default_factory=list)
     slack_summary_cadence: str | None = None
+    churned_at: datetime | None = None
     created_at: datetime | None = None
     created_by: int | None = None
     updated_at: datetime | None = None
@@ -817,6 +821,7 @@ class CreateAccountInput:
     properties: dict = field(default_factory=dict)
     tags: list[str] | None = None
     slack_summary_cadence: str | None = None
+    churned_at: datetime | None = None
 
 
 @dataclass(frozen=True)
@@ -833,10 +838,12 @@ class UpdateAccountInput:
     properties: dict | None = None
     tags: list[str] | None = None
     slack_summary_cadence: str | None = None
-    # Distinguishes "external_id omitted" from "external_id explicitly set to null".
+    churned_at: datetime | None = None
+    # Distinguishes omitted fields from fields explicitly set to null.
     external_id_provided: bool = False
     properties_provided: bool = False
     slack_summary_cadence_provided: bool = False
+    churned_at_provided: bool = False
 
 
 @dataclass(frozen=True)

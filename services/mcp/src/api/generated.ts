@@ -214,6 +214,11 @@ export namespace Schemas {
        * * `weekly` - weekly
        * * `monthly` - monthly */
       slack_summary_cadence?: SlackSummaryCadenceEnum | null;
+      /**
+         * When the account churned. Null means the account has not churned.
+         * @nullable
+         */
+      churned_at?: string | null;
       readonly created_at: string;
       /** @nullable */
       readonly created_by: number | null;
@@ -834,6 +839,7 @@ export namespace Schemas {
       ExternalId: 'external_id',
       CreatedAt: 'created_at',
       UpdatedAt: 'updated_at',
+      ChurnedAt: 'churned_at',
       StripeCustomerId: 'stripe_customer_id',
       HubspotDealId: 'hubspot_deal_id',
       BillingId: 'billing_id',
@@ -1074,6 +1080,8 @@ export namespace Schemas {
       columns: (AccountsTableAccountFieldColumn | AccountsTableTagsColumn | AccountsTableNoteCountColumn | AccountsTableRelationshipColumn | AccountsTableCustomPropertyColumn | AccountsTableCustomPropertyHistoryColumn)[];
       /** Filters are combined with AND. Values within tag and assignment filters use OR. */
       filters?: (AccountsTableSearchFilter | AccountsTableTagsFilter | AccountsTableAssignedToFilter | AccountsTableUnassignedFilter | AccountsTableAccountIdFilter | AccountsTableCustomPropertyFilter)[] | null;
+      /** Include churned accounts. Churned accounts are hidden by default. */
+      includeChurned?: boolean | null;
       kind?: 'AccountsTableQuery';
       limit?: number | null;
       /** Aggregates to evaluate against the filtered account set. A metrics query skips row loading. */
@@ -32320,6 +32328,11 @@ export namespace Schemas {
       external_id: string;
       /** Human-readable account name. */
       name: string;
+      /**
+         * When the account churned, or null if it has not churned.
+         * @nullable
+         */
+      churned_at: string | null;
       /** Active relationship assignments to current organization members, keyed by relationship definition name (e.g. 'CSM', 'Account executive'). Definitions with no active assignment are omitted. */
       relationships: ExternalAccountListItemRelationships;
     }
@@ -54116,6 +54129,11 @@ export namespace Schemas {
        * * `weekly` - weekly
        * * `monthly` - monthly */
       slack_summary_cadence?: SlackSummaryCadenceEnum | null;
+      /**
+         * When the account churned. Null means the account has not churned.
+         * @nullable
+         */
+      churned_at?: string | null;
       readonly created_at?: string;
       /** @nullable */
       readonly created_by?: number | null;
@@ -81958,6 +81976,10 @@ export namespace Schemas {
      * When true, returns only accounts where no user actively holds any relationship.
      */
     all_roles_unassigned?: boolean;
+    /**
+     * Include churned accounts. Churned accounts are hidden by default.
+     */
+    include_churned?: boolean;
     /**
      * Number of results to return per page.
      */

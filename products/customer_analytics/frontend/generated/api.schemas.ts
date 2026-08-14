@@ -29,6 +29,11 @@ export interface ExternalAccountListItemApi {
     external_id: string
     /** Human-readable account name. */
     name: string
+    /**
+     * When the account churned, or null if it has not churned.
+     * @nullable
+     */
+    churned_at: string | null
     /** Active relationship assignments to current organization members, keyed by relationship definition name (e.g. 'CSM', 'Account executive'). Definitions with no active assignment are omitted. */
     relationships: ExternalAccountListItemApiRelationships
 }
@@ -267,6 +272,11 @@ export interface AccountApi {
      * * `weekly` - weekly
      * * `monthly` - monthly */
     slack_summary_cadence?: SlackSummaryCadenceEnumApi | null
+    /**
+     * When the account churned. Null means the account has not churned.
+     * @nullable
+     */
+    churned_at?: string | null
     readonly created_at: string
     /** @nullable */
     readonly created_by: number | null
@@ -439,6 +449,11 @@ export interface PatchedAccountApi {
      * * `weekly` - weekly
      * * `monthly` - monthly */
     slack_summary_cadence?: SlackSummaryCadenceEnumApi | null
+    /**
+     * When the account churned. Null means the account has not churned.
+     * @nullable
+     */
+    churned_at?: string | null
     readonly created_at?: string
     /** @nullable */
     readonly created_by?: number | null
@@ -1930,6 +1945,10 @@ export type AccountsListParams = {
      * When true, returns only accounts where no user actively holds any relationship.
      */
     all_roles_unassigned?: boolean
+    /**
+     * Include churned accounts. Churned accounts are hidden by default.
+     */
+    include_churned?: boolean
     /**
      * Number of results to return per page.
      */

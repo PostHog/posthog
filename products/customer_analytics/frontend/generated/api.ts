@@ -121,7 +121,7 @@ export const getCustomerAnalyticsExternalAccountsRetrieveUrl = (
 }
 
 /**
- * List accounts with external IDs and their active relationship assignments. Requires a project secret API key with the `account:read` scope.
+ * List accounts with external IDs, churn timestamps, and active relationship assignments. Requires a project secret API key with the `account:read` scope.
  * @summary List external customer analytics accounts
  */
 export const customerAnalyticsExternalAccountsRetrieve = async (

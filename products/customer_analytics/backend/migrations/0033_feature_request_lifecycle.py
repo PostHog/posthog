@@ -8,10 +8,7 @@ import posthog.uuidt
 
 class Migration(migrations.Migration):
     dependencies = [
-        (
-            "customer_analytics",
-            "0031_featurerequest_featurerequestproductarea_and_more",
-        ),
+        ("customer_analytics", "0032_account_churned_at"),
         ("posthog", "1300_identityproviderconfig_saml_relay_state_unique"),
     ]
 
