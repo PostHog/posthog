@@ -98,11 +98,11 @@ at runtime. Scope `"user"` (the default when no scope is passed) is private to e
 `"shared"` is one value per canvas, visible to the whole team.
 
 ```tsx
-const draft = await ph.state.get("draft"); // user scope by default; null when unset
-await ph.state.set("draft", { text }); // JSON value, capped at 64 KB serialized
-await ph.state.set("draft", null); // null deletes the key
-await ph.state.set("board", { columns }, { scope: "shared" }); // team-visible
-const entries = await ph.state.list({ scope: "shared" }); // [{ scope, key, value, updatedAt }]
+const draft = await ph.state.get('draft') // user scope by default; null when unset
+await ph.state.set('draft', { text }) // JSON value, capped at 64 KB serialized
+await ph.state.set('draft', null) // null deletes the key
+await ph.state.set('board', { columns }, { scope: 'shared' }) // team-visible
+const entries = await ph.state.list({ scope: 'shared' }) // [{ scope, key, value, updatedAt }]
 ```
 
 - Load state in an effect on mount and render a skeleton until it resolves; writes are
@@ -123,7 +123,7 @@ flight — every invocation is a real PostHog write.
 ### tasks.create
 
 ```tsx
-const { result } = await ph.actions.invoke("tasks.create", { title, description });
+const { result } = await ph.actions.invoke('tasks.create', { title, description })
 // result: { task_id }
 ```
 
@@ -137,10 +137,10 @@ whoever picks the task up sees only those two fields, not the canvas.
 ### annotations.create
 
 ```tsx
-const { result } = await ph.actions.invoke("annotations.create", {
+const { result } = await ph.actions.invoke('annotations.create', {
   content, // the note, max 1024 chars
   date_marker: incidentStartedAt, // ISO timestamp; omit to mark "now"
-});
+})
 // result: { annotation_id }
 ```
 
