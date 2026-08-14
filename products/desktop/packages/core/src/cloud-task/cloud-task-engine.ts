@@ -796,6 +796,9 @@ export class CloudTaskEngine extends TypedEventEmitter<CloudTaskEvents> {
     const watcher = this.watchers.get(key);
     if (
       !watcher ||
+      // A failed watcher needs retry()'s full re-bootstrap: reconnecting its
+      // SSE leg alone would stream into a watcher that drops every event.
+      watcher.failed ||
       watcher.sseAbortController ||
       watcher.reconnectTimeoutId ||
       watcher.isBootstrapping ||
@@ -805,6 +808,19 @@ export class CloudTaskEngine extends TypedEventEmitter<CloudTaskEvents> {
     }
 
     void this.connectSse(key);
+  }
+
+  /**
+   * Nudge every watcher whose SSE leg is down to reconnect immediately.
+   * System sleep and network switches kill sockets without an error or EOF;
+   * the idle timeout notices eventually, but a wake/focus nudge closes the
+   * gap right away. A no-op for connected, reconnecting, bootstrapping,
+   * failed, and terminal watchers.
+   */
+  reconnectAllIfDisconnected(): void {
+    for (const watcher of this.watchers.values()) {
+      this.reconnectIfDisconnected(watcher.taskId, watcher.runId);
+    }
   }
 
   // Resets a watcher to its pre-bootstrap state so bootstrapWatcher can rebuild it from server truth.

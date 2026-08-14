@@ -228,6 +228,7 @@ export interface SessionTrpc {
     watch: TrpcMutation;
     unwatch: TrpcMutation;
     retry: TrpcMutation;
+    reconnectIfDisconnected: TrpcMutation;
     sendCommand: TrpcMutation;
     stop: TrpcMutation;
     designateRelayedMcpServers: TrpcMutation;
@@ -6968,6 +6969,31 @@ export class SessionService {
           error,
         });
       });
+    }
+  }
+
+  /**
+   * Nudges every actively watched cloud stream to reconnect if its SSE leg
+   * is down. Complements retryUnhealthyCloudSessions: that one only reaches
+   * sessions whose stream already failed hard (status "error"), while this
+   * covers streams that died silently — e.g. a socket killed by system
+   * sleep — before the failure budget was exhausted. A no-op for healthy
+   * streams. Invoked on window focus; the main process runs the same nudge
+   * on power resume.
+   */
+  public reconnectDisconnectedCloudStreams(): void {
+    for (const [taskId, watcher] of this.cloudTaskWatchers) {
+      const session = this.d.store.getSessions()[watcher.runId];
+      // Errored streams need retryCloudTaskWatch's full re-bootstrap instead.
+      if (session?.status === "error") continue;
+      this.d.trpc.cloudTask.reconnectIfDisconnected
+        .mutate({ taskId, runId: watcher.runId })
+        .catch((error: unknown) => {
+          this.d.log.warn("Cloud stream reconnect nudge failed", {
+            taskId,
+            error,
+          });
+        });
     }
   }
 

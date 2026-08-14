@@ -311,6 +311,7 @@ export function GlobalEventHandlers({
     const handleFocus = () => {
       loadFolders();
       sessionService.retryUnhealthyCloudSessions();
+      sessionService.reconnectDisconnectedCloudStreams();
       piSessionController?.retryUnhealthyCloudSessions();
     };
     window.addEventListener("focus", handleFocus);

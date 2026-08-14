@@ -52,6 +52,11 @@ export const retryInput = z.object({
   runId: z.string(),
 });
 
+export const reconnectIfDisconnectedInput = z.object({
+  taskId: z.string(),
+  runId: z.string(),
+});
+
 export const onUpdateInput = z.object({
   taskId: z.string(),
   runId: z.string(),

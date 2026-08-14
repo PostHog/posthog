@@ -150,6 +150,37 @@ describe("CloudTaskEngine", () => {
     vi.unstubAllGlobals();
   });
 
+  it("nudges every watcher on reconnectAllIfDisconnected", async () => {
+    const reconnectSpy = vi.spyOn(service, "reconnectIfDisconnected");
+    mockNetFetch
+      .mockResolvedValueOnce(
+        createJsonResponse({
+          id: "run-1",
+          status: "in_progress",
+          stage: null,
+          output: null,
+          error_message: null,
+          branch: null,
+          updated_at: "2026-01-01T00:00:00Z",
+        }),
+      )
+      .mockResolvedValue(
+        createJsonResponse([], 200, { "X-Has-More": "false" }),
+      );
+    mockStreamFetch.mockResolvedValue(createOpenSseResponse(""));
+
+    service.watch({
+      taskId: "task-1",
+      runId: "run-1",
+      apiHost: "https://app.example.com",
+      teamId: 2,
+    });
+
+    service.reconnectAllIfDisconnected();
+
+    expect(reconnectSpy).toHaveBeenCalledWith("task-1", "run-1");
+  });
+
   it("emits a replayed permission_request frame only once", async () => {
     const updates: unknown[] = [];
     service.on(CloudTaskEvent.Update, (payload) => updates.push(payload));

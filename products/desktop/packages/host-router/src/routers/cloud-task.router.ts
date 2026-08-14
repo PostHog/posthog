@@ -5,6 +5,7 @@ import {
   cloudContextOutput,
   designateRelayedMcpServersInput,
   onUpdateInput,
+  reconnectIfDisconnectedInput,
   retryInput,
   sendCommandInput,
   sendCommandOutput,
@@ -42,6 +43,14 @@ export const cloudTaskRouter = router({
       ctx.container
         .get<CloudTaskService>(CLOUD_TASK_SERVICE)
         .retry(input.taskId, input.runId),
+    ),
+
+  reconnectIfDisconnected: publicProcedure
+    .input(reconnectIfDisconnectedInput)
+    .mutation(({ ctx, input }) =>
+      ctx.container
+        .get<CloudTaskService>(CLOUD_TASK_SERVICE)
+        .reconnectIfDisconnected(input.taskId, input.runId),
     ),
 
   designateRelayedMcpServers: publicProcedure
