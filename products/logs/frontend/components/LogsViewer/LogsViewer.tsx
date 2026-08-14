@@ -128,7 +128,6 @@ function LogsViewerContent({
     const { runQuery, fetchNextLogsPage } = useActions(logsViewerDataLogic)
     const { setDateRange, zoomDateRange } = useActions(logsViewerFiltersLogic)
     const showPatternsView = useFeatureFlag('LOGS_PATTERNS_VIEW')
-    const showGroupBy = useFeatureFlag('LOGS_GROUP_BY')
     const { cellScrollLefts } = useValues(virtualizedLogsListLogic({ id }))
     const { setCellScrollLeft } = useActions(virtualizedLogsListLogic({ id }))
     const messageScrollLeft = cellScrollLefts['message'] ?? 0
@@ -357,7 +356,7 @@ function LogsViewerContent({
     // logsViewerFiltersLogic). Each gates on its flag too, so its query stays unreachable when
     // the flag is off regardless of the (non-persisted) viewMode state.
     const inPatternsMode = showPatternsView && viewMode === 'patterns'
-    const inGroupByMode = showGroupBy && viewMode === 'group'
+    const inGroupByMode = viewMode === 'group'
     const resultsRegion = inPatternsMode ? (
         <LogsPatterns id={id} />
     ) : inGroupByMode ? (
