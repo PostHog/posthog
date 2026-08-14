@@ -138,3 +138,11 @@ export const setPinnedInput = z.object({
   id: z.string().min(1),
   pinned: z.boolean(),
 });
+
+// File a rendering error against the build that threw it. Only the error's
+// class name crosses the boundary — the full message can carry viewer data.
+export const reportCanvasErrorInput = z.object({
+  id: z.string().min(1),
+  buildId: z.string().min(1),
+  errorType: z.string().min(1).max(64),
+});

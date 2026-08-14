@@ -8,6 +8,7 @@ import {
   buildActivityTimeline,
   type UserMessageLike,
 } from "@posthog/core/canvas/activityTimeline";
+import { channelDisplayLabel } from "@posthog/core/canvas/channelName";
 import type { ThreadTimelineRow } from "@posthog/core/canvas/threadTimeline";
 import { DEFAULT_TAB_IDS } from "@posthog/core/panels/panelConstants";
 import { findTabInTree } from "@posthog/core/panels/panelTree";
@@ -122,7 +123,7 @@ function UserMessageRow({
                 <FileTextIcon size={12} />
                 <span className="truncate text-xs">
                   {channelContext.mention.name
-                    ? `#${channelContext.mention.name} `
+                    ? `${channelDisplayLabel(channelContext.mention.name)} `
                     : ""}
                   CONTEXT.md
                 </span>
