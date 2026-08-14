@@ -83,13 +83,15 @@ function SupportMcpServersSectionContent(): JSX.Element {
                     </>
                 )}
                 {supportServerRows.length > 0 && (
-                    <Link
-                        to={urls.mcpGateway()}
-                        className="group flex items-center justify-between gap-3 border-t px-4 py-2 text-xs no-underline transition-colors hover:bg-bg-3000"
-                    >
-                        <span className="text-muted-alt group-hover:text-default">Connect more MCP servers</span>
-                        <IconChevronRight className="size-4 shrink-0 text-muted transition-colors group-hover:text-default" />
-                    </Link>
+                    <div className="border-t">
+                        <Link
+                            to={urls.mcpGateway()}
+                            className="group flex items-center justify-between gap-3 px-4 py-2 text-xs no-underline transition-colors hover:bg-bg-3000"
+                        >
+                            <span className="text-muted-alt group-hover:text-default">Connect more MCP servers</span>
+                            <IconChevronRight className="size-4 shrink-0 text-muted transition-colors group-hover:text-default" />
+                        </Link>
+                    </div>
                 )}
                 {supportAccount?.status === 'paused' && (
                     <div className="border-t px-4 py-2 text-xs text-muted-alt">
