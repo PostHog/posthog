@@ -279,6 +279,24 @@ already reads, so none of them costs an extra request.
 60. The lane counts `X-Robots-Tag: noindex` and does not act on it. `noindex` speaks about search
     rather than about training. Phase 0 measures what obedience would cost before we choose it.
 
+### TDMRep
+
+TDMRep gives a rightsholder three ways to reserve their rights over text and data mining. The lane
+reads two of them. Article 4 of the EU DSM Directive grants a permission unless the rightsholder
+reserves those rights by machine-readable means, so a reservation removes a permission rather than
+adds a prohibition.
+
+61. The lane reads `/.well-known/tdmrep.json` for the origin of a URL. That file follows the same
+    path as robots.txt. Both answer for one origin, so both use one fetch, one cache of 24 hours,
+    and the hold of rule 41.
+62. A rule in that file refuses the URL when its location covers the URL and it sets
+    `tdm-reservation` to 1.
+63. TDMRep ranks the file above the response header. The lane does not rank them. A refusal in
+    either one refuses the URL, under rule 58. This is stricter than the specification, and
+    principle two is the reason.
+64. The lane does not read the HTML `meta` form of the reservation. The lane fetches images and
+    parses no HTML.
+
 ## How a message waits
 
 Kafka has no delayed delivery. The delay belongs to the topic, not to the message, because a
