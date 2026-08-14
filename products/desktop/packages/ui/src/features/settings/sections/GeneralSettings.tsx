@@ -299,6 +299,8 @@ export function GeneralSettings() {
         )}
       </SettingsSection>
 
+      <TipsSection />
+
       <SettingsSection
         label="New tasks"
         description="Defaults for every new task. You can change any of these per task in the composer."
@@ -459,8 +461,6 @@ export function GeneralSettings() {
           )}
         </SettingsCard>
       </SettingsSection>
-
-      <TipsSection />
 
       {localWorkspaces && <UpdatesSection />}
     </div>
