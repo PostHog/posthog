@@ -62,9 +62,12 @@ describe('notebookNodeGenUILogic', () => {
         nodeId: 'globe',
         prompt: 'Render a globe',
         inputs: ['locations_df'],
+        serializedInputs: 'locations_df',
+        persistedInputs: 'locations_df',
         inputValidationError: null,
         isEditable: true,
         getContent: (): JSONContent => content,
+        updateAttributes: jest.fn(),
     }
     let logic: ReturnType<typeof notebookNodeGenUILogic.build>
 
@@ -110,6 +113,20 @@ describe('notebookNodeGenUILogic', () => {
         resolveEnsure(status('ready'))
         await expectLogic(logic).toFinishAllListeners()
         expect(logic.values.mutationInFlight).toBe(false)
+    })
+
+    it('persists inferred inputs before starting generation', async () => {
+        const updateAttributes = jest.fn()
+        logic = notebookNodeGenUILogic({
+            ...props,
+            persistedInputs: '',
+            updateAttributes,
+        })
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(updateAttributes).toHaveBeenCalledWith({ inputs: 'locations_df' })
+        expect(notebooksGenuiEnsure).not.toHaveBeenCalled()
     })
 
     it('loads status without starting generation for a viewer', async () => {

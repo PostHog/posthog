@@ -1,6 +1,6 @@
 import type { ThreadItem, ToolInvocation } from 'products/posthog_ai/frontend/api/types'
 
-import { selectGenUIGenerationActivity } from './genUIGenerationActivity'
+import { selectGenUIGenerationActivity } from './genUIGenerationActivityItems'
 
 function toolInvocation(overrides: Partial<ToolInvocation> = {}): ToolInvocation {
     return {

@@ -19,7 +19,7 @@ import { runStreamLogic } from 'products/posthog_ai/frontend/api/logics'
 import type { ThreadItem, ToolInvocation } from 'products/posthog_ai/frontend/api/types'
 import { tasksRetrieve } from 'products/tasks/frontend/generated/api'
 
-import { type GenUIGenerationActivityItem, selectGenUIGenerationActivity } from './genUIGenerationActivity'
+import { type GenUIGenerationActivityItem, selectGenUIGenerationActivity } from './genUIGenerationActivityItems'
 
 export interface NotebookNodeGenUIActivityLogicProps {
     taskId: string

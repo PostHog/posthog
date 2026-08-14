@@ -14,6 +14,7 @@ import { notebookNodeLogic } from '../notebookNodeLogic'
 import { GenUICapabilities } from './genUIArtifactBridge'
 import { GenUIArtifactFrame } from './GenUIArtifactFrame'
 import { GenUIGenerationActivity } from './GenUIGenerationActivity'
+import { inferGenUIInputs } from './genUIInputInference'
 import { validateGenUIInputs } from './genUIInputs'
 import { getGenUIName } from './genUIName'
 import { loadGenUIFrame, notebookNodeGenUILogic } from './notebookNodeGenUILogic'
@@ -34,20 +35,32 @@ function EmptyState({ children }: { children: ReactNode }): JSX.Element {
     )
 }
 
-function Component({ attributes }: NotebookNodeProps<NotebookNodeGenUIAttributes>): JSX.Element | null {
+function Component({
+    attributes,
+    updateAttributes,
+}: NotebookNodeProps<NotebookNodeGenUIAttributes>): JSX.Element | null {
     const nodeLogic = useMountedLogic(notebookNodeLogic)
     const { expanded, isEditable, notebookLogic } = useValues(nodeLogic)
     const notebookShortId = notebookLogic.props.shortId
-    const inputValidation = validateGenUIInputs(attributes.inputs ?? '')
+    const inferredInputs = inferGenUIInputs(
+        notebookLogic.values.content,
+        attributes.nodeId,
+        attributes.prompt ?? '',
+        attributes.inputs ?? ''
+    )
+    const inputValidation = validateGenUIInputs(inferredInputs.serialized)
     const logic = notebookNodeGenUILogic({
         notebookShortId,
         nodeId: attributes.nodeId,
         legacyCanvasId: attributes.id,
         prompt: attributes.prompt ?? '',
         inputs: inputValidation.names,
+        serializedInputs: inferredInputs.serialized,
+        persistedInputs: attributes.inputs ?? '',
         inputValidationError: inputValidation.error,
         isEditable,
         getContent: () => notebookLogic.values.content,
+        updateAttributes,
     })
     const stalenessLogic = useMountedLogic(notebookNodeStalenessLogic({ shortId: notebookShortId }))
     const { staleNodeIds } = useValues(stalenessLogic)

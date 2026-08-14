@@ -46,9 +46,12 @@ export type NotebookNodeGenUILogicProps = {
     legacyCanvasId?: string
     prompt: string
     inputs: string[]
+    serializedInputs: string
+    persistedInputs: string
     inputValidationError: string | null
     isEditable: boolean
     getContent: () => JSONContent | null
+    updateAttributes: (attributes: { inputs?: string }) => void
 }
 
 export interface notebookNodeGenUILogicValues {
@@ -410,6 +413,10 @@ export const notebookNodeGenUILogic: LogicWrapper<notebookNodeGenUILogicType> = 
         }
     }),
     afterMount(({ actions, props }) => {
+        if (props.isEditable && props.persistedInputs !== props.serializedInputs) {
+            props.updateAttributes({ inputs: props.serializedInputs })
+            return
+        }
         if (!props.isEditable) {
             actions.loadStatus()
         } else if (props.prompt.trim() && !props.inputValidationError) {
@@ -417,9 +424,20 @@ export const notebookNodeGenUILogic: LogicWrapper<notebookNodeGenUILogicType> = 
         }
     }),
     propsChanged(({ actions, props, values }, oldProps) => {
+        if (props.isEditable && props.persistedInputs !== props.serializedInputs) {
+            props.updateAttributes({ inputs: props.serializedInputs })
+            return
+        }
+        const inferredInputsWerePersisted =
+            oldProps.persistedInputs !== oldProps.serializedInputs && props.persistedInputs === props.serializedInputs
         const definitionChanged =
             props.prompt !== oldProps.prompt || props.inputs.join('\0') !== oldProps.inputs.join('\0')
-        if (definitionChanged && values.status && props.prompt.trim() && !props.inputValidationError) {
+        if (
+            (definitionChanged || inferredInputsWerePersisted) &&
+            props.prompt.trim() &&
+            !props.inputValidationError &&
+            (values.status || inferredInputsWerePersisted)
+        ) {
             actions.ensureVisualization()
         }
     }),

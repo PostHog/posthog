@@ -8,7 +8,8 @@ Branches: `feat/notebook-genui-poc` and `feat/notebook-genui-hardening`
 
 The current branch implements an end-to-end browser path:
 
-- AI notebook instructions can emit `<GenUI prompt="..." inputs="..." />`, while preferring native `Query` visualizations for standard charts.
+- AI notebook instructions can emit `<GenUI prompt="..." />`, while preferring native `Query` visualizations for standard charts.
+- The node detects dataframe dependencies from exact names in the prompt, existing serialized inputs, or the closest preceding SQL and Python outputs.
 - An editable GenUI node creates or reuses a backing Canvas, starts a background generation task, polls it to a terminal state, and renders the last published build inline.
 - Generated code reads only explicitly declared notebook dataframes with `ph.readFrame(name)`.
 - The notebook host serves bounded rows from saved SQL V2 or Python V2 preview results. It sends schemas and preview sizes, but no row values, to the generation task.
@@ -54,16 +55,15 @@ Do not generalize the Canvas data model, extract a new cross-product artifact fr
 
 <GenUI
     nodeId="location-globe"
-    prompt="Render a spinning 3D globe. Plot each location and color it by timestamp."
-    inputs="pandas_df"
+    prompt="Render a spinning 3D globe from pandas_df. Plot each location and color it by timestamp."
 />
 ```
 
-The dataframe dependency must be declared in `inputs`.
-Do not infer dependencies by searching the prompt for variable names.
-The prompt describes the presentation, while `inputs` defines the data contract and notebook dependency edges.
+The node detects exact dataframe names in the prompt.
+When the prompt does not name one, it keeps valid serialized inputs or uses up to four of the closest preceding named outputs.
+Detected names are stored in `inputs` so the runtime allowlist, dependency graph, and staleness controls remain explicit.
 
-For the proof of concept, use comma-separated dataframe names for multiple inputs:
+The serialized form remains comma-separated for multiple inputs:
 
 ```jsx
 <GenUI
@@ -80,7 +80,7 @@ For the proof of concept, use comma-separated dataframe names for multiple input
 - [x] The node shows a compact generation state: waiting for inputs, generating, building, ready, or failed.
 - [x] A failed generation gives a clear retry action and keeps the last successful artifact when one exists.
 - [x] The ready artifact renders inline and follows the notebook node's height and resize behavior.
-- [x] The settings view exposes the prompt, declared inputs, and a regenerate action.
+- [x] The settings view exposes the prompt, detected inputs, and a regenerate action without asking for dataframe names.
 - [x] The settings view does not include a raw source editor, Canvas metadata, channel selection, task controls, drafts, or publishing controls.
 - [x] Editing the prompt creates a new generated source version after an explicit regenerate action.
 - [x] Re-running upstream cells marks the GenUI node stale.
@@ -94,7 +94,7 @@ For the proof of concept, use comma-separated dataframe names for multiple input
 ### In scope
 
 - The `<GenUI />` notebook tag and node.
-- One or more explicitly named SQL V2 or Python V2 dataframe inputs.
+- One or more automatically detected SQL V2 or Python V2 dataframe inputs.
 - Bounded dataframe snapshots.
 - AI-generated HTML, CSS, JavaScript, or React.
 - Three.js for 3D visualizations.
@@ -190,8 +190,9 @@ Do not store generated source, artifact files, or complete dataframe values in n
 - [x] Define attributes with explicit TypeScript return types:
   - `nodeId`: stable and required after insertion.
   - `prompt`: generation instruction.
-  - `inputs`: comma-separated dataframe names for the proof of concept.
+  - `inputs`: internally serialized, comma-separated dataframe names for the proof of concept.
 - [x] Normalize whitespace and reject duplicate or invalid dataframe names.
+- [x] Detect exact prompt references or use the closest preceding named outputs when `inputs` is empty.
 - [x] Require at least one prompt and allow zero inputs for data-free graphics experiments.
 - [x] Add the node to markdown conversion and serialization paths.
 - [x] Add the node to the notebook widget catalog if AI generation relies on that catalog.
