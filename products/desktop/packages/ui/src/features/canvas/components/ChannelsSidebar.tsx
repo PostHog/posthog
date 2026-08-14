@@ -58,11 +58,18 @@ import { useDeferredValue, useEffect, useRef } from "react";
 function ChannelPanes({
   channelId,
   showList,
+  sidebarVisible,
 }: {
   channelId: string | null;
   showList: boolean;
+  sidebarVisible: boolean;
 }) {
-  const visibleChannelId = showList ? undefined : (channelId ?? undefined);
+  // Mark the channel seen only while a reader can see its pane: this pane is
+  // the one showing (not the list) and the sidebar is on screen. A collapsed
+  // sidebar keeps both panes mounted, so without the visibility gate a mention
+  // landing behind it would clear the unread emphasis nobody saw.
+  const visibleChannelId =
+    !showList && sidebarVisible ? (channelId ?? undefined) : undefined;
   useMarkChannelSeen(visibleChannelId);
   const panesRef = useRef<HTMLDivElement | null>(null);
   useChannelPaneSwipe(panesRef, {
@@ -249,7 +256,11 @@ export function ChannelsSidebar() {
                 <ProjectSwitcher />
               </div>
               <ChannelNav />
-              <ChannelPanes channelId={currentChannelId} showList={showList} />
+              <ChannelPanes
+                channelId={currentChannelId}
+                showList={showList}
+                sidebarVisible={open || peek}
+              />
             </>
           ) : bodyChannelsWorld ? (
             <>

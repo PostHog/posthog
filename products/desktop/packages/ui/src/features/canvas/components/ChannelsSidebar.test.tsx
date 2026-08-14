@@ -128,7 +128,13 @@ describe("ChannelsSidebar", () => {
     mocks.routeChannelId = undefined;
     useCurrentChannelStore.setState({ currentChannelId: null });
     useChannelPaneStore.setState({ pane: "channel" });
-    useSidebarStore.setState({ channelsEnabled: false, open: true });
+    // hasUserSetOpen pins `open`, so the auto-open effect (which sees no
+    // workspaces in this harness) can't collapse it out from under the tests.
+    useSidebarStore.setState({
+      channelsEnabled: false,
+      open: true,
+      hasUserSetOpen: true,
+    });
   });
 
   // The sidebar is a two-pane slider: the channel list, and the channel you're
@@ -169,6 +175,15 @@ describe("ChannelsSidebar", () => {
 
       act(() => showChannelList());
 
+      expect(mocks.markChannelSeen).toHaveBeenLastCalledWith(undefined);
+    });
+
+    // ⌘B collapses the sidebar to zero width but keeps the pane mounted. A poll
+    // landing behind it must not stamp the channel seen — nobody saw the pane.
+    it("does not mark a channel seen while the sidebar is closed", () => {
+      mocks.routeChannelId = ENG.id;
+      useSidebarStore.setState({ open: false });
+      renderSidebar();
       expect(mocks.markChannelSeen).toHaveBeenLastCalledWith(undefined);
     });
 
