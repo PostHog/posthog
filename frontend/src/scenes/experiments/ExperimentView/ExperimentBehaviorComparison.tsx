@@ -24,6 +24,7 @@ import {
     type ExperimentWatchCardApi,
 } from 'products/experiments/frontend/generated/api.schemas'
 
+import { hasEnded } from '../experimentStatus'
 import { type ExperimentReplayRecording, experimentReplayTabLogic } from './experimentReplayTabLogic'
 import { VariantTag } from './VariantTag'
 
@@ -435,9 +436,10 @@ export function ExperimentBehaviorComparison({
             ) : (
                 <WatchShelves
                     deltas={sessionEventDeltas}
-                    // What "no differences yet" is allowed to promise: an experiment that has
-                    // stopped enrolling people will not get any more of them.
-                    ended={!!experiment.end_date}
+                    // What "no differences yet" is allowed to promise. Read from the status rather
+                    // than from end_date, so a state that carries an end date without having
+                    // stopped enrolling people cannot reach the past-tense copy.
+                    ended={hasEnded(experiment)}
                     selectedCard={selectedWatchCard}
                     onSelect={selectWatchCard}
                     recordingsById={loadedRecordingsById}

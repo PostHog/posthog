@@ -405,15 +405,21 @@ def all_card_session_ids(result: ExperimentWatchResult) -> list[str]:
 
 
 def finalize_watch_cards(result: ExperimentWatchResult, accessible_session_ids: list[str]) -> ExperimentWatchResult:
-    """Cut every card down to the recordings this viewer may open, dropping the ones left with none.
+    """The shelf this viewer gets: their recordings, no card restating another, highlights assigned.
 
     Applied on read rather than inside the scan, for the same reason the session buckets do it: the
-    shelf is cached — and shared across viewers with the same property restrictions — so this cut
-    is what keeps one viewer's entry from leaking another's denied recordings, and it honors a
+    shelf is cached, and shared across viewers with the same property restrictions, so this cut is
+    what keeps one viewer's entry from leaking another's denied recordings, and it honors a
     revocation that lands while an entry is still warm. A card that loses every recording is
-    dropped rather than shown greyed-out — the same rule the scan applies to sessions replay never
+    dropped rather than shown greyed-out, the same rule the scan applies to sessions replay never
     recorded, since either way there is nothing to watch behind it. `recording_count` is recomputed
     so it keeps meaning "recordings this card can show you".
+
+    The duplicate cut and the highlight assignment run here rather than in the scan because both
+    are statements about the shelf a viewer sees. Cutting a duplicate against recordings this
+    viewer can't open would drop a card whose remaining recordings they can, and could leave two
+    surviving cards showing the same ones; naming a card's first recordings before either cut lets
+    a card that is no longer on the shelf keep its claim on one.
     """
     accessible = set(accessible_session_ids)
     cards = []
@@ -424,7 +430,7 @@ def finalize_watch_cards(result: ExperimentWatchResult, accessible_session_ids: 
             cards.append(
                 replace(card, recording_count=len(session_ids), session_ids=session_ids, highlights=highlights)
             )
-    return replace(result, cards=cards)
+    return replace(result, cards=_assign_highlights(_drop_duplicate_recording_sets(cards)))
 
 
 def get_experiment_session_event_deltas(team: Team, user: User, experiment: Experiment) -> ExperimentWatchResult:
@@ -569,14 +575,11 @@ def get_experiment_session_event_deltas(team: Team, user: User, experiment: Expe
                     )
                 }
             )
-        cards = _drop_duplicate_recording_sets(
-            comparison_cards
-            + [
-                shortcut_by_pair[(card.event, card.variant)]
-                for card in final_shortcuts
-                if (card.event, card.variant) in shortcut_by_pair
-            ]
-        )
+        cards = comparison_cards + [
+            shortcut_by_pair[(card.event, card.variant)]
+            for card in final_shortcuts
+            if (card.event, card.variant) in shortcut_by_pair
+        ]
 
     result = ExperimentWatchResult(
         cards=cards,
@@ -1155,6 +1158,25 @@ def _drop_duplicate_recording_sets(cards: list[ExperimentWatchCard]) -> list[Exp
     return kept
 
 
+def _assign_highlights(cards: list[ExperimentWatchCard]) -> list[ExperimentWatchCard]:
+    """Each card cut down to the few recordings it names first, taken from its own ranking.
+
+    The shelf's cards overlap by construction, so a recording an earlier card already names sorts
+    last here rather than being dropped: no card is left without highlights, and no reader is sent
+    to the same recording from every card on the shelf. Cards arrive in rank order, so the stronger
+    card gets first claim on a recording both could name.
+    """
+    claimed: set[str] = set()
+    assigned = []
+    for card in cards:
+        unclaimed = [highlight for highlight in card.highlights if highlight.session_id not in claimed]
+        already = [highlight for highlight in card.highlights if highlight.session_id in claimed]
+        highlights = (unclaimed + already)[:MAX_CARD_HIGHLIGHTS]
+        claimed.update(highlight.session_id for highlight in highlights)
+        assigned.append(replace(card, highlights=highlights))
+    return assigned
+
+
 def _metric_events_by_name(
     metrics: list[MetricEventSource], experiment: Experiment
 ) -> tuple[list[_MetricEvent], dict[str, list[EventsNode]]]:
@@ -1490,30 +1512,23 @@ def _recordings_for_cards(
     recorded = {session_id for session_id in all_session_ids if exists_by_id.get(session_id)}
 
     found = {}
-    # Which recordings earlier cards already named. Walked in the order the cards were asked for,
-    # which is their rank order, so a higher-ranked card claims a shared recording first. A card
-    # that dedupe later drops has claimed here too, which can reorder a lower-ranked card's picks.
-    highlighted: set[str] = set()
-    for pair in wanted:
-        pair_recordings = candidates.get(pair)
-        if pair in found or not pair_recordings:
-            continue
+    for pair, pair_recordings in candidates.items():
         kept = [recording for recording in pair_recordings if recording.session_id in recorded][:MAX_CARD_RECORDINGS]
         # A pair without a single playable recording is left out entirely, so any card leaning on
         # it is dropped rather than returned promising zero recordings.
         if not kept:
             continue
-        highlights = _pick_highlights(
-            kept,
-            # On a card whose own event is one of the friction signals, the signal count already is
-            # the repetition, so counting both would say "2 rage clicks, did this 2 times".
-            count_repetition=pair[0] not in FRICTION_EVENTS,
-            already_highlighted=highlighted,
-        )
-        highlighted.update(highlight.session_id for highlight in highlights)
         found[pair] = _CardRecordings(
             session_ids=[recording.session_id for recording in kept],
-            highlights=highlights,
+            # Ranked, but not yet cut to the few a card names: which of them this card ends up
+            # naming depends on the cards beside it, and which cards those are is settled per
+            # viewer.
+            highlights=_rank_highlights(
+                kept,
+                # On a card whose own event is one of the friction signals, the signal count already
+                # is the repetition, so counting both would say "2 rage clicks, did this 2 times".
+                count_repetition=pair[0] not in FRICTION_EVENTS,
+            ),
         )
     return found
 
@@ -1531,10 +1546,13 @@ def _repetition_alias(index: int) -> str:
     return f"repetition_{index}"
 
 
-def _pick_highlights(
-    recordings: list[_CandidateRecording], *, count_repetition: bool, already_highlighted: set[str]
+def _rank_highlights(
+    recordings: list[_CandidateRecording], *, count_repetition: bool
 ) -> list[ExperimentWatchHighlight]:
-    """Which of a card's recordings to open first, and everything each of them carries.
+    """A card's recordings worth opening first, best first, each with everything it carries.
+
+    Every recording that carries anything, rather than only the few a card shows: which of them
+    this card names is decided in `_assign_highlights`, once the shelf beside it is final.
 
     Ranked on the friction a session shows as a whole rather than by naming the leader of each
     signal in turn. Per-signal leaders describe half of what they point at and hide the sessions
@@ -1554,13 +1572,8 @@ def _pick_highlights(
     claims is most on screen, not the one carrying the most of something every card shows.
     `count_repetition` is False when the card's own event is a friction signal, whose count already
     says the same thing.
-
-    A recording an earlier card already named sorts last rather than being dropped, so a card whose
-    recordings are all spoken for still names some: the shelf's cards overlap by construction, and
-    sending a reader to the same recording from every one of them wastes the only three slots each
-    card has to differentiate itself.
     """
-    scored: list[tuple[bool, int, int, int, str, str]] = []
+    scored: list[tuple[int, int, int, str, str]] = []
     for recording in recordings:
         present = [
             (recording.signals[event], singular)
@@ -1578,20 +1591,11 @@ def _pick_highlights(
         kinds = len(present) + (1 if repetition > 1 else 0)
         damped_repetition = min(repetition, HIGHLIGHT_COUNT_DAMPING) if repetition > 1 else 0
         damped_signals = sum(min(count, HIGHLIGHT_COUNT_DAMPING) for count, _singular in present)
-        scored.append(
-            (
-                recording.session_id in already_highlighted,
-                kinds,
-                damped_repetition,
-                damped_signals,
-                recording.session_id,
-                ", ".join(phrases),
-            )
-        )
+        scored.append((kinds, damped_repetition, damped_signals, recording.session_id, ", ".join(phrases)))
     # Ties broken on the session id rather than left to dict order, so the same shelf computed
     # twice names the same recordings.
-    scored.sort(key=lambda entry: (entry[0], -entry[1], -entry[2], -entry[3], entry[4]))
+    scored.sort(key=lambda entry: (-entry[0], -entry[1], -entry[2], entry[3]))
     return [
         ExperimentWatchHighlight(session_id=session_id, reason=reason)
-        for _seen, _kinds, _repetition, _signals, session_id, reason in scored[:MAX_CARD_HIGHLIGHTS]
+        for _kinds, _repetition, _signals, session_id, reason in scored
     ]

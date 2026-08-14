@@ -792,6 +792,69 @@ class TestExperimentSessionEventDeltas(ClickhouseTestMixin, APILicensedTest):
         assert card["session_ids"] == [allowed]
         assert card["recording_count"] == 1
 
+    @rank_anything
+    def test_a_card_the_viewer_can_still_watch_survives_its_duplicate_being_cut(self) -> None:
+        experiment = self._create_experiment(metrics=[PURCHASE_METRIC])
+        self._arm("control", [[]] * 2)
+        # The two events happen together in four sessions, enough for one card to be cut as the
+        # other's playlist. Each event also has a session of its own.
+        shared = [self._session(variants=["test"], events=["pricing_faq", "faq_expanded"]) for _ in range(4)]
+        faq_only = self._session(variants=["test"], events=["pricing_faq"])
+        expanded_only = self._session(variants=["test"], events=["faq_expanded"])
+        # Object-level controls can only target a recording that has a Postgres row.
+        for session_id in shared:
+            SessionRecording.objects.create(team=self.team, session_id=session_id)
+        flush_persons_and_events()
+
+        # This viewer may open neither card's shared recordings, which is what leaves the two cards
+        # showing different recordings after all.
+        with patch(
+            "posthog.rbac.user_access_control.UserAccessControl.check_access_level_for_object",
+            side_effect=lambda obj, *args, **kwargs: getattr(obj, "session_id", None) not in shared,
+        ):
+            data = self._post_deltas(experiment).json()
+
+        # Cutting duplicates before this viewer's own recordings are cut would drop the second card
+        # over recordings they can't open, and leave the first with a single unrelated one.
+        assert [(card["event"], card["session_ids"]) for card in self._cards(data, "behavior")] == [
+            ("faq_expanded", [expanded_only]),
+            ("pricing_faq", [faq_only]),
+        ]
+
+    @rank_anything
+    def test_a_card_cut_as_a_duplicate_does_not_reserve_a_recording_for_itself(self) -> None:
+        experiment = self._create_experiment(metrics=[PURCHASE_METRIC])
+        self._arm("control", [[]] * 2)
+        # Both events happen in all four sessions, so one card is cut as the other's playlist. Every
+        # session carries one rage click and nothing else, which leaves the highlight ranking on the
+        # session id, and the staggered start times put those in the order they were created.
+        together = [
+            self._session(
+                variants=["test"],
+                events=["pricing_faq", "faq_expanded", "$rageclick"],
+                at=EXPOSED_AT + timedelta(minutes=index),
+            )
+            for index in range(3)
+        ]
+        # The fourth carries a third event as well, and it is that event's card which should name it
+        # first: the kept duplicate names the first three, so only the cut one ever wanted this.
+        together.append(
+            self._session(
+                variants=["test"],
+                events=["pricing_faq", "faq_expanded", "checkout_start", "$rageclick"],
+                at=EXPOSED_AT + timedelta(minutes=3),
+            )
+        )
+        self._session(variants=["test"], events=["checkout_start", "$rageclick"], at=EXPOSED_AT + timedelta(minutes=4))
+        flush_persons_and_events()
+
+        data = self._post_deltas(experiment).json()
+
+        # The cut card would otherwise have claimed the fourth recording, having had the first three
+        # taken by the card it duplicates, and pushed it down on the one card still showing it.
+        checkout = next(card for card in self._cards(data, "behavior") if card["event"] == "checkout_start")
+        assert checkout["highlights"][0]["session_id"] == together[3]
+
     def test_requires_session_replay_access(self) -> None:
         experiment = self._create_experiment(metrics=[PURCHASE_METRIC])
 
