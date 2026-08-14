@@ -225,11 +225,14 @@ def _attach_index_usage(
 
     for predicate in report.predicates:
         if predicate.verdict == EngineIndexVerdict.BLOCKED:
+            # `HogQLNotice.fix` is literal replacement text for the marked range (see
+            # taxonomy_validation), so the prose advice must not go here. The `ai_prompt:` form is
+            # the editor's other contract: it becomes a "Fix with AI" action instead of an edit.
             context.add_warning(
                 message=predicate.message,
                 start=predicate.start,
                 end=predicate.end,
-                fix=predicate.fix,
+                fix=f"ai_prompt:{predicate.ai_fix_prompt}" if predicate.ai_fix_prompt else None,
             )
 
 

@@ -273,6 +273,7 @@ class TestIndexEligibilityVerdicts(SimpleTestCase):
                     blocker=None,
                     message="",
                     fix=None,
+                    ai_fix_prompt=None,
                     start=None,
                     end=None,
                 )
@@ -330,6 +331,23 @@ class TestIndexEligibilityAnalysis(BaseTest):
         [usage] = response.index_usage
         assert usage.property_name == "duration"
         assert usage.fix is not None
+
+    def test_warning_fix_is_never_prose(self) -> None:
+        PropertyDefinition.objects.create(team=self.team, name="duration", property_type=PropertyType.Numeric)
+
+        response = get_hogql_metadata(
+            HogQLMetadata(
+                kind="HogQLMetadata",
+                language=HogLanguage.HOG_QL,
+                query="select count() from events where properties.duration > 100",
+            ),
+            self.team,
+        )
+
+        # `HogQLNotice.fix` is substituted into the query verbatim by the editor's quick fix, so any
+        # value that is not an `ai_prompt:` instruction has to be valid HogQL, never advice.
+        for warning in response.warnings:
+            assert warning.fix is None or warning.fix.startswith("ai_prompt:")
 
     def test_metadata_reports_no_index_usage_without_property_filters(self) -> None:
         response = get_hogql_metadata(

@@ -120,6 +120,10 @@ class PredicateIndexEligibility:
     blocker: PropertyMinmaxBlocker | None
     message: str
     fix: str | None
+    """Prose advice for a reader. Not a replacement string: `HogQLNotice.fix` means literal text to
+    substitute into the marked range, so this must never be handed to an editor marker directly."""
+    ai_fix_prompt: str | None
+    """Instruction for the editor's "Fix with AI" action, set only where rewriting the query helps."""
     start: int | None
     end: int | None
 
@@ -214,7 +218,7 @@ def eligibility_from_plan(
     )
     semantic_type = plan.access.semantic_type.print_type()
     physical_type = source.physical_type.print_type()
-    message, fix = _copy_for(
+    message, fix, ai_fix_prompt = _copy_for(
         verdict=verdict,
         plan=plan,
         usable=usable,
@@ -238,6 +242,7 @@ def eligibility_from_plan(
         blocker=type_blocker,
         message=message,
         fix=fix,
+        ai_fix_prompt=ai_fix_prompt,
         start=start,
         end=end,
     )
@@ -310,7 +315,7 @@ def _copy_for(
     type_blocker: PropertyMinmaxBlocker | None,
     semantic_type: str,
     physical_type: str,
-) -> tuple[str, str | None]:
+) -> tuple[str, str | None, str | None]:
     # Messages name the property, never the physical column behind it. A reader cannot select,
     # create or drop `mat_$browser`, so naming it spends words on something they cannot act on.
     # The column name stays on the structured `column_name` field for callers that want it.
@@ -320,23 +325,30 @@ def _copy_for(
 
     if verdict == PredicateIndexVerdict.INDEXED:
         index_names = ", ".join(sorted({_INDEX_LABELS[index] for index in usable}))
-        return f"{label} '{name}' uses its {index_names} index, so this filter skips rows that cannot match.", None
+        return (
+            f"{label} '{name}' uses its {index_names} index, so this filter skips rows that cannot match.",
+            None,
+            None,
+        )
 
     if verdict == PredicateIndexVerdict.BLOCKED:
         if type_blocker == PropertyMinmaxBlocker.SOURCE_TYPE_DIFFERS_FROM_PROPERTY_TYPE:
             # No fix here changes how the value is stored: both auto-materialized and slot-backed
             # columns are String, so a numeric or datetime property is always converted at read time.
             # Correcting the definition only helps when the definition is the thing that is wrong.
+            # No AI prompt: how the value is stored is not something a query rewrite can change.
             return (
                 f"{label} '{name}' is stored as {physical_type} but compared as {semantic_type}, so every row is "
                 f"converted before the filter runs and the index on '{name}' cannot skip any data.",
                 f"If '{name}' is not really {semantic_type}, correct its type in data management. Otherwise add a "
                 "filter that can skip data, such as a date range on timestamp.",
+                None,
             )
         return (
             f"{label} '{name}' is compared against a value of another type, so every row has to be "
             f"converted and the index on '{name}' goes unused.",
             f"Compare '{name}' against a {physical_type} value.",
+            f"Rewrite this filter so '{name}' is compared against a {physical_type} value.",
         )
 
     if verdict == PredicateIndexVerdict.UNINDEXED_JSON:
@@ -345,21 +357,25 @@ def _copy_for(
                 f"{label} '{name}' is restricted for your role, so it is read from the properties JSON "
                 "and no index applies.",
                 None,
+                None,
             )
         return (
             f"{label} '{name}' is read out of the properties JSON on every row, with no index to skip data.",
             f"Materialize '{name}' so this filter reads a dedicated column instead of parsing the JSON.",
+            None,
         )
 
     if verdict == PredicateIndexVerdict.UNINDEXED_COLUMN:
         return (
             f"{label} '{name}' has its own column, but no index on it covers '{plan.operator}'.",
             None,
+            None,
         )
 
     return (
         f"{label} '{name}' is filtered with '{plan.operator}', which reads every row because no index "
         "can rule one out.",
+        None,
         None,
     )
 
