@@ -113,7 +113,7 @@ export function NotebookVariablesPanel({
         onChange(variables.map((variable, i) => (i === index ? { ...variable, ...patch } : variable)))
 
     return (
-        <div className="NotebookVariables flex max-w-2xl flex-col gap-2 rounded border border-primary bg-surface-secondary p-2">
+        <div className="NotebookVariables mx-auto flex w-[70%] min-w-0 flex-col gap-2 rounded border border-primary bg-surface-secondary p-2">
             {variables.length === 0 ? (
                 <p className="m-0 text-xs text-secondary">
                     No variables yet. Add one, then read it as <code>{'{name}'}</code> in a SQL cell or as a plain
@@ -125,7 +125,7 @@ export function NotebookVariablesPanel({
                         {/* A grid, not a flex row: the type select sizes to its label, so on a flex
                             row every value input would start at a different x. Fixed tracks line
                             the values up down the column. */}
-                        <div className="grid grid-cols-[10rem_7rem_1fr_auto] items-center gap-x-2">
+                        <div className="grid grid-cols-[minmax(6rem,10rem)_7rem_minmax(0,1fr)_auto] items-center gap-x-2">
                             <LemonInput
                                 size="small"
                                 className="font-mono"
