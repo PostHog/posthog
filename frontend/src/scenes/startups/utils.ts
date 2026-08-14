@@ -5,7 +5,12 @@ import { dayjs } from 'lib/dayjs'
 import { PUBLIC_EMAIL_DOMAINS, YC_BATCHES } from './constants'
 
 export function getEmailDomain(email: string | null | undefined): string {
-    return email?.split('@')[1]?.toLowerCase() ?? ''
+    if (!email) {
+        return ''
+    }
+
+    const atIndex = email.lastIndexOf('@')
+    return atIndex === -1 || atIndex === email.length - 1 ? '' : email.slice(atIndex + 1).toLowerCase()
 }
 
 export function isPublicEmailDomain(email: string | null | undefined): boolean {

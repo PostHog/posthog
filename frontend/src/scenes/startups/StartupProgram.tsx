@@ -62,15 +62,16 @@ export function StartupProgram(): JSX.Element {
         isCurrentlyOnStartupPlan,
         wasPreviouslyOnStartupPlan,
         isAdminOrOwner,
-        isEmailDomainBlocked,
+        isAnnualPlanCustomer,
         isYC,
         isReferralProgram,
         referrerDisplayName,
+        shouldShowEmailDomainBlockedGate,
         user,
         ycBatchOptions,
         currentStartupProgramLabel,
     } = useValues(startupProgramLogic)
-    const { billing, billingLoading, isAnnualPlanCustomer, accountOwner } = useValues(billingLogic)
+    const { billing, billingLoading, accountOwner } = useValues(billingLogic)
     const { setStartupProgramValue } = useActions(startupProgramLogic)
 
     const currentProgramName = currentStartupProgramLabel === StartupProgramLabel.YC ? 'YC Program' : 'Startup Program'
@@ -413,7 +414,7 @@ export function StartupProgram(): JSX.Element {
                                             Return to PostHog
                                         </LemonButton>
                                     </div>
-                                ) : isEmailDomainBlocked ? (
+                                ) : shouldShowEmailDomainBlockedGate ? (
                                     <LemonBanner type="warning">
                                         <h3 className="mb-2">A company email is required</h3>
                                         <p>
