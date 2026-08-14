@@ -113,7 +113,7 @@ export function NotebookVariablesPanel({
         onChange(variables.map((variable, i) => (i === index ? { ...variable, ...patch } : variable)))
 
     return (
-        <div className="NotebookVariables flex flex-col gap-2 rounded border border-primary bg-surface-secondary p-2">
+        <div className="NotebookVariables flex max-w-2xl flex-col gap-2 rounded border border-primary bg-surface-secondary p-2">
             {variables.length === 0 ? (
                 <p className="m-0 text-xs text-secondary">
                     No variables yet. Add one, then read it as <code>{'{name}'}</code> in a SQL cell or as a plain
@@ -122,10 +122,13 @@ export function NotebookVariablesPanel({
             ) : (
                 variables.map((variable, index) => (
                     <div key={index} className="flex flex-col gap-1">
-                        <div className="flex items-center gap-2">
+                        {/* A grid, not a flex row: the type select sizes to its label, so on a flex
+                            row every value input would start at a different x. Fixed tracks line
+                            the values up down the column. */}
+                        <div className="grid grid-cols-[10rem_7rem_1fr_auto] items-center gap-x-2">
                             <LemonInput
                                 size="small"
-                                className="w-48 font-mono"
+                                className="font-mono"
                                 placeholder="variable_name"
                                 value={variable.name}
                                 disabled={disabled}
@@ -134,6 +137,7 @@ export function NotebookVariablesPanel({
                             />
                             <LemonSelect
                                 size="small"
+                                fullWidth
                                 value={variable.type}
                                 disabled={disabled}
                                 onChange={(type) =>
@@ -152,12 +156,14 @@ export function NotebookVariablesPanel({
                                 }))}
                                 aria-label={`Type of ${variable.name || `variable ${index + 1}`}`}
                             />
-                            {/* The name sits in an editable field, so it cannot label the value.
-                                A hidden label gives the control an accessible name of its own. */}
-                            <label htmlFor={`${idPrefix}-${index}`} className="sr-only">
-                                {`Value of ${variable.name || `variable ${index + 1}`}`}
-                            </label>
-                            <div className="flex-1">
+                            {/* Wider gap here than between name and type: it separates what the
+                                variable is from what it currently holds. */}
+                            <div className="ml-4">
+                                {/* The name sits in an editable field, so it cannot label the
+                                    value. A hidden label gives the control its own name. */}
+                                <label htmlFor={`${idPrefix}-${index}`} className="sr-only">
+                                    {`Value of ${variable.name || `variable ${index + 1}`}`}
+                                </label>
                                 <NotebookVariableValueInput
                                     variable={variable}
                                     controlId={`${idPrefix}-${index}`}
