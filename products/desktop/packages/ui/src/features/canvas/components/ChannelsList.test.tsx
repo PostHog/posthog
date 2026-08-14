@@ -22,6 +22,7 @@ const mocks = vi.hoisted(() => ({
   unreadSessions: {} as Record<string, number>,
   blockedSessions: {} as Record<string, number>,
   channelsLayout: true,
+  pathname: "/website",
   navigate: vi.fn(),
 }));
 
@@ -110,7 +111,7 @@ vi.mock("@posthog/ui/features/canvas/components/RenameChannelModal", () => ({
 }));
 vi.mock("@tanstack/react-router", () => ({
   useNavigate: () => mocks.navigate,
-  useRouterState: () => "/website",
+  useRouterState: () => mocks.pathname,
 }));
 
 import {
@@ -167,6 +168,7 @@ describe("ChannelsList", () => {
     mocks.unreadSessions = {};
     mocks.blockedSessions = {};
     mocks.channelsLayout = true;
+    mocks.pathname = "/website";
     // The pane store is module state: reset to its resting value so a test that
     // slides the slider can't hand the next one a pre-focused search box.
     showChannelPane();
@@ -204,6 +206,20 @@ describe("ChannelsList", () => {
 
     expect(useCurrentChannelStore.getState().currentChannelId).toBe(ENG.id);
     expect(mocks.navigate).not.toHaveBeenCalled();
+  });
+
+  it("highlights the current space instead of a stale main-window route", () => {
+    mocks.pathname = `/website/${ENG.id}`;
+    useCurrentChannelStore.setState({ currentChannelId: ME.id });
+
+    renderList();
+
+    expect(
+      screen.getByText("engineering").closest("button"),
+    ).not.toHaveAttribute("data-selected");
+    expect(
+      screen.getByText("personal space").closest("button"),
+    ).toHaveAttribute("data-selected", "true");
   });
 
   it("pins the personal space above the channels, with its ⌘1 shortcut", () => {
