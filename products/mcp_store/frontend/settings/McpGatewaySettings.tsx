@@ -10,7 +10,6 @@ import { GatewayMemberScene } from '../gateway/GatewayMemberScene'
 import { gatewayServerLogic } from '../gateway/gatewayServerLogic'
 import { GatewayServerScene } from '../gateway/GatewayServerScene'
 import { GatewayServersHome } from '../gateway/GatewayServersHome'
-import { GatewayServersSearch } from '../gateway/GatewayServersSearch'
 import { GatewayTeamAndAgents } from '../gateway/GatewayTeamAndAgents'
 import { GatewayTeamSettings } from '../gateway/GatewayTeamSettings'
 import { GatewayTab } from '../gateway/mcpGatewaySceneLogic'
@@ -45,10 +44,7 @@ export function McpGatewaySettings(): JSX.Element {
                 <GatewayServerScene id={detailId} onBack={() => closeDetail('servers')} />
             </BindLogic>
         ) : (
-            <div className="flex flex-col gap-4">
-                <GatewayServersSearch />
-                <GatewayServersHome onOpenServer={openServer} />
-            </div>
+            <GatewayServersHome onOpenServer={openServer} />
         )
     const teamContent =
         detailView === 'agent' && detailId ? (

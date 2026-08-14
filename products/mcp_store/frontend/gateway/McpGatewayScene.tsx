@@ -13,7 +13,6 @@ import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { GatewayAuditLog } from './GatewayAuditLog'
 import { GatewayRail } from './GatewayRail'
 import { GatewayServersHome } from './GatewayServersHome'
-import { GatewayServersSearch } from './GatewayServersSearch'
 import { GatewayTeamAndAgents } from './GatewayTeamAndAgents'
 import { GatewayTeamSettings } from './GatewayTeamSettings'
 import { GatewayTab, mcpGatewaySceneLogic } from './mcpGatewaySceneLogic'
@@ -49,7 +48,6 @@ export function McpGatewayScene(): JSX.Element {
                 description="Every MCP server your team runs through the gateway. Route people and agents through one control plane."
                 resourceType={{ type: sceneConfigurations[Scene.McpGateway].iconType || 'default_icon_type' }}
             />
-            {activeTab === 'servers' && <GatewayServersSearch />}
             <div className="flex items-start gap-6">
                 <GatewayRail />
                 <div className="min-w-0 flex-1">{availableTabs.includes(activeTab) ? tabContent[activeTab] : null}</div>

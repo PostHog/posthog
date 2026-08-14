@@ -22,6 +22,7 @@ import { urls } from 'scenes/urls'
 import { InstallCustomAuthTypeEnumApi } from '../generated/api.schemas'
 import { ServerIcon } from '../scene/icons'
 import { GatewayAddServerModal } from './GatewayAddServerModal'
+import { GatewayServersSearch } from './GatewayServersSearch'
 import { toProfileUser } from './gatewayUtils'
 import { GATEWAY_CATEGORY_LABELS, GatewayServerEntry, isTemplateOnlyServer, mcpGatewayLogic } from './mcpGatewayLogic'
 
@@ -101,6 +102,8 @@ export function GatewayServersHome({ onOpenServer }: { onOpenServer?: (serverId:
                     </LemonButton>
                 )}
             </div>
+
+            <GatewayServersSearch />
 
             <div className="flex items-center gap-2 flex-wrap">
                 <LemonButton
