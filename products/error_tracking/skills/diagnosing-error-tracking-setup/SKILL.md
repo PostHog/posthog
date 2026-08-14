@@ -30,7 +30,8 @@ Treat each field as a separate signal:
 - `remote_config_autocapture_enabled` is the published remote value. `null` means it could not be checked.
 - `recent_event_count` shows whether the project received any events during `recent_period_days`.
 - `recent_exception_count` shows whether those events included `$exception`.
-- `observed_sdks` identifies SDK libraries seen on recent events.
+- `last_event_at` and `last_exception_at` show the latest observed transport activity within that period.
+- `observed_sdks` identifies SDK libraries, their latest observed versions, and their latest event timestamps.
 - `has_issues` shows whether the project has grouped issues, including historical issues.
 - `warnings` contains supported conclusions and next actions, identified by `warning_code`.
 

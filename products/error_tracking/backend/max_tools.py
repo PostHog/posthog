@@ -59,8 +59,8 @@ class GetErrorTrackingSetupStatusTool(MaxTool):
 
         Use this tool when an issue search returns no results, or when the user asks whether error tracking is set up.
         It reports the project exception autocapture setting, the published remote config, whether grouped issues exist,
-        recent event and exception counts, and recently observed SDKs. It also identifies SDKs that require local
-        exception autocapture configuration that PostHog cannot verify from event data.
+        recent event and exception activity, and recently observed SDK versions. It also identifies SDKs that require
+        local exception autocapture configuration that PostHog cannot verify from event data.
     """).strip()
     args_schema: type[BaseModel] = GetErrorTrackingSetupStatusArgs
 
@@ -103,8 +103,17 @@ class GetErrorTrackingSetupStatusTool(MaxTool):
                 f"{status.recent_exception_count}."
             )
 
+        if status.last_event_at:
+            lines.append(f"Last event received: {status.last_event_at.isoformat()}.")
+        if status.last_exception_at:
+            lines.append(f"Last exception received: {status.last_exception_at.isoformat()}.")
+
         if status.observed_sdks:
-            observed = ", ".join(f"{sdk.library} ({sdk.event_count} events)" for sdk in status.observed_sdks)
+            observed = ", ".join(
+                f"{sdk.library} {sdk.latest_version or 'version unavailable'} "
+                f"({sdk.event_count} events, last seen {sdk.last_seen_at.isoformat()})"
+                for sdk in status.observed_sdks
+            )
             lines.append(f"Observed SDKs in the last {status.recent_period_days} days: {observed}.")
         else:
             lines.append(f"No supported SDKs were observed in the last {status.recent_period_days} days.")
@@ -122,10 +131,14 @@ class GetErrorTrackingSetupStatusTool(MaxTool):
             "recent_period_days": status.recent_period_days,
             "recent_event_count": status.recent_event_count,
             "recent_exception_count": status.recent_exception_count,
+            "last_event_at": status.last_event_at.isoformat() if status.last_event_at else None,
+            "last_exception_at": status.last_exception_at.isoformat() if status.last_exception_at else None,
             "observed_sdks": [
                 {
                     "library": sdk.library,
                     "event_count": sdk.event_count,
+                    "latest_version": sdk.latest_version,
+                    "last_seen_at": sdk.last_seen_at.isoformat(),
                     "autocapture_configuration": sdk.autocapture_configuration,
                     "local_option": sdk.local_option,
                 }

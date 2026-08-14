@@ -3023,7 +3023,7 @@
         }
     },
     "error-tracking-setup-status": {
-        "description": "Check whether the current project is configured for error tracking and receiving exception events. Returns the project autocapture setting, published remote config, grouped issue existence, recent event and exception counts, observed SDKs, and actionable warnings. Local SDK initialization cannot be observed directly, so use warnings and observed event data without claiming that a local option is enabled or disabled.",
+        "description": "Check whether the current project is configured for error tracking and receiving exception events. Returns the project autocapture setting, published remote config, grouped issue existence, recent event and exception activity, observed SDK versions, and actionable warnings. Local SDK initialization cannot be observed directly, so use warnings and observed event data without claiming that a local option is enabled or disabled.",
         "category": "Error tracking",
         "feature": "error_tracking",
         "summary": "Diagnose error tracking setup",

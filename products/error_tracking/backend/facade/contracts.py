@@ -246,6 +246,8 @@ class ErrorTrackingRecommendation:
 class ErrorTrackingObservedSDK:
     library: str
     event_count: int
+    latest_version: str | None
+    last_seen_at: datetime
     autocapture_configuration: Literal["project_setting", "local", "unknown"]
     local_option: str | None
 
@@ -265,5 +267,7 @@ class ErrorTrackingSetupStatus:
     recent_period_days: int
     recent_event_count: int | None
     recent_exception_count: int | None
+    last_event_at: datetime | None
+    last_exception_at: datetime | None
     observed_sdks: list[ErrorTrackingObservedSDK]
     warnings: list[ErrorTrackingSetupWarning]

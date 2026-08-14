@@ -1521,6 +1521,13 @@ export interface ErrorTrackingObservedSDKApi {
      * @minimum 0
      */
     event_count: number
+    /**
+     * SDK version on the most recent event from this library, or null when unavailable.
+     * @nullable
+     */
+    latest_version: string | null
+    /** Timestamp of the most recent event observed from this SDK library. */
+    last_seen_at: string
     /** Where exception autocapture is configured for this SDK.
      *
      * * `project_setting` - project_setting
@@ -1581,6 +1588,16 @@ export interface ErrorTrackingSetupStatusApi {
      * @nullable
      */
     recent_exception_count: number | null
+    /**
+     * Timestamp of the most recent event during the recent period, or null when none was received.
+     * @nullable
+     */
+    last_event_at: string | null
+    /**
+     * Timestamp of the most recent exception during the recent period, or null when none was received.
+     * @nullable
+     */
+    last_exception_at: string | null
     /** SDK libraries observed on events during the recent period. */
     observed_sdks: ErrorTrackingObservedSDKApi[]
     /** Setup warnings supported by observed project data. */

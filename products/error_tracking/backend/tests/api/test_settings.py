@@ -1,3 +1,5 @@
+from datetime import UTC, datetime
+
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
@@ -107,10 +109,14 @@ class TestErrorTrackingSettingsAPI(APIBaseTest):
             recent_period_days=7,
             recent_event_count=12,
             recent_exception_count=0,
+            last_event_at=datetime(2026, 8, 14, 12, 0, tzinfo=UTC),
+            last_exception_at=None,
             observed_sdks=[
                 contracts.ErrorTrackingObservedSDK(
                     library="posthog-node",
                     event_count=12,
+                    latest_version="5.49.0",
+                    last_seen_at=datetime(2026, 8, 14, 12, 0, tzinfo=UTC),
                     autocapture_configuration="local",
                     local_option="enableExceptionAutocapture",
                 )
@@ -137,6 +143,8 @@ class TestErrorTrackingSettingsAPI(APIBaseTest):
         self.assertEqual(response.status_code, expected_status)
         if expected_status == status.HTTP_200_OK:
             self.assertEqual(response.json()["recent_exception_count"], 0)
+            self.assertEqual(response.json()["last_event_at"], "2026-08-14T12:00:00Z")
+            self.assertEqual(response.json()["observed_sdks"][0]["latest_version"], "5.49.0")
             self.assertEqual(
                 response.json()["warnings"][0]["warning_code"],
                 "node_autocapture_requires_local_configuration",

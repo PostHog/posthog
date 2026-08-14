@@ -1,3 +1,5 @@
+from datetime import UTC, datetime, timedelta
+
 from posthog.test.base import ClickhouseTestMixin, NonAtomicBaseTest, _create_event, flush_persons_and_events
 
 from langchain_core.runnables import RunnableConfig
@@ -22,11 +24,13 @@ class TestGetErrorTrackingSetupStatusTool(ClickhouseTestMixin, NonAtomicBaseTest
             defaults={"config": {"autocaptureExceptions": True}},
         )
 
+        self.node_event_timestamp = (datetime.now(UTC) - timedelta(minutes=5)).replace(microsecond=0)
         _create_event(
             event="account_created",
             distinct_id="node-user",
             team=self.team,
             properties={"$lib": "posthog-node", "$lib_version": "5.48.1"},
+            timestamp=self.node_event_timestamp,
         )
         flush_persons_and_events()
 
@@ -55,10 +59,14 @@ class TestGetErrorTrackingSetupStatusTool(ClickhouseTestMixin, NonAtomicBaseTest
             "recent_period_days": 7,
             "recent_event_count": 1,
             "recent_exception_count": 0,
+            "last_event_at": self.node_event_timestamp.isoformat(),
+            "last_exception_at": None,
             "observed_sdks": [
                 {
                     "library": "posthog-node",
                     "event_count": 1,
+                    "latest_version": "5.48.1",
+                    "last_seen_at": self.node_event_timestamp.isoformat(),
                     "autocapture_configuration": "local",
                     "local_option": "enableExceptionAutocapture",
                 }
@@ -74,3 +82,41 @@ class TestGetErrorTrackingSetupStatusTool(ClickhouseTestMixin, NonAtomicBaseTest
                 }
             ],
         }
+
+    async def test_reports_latest_exception_transport_activity(self) -> None:
+        exception_timestamp = (datetime.now(UTC) - timedelta(minutes=1)).replace(microsecond=0)
+        _create_event(
+            event="$exception",
+            distinct_id="node-user",
+            team=self.team,
+            properties={"$lib": "posthog-node", "$lib_version": "5.49.0"},
+            timestamp=exception_timestamp,
+        )
+        flush_persons_and_events()
+
+        config = RunnableConfig()
+        tool = await GetErrorTrackingSetupStatusTool.create_tool_class(
+            team=self.team,
+            user=self.user,
+            state=AssistantState(messages=[]),
+            config=config,
+            context_manager=AssistantContextManager(team=self.team, user=self.user, config=config),
+        )
+
+        content, artifact = await tool._arun_impl()
+
+        assert f"Last event received: {exception_timestamp.isoformat()}" in content
+        assert f"Last exception received: {exception_timestamp.isoformat()}" in content
+        assert artifact["last_event_at"] == exception_timestamp.isoformat()
+        assert artifact["last_exception_at"] == exception_timestamp.isoformat()
+        assert artifact["observed_sdks"] == [
+            {
+                "library": "posthog-node",
+                "event_count": 2,
+                "latest_version": "5.49.0",
+                "last_seen_at": exception_timestamp.isoformat(),
+                "autocapture_configuration": "local",
+                "local_option": "enableExceptionAutocapture",
+            }
+        ]
+        assert artifact["warnings"] == []

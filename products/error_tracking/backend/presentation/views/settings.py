@@ -18,6 +18,13 @@ class ErrorTrackingObservedSDKSerializer(serializers.Serializer):
         min_value=0,
         help_text="Number of recent events observed from this SDK library.",
     )
+    latest_version = serializers.CharField(
+        allow_null=True,
+        help_text="SDK version on the most recent event from this library, or null when unavailable.",
+    )
+    last_seen_at = serializers.DateTimeField(
+        help_text="Timestamp of the most recent event observed from this SDK library.",
+    )
     autocapture_configuration = serializers.ChoiceField(
         choices=["project_setting", "local", "unknown"],
         help_text="Where exception autocapture is configured for this SDK.",
@@ -62,6 +69,14 @@ class ErrorTrackingSetupStatusSerializer(serializers.Serializer):
         min_value=0,
         allow_null=True,
         help_text="Exception events received during the recent period, or null when recent data is unavailable.",
+    )
+    last_event_at = serializers.DateTimeField(
+        allow_null=True,
+        help_text="Timestamp of the most recent event during the recent period, or null when none was received.",
+    )
+    last_exception_at = serializers.DateTimeField(
+        allow_null=True,
+        help_text="Timestamp of the most recent exception during the recent period, or null when none was received.",
     )
     observed_sdks = ErrorTrackingObservedSDKSerializer(
         many=True,

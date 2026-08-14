@@ -1,3 +1,4 @@
+from datetime import datetime
 from typing import Literal
 
 import structlog
@@ -17,38 +18,54 @@ from .contracts import ErrorTrackingObservedSDK, ErrorTrackingSetupStatus, Error
 logger = structlog.get_logger(__name__)
 
 _RECENT_PERIOD_DAYS = 7
-_SDK_CONFIGURATIONS: tuple[tuple[str, Literal["project_setting", "local", "unknown"], str | None], ...] = (
-    ("web", "project_setting", None),
-    ("posthog-node", "local", "enableExceptionAutocapture"),
-    ("posthog-python", "unknown", None),
-    ("posthog-react-native", "unknown", None),
-    ("posthog-ruby", "unknown", None),
-    ("posthog-ios", "unknown", None),
-    ("posthog-rs", "unknown", None),
-    ("posthog-android", "unknown", None),
-    ("posthog-go", "unknown", None),
-    ("posthog-php", "unknown", None),
-    ("posthog-flutter", "unknown", None),
-    ("posthog-java", "unknown", None),
+
+
+@dataclass(frozen=True)
+class _SDKTransportConfiguration:
+    library: str
+    autocapture_configuration: Literal["project_setting", "local", "unknown"]
+    local_option: str | None
+
+
+_SDK_CONFIGURATIONS = (
+    _SDKTransportConfiguration(library="web", autocapture_configuration="project_setting", local_option=None),
+    _SDKTransportConfiguration(
+        library="posthog-node", autocapture_configuration="local", local_option="enableExceptionAutocapture"
+    ),
+    _SDKTransportConfiguration(library="posthog-python", autocapture_configuration="unknown", local_option=None),
+    _SDKTransportConfiguration(library="posthog-react-native", autocapture_configuration="unknown", local_option=None),
+    _SDKTransportConfiguration(library="posthog-ruby", autocapture_configuration="unknown", local_option=None),
+    _SDKTransportConfiguration(library="posthog-ios", autocapture_configuration="unknown", local_option=None),
+    _SDKTransportConfiguration(library="posthog-rs", autocapture_configuration="unknown", local_option=None),
+    _SDKTransportConfiguration(library="posthog-android", autocapture_configuration="unknown", local_option=None),
+    _SDKTransportConfiguration(library="posthog-go", autocapture_configuration="unknown", local_option=None),
+    _SDKTransportConfiguration(library="posthog-php", autocapture_configuration="unknown", local_option=None),
+    _SDKTransportConfiguration(library="posthog-flutter", autocapture_configuration="unknown", local_option=None),
+    _SDKTransportConfiguration(library="posthog-java", autocapture_configuration="unknown", local_option=None),
 )
+_SDK_CONFIGURATIONS_BY_LIBRARY = {sdk.library: sdk for sdk in _SDK_CONFIGURATIONS}
+_SUPPORTED_SDK_LIBRARIES = ", ".join(f"'{sdk.library}'" for sdk in _SDK_CONFIGURATIONS)
 _RECENT_USAGE_QUERY = parse_select("""
     SELECT
         count() AS event_count,
         countIf(event = '$exception') AS exception_count,
-        countIf(properties.$lib = 'web') AS web_events,
-        countIf(properties.$lib = 'posthog-node') AS node_events,
-        countIf(properties.$lib = 'posthog-python') AS python_events,
-        countIf(properties.$lib = 'posthog-react-native') AS react_native_events,
-        countIf(properties.$lib = 'posthog-ruby') AS ruby_events,
-        countIf(properties.$lib = 'posthog-ios') AS ios_events,
-        countIf(properties.$lib = 'posthog-rs') AS rust_events,
-        countIf(properties.$lib = 'posthog-android') AS android_events,
-        countIf(properties.$lib = 'posthog-go') AS go_events,
-        countIf(properties.$lib = 'posthog-php') AS php_events,
-        countIf(properties.$lib = 'posthog-flutter') AS flutter_events,
-        countIf(properties.$lib = 'posthog-java') AS java_events
+        if(count() > 0, max(timestamp), NULL) AS last_event_at,
+        if(countIf(event = '$exception') > 0, maxIf(timestamp, event = '$exception'), NULL) AS last_exception_at
     FROM events
     WHERE timestamp >= now() - INTERVAL 7 DAY
+""")
+_RECENT_SDK_USAGE_QUERY = parse_select(f"""
+    SELECT
+        properties.$lib AS library,
+        count() AS event_count,
+        argMax(properties.$lib_version, timestamp) AS latest_version,
+        max(timestamp) AS last_seen_at
+    FROM events
+    WHERE timestamp >= now() - INTERVAL 7 DAY
+      AND properties.$lib IN ({_SUPPORTED_SDK_LIBRARIES})
+    GROUP BY library
+    ORDER BY library ASC
+    LIMIT {len(_SDK_CONFIGURATIONS)}
 """)
 
 
@@ -56,6 +73,8 @@ _RECENT_USAGE_QUERY = parse_select("""
 class _RecentErrorTrackingUsage:
     event_count: int
     exception_count: int
+    last_event_at: datetime | None
+    last_exception_at: datetime | None
     observed_sdks: list[ErrorTrackingObservedSDK]
 
 
@@ -67,6 +86,18 @@ def _get_remote_config_autocapture(team_id: int) -> bool | None:
     return value if isinstance(value, bool) else None
 
 
+def _as_int(value: object) -> int:
+    if not isinstance(value, int):
+        raise ValueError("Expected an integer in error tracking setup query results")
+    return value
+
+
+def _as_optional_datetime(value: object) -> datetime | None:
+    if value is not None and not isinstance(value, datetime):
+        raise ValueError("Expected a timestamp in error tracking setup query results")
+    return value
+
+
 def _get_recent_usage(team: Team) -> _RecentErrorTrackingUsage:
     with tags_context(
         product=Product.ERROR_TRACKING,
@@ -76,21 +107,37 @@ def _get_recent_usage(team: Team) -> _RecentErrorTrackingUsage:
         query_type="error_tracking_setup_status",
     ):
         response = execute_hogql_query(_RECENT_USAGE_QUERY, team, query_type="error_tracking_setup_status")
+        sdk_response = execute_hogql_query(_RECENT_SDK_USAGE_QUERY, team, query_type="error_tracking_setup_status_sdks")
 
-    row = response.results[0] if response.results else [0] * (len(_SDK_CONFIGURATIONS) + 2)
-    observed_sdks = [
-        ErrorTrackingObservedSDK(
-            library=library,
-            event_count=int(row[index]),
-            autocapture_configuration=configuration,
-            local_option=local_option,
+    row = response.results[0] if response.results else [0, 0, None, None]
+    observed_sdks: list[ErrorTrackingObservedSDK] = []
+    for sdk_row in sdk_response.results or []:
+        library = str(sdk_row[0])
+        sdk = _SDK_CONFIGURATIONS_BY_LIBRARY.get(library)
+        if sdk is None:
+            continue
+
+        last_seen_at = sdk_row[3]
+        if not isinstance(last_seen_at, datetime):
+            raise ValueError(f"Missing last seen timestamp for observed SDK {sdk.library}")
+
+        latest_version = sdk_row[2]
+        observed_sdks.append(
+            ErrorTrackingObservedSDK(
+                library=sdk.library,
+                event_count=_as_int(sdk_row[1]),
+                latest_version=str(latest_version) if latest_version else None,
+                last_seen_at=last_seen_at,
+                autocapture_configuration=sdk.autocapture_configuration,
+                local_option=sdk.local_option,
+            )
         )
-        for index, (library, configuration, local_option) in enumerate(_SDK_CONFIGURATIONS, start=2)
-        if int(row[index]) > 0
-    ]
+
     return _RecentErrorTrackingUsage(
-        event_count=int(row[0]),
-        exception_count=int(row[1]),
+        event_count=_as_int(row[0]),
+        exception_count=_as_int(row[1]),
+        last_event_at=_as_optional_datetime(row[2]),
+        last_exception_at=_as_optional_datetime(row[3]),
         observed_sdks=observed_sdks,
     )
 
@@ -128,6 +175,8 @@ def get_error_tracking_setup_status(team: Team) -> ErrorTrackingSetupStatus:
         recent_period_days=_RECENT_PERIOD_DAYS,
         recent_event_count=recent_usage.event_count if recent_usage else None,
         recent_exception_count=recent_usage.exception_count if recent_usage else None,
+        last_event_at=recent_usage.last_event_at if recent_usage else None,
+        last_exception_at=recent_usage.last_exception_at if recent_usage else None,
         observed_sdks=recent_usage.observed_sdks if recent_usage else [],
         warnings=warnings,
     )
