@@ -1,5 +1,4 @@
 import uuid
-from collections import Counter
 from typing import Annotated, Any, cast
 from zoneinfo import ZoneInfo
 
@@ -59,6 +58,7 @@ from posthog.tasks.alerts.utils import (
 from posthog.utils import relative_date_parse
 
 from products.alerts.backend.api.alert_schedule_restriction import AlertScheduleRestriction
+from products.alerts.backend.destination_configs import DestinationType
 from products.alerts.backend.destinations import count_active_alert_destinations
 from products.alerts.backend.evaluation.contract import AlertExtractionError
 from products.alerts.backend.evaluation.detector import simulate_detector_on_insight
@@ -219,19 +219,16 @@ class ThresholdSerializer(serializers.ModelSerializer):
 
 
 def _destination_deliveries(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    # Same-named destinations (two Discord servers) need a discriminator; use the hog
-    # function id, never the webhook URL, which is the credential.
-    labels = [row.get("target") or "Destination" for row in rows]
-    colliding = {label for label, count in Counter(labels).items() if count > 1}
-    return [
-        {
-            **row,
-            "display_label": (
-                f"{label} · {row['target_id'][-4:]}" if label in colliding and row.get("target_id") else label
-            ),
-        }
-        for row, label in zip(rows, labels)
-    ]
+    # Only Slack names its own channel; the rest repeat a bare type name, so carry the hog
+    # function id to tell two apart — never the webhook URL, which is the credential.
+    labelled = []
+    for row in rows:
+        label = row.get("target") or "Destination"
+        target_id = row.get("target_id")
+        if target_id and row.get("template") != DestinationType.SLACK.value:
+            label = f"{label} · {target_id[-4:]}"
+        labelled.append({**row, "display_label": label})
+    return labelled
 
 
 class AlertDeliverySerializer(serializers.Serializer):

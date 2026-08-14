@@ -93,7 +93,7 @@ trendsAlert.checks![trendsAlert.checks!.length - 1].deliveries = [
     { channel: 'email', target: 'alerts@example.com', status: 'accepted', display_label: 'Email: alerts@example.com' },
     {
         channel: 'hog_function',
-        target: '#eng-alerts',
+        target: 'Slack #eng-alerts',
         template: 'slack',
         status: 'accepted',
         display_label: 'Slack #eng-alerts',

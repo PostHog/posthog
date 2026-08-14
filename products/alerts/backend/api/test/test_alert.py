@@ -596,7 +596,7 @@ class TestAlert(APIBaseTest, QueryMatchingTest):
                 True,
             ),
             (
-                "same_named_destinations_get_an_id_suffix",
+                "non_slack_destinations_carry_an_id_suffix",
                 {
                     "users": [],
                     "destinations": [
@@ -610,9 +610,9 @@ class TestAlert(APIBaseTest, QueryMatchingTest):
                         },
                         {
                             "channel": "hog_function",
-                            "target": "Discord",
+                            "target": "Webhook example.com",
                             "target_id": "hf-bbbb9b17",
-                            "template": "discord",
+                            "template": "webhook",
                             "status": "accepted",
                             "at": "2026-08-11T00:00:00+00:00",
                         },
@@ -638,12 +638,12 @@ class TestAlert(APIBaseTest, QueryMatchingTest):
                     },
                     {
                         "channel": "hog_function",
-                        "target": "Discord",
+                        "target": "Webhook example.com",
                         "target_id": "hf-bbbb9b17",
-                        "template": "discord",
+                        "template": "webhook",
                         "status": "accepted",
                         "at": "2026-08-11T00:00:00+00:00",
-                        "display_label": "Discord · 9b17",
+                        "display_label": "Webhook example.com · 9b17",
                     },
                     {
                         "channel": "hog_function",
