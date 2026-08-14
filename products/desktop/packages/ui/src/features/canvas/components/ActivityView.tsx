@@ -18,6 +18,9 @@ import {
   EmptyMedia,
   EmptyTitle,
   Spinner,
+  Tabs,
+  TabsList,
+  TabsTrigger,
 } from "@posthog/quill";
 import { formatRelativeTimeShort } from "@posthog/shared";
 import { ANALYTICS_EVENTS } from "@posthog/shared/analytics-events";
@@ -53,14 +56,33 @@ import {
   navigateToTaskDetail,
 } from "@posthog/ui/router/navigationBridge";
 import { track } from "@posthog/ui/shell/analytics";
-import { Text } from "@radix-ui/themes";
 import type { ReactNode } from "react";
-import { useCallback, useEffect, useMemo } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   activityReadPayload,
+  type ActivityFeedView,
+  getActivityItemsForView,
   getUnreadActivityItems,
   markLoadedReadLabel,
 } from "./activityFeed";
+
+const ACTIVITY_FEED_VIEWS: readonly { value: ActivityFeedView; label: string }[] = [
+  { value: "all", label: "All" },
+  { value: "you", label: "You" },
+  { value: "agent", label: "Agent" },
+  { value: "others", label: "Others" },
+];
+
+function emptyActivityTitle(
+  view: ActivityFeedView,
+  unreadsOnly: boolean,
+): string {
+  if (unreadsOnly) return "No unread activity";
+  if (view === "you") return "No activity from you";
+  if (view === "agent") return "No activity from the agent";
+  if (view === "others") return "No activity from others";
+  return "No activity yet";
+}
 
 function ChannelSuffix({ channelName }: { channelName: string | null }) {
   if (!channelName) return null;
@@ -125,9 +147,9 @@ export function activityHeadline(
     case "mention":
       return (
         <>
-          <Text as="span" size="1" weight="medium">
+          <span className="font-medium text-xs">
             {userDisplayName(item.author)}
-          </Text>{" "}
+          </span>{" "}
           mentioned you
           <ChannelSuffix channelName={item.channelName} />
         </>
@@ -135,9 +157,9 @@ export function activityHeadline(
     case "thread_reply":
       return (
         <>
-          <Text as="span" size="1" weight="medium">
+          <span className="font-medium text-xs">
             {userDisplayName(item.author)}
-          </Text>{" "}
+          </span>{" "}
           replied to a thread you participated in
           <ChannelSuffix channelName={item.channelName} />
         </>
@@ -145,9 +167,9 @@ export function activityHeadline(
     case "owned_item_comment":
       return (
         <>
-          <Text as="span" size="1" weight="medium">
+          <span className="font-medium text-xs">
             {userDisplayName(item.author)}
-          </Text>{" "}
+          </span>{" "}
           commented on your {ownedItemName(item)}
           <ChannelSuffix channelName={item.channelName} />
         </>
@@ -265,23 +287,21 @@ export function ActivityRow({
         </span>
         <span className="min-w-0 flex-1">
           <span className="flex items-baseline gap-2">
-            <Text
-              size="1"
-              weight={item.isUnread ? "medium" : "regular"}
-              className="truncate"
+            <span
+              className={`truncate text-xs ${item.isUnread ? "font-medium" : ""}`}
             >
               {activityHeadline(item, currentUser?.email)}
-            </Text>
+            </span>
             {item.isUnread && !compact && <Badge variant="info">New</Badge>}
             {!compact && (
-              <Text size="1" className="shrink-0 text-muted-foreground">
+              <span className="shrink-0 text-xs text-muted-foreground">
                 {formatRelativeTimeShort(item.activityAt)}
-              </Text>
+              </span>
             )}
           </span>
-          <Text size="1" className="block truncate text-muted-foreground">
+          <span className="block truncate text-xs text-muted-foreground">
             {item.taskTitle}
-          </Text>
+          </span>
           {item.snippet && !compact && (
             <MentionText
               content={item.snippet}
@@ -292,12 +312,9 @@ export function ActivityRow({
         </span>
       </button>
       {compact && (
-        <Text
-          size="1"
-          className="pointer-events-none absolute top-1.5 right-2 text-muted-foreground"
-        >
+        <span className="pointer-events-none absolute top-1.5 right-2 text-xs text-muted-foreground">
           {formatRelativeTimeShort(item.activityAt)}
-        </Text>
+        </span>
       )}
       {item.isUnread && (
         <Button
@@ -348,13 +365,21 @@ export function ActivityView() {
   const { mutate: markTasksRead, isPending: isMarkingRead } =
     useMarkTaskActivityRead();
   const visibleItems = items;
+  const [view, setView] = useState<ActivityFeedView>("all");
+  const viewItems = useMemo(
+    () => getActivityItemsForView(visibleItems, view, currentUser?.email),
+    [currentUser?.email, view, visibleItems],
+  );
   const unreadItems = useMemo(
-    () => getUnreadActivityItems(visibleItems),
-    [visibleItems],
+    () => getUnreadActivityItems(viewItems),
+    [viewItems],
   );
   const unreadsOnly = useActivityFilterStore((state) => state.unreadsOnly);
-  const shownItems = unreadsOnly ? unreadItems : visibleItems;
-  const visibleUnreadCount = unreadCount;
+  const shownItems = unreadsOnly ? unreadItems : viewItems;
+  const visibleUnreadCount =
+    view === "all"
+      ? unreadCount
+      : unreadItems.length + (hasNextPage ? 1 : 0);
   // Opening a row is what marks it read. The server does the same when the task is
   // reached any other way, so the feed converges either way.
   const markRead = useCallback(
@@ -377,6 +402,31 @@ export function ActivityView() {
       surface: "activity",
     });
   }, []);
+  const handleViewChange = useCallback((next: string) => {
+    const nextView = next as ActivityFeedView;
+    setView(nextView);
+    track(ANALYTICS_EVENTS.CHANNEL_ACTION, {
+      action_type: "activity_tab_change",
+      surface: "activity",
+      tab: nextView,
+    });
+  }, []);
+
+  const activityTabs = (
+    <Tabs value={view} onValueChange={handleViewChange}>
+      <TabsList variant="line" aria-label="Activity views" className="h-auto gap-0.5">
+        {ACTIVITY_FEED_VIEWS.map((activityView) => (
+          <TabsTrigger
+            key={activityView.value}
+            value={activityView.value}
+            className="px-2.5 py-2"
+          >
+            {activityView.label}
+          </TabsTrigger>
+        ))}
+      </TabsList>
+    </Tabs>
+  );
 
   const markAllReadButton = (
     <Button
@@ -421,7 +471,7 @@ export function ActivityView() {
               <BellIcon size={20} />
             </EmptyMedia>
             <EmptyTitle>
-              {unreadsOnly ? "No unread activity" : "No activity yet"}
+              {emptyActivityTitle(view, unreadsOnly)}
             </EmptyTitle>
             <EmptyDescription>
               {unreadsOnly
@@ -464,7 +514,7 @@ export function ActivityView() {
                 </PageHeaderChip>
               )}
               <PageHeaderActions>
-                {unreadCount > 0 && markAllReadButton}
+                {unreadItems.length > 0 && markAllReadButton}
                 <ActivityUnreadsToggle />
               </PageHeaderActions>
             </PageHeaderTitleRow>
@@ -472,6 +522,7 @@ export function ActivityView() {
               Task updates and comment notifications across spaces.
             </PageHeaderDescription>
           </PageHeaderHeading>
+          {activityTabs}
         </PageHeader>
         <div className="min-h-0 flex-1 overflow-y-auto">
           <div className="mx-auto w-full max-w-[680px] px-4 py-6">{feed}</div>
@@ -485,19 +536,18 @@ export function ActivityView() {
       <div className="mx-auto w-full max-w-[680px] px-4 py-6">
         <div className="flex items-start justify-between gap-4">
           <div>
-            <Text size="5" weight="bold" className="block">
-              Activity
-            </Text>
-            <Text size="2" className="block text-muted-foreground">
+            <h1 className="text-xl font-bold">Activity</h1>
+            <p className="text-sm text-muted-foreground">
               Task updates and comment notifications across{" "}
               {spacesLayout ? "spaces" : "channels"}.
-            </Text>
+            </p>
           </div>
           <div className="flex shrink-0 items-center gap-2">
-            {unreadCount > 0 && markAllReadButton}
+            {unreadItems.length > 0 && markAllReadButton}
             <ActivityUnreadsToggle />
           </div>
         </div>
+        <div className="mt-2">{activityTabs}</div>
         <div className="mt-4">{feed}</div>
       </div>
     </div>
