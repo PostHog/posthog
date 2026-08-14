@@ -12,7 +12,7 @@ import posthoganalytics
 from asgiref.sync import async_to_sync
 from drf_spectacular.utils import extend_schema
 from rest_framework import mixins, serializers, viewsets
-from rest_framework.exceptions import NotFound, ValidationError
+from rest_framework.exceptions import NotFound, PermissionDenied, ValidationError
 from rest_framework.request import Request
 from temporalio.common import RetryPolicy, SearchAttributePair, TypedSearchAttributes, WorkflowIDReusePolicy
 
@@ -215,7 +215,28 @@ class ExportedAssetSerializer(UserAccessControlSerializerMixin, serializers.Mode
 
     def create(self, validated_data: dict, *args: Any, **kwargs: Any) -> ExportedAsset:
         request = self.context["request"]
+        self._assert_may_export_session_recording(validated_data)
         return self._create_asset(validated_data, user=request.user, reason=None)
+
+    def _assert_may_export_session_recording(self, validated_data: dict) -> None:
+        """Rendering a recording export must need the access that viewing the recording needs."""
+        session_recording_id = (validated_data.get("export_context") or {}).get("session_recording_id")
+        user_access_control = self.user_access_control
+        if not session_recording_id or user_access_control is None:
+            return
+
+        from posthog.session_recordings.models.session_recording import SessionRecording
+
+        recording = SessionRecording.objects.filter(
+            team_id=validated_data["team_id"], session_id=session_recording_id
+        ).first()
+        if recording is not None:
+            allowed = user_access_control.check_access_level_for_object(recording, required_level="viewer")
+        else:
+            allowed = user_access_control.check_access_level_for_resource("session_recording", required_level="viewer")
+
+        if not allowed:
+            raise PermissionDenied("You do not have access to this session recording.")
 
     def _create_asset(
         self,
@@ -518,14 +539,17 @@ class ExportedAssetViewSet(
 
         # Both can be set on one asset, and the renderer prefers the insight, so checking only the
         # first non-null one would let an accessible dashboard authorize an inaccessible insight.
-        authorizing_objects = [related for related in (instance.dashboard, instance.insight) if related is not None]
-        for related in authorizing_objects:
-            if not self.user_access_control.check_access_level_for_object(related, required_level="viewer"):
+        for related in (instance.dashboard, instance.insight):
+            if related is not None and not self.user_access_control.check_access_level_for_object(
+                related, required_level="viewer"
+            ):
                 raise NotFound()
 
-        if authorizing_objects or not session_recording_id:
+        if not session_recording_id:
             return instance
 
+        # Reached even when a dashboard or insight authorized above: an asset carrying both renders
+        # the recording too, so a viewable dashboard must not stand in for access to it.
         from posthog.session_recordings.models.session_recording import SessionRecording
 
         recording = SessionRecording.objects.filter(team_id=instance.team_id, session_id=session_recording_id).first()
@@ -535,11 +559,11 @@ class ExportedAssetViewSet(
         elif instance.created_by_id != self.request.user.id:
             # No SessionRecording row — cannot run object-level RBAC; still enforce the team's
             # session_recording resource default for other users so detail/content are not fail-open.
-            # The creator is exempt from this fallback only: they necessarily had the access required
-            # to create the export, so retrieval must not be stricter than creation — otherwise a
-            # session_recording default below viewer 404s the very user who just took the screenshot,
-            # surfacing as an "Export complete!" toast followed by a blank error page. Explicit
-            # object-level denies (the branch above) still apply to the creator once a
+            # The creator is exempt from this fallback only, because _assert_may_export_session_recording
+            # ran the same check when they created the export, so retrieval must not be stricter than
+            # creation — otherwise a session_recording default below viewer 404s the very user who just
+            # took the screenshot, surfacing as an "Export complete!" toast followed by a blank error
+            # page. Explicit object-level denies (the branch above) still apply to the creator once a
             # SessionRecording row exists.
             if not self.user_access_control.check_access_level_for_resource(
                 "session_recording", required_level="viewer"
