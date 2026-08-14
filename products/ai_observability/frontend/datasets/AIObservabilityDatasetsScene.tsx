@@ -134,7 +134,8 @@ export function AIObservabilityDatasetsScene(): JSX.Element {
         <SceneContent>
             <SceneTitleSection
                 name="Datasets"
-                description="Manage datasets for testing and evaluation."
+                description="Create and manage datasets to test changes and evaluate your AI outputs. [Learn more](https://posthog.com/docs/ai-evals/datasets)"
+                markdown
                 resourceType={{ type: 'llm_datasets' }}
             />
             <div className="flex gap-x-4 gap-y-2 items-center flex-wrap py-4 -mt-4 mb-4 border-b justify-between">

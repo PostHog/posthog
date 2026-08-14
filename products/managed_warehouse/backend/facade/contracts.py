@@ -18,13 +18,17 @@ from enum import StrEnum
 from typing import Any
 from uuid import UUID
 
+from posthog.dataclasses import frozen
+
 __all__ = [
     "CPUnavailableError",
     "DuckgresQueryServerConfig",
     "DuckgresStoredBucketConfig",
     "DuckgresStoredServerConfig",
     "DuckLakeCatalogConnectionConfig",
+    "DuckLakeCompiledQuery",
     "DuckLakeQueryResult",
+    "DuckLakeS3Secret",
     "DuckLakeTableResult",
     "ManagedWarehouseBackfillState",
     "ManagedWarehouseProvisionStatus",
@@ -35,6 +39,7 @@ __all__ = [
     "ManagedWarehouseTableNames",
     "ManagedWarehouseTeamMembership",
     "ServiceCredential",
+    "ServiceCredentialConnect",
     "ServiceCredentialUnavailable",
 ]
 
@@ -43,23 +48,49 @@ class CPUnavailableError(RuntimeError):
     pass
 
 
-@dataclass(frozen=True)
-class ServiceCredential:
-    """A team-scoped credential minted by the duckgres control plane, for one
-    run's new duckgres connections (RDS-IAM pattern: short-lived, scoped,
-    disposable — see duckgres/CLAUDE.md "Service Credentials").
+@frozen
+class ServiceCredentialConnect:
+    """Where to dial for a minted service credential, returned by the CP on
+    every successful mint (see duckgres/CLAUDE.md "Service Credentials").
 
-    ``password`` is empty when the CP REUSED a still-valid grant (`rotated`
-    is False): callers that already hold the credential keep using it;
-    callers that don't must re-mint with ``force_rotate=True``.
+    The host is the TLS-pinned per-org ingress (``<org-id>.dw.us.postwh.com``);
+    the caller's network resolves it (AWS PrivateLink for dagster) — duckgres
+    is never in the resolution path. Carrying these on the credential is what
+    lets service-credential connections stop reading host/port/database from
+    the stored ``DuckgresServer`` row.
     """
 
-    username: str
+    host: str
+    port: int
+    database: str
+    sslmode: str
+
+
+@dataclass(frozen=True)
+class ServiceCredential:
+    """An org-scoped per-credential grant minted by the duckgres control
+    plane, for one run's new duckgres connections (RDS-IAM pattern:
+    short-lived, scoped, disposable — see duckgres/CLAUDE.md "Service
+    Credentials").
+
+    Each mint creates its own server-side grant row, so minting never
+    disturbs sessions created by other mints. ``principal`` is audit metadata
+    and does not select an existing grant. ``credential_id`` is the
+    CP-generated identifier (``svc_<24 random hex>``); it is not a secret and
+    may be logged. Callers retain it to refresh the credential they minted.
+    Every successful mint and refresh includes ``credential_secret``.
+
+    ``connect`` carries the CP-issued dial target for the credential and is
+    REQUIRED on every successful mint — a mint response without it is an
+    older CP than the contract and must be rejected at mint time.
+    """
+
+    credential_id: str
     # repr=False: a dataclass repr lands credentials into any traceback,
     # pytest assertion diff, or log line that stringifies the object.
-    password: str = field(repr=False)
+    credential_secret: str = field(repr=False)
     expires_at: datetime
-    rotated: bool
+    connect: ServiceCredentialConnect
 
 
 class ServiceCredentialUnavailable(RuntimeError):
@@ -190,6 +221,35 @@ class ManagedWarehouseSourceJobRecord:
     workflow_id: str | None
     workflow_run_id: str | None
     last_completed_at: datetime | None = None
+
+
+@dataclass(frozen=True, kw_only=True)
+class DuckLakeS3Secret:
+    """One temporary DuckDB S3 secret, scoped to a single self-managed table's object path."""
+
+    name: str
+    key_id: str = field(repr=False)
+    secret: str = field(repr=False)
+    region: str
+    scope: str
+    use_ssl: bool
+    url_style: str
+    endpoint: str | None = None
+
+
+@dataclass(frozen=True, kw_only=True)
+class DuckLakeCompiledQuery:
+    """A HogQL query compiled to DuckDB SQL, with the secrets its self-managed tables need.
+
+    ``s3_secrets`` covers only the self-managed tables the compiled schema still exposed after
+    warehouse access control, so a caller cannot install credentials for a table its query was
+    not allowed to read.
+    """
+
+    sql: str
+    values: dict[str, Any]
+    hogql: str
+    s3_secrets: tuple[DuckLakeS3Secret, ...] = ()
 
 
 @dataclass

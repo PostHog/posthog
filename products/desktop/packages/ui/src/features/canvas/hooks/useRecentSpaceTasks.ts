@@ -2,7 +2,7 @@ import {
   buildChannelItems,
   type ChannelItemModel,
 } from "@posthog/core/canvas/channelItems";
-import type { Task } from "@posthog/shared/domain-types";
+import type { Task, UserBasic } from "@posthog/shared/domain-types";
 import { useArchivedTaskIds } from "@posthog/ui/features/archive/useArchivedTaskIds";
 import { useOptionalAuthenticatedClient } from "@posthog/ui/features/auth/authClient";
 import { AUTH_SCOPED_QUERY_META } from "@posthog/ui/features/auth/useCurrentUser";
@@ -13,7 +13,7 @@ import {
 } from "@posthog/ui/features/canvas/hooks/useUnreadSessionCount";
 import { usePinnedTasks } from "@posthog/ui/features/sidebar/usePinnedTasks";
 import { useTaskViewed } from "@posthog/ui/features/sidebar/useTaskViewed";
-import { useQueries, useQueryClient } from "@tanstack/react-query";
+import { useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useCallback, useMemo, useRef } from "react";
 import {
   SPACE_QUERY_GC_TIME_MS,
@@ -45,6 +45,30 @@ interface SpaceTaskPage {
 }
 
 const NO_PAGE: SpaceTaskPage = { tasks: [], count: 0 };
+
+/**
+ * One space's page, as every caller has to ask for it: the tree's `useQueries`,
+ * the hover prefetch, and the space card. Same key and same `staleTime`, so a
+ * warm cache is a no-op rather than a second request for the same rows.
+ */
+function spaceTaskPageQuery(
+  client: ReturnType<typeof useOptionalAuthenticatedClient>,
+  spaceId: string,
+) {
+  return {
+    queryKey: spaceTreeTasksQueryKey(spaceId),
+    queryFn: async (): Promise<SpaceTaskPage> => {
+      if (!client) throw new Error("Not authenticated");
+      return (await client.getTasksPage({
+        channel: spaceId,
+        limit: TREE_FETCH_LIMIT,
+      })) as SpaceTaskPage;
+    },
+    gcTime: SPACE_QUERY_GC_TIME_MS,
+    meta: AUTH_SCOPED_QUERY_META,
+    staleTime: SPACE_QUERY_STALE_TIME_MS,
+  };
+}
 
 /** A space's rows: the newest few, and how many sessions it holds in all. */
 export interface SpaceTasks {
@@ -154,19 +178,9 @@ export function useRecentSpaceTasks(
 
   const pagePerSpace = useQueries({
     queries: spaceIds.map((spaceId) => ({
-      queryKey: spaceTreeTasksQueryKey(spaceId),
-      queryFn: async (): Promise<SpaceTaskPage> => {
-        if (!client) throw new Error("Not authenticated");
-        return (await client.getTasksPage({
-          channel: spaceId,
-          limit: TREE_FETCH_LIMIT,
-        })) as SpaceTaskPage;
-      },
+      ...spaceTaskPageQuery(client, spaceId),
       enabled: !!client,
-      gcTime: SPACE_QUERY_GC_TIME_MS,
-      meta: AUTH_SCOPED_QUERY_META,
       refetchInterval: SPACE_TREE_POLL_INTERVAL_MS,
-      staleTime: SPACE_QUERY_STALE_TIME_MS,
     })),
     combine: combineTaskPages,
   });
@@ -246,19 +260,86 @@ export function usePrefetchSpaceTasks(): (spaceId: string) => void {
   return useCallback(
     (spaceId: string) => {
       if (!client) return;
-      void queryClient.prefetchQuery({
-        queryKey: spaceTreeTasksQueryKey(spaceId),
-        queryFn: async (): Promise<SpaceTaskPage> =>
-          (await client.getTasksPage({
-            channel: spaceId,
-            limit: TREE_FETCH_LIMIT,
-          })) as SpaceTaskPage,
-        gcTime: SPACE_QUERY_GC_TIME_MS,
-        meta: AUTH_SCOPED_QUERY_META,
-        // Same staleTime as the live query, so a warm cache is a no-op.
-        staleTime: SPACE_QUERY_STALE_TIME_MS,
-      });
+      void queryClient.prefetchQuery(spaceTaskPageQuery(client, spaceId));
     },
     [client, queryClient],
   );
+}
+
+/** What a space's card says about it beyond the counts its row already has. */
+export interface SpaceOverview {
+  /** Who has been working here, creator first. Capped by `peopleLimit`. */
+  people: UserBasic[];
+  /**
+   * Sessions in the space, by the same reckoning the tree's total uses, or
+   * `null` until the page arrives — a space's count is not zero just because
+   * nothing has been fetched yet.
+   */
+  total: number | null;
+}
+
+const NO_OVERVIEW: SpaceOverview = { people: [], total: null };
+
+/**
+ * A space's people and its session count, off the same page the tree draws its
+ * rows from — which the row's own hover has already warmed by the time a card
+ * opens over it, so this costs no request of its own.
+ *
+ * The people are who has been working here, not a membership list: the backend
+ * has no such list, and the page is the newest `TREE_FETCH_LIMIT` sessions
+ * rather than the space's whole history.
+ *
+ * The creator leads, whether or not they appear in that page. They are the one
+ * name the space itself carries, and a group that opened with whoever happened
+ * to run the last session read as if the space belonged to them.
+ */
+export function useSpaceOverview(
+  spaceId: string,
+  createdBy: UserBasic | null,
+  peopleLimit: number,
+): SpaceOverview {
+  const client = useOptionalAuthenticatedClient();
+  const archivedTaskIds = useArchivedTaskIds();
+  const { data } = useQuery({
+    ...spaceTaskPageQuery(client, spaceId),
+    enabled: !!client,
+  });
+
+  return useMemo(() => {
+    if (!data) return NO_OVERVIEW;
+    const live = data.tasks.filter((task) => !archivedTaskIds.has(task.id));
+    return {
+      people: spacePeople(live, createdBy, peopleLimit),
+      // A page that came back short is the whole space, so the count is exact
+      // once the archived ones are dropped. A full page falls back to the
+      // server's total, which still counts anything archived in it.
+      total: data.tasks.length < TREE_FETCH_LIMIT ? live.length : data.count,
+    };
+  }, [data, archivedTaskIds, createdBy, peopleLimit]);
+}
+
+/**
+ * The space's faces, in the order the group stacks them: the creator, then
+ * whoever ran the sessions, newest first, each person once and no more than
+ * `limit` of them.
+ *
+ * The creator leads whether or not they ran anything, and is not counted twice
+ * when they did — the leading avatar is the one that wears the crown, so its
+ * place is what makes the crown mean "created this".
+ */
+export function spacePeople(
+  tasks: Pick<Task, "created_by">[],
+  createdBy: UserBasic | null,
+  limit: number,
+): UserBasic[] {
+  const people: UserBasic[] = [];
+  const seen = new Set<string>();
+  const add = (user: UserBasic | null | undefined) => {
+    if (!user || seen.has(user.uuid) || people.length >= limit) return;
+    seen.add(user.uuid);
+    people.push(user);
+  };
+  add(createdBy);
+  for (const task of tasks) add(task.created_by);
+  return people;
 }

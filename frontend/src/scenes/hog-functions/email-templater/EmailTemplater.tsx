@@ -203,6 +203,10 @@ function DestinationEmailTemplaterForm({
                                             preview: true,
                                             imageEditor: true,
                                             stockImages: false,
+                                            // Unlayer's AI features (Magic Image, smart text, the AI
+                                            // assistant) default to on; they're third-party AI consuming
+                                            // paid credits from our Unlayer workspace, so keep them all off.
+                                            ai: false,
                                         },
                                     }}
                                 />
@@ -574,6 +578,10 @@ function NativeEmailTemplaterForm({
                                             preview: true,
                                             imageEditor: true,
                                             stockImages: false,
+                                            // Unlayer's AI features (Magic Image, smart text, the AI
+                                            // assistant) default to on; they're third-party AI consuming
+                                            // paid credits from our Unlayer workspace, so keep them all off.
+                                            ai: false,
                                         },
                                         projectId: unlayerEditorProjectId,
                                         customJS: [unsubscribeLinkToolCustomJs],

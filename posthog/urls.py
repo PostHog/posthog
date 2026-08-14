@@ -34,6 +34,7 @@ from posthog.api import (
 )
 from posthog.api.github_callback.views import github_oauth_callback, github_setup_callback
 from posthog.api.oauth.connected_apps import ConnectedAppsViewSet
+from posthog.api.oauth.hogli_metadata import HOGLI_METADATA_PATH, HogliClientMetadataView
 from posthog.api.oauth.raycast_metadata import RAYCAST_METADATA_PATH, RaycastClientMetadataView
 from posthog.api.oauth.wizard_metadata import WIZARD_METADATA_PATH, WizardClientMetadataView
 from posthog.api.sdk_health import sdk_health
@@ -132,6 +133,14 @@ def _dispatch_pull_request_event(
     return handle_pull_request_event(payload)
 
 
+def _dispatch_pull_request_review_event(
+    request: HttpRequest, event_type: str, payload: dict[str, Any], delivery_id: str
+) -> HttpResponse:
+    from products.tasks.backend.facade.webhooks import handle_pull_request_review_event
+
+    return handle_pull_request_review_event(payload)
+
+
 def _dispatch_installation_event(
     request: HttpRequest, event_type: str, payload: dict[str, Any], delivery_id: str
 ) -> HttpResponse:
@@ -163,6 +172,9 @@ GITHUB_WEBHOOK_HANDLERS: dict[str, list[tuple[str, GithubWebhookHandler]]] = {
     "pull_request": [
         ("tasks_pr_backstop", _dispatch_pull_request_event),
         ("loops", _dispatch_loop_triggers),
+    ],
+    "pull_request_review": [
+        ("tasks_pr_review", _dispatch_pull_request_review_event),
     ],
     "installation": [
         ("installation_lifecycle", _dispatch_installation_event),
@@ -621,6 +633,11 @@ urlpatterns = [
         RaycastClientMetadataView.as_view(),
         name="raycast-client-metadata",
     ),
+    path(
+        HOGLI_METADATA_PATH,
+        HogliClientMetadataView.as_view(),
+        name="hogli-client-metadata",
+    ),
     re_path(r"^api.+", api_not_found),
     path("authorize_and_redirect/", login_required(authorize_and_redirect)),
     path("integrations/connect/<str:kind>/", login_required(integration_connect_redirect)),
@@ -764,8 +781,9 @@ frontend_unauthenticated_routes = [
     "organization/confirm-creation",
     "login",
     "unsubscribe",
-    # Public bridge for desktop-app canvas share links — deep-links into PostHog Desktop.
+    # Public bridges for desktop-app share links — deep-link into PostHog Desktop.
     r"code/canvas/[^/]+/[^/]+",
+    r"code/task/[^/]+",
     "verify_email",
     r"agentic/account-mismatch",
     # OAuth redirect target when logging the local frontend into a remote cloud region;

@@ -1,4 +1,4 @@
-import type { Task } from "@posthog/shared/domain-types";
+import type { Task, TaskThreadMessage } from "@posthog/shared/domain-types";
 import { Theme } from "@radix-ui/themes";
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
@@ -26,6 +26,13 @@ vi.mock("@tanstack/react-router", () => ({
 vi.mock("@posthog/ui/features/canvas/hooks/useChannelTaskData", () => ({
   useChannelTaskData: () => undefined,
 }));
+const threadMocks = vi.hoisted(() => ({
+  messages: [] as TaskThreadMessage[],
+}));
+
+vi.mock("@posthog/ui/features/canvas/hooks/useTaskThread", () => ({
+  useTaskThread: () => ({ messages: threadMocks.messages }),
+}));
 vi.mock("@posthog/ui/features/sidebar/useTaskPrStatus", () => ({
   useTaskPrStatus: () => ({ prState: null }),
 }));
@@ -33,7 +40,7 @@ vi.mock("@posthog/ui/features/browser-tabs/TaskTabIcon", () => ({
   TaskTabIcon: () => <span />,
 }));
 
-import { TaskCard, TaskFeedRow } from "./ChannelFeedView";
+import { ReplyFooter, TaskCard, TaskFeedRow } from "./ChannelFeedView";
 
 const task = {
   id: "task-1",
@@ -55,6 +62,7 @@ const task = {
 
 afterEach(() => {
   vi.restoreAllMocks();
+  threadMocks.messages = [];
 });
 
 // ExpandablePrompt measures how the prompt wraps to decide where to cut and
@@ -132,5 +140,29 @@ describe("TaskFeedRow", () => {
     );
 
     expect(screen.queryByRole("button")).not.toBeInTheDocument();
+  });
+  it("wears the agent's face on an agent reply", () => {
+    // An agent reply carries no user, so the person avatar fell back to an initial and every
+    // agent in the thread collapsed onto one slot.
+    threadMocks.messages = [
+      {
+        id: "agent-reply",
+        task: task.id,
+        author_kind: "agent",
+        content: "Finished the task",
+        created_at: "2026-07-17T12:05:00.000Z",
+        author: null,
+      } as unknown as TaskThreadMessage,
+    ];
+
+    const { container } = render(
+      <ReplyFooter taskId={task.id} inView onOpenThread={() => undefined} />,
+    );
+
+    expect(screen.getByText("1 reply")).toBeInTheDocument();
+    expect(screen.queryByText("U")).toBeNull();
+    expect(
+      container.querySelector('[data-slot="avatar-fallback"] svg'),
+    ).not.toBeNull();
   });
 });

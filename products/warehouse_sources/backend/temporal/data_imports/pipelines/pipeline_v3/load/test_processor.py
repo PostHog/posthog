@@ -23,6 +23,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
     _mark_job_completed,
     _promote_staged_cursor,
     _read_existing_rows_by_first_pk,
+    _run_post_load_for_already_processed_batch,
     _trigger_post_import_workflow,
     process_message,
 )
@@ -466,6 +467,40 @@ class TestMarkJobCompleted:
 
         mock_finish_row_tracking.assert_not_awaited()
         mock_release.assert_not_called()
+
+
+class TestRedeliveredFinalBatchPostLoad:
+    @parameterized.expand([("companion", "scd2_append"), ("consolidated", "incremental_merge"), ("snapshot", None)])
+    @patch(f"{_PROCESSOR}.run_post_load_operations", new_callable=AsyncMock, return_value="folder")
+    @patch(f"{_PROCESSOR}.read_parquet", return_value=pa.table({"id": [1]}))
+    @patch(f"{_PROCESSOR}.DeltaTableRef")
+    @patch(f"{_PROCESSOR}.ExternalDataJob")
+    @patch(f"{_PROCESSOR}.s3fs")
+    def test_forwards_the_batch_write_mode(
+        self,
+        _case: str,
+        cdc_write_mode: str | None,
+        _s3fs: MagicMock,
+        mock_job_model: MagicMock,
+        mock_helper_cls: MagicMock,
+        _read: MagicMock,
+        mock_post_load: AsyncMock,
+    ) -> None:
+        # Post-load derives the whole CDC branch from the write mode: whether this is a companion
+        # write (register the _cdc table, leave schema.table alone) or a snapshot to seed the
+        # companion from. Dropping it here let a redelivered streaming batch re-seed the companion,
+        # wiping its SCD2 history, and point schema.table at the companion's folder.
+        delta_table = MagicMock(schema=MagicMock(return_value=pa.schema([_COL_ID])))
+        mock_job_model.objects.prefetch_related.return_value.aget = AsyncMock(return_value=MagicMock())
+        mock_helper_cls.return_value.get_delta_table = AsyncMock(return_value=delta_table)
+
+        signal = MagicMock()
+        signal.cdc_write_mode = cdc_write_mode
+
+        _run_post_load_for_already_processed_batch(signal)
+
+        assert mock_post_load.await_args is not None
+        assert mock_post_load.await_args.kwargs["cdc_write_mode"] == cdc_write_mode
 
 
 class TestPostImportTrigger:
