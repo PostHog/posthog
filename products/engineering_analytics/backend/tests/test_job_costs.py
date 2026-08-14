@@ -1,3 +1,4 @@
+import os
 import json
 import tempfile
 from pathlib import Path
@@ -92,12 +93,9 @@ def _job_row(job_id: int, labels: list[str], started: str, completed: str | None
 
 
 class TestJobCostsViewParity(ClickhouseTestMixin, BaseTest):
-    """The generated view SQL must produce exactly what the Python cost model produces.
-
-    This is the drift guard for the single-source-of-truth contract: the view is rendered from the
-    same constants as logic.cost, so any change to one side that isn't matched on the other shows up
-    here. Skips when object storage is unreachable so the suite still runs without the dev stack.
-    """
+    # The drift guard for the single-source-of-truth contract: the view is rendered from the same
+    # constants as logic.cost, so any change to one side that isn't matched on the other shows up
+    # here. Skips when object storage is unreachable so the suite still runs without the dev stack.
 
     def _create_table(self, base_name: str, columns: dict, rows: list[dict[str, Any]]) -> str:
         df = pd.DataFrame(rows, columns=list(columns.keys()))
@@ -115,6 +113,9 @@ class TestJobCostsViewParity(ClickhouseTestMixin, BaseTest):
                 source_prefix=GITHUB_SOURCE_PREFIX,
             )
         except PermissionError as err:
+            # In CI a skip here silently drops the parity guard while the job stays green.
+            if os.environ.get("CI"):
+                raise
             self.skipTest(f"object storage unavailable: {err}")
         self.addCleanup(cleanup)
         return table.name

@@ -1,5 +1,6 @@
 """Shared fixtures and warehouse seeding for the test_logic_* domain files."""
 
+import os
 import tempfile
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -195,6 +196,9 @@ class _WarehouseMixin(ClickhouseTestMixin, BaseTest):
                 source_prefix=prefix,
             )
         except PermissionError as err:
+            # In CI a skip here silently drops every warehouse-backed assertion while the job stays green.
+            if os.environ.get("CI"):
+                raise
             self.skipTest(f"object storage unavailable: {err}")
         self.addCleanup(cleanup)
         # base_name is "github_<endpoint>"; the synced schema/endpoint is its suffix.
