@@ -53,6 +53,35 @@ def preload(
     conn.commit()
 
 
+def seed_chain_persons(
+    conn: psycopg.Connection,
+    person_count: int,
+    dids_per_person: int,
+    tag: str,
+) -> list[list[str]]:
+    """Persons for the chain workload: `person_count` persons, each owning
+    `dids_per_person` distinct ids. Returns each person's distinct ids;
+    index 0 is the chain's first source (deepest after repeated merges).
+    """
+    did_lists = [[f"chain-{tag}-p{p}-{d}" for d in range(dids_per_person)] for p in range(person_count)]
+    with conn.cursor() as cur:
+        for dids in did_lists:
+            cur.execute(
+                """
+                WITH p AS (
+                    INSERT INTO posthog_person (created_at, properties, team_id, is_identified, uuid, version)
+                    VALUES (now(), '{}'::jsonb, %s, false, %s, 0)
+                    RETURNING id
+                )
+                INSERT INTO posthog_persondistinctid (distinct_id, person_id, team_id, version)
+                SELECT d, p.id, %s, 0 FROM p, unnest(%s::text[]) d
+                """,
+                (TEAM_ID, str(uuidlib.uuid4()), TEAM_ID, dids),
+            )
+    conn.commit()
+    return did_lists
+
+
 def seed_case(
     conn: psycopg.Connection,
     case: str,

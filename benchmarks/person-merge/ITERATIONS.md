@@ -59,3 +59,34 @@ neither/one and the read path are unregressed (~0.2 ms p50; chains are depth ≤
 
 1. `hybrid` — threshold switch: move mappings inline for small sources, re-parent for large ones. Should erase the small-merge regression while keeping the flat curve.
 2. chain-stress workload — repeatedly merge previously-merged persons to measure read-path decay with chain depth, and price the compaction job that bounds it.
+
+## Iteration 2 — read benchmarks, chain stress, path compression (`union_find_compressed`)
+
+The read path under test mirrors production `get_person_by_distinct_id` (`rust/personhog-replica/src/storage/postgres/person.rs`) / `fetchPerson` (Node): the query that runs on every ingested event, so any per-read regression multiplies by event volume, not merge volume.
+Two additions to the harness:
+
+- **Stratified post-merge reads** in every `both` phase: the target's own id, ids that arrived via the merge (these traverse indirection in pointer strategies), and untouched preload ids as control, each with p50/p95/p99 (`read_latency_detail_ms`).
+- **`chain` workload**: at each step the current survivor is merged into a fresh person, so the first person's ids sit behind `depth` merges. Read decay for indirection strategies, write amplification for eager-move strategies. Models `$merge_dangerously` (production `$identify` refuses identified sources).
+
+Results: `results/*-chain-iter2.json`, `results/*-both-iter2.json`.
+
+Chain, 1000 ids/person, 5 chains, per step:
+
+| depth | current merge p50 | current WAL/step | union_find merge p50 | union_find read p50 | compressed merge p50 | compressed read p50 |
+| ----- | ----------------- | ---------------- | -------------------- | ------------------- | -------------------- | ------------------- |
+| 1     | 34.3 ms           | 456 KB           | 4.6 ms               | 0.196 ms            | 4.3 ms               | 0.218 ms            |
+| 8     | 180.1 ms          | 3.6 MB           | 3.6 ms               | 0.220 ms            | 3.6 ms               | 0.223 ms            |
+| 16    | 349.7 ms          | 7.1 MB           | 5.1 ms               | 0.241 ms            | 3.4 ms               | 0.225 ms            |
+
+**Observations**
+
+- The feared read cliff does not materialize at moderate depth: uncompressed chains cost ~3 µs/hop through the recursive resolve (0.196 → 0.241 ms p50 at depth 16). But it is linear and unbounded, and the merge's lock-chase walk adds ~0.15 ms/hop on the write side too — depth must be bounded, not tolerated.
+- Eager path compression bounds it: one extra `UPDATE ... WHERE merged_into_id = source` inside the merge transaction re-points the source's direct children, keeping every chain at depth ≤ 1. Reads and merges stay flat at any depth (0.22 ms / ~3 ms at depth 16). Its WAL cost grows with merges absorbed (0.7 → 6.9 KB/step at depth 16) — three orders of magnitude below `current`'s 7.1 MB/step.
+- The chain workload exposes `current`'s hidden write amplification: accumulated mappings are physically re-moved on every subsequent merge — 10× re-merged ids means every later merge pays the full history again (34 → 350 ms/step, 16k messages by depth 16).
+- Stratified reads in the `both` matrix confirm: merged-id reads under `union_find_compressed` are indistinguishable from control (~0.2 ms p50 at every size).
+
+**Decision**: `union_find_compressed` supersedes plain `union_find` as the incumbent — same flat merge curve (2.8 ms / 12 KB WAL at 10k ids), reads bounded by construction. Remaining before this is proposal-ready:
+
+1. `hybrid` small-merge threshold (the size-1 regression stands: ~2x WAL vs baseline).
+2. Star-contention chain: thousands of sources into one survivor which is then re-merged — worst case for the compression UPDATE's child fan-out; needs measuring before trusting eager compression unconditionally.
+3. Person-table growth accounting: merged rows are never deleted; a reaper/squash-style background job (re-home mappings lazily, then drop the pointer row) restores today's steady-state storage and can be priced with the same harness.

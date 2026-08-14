@@ -1,0 +1,329 @@
+{
+    "strategy": "union_find",
+    "supports_current_contract": false,
+    "git_sha": "17c92413",
+    "pg_version": "16.13 (Ubuntu 16.13-0ubuntu0.24.04.1)",
+    "args": {
+        "strategy": "union_find",
+        "cases": "chain",
+        "sizes": "10,1000",
+        "reps": 5,
+        "concurrency": 1,
+        "contention": "none",
+        "chain_depth": 16,
+        "preload": 50000,
+        "out": "results/union-find-chain-iter2.json"
+    },
+    "phases": [
+        {
+            "case": "chain",
+            "size": 10,
+            "reps": 5,
+            "concurrency": 1,
+            "contention": "none",
+            "depth_max": 16,
+            "steps": [
+                {
+                    "depth": 1,
+                    "merge_p50_ms": 3.8,
+                    "merge_p95_ms": 15.299,
+                    "read_p50_ms": 0.1975,
+                    "read_p95_ms": 0.7214,
+                    "wal_bytes_per_op": 797,
+                    "msgs_per_op": 3.0
+                },
+                {
+                    "depth": 2,
+                    "merge_p50_ms": 2.6,
+                    "merge_p95_ms": 6.345,
+                    "read_p50_ms": 0.1943,
+                    "read_p95_ms": 0.2787,
+                    "wal_bytes_per_op": 962,
+                    "msgs_per_op": 3.0
+                },
+                {
+                    "depth": 3,
+                    "merge_p50_ms": 2.447,
+                    "merge_p95_ms": 5.358,
+                    "read_p50_ms": 0.228,
+                    "read_p95_ms": 0.3518,
+                    "wal_bytes_per_op": 757,
+                    "msgs_per_op": 3.0
+                },
+                {
+                    "depth": 4,
+                    "merge_p50_ms": 2.711,
+                    "merge_p95_ms": 3.74,
+                    "read_p50_ms": 0.1921,
+                    "read_p95_ms": 0.3172,
+                    "wal_bytes_per_op": 829,
+                    "msgs_per_op": 3.0
+                },
+                {
+                    "depth": 5,
+                    "merge_p50_ms": 4.218,
+                    "merge_p95_ms": 5.669,
+                    "read_p50_ms": 0.2119,
+                    "read_p95_ms": 0.3221,
+                    "wal_bytes_per_op": 869,
+                    "msgs_per_op": 3.0
+                },
+                {
+                    "depth": 6,
+                    "merge_p50_ms": 4.025,
+                    "merge_p95_ms": 5.232,
+                    "read_p50_ms": 0.1932,
+                    "read_p95_ms": 0.3193,
+                    "wal_bytes_per_op": 920,
+                    "msgs_per_op": 3.0
+                },
+                {
+                    "depth": 7,
+                    "merge_p50_ms": 3.084,
+                    "merge_p95_ms": 6.078,
+                    "read_p50_ms": 0.2101,
+                    "read_p95_ms": 0.3086,
+                    "wal_bytes_per_op": 1002,
+                    "msgs_per_op": 3.0
+                },
+                {
+                    "depth": 8,
+                    "merge_p50_ms": 3.578,
+                    "merge_p95_ms": 3.875,
+                    "read_p50_ms": 0.2186,
+                    "read_p95_ms": 0.4408,
+                    "wal_bytes_per_op": 1037,
+                    "msgs_per_op": 3.0
+                },
+                {
+                    "depth": 9,
+                    "merge_p50_ms": 3.557,
+                    "merge_p95_ms": 3.891,
+                    "read_p50_ms": 0.2147,
+                    "read_p95_ms": 0.3592,
+                    "wal_bytes_per_op": 1109,
+                    "msgs_per_op": 3.0
+                },
+                {
+                    "depth": 10,
+                    "merge_p50_ms": 3.819,
+                    "merge_p95_ms": 4.499,
+                    "read_p50_ms": 0.2211,
+                    "read_p95_ms": 0.3929,
+                    "wal_bytes_per_op": 1149,
+                    "msgs_per_op": 3.0
+                },
+                {
+                    "depth": 11,
+                    "merge_p50_ms": 3.725,
+                    "merge_p95_ms": 4.558,
+                    "read_p50_ms": 0.226,
+                    "read_p95_ms": 0.3321,
+                    "wal_bytes_per_op": 1259,
+                    "msgs_per_op": 3.0
+                },
+                {
+                    "depth": 12,
+                    "merge_p50_ms": 4.013,
+                    "merge_p95_ms": 4.281,
+                    "read_p50_ms": 0.2164,
+                    "read_p95_ms": 0.3259,
+                    "wal_bytes_per_op": 1261,
+                    "msgs_per_op": 3.0
+                },
+                {
+                    "depth": 13,
+                    "merge_p50_ms": 3.99,
+                    "merge_p95_ms": 4.835,
+                    "read_p50_ms": 0.2184,
+                    "read_p95_ms": 0.3315,
+                    "wal_bytes_per_op": 1338,
+                    "msgs_per_op": 3.0
+                },
+                {
+                    "depth": 14,
+                    "merge_p50_ms": 4.283,
+                    "merge_p95_ms": 5.475,
+                    "read_p50_ms": 0.2139,
+                    "read_p95_ms": 0.3087,
+                    "wal_bytes_per_op": 1368,
+                    "msgs_per_op": 3.0
+                },
+                {
+                    "depth": 15,
+                    "merge_p50_ms": 4.516,
+                    "merge_p95_ms": 4.743,
+                    "read_p50_ms": 0.2226,
+                    "read_p95_ms": 0.2903,
+                    "wal_bytes_per_op": 1450,
+                    "msgs_per_op": 3.0
+                },
+                {
+                    "depth": 16,
+                    "merge_p50_ms": 5.693,
+                    "merge_p95_ms": 6.243,
+                    "read_p50_ms": 0.2322,
+                    "read_p95_ms": 0.3952,
+                    "wal_bytes_per_op": 1485,
+                    "msgs_per_op": 3.0
+                }
+            ],
+            "oracle_checks": 800
+        },
+        {
+            "case": "chain",
+            "size": 1000,
+            "reps": 5,
+            "concurrency": 1,
+            "contention": "none",
+            "depth_max": 16,
+            "steps": [
+                {
+                    "depth": 1,
+                    "merge_p50_ms": 4.58,
+                    "merge_p95_ms": 8.287,
+                    "read_p50_ms": 0.1962,
+                    "read_p95_ms": 0.5686,
+                    "wal_bytes_per_op": 760,
+                    "msgs_per_op": 3.0
+                },
+                {
+                    "depth": 2,
+                    "merge_p50_ms": 3.359,
+                    "merge_p95_ms": 15.309,
+                    "read_p50_ms": 0.2056,
+                    "read_p95_ms": 0.2933,
+                    "wal_bytes_per_op": 885,
+                    "msgs_per_op": 3.0
+                },
+                {
+                    "depth": 3,
+                    "merge_p50_ms": 2.41,
+                    "merge_p95_ms": 5.935,
+                    "read_p50_ms": 0.1958,
+                    "read_p95_ms": 0.3027,
+                    "wal_bytes_per_op": 768,
+                    "msgs_per_op": 3.0
+                },
+                {
+                    "depth": 4,
+                    "merge_p50_ms": 2.74,
+                    "merge_p95_ms": 3.937,
+                    "read_p50_ms": 0.2255,
+                    "read_p95_ms": 0.2947,
+                    "wal_bytes_per_op": 923,
+                    "msgs_per_op": 3.0
+                },
+                {
+                    "depth": 5,
+                    "merge_p50_ms": 3.186,
+                    "merge_p95_ms": 3.587,
+                    "read_p50_ms": 0.2222,
+                    "read_p95_ms": 0.3145,
+                    "wal_bytes_per_op": 864,
+                    "msgs_per_op": 3.0
+                },
+                {
+                    "depth": 6,
+                    "merge_p50_ms": 3.188,
+                    "merge_p95_ms": 4.248,
+                    "read_p50_ms": 0.2166,
+                    "read_p95_ms": 0.3138,
+                    "wal_bytes_per_op": 957,
+                    "msgs_per_op": 3.0
+                },
+                {
+                    "depth": 7,
+                    "merge_p50_ms": 3.622,
+                    "merge_p95_ms": 4.145,
+                    "read_p50_ms": 0.2197,
+                    "read_p95_ms": 0.3032,
+                    "wal_bytes_per_op": 981,
+                    "msgs_per_op": 3.0
+                },
+                {
+                    "depth": 8,
+                    "merge_p50_ms": 3.614,
+                    "merge_p95_ms": 4.565,
+                    "read_p50_ms": 0.2198,
+                    "read_p95_ms": 0.2961,
+                    "wal_bytes_per_op": 1062,
+                    "msgs_per_op": 3.0
+                },
+                {
+                    "depth": 9,
+                    "merge_p50_ms": 3.911,
+                    "merge_p95_ms": 4.272,
+                    "read_p50_ms": 0.2163,
+                    "read_p95_ms": 0.3,
+                    "wal_bytes_per_op": 1093,
+                    "msgs_per_op": 3.0
+                },
+                {
+                    "depth": 10,
+                    "merge_p50_ms": 3.788,
+                    "merge_p95_ms": 4.306,
+                    "read_p50_ms": 0.2193,
+                    "read_p95_ms": 0.3231,
+                    "wal_bytes_per_op": 1202,
+                    "msgs_per_op": 3.0
+                },
+                {
+                    "depth": 11,
+                    "merge_p50_ms": 3.845,
+                    "merge_p95_ms": 5.769,
+                    "read_p50_ms": 0.2411,
+                    "read_p95_ms": 0.3593,
+                    "wal_bytes_per_op": 1205,
+                    "msgs_per_op": 3.0
+                },
+                {
+                    "depth": 12,
+                    "merge_p50_ms": 4.364,
+                    "merge_p95_ms": 5.375,
+                    "read_p50_ms": 0.243,
+                    "read_p95_ms": 0.3484,
+                    "wal_bytes_per_op": 1288,
+                    "msgs_per_op": 3.0
+                },
+                {
+                    "depth": 13,
+                    "merge_p50_ms": 4.727,
+                    "merge_p95_ms": 5.36,
+                    "read_p50_ms": 0.2401,
+                    "read_p95_ms": 0.3346,
+                    "wal_bytes_per_op": 1338,
+                    "msgs_per_op": 3.0
+                },
+                {
+                    "depth": 14,
+                    "merge_p50_ms": 4.926,
+                    "merge_p95_ms": 5.164,
+                    "read_p50_ms": 0.2522,
+                    "read_p95_ms": 0.3534,
+                    "wal_bytes_per_op": 1405,
+                    "msgs_per_op": 3.0
+                },
+                {
+                    "depth": 15,
+                    "merge_p50_ms": 5.87,
+                    "merge_p95_ms": 7.859,
+                    "read_p50_ms": 0.2587,
+                    "read_p95_ms": 0.3346,
+                    "wal_bytes_per_op": 1429,
+                    "msgs_per_op": 3.0
+                },
+                {
+                    "depth": 16,
+                    "merge_p50_ms": 5.111,
+                    "merge_p95_ms": 5.983,
+                    "read_p50_ms": 0.2408,
+                    "read_p95_ms": 0.3431,
+                    "wal_bytes_per_op": 1538,
+                    "msgs_per_op": 3.0
+                }
+            ],
+            "oracle_checks": 1600
+        }
+    ]
+}

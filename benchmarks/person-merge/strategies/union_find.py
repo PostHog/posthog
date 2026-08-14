@@ -92,6 +92,9 @@ def _row_to_person(row: tuple) -> _Person:
 class UnionFindStrategy:
     name = "union_find"
     supports_current_contract = False
+    # When set, merges also re-point the source's direct children at the new
+    # root, keeping every pointer chain at depth <= 1.
+    compress = False
 
     def schema_files(self) -> list[str]:
         return [str(_SCHEMA_DIR / "current.sql"), str(_SCHEMA_DIR / "union_find.sql")]
@@ -288,6 +291,19 @@ class UnionFindStrategy:
         if src_row is None:
             raise _RetryableMergeError("source person merged or deleted concurrently")
 
+        if self.compress:
+            # Path compression: re-point the source's direct children at the new
+            # root. With every merge doing this, pointers never exceed depth 1 —
+            # cost is O(persons previously merged into the source), not O(ids).
+            cur.execute(
+                """
+                UPDATE posthog_person
+                SET merged_into_id = %s
+                WHERE team_id = %s AND merged_into_id = %s
+                """,
+                (target.id, source.team_id, source.id),
+            )
+
         # Union members: the source and everything already merged into it.
         cur.execute(
             """
@@ -467,6 +483,14 @@ class UnionFindCompatStrategy(UnionFindStrategy):
                 payload={"uuid": source.uuid, "version": source.version + 100, "is_deleted": 1},
             ),
         ]
+
+
+class UnionFindCompressedStrategy(UnionFindStrategy):
+    """Union-find with eager path compression: chains never exceed depth 1,
+    so reads pay at most one extra hop and the merge's root walk is bounded."""
+
+    name = "union_find_compressed"
+    compress = True
 
 
 class _RetryableMergeError(Exception):
