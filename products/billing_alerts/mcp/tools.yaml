@@ -55,7 +55,6 @@ tools:
             - organization:write
         annotations:
             readOnly: false
-            # destination_changes can delete a whole destination group, so clients must confirm.
             destructive: true
             idempotent: false
         title: Update billing alert

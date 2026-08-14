@@ -914,7 +914,7 @@
         "title": "Update billing alert",
         "required_scopes": ["organization:write"],
         "annotations": {
-            "destructiveHint": false,
+            "destructiveHint": true,
             "idempotentHint": false,
             "openWorldHint": true,
             "readOnlyHint": false
