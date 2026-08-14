@@ -60,8 +60,9 @@ export interface ToastContentProps {
 }
 
 /**
- * A toast's action. Exported so a message that lays its own actions out — an offer that wants its
- * CTA on the same row — renders the same button, with the same dismiss-on-click, as the slot below.
+ * A toast's action. Exported so that a message laying out its own actions, such as an offer that
+ * wants its CTA on the same row, renders the same button with the same dismiss-on-click as the slot
+ * below.
  */
 export function ToastActionButton({
     button,

@@ -84,11 +84,11 @@ const isUserActivationLive = (): boolean => navigator.userActivation?.isActive ?
 // A subscription delivers a rendered image, so only an export of one is worth answering with an
 // offer of one. Someone taking a CSV wants the rows, and would be promised something else. The
 // backend side of that fact is the PNG in products/exports/backend/temporal/subscriptions/
-// activities.py's export asset — if a subscription ever delivers another format, this follows.
+// activities.py's export asset, so if a subscription ever delivers another format, this follows.
 const SUBSCRIBABLE_EXPORT_FORMATS: ExporterFormat[] = [ExporterFormat.PNG]
 
-// Only a dashboard or a saved insight can be subscribed to, so every other export — a recording, a
-// heatmap, a cohort, a data table, a billing report — has no subject and is never nudged. An insight
+// Only a dashboard or a saved insight can be subscribed to, so every other export has no subject and
+// is never nudged: a recording, a heatmap, a cohort, a data table, a billing report. An insight
 // exported from a surface that does not pass its short id has no subscription page to offer either.
 const exportNudgeSubject = (exportData: TriggerExportProps): ExportNudgeSubject | null => {
     if (!SUBSCRIBABLE_EXPORT_FORMATS.includes(exportData.export_format)) {
@@ -104,9 +104,8 @@ const exportNudgeSubject = (exportData: TriggerExportProps): ExportNudgeSubject 
 }
 
 interface ExportNudge {
-    /** The offer, ready to render under any headline. Null while there is nothing to offer. */
     message: ExportNudgeMessage | null
-    /** Resolves to a subject worth offering once a check that had to run comes back, null otherwise. */
+    /** Only ever resolves to a candidate on the path where the check had to run. */
     late: Promise<ExportNudgeCandidate | null>
 }
 
@@ -162,7 +161,7 @@ const toastFrame = (message: ExportNudgeMessage | null, headline: string, action
 /**
  * Folds a late offer into the toast the export has already settled into. Claiming happens here
  * rather than when the check answers: it reports an exposure, so an export that never renders the
- * offer — one that failed, or whose toast is already gone — must not spend it.
+ * offer, because it failed or because its toast is already gone, must not spend it.
  */
 const foldNudgeIntoSettledToast = async (
     nudge: ExportNudge,
@@ -189,7 +188,6 @@ const foldNudgeIntoSettledToast = async (
     })
 }
 
-/** What an export that acknowledged its kickoff hands to the toast it eventually finishes on. */
 interface KickoffToast {
     toastId: string
     nudge: ExportNudge
@@ -236,8 +234,6 @@ const showExportCompleteToast = async (
         // A polled export is identified by its asset, which carries no insight short id, so only a
         // dashboard can be nudged here. Insight exports finish inside their create request instead.
         startExportNudge(asset.dashboard ? { kind: 'dashboard', dashboardId: asset.dashboard } : null)
-    // A render that finished while its acknowledgement is still on screen settles that toast in
-    // place, rather than closing it and animating a second one in for the same export.
     await settleWithDownload(nudge, kickoff?.toastId ?? null, onDownload)
 }
 
@@ -621,10 +617,10 @@ export const exportsLogic = kea<exportsLogicType>([
                         : undefined
                     const nudge = startExportNudge(exportNudgeSubject(exportData))
                     // Set when a synchronous export finished but the create request outlived the
-                    // click's user activation, so the download waits for a Download button — Safari
-                    // silently drops a programmatic download once activation has expired. Held on an
-                    // object because runExport assigns it, and the checker reads a plain local in
-                    // this scope as if that assignment never happened.
+                    // click's user activation, so the download waits for a Download button, because
+                    // Safari silently drops a programmatic download once activation has expired.
+                    // Held on an object because runExport assigns it, and the checker reads a plain
+                    // local in this scope as if that assignment never happened.
                     const awaiting: { download: ExportedAssetType | null } = { download: null }
 
                     // Non-video exports (CSV/XLSX/PNG) run synchronously on the backend, so this
@@ -684,10 +680,9 @@ export const exportsLogic = kea<exportsLogicType>([
 
                     void (async () => {
                         try {
-                            // The settled headline is the promise's resolved value: "Export started"
-                            // for an async render, "Export complete!" for a synchronous one. It is
-                            // read when the toast settles, so an offer followed while the export ran
-                            // is already gone by then rather than being asked a second time.
+                            // The success frame is read when the toast settles, so an offer followed
+                            // while the export was running is already gone by then, rather than
+                            // being asked a second time.
                             const settledMessage: string = await lemonToast.promise(
                                 runExport(),
                                 {

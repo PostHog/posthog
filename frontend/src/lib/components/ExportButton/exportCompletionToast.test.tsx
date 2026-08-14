@@ -182,7 +182,7 @@ describe('export completion toast', () => {
                 await jest.advanceTimersByTimeAsync(SETTLE_MS)
             })
 
-            // One toast, settled, still carrying the offer — not a second one alongside it.
+            // One toast, settled, still carrying the offer, rather than a second one alongside it.
             expect(screen.queryByText('Preparing export…')).toBeNull()
             expect(screen.getAllByText(NUDGE_CTA)).toHaveLength(1)
             expect(document.querySelectorAll('.Toastify__toast')).toHaveLength(1)

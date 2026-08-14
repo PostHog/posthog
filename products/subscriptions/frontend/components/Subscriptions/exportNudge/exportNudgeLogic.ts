@@ -96,7 +96,6 @@ export type ExportNudgeSubject =
 /** A subject whose exporter cleared every eligibility check except the experiment flag. */
 export interface ExportNudgeCandidate {
     subject: ExportNudgeSubject
-    /** Shown in the offer. Null where the app has not loaded a name for the subject. */
     name: string | null
 }
 
@@ -145,7 +144,7 @@ export function subscriptionTargetFor(subject: ExportNudgeSubject): Subscription
 // loads the subject's subscriptions. Where that has already happened the export needs no request of
 // its own. The badge only renders for teams that have the feature, so free-tier teams fall through.
 // A load that failed is indistinguishable from an empty list here, since kea-loaders leaves the
-// value at its [] default — so unlike the network path below, this one cannot fail closed.
+// value at its [] default, so unlike the network path below, this one cannot fail closed.
 function loadedSubscriptionCount(subject: ExportNudgeSubject): number | null {
     const mounted = subscriptionsLogic.findMounted(subscriptionTargetFor(subject))
     if (!mounted || mounted.values.subscriptionsLoading) {
