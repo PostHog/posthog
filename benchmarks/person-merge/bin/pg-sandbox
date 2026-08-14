@@ -22,6 +22,7 @@ track_io_timing = on
 wal_compression = off
 autovacuum_naptime = 15s
 unix_socket_directories = '$PGROOT'
+idle_in_transaction_session_timeout = 15min
 EOF
         "$0" start
         psql -h 127.0.0.1 -p $PORT -U posthog postgres -c "CREATE DATABASE merge_bench"

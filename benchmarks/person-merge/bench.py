@@ -71,7 +71,12 @@ def fresh_database(dsn: str, strategy: Strategy, preload_persons: int) -> None:
 
 
 def wal_lsn(conn: psycopg.Connection) -> int:
-    return conn.execute("SELECT pg_current_wal_insert_lsn() - '0/0'::pg_lsn").fetchone()[0]
+    lsn = conn.execute("SELECT pg_current_wal_insert_lsn() - '0/0'::pg_lsn").fetchone()[0]
+    # Release the snapshot: a SELECT on a non-autocommit connection opens a
+    # transaction that would otherwise stay open for the whole phase, pinning
+    # dead tuples against vacuum while the benchmark churns rows.
+    conn.rollback()
+    return lsn
 
 
 def run_phase(
@@ -163,13 +168,14 @@ def run_phase(
         for sc, oc in zip(seeded, outcomes):
             assert oc is not None
             checks += oracle.verify(seed_conn, strategy, sc, oc).checks
+    seed_conn.rollback()
 
     # Read path, stratified: the target's own id, ids that arrived via the
     # merge (these exercise indirection/chains in pointer-based strategies),
     # and untouched preload ids as the control.
     target_sample = [sc.target_distinct_id for sc in seeded][:500]
     merged_sample = [did for sc in seeded for did in sc.expected_distinct_ids[1:]][:500]
-    with psycopg.connect(dsn) as conn:
+    with psycopg.connect(dsn, autocommit=True) as conn:
         control_sample = [
             r[0]
             for r in conn.execute(
@@ -268,7 +274,7 @@ def run_chain_phase(
 
     steps: list[dict[str, Any]] = []
     checks = 0
-    with psycopg.connect(dsn) as merge_conn, psycopg.connect(dsn) as read_conn:
+    with psycopg.connect(dsn) as merge_conn, psycopg.connect(dsn, autocommit=True) as read_conn:
         window_latencies: list[float] = []
         window_msgs = 0
         window_ops = 0
