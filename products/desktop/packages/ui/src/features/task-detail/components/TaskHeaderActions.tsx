@@ -15,6 +15,7 @@ import { CloudGitInteractionHeader } from "@posthog/ui/features/git-interaction/
 import { TaskActionsMenu } from "@posthog/ui/features/git-interaction/components/TaskActionsMenu";
 import { useReviewInRightPanel } from "@posthog/ui/features/navigation/useReviewInRightPanel";
 import { HandoffConfirmDialog } from "@posthog/ui/features/sessions/components/HandoffConfirmDialog";
+import { ResyncCloudRunButton } from "@posthog/ui/features/sessions/components/ResyncCloudRunButton";
 import { StopCloudRunButton } from "@posthog/ui/features/sessions/components/StopCloudRunButton";
 import { useHandoffDialogStore } from "@posthog/ui/features/sessions/handoffDialogStore";
 import { useSessionCallbacks } from "@posthog/ui/features/sessions/hooks/useSessionCallbacks";
@@ -164,6 +165,7 @@ export function TaskHeaderActions({ task }: { task: Task }) {
         <>
           {isCloudTask ? (
             <>
+              <ResyncCloudRunButton taskId={task.id} />
               <StopCloudRunButton taskId={task.id} />
               <CloudGitInteractionHeader taskId={task.id} task={task} />
             </>

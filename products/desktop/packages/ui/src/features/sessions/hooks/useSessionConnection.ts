@@ -14,6 +14,7 @@ import { useUserPresence } from "@posthog/ui/hooks/useUserPresence";
 import { logger } from "@posthog/ui/shell/logger";
 import { useQueryClient } from "@tanstack/react-query";
 import { useEffect, useMemo } from "react";
+import { useSessionResyncStore } from "../sessionResyncStore";
 import { useChatTitleGenerator } from "./useChatTitleGenerator";
 
 const log = logger.scope("session-connection");
@@ -45,6 +46,7 @@ export function useSessionConnection({
   // Presence-gate both so the workspace-server idle timeout can reclaim the
   // agent; the existing idle-kill reconcile path restores it on return.
   const userPresent = useUserPresence();
+  const resyncNonce = useSessionResyncStore((s) => s.nonces[task.id] ?? 0);
 
   useChatTitleGenerator(task);
 
@@ -97,6 +99,7 @@ export function useSessionConnection({
     return sessionService.startActivityHeartbeat(taskRunId);
   }, [taskRunId, sessionService, userPresent]);
 
+  // biome-ignore lint/correctness/useExhaustiveDependencies(resyncNonce): the manual resync action stops the cloud watch and bumps the nonce so this effect rebuilds the watcher from scratch
   useEffect(() => {
     return sessionService.reconcileTaskConnection({
       task,
@@ -137,5 +140,6 @@ export function useSessionConnection({
     cloudAuthState.cloudRegion,
     queryClient,
     sessionService,
+    resyncNonce,
   ]);
 }

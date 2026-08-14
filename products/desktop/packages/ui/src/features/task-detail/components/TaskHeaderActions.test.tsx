@@ -78,6 +78,12 @@ vi.mock(
 vi.mock("@posthog/ui/features/sessions/components/StopCloudRunButton", () => ({
   StopCloudRunButton: () => <div>stop cloud run</div>,
 }));
+vi.mock(
+  "@posthog/ui/features/sessions/components/ResyncCloudRunButton",
+  () => ({
+    ResyncCloudRunButton: () => <div>resync cloud run</div>,
+  }),
+);
 vi.mock("@posthog/ui/features/diff-stats/DiffStatsBadge", () => ({
   DiffStatsBadge: () => null,
 }));
@@ -119,6 +125,7 @@ describe("TaskHeaderActions", () => {
 
     renderActions();
 
+    expect(screen.getByText("resync cloud run")).toBeInTheDocument();
     expect(screen.getByText("stop cloud run")).toBeInTheDocument();
     expect(screen.getByText("cloud actions")).toBeInTheDocument();
     expect(screen.getByText("task menu")).toBeInTheDocument();
