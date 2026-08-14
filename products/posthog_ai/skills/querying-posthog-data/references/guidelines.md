@@ -88,7 +88,9 @@ Run separately for each model. Available models: `'text-embedding-3-small-1536'`
 
 Use `embedText(text, model_name)` and `cosineDistance()` for semantic search. See the `signals` skill for detailed query patterns around the signals product specifically, including required deduplication and metadata extraction.
 
-For a named business or operational measure, look it up in the data catalog (`system.information_schema.metrics`) before any schema discovery, and run an approved, non-drifted match with `data-catalog-metric-run` instead of deriving it. Everything else starts with the schema workflow below.
+For a named business or operational measure, look it up in the data catalog (`system.information_schema.metrics`) before any schema discovery, and run an approved, non-drifted match with `data-catalog-metric-run` instead of deriving it.
+A project without the data catalog has neither that table nor that tool: if the lookup reports an unknown table, derive the measure with the schema workflow below and stop checking the catalog for the rest of the session.
+Everything else starts with that workflow.
 
 #### Schema discovery (information_schema)
 
