@@ -336,7 +336,7 @@ describe('API helper', () => {
             await expect(api.get('api/environments/2/insights')).resolves.toBeNull()
         })
 
-        it('resolves a 204 to null even when reading its body rejects (WebKit "Load failed")', async () => {
+        it('resolves a 204 to null even when reading its empty body rejects', async () => {
             fakeFetch.mockResolvedValue(
                 fakeResponse({ status: 204, text: () => Promise.reject(new TypeError('Load failed')) })
             )
