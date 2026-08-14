@@ -10,6 +10,10 @@ from temporalio.common import RetryPolicy
 from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
+from products.tasks.backend.temporal.process_task.activities.create_resume_snapshot import (
+    CreateResumeSnapshotInput,
+    CreateResumeSnapshotOutput,
+)
 from products.tasks.backend.temporal.process_task.activities.get_pr_context import GetPrContextOutput
 from products.tasks.backend.temporal.process_task.activities.get_task_processing_context import TaskProcessingContext
 from products.tasks.backend.temporal.process_task.activities.provision_sandbox import (
@@ -170,6 +174,8 @@ class TestFollowupDeliveryFailure:
 _ci_context_overrides: dict = {}
 _ci_followup_calls: list[str] = []
 _pr_context_overrides: dict = {}
+_snapshot_events: list[str] = []
+_snapshot_failures_remaining = 0
 
 
 @activity.defn(name="get_task_processing_context")
@@ -186,6 +192,9 @@ def _mock_get_context_configurable(_input) -> TaskProcessingContext:
         create_pr=_ci_context_overrides.get("create_pr", True),
         pr_loop_enabled=_ci_context_overrides.get("pr_loop_enabled", True),
         ci_prompt=_ci_context_overrides.get("ci_prompt"),
+        use_modal_resume_snapshots=_ci_context_overrides.get("use_modal_resume_snapshots", False),
+        use_modal_directory_resume_snapshots=_ci_context_overrides.get("use_modal_directory_resume_snapshots", False),
+        state=_ci_context_overrides.get("state"),
     )
 
 
@@ -193,6 +202,22 @@ def _mock_get_context_configurable(_input) -> TaskProcessingContext:
 def _mock_send_followup_records(input: SendFollowupToSandboxInput) -> None:
     if input.message is not None:
         _ci_followup_calls.append(input.message)
+        _snapshot_events.append("followup")
+
+
+@activity.defn(name="create_resume_snapshot")
+def _mock_create_resume_snapshot(input: CreateResumeSnapshotInput) -> CreateResumeSnapshotOutput:
+    global _snapshot_failures_remaining
+    _snapshot_events.append(f"{input.reason}:{input.allow_pruning}")
+    if input.reason == "ci_follow_up" and _snapshot_failures_remaining > 0:
+        _snapshot_failures_remaining -= 1
+        return CreateResumeSnapshotOutput(external_id=None, error="snapshot failed", duration_ms=10)
+    return CreateResumeSnapshotOutput(
+        external_id=f"snapshot-{len(_snapshot_events)}",
+        snapshot_kind="directory",
+        snapshot_mount_path="/tmp/workspace",
+        duration_ms=10,
+    )
 
 
 @activity.defn(name="get_pr_context")
@@ -261,6 +286,7 @@ def _make_worker(env, task_queue: str) -> Worker:
             _mock_read_logs,
             _mock_cleanup,
             _mock_get_pr_context,
+            _mock_create_resume_snapshot,
         ],
         workflow_runner=UnsandboxedWorkflowRunner(),
         activity_executor=ThreadPoolExecutor(max_workers=5),
@@ -270,15 +296,20 @@ def _make_worker(env, task_queue: str) -> Worker:
 class TestCIFollowUpLoop:
     @pytest.fixture(autouse=True)
     def _reset_state(self):
+        global _snapshot_failures_remaining
         _ci_context_overrides.clear()
         _ci_followup_calls.clear()
         _status_updates.clear()
         _pr_context_overrides.clear()
+        _snapshot_events.clear()
+        _snapshot_failures_remaining = 0
         yield
         _ci_context_overrides.clear()
         _ci_followup_calls.clear()
         _status_updates.clear()
         _pr_context_overrides.clear()
+        _snapshot_events.clear()
+        _snapshot_failures_remaining = 0
 
     @pytest.mark.timeout(60, func_only=True)
     async def test_runs_to_inactivity_timeout_after_max_ci_repetitions(self):
@@ -301,6 +332,65 @@ class TestCIFollowUpLoop:
         timeout_updates = [(s, e) for s, e, timed_out in _status_updates if timed_out]
         assert timeout_updates, f"expected an inactivity-timeout completion, got {_status_updates}"
         assert timeout_updates == [("completed", None)]
+
+    @pytest.mark.timeout(60, func_only=True)
+    async def test_snapshots_idle_sandbox_before_ci_follow_up(self):
+        global _snapshot_failures_remaining
+        _ci_context_overrides["state"] = {"mode": "interactive"}
+        _ci_context_overrides["use_modal_resume_snapshots"] = True
+        _ci_context_overrides["use_modal_directory_resume_snapshots"] = True
+        _pr_context_overrides["behavior"] = "unchanged"
+        _snapshot_failures_remaining = 1
+
+        async with await WorkflowEnvironment.start_time_skipping() as env:
+            task_queue = f"test-{uuid.uuid4()}"
+            async with _make_worker(env, task_queue):
+                handle = await env.client.start_workflow(
+                    ProcessTaskWorkflow.run,
+                    ProcessTaskInput(run_id="run-1"),
+                    id=f"test-{uuid.uuid4()}",
+                    task_queue=task_queue,
+                    retry_policy=RetryPolicy(maximum_attempts=1),
+                    execution_timeout=timedelta(hours=2),
+                )
+                await env.sleep(CI_FOLLOW_UP_DELAY.total_seconds() * 3 + 10)
+                await handle.signal(ProcessTaskWorkflow.complete_task, args=["completed", None])
+                await handle.result()
+
+        assert _snapshot_events[0:2] == ["ci_follow_up:False", "followup"]
+        assert _snapshot_events.count("ci_follow_up:False") == 2
+        assert _snapshot_events[-1] == "teardown:True"
+
+    @pytest.mark.timeout(60, func_only=True)
+    async def test_refreshes_ci_snapshot_after_follow_up(self):
+        _ci_context_overrides["state"] = {"mode": "interactive"}
+        _ci_context_overrides["use_modal_resume_snapshots"] = True
+        _ci_context_overrides["use_modal_directory_resume_snapshots"] = True
+        _pr_context_overrides["behavior"] = "unchanged"
+
+        async with await WorkflowEnvironment.start_time_skipping() as env:
+            task_queue = f"test-{uuid.uuid4()}"
+            async with _make_worker(env, task_queue):
+                handle = await env.client.start_workflow(
+                    ProcessTaskWorkflow.run,
+                    ProcessTaskInput(run_id="run-1"),
+                    id=f"test-{uuid.uuid4()}",
+                    task_queue=task_queue,
+                    retry_policy=RetryPolicy(maximum_attempts=1),
+                    execution_timeout=timedelta(hours=2),
+                )
+                for _ in range(5):
+                    await env.sleep(CI_FOLLOW_UP_DELAY.total_seconds() + 10)
+                    if "followup" in _snapshot_events:
+                        followup_index = _snapshot_events.index("followup")
+                        if "ci_follow_up:False" in _snapshot_events[followup_index + 1 :]:
+                            break
+                await handle.signal(ProcessTaskWorkflow.complete_task, args=["completed", None])
+                await handle.result()
+
+        followup_index = _snapshot_events.index("followup")
+        assert "ci_follow_up:False" in _snapshot_events[followup_index + 1 :]
+        assert _snapshot_events[-1] == "teardown:True"
 
     @pytest.mark.timeout(60, func_only=True)
     async def test_uses_ci_prompt_override_when_set(self):
@@ -440,15 +530,20 @@ class TestCIFollowUpLoop:
 class TestFollowupGuards:
     @pytest.fixture(autouse=True)
     def _reset_state(self):
+        global _snapshot_failures_remaining
         _ci_context_overrides.clear()
         _ci_followup_calls.clear()
         _status_updates.clear()
         _pr_context_overrides.clear()
+        _snapshot_events.clear()
+        _snapshot_failures_remaining = 0
         yield
         _ci_context_overrides.clear()
         _ci_followup_calls.clear()
         _status_updates.clear()
         _pr_context_overrides.clear()
+        _snapshot_events.clear()
+        _snapshot_failures_remaining = 0
 
     @pytest.mark.parametrize(
         "message,artifact_ids,expected",

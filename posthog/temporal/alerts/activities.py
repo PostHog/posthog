@@ -42,6 +42,8 @@ from posthog.temporal.alerts.types import (
     PrepareAction,
     PrepareAlertActivityInputs,
     PrepareAlertResult,
+    RecordFailedEvaluationActivityInputs,
+    RecordFailedEvaluationResult,
     SkipReason,
 )
 from posthog.temporal.common.heartbeat import Heartbeater
@@ -200,6 +202,15 @@ async def prepare_alert(inputs: PrepareAlertActivityInputs) -> PrepareAlertResul
         return await _prepare()
 
 
+def _write_errored_alert_check(alert: AlertConfiguration, error: dict) -> tuple[AlertCheck, bool]:
+    """Write an errored AlertCheck for an already-locked alert and return it with the notify decision.
+
+    Both evaluate_alert's failure path and the retry-exhausted record_failed_evaluation activity go
+    through here, so the errored-check write stays in one place.
+    """
+    return add_alert_check(alert, None, None, error)
+
+
 @temporalio.activity.defn
 async def evaluate_alert(inputs: EvaluateAlertActivityInputs) -> EvaluateAlertResult:
     """Run the insight ClickHouse query, apply the state machine, persist an AlertCheck row."""
@@ -291,6 +302,23 @@ async def evaluate_alert(inputs: EvaluateAlertActivityInputs) -> EvaluateAlertRe
             )
             error = {"message": str(err), "traceback": traceback.format_exc()}
 
+        # A non-transient failure: write the errored check and return. Transient errors were
+        # re-raised above for the retry policy, and the investigation gating below only fires on a
+        # FIRING transition, so the errored path skips it.
+        if error is not None:
+            with transaction.atomic():
+                alert = (
+                    AlertConfiguration.objects.select_for_update(of=("self",))
+                    .select_related("insight", "team", "threshold")
+                    .get(id=inputs.alert_id)
+                )
+                alert_check, should_notify = _write_errored_alert_check(alert, error)
+            return EvaluateAlertResult(
+                alert_check_id=str(alert_check.id),
+                should_notify=should_notify,
+                new_state=AlertState.ERRORED,
+            )
+
         anomaly_scores = alert_evaluation_result.anomaly_scores if alert_evaluation_result else None
         triggered_points = alert_evaluation_result.triggered_points if alert_evaluation_result else None
         triggered_dates = alert_evaluation_result.triggered_dates if alert_evaluation_result else None
@@ -353,6 +381,55 @@ async def evaluate_alert(inputs: EvaluateAlertActivityInputs) -> EvaluateAlertRe
 
     async with Heartbeater():
         return await _evaluate()
+
+
+@temporalio.activity.defn
+async def record_failed_evaluation(inputs: RecordFailedEvaluationActivityInputs) -> RecordFailedEvaluationResult:
+    """Persist an errored AlertCheck for an evaluation that never got to write one itself.
+
+    evaluate_alert re-raises transient ClickHouse errors so its retry policy can get past a busy
+    cluster. Nothing has written an AlertCheck by the time those attempts run out, and next_check_at
+    is still in the past, so the one-minute sweep would start the whole chain over again: an alert
+    whose query fails every time would run forever, and its owner would never be told. Recording the
+    failure here advances next_check_at to the alert's normal cadence slot, which caps a permanently
+    failing alert at one chain of attempts per cadence period.
+    """
+
+    @database_sync_to_async(thread_sensitive=False)
+    def _record() -> RecordFailedEvaluationResult:
+        try:
+            with transaction.atomic():
+                alert = (
+                    AlertConfiguration.objects.select_for_update(of=("self",))
+                    .select_related("insight", "team", "threshold")
+                    .get(id=inputs.alert_id)
+                )
+                # Disabling an alert mid-check makes evaluate_alert raise a non-retryable "disabled
+                # between prepare and evaluate" error into this path. That is a normal user action,
+                # not an alert failure, so it must not gain an errored check or email subscribers.
+                if not alert.enabled:
+                    logger.info("alerts.skip_failed_evaluation_disabled", alert_id=inputs.alert_id)
+                    return RecordFailedEvaluationResult()
+                # add_alert_check advances next_check_at, so skipping once it is in the future keeps a
+                # committed-but-undelivered retry from writing a duplicate errored check. Best effort:
+                # a real-time alert lagging past its short cadence can still write one, but the state
+                # machine keeps that from sending a duplicate notification.
+                if alert.next_check_at is not None and alert.next_check_at > datetime.now(UTC):
+                    return RecordFailedEvaluationResult()
+                alert_check, should_notify = _write_errored_alert_check(alert, {"message": inputs.error_message})
+        except AlertConfiguration.DoesNotExist:
+            logger.warning("Alert gone before its failure could be recorded", alert_id=inputs.alert_id)
+            return RecordFailedEvaluationResult()
+
+        logger.warning(
+            "alerts.recorded_failed_evaluation",
+            alert_id=inputs.alert_id,
+            alert_check_id=str(alert_check.id),
+        )
+        return RecordFailedEvaluationResult(alert_check_id=str(alert_check.id), should_notify=should_notify)
+
+    async with Heartbeater():
+        return await _record()
 
 
 def dispatch_alert_firing_realtime_notification(alert: AlertConfiguration, breaches: list[str]) -> None:

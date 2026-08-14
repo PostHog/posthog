@@ -234,10 +234,10 @@ export interface scoutFleetLogicActions {
     }
     patchScoutConfigLocally: (
         configId: string,
-        updates: SignalScoutConfigUpdate
+        updates: Partial<SignalScoutConfig> | SignalScoutConfigUpdate
     ) => {
         configId: string
-        updates: PatchedSignalScoutConfigUpdateApi
+        updates: Partial<SignalScoutConfigApi> | PatchedSignalScoutConfigUpdateApi
     }
     removeScoutConfigLocally: (configId: string) => {
         configId: string
@@ -342,7 +342,11 @@ export const scoutFleetLogic = kea<scoutFleetLogicType>([
     actions({
         updateScoutConfig: (configId: string, updates: SignalScoutConfigUpdate) => ({ configId, updates }),
         updateScoutConfigFinished: (configId: string) => ({ configId }),
-        patchScoutConfigLocally: (configId: string, updates: SignalScoutConfigUpdate) => ({ configId, updates }),
+        // A full server config doubles as a local patch when reconciling optimistic edits.
+        patchScoutConfigLocally: (configId: string, updates: SignalScoutConfigUpdate | Partial<SignalScoutConfig>) => ({
+            configId,
+            updates,
+        }),
         deleteScout: (configId: string) => ({ configId }),
         deleteScoutFinished: (configId: string) => ({ configId }),
         removeScoutConfigLocally: (configId: string) => ({ configId }),

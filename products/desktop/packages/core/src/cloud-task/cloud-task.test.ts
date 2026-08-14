@@ -28,6 +28,7 @@ const fetchRouter = vi.hoisted(() =>
 import {
   type CloudTaskEngine,
   createCloudTaskEngine,
+  MAX_SSE_RECONNECT_ATTEMPTS,
 } from "./cloud-task-engine";
 
 const mockAuthService = {
@@ -3101,7 +3102,7 @@ describe("CloudTaskEngine", () => {
     expect(mockNetFetch).toHaveBeenCalledTimes(3);
   });
 
-  it("fails a Django-leg watcher on a stream 401 without re-resolving the read target", async () => {
+  it("retries a Django-leg stream 401 and recovers without re-resolving the read target", async () => {
     vi.useFakeTimers();
 
     const updates: unknown[] = [];
@@ -3128,11 +3129,15 @@ describe("CloudTaskEngine", () => {
       );
     });
 
-    // A Django-leg 401 is fatal (autoRetry: false). The proxy re-resolve path is guarded on a
-    // non-null streamBaseUrl, so a Django leg must fail rather than re-mint a stream_token.
-    mockStreamFetch.mockImplementation(() =>
-      Promise.resolve(createJsonResponse({ detail: "expired" }, 401)),
-    );
+    const logFrame =
+      'id: 7\ndata: {"type":"notification","timestamp":"2026-01-01T00:00:02Z","notification":{"jsonrpc":"2.0","method":"_posthog/console","params":{"sessionId":"run-1","level":"info","message":"after recovery"}}}\n\n';
+    mockStreamFetch
+      .mockImplementationOnce(() =>
+        Promise.resolve(createJsonResponse({ detail: "expired" }, 401)),
+      )
+      .mockImplementation(() =>
+        Promise.resolve(createOpenSseResponse(logFrame)),
+      );
 
     service.watch({
       taskId: "task-1",
@@ -3147,10 +3152,57 @@ describe("CloudTaskEngine", () => {
           (u) =>
             typeof u === "object" &&
             u !== null &&
-            (u as { kind?: string }).kind === "error",
+            (u as { kind?: string }).kind === "logs",
         ),
       10_000,
     );
+
+    expect(mockStreamFetch.mock.calls.length).toBeGreaterThanOrEqual(2);
+    expect(updates.some((u) => (u as { kind?: string }).kind === "error")).toBe(
+      false,
+    );
+    expect(mockStreamTokenFetch.mock.calls.length).toBe(1);
+  });
+
+  it("surfaces the auth banner after persistent Django-leg 401s exhaust the reconnect budget", async () => {
+    vi.useFakeTimers();
+
+    const updates: unknown[] = [];
+    service.on(CloudTaskEvent.Update, (payload) => updates.push(payload));
+
+    mockNetFetch.mockImplementation((input: string | Request) => {
+      const url = typeof input === "string" ? input : input.url;
+      if (url.includes("/session_logs/")) {
+        return Promise.resolve(
+          createJsonResponse([], 200, { "X-Has-More": "false" }),
+        );
+      }
+      return Promise.resolve(
+        createJsonResponse({
+          id: "run-1",
+          status: "in_progress",
+          stage: null,
+          output: null,
+          error_message: null,
+          branch: "main",
+          updated_at: "2026-01-01T00:00:00Z",
+        }),
+      );
+    });
+
+    mockStreamFetch.mockImplementation(() =>
+      Promise.resolve(createJsonResponse({ detail: "expired" }, 401)),
+    );
+
+    service.watch({
+      taskId: "task-1",
+      runId: "run-1",
+      apiHost: "https://app.example.com",
+      teamId: 2,
+    });
+
+    await waitFor(() => mockStreamFetch.mock.calls.length >= 1, 10_000);
+    await vi.advanceTimersByTimeAsync(120_000);
 
     expect(updates).toContainEqual({
       taskId: "task-1",
@@ -3161,12 +3213,13 @@ describe("CloudTaskEngine", () => {
       retryable: true,
     });
 
-    // The Django leg did not re-resolve, and the fatal failure schedules no reconnect.
+    expect(mockStreamFetch.mock.calls.length).toBe(
+      1 + MAX_SSE_RECONNECT_ATTEMPTS,
+    );
     expect(mockStreamTokenFetch.mock.calls.length).toBe(1);
     const streamCallsAtFailure = mockStreamFetch.mock.calls.length;
-    await vi.advanceTimersByTimeAsync(10_000);
+    await vi.advanceTimersByTimeAsync(60_000);
     expect(mockStreamFetch.mock.calls.length).toBe(streamCallsAtFailure);
-    expect(mockStreamTokenFetch.mock.calls.length).toBe(1);
   });
 
   it("treats a 429 from stream_token as transient and retries the read-target resolution", async () => {

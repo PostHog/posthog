@@ -8,6 +8,7 @@ import {
   ThumbsUp,
 } from "@phosphor-icons/react";
 import { WorkerPoolContextProvider } from "@pierre/diffs/react";
+import { channelDisplayLabel } from "@posthog/core/canvas/channelName";
 import { useService } from "@posthog/di/react";
 import {
   Button,
@@ -561,7 +562,7 @@ function UserBubble({
                   icon={<FileText size={12} />}
                   label={`${
                     channelContext.mention.name
-                      ? `#${channelContext.mention.name} `
+                      ? `${channelDisplayLabel(channelContext.mention.name)} `
                       : ""
                   }CONTEXT.md`}
                   onClick={
