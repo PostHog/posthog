@@ -15,6 +15,7 @@ import {
   listDashboardsInput,
   promoteCanvasInput,
   renameDashboardInput,
+  reportCanvasErrorInput,
   revertCanvasInput,
   saveContextInput,
   setGenerationTaskInput,
@@ -125,6 +126,13 @@ export const dashboardsRouter = router({
       ctx.container
         .get<IDashboardsService>(DASHBOARDS_SERVICE)
         .setPinned(input),
+    ),
+  reportError: publicProcedure
+    .input(reportCanvasErrorInput)
+    .mutation(({ ctx, input }) =>
+      ctx.container
+        .get<IDashboardsService>(DASHBOARDS_SERVICE)
+        .reportError(input),
     ),
   rename: publicProcedure
     .input(renameDashboardInput)

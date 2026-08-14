@@ -13,6 +13,7 @@ from requests.exceptions import HTTPError, RequestException, Timeout
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.auth import AuthConfigBase
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import BasePaginator
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import ResponseAction
 from products.warehouse_sources.backend.temporal.data_imports.sources.tiktok_ads.settings import (
     BASE_URL,
     MAX_TIKTOK_DAYS_FOR_REPORT_ENDPOINTS,
@@ -84,6 +85,39 @@ def list_advertisers(access_token: str) -> list[dict]:
         raise TikTokAdsAPIError(f"TikTok advertiser/get failed ({code}): {message}", api_code=code, response=response)
     return (body.get("data") or {}).get("list") or []
 
+
+# https://business-api.tiktok.com/portal/docs?rid=xmtaqatxqj8&id=1737172488964097
+TIKTOK_RETRYABLE_ERROR_CODES = [
+    40016,  # Requests made too frequently
+    40100,  # Requests made too frequently
+    40101,  # Requests made too frequently
+    40102,  # Requests made too frequently for a certain field value.
+    40200,  # Task error
+    40201,  # Task is not ready
+    40202,  # Write or update entity conflict
+    40700,  # Internal service validation error
+    50000,  # System error
+    50002,  # Error processing request on TikTok side. Please see error message for details.
+    51001,  # Internal service timeout. Transient TikTok-side error; safe to retry.
+    51002,  # Internal service error. Transient TikTok-side error; TikTok's own message asks to retry later.
+    51039,  # Internal service timeout. Transient TikTok-side error; safe to retry.
+    51305,  # Satellite service error
+    60001,  # The system is in maintenance.
+]
+
+# TikTok answers HTTP 200 for these, so the rest client's own 429/5xx check never fires. Matching
+# the body `code` inside the response hook reissues the request from within the client's retry loop;
+# without it a rate limit hit mid-pagination escapes to the paginator, which cannot re-request, and
+# fails the whole schema. The QPS ceiling is per app and shared across every concurrent sync, so
+# hitting it is routine rather than exceptional.
+TIKTOK_RETRY_RESPONSE_ACTIONS: list[ResponseAction] = [
+    {
+        "json_field": "code",
+        "json_values": TIKTOK_RETRYABLE_ERROR_CODES,
+        "action": "retry",
+        "message": TIKTOK_TRANSIENT_ERROR_MESSAGE,
+    }
+]
 
 # Prefix for the ValueError the paginator raises on client error codes outside the retryable set.
 # 40001 is a generic bucket covering both a deleted advertiser and per-endpoint permission denials,
@@ -483,26 +517,11 @@ class TikTokAdsPaginator(BasePaginator):
                     response_status=response.status_code,
                 )
 
-                # https://business-api.tiktok.com/portal/docs?rid=xmtaqatxqj8&id=1737172488964097
-                retryable_codes = [
-                    40016,  # Requests made too frequently
-                    40100,  # Requests made too frequently
-                    40101,  # Requests made too frequently
-                    40102,  # Requests made too frequently for a certain field value.
-                    40200,  # Task error
-                    40201,  # Task is not ready
-                    40202,  # Write or update entity conflict
-                    40700,  # Internal service validation error
-                    50000,  # System error
-                    50002,  # Error processing request on TikTok side. Please see error message for details.
-                    51001,  # Internal service timeout. Transient TikTok-side error; safe to retry.
-                    51002,  # Internal service error. Transient TikTok-side error; TikTok's own message asks to retry later.
-                    51039,  # Internal service timeout. Transient TikTok-side error; safe to retry.
-                    51305,  # Satellite service error
-                    60001,  # The system is in maintenance.
-                ]
-
-                if api_code in retryable_codes:
+                # Endpoints carrying TIKTOK_RETRY_RESPONSE_ACTIONS never reach this branch with a
+                # retryable code: the response hook reissues the request, and raises its own error
+                # once the retry budget is spent. This stays as the fallback for endpoints that
+                # don't declare the actions.
+                if api_code in TIKTOK_RETRYABLE_ERROR_CODES:
                     raise TikTokAdsAPIError(
                         f"TikTok API error: {error_message} (code: {api_code})", api_code=api_code, response=response
                     )

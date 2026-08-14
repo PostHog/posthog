@@ -11,14 +11,10 @@ import { pluralize } from 'lib/utils/strings'
 import type { SignalScoutConfigApi as SignalScoutConfig } from 'products/signals/frontend/generated/api.schemas'
 
 import { captureScoutAction, captureScoutFleetViewed } from '../../../inboxAnalytics'
+import type { ScoutChatType } from '../../../inboxAnalytics'
 import { inboxSceneLogic } from '../../../inboxSceneLogic'
 import { scoutFleetLogic } from '../../../logics/scoutFleetLogic'
-import {
-    FleetSummary,
-    SCOUT_FLEET_OVERVIEW_PROMPT,
-    SCOUT_RECENT_SIGNALS_PROMPT,
-    SCOUT_RUNS_PER_SCOUT_LABEL,
-} from '../../../utils/scoutRunsWindow'
+import { FleetSummary, SCOUT_RUNS_PER_SCOUT_LABEL } from '../../../utils/scoutRunsWindow'
 import { agentSetupModalLogic } from '../../shell/agentSetupModalLogic'
 import { FleetFindingsCallout } from './FleetFindingsCallout'
 import { FleetMemoryCallout } from './FleetMemoryCallout'
@@ -241,8 +237,8 @@ function ScoutsFleetList(): JSX.Element {
             <div className="flex items-center gap-2 flex-wrap">
                 <ScoutCreateButton type="secondary" size="xsmall" onCreated={() => loadScoutConfigs()} />
                 <ScoutSuggestButton type="secondary" size="xsmall" />
-                <ScoutChatCta label="How is my scout troop performing?" prompt={SCOUT_FLEET_OVERVIEW_PROMPT} />
-                <ScoutChatCta label="What signals were emitted recently?" prompt={SCOUT_RECENT_SIGNALS_PROMPT} />
+                <ScoutChatCta label="How is my scout troop performing?" chatType="fleet_overview" />
+                <ScoutChatCta label="What signals were emitted recently?" chatType="recent_signals" />
                 <span className="flex-1" />
                 {scoutTagOptions.length > 0 ? (
                     <div className="flex items-center gap-2">
@@ -314,11 +310,19 @@ function ScoutsFleetList(): JSX.Element {
  * question, then navigates to it – same one-click shape as the inbox
  * discuss / create-PR flows.
  */
-function ScoutChatCta({ label, prompt, icon }: { label: string; prompt: string; icon?: JSX.Element }): JSX.Element {
+function ScoutChatCta({
+    label,
+    chatType,
+    icon,
+}: {
+    label: string
+    chatType: ScoutChatType
+    icon?: JSX.Element
+}): JSX.Element {
     const { startScoutChatTask } = useActions(scoutFleetLogic)
-    const { runningChatPrompt, aiConsentDisabledReason } = useValues(scoutFleetLogic)
-    const isRunning = runningChatPrompt === prompt
-    const anyRunning = runningChatPrompt !== null
+    const { runningChatType, aiConsentDisabledReason } = useValues(scoutFleetLogic)
+    const isRunning = runningChatType === chatType
+    const anyRunning = runningChatType !== null
     return (
         <LemonButton
             type="secondary"
@@ -326,7 +330,7 @@ function ScoutChatCta({ label, prompt, icon }: { label: string; prompt: string; 
             icon={icon ?? <IconSparkles />}
             loading={isRunning}
             disabledReason={anyRunning ? 'Starting a task…' : (aiConsentDisabledReason ?? undefined)}
-            onClick={() => startScoutChatTask(prompt, label, label)}
+            onClick={() => startScoutChatTask(chatType, label)}
         >
             {label}
         </LemonButton>

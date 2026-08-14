@@ -35,6 +35,7 @@ from products.review_hog.backend.temporal.activities import (
     LoadValidationInput,
     PublishInput,
     PublishResult,
+    RemoveTriggerLabelInput,
     ResolveActingUserResult,
     ReviewChunkInput,
     ReviewMeta,
@@ -116,6 +117,7 @@ async def _run_full_review_pr_workflow(
     validate_calls: list[int] = []
     publish_calls: list[int] = []
     finalize_will_publish: list[bool] = []
+    remove_label_calls: list[int] = []
     # Each code_review receipt appended to the signals report, as (outcome, review_url).
     receipt_calls: list[tuple[str, str | None]] = []
     # The outcome edit of the PR status comment, as (urgency_threshold, resolved_from, review_url) —
@@ -244,6 +246,10 @@ async def _run_full_review_pr_workflow(
         threshold_calls.append(("publish", input.urgency_threshold))
         return PublishResult(posted=True, review_url=_REVIEW_URL)
 
+    @activity.defn(name="remove_trigger_label_activity")
+    async def remove_label(input: RemoveTriggerLabelInput) -> None:
+        remove_label_calls.append(input.pr_number)
+
     @activity.defn(name="append_code_review_artefact_activity")
     async def append_receipt(input: AppendCodeReviewArtefactInput) -> None:
         receipt_calls.append((input.outcome, input.review_url))
@@ -301,6 +307,7 @@ async def _run_full_review_pr_workflow(
                 validate_chunk,
                 build_body,
                 publish_act,
+                remove_label,
                 append_receipt,
                 post_status,
                 finalize_status,
@@ -350,6 +357,7 @@ async def _run_full_review_pr_workflow(
         "validate": validate_calls,
         "publish": publish_calls,
         "finalize_will_publish": finalize_will_publish,
+        "remove_label": remove_label_calls,
         "receipts": receipt_calls,
         "load_user_ids": load_user_ids,
         "thresholds": threshold_calls,
@@ -442,6 +450,25 @@ async def test_review_pr_workflow_publishes_only_when_publish_true():
     # posted review's URL — dropping any of these reverts the comment to blaming the author's
     # settings or linking nowhere.
     assert recorded["finalize_status"] == [("must_fix", "override", _REVIEW_URL)]
+
+
+@pytest.mark.asyncio
+async def test_review_pr_workflow_removes_label_trigger_after_completion():
+    recorded = await _run_full_review_pr_workflow(publish=True, trigger_source="label")
+    assert recorded["remove_label"] == [7]
+
+
+@pytest.mark.asyncio
+async def test_review_pr_workflow_removes_label_trigger_after_failure():
+    recorded = await _run_full_review_pr_workflow(publish=True, trigger_source="label", fail_dedup=True)
+    assert recorded["failed"] is True
+    assert recorded["remove_label"] == [7]
+
+
+@pytest.mark.asyncio
+async def test_review_pr_workflow_does_not_remove_label_for_other_triggers():
+    recorded = await _run_full_review_pr_workflow(publish=True, trigger_source="manual")
+    assert recorded["remove_label"] == []
 
 
 @parameterized.expand(

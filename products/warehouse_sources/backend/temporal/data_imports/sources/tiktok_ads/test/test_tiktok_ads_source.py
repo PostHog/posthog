@@ -397,15 +397,17 @@ class TestTikTokAdsSource:
                 assert schema.supports_incremental is False
                 assert schema.incremental_fields == []
 
-    def test_only_breakdown_reports_are_off_by_default(self):
+    def test_only_breakdown_and_creative_tables_are_off_by_default(self):
         # New tables land in the schema picker pre-ticked. The breakdown reports fan every
-        # entity-day out across its dimension values, so they must stay opt-in while the
-        # tables that shipped before this stay selected.
+        # entity-day out across its dimension values, and the creative tables need a grant most
+        # advertisers withhold, so both stay opt-in while the rest stay selected.
         should_sync = {schema.name: schema.should_sync_default for schema in self.source.get_schemas(self.config, 1)}
 
         off_by_default = {name for name, default in should_sync.items() if not default}
 
         assert off_by_default == {
+            "creative_videos",
+            "creative_images",
             "campaign_demographic_report",
             "campaign_country_report",
             "campaign_platform_report",

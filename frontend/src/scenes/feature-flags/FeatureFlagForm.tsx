@@ -160,6 +160,7 @@ export function FeatureFlagForm({ id }: FeatureFlagLogicProps): JSX.Element {
         payloadExpanded,
         expandAdvancedOnEdit,
         hasEncryptedPayloadBeenSaved,
+        hasEarlyAccessFeatures,
     } = useValues(featureFlagLogic)
     const {
         setMultivariateEnabled,
@@ -1066,6 +1067,7 @@ export function FeatureFlagForm({ id }: FeatureFlagLogicProps): JSX.Element {
                                         variants={nonEmptyVariants}
                                         isDisabled={!featureFlag.active}
                                         bucketingIdentifier={featureFlag.bucketing_identifier}
+                                        hasEarlyAccessFeatures={hasEarlyAccessFeatures}
                                         onBucketingIdentifierChange={(value: FeatureFlagBucketingIdentifier | null) => {
                                             // Always go through setFeatureFlag so this caller and
                                             // FeatureFlagReleaseConditions use the same shape — listeners on

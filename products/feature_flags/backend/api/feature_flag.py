@@ -100,11 +100,7 @@ from products.feature_flags.backend.flag_status import (
 )
 from products.feature_flags.backend.local_evaluation import _get_flag_properties_from_filters
 from products.feature_flags.backend.models.evaluation_context import normalize_context_name
-from products.feature_flags.backend.models.feature_flag import (
-    FeatureFlag,
-    FeatureFlagDashboards,
-    set_feature_flags_for_team_in_cache,
-)
+from products.feature_flags.backend.models.feature_flag import FeatureFlag, FeatureFlagDashboards
 from products.feature_flags.backend.session_recording_links import teams_linking_flag
 from products.feature_flags.backend.types import PropertyFilterType
 from products.feature_flags.backend.user_blast_radius import get_user_blast_radius
@@ -719,14 +715,7 @@ class EvaluationContextSerializerMixin(serializers.Serializer):
             FeatureFlagEvaluationContext,
         )
 
-        seen: set[str] = set()
-        deduped_names: list[str] = []
-        for t in evaluation_contexts or []:
-            name = normalize_context_name(t)
-            if name not in seen:
-                seen.add(name)
-                deduped_names.append(name)
-        deduped_set = seen
+        deduped_set = {normalize_context_name(t) for t in evaluation_contexts or []}
 
         current_context_names = set(
             FeatureFlagEvaluationContext.objects.filter(feature_flag=obj)
@@ -753,11 +742,6 @@ class EvaluationContextSerializerMixin(serializers.Serializer):
                 before=sorted(current_context_names),
                 after=sorted(deduped_set),
             )
-
-            try:
-                set_feature_flags_for_team_in_cache(obj.team.project_id)
-            except Exception as e:
-                capture_exception(e)
 
     def _log_evaluation_context_change(self, obj: FeatureFlag, before: list[str], after: list[str]) -> None:
         from posthog.models.activity_logging.activity_log import Change, Detail
@@ -3504,8 +3488,8 @@ class FeatureFlagViewSet(
         from posthog.rbac.user_access_control import access_level_satisfied_for_resource
         from posthog.tasks.remote_config import update_team_remote_config
 
-        from products.feature_flags.backend.models.feature_flag import set_feature_flags_for_team_in_cache
-        from products.feature_flags.backend.tasks import update_team_flags_cache, update_team_service_flags_cache
+        from products.feature_flags.backend.flags_cache import enqueue_evaluation_cache_invalidation
+        from products.feature_flags.backend.tasks import update_team_flags_cache
 
         filters = request.data.get("filters", {})
         explicit_ids = request.data.get("ids", [])
@@ -3692,7 +3676,7 @@ class FeatureFlagViewSet(
 
         # Perform bulk database updates
         # Using queryset.update() instead of individual saves means Django signals don't fire.
-        # The signals (refresh_flag_cache_on_updates, feature_flag_changed_flags_cache, etc.)
+        # The signals (feature_flag_changed_flags_cache, feature_flag_changed, etc.)
         # all do cache invalidation, which we handle manually below - once for all flags
         # instead of once per flag.
         now_timestamp = timezone.now()
@@ -3700,7 +3684,6 @@ class FeatureFlagViewSet(
         if flags_to_delete_normal or flags_to_delete_with_rename:
             sample_flag = flags_to_delete_normal[0] if flags_to_delete_normal else flags_to_delete_with_rename[0]
             team_id = sample_flag.team_id
-            project_id = sample_flag.team.project_id
 
             with transaction.atomic():
                 if flags_to_delete_normal:
@@ -3729,8 +3712,7 @@ class FeatureFlagViewSet(
 
                 # Cache invalidation - same work the signals would do, but once instead of N times
                 def invalidate_caches():
-                    set_feature_flags_for_team_in_cache(project_id)
-                    update_team_service_flags_cache.delay(team_id)
+                    enqueue_evaluation_cache_invalidation(team_id)
                     update_team_flags_cache.delay(team_id)
                     update_team_remote_config.delay(team_id)
 
