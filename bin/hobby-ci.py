@@ -631,15 +631,76 @@ runcmd:
                     results = recordings_resp.json().get("results", [])
                     if any(recording.get("id") == session_id for recording in results):
                         print(f"✅ Session recording found after {attempt} poll(s)", flush=True)
-                        return True, "Event, log, and session recording ingested successfully"
+                        break
                     print(f"   Poll {attempt}: no session recording yet", flush=True)
                 else:
                     print(f"   Poll {attempt}: HTTP {recordings_resp.status_code}", flush=True)
             except Exception as e:
                 print(f"   Poll {attempt}: {type(e).__name__}", flush=True)
             time.sleep(poll_interval)
+        else:
+            return False, f"Session recording did not appear within {timeout_seconds}s ({attempt} polls)"
 
-        return False, f"Session recording did not appear within {timeout_seconds}s ({attempt} polls)"
+        error_message = f"hobby_ci_error_smoke_test_{time.time_ns()}"
+        error_date_from = datetime.datetime.now(datetime.UTC).isoformat()
+        print("📤 Sending test exception...", flush=True)
+        try:
+            error_resp = requests.post(
+                f"{base_url}/capture/",  # nosemgrep: python.lang.security.audit.insecure-transport.requests.request-with-http.request-with-http
+                json={
+                    "api_key": project_api_token,
+                    "event": "$exception",
+                    "distinct_id": "hobby-ci-error-user",
+                    "properties": {
+                        "$exception_list": [
+                            {
+                                "type": "HobbyCISmokeTestError",
+                                "value": error_message,
+                                "mechanism": {"type": "generic", "handled": False},
+                            }
+                        ],
+                        "$exception_level": "error",
+                        "$exception_handled": False,
+                        "$lib": "hobby-ci",
+                    },
+                },
+                timeout=30,
+            )
+        except requests.RequestException as e:
+            return False, f"Exception capture request failed: {e}"
+        if error_resp.status_code != 200:
+            return False, f"Exception capture failed: HTTP {error_resp.status_code} - {error_resp.text[:200]}"
+
+        print(f"⏳ Polling for error tracking issue (timeout {timeout_seconds}s)...", flush=True)
+        deadline = time.time() + timeout_seconds
+        attempt = 0
+        while time.time() < deadline:
+            attempt += 1
+            try:
+                issues_resp = requests.post(
+                    f"{base_url}/api/projects/@current/error_tracking/query/issues",  # nosemgrep: python.lang.security.audit.insecure-transport.requests.request-with-http.request-with-http
+                    json={
+                        "status": "all",
+                        "dateRange": {"date_from": error_date_from},
+                        "searchQuery": error_message,
+                        "limit": 1,
+                    },
+                    headers=headers,
+                    timeout=10,
+                )
+                if issues_resp.status_code == 200:
+                    results = issues_resp.json().get("results", [])
+                    if results:
+                        print(f"✅ Error tracking issue found after {attempt} poll(s)", flush=True)
+                        return True, "Event, log, session recording, and exception ingested successfully"
+                    print(f"   Poll {attempt}: no error tracking issue yet", flush=True)
+                else:
+                    print(f"   Poll {attempt}: HTTP {issues_resp.status_code}", flush=True)
+            except Exception as e:
+                print(f"   Poll {attempt}: {type(e).__name__}", flush=True)
+            time.sleep(poll_interval)
+
+        return False, f"Error tracking issue did not appear within {timeout_seconds}s ({attempt} polls)"
 
     @staticmethod
     def find_existing_droplet_for_pr(token, pr_number):
