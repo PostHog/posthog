@@ -11,6 +11,7 @@ from posthog.slo.context import SloSpec, slo_operation
 from posthog.slo.types import SloArea, SloOperation, SloOutcome
 from posthog.tasks.alerts.utils import calculation_interval_to_order, next_check_time, trigger_alert_hog_functions
 
+from products.alerts.backend.destinations import ActiveAlertDestination
 from products.alerts.backend.models.alert import AlertConfiguration
 
 
@@ -57,11 +58,13 @@ class TestAlertUtils:
     @patch("posthog.tasks.alerts.utils.alert_internal_event_delivered", return_value=True)
     @patch("posthog.tasks.alerts.utils.flush_alert_internal_events")
     @patch("posthog.tasks.alerts.utils.produce_alert_internal_event")
+    @patch("posthog.tasks.alerts.utils.list_active_alert_destinations", return_value=[])
     def test_trigger_alert_hog_functions_uses_shared_delivery(
         self,
         _name: str,
         detector_config: dict | None,
         expected_props: dict,
+        _mock_list: MagicMock,
         mock_produce: MagicMock,
         mock_flush: MagicMock,
         mock_delivered: MagicMock,
@@ -89,7 +92,10 @@ class TestAlertUtils:
         mock_delivered.assert_not_called()
 
     @patch("posthog.tasks.alerts.utils.produce_alert_internal_event", return_value=None)
-    def test_trigger_alert_hog_functions_ignores_enqueue_failure(self, _mock_produce: MagicMock) -> None:
+    @patch("posthog.tasks.alerts.utils.list_active_alert_destinations", return_value=[])
+    def test_trigger_alert_hog_functions_ignores_enqueue_failure(
+        self, _mock_list: MagicMock, _mock_produce: MagicMock
+    ) -> None:
         alert = MagicMock(spec=AlertConfiguration)
         alert.id = "00000000-0000-0000-0000-000000000001"
         alert.team_id = 2
@@ -99,7 +105,10 @@ class TestAlertUtils:
         trigger_alert_hog_functions(alert, properties={"breaches": "test breach"})
 
     @patch("posthog.tasks.alerts.utils.produce_alert_internal_event", return_value=None)
-    def test_destination_enqueue_failure_fails_delivery_slo(self, _mock_produce: MagicMock) -> None:
+    @patch("posthog.tasks.alerts.utils.list_active_alert_destinations", return_value=[])
+    def test_destination_enqueue_failure_fails_delivery_slo(
+        self, _mock_list: MagicMock, _mock_produce: MagicMock
+    ) -> None:
         alert = MagicMock(spec=AlertConfiguration)
         alert.id = "00000000-0000-0000-0000-000000000001"
         alert.name = "test alert"
@@ -132,8 +141,10 @@ class TestAlertUtils:
     @patch("posthog.tasks.alerts.utils.alert_internal_event_delivered", return_value=False)
     @patch("posthog.tasks.alerts.utils.flush_alert_internal_events")
     @patch("posthog.tasks.alerts.utils.produce_alert_internal_event")
+    @patch("posthog.tasks.alerts.utils.list_active_alert_destinations", return_value=[])
     def test_destination_delivery_failure_fails_delivery_slo(
         self,
+        _mock_list: MagicMock,
         mock_produce: MagicMock,
         mock_flush: MagicMock,
         _mock_delivered: MagicMock,
@@ -169,3 +180,41 @@ class TestAlertUtils:
         assert len(completed) == 1
         assert completed[0].kwargs["properties"]["outcome"] == SloOutcome.FAILURE
         assert completed[0].kwargs["properties"]["failure_phase"] == "notification_delivery"
+
+    @patch("posthog.tasks.alerts.utils.produce_alert_internal_event")
+    @patch("posthog.tasks.alerts.utils.list_active_alert_destinations")
+    def test_trigger_hog_functions_returns_receipt_per_destination(
+        self, mock_list: MagicMock, mock_produce: MagicMock
+    ) -> None:
+        mock_list.return_value = [ActiveAlertDestination(id="hf-1", name="Slack #eng-alerts", destination_type="slack")]
+        mock_produce.return_value = MagicMock()  # non-None = enqueue accepted
+        alert = MagicMock(spec=AlertConfiguration)
+        alert.id = "00000000-0000-0000-0000-000000000001"
+        alert.name = "test alert"
+        alert.insight.name = "test insight"
+        alert.insight.short_id = "abcd1234"
+        alert.state = "firing"
+        alert.last_checked_at = None
+        alert.team_id = 2
+        alert.team.name = "test project"
+        alert.detector_config = None
+
+        receipts = trigger_alert_hog_functions(alert=alert, properties={"breaches": "x"})
+
+        assert [(r.channel, r.target, r.target_id, r.template, r.status) for r in receipts] == [
+            ("hog_function", "Slack #eng-alerts", "hf-1", "slack", "accepted")
+        ]
+
+    @patch("posthog.tasks.alerts.utils.produce_alert_internal_event", return_value=None)
+    @patch("posthog.tasks.alerts.utils.list_active_alert_destinations")
+    def test_trigger_hog_functions_returns_empty_on_produce_failure(
+        self, mock_list: MagicMock, _mock_produce: MagicMock
+    ) -> None:
+        mock_list.return_value = [ActiveAlertDestination(id="hf-1", name="Slack #eng-alerts", destination_type="slack")]
+        alert = MagicMock(spec=AlertConfiguration)
+        alert.id = "00000000-0000-0000-0000-000000000001"
+        alert.team_id = 2
+        alert.last_checked_at = None
+        alert.detector_config = None
+
+        assert trigger_alert_hog_functions(alert=alert, properties={}) == []

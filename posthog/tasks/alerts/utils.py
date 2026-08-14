@@ -19,8 +19,10 @@ from posthog.tasks.alerts.schedule_restriction import snap_candidate_utc_to_sche
 from products.alerts.backend.delivery_slo import alert_delivery_slo
 from products.alerts.backend.destinations import (
     ALERT_NOTIFICATION_FLUSH_TIMEOUT_SECONDS,
+    AlertDelivery,
     alert_internal_event_delivered,
     flush_alert_internal_events,
+    list_active_alert_destinations,
     produce_alert_internal_event,
 )
 from products.alerts.backend.facade.api import send_alert_email
@@ -139,13 +141,20 @@ def next_check_at_after_schedule_restriction_change(alert: AlertConfiguration) -
         alert.next_check_at = old_next
 
 
-def trigger_alert_hog_functions(alert: AlertConfiguration, properties: dict) -> bool:
-    """Trigger all HogFunctions linked to the alert as notification destinations by producing an internal event."""
+def trigger_alert_hog_functions(alert: AlertConfiguration, properties: dict) -> list[AlertDelivery]:
+    """Produce the internal event for the alert's destinations and return one receipt
+    per active destination iff the transport accepted the event."""
 
     logger.info(
         "Triggering internal event for alert destinations/hog functions",
         alert_id=alert.id,
         properties=properties,
+    )
+
+    destinations = list_active_alert_destinations(
+        team_id=alert.team_id,
+        alert_id=str(alert.id),
+        allowed_event_ids=(INSIGHT_ALERT_FIRING_EVENT,),
     )
 
     props = {
@@ -165,12 +174,24 @@ def trigger_alert_hog_functions(alert: AlertConfiguration, properties: dict) -> 
         event_name=INSIGHT_ALERT_FIRING_EVENT,
         properties=props,
     )
+    accepted_at = datetime.now(UTC).isoformat()
+    receipts = [
+        AlertDelivery(
+            channel="hog_function",
+            target=destination.name,
+            target_id=destination.id,
+            template=destination.destination_type,
+            at=accepted_at,
+        )
+        for destination in destinations
+    ]
+
     slo = get_current_slo()
     if slo is None or slo.operation != SloOperation.ALERT_DELIVERY:
-        return produce_result is not None
+        return receipts if produce_result is not None else []
     if produce_result is None:
         slo.fail(failure_phase="destination_enqueue")
-        return False
+        return []
 
     flush_alert_internal_events(ALERT_NOTIFICATION_FLUSH_TIMEOUT_SECONDS)
     if not alert_internal_event_delivered(
@@ -180,7 +201,8 @@ def trigger_alert_hog_functions(alert: AlertConfiguration, properties: dict) -> 
         event_name=INSIGHT_ALERT_FIRING_EVENT,
     ):
         slo.fail(failure_phase="notification_delivery")
-    return True
+        return []
+    return receipts
 
 
 def send_notifications_for_breaches(

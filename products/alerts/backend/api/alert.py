@@ -1210,14 +1210,19 @@ class AlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                     additional_properties={"alert_id": str(alert.id), "feature": "alerts", "channel": "email"},
                 )
                 failed_delivery_channels.append("email")
-        if destination_count and trigger_alert_hog_functions(
-            alert,
-            {
-                "breaches": "Test alert from PostHog. No action is needed.",
-                "is_test": True,
-                "alert_name": f"[TEST] {alert.name}",
-            },
-        ):
+        destination_receipts = (
+            trigger_alert_hog_functions(
+                alert,
+                {
+                    "breaches": "Test alert from PostHog. No action is needed.",
+                    "is_test": True,
+                    "alert_name": f"[TEST] {alert.name}",
+                },
+            )
+            if destination_count
+            else []
+        )
+        if destination_receipts:
             successful_destination_count = destination_count
         elif destination_count:
             failed_delivery_channels.append("destination")
