@@ -447,6 +447,15 @@ can share one server, and the domain limit of requirement 1.2 does not see that.
 domains those partitions carry. Nothing counts across pods, as requirement 4.4 says of the rest of
 this knowledge.
 
+**11.7** A `Crawl-delay` above 24 hours is a refusal rather than a delay. The lane treats every URL
+on that origin as disallowed, and writes each one to the crawl history as requirement 8.11 does. A
+site that asks for more than a day between two requests is telling the lane not to come.
+
+**11.8** A `Crawl-delay` of 24 hours or less is a delay. The longest delay topic holds one hour, so
+a longer wait spends one hop for each hour it waits. A URL that runs out of hops ends under
+requirement 3.2 with no fetch. The hop budget therefore sets the longest wait the lane can serve,
+and that bound sits well below 24 hours.
+
 ### 12. Conditional requests
 
 A crawl history entry lives 30 days, and then the lane wants the image again. Most images do not
