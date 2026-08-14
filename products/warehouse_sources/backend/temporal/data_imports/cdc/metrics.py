@@ -43,9 +43,13 @@ def get_micro_batches_flushed_metric(team_id: int, source_id: str) -> MetricCoun
     )
 
 
-def get_shadow_buffer_files_written_metric(team_id: int, source_id: str) -> MetricCounter:
-    return _source_meter(team_id, source_id).create_counter(
-        "cdc_shadow_buffer_files_written_total", "Total buffer files written in shadow mode"
+def get_buffer_files_written_metric(team_id: int, source_id: str, lane: str) -> MetricCounter:
+    """`lane` is "shadow" (validation copy) or "ingress" (authoritative delivery). The metric name
+    predates the ingress lane and is kept so the shadow soak's dashboards stay continuous."""
+    return (
+        _source_meter(team_id, source_id)
+        .with_additional_attributes({"lane": lane})
+        .create_counter("cdc_shadow_buffer_files_written_total", "Total buffer files written, by lane")
     )
 
 
@@ -67,9 +71,13 @@ def get_shadow_buffer_write_errors_metric(team_id: int, source_id: str) -> Metri
     )
 
 
-def get_shadow_buffer_write_duration_metric(team_id: int, source_id: str) -> MetricHistogramFloat:
-    return _source_meter(team_id, source_id).create_histogram_float(
-        "cdc_shadow_buffer_write_duration_seconds", "Duration of shadow buffer S3 writes", "s"
+def get_buffer_write_duration_metric(team_id: int, source_id: str, lane: str) -> MetricHistogramFloat:
+    return (
+        _source_meter(team_id, source_id)
+        .with_additional_attributes({"lane": lane})
+        .create_histogram_float(
+            "cdc_shadow_buffer_write_duration_seconds", "Duration of buffer S3 writes, by lane", "s"
+        )
     )
 
 

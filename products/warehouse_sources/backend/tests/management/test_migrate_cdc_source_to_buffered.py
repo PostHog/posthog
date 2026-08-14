@@ -10,18 +10,35 @@ from django.core.management.base import CommandError
 
 from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
+from products.warehouse_sources.backend.models.table import DataWarehouseTable
+from products.warehouse_sources.backend.temporal.data_imports.cdc.batcher import CDC_SEQ_COLUMN
+from products.warehouse_sources.backend.temporal.data_imports.cdc.buffer import build_buffer_file_name
 
 _CMD = "products.warehouse_sources.backend.management.commands.migrate_cdc_source_to_buffered"
 
 
 @contextmanager
-def _mocked_side_effects(oldest_batch_age: float | None = None, write_resolution: bool = True):
-    """Stub every outside effect: Temporal schedules, the sourcebatch probe, the flag, and S3."""
+def _mocked_side_effects(
+    oldest_batch_age: float | None = None,
+    write_resolution: bool = True,
+    buffer_keys: list[str] | None = None,
+):
+    """Stub every outside effect: Temporal schedules, the sourcebatch probe, the flag, and S3.
+
+    `buffer_keys` is what any prefix listing returns; None means the prefix does not exist, which is
+    both a clean purge and a drained buffer.
+    """
+    s3 = MagicMock()
+    if buffer_keys is None:
+        s3.ls.side_effect = FileNotFoundError()
+    else:
+        s3.ls.return_value = buffer_keys
     with (
         patch(f"{_CMD}.psycopg.Connection.connect") as mock_connect,
         patch(f"{_CMD}.BatchQueue.get_oldest_non_terminal_batch_age_seconds", return_value=oldest_batch_age),
         patch(f"{_CMD}.is_cdc_write_resolution_enabled", return_value=write_resolution),
         patch(f"{_CMD}.purge_buffer_prefix") as mock_purge,
+        patch("products.data_warehouse.backend.facade.api.get_s3_client", return_value=s3),
         patch("products.data_warehouse.backend.facade.api.pause_cdc_extraction_schedule") as mock_pause,
         patch("products.data_warehouse.backend.facade.api.unpause_cdc_extraction_schedule") as mock_unpause,
         patch("products.data_warehouse.backend.facade.api.pause_external_data_schedule") as mock_pause_schema,
@@ -34,6 +51,7 @@ def _mocked_side_effects(oldest_batch_age: float | None = None, write_resolution
             "unpause": mock_unpause,
             "pause_schema": mock_pause_schema,
             "unpause_schema": mock_unpause_schema,
+            "s3": s3,
         }
 
 
@@ -55,6 +73,7 @@ class TestMigrateCDCSourceToBuffered(BaseTest):
                 "cdc_table_mode": table_mode,
             },
             initial_sync_complete=overrides.get("initial_sync_complete", True),
+            table=overrides.get("table"),
         )
 
     def _run(self, source, **kwargs) -> str:
@@ -78,7 +97,22 @@ class TestMigrateCDCSourceToBuffered(BaseTest):
         mocks["unpause"].assert_called_once()
         mocks["unpause_schema"].assert_called_once_with(str(schema.id))
 
-    def test_rollback_restores_legacy_and_keeps_buffer_files(self):
+    def test_flip_aborts_when_a_buffer_file_survives_the_purge(self):
+        # The purge itself is best-effort; a surviving file would replay legacy-delivered rows
+        # against a lane with no watermark, silently. Abort with the mode unchanged.
+        source = self._source()
+        self._schema(source, "users")
+        leftover = f"bucket/cdc_producer/x/{build_buffer_file_name(1, 2, 0)}"
+
+        with _mocked_side_effects(buffer_keys=[leftover]) as mocks:
+            with pytest.raises(CommandError, match="survived the purge"):
+                self._run(source)
+
+        source.refresh_from_db()
+        assert "cdc_ingest_mode" not in source.job_inputs
+        mocks["unpause"].assert_not_called()
+
+    def test_rollback_drains_the_buffer_then_pauses_the_consumer_before_the_mode_flips(self):
         source = self._source(ingest_mode="buffered")
         schema = self._schema(source, "users")
 
@@ -87,10 +121,25 @@ class TestMigrateCDCSourceToBuffered(BaseTest):
 
         source.refresh_from_db()
         assert source.job_inputs["cdc_ingest_mode"] == "legacy"
-        # Leftover files are harmless — the position guard no-ops a stale replay and the TTL clears
-        # them — and purging would throw away changes the legacy lane has not delivered yet.
+        # Fully-applied leftovers stay: the position guard no-ops a replay, the TTL clears them.
         mocks["purge"].assert_not_called()
         mocks["pause_schema"].assert_called_once_with(str(schema.id))
+
+    def test_rollback_refuses_while_the_buffer_holds_unapplied_changes(self):
+        # The buffer tail is WAL the slot already advanced past — flipping to legacy before the
+        # consumer applies it loses that WAL for good.
+        source = self._source(ingest_mode="buffered")
+        self._schema(source, "users")
+        unapplied = f"bucket/cdc_producer/x/{build_buffer_file_name(100, 200, 0)}"
+
+        with _mocked_side_effects(buffer_keys=[unapplied]) as mocks:
+            with pytest.raises(CommandError, match="lose them"):
+                self._run(source, rollback=True, drain_timeout=0)
+
+        source.refresh_from_db()
+        assert source.job_inputs["cdc_ingest_mode"] == "buffered"
+        # Consumer schedules must still be live so they can catch up for the re-run.
+        mocks["pause_schema"].assert_not_called()
 
     def test_a_hybrid_source_flips_only_its_consolidated_schemas(self):
         source = self._source()
@@ -126,7 +175,7 @@ class TestMigrateCDCSourceToBuffered(BaseTest):
             with pytest.raises(CommandError, match="No schema on this source serves the buffered lane"):
                 self._run(source)
 
-    def test_dry_run_changes_nothing(self):
+    def test_dry_run_changes_nothing_and_reports_the_cadence(self):
         source = self._source()
         self._schema(source, "users")
 
@@ -136,8 +185,31 @@ class TestMigrateCDCSourceToBuffered(BaseTest):
         source.refresh_from_db()
         assert "cdc_ingest_mode" not in source.job_inputs
         assert "Dry run" in output
+        # Default schema interval is not the 5min platform cadence — the report must say so.
+        assert "not at the 5min platform cadence" in output
         mocks["pause"].assert_not_called()
         mocks["purge"].assert_not_called()
+
+    def test_a_reserved_seq_column_on_the_source_table_refuses_the_flip(self):
+        # The batcher cannot stamp the engine position over a same-named source column, and capture
+        # hard-errors on it — refusing here keeps the source out of a flip-then-break loop.
+        source = self._source()
+        table = DataWarehouseTable.objects.create(
+            team_id=self.team.pk,
+            name="users",
+            format=DataWarehouseTable.TableFormat.DeltaS3Wrapper,
+            url_pattern="https://bucket/users/*",
+            external_data_source=source,
+            columns={"id": {"hogql": "IntegerDatabaseField"}, CDC_SEQ_COLUMN: {"hogql": "IntegerDatabaseField"}},
+        )
+        self._schema(source, "users", table=table)
+
+        with _mocked_side_effects():
+            with pytest.raises(CommandError, match="reserved for change ordering"):
+                self._run(source)
+
+        source.refresh_from_db()
+        assert "cdc_ingest_mode" not in source.job_inputs
 
     def test_flipping_without_write_resolution_is_refused(self):
         # No load position means no file is ever proven consumed, so the buffer fills until the S3

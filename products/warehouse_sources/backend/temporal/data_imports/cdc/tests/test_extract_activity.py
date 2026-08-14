@@ -3374,6 +3374,9 @@ class TestBufferedIngressCapture:
                 "products.warehouse_sources.backend.temporal.data_imports.cdc.activities.is_shadow_write_enabled",
                 return_value=False,
             ),
+            patch(
+                "products.warehouse_sources.backend.temporal.data_imports.cdc.activities.complete_schema_run"
+            ) as mock_complete,
         ):
             MockBufferWriter.return_value.write_batch.return_value.write_duration_seconds = 0.01
             mock_reader, mock_s3, mock_producer, _mock_job = _setup_mocks(
@@ -3392,6 +3395,7 @@ class TestBufferedIngressCapture:
             mock_get_adapter.return_value.parse_cdc_config.return_value.ingest_mode = "buffered"
             if capture is not None:
                 capture["reader_ref"] = mock_reader
+                capture["complete_schema_run"] = mock_complete
             cdc_extract_activity(CDCExtractInput(team_id=1, source_id=source.id))
         return mock_reader, mock_s3, mock_producer
 
@@ -3442,3 +3446,36 @@ class TestBufferedIngressCapture:
             captured["reader"] = self._run(MockBufferWriter, events, [schema], source, capture=captured)
 
         captured["reader_ref"].confirm_position.assert_not_called()
+
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.CDCBufferWriter")
+    def test_a_source_column_named_like_seq_fails_the_buffered_run(self, MockBufferWriter):
+        # The batcher skips its append on the collision, so the file's name, ordering, and retry
+        # cleanup would all derive from customer data — cleanup can then delete unconsumed files.
+        source = _make_source()
+        schema = _make_schema("users", cdc_mode="streaming", source=source)
+        events = [_make_event(op="I", position="0/100", columns={"id": 1, CDC_SEQ_COLUMN: 42})]
+        captured: dict = {}
+
+        with pytest.raises(Exception, match="_ph_cdc_seq"):
+            self._run(MockBufferWriter, events, [schema], source, capture=captured)
+
+        MockBufferWriter.return_value.write_batch.assert_not_called()
+        captured["reader_ref"].confirm_position.assert_not_called()
+
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.CDCBufferWriter")
+    def test_capture_does_not_repaint_a_buffered_schema_healthy(self, MockBufferWriter):
+        # The scheduled sync owns a buffered schema's status; capture repainting COMPLETED every
+        # tick would erase a failing consumer run within a minute and hide a buffer backlog.
+        source = _make_source()
+        buffered = _make_schema("users", cdc_mode="streaming", source=source)
+        legacy = _make_schema("events", cdc_mode="streaming", cdc_table_mode="cdc_only", source=source)
+        events = [
+            _make_event(op="I", position="0/100", columns={"id": 1}),
+            _make_event(op="I", position="0/100", table="events", columns={"id": 1}),
+        ]
+        captured: dict = {}
+
+        self._run(MockBufferWriter, events, [buffered, legacy], source, capture=captured)
+
+        repainted = [call.args[0].name for call in captured["complete_schema_run"].call_args_list]
+        assert repainted == ["events"]

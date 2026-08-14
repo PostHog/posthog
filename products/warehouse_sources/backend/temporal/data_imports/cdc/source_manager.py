@@ -11,13 +11,16 @@ generator resumes.
 
 from __future__ import annotations
 
+import datetime as dt
 from collections.abc import AsyncGenerator
 from typing import TYPE_CHECKING
 
+import psycopg
 import pyarrow as pa
 import pyarrow.parquet as pq
 from structlog.types import FilteringBoundLogger
 
+from posthog.settings import WAREHOUSE_SOURCES_DATABASE_URL
 from posthog.sync import database_sync_to_async_pool
 
 from products.data_warehouse.backend.facade.api import aget_s3_client
@@ -27,6 +30,9 @@ from products.warehouse_sources.backend.temporal.data_imports.cdc.buffer import 
 )
 from products.warehouse_sources.backend.temporal.data_imports.cdc.load_resolution import read_load_position
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.helpers import resolve_table_and_folder_names
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.jobs_db import (
+    BatchQueue,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.db import db_read_with_retry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
 
@@ -44,6 +50,10 @@ CONSOLIDATED_WRITE_MODE = "incremental_merge"
 DEFAULT_BATCH_ROW_LIMIT = 5000
 DEFAULT_BATCH_BYTE_LIMIT = 200 * 1024 * 1024
 
+# Slack when comparing an S3 mtime against a job timestamp from our DB, so clock skew between the
+# two can never make a file look older than a run that in fact never listed it.
+_CONSUMED_MTIME_MARGIN = dt.timedelta(minutes=5)
+
 
 def serves_buffered_lane(schema: ExternalDataSchema) -> bool:
     """Schema-side conditions for buffered ingress; the source's `ingest_mode` is the other half.
@@ -59,14 +69,29 @@ def serves_buffered_lane(schema: ExternalDataSchema) -> bool:
     )
 
 
-def is_buffered_consolidated(schema: ExternalDataSchema, *, ingest_mode: str, reset_pipeline: bool) -> bool:
-    """Whether this run should consume this schema's changes from the buffer.
+def is_buffered_consolidated(schema: ExternalDataSchema, *, ingest_mode: str) -> bool:
+    """Whether this schema's changes are delivered through the buffer."""
+    return ingest_mode == "buffered" and serves_buffered_lane(schema)
 
-    A reset stands down: it re-snapshots and recreates the slot, so buffered files predate a
-    discontinuity nothing can order across. Unlike webhook-first sources, CDC can rebuild itself,
-    so honoring the reset is safe.
+
+def has_pending_legacy_backlog(schema: ExternalDataSchema) -> bool:
+    """Whether legacy-lane deliveries for this schema are still in flight.
+
+    Deferred runs and sourcebatch batches carry no position column, so nothing orders them against
+    buffered writes — a consumer merge racing them lets an older legacy row land after a newer
+    buffered one. The consumer no-ops until both are drained; buffer files just wait.
     """
-    return ingest_mode == "buffered" and serves_buffered_lane(schema) and not reset_pipeline
+    if schema.sync_type_config.get("cdc_deferred_runs"):
+        return True
+
+    conn = psycopg.Connection.connect(WAREHOUSE_SOURCES_DATABASE_URL, autocommit=True)
+    try:
+        age = BatchQueue.get_oldest_non_terminal_batch_age_seconds(
+            conn, team_id=schema.team_id, schema_ids=[str(schema.id)]
+        )
+    finally:
+        conn.close()
+    return age is not None
 
 
 def consolidated_resource_name(schema: ExternalDataSchema) -> str:
@@ -101,7 +126,28 @@ class CDCSourceManager:
         )
         return read_load_position(sync_type_config, resource_name)
 
-    async def _list_buffer_files(self) -> list[tuple[tuple[int, int, int], str]]:
+    async def _previous_completed_run_started_at(self) -> dt.datetime | None:
+        """Start of the most recent COMPLETED sync job for this schema.
+
+        A completed run drained its whole generator, so every buffer file present when it listed —
+        anything last modified before it started — was read through to a committed write.
+        """
+        from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
+
+        return await database_sync_to_async_pool(db_read_with_retry)(
+            lambda: (
+                ExternalDataJob.objects.filter(
+                    schema_id=self._inputs.schema_id,
+                    team_id=self._inputs.team_id,
+                    status=ExternalDataJob.Status.COMPLETED,
+                )
+                .order_by("-created_at")
+                .values_list("created_at", flat=True)
+                .first()
+            )
+        )
+
+    async def _list_buffer_files(self) -> list[tuple[tuple[int, int, int], str, dt.datetime | None]]:
         """Buffer files under this schema's prefix, in position order.
 
         Sorted by the filename's `(start, end, index)` and never by S3 mtime: the position range is
@@ -119,7 +165,7 @@ class CDCSourceManager:
 
         ls_values = ls_res.values() if isinstance(ls_res, dict) else ls_res
 
-        files: list[tuple[tuple[int, int, int], str]] = []
+        files: list[tuple[tuple[int, int, int], str, dt.datetime | None]] = []
         for entry in ls_values:
             if entry["type"] == "directory":
                 continue
@@ -127,11 +173,36 @@ class CDCSourceManager:
             parsed = parse_buffer_file_name(key.rsplit("/", 1)[-1])
             if parsed is None:
                 continue
-            files.append((parsed, key))
+            modified = entry.get("LastModified")
+            files.append((parsed, key, modified if isinstance(modified, dt.datetime) else None))
 
         files.sort(key=lambda f: f[0])
         await self._logger.adebug("cdc_buffer_files_listed", prefix=prefix, file_count=len(files))
         return files
+
+    def _is_consumed(
+        self,
+        end_seq: int,
+        modified: dt.datetime | None,
+        floor: int | None,
+        prev_completed_start: dt.datetime | None,
+    ) -> bool:
+        """Whether a file's rows are all proven committed, so the file can be deleted.
+
+        Strictly below the floor is position-proof: the load-side guard would drop every row anyway.
+        AT the floor, position alone cannot tell a consumed file from the unread tail of a
+        transaction split across files (all its rows share one commit position) — but a file that
+        already existed when the last COMPLETED run started was listed and drained by it. The margin
+        absorbs clock skew between S3 and our DB; an idle schema's trailing file clears it within a
+        couple of ticks instead of being re-merged and re-billed forever.
+        """
+        if floor is None or end_seq > floor:
+            return False
+        if end_seq < floor:
+            return True
+        if modified is None or modified.tzinfo is None or prev_completed_start is None:
+            return False
+        return modified < prev_completed_start - _CONSUMED_MTIME_MARGIN
 
     async def get_items(
         self,
@@ -141,17 +212,16 @@ class CDCSourceManager:
     ) -> AsyncGenerator[pa.Table]:
         files = await self._list_buffer_files()
         floor = await self._read_load_position(resource_name)
+        prev_completed_start = await self._previous_completed_run_started_at() if floor is not None else None
 
         batch_tables: list[pa.Table] = []
         batch_rows = 0
         batch_bytes = 0
 
         async with aget_s3_client() as s3:
-            for (_start_seq, end_seq, _file_index), key in files:
-                # Every row in this file is strictly below the committed position, so the load-side
-                # guard would drop all of them. Its rows are durable in Delta — this is the only
-                # place a buffer file is proven consumed.
-                if floor is not None and end_seq < floor:
+            for (_start_seq, end_seq, _file_index), key, modified in files:
+                # The only place a buffer file is deleted — see _is_consumed for the proof.
+                if self._is_consumed(end_seq, modified, floor, prev_completed_start):
                     await s3._rm(key)
                     continue
 

@@ -64,15 +64,18 @@ from products.warehouse_sources.backend.temporal.data_imports.cdc.errors import 
     MAX_FRIENDLY_MESSAGE_LENGTH,
     CDCErrorCategory,
     CDCErrorInfo,
+    CDCReservedColumnError,
     CDCSchemaMergeError,
     CDCSlotNotConfiguredError,
     classify_cdc_error,
 )
 from products.warehouse_sources.backend.temporal.data_imports.cdc.load_resolution import has_engine_seq
 from products.warehouse_sources.backend.temporal.data_imports.cdc.naming import cdc_qualified_table_name
-from products.warehouse_sources.backend.temporal.data_imports.cdc.source_manager import serves_buffered_lane
+from products.warehouse_sources.backend.temporal.data_imports.cdc.source_manager import (
+    consolidated_resource_name,
+    serves_buffered_lane,
+)
 from products.warehouse_sources.backend.temporal.data_imports.cdc.types import ChangeEvent
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.helpers import resolve_table_and_folder_names
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.messages import SyncTypeLiteral
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.jobs_db import (
     BatchQueue,
@@ -592,15 +595,6 @@ class CDCExtractActivity:
     # ------------------------------------------------------------------
     # Storage naming
     # ------------------------------------------------------------------
-    def _consolidated_resource_name(self, schema: ExternalDataSchema) -> str:
-        """Storage name for the consolidated table — must match the snapshot pipeline's.
-
-        The CDC stream must target the same folder, otherwise streamed changes
-        land in a parallel Delta table no query reads. `name` and folder diverge
-        for rows renamed bare→qualified (`name="public.users"`, folder `users`).
-        """
-        return resolve_table_and_folder_names(schema.name, schema.resolved_s3_folder_name).folder_name
-
     def _partition_kwargs(self, schema: ExternalDataSchema) -> dict[str, typing.Any]:
         """Replay snapshot partitioning so CDC rows match the target Delta.
 
@@ -624,7 +618,7 @@ class CDCExtractActivity:
     # micro-batch, stalling the WAL drain loop. The next run retries fresh.
     _SHADOW_MAX_CONSECUTIVE_FAILURES = 3
 
-    def _write_buffer_file(self, schema: ExternalDataSchema, table_name: str, table: pa.Table) -> None:
+    def _write_buffer_file(self, schema: ExternalDataSchema, table_name: str, table: pa.Table, *, lane: str) -> None:
         """Write one micro-batch to the S3 change buffer. Raises on failure — the caller owns the
         policy, which differs by lane: shadow swallows, buffered ingress must not.
         """
@@ -652,8 +646,8 @@ class CDCExtractActivity:
                 file_index=file_index,
             )
 
-            metrics.get_shadow_buffer_files_written_metric(self.inputs.team_id, str(self.inputs.source_id)).add(1)
-            metrics.get_shadow_buffer_write_duration_metric(self.inputs.team_id, str(self.inputs.source_id)).record(
+            metrics.get_buffer_files_written_metric(self.inputs.team_id, str(self.inputs.source_id), lane).add(1)
+            metrics.get_buffer_write_duration_metric(self.inputs.team_id, str(self.inputs.source_id), lane).record(
                 result.write_duration_seconds
             )
             self._schema_log(schema).debug(
@@ -684,7 +678,7 @@ class CDCExtractActivity:
             return
 
         try:
-            self._write_buffer_file(schema, table_name, table)
+            self._write_buffer_file(schema, table_name, table, lane="shadow")
             self._shadow_write_failures = 0
         except Exception:
             self._shadow_write_failures += 1
@@ -735,7 +729,12 @@ class CDCExtractActivity:
                 # A swallowed failure here would lose changes the slot is about to advance past,
                 # so this write must fail the run.
                 if enriched_table.num_rows:
-                    self._write_buffer_file(schema, table_name, enriched_table)
+                    # A source column named _ph_cdc_seq means the batcher could not append the
+                    # engine position; writing anyway would name, order, and clean up files by
+                    # customer data — cleanup can then delete unconsumed files (see errors.py).
+                    if not has_engine_seq(enriched_table):
+                        raise CDCReservedColumnError(f"Table {table_name} has a source column named {CDC_SEQ_COLUMN}")
+                    self._write_buffer_file(schema, table_name, enriched_table, lane="ingress")
                 continue
 
             # Buffer the raw (pre-dedup/SCD2) stream, then strip the seq column so the legacy write
@@ -748,7 +747,7 @@ class CDCExtractActivity:
             # CDC-only and stays self-consistent with its `name`-keyed snapshot seed.
             batch_writes: list[tuple[pa.Table, str, str]] = []
             if cdc_table_mode == "consolidated":
-                consolidated_name = self._consolidated_resource_name(schema)
+                consolidated_name = consolidated_resource_name(schema)
                 batch_writes.append(
                     (deduplicate_table(enriched_table, key_columns), consolidated_name, "incremental_merge")
                 )
@@ -761,7 +760,7 @@ class CDCExtractActivity:
                     )
                 )
             elif cdc_table_mode == "both":
-                consolidated_name = self._consolidated_resource_name(schema)
+                consolidated_name = consolidated_resource_name(schema)
                 batch_writes.append(
                     (deduplicate_table(enriched_table, key_columns), consolidated_name, "incremental_merge")
                 )
@@ -934,7 +933,15 @@ class CDCExtractActivity:
         self._shadow_enabled = is_shadow_write_enabled(self.inputs.team_id, self.log)
 
         if self.adapter.parse_cdc_config(self.source).ingest_mode == "buffered":
-            self._buffered_table_names = {s.name for s in self.cdc_schemas if serves_buffered_lane(s)}
+            # A schema with deferred runs pending stays legacy this tick, so the flush and any new
+            # events travel one lane. Deferred batches carry no position column, so nothing orders
+            # them against buffered writes — mixing lanes lets an older deferred row land after a
+            # newer buffered one. The consumer holds off too (has_pending_legacy_backlog).
+            self._buffered_table_names = {
+                s.name
+                for s in self.cdc_schemas
+                if serves_buffered_lane(s) and not s.sync_type_config.get("cdc_deferred_runs")
+            }
             if self._buffered_table_names:
                 self.log.info(
                     "cdc_buffered_ingress_active",
@@ -1756,6 +1763,11 @@ class CDCExtractActivity:
         try:
             # The heartbeat records liveness (this run happened), independent of health.
             self._record_run_heartbeat(schema, now)
+            # A buffered schema's status belongs to the scheduled sync that consumes its files.
+            # Repainting COMPLETED here would erase a failing consumer run within one capture tick,
+            # hiding a buffer backlog until its files hit the S3 TTL — which is unrecoverable.
+            if schema.name in self._buffered_table_names:
+                return False
             if not complete_schema_run(schema, last_synced_at=now):
                 self._schema_log(schema).info("cdc_success_repaint_skipped_broken")
                 return False

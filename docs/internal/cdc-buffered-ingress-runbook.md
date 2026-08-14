@@ -27,14 +27,18 @@ preserved, so there is no WAL gap and no re-sync.
    Without the flag the loader records no load position, so no consumed file is ever proven safe to
    delete; the buffer then fills until the S3 TTL expires it, with the slot long advanced past those
    changes. That is unrecoverable loss, not a stall. Rollback does not require the flag.
-2. Every CDC schema on the source is at `sync_frequency_interval = 5min`.
-3. Buffer validation is clean over a busy window:
+2. No source table has a column named `_ph_cdc_seq`. **The command refuses to flip if one does** —
+   the name is reserved for change ordering, and capture hard-errors on the collision rather than
+   writing files whose ordering and retry cleanup derive from customer data.
+3. Every CDC schema on the source is at `sync_frequency_interval = 5min`. The command warns
+   when an eligible schema is off cadence — consumption paces to the schema's own schedule.
+4. Buffer validation is clean over a busy window:
 
    ```bash
    python manage.py validate_cdc_buffer --source-id <uuid> --since-hours 40
    ```
 
-4. Check what will move:
+5. Check what will move:
 
    ```bash
    python manage.py migrate_cdc_source_to_buffered --source-id <uuid> --dry-run
@@ -49,8 +53,9 @@ python manage.py migrate_cdc_source_to_buffered --source-id <uuid>
 ```
 
 The command pauses the extraction schedule, waits for in-flight `sourcebatch` batches to reach a
-terminal state, purges pre-flip buffer files, sets `job_inputs.cdc_ingest_mode = "buffered"`, then
-unpauses the extraction schedule and each eligible schema's own schedule.
+terminal state, purges pre-flip buffer files **and aborts if any file survives the purge**, sets
+`job_inputs.cdc_ingest_mode = "buffered"`, then unpauses the extraction schedule and each eligible
+schema's own schedule.
 
 If a batch is still working after the drain timeout the command aborts with the source **left
 paused**. That is deliberate — flipping on top of a stuck load lets that batch land against a table
@@ -58,6 +63,12 @@ the buffered lane has already started writing. Investigate the stuck load, then 
 
 Pre-flip buffer files are purged because the legacy lane already delivered those rows, and the load
 position has no watermark for them yet.
+
+An extraction run already in flight when the schedule pauses can still enqueue legacy batches after
+the drain check passed. That is safe: the consumer no-ops while any legacy delivery for the schema
+is in flight (deferred runs or unfinished `sourcebatch` batches), so late legacy batches always land
+before the first buffered merge. The same gate holds the consumer off during a post-flip re-snapshot
+until the deferred backlog lands.
 
 ### Verify
 
@@ -68,6 +79,8 @@ position has no watermark for them yet.
   committed position, not the read.
 - Row counts track the pre-flip day.
 - `warehouse_load_cdc_delete_enrichment_violations_total` stays at zero.
+- The schema's status in the Syncs UI now comes from the scheduled sync alone — capture heartbeats
+  but never repaints a buffered schema COMPLETED, so a failing consumer run stays visible.
 
 ## Rollback
 
@@ -75,11 +88,20 @@ position has no watermark for them yet.
 python manage.py migrate_cdc_source_to_buffered --source-id <uuid> --rollback
 ```
 
-Sets the mode back to `legacy`, re-pauses the per-schema schedules, and leaves the extraction
-schedule running. Buffer files are **not** purged on rollback: the legacy lane has not delivered
-them, and the position guard makes a stale replay a no-op. The 14-day S3 TTL clears the remainder.
+The order matters, and the command enforces it:
 
-Rows already merged stay merged — the same rows the legacy lane would have written.
+1. Pause the extraction schedule, so the buffer stops growing.
+2. **Wait for the consumer to drain the buffer.** The buffer's tail holds WAL the slot has already
+   advanced past — it exists nowhere else, and flipping to legacy before it is applied loses it for
+   good. The command refuses to proceed (extraction left paused, consumer left running) until every
+   remaining file is covered by the schema's load position.
+3. Pause the per-schema schedules and wait for running sync jobs, so no in-flight merge of old
+   buffered rows can land after legacy delivery resumes and overwrite newer rows.
+4. Set the mode to `legacy` and unpause the extraction schedule.
+
+Fully-applied buffer files are **not** purged: the position guard makes a replay a no-op, and the
+14-day S3 TTL clears them. Rows already merged stay merged — the same rows the legacy lane would
+have written.
 
 ## Buffer expiry — no partial recovery
 
@@ -114,6 +136,9 @@ a retry-heavy period is the signal to revisit. Candidate fixes are costed in the
 
 Consume runs are ordinary jobs: `billable=True`, `rows_synced` = consumed rows. A consolidated
 source bills the same change events once per run, so the flip is billing-neutral by construction.
+One bounded exception: the trailing file of a burst is re-read for a tick or two until a completed
+run proves it consumed and it is deleted — rows at the recorded position re-apply as no-op upserts
+in that window, never perpetually.
 
 Note for later: `both`-mode schemas create two `ExternalDataJob` rows per run, each carrying
 `rows_synced`, so those customers are double-billed today. Buffered ingress halves it. That lands

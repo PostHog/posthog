@@ -7,6 +7,7 @@ re-snapshot and no WAL gap. Only consolidated schemas move — see `cdc/source_m
 from __future__ import annotations
 
 import time
+import datetime as dt
 from typing import Any
 
 from django.core.management.base import BaseCommand, CommandError
@@ -16,9 +17,15 @@ import structlog
 
 from posthog.settings import WAREHOUSE_SOURCES_DATABASE_URL
 
+from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
 from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
-from products.warehouse_sources.backend.temporal.data_imports.cdc.buffer import purge_buffer_prefix
+from products.warehouse_sources.backend.temporal.data_imports.cdc.batcher import CDC_SEQ_COLUMN
+from products.warehouse_sources.backend.temporal.data_imports.cdc.buffer import (
+    get_buffer_prefix,
+    parse_buffer_file_name,
+    purge_buffer_prefix,
+)
 from products.warehouse_sources.backend.temporal.data_imports.cdc.load_resolution import (
     WRITE_RESOLUTION_FLAG,
     is_cdc_write_resolution_enabled,
@@ -27,13 +34,16 @@ from products.warehouse_sources.backend.temporal.data_imports.cdc.source_manager
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.jobs_db import (
     BatchQueue,
 )
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.s3.common import strip_s3_protocol
 
 logger = structlog.get_logger(__name__)
 
-# How long to wait for in-flight sourcebatch batches to reach a terminal state before giving up.
-# Past this the operator should investigate rather than flip on top of a stuck load.
+# How long to wait for in-flight work to reach a terminal state before giving up. Past this the
+# operator should investigate rather than flip on top of a stuck run.
 DRAIN_TIMEOUT_SECONDS = 15 * 60
 DRAIN_POLL_SECONDS = 10
+
+EXPECTED_SYNC_INTERVAL = dt.timedelta(minutes=5)
 
 
 class Command(BaseCommand):
@@ -47,7 +57,7 @@ class Command(BaseCommand):
             "--drain-timeout",
             type=int,
             default=DRAIN_TIMEOUT_SECONDS,
-            help=f"Seconds to wait for sourcebatch to drain (default {DRAIN_TIMEOUT_SECONDS})",
+            help=f"Seconds to wait for in-flight work to drain (default {DRAIN_TIMEOUT_SECONDS})",
         )
 
     def handle(self, *args: Any, **options: Any) -> None:
@@ -82,11 +92,15 @@ class Command(BaseCommand):
             return
         if not rollback:
             self._require_write_resolution(source, eligible)
+            self._require_no_reserved_columns(eligible)
         if dry_run:
             self.stdout.write(self.style.WARNING("Dry run — no changes made."))
             return
 
-        self._flip(source, target_mode, eligible, options["drain_timeout"])
+        if rollback:
+            self._roll_back(source, eligible, options["drain_timeout"])
+        else:
+            self._flip_to_buffered(source, eligible, options["drain_timeout"])
 
     def _require_write_resolution(self, source: ExternalDataSource, eligible: list[ExternalDataSchema]) -> None:
         """Refuse to flip a team whose write resolution is off.
@@ -103,6 +117,19 @@ class Command(BaseCommand):
             "expire at the S3 TTL with the slot already advanced past them."
         )
 
+    def _require_no_reserved_columns(self, eligible: list[ExternalDataSchema]) -> None:
+        """Refuse to flip a schema whose source table has a column named `_ph_cdc_seq`.
+
+        The collision stops the batcher stamping the engine position, and capture hard-errors on it
+        (CDCReservedColumnError) — catching it here keeps the source out of a flip-then-break loop.
+        """
+        conflicted = [s.name for s in eligible if s.table is not None and CDC_SEQ_COLUMN in (s.table.columns or {})]
+        if conflicted:
+            raise CommandError(
+                f"Schemas with a source column named {CDC_SEQ_COLUMN}: {', '.join(sorted(conflicted))}. "
+                "That name is reserved for change ordering — rename the column or keep the source on legacy."
+            )
+
     def _report(
         self,
         source: ExternalDataSource,
@@ -113,6 +140,14 @@ class Command(BaseCommand):
     ) -> None:
         self.stdout.write(f"Source {source.id} (team {source.team_id}): {current_mode} → {target_mode}")
         self.stdout.write(f"  buffered lane ({len(eligible)}): {', '.join(s.name for s in eligible) or '—'}")
+        off_cadence = [s.name for s in eligible if s.sync_frequency_interval != EXPECTED_SYNC_INTERVAL]
+        if off_cadence:
+            self.stdout.write(
+                self.style.WARNING(
+                    f"  ⚠ not at the 5min platform cadence: {', '.join(sorted(off_cadence))} — "
+                    "consumption paces to the schema's schedule; set them to 5min first"
+                )
+            )
         if ineligible:
             detail = ", ".join(f"{s.name} [{s.cdc_table_mode}]" for s in ineligible)
             self.stdout.write(self.style.WARNING(f"  staying on legacy ({len(ineligible)}): {detail}"))
@@ -122,12 +157,8 @@ class Command(BaseCommand):
                 )
             )
 
-    def _flip(
-        self,
-        source: ExternalDataSource,
-        target_mode: str,
-        eligible: list[ExternalDataSchema],
-        drain_timeout: int,
+    def _flip_to_buffered(
+        self, source: ExternalDataSource, eligible: list[ExternalDataSchema], drain_timeout: int
     ) -> None:
         from products.data_warehouse.backend.facade.api import (
             pause_cdc_extraction_schedule,
@@ -139,35 +170,141 @@ class Command(BaseCommand):
         self.stdout.write("1/5 pausing extraction schedule")
         pause_cdc_extraction_schedule(source_id)
 
+        # An extraction run already in flight can still enqueue after this drain returns — pausing a
+        # Temporal schedule does not stop a running workflow. That is safe: the consumer no-ops
+        # while any sourcebatch batch for the schema is non-terminal (has_pending_legacy_backlog),
+        # so late legacy batches always land before the first buffered merge.
         self.stdout.write("2/5 draining sourcebatch")
-        self._wait_for_drain(source.team_id, [str(s.id) for s in eligible], drain_timeout)
+        self._wait_for_sourcebatch_drain(source.team_id, [str(s.id) for s in eligible], drain_timeout)
 
-        # Only when moving TO buffered: pre-flip files were already delivered by the legacy lane, and
-        # replaying them would re-apply rows against a position the guard has no watermark for yet.
-        # Rolling back leaves files in place — the position guard makes a stale replay a no-op, and
-        # the S3 TTL clears them.
-        if target_mode == "buffered":
-            self.stdout.write("3/5 purging pre-flip buffer files")
-            for schema in eligible:
-                purge_buffer_prefix(source.team_id, str(schema.id), logger)
-        else:
-            self.stdout.write("3/5 leaving buffer files in place (the position guard no-ops them)")
+        # Pre-flip files were already delivered by the legacy lane, and replaying them would
+        # re-apply rows against a position the guard has no watermark for yet.
+        self.stdout.write("3/5 purging pre-flip buffer files")
+        for schema in eligible:
+            purge_buffer_prefix(source.team_id, str(schema.id), logger)
+        self._verify_prefixes_empty(source.team_id, eligible)
 
-        self.stdout.write(f"4/5 setting cdc_ingest_mode={target_mode}")
-        source.job_inputs = {**(source.job_inputs or {}), "cdc_ingest_mode": target_mode}
+        self.stdout.write("4/5 setting cdc_ingest_mode=buffered")
+        source.job_inputs = {**(source.job_inputs or {}), "cdc_ingest_mode": "buffered"}
         source.save(update_fields=["job_inputs"])
 
         self.stdout.write("5/5 unpausing schedules")
         unpause_cdc_extraction_schedule(source_id)
-        self._set_schema_schedules(eligible, paused=target_mode != "buffered")
+        self._set_schema_schedules(eligible, paused=False)
 
-        self.stdout.write(self.style.SUCCESS(f"Source {source_id} is now {target_mode}."))
+        self.stdout.write(self.style.SUCCESS(f"Source {source_id} is now buffered."))
         self.stdout.write(
             "Verify: capture writes buffer files and advances the slot; the next sync merges and "
             'advances sync_type_config["cdc_load_position"]; consumed files disappear on the run after.'
         )
 
-    def _wait_for_drain(self, team_id: int, schema_ids: list[str], timeout: int) -> None:
+    def _roll_back(self, source: ExternalDataSource, eligible: list[ExternalDataSchema], drain_timeout: int) -> None:
+        from products.data_warehouse.backend.facade.api import (
+            pause_cdc_extraction_schedule,
+            unpause_cdc_extraction_schedule,
+        )
+
+        source_id = str(source.id)
+
+        self.stdout.write("1/5 pausing extraction schedule")
+        pause_cdc_extraction_schedule(source_id)
+
+        # The buffer's tail holds WAL the slot has already advanced past — it exists nowhere else.
+        # The consumer must apply it BEFORE legacy delivery resumes, or it is lost for good. Capture
+        # is paused so the buffer is static; the still-running scheduled sync drains it.
+        self.stdout.write("2/5 waiting for the consumer to drain the buffer")
+        self._wait_for_buffer_drain(source.team_id, eligible, drain_timeout)
+
+        # Consumer next: a sync merging old buffered rows AFTER legacy capture resumed would
+        # overwrite newer legacy writes — legacy writes carry no position, so the guard can't
+        # protect them. Strict: a schedule that failed to pause could start such a sync.
+        self.stdout.write("3/5 pausing per-schema schedules")
+        self._pause_schema_schedules_strict(eligible)
+        self._wait_for_running_sync_jobs(source.team_id, [str(s.id) for s in eligible], drain_timeout)
+
+        self.stdout.write("4/5 setting cdc_ingest_mode=legacy")
+        source.job_inputs = {**(source.job_inputs or {}), "cdc_ingest_mode": "legacy"}
+        source.save(update_fields=["job_inputs"])
+
+        # Leftover fully-applied files stay: the position guard no-ops a replay, the S3 TTL clears them.
+        self.stdout.write("5/5 unpausing extraction schedule")
+        unpause_cdc_extraction_schedule(source_id)
+
+        self.stdout.write(self.style.SUCCESS(f"Source {source_id} is now legacy."))
+
+    def _wait_for_buffer_drain(self, team_id: int, eligible: list[ExternalDataSchema], timeout: int) -> None:
+        """Block until every schema's load position covers every remaining buffer file."""
+        from products.data_warehouse.backend.facade.api import get_s3_client
+        from products.warehouse_sources.backend.temporal.data_imports.cdc.load_resolution import read_load_position
+        from products.warehouse_sources.backend.temporal.data_imports.cdc.source_manager import (
+            consolidated_resource_name,
+        )
+
+        s3 = get_s3_client()
+        deadline = time.monotonic() + timeout
+        while True:
+            behind: list[str] = []
+            for schema in eligible:
+                schema.refresh_from_db(fields=["sync_type_config"])
+                floor = read_load_position(schema.sync_type_config, consolidated_resource_name(schema)) or 0
+                prefix = strip_s3_protocol(get_buffer_prefix(team_id, str(schema.id)))
+                try:
+                    keys = s3.ls(prefix, detail=False, refresh=True)
+                except FileNotFoundError:
+                    continue
+                for key in keys:
+                    parsed = parse_buffer_file_name(key.rsplit("/", 1)[-1])
+                    if parsed is not None and parsed[1] > floor:
+                        behind.append(schema.name)
+                        break
+            if not behind:
+                return
+            if time.monotonic() >= deadline:
+                raise CommandError(
+                    f"Buffered changes not yet applied for: {', '.join(sorted(behind))} after {timeout}s. "
+                    "Rolling back now would lose them — the slot already advanced past that WAL. "
+                    "Extraction is left paused; let the scheduled syncs catch up, then re-run."
+                )
+            self.stdout.write(f"    waiting, buffer not drained for: {', '.join(sorted(behind))}")
+            time.sleep(DRAIN_POLL_SECONDS)
+
+    def _pause_schema_schedules_strict(self, schemas: list[ExternalDataSchema]) -> None:
+        from products.data_warehouse.backend.facade.api import pause_external_data_schedule
+
+        for schema in schemas:
+            try:
+                pause_external_data_schedule(str(schema.id))
+            except Exception as exc:
+                raise CommandError(
+                    f"Could not pause the schedule for {schema.name}; a sync starting mid-rollback "
+                    f"could overwrite newer legacy rows. Mode unchanged — fix and re-run. ({exc})"
+                )
+
+    def _verify_prefixes_empty(self, team_id: int, eligible: list[ExternalDataSchema]) -> None:
+        """Abort if any buffer file survived the purge.
+
+        The purge itself is best-effort, but a leftover file here means the first buffered sync
+        replays rows the legacy lane already delivered, against a lane with no watermark yet —
+        silently. The source is still paused and the mode unset, so aborting is clean.
+        """
+        from products.data_warehouse.backend.facade.api import get_s3_client
+
+        s3 = get_s3_client()
+        leftovers: list[str] = []
+        for schema in eligible:
+            prefix = strip_s3_protocol(get_buffer_prefix(team_id, str(schema.id)))
+            try:
+                keys = s3.ls(prefix, detail=False, refresh=True)
+            except FileNotFoundError:
+                continue
+            leftovers.extend(k for k in keys if parse_buffer_file_name(k.rsplit("/", 1)[-1]) is not None)
+        if leftovers:
+            raise CommandError(
+                f"{len(leftovers)} buffer file(s) survived the purge (first: {leftovers[0]}). "
+                "The source is left paused and the mode unchanged — clear the prefix and re-run."
+            )
+
+    def _wait_for_sourcebatch_drain(self, team_id: int, schema_ids: list[str], timeout: int) -> None:
         """Block until no sourcebatch batch for these schemas is still working.
 
         Flipping while a batch is mid-flight would leave it to land after the source stopped
@@ -192,6 +329,25 @@ class Command(BaseCommand):
                 time.sleep(DRAIN_POLL_SECONDS)
         finally:
             conn.close()
+
+    def _wait_for_running_sync_jobs(self, team_id: int, schema_ids: list[str], timeout: int) -> None:
+        if not schema_ids:
+            return
+
+        deadline = time.monotonic() + timeout
+        while True:
+            running = ExternalDataJob.objects.filter(
+                team_id=team_id, schema_id__in=schema_ids, status=ExternalDataJob.Status.RUNNING
+            ).count()
+            if running == 0:
+                return
+            if time.monotonic() >= deadline:
+                raise CommandError(
+                    f"{running} sync job(s) still running after {timeout}s. Schedules are left "
+                    "paused and the mode unchanged — wait for them to finish, then re-run."
+                )
+            self.stdout.write(f"    waiting, {running} sync job(s) running")
+            time.sleep(DRAIN_POLL_SECONDS)
 
     def _set_schema_schedules(self, schemas: list[ExternalDataSchema], *, paused: bool) -> None:
         from products.data_warehouse.backend.facade.api import (

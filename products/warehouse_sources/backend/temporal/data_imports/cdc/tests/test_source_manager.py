@@ -1,3 +1,4 @@
+import datetime as dt
 import contextlib
 
 import pytest
@@ -11,6 +12,7 @@ from products.warehouse_sources.backend.temporal.data_imports.cdc.batcher import
 from products.warehouse_sources.backend.temporal.data_imports.cdc.buffer import build_buffer_file_name
 from products.warehouse_sources.backend.temporal.data_imports.cdc.source_manager import (
     CDCSourceManager,
+    has_pending_legacy_backlog,
     is_buffered_consolidated,
     serves_buffered_lane,
 )
@@ -18,6 +20,10 @@ from products.warehouse_sources.backend.temporal.data_imports.cdc.source_manager
 _TEAM_ID = 7
 _SCHEMA_ID = "3f7c1f4e-0000-0000-0000-000000000001"
 _PREFIX = f"bucket/cdc_producer/{_TEAM_ID}/{_SCHEMA_ID}"
+
+_NOW = dt.datetime(2026, 8, 14, 12, 0, tzinfo=dt.UTC)
+# Older than any completed-run start minus the clock-skew margin.
+_OLD_MTIME = _NOW - dt.timedelta(hours=2)
 
 
 def _table(ids: list[int], seqs: list[int]) -> pa.Table:
@@ -39,16 +45,22 @@ def _key(start: int, end: int, index: int = 0) -> str:
 class _FakeS3:
     """Minimal stand-in for the async fsspec client the manager uses."""
 
-    def __init__(self, files: dict[str, bytes], missing_prefix: bool = False) -> None:
+    def __init__(
+        self,
+        files: dict[str, bytes],
+        missing_prefix: bool = False,
+        mtimes: dict[str, dt.datetime] | None = None,
+    ) -> None:
         self.files = dict(files)
         self.removed: list[str] = []
         self.opened: list[str] = []
         self.missing_prefix = missing_prefix
+        self.mtimes = mtimes or {}
 
     async def _ls(self, prefix, detail=True):
         if self.missing_prefix:
             raise FileNotFoundError(prefix)
-        return [{"type": "file", "Key": key} for key in self.files]
+        return [{"type": "file", "Key": key, "LastModified": self.mtimes.get(key, _OLD_MTIME)} for key in self.files]
 
     async def _rm(self, key):
         self.removed.append(key)
@@ -70,12 +82,15 @@ class _FakeS3:
 
 
 @contextlib.contextmanager
-def _patched(s3: _FakeS3, load_position: int | None):
+def _patched(s3: _FakeS3, load_position: int | None, prev_completed_start: dt.datetime | None):
     with (
         patch(
             "products.warehouse_sources.backend.temporal.data_imports.cdc.source_manager.aget_s3_client"
         ) as mock_client,
         patch.object(CDCSourceManager, "_read_load_position", AsyncMock(return_value=load_position)),
+        patch.object(
+            CDCSourceManager, "_previous_completed_run_started_at", AsyncMock(return_value=prev_completed_start)
+        ),
         patch(
             "products.warehouse_sources.backend.temporal.data_imports.cdc.source_manager.get_buffer_prefix",
             return_value=f"s3://{_PREFIX}",
@@ -94,8 +109,13 @@ def _manager() -> CDCSourceManager:
     return CDCSourceManager(inputs=inputs, logger=AsyncMock())
 
 
-async def _collect(s3: _FakeS3, load_position: int | None = None, **kwargs) -> list[pa.Table]:
-    with _patched(s3, load_position):
+async def _collect(
+    s3: _FakeS3,
+    load_position: int | None = None,
+    prev_completed_start: dt.datetime | None = None,
+    **kwargs,
+) -> list[pa.Table]:
+    with _patched(s3, load_position, prev_completed_start):
         return [t async for t in _manager().get_items("users", **kwargs)]
 
 
@@ -105,6 +125,7 @@ def _schema(**overrides) -> MagicMock:
     schema.cdc_mode = overrides.get("cdc_mode", "streaming")
     schema.cdc_table_mode = overrides.get("cdc_table_mode", "consolidated")
     schema.initial_sync_complete = overrides.get("initial_sync_complete", True)
+    schema.sync_type_config = overrides.get("sync_type_config", {})
     return schema
 
 
@@ -139,7 +160,7 @@ class TestCDCSourceManager:
 
         assert tables[0].column("id").to_pylist() == [1, 2, 3]
 
-    async def test_fully_applied_files_are_deleted_and_never_read(self):
+    async def test_files_strictly_below_the_position_are_deleted_and_never_read(self):
         s3 = _FakeS3(
             {
                 _key(100, 199): _parquet_bytes(_table([1], [100])),
@@ -153,12 +174,33 @@ class TestCDCSourceManager:
         assert s3.opened == [_key(200, 299)]
         assert tables[0].column("id").to_pylist() == [2]
 
-    async def test_a_file_ending_at_the_position_is_still_read(self):
-        # Equality is not proof of application: one transaction shares a commit position across
-        # files, so a file ending exactly at the watermark can still hold unapplied rows.
+    async def test_a_trailing_file_is_deleted_once_a_completed_run_predates_it(self):
+        # Position alone cannot prove the file at the floor consumed, so an idle schema would
+        # otherwise re-merge and re-bill its trailing file on every sync forever.
         s3 = _FakeS3({_key(100, 200): _parquet_bytes(_table([1], [200]))})
 
-        tables = await _collect(s3, load_position=200)
+        tables = await _collect(s3, load_position=200, prev_completed_start=_OLD_MTIME + dt.timedelta(hours=1))
+
+        assert s3.removed == [_key(100, 200)]
+        assert tables == []
+
+    @parameterized.expand(
+        [
+            # A file written after the completed run started was never in its listing — it can hold
+            # the unread tail of a transaction split across files (all rows share one position).
+            ("written_after_the_completed_run_started", _NOW, _NOW - dt.timedelta(minutes=30)),
+            # Within the clock-skew margin of the run start, existence at listing time is unproven.
+            ("within_the_skew_margin", _NOW - dt.timedelta(minutes=32), _NOW - dt.timedelta(minutes=30)),
+            ("no_completed_run_yet", _OLD_MTIME, None),
+        ]
+    )
+    async def test_a_file_at_the_position_is_kept_when_consumption_is_unproven(
+        self, _name, mtime, prev_completed_start
+    ):
+        key = _key(100, 200)
+        s3 = _FakeS3({key: _parquet_bytes(_table([1], [200]))}, mtimes={key: mtime})
+
+        tables = await _collect(s3, load_position=200, prev_completed_start=prev_completed_start)
 
         assert s3.removed == []
         assert len(tables) == 1
@@ -166,7 +208,7 @@ class TestCDCSourceManager:
     async def test_no_files_are_deleted_before_anything_is_committed(self):
         s3 = _FakeS3({_key(100, 199): _parquet_bytes(_table([1], [100]))})
 
-        await _collect(s3, load_position=None)
+        await _collect(s3, load_position=None, prev_completed_start=_NOW)
 
         assert s3.removed == []
 
@@ -243,10 +285,33 @@ class TestBufferedGating:
 
     @parameterized.expand([("legacy",), ("",), ("nonsense",)])
     def test_a_source_that_was_not_flipped_stays_on_the_legacy_path(self, ingest_mode):
-        assert is_buffered_consolidated(_schema(), ingest_mode=ingest_mode, reset_pipeline=False) is False
-
-    def test_a_reset_stands_down_so_the_snapshot_can_rebuild(self):
-        assert is_buffered_consolidated(_schema(), ingest_mode="buffered", reset_pipeline=True) is False
+        assert is_buffered_consolidated(_schema(), ingest_mode=ingest_mode) is False
 
     def test_a_flipped_consolidated_schema_consumes_the_buffer(self):
-        assert is_buffered_consolidated(_schema(), ingest_mode="buffered", reset_pipeline=False) is True
+        assert is_buffered_consolidated(_schema(), ingest_mode="buffered") is True
+
+
+class TestPendingLegacyBacklog:
+    # Legacy deliveries carry no position column, so a consumer merge racing them can be overwritten
+    # by an older row. These prove both backlog forms hold the consumer off.
+
+    def test_deferred_runs_are_a_backlog_without_touching_the_queue(self):
+        with patch(
+            "products.warehouse_sources.backend.temporal.data_imports.cdc.source_manager.psycopg"
+        ) as mock_psycopg:
+            assert has_pending_legacy_backlog(_schema(sync_type_config={"cdc_deferred_runs": [{"x": 1}]})) is True
+            mock_psycopg.Connection.connect.assert_not_called()
+
+    @parameterized.expand([("batches_pending", 12.5, True), ("queue_drained", None, False)])
+    def test_sourcebatch_state_decides_when_no_deferred_runs(self, _name, age, expected):
+        schema = _schema()
+        schema.team_id = _TEAM_ID
+        schema.id = _SCHEMA_ID
+        with (
+            patch("products.warehouse_sources.backend.temporal.data_imports.cdc.source_manager.psycopg"),
+            patch(
+                "products.warehouse_sources.backend.temporal.data_imports.cdc.source_manager.BatchQueue.get_oldest_non_terminal_batch_age_seconds",
+                return_value=age,
+            ),
+        ):
+            assert has_pending_legacy_backlog(schema) is expected

@@ -22,14 +22,17 @@ positions with differently-shaped files. Writers therefore call
 past the position the retry re-reads from is superseded and removed. A schema
 reset (TRUNCATE / lost slot) invalidates the whole prefix — `purge_buffer_prefix`.
 
-Enablement is the `dwh-cdc-buffer-shadow` feature flag alone (per team, so a soak
-covers a couple of projects rather than every CDC source on the worker). Evaluated
-once per extraction run, never per flush, and fail-closed: a flag-service outage
-leaves the lane off, so there is no path to accidental enablement.
+Two lanes write here. Shadow (the `dwh-cdc-buffer-shadow` feature flag, per team,
+evaluated once per extraction run and fail-closed) writes a validation copy while
+legacy delivery stays authoritative. Buffered ingress (`cdc_ingest_mode="buffered"`
+in the source's `job_inputs`) writes the same files as the ONLY delivery — the
+scheduled sync consumes them, and a write failure fails the run rather than being
+swallowed, because the slot is about to advance past those changes.
 
-Retention: no TTL exists yet; resets and CDC-disable purge, ordinary settled files
-do not expire. An S3 lifecycle rule on `cdc_producer/` is tracked for the fleet-wide
-soak — until it exists, keep the flag on a handful of projects.
+Retention: an S3 lifecycle rule on `cdc_producer/` (`expire-cdc-producer-buffer`)
+expires files after 14 days. Resets and CDC-disable purge sooner. For a buffered
+schema, expiry of unconsumed files is unrecoverable — the slot advanced long ago —
+so consumer lag is watched against file age, not file count.
 """
 
 from __future__ import annotations

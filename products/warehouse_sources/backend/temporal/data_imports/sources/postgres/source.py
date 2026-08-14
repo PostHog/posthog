@@ -1224,6 +1224,7 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
             CONSOLIDATED_WRITE_MODE,
             CDCSourceManager,
             consolidated_resource_name,
+            has_pending_legacy_backlog,
             is_buffered_consolidated,
         )
         from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.cdc.config import (
@@ -1231,25 +1232,39 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
         )
 
         ingest_mode = PostgresCDCConfig.from_source(schema.source).ingest_mode
-        if not is_buffered_consolidated(schema, ingest_mode=ingest_mode, reset_pipeline=inputs.reset_pipeline):
+        if not is_buffered_consolidated(schema, ingest_mode=ingest_mode):
             return None
 
-        manager = CDCSourceManager(inputs, inputs.logger)
+        # A CDC reset must travel through snapshot mode (which purges the buffer and re-seeds the
+        # table); every reset writer does that. Standing down here instead would route into
+        # CDCHandledExternally, whose handler pauses this schedule — and nothing on a buffered
+        # source ever unpauses it, so the buffer would age to the S3 TTL unconsumed.
+        if inputs.reset_pipeline:
+            raise ValueError(
+                f"reset_pipeline is set on buffered CDC schema {schema.name} while cdc_mode is still "
+                "'streaming'. Reset it to snapshot (cdc_mode='snapshot') so the re-snapshot path runs."
+            )
+
         resource_name = consolidated_resource_name(schema)
 
-        # Replay the snapshot's partitioning, or a partitioned target silently drops the changes.
-        partitioned = schema.partitioning_enabled
+        if has_pending_legacy_backlog(schema):
+            # Legacy deliveries carry no position column, so merging buffered rows before they land
+            # lets an older row overwrite a newer one. No-op this run — an empty response keeps the
+            # schedule alive, unlike CDCHandledExternally, which would pause it for good.
+            inputs.logger.info("cdc_buffered_waiting_for_legacy_backlog", schema_name=schema.name)
+            return SourceResponse(
+                name=resource_name,
+                items=lambda: iter(()),
+                primary_keys=schema.primary_key_columns,
+                cdc_write_mode=CONSOLIDATED_WRITE_MODE,
+            )
 
+        manager = CDCSourceManager(inputs, inputs.logger)
         return SourceResponse(
             name=resource_name,
             items=lambda: manager.get_items(resource_name),
             primary_keys=schema.primary_key_columns,
             cdc_write_mode=CONSOLIDATED_WRITE_MODE,
-            partition_count=schema.partition_count if partitioned else None,
-            partition_size=schema.partition_size if partitioned else None,
-            partition_keys=schema.partitioning_keys if partitioned else None,
-            partition_mode=schema.partition_mode if partitioned else None,
-            partition_format=schema.partition_format if partitioned else None,
         )
 
     def source_for_pipeline(self, config: PostgresSourceConfig, inputs: SourceInputs) -> SourceResponse:
