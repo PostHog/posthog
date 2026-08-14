@@ -1674,7 +1674,7 @@ AI_COST_MARKUP_PERCENT = 0.2
 # PostHog Desktop bills model costs as pure pass-through: no markup
 POSTHOG_CODE_COST_MARKUP_PERCENT = 0.0
 # Tools excluded from AI billing (traces with only these tools are not billed)
-AI_BILLING_EXCLUDED_TOOLS = ["search"]
+AI_BILLING_EXCLUDED_TOOLS = ["summarize_sessions", "search"]
 AI_BILLING_INSTANCE_GROUP_TYPE = "instance"
 # Region-to-team mapping for where AI events are stored
 CLOUD_REGION_TO_TEAM_ID = {
@@ -1736,6 +1736,7 @@ def _get_teams_with_ai_credits_for_products(
     trace. Products that emit a paired $ai_trace (e.g. posthog_ai) are billed only on a billable trace;
     a trace is billable only if it contains tool calls including at least one non-excluded tool. Free
     (non-billable) traces:
+        - Traces that only contain 'summarize_sessions' tool calls
         - Traces that only contain 'search' tool calls with kind='docs'
 
     Products that emit no $ai_trace (e.g. signals, slack_app) have no matching trace, so they are

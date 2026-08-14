@@ -225,7 +225,6 @@ class _SourceSpec:
     # The SignalSourceConfig (source_product, source_type) rows ticking this source enables.
     # Empty when the source authorizes itself elsewhere, which is also what makes it untickable.
     pairs: tuple[tuple[str, str], ...] = ()
-    needs_ai_approval: bool = False
     # Reads the on/off state of a source that has no config row to read it from.
     enabled_check: Callable[[int], bool] | None = None
 
@@ -249,12 +248,6 @@ _SOURCE_CATALOG: tuple[_SourceSpec, ...] = (
     ),
 )
 _SOURCE_BY_KEY: dict[str, _SourceSpec] = {spec.key: spec for spec in _SOURCE_CATALOG}
-
-
-def _ai_data_processing_approved(team_id: int) -> bool:
-    return bool(
-        Team.objects.filter(id=team_id).values_list("organization__is_ai_data_processing_approved", flat=True).first()
-    )
 
 
 def has_enabled_source(team_id: int) -> bool:
@@ -306,24 +299,16 @@ def onboarding_sources(team_id: int) -> list[OnboardingSource]:
     ]
 
 
-def set_sources(team_id: int, user_id: int | None, selected_keys: list[str]) -> list[str]:
+def set_sources(team_id: int, user_id: int | None, selected_keys: list[str]) -> None:
     """Sync the team's onboarding sources to ``selected_keys`` (tick = enable, untick = disable;
-    enabling a source sets up its SignalSourceConfig). Returns the labels of any that couldn't be
-    enabled because AI data processing isn't approved (session replay analysis)."""
+    enabling a source sets up its SignalSourceConfig)."""
     selected = set(selected_keys)
-    ai_approved = _ai_data_processing_approved(team_id)
-    blocked: list[str] = []
     for spec in _SOURCE_CATALOG:
         if not spec.pairs:
             # Authorized elsewhere (Replay Vision, per scanner), so onboarding never offered it as a
             # checkbox and has nothing to write here.
             continue
         want_on = spec.key in selected
-        if want_on and spec.needs_ai_approval and not ai_approved:
-            # Wanted but AI-gated: leave the source as-is. Disabling here would silently turn off a
-            # previously-approved source when the full checkbox snapshot is re-submitted.
-            blocked.append(spec.label)
-            continue
         for source_product, source_type in spec.pairs:
             if want_on:
                 defaults: dict = {"enabled": True, "created_by_id": user_id}
@@ -337,7 +322,6 @@ def set_sources(team_id: int, user_id: int | None, selected_keys: list[str]) -> 
                 SignalSourceConfig.objects.filter(
                     team_id=team_id, source_product=source_product, source_type=source_type, enabled=True
                 ).update(enabled=False)
-    return blocked
 
 
 # The signal channel's generic `extra` passthrough only forwards top-level *scalar* values,

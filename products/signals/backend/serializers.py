@@ -1,5 +1,4 @@
 import json
-import logging
 from collections.abc import Mapping
 from typing import cast
 
@@ -7,7 +6,6 @@ from django.db.models import Q
 
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import PolymorphicProxySerializer, extend_schema_field
-from opentelemetry import trace
 from rest_framework import serializers
 
 from posthog.models import User
@@ -28,9 +26,6 @@ from .models import (
 )
 from .report_charts import CHART_SIZES, MAX_CHART_CAPTION_LENGTH, MAX_CHART_ID_LENGTH, MAX_CHART_TITLE_LENGTH
 from .report_generation.resolve_reviewers import enrich_reviewer_dicts_with_org_members
-
-logger = logging.getLogger(__name__)
-tracer = trace.get_tracer(__name__)
 
 DEFAULT_SESSION_ANALYSIS_SAMPLE_RATE = 0.1
 

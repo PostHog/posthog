@@ -533,7 +533,6 @@ Per-team configuration for which signal sources are enabled.
 - AI observability exposes eval-report signals in the Inbox UI. These signals are gated by the `(llm_analytics, evaluation_report)` row controlled by the AI observability toggle. The legacy per-result backend path remains registered but is no longer exposed or counted by the frontend.
 - For session replay configs, serializer validation enforces that `config.recording_filters` is a JSON object when present.
 - The serializer exposes a computed `status` field:
-  - `session_analysis_cluster` derives status from the Temporal clustering workflow
   - data-import-backed sources (`github`, `linear`, `zendesk`) derive status from `ExternalDataSchema`
 - The `signals_scout` source variant pairs with `source_type=cross_source_issue` and is the emission channel used by the headless Signals agent's `emit_signal_*` tools. It is the only `(source_product, source_type)` pair the agent emits today.
 
@@ -806,7 +805,6 @@ Full CRUD for per-team signal source configurations. Uses `IsAuthenticated` + `A
 
 Important side effects:
 
-- Creating or enabling a `session_analysis_cluster` config starts the clustering workflow
 - Creating an enabled `error_tracking / issue_created` config starts the error-tracking backfill workflow
 - Enabling data-import-backed sources can trigger external data syncs
 - Disabling a clustering config cancels the clustering workflow
