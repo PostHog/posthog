@@ -187,13 +187,6 @@ def create_destination(alert: BillingAlertConfiguration, *, request: Any, data: 
     destination_data = cast(AlertDestinationData, data)
     validate_destination_data(destination_data, allowed_destination_types=BILLING_DESTINATION_TYPES)
     destination_data["type"] = DestinationType(data["type"])
-    if destination_data["type"] == DestinationType.SLACK and not slack_integration_belongs_to_team(
-        integration_id=destination_data["slack_workspace_id"],
-        team_id=alert.execution_team_id,
-    ):
-        raise DRFValidationError(
-            {"slack_workspace_id": "Slack integration does not belong to this billing alert execution team."}
-        )
     with transaction.atomic():
         locked_alert = BillingAlertConfiguration.objects.select_for_update().get(
             pk=alert.pk,
@@ -201,6 +194,16 @@ def create_destination(alert: BillingAlertConfiguration, *, request: Any, data: 
         )
         if locked_alert.team is None:
             raise DRFValidationError({"type": "This billing alert does not have an execution team."})
+        # Check Slack ownership against the locked row. The configs below are built for
+        # locked_alert.team, so validating the unlocked copy could authorize one team's
+        # integration while creating the destination under another.
+        if destination_data["type"] == DestinationType.SLACK and not slack_integration_belongs_to_team(
+            integration_id=destination_data["slack_workspace_id"],
+            team_id=locked_alert.execution_team_id,
+        ):
+            raise DRFValidationError(
+                {"slack_workspace_id": "Slack integration does not belong to this billing alert execution team."}
+            )
         existing_types = {
             destination["type"] for destination in destinations_for_alerts([locked_alert]).get(str(locked_alert.id), [])
         }
@@ -227,6 +230,10 @@ def delete_destination(alert: BillingAlertConfiguration, hog_function_ids: list[
             pk=alert.pk,
             organization_id=alert.organization_id,
         )
+        if locked_alert.team_id is None:
+            # An alert with no execution team has no destinations to remove. Skip rather than let
+            # execution_team_id raise, matching delete_alert_and_destinations.
+            return
         soft_delete_alert_destinations(
             team_id=locked_alert.execution_team_id,
             alert_id=str(locked_alert.id),
