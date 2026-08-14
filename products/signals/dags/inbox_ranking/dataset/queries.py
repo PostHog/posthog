@@ -176,6 +176,66 @@ WHERE product = %(product)s
 GROUP BY team_id, document_id
 """
 
+# Signal documents: the grouping pipeline's own rows in the same table, one per signal, carrying the
+# report they grouped into in the metadata JSON. Read incrementally by inserted_at rather than as a
+# snapshot — at signal grain a cumulative copy is several GB a day (a 1536-float vector per signal,
+# fleet-wide) against tens of MB for one day's emissions.
+#
+# Rows come back raw, with no argMax dedupe: this scan never builds the wide aggregation states the
+# report query needs, and both versions of a re-emitted signal are kept when both survive to be read.
+# Readers take the latest row per (team_id, signal_id) at or before their cutoff, because a
+# caller-supplied document_id is only unique within a team.
+#
+# "When both survive" is the honest limit: the source replaces on (team, day, product, document_type,
+# rendering, document_id) and a retraction re-emits under that same key, so a merge before this scan
+# leaves only the retraction. argMax would not save it — the merge removes the row, it does not hide
+# it. The asset docstring records what that costs and why closing it is out of scope here.
+#
+# Index reality is the report query's, minus the GROUP BY: no team_id sort-key prefix and no
+# inserted_at in the sort key, so this full-scans the TTL-bounded table with PREWHERE filtering the
+# small columns before the wide embedding column is read. The memory budget is half the report
+# scan's because nothing is aggregated.
+SIGNAL_EMBEDDINGS_QUERY_SETTINGS: dict[str, int] = {
+    "max_execution_time": 600,
+    "max_memory_usage": 10 * 1024**3,
+}
+
+# `content` is deliberately not selected: the vector is the feature, and the signal's verbatim source
+# text has no business leaving ClickHouse. Same for the free-text metadata fields (extra, remediation,
+# match_query, reason) — only the structured ones are extracted here.
+SIGNAL_EMBEDDINGS_SQL = f"""
+SELECT
+    team_id,
+    document_id,
+    nullIf(JSONExtractString(metadata, 'report_id'), '') AS report_id,
+    timestamp,
+    inserted_at,
+    embedding,
+    JSONExtractFloat(metadata, 'weight') AS weight,
+    nullIf(JSONExtractString(metadata, 'source_product'), '') AS source_product,
+    nullIf(JSONExtractString(metadata, 'source_type'), '') AS source_type,
+    nullIf(JSONExtractString(metadata, 'source_id'), '') AS source_id,
+    JSONExtractBool(metadata, 'deleted') AS is_deleted,
+    -- A matched signal's metadata carries parent_signal_id, an unmatched one's carries
+    -- rejected_signal_ids, and both carry reason — so the parent check has to come first.
+    nullIf(
+        multiIf(
+            JSONHas(metadata, 'match_metadata', 'parent_signal_id'), 'matched',
+            JSONHas(metadata, 'match_metadata', 'reason'), 'no_match',
+            ''
+        ),
+        ''
+    ) AS match_kind,
+    nullIf(JSONExtractString(metadata, 'match_metadata', 'parent_signal_id'), '') AS match_parent_signal_id,
+    JSONLength(metadata, 'match_metadata', 'rejected_signal_ids') AS rejected_signal_count
+FROM {EMBEDDINGS_TABLE}
+WHERE product = %(product)s
+  AND document_type = %(document_type)s
+  AND rendering = %(rendering)s
+  AND inserted_at >= %(window_start)s
+  AND inserted_at < %(window_end)s
+"""
+
 IMPRESSIONS_COLUMNS = (
     "first_impressed_at",
     "impression_unit_count",

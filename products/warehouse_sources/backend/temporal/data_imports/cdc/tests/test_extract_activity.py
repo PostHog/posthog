@@ -28,7 +28,7 @@ from products.warehouse_sources.backend.temporal.data_imports.cdc.activities imp
     cdc_extract_activity,
     cleanup_orphan_slots_activity,
 )
-from products.warehouse_sources.backend.temporal.data_imports.cdc.batcher import CDC_SEQ_COLUMN
+from products.warehouse_sources.backend.temporal.data_imports.cdc.batcher import CDC_SEQ_COLUMN, CDC_SEQ_PROVENANCE
 from products.warehouse_sources.backend.temporal.data_imports.cdc.errors import CDCErrorCategory, cdc_error_info
 from products.warehouse_sources.backend.temporal.data_imports.cdc.types import ChangeEvent
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.jobs_db import (
@@ -670,12 +670,41 @@ class TestShadowBufferWrite:
         legacy_table = mock_s3.write_batch.call_args[0][0]
         assert legacy_table.column(CDC_SEQ_COLUMN).to_pylist() == [42]
 
-    def _hook_activity(self):
+    def _hook_activity(self, trailing_column: bool = False):
         source = _make_source()
         act = _make_extract_activity(source)
         schema = _make_schema("users", cdc_mode="streaming", source=source)
-        table = pa.table({"id": pa.array([1], type=pa.int64()), CDC_SEQ_COLUMN: pa.array([256], type=pa.int64())})
+        table = pa.table({"id": pa.array([1], type=pa.int64())}).append_column(
+            pa.field(CDC_SEQ_COLUMN, pa.int64(), metadata=CDC_SEQ_PROVENANCE),
+            pa.array([256], type=pa.int64()),
+        )
+        if trailing_column:
+            table = table.append_column(pa.field("added_later", pa.string()), pa.array(["x"], type=pa.string()))
         return act, schema, table
+
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.CDCBufferWriter")
+    def test_shadow_writes_when_a_column_sits_after_the_seq_column(self, MockBufferWriter):
+        # The hook used to locate the position by index, assuming the batcher appended it last. A
+        # column added after it would silently stop buffering, or feed cleanup a restart floor read
+        # off the wrong column.
+        act, schema, table = self._hook_activity(trailing_column=True)
+        MockBufferWriter.return_value.write_batch.return_value = MagicMock(write_duration_seconds=0.01)
+        act._shadow_enabled = True
+
+        act._maybe_shadow_write_buffer(schema, "users", table)
+
+        MockBufferWriter.return_value.write_batch.assert_called_once()
+        assert MockBufferWriter.return_value.cleanup_superseded_files.call_args.kwargs["restart_seq"] == 256
+
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.CDCBufferWriter")
+    def test_shadow_skips_a_source_owned_seq_column(self, MockBufferWriter):
+        act, schema, _ = self._hook_activity()
+        unstamped = pa.table({"id": pa.array([1], type=pa.int64()), CDC_SEQ_COLUMN: pa.array([999], type=pa.int64())})
+        act._shadow_enabled = True
+
+        act._maybe_shadow_write_buffer(schema, "users", unstamped)
+
+        MockBufferWriter.return_value.write_batch.assert_not_called()
 
     @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.CDCBufferWriter")
     def test_shadow_file_index_increments_per_table_including_failures(self, MockBufferWriter):

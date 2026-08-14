@@ -122,14 +122,13 @@ export enum GraphSeriesAddedSource {
 }
 
 /**
- * Whether the experiment's recordings tab can do its job at all, captured once the session
- * linkability check has resolved. An unmatchable exposure event makes the tab a dead page, and
- * a fallback or an empty selectable-metric list makes it a weaker one, so these are the numbers
- * that say how often the feature is useless to somebody rather than how often it is opened.
+ * How much of the experiment's recordings tab works for this viewer, captured once the session
+ * linkability check has resolved. The exposure population is resolved server-side per person,
+ * so the list itself always has a source; an empty selectable-metric list is what still makes
+ * the tab a weaker page, and these numbers say how often that happens rather than how often
+ * the tab is opened.
  */
 export interface ExperimentRecordingsTabContext {
-    exposure_unlinkable: boolean
-    using_exposure_fallback: boolean
     variant_count: number
     metric_count: number
     linkable_metric_count: number

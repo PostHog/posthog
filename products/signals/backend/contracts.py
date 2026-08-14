@@ -71,6 +71,9 @@ class SessionProblemSignalInput(SignalInputBase):
 # ── LLM analytics ───────────────────────────────────────────────────────────────
 
 
+# Read-only: no emitter writes `llm_analytics/evaluation` signals any more (only whole eval reports
+# do), but signals ingested while that path existed keep this payload shape, and the inbox card that
+# renders them is generated from this model.
 class LlmEvalSignalExtra(SignalExtraBase):
     evaluation_id: str
     target_event_id: str | None = None
@@ -78,12 +81,6 @@ class LlmEvalSignalExtra(SignalExtraBase):
     trace_id: str
     model: str | None = None
     provider: str | None = None
-
-
-class LlmEvaluationSignalInput(SignalInputBase):
-    source_type: Literal[SignalSourceType.EVALUATION]
-    source_product: Literal[SignalSourceProduct.LLM_ANALYTICS]
-    extra: LlmEvalSignalExtra
 
 
 class LlmEvalReportSignalExtra(SignalExtraBase):
@@ -973,7 +970,6 @@ class GoogleSearchConsoleSearchOpportunitySignalInput(SignalInputBase):
 
 SignalInput = Annotated[
     SessionProblemSignalInput
-    | LlmEvaluationSignalInput
     | LlmEvaluationReportSignalInput
     | ZendeskTicketSignalInput
     | GithubIssueSignalInput
@@ -1030,7 +1026,6 @@ SignalInput = Annotated[
 
 SIGNAL_INPUT_VARIANTS: tuple[type[SignalInputBase], ...] = (
     SessionProblemSignalInput,
-    LlmEvaluationSignalInput,
     LlmEvaluationReportSignalInput,
     ZendeskTicketSignalInput,
     GithubIssueSignalInput,

@@ -2,11 +2,10 @@ import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import React, { useEffect, useRef } from 'react'
 
-import { IconArrowLeft, IconBug } from '@posthog/icons'
-import { LemonButton, Tooltip } from '@posthog/lemon-ui'
+import { IconArrowLeft } from '@posthog/icons'
+import { LemonButton } from '@posthog/lemon-ui'
 
 import { useResizeBreakpoints } from 'lib/hooks/useResizeObserver'
-import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
@@ -252,7 +251,6 @@ function InboxPanelView({ onBack, children }: { onBack: () => void; children: JS
 export function InboxScene(): JSX.Element {
     const {
         activeTab,
-        isRunningSessionAnalysis,
         selectedReportId,
         selectedReport,
         selectedReportLoading,
@@ -260,9 +258,8 @@ export function InboxScene(): JSX.Element {
         isScratchpadOpen,
         isFindingsOpen,
     } = useValues(inboxSceneLogic)
-    const { runSessionAnalysis, setScratchpadOpen, setFindingsOpen } = useActions(inboxSceneLogic)
+    const { setScratchpadOpen, setFindingsOpen } = useActions(inboxSceneLogic)
     const { onboardingMode, isWelcomeRedesign } = useValues(inboxOnboardingLogic)
-    const { isDev } = useValues(preflightLogic)
     const { searchParams } = useValues(router)
 
     // Surfaces that embed inbox cards (e.g. the customer analytics feed) set a `?back=` internal path;
@@ -310,23 +307,7 @@ export function InboxScene(): JSX.Element {
                               : INBOX_TAB_DESCRIPTION[activeTab]
                     }
                     resourceType={{ type: 'inbox' }}
-                    actions={
-                        isDev ? (
-                            <Tooltip title="Analyze the last 7 days of sessions">
-                                <LemonButton
-                                    type="secondary"
-                                    onClick={() => runSessionAnalysis()}
-                                    loading={isRunningSessionAnalysis}
-                                    size="small"
-                                    data-attr="run-session-analysis-button"
-                                    tooltip="DEBUG-only"
-                                    icon={<IconBug />}
-                                >
-                                    Run session analysis
-                                </LemonButton>
-                            </Tooltip>
-                        ) : undefined
-                    }
+                    actions={undefined}
                 />
 
                 <div className="flex flex-col -mx-4 -mt-4 flex-1 min-h-0">
