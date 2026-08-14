@@ -50151,7 +50151,7 @@ export namespace Schemas {
          */
       description?: string;
       /**
-         * Organizational tags for this scanner. Distinct from a classifier's tag vocabulary in scanner_config. Tags cannot contain commas.
+         * Organizational tags for this scanner. Distinct from a classifier's categories in scanner_config. Tags cannot contain commas.
          * @maxItems 32
          * @items.maxLength 255
          */
@@ -59406,7 +59406,7 @@ export namespace Schemas {
          */
       description?: string;
       /**
-         * Organizational tags for this scanner. Distinct from a classifier's tag vocabulary in scanner_config. Tags cannot contain commas.
+         * Organizational tags for this scanner. Distinct from a classifier's categories in scanner_config. Tags cannot contain commas.
          * @maxItems 32
          * @items.maxLength 255
          */
@@ -75524,7 +75524,7 @@ export namespace Schemas {
          */
       prompt: string;
       /**
-         * The current tag vocabulary, so suggestions never duplicate a tag the user already has.
+         * The categories already configured, so suggestions never duplicate one the user has.
          * @maxItems 200
          * @items.maxLength 200
          */
