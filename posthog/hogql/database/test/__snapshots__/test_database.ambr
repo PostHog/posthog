@@ -2758,6 +2758,16 @@
                   "table": null,
                   "type": "datetime"
               },
+              "churned_at": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "churned_at",
+                  "id": null,
+                  "name": "churned_at",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "datetime"
+              },
               "tags": {
                   "chain": null,
                   "fields": [
@@ -12964,6 +12974,16 @@
                   "hogql_value": "updated_at",
                   "id": null,
                   "name": "updated_at",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "datetime"
+              },
+              "churned_at": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "churned_at",
+                  "id": null,
+                  "name": "churned_at",
                   "schema_valid": true,
                   "table": null,
                   "type": "datetime"
