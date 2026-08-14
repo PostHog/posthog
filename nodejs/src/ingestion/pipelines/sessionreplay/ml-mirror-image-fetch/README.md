@@ -342,13 +342,20 @@ came from the lane. The operator does not need to trust the user agent. The sign
 headers, per RFC 9421: `Signature`, `Signature-Input`, and `Signature-Agent`.
 
 **9.4** `Signature-Agent` names the origin that serves the lane's public key. That origin serves the
-key at `/.well-known/http-message-signatures-directory`.
+key at `/.well-known/http-message-signatures-directory`, and answers with the media type
+`application/http-message-signatures-directory+json`.
 
-**9.5** Cloudflare refuses some signature components and parameters. The signature omits them: the
-`@query-params` and `@status` components, and the `sf`, `bs`, `key`, `req`, and `name` parameters.
-Every value is ASCII.
+**9.5** Cloudflare refuses some signature components and parameters, and the signature omits every
+one: the `@query-params` and `@status` components, and the `sf`, `bs`, `key`, `req`, and `name`
+component parameters. It also omits `tr`, which RFC 9421 defines and Cloudflare does not refuse,
+because this lane signs no trailer. Every signed value is ASCII. RFC 9421 disallows a value that is
+not, and the two parameters that would encode one are `sf` and `bs`, which are refused.
 
-**9.6** The `expires` parameter leaves the request enough time to reach the verifier.
+**9.6** The `expires` parameter sits about one minute after `created`. It must leave the request
+enough time to reach the verifier, and no more than that: Cloudflare runs no check on `nonce` and
+keeps no record of the ones it has seen, so a short life is the only thing standing between a
+captured request and a replay of it. The lane still sends a `nonce`, which a verifier that does
+check one can use.
 
 **9.7** The private key reaches the pod from the secret store. It appears in no log, no metric, and
 no error message.
@@ -360,6 +367,23 @@ webhook delivery that operator asked for.
 **9.9** The page the user agent names links to this file. That page tells an operator what the lane
 does and how to refuse it. This file is the source of truth for both, so the page carries a reader
 who wants the detail to it rather than repeating it.
+
+**9.10** The signature covers `@authority` and `signature-agent`. Cloudflare fails a message that
+does not cover `signature-agent`, and `@authority` ties the signature to the origin the lane is
+asking, so a captured request cannot be replayed against a different one.
+
+**9.11** `Signature-Input` carries `tag="web-bot-auth"`, a `keyid` holding the JWK thumbprint of the
+signing key, `created`, and `expires`. It omits `alg`. The key material already names the algorithm,
+and RFC 9421 requires every place that names it to agree, so a second copy can only ever disagree.
+
+**9.12** `Signature-Agent` is a structured string inside double quotes. It is not a dictionary.
+Cloudflare fails a message that sends the other form.
+
+**9.13** The key directory signs its own response, once for each key it holds. Cloudflare ignores a
+key that arrives without one, so an unsigned directory registers nothing. That signature covers
+`@authority` with the `req` parameter, carries `tag="http-message-signatures-directory"`, and
+carries a `created` and an `expires` a few seconds apart. A stored file cannot hold a signature that
+covers the request and expires in seconds, so code serves this directory and signs each response.
 
 ### 10. Opt-out signals
 
@@ -615,7 +639,8 @@ that must land before it can: reading robots.txt, and producing the image to the
 | [TDMRep](https://www.w3.org/community/reports/tdmrep/CG-FINAL-tdmrep-20240202/), W3C Community Group Final Report        | Requirement 10.2, and requirements 10.8 to 10.11. A Community Group report, which is not a W3C Standard                                                              |
 | [IPTC Photo Metadata](https://www.iptc.org/std/photometadata/documentation/userguide/), Data Mining                      | Requirement 10.14. The PLUS Data Mining property, and the values that refuse AI training                                                                             |
 | [Directive (EU) 2019/790](https://eur-lex.europa.eu/eli/dir/2019/790/oj), Article 4                                      | Why a TDMRep reservation matters. It removes a permission rather than adds a prohibition                                                                             |
-| [RFC 9421](https://www.rfc-editor.org/rfc/rfc9421.html), HTTP Message Signatures                                         | Requirements 9.3 to 9.6. The signature, and the components and parameters it covers                                                                                  |
+| [RFC 9421](https://www.rfc-editor.org/rfc/rfc9421.html), HTTP Message Signatures                                         | Requirements 9.3 to 9.6 and 9.10 to 9.13. The signature, the components and parameters it covers, and the directory's own signature                                  |
+| [Cloudflare Web Bot Auth](https://developers.cloudflare.com/bots/reference/bot-verification/web-bot-auth/)               | Requirements 9.5, 9.6, and 9.10 to 9.13. What one verifier refuses, which is stricter than RFC 9421                                                                  |
 | [draft-meunier-webbotauth-httpsig-protocol](https://datatracker.ietf.org/doc/draft-meunier-webbotauth-httpsig-protocol/) | Requirements 9.3 and 9.4. Web Bot Auth. An individual submission, not yet adopted by the working group                                                               |
 | [RFC 7517](https://www.rfc-editor.org/rfc/rfc7517.html), JSON Web Key                                                    | Requirement 9.4. The key directory, and the rule that a reader ignores a member it does not understand                                                               |
 | [RFC 7638](https://www.rfc-editor.org/rfc/rfc7638.html), JWK Thumbprint                                                  | Requirement 9.4. The `kid`, computed over the required members only                                                                                                  |
