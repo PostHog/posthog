@@ -190,16 +190,17 @@ def list_active_alert_destinations(
     rows = _active_alert_destinations_qs(
         team_id=team_id, alert_id=alert_id, allowed_event_ids=allowed_event_ids
     ).values_list("id", "name", "template_id")
-    return [
-        ActiveAlertDestination(
-            id=str(hog_function_id),
-            name=_destination_display_name(name, _TEMPLATE_ID_TO_DESTINATION_TYPE.get(template_id))
-            if name
-            else "Destination",
-            destination_type=_TEMPLATE_ID_TO_DESTINATION_TYPE.get(template_id) if template_id else None,
+    destinations = []
+    for hog_function_id, name, template_id in rows:
+        destination_type = _TEMPLATE_ID_TO_DESTINATION_TYPE.get(template_id) if template_id else None
+        destinations.append(
+            ActiveAlertDestination(
+                id=str(hog_function_id),
+                name=_destination_display_name(name, destination_type) if name else "Destination",
+                destination_type=destination_type,
+            )
         )
-        for hog_function_id, name, template_id in rows
-    ]
+    return destinations
 
 
 def _allowed_event_filter(allowed_event_ids: Collection[str]) -> Q:
