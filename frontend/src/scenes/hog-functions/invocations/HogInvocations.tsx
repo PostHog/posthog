@@ -113,6 +113,9 @@ const INVOCATIONS_DATE_OPTIONS: DateMappingOption[] = [
     },
 ]
 
+// Confirm dialogs carry a sentence or two - the LemonDialog default spans the screen.
+const CONFIRM_DIALOG_MAX_WIDTH = '30rem'
+
 const tagTypeForStatus = (status: RunStatus): LemonTagProps['type'] => {
     switch (status) {
         case 'succeeded':
@@ -476,59 +479,61 @@ export function HogInvocations({
                 if (isRerunWrapperKind(row.function_kind)) {
                     return null
                 }
-                // Cancel is workflows-only: hog function runs have no parked delays to stop,
-                // and their workers don't honor the cancel flag.
-                const showCancel = functionKind === 'hog_flow' && row.status === 'running'
-                return (
-                    <div className="flex items-center gap-1">
-                        {showCancel ? (
-                            <LemonButton
-                                size="xsmall"
-                                type="secondary"
-                                status="danger"
-                                onClick={() => {
-                                    LemonDialog.open({
-                                        title: 'Cancel this run?',
-                                        content:
-                                            'The run stops before its next step. Steps that already ran, ' +
-                                            'like sent emails, are not undone.',
-                                        primaryButton: {
-                                            children: 'Cancel run',
-                                            status: 'danger',
-                                            onClick: () => cancelInvocations([row.invocation_id]),
-                                        },
-                                        secondaryButton: { children: 'Keep running' },
-                                    })
-                                }}
-                            >
-                                Cancel
-                            </LemonButton>
-                        ) : null}
+                // One action per row, by status: an in-flight run can only be cancelled and a
+                // finished run can only be rerun. Cancel is workflows-only - hog function runs
+                // have no parked delays to stop, so their in-flight rows keep the disabled Rerun.
+                if (functionKind === 'hog_flow' && row.status === 'running') {
+                    return (
                         <LemonButton
                             size="xsmall"
                             type="secondary"
-                            disabledReason={
-                                rerunUnsupportedReason ??
-                                (row.status === 'running' ? "Can't rerun a run that's still in flight" : undefined)
-                            }
+                            status="danger"
                             onClick={() => {
                                 LemonDialog.open({
-                                    title: 'Rerun this invocation?',
+                                    title: 'Cancel this run?',
+                                    maxWidth: CONFIRM_DIALOG_MAX_WIDTH,
                                     content:
-                                        "We'll queue a rerun job for this run from its stored payload. " +
-                                        'Inputs are re-resolved from the current function config, so any secret ' +
-                                        'rotations will be picked up.',
+                                        'The run stops before its next step. Steps that already ran, ' +
+                                        'like sent emails, are not undone.',
                                     primaryButton: {
-                                        children: 'Rerun',
-                                        onClick: () => rerunInvocations([row.invocation_id]),
+                                        children: 'Cancel run',
+                                        status: 'danger',
+                                        onClick: () => cancelInvocations([row.invocation_id]),
                                     },
-                                    secondaryButton: { children: 'Cancel' },
+                                    secondaryButton: { children: 'Keep running' },
                                 })
                             }}
                         >
-                            Rerun
+                            Cancel
                         </LemonButton>
-                    </div>
+                    )
+                }
+                return (
+                    <LemonButton
+                        size="xsmall"
+                        type="secondary"
+                        disabledReason={
+                            rerunUnsupportedReason ??
+                            (row.status === 'running' ? "Can't rerun a run that's still in flight" : undefined)
+                        }
+                        onClick={() => {
+                            LemonDialog.open({
+                                title: 'Rerun this invocation?',
+                                maxWidth: CONFIRM_DIALOG_MAX_WIDTH,
+                                content:
+                                    "We'll queue a rerun job for this run from its stored payload. " +
+                                    'Inputs are re-resolved from the current function config, so any secret ' +
+                                    'rotations will be picked up.',
+                                primaryButton: {
+                                    children: 'Rerun',
+                                    onClick: () => rerunInvocations([row.invocation_id]),
+                                },
+                                secondaryButton: { children: 'Cancel' },
+                            })
+                        }}
+                    >
+                        Rerun
+                    </LemonButton>
                 )
             },
         },
@@ -630,6 +635,7 @@ export function HogInvocations({
                             onClick={() => {
                                 LemonDialog.open({
                                     title: 'Cancel all in-flight runs?',
+                                    maxWidth: CONFIRM_DIALOG_MAX_WIDTH,
                                     content:
                                         'Every run of this workflow that has not finished stops before its ' +
                                         'next step, including runs parked on delays and waits. Steps that ' +
@@ -702,6 +708,7 @@ export function HogInvocations({
                             onClick={() => {
                                 LemonDialog.open({
                                     title: `Rerun ${rerunableSelectedIds.length} invocations?`,
+                                    maxWidth: CONFIRM_DIALOG_MAX_WIDTH,
                                     content:
                                         "We'll queue a single rerun job that drains these in the background. " +
                                         'Inputs (secrets, integration tokens) are re-resolved per run at execution ' +
