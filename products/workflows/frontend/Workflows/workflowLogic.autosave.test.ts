@@ -256,6 +256,41 @@ describe('workflowLogic auto-save', () => {
             expect(logic.values.hasStagedDraft).toBe(true)
         })
 
+        it('auto-saves despite action validation errors: incomplete steps stage safely into the draft', async () => {
+            // The user's iterating case: an email step exists but has no content/sender yet. Pausing
+            // auto-save here strands their edits unsaved while an agent keeps writing to the server.
+            const withInvalidEmail = {
+                ...activeWorkflow,
+                actions: [
+                    ...activeWorkflow.actions,
+                    {
+                        id: 'email_node',
+                        type: 'function_email',
+                        name: 'Email',
+                        description: '',
+                        created_at: 0,
+                        updated_at: 0,
+                        config: { template_id: 'template-email', inputs: { email: { value: {} } } },
+                    },
+                ] as HogFlow['actions'],
+            }
+            useMocks(activeMocks(withInvalidEmail))
+            initKeaTests()
+            logic = workflowLogic({ id: WORKFLOW_ID })
+            logic.mount()
+            await expectLogic(logic).toDispatchActions(['loadWorkflowSuccess'])
+            expect(logic.values.workflowHasErrors).toBe(true)
+
+            jest.useFakeTimers()
+            logic.actions.setWorkflowValue('actions', renameExit(withInvalidEmail.actions, 'Renamed exit'))
+            await jest.advanceTimersByTimeAsync(3100)
+            jest.useRealTimers()
+            await expectLogic(logic).toDispatchActions(['saveWorkflowSuccess'])
+
+            expect(updateCalls).toBe(1)
+            expect(patchBodies[0].stage_draft).toBe(true)
+        })
+
         it('opens the staged draft in the editor when one exists', async () => {
             useMocks(
                 activeMocks({
