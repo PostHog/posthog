@@ -5,7 +5,7 @@ from uuid import uuid4
 
 from freezegun import freeze_time
 from posthog.test.base import BaseTest
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from django.test import Client, RequestFactory, SimpleTestCase
 from django.utils import timezone
@@ -32,6 +32,7 @@ from products.conversations.backend.models import (
     EmailChannelSetupProvider,
     EmailOutboxMessage,
     EmailThread,
+    EmailThreadAccountLink,
     EmailThreadMessage,
     Ticket,
 )
@@ -378,6 +379,29 @@ class TestCustomerEmailIngestion(BaseTest):
         assert messages[1].references == (
             [] if header_kind == "in_reply_to" else ["<older@customer.example>", root_message_id]
         )
+
+    @patch(
+        "products.conversations.backend.services.email_thread_ingestion.schedule_email_thread_link_recalculation_for_threads"
+    )
+    def test_forwarded_message_schedules_account_matching(self, mock_schedule: MagicMock) -> None:
+        response = self._post_email(message_id="<linked@customer.example>")
+
+        assert response.status_code == 200
+        thread = EmailThread.objects.for_team(self.team.id).get()
+        mock_schedule.assert_called_once_with(self.team.id, [str(thread.id)])
+
+    @patch(
+        "products.customer_analytics.backend.facade.email_matching.current_app.send_task",
+        side_effect=Exception("account matching backend unavailable"),
+    )
+    def test_account_link_recalculation_failure_does_not_fail_ingestion(self, _mock_send_task: MagicMock) -> None:
+        with self.captureOnCommitCallbacks(execute=True):
+            response = self._post_email(message_id="<recalc-fails@customer.example>")
+
+        assert response.status_code == 200
+        thread = EmailThread.objects.for_team(self.team.id).get()
+        assert EmailThreadMessage.objects.for_team(self.team.id).filter(thread=thread).count() == 1
+        assert not EmailThreadAccountLink.objects.for_team(self.team.id).exists()
 
     def test_duplicate_delivery_creates_one_message_across_customer_channels(self) -> None:
         message_id = "<duplicate@customer.example>"
