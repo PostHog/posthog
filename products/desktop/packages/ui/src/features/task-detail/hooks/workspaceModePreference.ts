@@ -18,10 +18,10 @@ export function resolveInitialWorkspaceMode({
   mode,
   localWorkspaces,
   cloudModeEnabled,
-}: InitialWorkspaceModeInput): WorkspaceMode | undefined {
-  if (!mode) return undefined;
-  if (mode === "cloud") return cloudModeEnabled ? mode : undefined;
-  return localWorkspaces ? mode : undefined;
+}: InitialWorkspaceModeInput): WorkspaceMode | null {
+  if (!mode) return null;
+  if (mode === "cloud") return cloudModeEnabled ? mode : null;
+  return localWorkspaces ? mode : null;
 }
 
 // Cloud is only honoured when it works out of the box (flag on + GitHub

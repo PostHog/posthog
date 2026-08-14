@@ -6,12 +6,13 @@ import {
 
 describe("resolveInitialWorkspaceMode", () => {
   it.each([
+    [undefined, true, true, null],
     ["local", true, false, "local"],
     ["worktree", true, false, "worktree"],
     ["cloud", false, true, "cloud"],
-    ["local", false, true, undefined],
-    ["worktree", false, true, undefined],
-    ["cloud", true, false, undefined],
+    ["local", false, true, null],
+    ["worktree", false, true, null],
+    ["cloud", true, false, null],
   ] as const)(
     "resolves %s with local workspaces %s and cloud enabled %s to %s",
     (mode, localWorkspaces, cloudModeEnabled, expected) => {
