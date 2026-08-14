@@ -135,13 +135,14 @@ export interface FunnelStepClickTarget {
 /** Resolves a grouped-bar click back to the funnel step, breakdown variant, and whether the
  *  converted or drop-off actors should open. The bar's filled extent is the converted portion;
  *  the track above it (`inTrackArea`) is the drop-off — restoring the legacy StepBar behavior.
- *  Returns `null` when the click does not map to a step. */
+ *  Returns `null` when the click does not map to a step, or when `inTrackArea` is unresolved —
+ *  treating an unknown region as converted would open the wrong (often empty) actor set. */
 export function resolveFunnelStepClick(
     steps: FunnelStepWithConversionMetrics[],
     clickData: Pick<PointClickData<FunnelStepsBarSeriesMeta>, 'dataIndex' | 'series' | 'inTrackArea'>
 ): FunnelStepClickTarget | null {
     const step = steps[clickData.dataIndex]
-    if (!step) {
+    if (!step || clickData.inTrackArea === undefined) {
         return null
     }
     const breakdownIndex = clickData.series.meta?.breakdownIndex ?? 0

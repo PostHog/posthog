@@ -365,25 +365,26 @@ function BarChartInner<Meta = unknown>({
     const labelsRef = useLatest(labels)
 
     // Bars sharing a band slot — rewrite the click payload to the series actually under the
-    // cursor so drop-off fillers and per-breakdown segments route correctly.
+    // cursor so drop-off fillers and per-breakdown segments route correctly. Returns null when the
+    // cursor resolves to no bar/segment so the core suppresses the click rather than firing it
+    // against the band's first series — which would drop the `inTrackArea` flag a funnel drop-off
+    // click needs and open the converted actors by mistake.
     const wrapClickData = useCallback(
-        (clickData: PointClickData<Meta>, scales: ChartScales): PointClickData<Meta> => {
+        (clickData: PointClickData<Meta>, scales: ChartScales): PointClickData<Meta> | null => {
             const d3Scales = (scales._private as BarChartPrivate | undefined)?.__barChart
             if (!d3Scales) {
                 return clickData
             }
-            return (
-                resolveClickedBarSeries({
-                    clickData,
-                    scales: d3Scales,
-                    barLayout,
-                    isHorizontal,
-                    stackedData,
-                    topStackedKeyByAxis,
-                    series: seriesRef.current,
-                    labels: labelsRef.current,
-                }) ?? clickData
-            )
+            return resolveClickedBarSeries({
+                clickData,
+                scales: d3Scales,
+                barLayout,
+                isHorizontal,
+                stackedData,
+                topStackedKeyByAxis,
+                series: seriesRef.current,
+                labels: labelsRef.current,
+            })
         },
         [barLayout, isHorizontal, stackedData, topStackedKeyByAxis, seriesRef, labelsRef]
     )

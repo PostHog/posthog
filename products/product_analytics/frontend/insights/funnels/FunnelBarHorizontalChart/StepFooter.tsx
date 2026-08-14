@@ -48,10 +48,10 @@ export function StepFooter({
                 <ValueInspectorButton onClick={showPersonsModal ? onOpenConverted : undefined}>
                     <IconTrendingFlat style={{ color: 'var(--success)' }} className="mr-1 text-xl align-bottom" />
                     <b>{formatConvertedCount(step, aggregationTargetLabel)}</b>
-                </ValueInspectorButton>{' '}
-                {!isFirstStep && (
-                    <span className="text-secondary grow">{`(${formatConvertedPercentage(step)}) completed step`}</span>
-                )}
+                    {!isFirstStep && (
+                        <span className="text-secondary ml-1">{`(${formatConvertedPercentage(step)}) completed step`}</span>
+                    )}
+                </ValueInspectorButton>
             </Tooltip>
             {!isFirstStep && (
                 <Tooltip title={getTooltipTitleForDroppedOff(funnelsFilter, aggregationTargetLabel)} placement="bottom">
@@ -61,8 +61,8 @@ export function StepFooter({
                             className="mr-1 text-xl align-bottom"
                         />
                         <b>{formatDroppedOffCount(step, aggregationTargetLabel)}</b>
-                    </ValueInspectorButton>{' '}
-                    <span className="text-secondary">{`(${formatDroppedOffPercentage(step)}) dropped off`}</span>
+                        <span className="text-secondary ml-1">{`(${formatDroppedOffPercentage(step)}) dropped off`}</span>
+                    </ValueInspectorButton>
                 </Tooltip>
             )}
         </div>
