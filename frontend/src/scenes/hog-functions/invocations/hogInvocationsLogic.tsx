@@ -16,6 +16,7 @@ import { HogFunctionTypeType, LogEntryLevel, PersonType } from '~/types'
 import { hogFunctionsRerunCreate } from 'products/cdp/frontend/generated/api'
 import type { HogInvocationRerunFilterStatusEnumApi } from 'products/cdp/frontend/generated/api.schemas'
 import { hogFlowsInvocationsCancelCreate, hogFlowsRerunCreate } from 'products/workflows/frontend/generated/api'
+import { HogInvocationCancelOutcomeOutcomeEnumApi } from 'products/workflows/frontend/generated/api.schemas'
 
 export const HOG_INVOCATIONS_PAGE_SIZE = 100
 
@@ -1439,7 +1440,22 @@ export const hogInvocationsLogic = kea<hogInvocationsLogicType>([
                         `Cancellation requested for ${marked} ${marked === 1 ? 'run' : 'runs'}. Parked runs stop within moments. Runs mid-step stop at their next step.`
                     )
                 } else {
-                    lemonToast.info('Nothing to cancel. The selected runs may have already finished.')
+                    // Nothing newly flagged. Read the per-id outcomes so a run that is already being
+                    // canceled (a repeat cancel returns `requested`) or that raced the request
+                    // (`unmarked`) isn't misreported as possibly finished.
+                    const outcomes = response.ids ?? []
+                    const alreadyRequested = outcomes.filter(
+                        (o) => o.outcome === HogInvocationCancelOutcomeOutcomeEnumApi.Requested
+                    ).length
+                    if (alreadyRequested > 0) {
+                        lemonToast.info(
+                            `Cancellation is already in progress for ${alreadyRequested === 1 ? 'this run' : 'these runs'}.`
+                        )
+                    } else if (outcomes.some((o) => o.outcome === HogInvocationCancelOutcomeOutcomeEnumApi.Unmarked)) {
+                        lemonToast.warning('Some runs were changing and could not be canceled. Try again in a moment.')
+                    } else {
+                        lemonToast.info('Nothing to cancel. The selected runs may have already finished.')
+                    }
                 }
                 actions.clearSelected()
                 // Canceled rows flip once the worker terminates them - poll briefly so the
