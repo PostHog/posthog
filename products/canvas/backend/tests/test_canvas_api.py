@@ -21,6 +21,7 @@ from posthog.temporal.oauth import ARRAY_APP_CLIENT_ID_DEV
 
 from products.annotations.backend.models.annotation import Annotation
 from products.canvas.backend import activity_visibility, build_service
+from products.canvas.backend.actions import CANVAS_ACTIONS
 from products.canvas.backend.models import Canvas, CanvasBuild, CanvasSourceVersion
 from products.canvas.backend.source import synthetic_source_project
 from products.tasks.backend.logic.services.compute_quota import ComputeQuotaDenialReason
@@ -1531,6 +1532,17 @@ class TestCanvasActions(CanvasAPIBaseTest):
 
         assert response.status_code == expected_status, response.json()
 
+    def test_registry_lists_every_verb_with_authoring_docs(self):
+        # Agents build against this endpoint instead of a skill file, so a verb
+        # missing its usage docs means they guess payloads and confirmation copy.
+        response = self.client.get(f"/api/projects/{self.team.id}/canvases/actions/")
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        rows = {row["verb"]: row for row in response.json()["actions"]}
+        assert set(rows) == set(CANVAS_ACTIONS)
+        for row in rows.values():
+            assert row["usage"].strip(), f"verb {row['verb']} shipped without usage docs"
+
     def test_tasks_create_files_a_task_in_the_canvas_channel_as_the_viewer(self):
         canvas_id = self._actions_canvas()
 
@@ -1592,4 +1604,3 @@ class TestCanvasActions(CanvasAPIBaseTest):
         )
 
         assert response.status_code == status.HTTP_403_FORBIDDEN
->>>>>>> 3b0110e9 (feat(canvas): add the ph.actions verb registry and invoke pipeline)

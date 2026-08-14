@@ -1080,7 +1080,7 @@ class CanvasViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     def actions(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         """List the action registry: every verb a canvas may declare and invoke."""
         rows = [
-            {"verb": entry.verb, "summary": entry.summary, "destructive": entry.destructive}
+            {"verb": entry.verb, "summary": entry.summary, "destructive": entry.destructive, "usage": entry.usage}
             for entry in sorted(CANVAS_ACTIONS.values(), key=lambda entry: entry.verb)
         ]
         return Response({"actions": rows})

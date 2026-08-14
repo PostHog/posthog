@@ -85,12 +85,10 @@ That field is the only valid link to a canvas — never construct one yourself; 
   PostHog (insights, the warehouse) and reference it. Never put secrets or viewer PII in state.
 - **`ph.actions.invoke(verb, payload)`** — write into PostHog as the viewer. Declare every verb
   in `capabilities.posthog.actions`; undeclared or unregistered verbs fail validation and the
-  host refuses them at runtime. Registered verbs: `annotations.create`
-  (`{content, date_marker?}`) and `tasks.create` (`{title, description}` — files into the
-  canvas's own channel under the viewer's name). Wire actions to explicit user gestures
-  (a button the viewer clicks), never to load or render. Each verb's behavior, result shape,
-  and the confirmation copy it warrants are in the `querying-canvas-data` skill's per-verb
-  sections — read them before wiring a verb.
+  host refuses them at runtime. Wire actions to explicit user gestures (a button the viewer
+  clicks), never to load or render. The registry is the source of truth: list it with the
+  `canvases-actions-retrieve` tool and follow each verb's `usage` (payload/result shape,
+  behavior, and the confirmation copy it warrants) before wiring it.
 
 ## Source-project shape
 

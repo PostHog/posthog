@@ -102,6 +102,11 @@ class CanvasAction:
     # alone never grants writes to other resources. Session users carry no
     # scopes and are unaffected.
     required_scopes: tuple[str, ...]
+    # Authoring docs served through the registry endpoint: payload and result
+    # shape, what actually happens, and the confirmation copy the verb
+    # warrants. Agents build against the deployed registry rather than a skill
+    # file, so a verb's docs ship (and stay current) with the verb itself.
+    usage: str
 
 
 CANVAS_ACTIONS: dict[str, CanvasAction] = {
@@ -114,6 +119,13 @@ CANVAS_ACTIONS: dict[str, CanvasAction] = {
             payload_serializer=AnnotationCreatePayloadSerializer,
             execute=_create_annotation,
             required_scopes=("annotation:write",),
+            usage=(
+                "Payload `{content, date_marker?}` → result `{annotation_id}`. Creates a project "
+                "annotation: a note pinned to a point in time, rendered as a marker on insight "
+                "graphs and listed under Data management → Annotations. Pass `date_marker` (ISO "
+                "timestamp) when the moment is not now — e.g. when an incident started, not when "
+                "it was written down. `content` is capped at 1024 characters."
+            ),
         ),
         CanvasAction(
             verb="tasks.create",
@@ -122,6 +134,16 @@ CANVAS_ACTIONS: dict[str, CanvasAction] = {
             payload_serializer=TaskCreatePayloadSerializer,
             execute=_create_task,
             required_scopes=("task:write",),
+            usage=(
+                "Payload `{title, description}` → result `{task_id}`. Files a bare task into the "
+                "canvas's own channel, created by the viewer — it appears in the channel feed "
+                "under their name. No agent run starts and no repository or run configuration is "
+                "attached; the viewer opens it from the channel and drives it from there. Say that "
+                'in the confirmation copy ("Task filed in this channel — open it to start work"), '
+                'never "an agent is on it". Keep the title short and put full context in '
+                "`description` (markdown) — whoever picks the task up sees only those two fields, "
+                "not the canvas."
+            ),
         ),
     ]
 }

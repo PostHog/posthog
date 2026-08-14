@@ -598,6 +598,9 @@ class CanvasActionDefinitionSerializer(serializers.Serializer):
     destructive = serializers.BooleanField(
         help_text="True when the verb deletes or disables something; the host must confirm with the viewer first."
     )
+    usage = serializers.CharField(
+        help_text="Authoring docs for the verb: payload and result shape, behavior, and the confirmation copy it warrants."
+    )
 
 
 class CanvasActionsResponseSerializer(serializers.Serializer):

@@ -120,34 +120,17 @@ viewer clicks) — the host rejects calls made on load or render.
 Render the result or the thrown error visibly, and disable the button while the call is in
 flight — every invocation is a real PostHog write.
 
-### tasks.create
+The registry is the source of truth for verbs. Before wiring one, list it with the
+`canvases-actions-retrieve` tool: each entry carries `verb`, `summary`, `destructive`, and
+`usage` — the payload and result shape, what invoking it actually does, and the confirmation
+copy it warrants. Follow a verb's `usage` exactly, including what the success message may claim.
+Do not infer a verb's payload from the matching product's own MCP tools or skills — an MCP tool
+call (you, now, with your credentials) and a canvas verb (the viewer, later, in the published
+canvas) differ in payload shape, auth, and behavior. Invoking looks like:
 
 ```tsx
 const { result } = await ph.actions.invoke('tasks.create', { title, description })
-// result: { task_id }
 ```
-
-Files a task into the canvas's own channel, created by the viewer — it appears in the channel
-feed next to the canvas, under their name. It is a bare task: no agent run starts, no repository
-or run configuration is attached; the viewer opens it from the channel and drives it from there.
-Say that in the confirmation copy ("Task filed in this channel — open it to start work"), never
-"an agent is on it". Keep the title short and put the full context in `description` (markdown) —
-whoever picks the task up sees only those two fields, not the canvas.
-
-### annotations.create
-
-```tsx
-const { result } = await ph.actions.invoke('annotations.create', {
-  content, // the note, max 1024 chars
-  date_marker: incidentStartedAt, // ISO timestamp; omit to mark "now"
-})
-// result: { annotation_id }
-```
-
-Creates a project annotation: a note pinned to a point in time, rendered as a marker on insight
-graphs (and listed under Data management → Annotations). Use it for moments that explain chart
-movements — a release, an incident, a campaign. Pass `date_marker` when the moment is not "now"
-(e.g. when the note is about when an incident started, not when it was written down).
 
 ## Side effects
 
