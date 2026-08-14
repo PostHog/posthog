@@ -27,7 +27,7 @@ const repoRoot = path.resolve(
 const electronVersion = createRequire(`${repoRoot}/apps/code/`)(
   "electron/package.json",
 ).version;
-// Cross-targeted release builds export npm_config_arch (code-release.yml).
+// Cross-targeted release builds export npm_config_arch (desktop-release.yml).
 // prebuild-install and node-gyp both read it from the environment, but pass it
 // explicitly so the contract is visible here.
 const arch = process.env.npm_config_arch ?? process.arch;

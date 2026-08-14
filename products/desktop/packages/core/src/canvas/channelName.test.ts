@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
+  channelDisplayLabel,
+  channelDisplayReference,
   normalizeChannelName,
   normalizeChannelNameInput,
   validateChannelName,
@@ -26,6 +28,27 @@ describe("normalizeChannelName", () => {
   });
 });
 
+describe("channelDisplayLabel", () => {
+  it.each([
+    ["me", undefined, "personal space"],
+    ["personal", undefined, "personal space"],
+    ["personal space", undefined, "personal space"],
+    ["personal", "personal" as const, "personal space"],
+    ["personal", "public" as const, "#personal"],
+    ["engineering", "public" as const, "#engineering"],
+  ])("formats %j (%s) as %j", (name, channelType, expected) => {
+    expect(channelDisplayLabel(name, channelType)).toBe(expected);
+  });
+
+  it.each([
+    ["me", undefined, "your personal space"],
+    ["personal", undefined, "your personal space"],
+    ["engineering", "public" as const, "#engineering"],
+  ])("references %j (%s) as %j", (name, channelType, expected) => {
+    expect(channelDisplayReference(name, channelType)).toBe(expected);
+  });
+});
+
 describe("validateChannelName", () => {
   it.each([
     "mobile",
@@ -49,6 +72,15 @@ describe("validateChannelName", () => {
       expect(validateChannelName(name)).toBe(
         "Use only lowercase letters, numbers, and hyphens.",
       );
+    },
+  );
+
+  // A space taking either of the private space's names wears its lock and sits
+  // in its place in the list, which is a space impersonating yours.
+  it.each(["personal", "me", "  personal  "])(
+    "reserves %j for the private space",
+    (name) => {
+      expect(validateChannelName(name)).toContain("reserved");
     },
   );
 });

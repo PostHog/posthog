@@ -49,7 +49,6 @@ import { useChannelItems } from "@posthog/ui/features/canvas/hooks/useChannelIte
 import { useChannels } from "@posthog/ui/features/canvas/hooks/useChannels";
 import { useChannelTasksRunState } from "@posthog/ui/features/canvas/hooks/useChannelTasksRunState";
 import { useLocalDayStart } from "@posthog/ui/features/canvas/hooks/useLocalDayStart";
-import { PERSONAL_CHANNEL_NAME } from "@posthog/ui/features/canvas/hooks/useTaskChannels";
 import { SHORTCUTS } from "@posthog/ui/features/command/keyboard-shortcuts";
 import { useCommandCenterStore } from "@posthog/ui/features/command-center/commandCenterStore";
 import { placeTaskInCommandCenter } from "@posthog/ui/features/command-center/placeTaskInCommandCenter";
@@ -305,25 +304,10 @@ export function ChannelSidebar({ channelId }: { channelId: string }) {
   // as hidden — otherwise "Other people" carried in from a shared space would
   // empty this list with no visible control to undo it.
   const { channels } = useChannels();
+  // By type, not by name: the list relabels the personal channel on the way in,
+  // so its name is no longer the backend's.
   const isPersonalChannel =
-    channels.find((c) => c.id === channelId)?.name === PERSONAL_CHANNEL_NAME;
-  // A canvas has no run, so the three run filters can only ever empty the
-  // canvases tab. Same treatment as createdBy above: neutralised as well as
-  // hidden, or a choice made on the sessions tab would empty this one.
-  const filters = useMemo<ChannelItemFilters>(() => {
-    const scoped = isPersonalChannel
-      ? { ...rawFilters, createdBy: "anyone" as const }
-      : rawFilters;
-    return tab === "canvas"
-      ? {
-          ...scoped,
-          attention: "any",
-          environment: "any",
-          source: ANY_SOURCE,
-        }
-      : scoped;
-  }, [isPersonalChannel, rawFilters, tab]);
-  const filtersActive = hasActiveChannelItemFilters(filters);
+    channels.find((c) => c.id === channelId)?.channelType === "personal";
   // The tab is the list, so everything below it — the filters, the empty state,
   // the sections — is about one kind of thing at a time.
   const tabItems = useMemo(
@@ -334,6 +318,35 @@ export function ChannelSidebar({ channelId }: { channelId: string }) {
   // in the tab rather than from what the current filters left behind — picking
   // one source must not be what removes the others from the menu.
   const sources = useMemo(() => channelItemSources(tabItems), [tabItems]);
+  // A canvas has no run, so the three run filters can only ever empty the
+  // canvases tab. Same treatment as createdBy above: neutralised as well as
+  // hidden, or a choice made on the sessions tab would empty this one.
+  //
+  // A source the tab has none of goes the same way, and for the same reason: it
+  // would empty the list while its submenu shows no chosen option, so there'd be
+  // nothing to switch off. Rows arriving later put the source back, because the
+  // stored filter is untouched.
+  const filters = useMemo<ChannelItemFilters>(() => {
+    const sourceMissing =
+      rawFilters.source !== ANY_SOURCE && !sources.includes(rawFilters.source);
+    const scoped =
+      isPersonalChannel || sourceMissing
+        ? {
+            ...rawFilters,
+            ...(isPersonalChannel ? { createdBy: "anyone" as const } : {}),
+            ...(sourceMissing ? { source: ANY_SOURCE } : {}),
+          }
+        : rawFilters;
+    return tab === "canvas"
+      ? {
+          ...scoped,
+          attention: "any",
+          environment: "any",
+          source: ANY_SOURCE,
+        }
+      : scoped;
+  }, [isPersonalChannel, rawFilters, sources, tab]);
+  const filtersActive = hasActiveChannelItemFilters(filters);
 
   const base = `/website/${channelId}`;
   // Activeness is a key comparison rather than a flag baked into each item, so
@@ -489,7 +502,7 @@ export function ChannelSidebar({ channelId }: { channelId: string }) {
 
   // Label comes from the shared space-page table, so a sidebar row and the
   // header breadcrumb for the same page can never disagree. No icon: this is a
-  // four-row list of words, and glyphs here only compete with the status dots
+  // short list of words, and glyphs here only compete with the status dots
   // in the sessions list below for the eye's attention.
   const sectionRow = (
     page: ChannelPageKey,
@@ -550,15 +563,6 @@ export function ChannelSidebar({ channelId }: { channelId: string }) {
                 params: { channelId },
               }),
           )}
-        {sectionRow(
-          "artifacts",
-          `${base}/artifacts`,
-          () =>
-            void navigate({
-              to: "/website/$channelId/artifacts",
-              params: { channelId },
-            }),
-        )}
       </div>
 
       {/* Relative so the FAB and the drag-selection band can float over the
