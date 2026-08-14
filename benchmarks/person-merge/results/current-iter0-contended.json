@@ -1,0 +1,68 @@
+{
+    "strategy": "current",
+    "supports_current_contract": true,
+    "git_sha": "667bd6de",
+    "pg_version": "16.13 (Ubuntu 16.13-0ubuntu0.24.04.1)",
+    "args": {
+        "strategy": "current",
+        "cases": "both",
+        "sizes": "100,1000",
+        "reps": 12,
+        "concurrency": 4,
+        "contention": "shared-target",
+        "preload": 50000,
+        "out": "results/current-iter0-contended.json"
+    },
+    "phases": [
+        {
+            "case": "both",
+            "size": 100,
+            "reps": 12,
+            "concurrency": 4,
+            "contention": "shared-target",
+            "latency_ms": {
+                "p50": 21.747,
+                "p95": 61.331,
+                "max": 53.632,
+                "raw": [53.632, 22.516, 28.599, 14.333, 24.755, 18.642, 16.194, 20.977, 7.796, 31.635, 19.606, 24.879]
+            },
+            "read_latency_ms": {
+                "p50": 0.2034,
+                "p95": 0.2885
+            },
+            "wal_bytes_per_op": 67611,
+            "emissions_per_op": {
+                "current_contract": 102.0,
+                "new_contract": 0.0
+            },
+            "retries_total": 0,
+            "oracle_checks": 1212
+        },
+        {
+            "case": "both",
+            "size": 1000,
+            "reps": 12,
+            "concurrency": 4,
+            "contention": "shared-target",
+            "latency_ms": {
+                "p50": 98.965,
+                "p95": 236.517,
+                "max": 211.434,
+                "raw": [
+                    72.046, 41.74, 139.768, 211.434, 99.87, 55.816, 115.851, 109.439, 112.989, 98.059, 53.478, 30.75
+                ]
+            },
+            "read_latency_ms": {
+                "p50": 0.2264,
+                "p95": 0.3311
+            },
+            "wal_bytes_per_op": 630410,
+            "emissions_per_op": {
+                "current_contract": 1002.0,
+                "new_contract": 0.0
+            },
+            "retries_total": 0,
+            "oracle_checks": 12012
+        }
+    ]
+}
