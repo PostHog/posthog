@@ -16,7 +16,6 @@ import {
   AgentStatusLine,
   ThreadLoadingState,
 } from "@posthog/ui/features/canvas/components/ThreadPanel";
-import { useTaskCommentActivity } from "@posthog/ui/features/canvas/hooks/useTaskCommentActivity";
 import { useTaskThread } from "@posthog/ui/features/canvas/hooks/useTaskThread";
 import { useThreadConversation } from "@posthog/ui/features/canvas/hooks/useThreadConversation";
 import { useCommentNavigationStore } from "@posthog/ui/features/sessions/commentNavigationStore";
@@ -160,21 +159,15 @@ function ActivityConversation({
     [taskId],
   );
 
-  // Runs for the whole panel, not just the tab that draws it, so leaving the timeline
-  // doesn't discard a fetch already in flight.
-  const { threads: commentThreads, hasLoaded: hasLoadedComments } =
-    useTaskCommentActivity(taskId);
-  // Draw once both durable sources have answered, and never take the timeline away again.
-  // Drawing on the thread alone paints sooner but in two waves, with comment rows pushing in
-  // among rows already on screen; gating on the live session (`isReady`) blinks a loader over
-  // drawn rows while it connects. The latch is set on commit, because Strict Mode and
-  // concurrent rendering abandon renders that would otherwise set it.
+  // Draw once the thread has answered, and never take the timeline away again.
+  // Gating on the live session (`isReady`) blinks a loader over drawn rows while it
+  // connects. The latch is set on commit, because Strict Mode and concurrent
+  // rendering abandon renders that would otherwise set it.
   const hasDrawnTimeline = useRef(false);
-  const timelineReady =
-    hasDrawnTimeline.current || (hasLoadedThread && hasLoadedComments);
+  const timelineReady = hasDrawnTimeline.current || hasLoadedThread;
   useEffect(() => {
-    if (hasLoadedThread && hasLoadedComments) hasDrawnTimeline.current = true;
-  }, [hasLoadedThread, hasLoadedComments]);
+    if (hasLoadedThread) hasDrawnTimeline.current = true;
+  }, [hasLoadedThread]);
 
   // Merged exactly as the transcript merges it, because "Show in chat" hands the transcript
   // one of these item ids. A prompt still waiting on its echo is an optimistic item there and
@@ -286,7 +279,6 @@ function ActivityConversation({
         timeline={timeline}
         messages={messages}
         conversationItems={conversationItems}
-        commentThreads={commentThreads}
         currentUserId={currentUser?.id}
         canOpenInPlace={canOpenInPlace}
       />
@@ -364,10 +356,9 @@ export function ActivityPanel({
   });
   const task = taskProp ?? fetchedTask;
 
-  // Warmed from the id alone so they don't queue behind the task itself, which can take
-  // seconds to arrive. Same query keys as the panel's own hooks, so this shares one fetch.
+  // Warmed from the id alone so it doesn't queue behind the task itself, which can take
+  // seconds to arrive. Same query key as the panel's own hook, so this shares one fetch.
   useTaskThread(taskId, { enabled: !collapsed, markActivityRead: false });
-  useTaskCommentActivity(taskId, { enabled: !collapsed });
 
   if (collapsed) {
     return (

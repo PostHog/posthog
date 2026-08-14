@@ -258,6 +258,10 @@ LOCAL_MODAL_DOCKERFILES = {
 LOCAL_MODAL_INSTALL_SKILLS_SCRIPT = Path("products/tasks/backend/sandbox/images/install-skills.sh")
 LOCAL_MODAL_GIT_GUARD_SCRIPT = Path("products/tasks/backend/sandbox/images/git-guard.sh")
 LOCAL_MODAL_GH_GUARD_SCRIPT = Path("products/tasks/backend/sandbox/images/gh-guard.sh")
+# The notebook image bakes the notebooks SQLV2 kernel and stamps its content hash,
+# so a local build context needs the package and the module that computes the hash.
+LOCAL_MODAL_NOTEBOOK_KERNEL_MODULE = Path("products/notebooks/backend/kernel_package.py")
+LOCAL_MODAL_NOTEBOOK_KERNEL_DIR = Path("products/notebooks/backend/sandbox/kernel")
 
 
 _image_ref_cache: TTLCache = TTLCache(maxsize=3, ttl=300)
@@ -611,6 +615,18 @@ def _prepare_local_modal_build_context(template: SandboxTemplate) -> tuple[str, 
         # latest rendered output.
         LocalSkillsCache(base_dir).ensure_built()
         populate_skills_directory(context_dir / LOCAL_BUILT_SKILLS_PATH, base_dir=base_dir)
+
+    elif template == SandboxTemplate.NOTEBOOK_BASE:
+        destination_kernel_module_path = context_dir / LOCAL_MODAL_NOTEBOOK_KERNEL_MODULE
+        destination_kernel_module_path.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(base_dir / LOCAL_MODAL_NOTEBOOK_KERNEL_MODULE, destination_kernel_module_path)
+        # A checkout that ran the tests locally has bytecode here, and this context
+        # bypasses .dockerignore, so drop it rather than bake it into the image.
+        shutil.copytree(
+            base_dir / LOCAL_MODAL_NOTEBOOK_KERNEL_DIR,
+            context_dir / LOCAL_MODAL_NOTEBOOK_KERNEL_DIR,
+            ignore=shutil.ignore_patterns("__pycache__"),
+        )
 
     elif template == SandboxTemplate.STREAMLIT_BASE:
         # Copy all sibling files (streamlit_auth_proxy.py, etc.)

@@ -1011,7 +1011,7 @@
         }
     },
     "canvas-create": {
-        "description": "Create a new, empty canvas in a channel. Returns the canvas's id and (null) `current_version_id`; give it source by publishing a project with canvas-publish-create. Only create a canvas when no existing one is the intended target — list them with canvas-list first.",
+        "description": "Create a new, empty canvas in a channel. Returns the canvas's id and (null) `current_version_id`; give it source by publishing a project with canvas-publish-create. Only create a canvas when no existing one is the intended target — list them with canvas-list first. The response's `url` is the canvas's only valid link — share it verbatim when pointing the user at the canvas; never construct a canvas URL yourself.",
         "category": "Canvas",
         "feature": "canvas",
         "summary": "Create canvas",
@@ -1067,7 +1067,7 @@
         }
     },
     "canvas-list": {
-        "description": "List the project's canvases (newest first), optionally scoped to one channel via `channel`. Use this to resolve which canvas a request refers to before reading or publishing source.",
+        "description": "List the project's canvases (newest first), optionally scoped to one channel via `channel`. Use this to resolve which canvas a request refers to before reading or publishing source. Each row's `url` is that canvas's only valid link — share it verbatim; never construct a canvas URL yourself.",
         "category": "Canvas",
         "feature": "canvas",
         "summary": "List canvases",
@@ -6311,7 +6311,7 @@
         "feature_flag": "logs-alerting"
     },
     "logs-alerts-partial-update": {
-        "description": "Update a log alert configuration by ID. Only the fields you provide are changed. Use this to adjust thresholds, filters, enable/disable alerts, or snooze them.",
+        "description": "Update a log alert configuration by ID. Only the fields you provide are changed. Use this to adjust thresholds, filters, quiet hours, enable/disable alerts, or snooze them.",
         "category": "Logs",
         "feature": "logs",
         "summary": "Update log alert",
@@ -8718,34 +8718,6 @@
             "readOnlyHint": true
         }
     },
-    "session-recording-summaries-list": {
-        "description": "List stored AI-generated session summaries for the project, one row per session (latest summary kept). Use to discover which sessions have already been summarized and to filter for sessions with specific problems — `has_exceptions=true`, `outcome=failure`, or a `session_ids` narrowing (e.g. the IDs returned by `query-session-recordings-list`). Returns lightweight rows without the full summary JSON — use `session-recording-summary-get` for the per-segment / per-action detail. This reads persisted summaries only; it does not trigger generation, so a session with no stored summary simply won't appear. Note: this reads the legacy session-summary store, which is being retired — for new summaries the forward path is Replay Vision summarizer scanners (`vision-observations-list` / `vision-scanners-observations-list`).",
-        "category": "Session replays",
-        "feature": "replay",
-        "summary": "List session summaries",
-        "title": "List session summaries",
-        "required_scopes": ["session_recording:read"],
-        "annotations": {
-            "destructiveHint": false,
-            "idempotentHint": true,
-            "openWorldHint": true,
-            "readOnlyHint": true
-        }
-    },
-    "session-recording-summary-get": {
-        "description": "Get the latest stored AI summary for a single session by `session_id` (any `$session_id` from an event). Returns the full summary JSON — segments with a named timeline, per-action abandonment / confusion / exception flags, segment outcomes, the headline `session_outcome`, and optional sentiment — plus `exception_event_ids`, the `extra_summary_context` used at generation time, and `run_metadata` (LLM model, whether visual confirmation was applied). 404 if no summary has been generated for the session yet. This reads the legacy session-summary store, which is being retired — to create a new summary, use a Replay Vision summarizer scanner via `vision-scanners-scan-session` rather than this read endpoint.",
-        "category": "Session replays",
-        "feature": "replay",
-        "summary": "Get session summary",
-        "title": "Get session summary",
-        "required_scopes": ["session_recording:read"],
-        "annotations": {
-            "destructiveHint": false,
-            "idempotentHint": true,
-            "openWorldHint": true,
-            "readOnlyHint": true
-        }
-    },
     "signals-scout-config-create": {
         "description": "DEPRECATED: renamed to scout-config-create. This alias forwards to the same endpoint and will be removed. Call scout-config-create directly with the same arguments.",
         "category": "Signals",
@@ -10615,7 +10587,7 @@
         }
     },
     "vision-scanners-create": {
-        "description": "Create a replay vision scanner. Pick a `scanner_type` — `monitor` (open-ended observations), `classifier` (assign a tag from a fixed label set), `scorer` (numeric rubric), or `summarizer` (free-text summary, always with facet embeddings for search) — and fill `scanner_config` to match: all types need a `prompt`; monitors optionally set `allow_inconclusive`; classifiers also need `tags` (and optionally `multi_label`, `allow_freeform_tags`); scorers also need `scale`; summarizers optionally set `length`. Unknown `scanner_config` keys are rejected. `query` is a `RecordingsQuery` shape that defines which sessions the scanner watches — `date_from` and `date_to` are ignored (the schedule controls time). `sampling_mode` is a quality pre-filter over matched sessions (`focused` / `balanced` / `comprehensive`, default `comprehensive`) and `sampling_rate` is a 0..1 random downsample applied after it (default 1.0). `model` chooses the LLM and sets the credit price of every observation. Names must be unique within the team. Before creating a broad scanner (a permissive `query`, loose `sampling_mode`, and/or high `sampling_rate`), first call `vision-scanners-estimate-create` to project its monthly credit spend and `vision-quota-retrieve` to check the org's remaining budget — an enabled scanner sweeps matching recordings every 5 minutes, and creation itself does not check quota, so a too-broad scanner can exhaust the budget on its first sweeps. Creating a scanner also creates its built-in daily digest: an enabled vision action with no delivery targets that synthesizes the scanner's observations once a day and spends credits of its own, on top of the observations. Disable or delete it with `vision-actions-update` / `vision-actions-delete` if you don't want it. To get notified about what the scanner finds (a Slack alert or a summary on another schedule), create a further vision action bound to it with `vision-actions-create`. For a scanner scoped to one experiment's exposed sessions, load the `scanning-experiments-with-replay-vision` skill first — it derives the query from the experiment's exposure criteria.",
+        "description": "Create a replay vision scanner. Pick a `scanner_type` — `monitor` (open-ended observations), `classifier` (assign a tag from a fixed label set), `scorer` (numeric rubric), or `summarizer` (free-text summary, always with facet embeddings for search) — and fill `scanner_config` to match: all types need a `prompt`; monitors optionally set `allow_inconclusive`; classifiers also need `tags` (and optionally `multi_label`, `allow_freeform_tags`); scorers also need `scale`; summarizers optionally set `length`. Unknown `scanner_config` keys are rejected. `query` is a `RecordingsQuery` shape that defines which sessions the scanner watches — `date_from` and `date_to` are ignored (the schedule controls time). `sampling_mode` is a quality pre-filter over matched sessions (`focused` / `balanced` / `comprehensive`, default `comprehensive`) and `sampling_rate` is a 0..1 random downsample applied after it (default 1.0). `model` chooses the LLM and sets the credit price of every observation. Names must be unique within the team. Before creating a broad scanner (a permissive `query`, loose `sampling_mode`, and/or high `sampling_rate`), first call `vision-scanners-estimate-create` to project its monthly credit spend and `vision-quota-retrieve` to check the org's remaining budget — an enabled scanner sweeps matching recordings every 5 minutes, and creation itself does not check quota, so a too-broad scanner can exhaust the budget on its first sweeps. Set `credit_limit` to cap what this one scanner can spend per billing period, so it cannot starve the org's other scanners. The scanner stops scanning once the credits left cannot cover another observation, and resumes when the period resets. Creating a scanner also creates its built-in daily digest: an enabled vision action with no delivery targets that synthesizes the scanner's observations once a day and spends credits of its own, on top of the observations. Disable or delete it with `vision-actions-update` / `vision-actions-delete` if you don't want it. To get notified about what the scanner finds (a Slack alert or a summary on another schedule), create a further vision action bound to it with `vision-actions-create`. For a scanner scoped to one experiment's exposed sessions, load the `scanning-experiments-with-replay-vision` skill first — it derives the query from the experiment's exposure criteria.",
         "category": "Replay vision",
         "feature": "replay_vision",
         "summary": "Create replay vision scanner",
