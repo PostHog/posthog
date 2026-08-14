@@ -1,5 +1,6 @@
 import { isPostHogCodeDeeplink } from "@posthog/shared";
 import { ArtifactRefChip } from "@posthog/ui/features/editor/components/ArtifactRefChip";
+import { EvidenceRefChip } from "@posthog/ui/features/editor/components/EvidenceRefChip";
 import { GithubRefChip } from "@posthog/ui/features/editor/components/GithubRefChip";
 import { parseGithubIssueUrl } from "@posthog/ui/features/message-editor/githubIssueUrl";
 import { CodeBlock } from "@posthog/ui/primitives/CodeBlock";
@@ -7,6 +8,7 @@ import { Divider } from "@posthog/ui/primitives/Divider";
 import { HighlightedCode } from "@posthog/ui/primitives/HighlightedCode";
 import { List, ListItem } from "@posthog/ui/primitives/List";
 import { parseArtifactLink } from "@posthog/ui/utils/artifactLinks";
+import { parseEvidenceLink } from "@posthog/ui/utils/evidenceLinks";
 import { handleShareLinkClick } from "@posthog/ui/utils/shareLinks";
 import { Blockquote, Checkbox, Code, Kbd, Text } from "@radix-ui/themes";
 import { memo, useMemo } from "react";
@@ -34,6 +36,9 @@ function markdownUrlTransform(value: string, key: string): string {
   // The scheme survives only on `href` so `![x](chart:y)` can't become an
   // unsanitized image; consumers decide what a chart href renders as.
   if (key === "href" && value.startsWith("chart:")) return value;
+  // Evidence citations (`[label](evidence:<kind>/<id>)`) render as inline
+  // references with a hover preview; see EvidenceRefChip.
+  if (key === "href" && value.startsWith("evidence:")) return value;
   if (isPostHogCodeDeeplink(value)) return value;
   return defaultUrlTransform(value);
 }
@@ -128,6 +133,12 @@ export const baseComponents: Components = {
     <del className="text-(--gray-9) line-through">{children}</del>
   ),
   a: ({ href, children }) => {
+    const evidenceTarget = parseEvidenceLink(href);
+    if (evidenceTarget) {
+      return (
+        <EvidenceRefChip target={evidenceTarget}>{children}</EvidenceRefChip>
+      );
+    }
     const artifactTarget = parseArtifactLink(href);
     if (artifactTarget && href) {
       return (
