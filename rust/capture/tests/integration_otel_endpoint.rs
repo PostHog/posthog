@@ -172,6 +172,7 @@ fn make_test_client_with_options(sink: &CapturingSink, options: TestClientOption
         Arc::new(sink.clone()),
         redis,
         None, // global_rate_limiter_token_distinctid
+        None, // global_rate_limiter_token
         quota_limiter,
         TokenDropper::default(),
         options.event_restriction_service,

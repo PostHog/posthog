@@ -161,6 +161,7 @@ async fn setup_ai_router_with_restriction(
         Arc::new(sink),
         redis,
         None, // global_rate_limiter_token_distinctid
+        None, // global_rate_limiter_token
         quota_limiter,
         TokenDropper::default(),
         Some(service),
@@ -481,6 +482,7 @@ async fn setup_ai_router_with_redirect_to_topic(
         Arc::new(sink),
         redis,
         None, // global_rate_limiter_token_distinctid
+        None, // global_rate_limiter_token
         quota_limiter,
         TokenDropper::default(),
         Some(service),
@@ -559,6 +561,7 @@ async fn setup_ai_router_with_force_overflow_and_limiter(
         Arc::new(sink),
         redis,
         None,
+        None, // global_rate_limiter_token
         quota_limiter,
         TokenDropper::default(),
         Some(service),

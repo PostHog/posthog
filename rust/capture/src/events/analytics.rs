@@ -249,6 +249,7 @@ pub async fn process_events(
     restriction_service: Option<EventRestrictionService>,
     historical_cfg: router::HistoricalConfig,
     global_rate_limiter: Option<Arc<GlobalRateLimiter>>,
+    global_rate_limiter_token: Option<Arc<GlobalRateLimiter>>,
     overflow_limiter: Option<Arc<OverflowLimiter>>,
     ai_events_overflow_limiter: Option<Arc<OverflowLimiter>>,
     ingestion_warning_emitter: Option<Arc<dyn WarningEmitter>>,
@@ -269,6 +270,7 @@ pub async fn process_events(
         restriction_service,
         historical_cfg,
         global_rate_limiter,
+        global_rate_limiter_token,
         overflow_limiter,
         ai_events_overflow_limiter,
         ingestion_warning_emitter,
@@ -290,6 +292,7 @@ async fn process_events_inner(
     restriction_service: Option<EventRestrictionService>,
     historical_cfg: router::HistoricalConfig,
     global_rate_limiter: Option<Arc<GlobalRateLimiter>>,
+    global_rate_limiter_token: Option<Arc<GlobalRateLimiter>>,
     overflow_limiter: Option<Arc<OverflowLimiter>>,
     ai_events_overflow_limiter: Option<Arc<OverflowLimiter>>,
     ingestion_warning_emitter: Option<Arc<dyn WarningEmitter>>,
@@ -476,6 +479,32 @@ async fn process_events_inner(
     // Import is unaffected by both: the GRL never runs (guard below) and no
     // overflowable lane is reachable, so behavior is identical across paths.
     if context.capture_mode.applies_global_rate_limit() {
+        // Token-level aggregate first. Stamps only person processing and the
+        // overflow reroute -- events stay live, so the per-key loop below still
+        // consults the shared per-key limiter for every one of them, keeping
+        // v0/v1 per-key counts identical (see the invariant note above).
+        if let Some(ref limiter) = global_rate_limiter_token {
+            let event_count = events.len() as u64;
+            let cache_key = GlobalRateLimitKey::Token(&context.token).to_cache_key();
+            if event_count > 0 && limiter.is_limited(&cache_key, event_count).await.is_some() {
+                for event in events.iter_mut() {
+                    event.metadata.skip_person_processing = true;
+                    if event.metadata.data_type == DataType::AnalyticsMain {
+                        event.metadata.overflow_reason = Some(OverflowReason::ForceLimited);
+                    }
+                }
+                counter!(
+                    "capture_events_rate_limited_token",
+                    "reason" => "global_rate_limit_token",
+                )
+                .increment(event_count);
+                warn!(
+                    token = context.token,
+                    limited_event_count = event_count,
+                    "events rate limited by token -- person processing disabled"
+                );
+            }
+        }
         if let Some(ref limiter) = global_rate_limiter {
             let mut limited_distinct_ids: HashSet<&str> = HashSet::new();
             let mut limited_event_count: u64 = 0;
@@ -677,6 +706,7 @@ mod tests {
         restriction_service: Option<EventRestrictionService>,
         historical_cfg: router::HistoricalConfig,
         global_rate_limiter: Option<Arc<GlobalRateLimiter>>,
+        global_rate_limiter_token: Option<Arc<GlobalRateLimiter>>,
         overflow_limiter: Option<Arc<OverflowLimiter>>,
         ai_events_overflow_limiter: Option<Arc<OverflowLimiter>>,
         ingestion_warning_emitter: Option<Arc<dyn WarningEmitter>>,
@@ -689,6 +719,7 @@ mod tests {
                 restriction_service: None,
                 historical_cfg: router::HistoricalConfig::new(false, 1),
                 global_rate_limiter: None,
+                global_rate_limiter_token: None,
                 overflow_limiter: None,
                 ai_events_overflow_limiter: None,
                 ingestion_warning_emitter: None,
@@ -708,6 +739,7 @@ mod tests {
             options.restriction_service,
             options.historical_cfg,
             options.global_rate_limiter,
+            options.global_rate_limiter_token,
             options.overflow_limiter,
             options.ai_events_overflow_limiter,
             options.ingestion_warning_emitter,

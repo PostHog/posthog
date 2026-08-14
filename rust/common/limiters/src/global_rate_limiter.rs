@@ -217,6 +217,13 @@ pub struct GlobalRateLimiterConfig {
     /// How many chunked commands may be in flight at once against one instance.
     /// Trades tick wall-clock against instantaneous Redis load.
     pub max_concurrent_commands: usize,
+    /// Maximum distinct (key, epoch) entries held in the deferred write batch.
+    /// Merges into existing entries are always accepted (they add no memory);
+    /// at the cap, updates for new keys are dropped and counted. Without this,
+    /// unique-key inflow faster than the per-tick drain grows the batch without
+    /// bound -- the update channel's capacity does not help, because the
+    /// receiver moves entries into this map as fast as they arrive.
+    pub max_write_batch_entries: usize,
     /// Per-key custom limits. Overrides the default limit for specific *more granular* keys.
     ///
     /// Wrapped in `Arc<ArcSwap<_>>` so the map can be atomically replaced at
@@ -289,6 +296,7 @@ impl Default for GlobalRateLimiterConfig {
             max_sync_keys_per_tick: 20_000,
             max_keys_per_command: 2_000,
             max_concurrent_commands: 4,
+            max_write_batch_entries: 200_000,
             custom_keys: Arc::new(ArcSwap::from_pointee(HashMap::new())),
             custom_key_resolver: None,
             custom_key_source: None,
@@ -855,7 +863,14 @@ impl GlobalRateLimiterImpl {
                         match result {
                             Some(req) => {
                                 let epoch = epoch_from_timestamp(req.timestamp, config.window_interval);
-                                *write_batch.entry((req.key, epoch)).or_insert(0) += req.count;
+                                Self::absorb_update(
+                                    &mut write_batch,
+                                    req.key,
+                                    epoch,
+                                    req.count,
+                                    config.max_write_batch_entries,
+                                    scope,
+                                );
                             }
                             None => {
                                 // Channel closed, do final flush and exit
@@ -879,6 +894,43 @@ impl GlobalRateLimiterImpl {
                 }
             }
         });
+    }
+
+    /// Merge one update into the deferred write batch, enforcing the entry cap.
+    ///
+    /// Merges never grow the map, so they are always accepted; only a brand-new
+    /// (key, epoch) entry can be refused. A refused update undercounts the
+    /// global tally for that key -- under-enforcement, consistent with every
+    /// other overload path here failing open -- and is counted so the loss is
+    /// visible. No log line: at the inflow rates that reach the cap, per-drop
+    /// logging would itself be a problem.
+    fn absorb_update(
+        write_batch: &mut HashMap<(String, i64), u64>,
+        key: String,
+        epoch: i64,
+        count: u64,
+        max_entries: usize,
+        scope: &'static str,
+    ) {
+        let at_cap = write_batch.len() >= max_entries;
+        match write_batch.entry((key, epoch)) {
+            std::collections::hash_map::Entry::Occupied(mut entry) => {
+                *entry.get_mut() += count;
+            }
+            std::collections::hash_map::Entry::Vacant(slot) => {
+                if at_cap {
+                    metrics::counter!(
+                        GLOBAL_RATE_LIMITER_ERROR_COUNTER,
+                        "scope" => scope,
+                        "step" => "enqueue_update",
+                        "cause" => "write_batch_full",
+                    )
+                    .increment(1);
+                } else {
+                    slot.insert(count);
+                }
+            }
+        }
     }
 
     /// Execute one tick of the background pipeline.
@@ -915,6 +967,24 @@ impl GlobalRateLimiterImpl {
         }
         metrics::gauge!(GLOBAL_RATE_LIMITER_SYNC_DEFERRED_GAUGE, "scope" => scope)
             .set(pending_sync.len() as f64);
+
+        // Deferred entries whose epoch has aged out of the readable window can
+        // no longer affect any decision: reads consult only the current and
+        // previous epochs. Purge them instead of spending write commands (and
+        // deferral slots) on counts nothing will ever read.
+        let min_live_epoch = epoch_from_timestamp(Utc::now(), config.window_interval) - 1;
+        let before_purge = write_batch.len();
+        write_batch.retain(|(_, epoch), _| *epoch >= min_live_epoch);
+        let purged = before_purge - write_batch.len();
+        if purged > 0 {
+            metrics::counter!(
+                GLOBAL_RATE_LIMITER_ERROR_COUNTER,
+                "scope" => scope,
+                "step" => "pipeline",
+                "cause" => "stale_epoch_purged",
+            )
+            .increment(purged as u64);
+        }
 
         // Bound the write drain the same way. The deferred remainder stays in
         // `write_batch`, where new arrivals merge into it by (key, epoch), so no
@@ -1071,6 +1141,12 @@ impl GlobalRateLimiterImpl {
                         Ok(Err(e)) => {
                             Self::record_pipeline_error(scope, &redis_idx_str, "redis_write");
                             warn!(error = %e, records = chunk_len, "Failed to write rate limit batch to Redis");
+                            // A dead MultiplexedConnection never recovers on its
+                            // own; ask the client to rebuild. Timeouts are
+                            // transient and never route here.
+                            if e.is_unrecoverable_error() {
+                                redis.heal().await;
+                            }
                         }
                         Err(_) => {
                             Self::record_pipeline_error(scope, &redis_idx_str, "write_timeout");
@@ -1146,6 +1222,9 @@ impl GlobalRateLimiterImpl {
                         Ok(Err(e)) => {
                             Self::record_pipeline_error(scope, &redis_idx_str, "redis_error");
                             warn!(keys = chunk.len(), error = %e, "Failed to read rate limits from Redis");
+                            if e.is_unrecoverable_error() {
+                                redis.heal().await;
+                            }
                         }
                         Err(_) => {
                             Self::record_pipeline_error(scope, &redis_idx_str, "read_timeout");
@@ -1379,6 +1458,7 @@ mod tests {
             max_sync_keys_per_tick: 20_000,
             max_keys_per_command: 2_000,
             max_concurrent_commands: 4,
+            max_write_batch_entries: 200_000,
         }
     }
 
@@ -1555,6 +1635,7 @@ mod tests {
         assert_eq!(config.max_sync_keys_per_tick, 20_000);
         assert_eq!(config.max_keys_per_command, 2_000);
         assert_eq!(config.max_concurrent_commands, 4);
+        assert_eq!(config.max_write_batch_entries, 200_000);
         assert!(config.custom_keys.load().is_empty());
         assert!(config.custom_key_resolver.is_none());
         assert_eq!(config.metrics_scope, "default");
@@ -2059,7 +2140,9 @@ mod tests {
         let pending: Arc<DashSet<String>> = Arc::new(DashSet::new());
         pending.insert("read_key".to_string());
         let mut writes: HashMap<(String, i64), u64> = HashMap::new();
-        writes.insert(("write_key".to_string(), 1), 5);
+        // Current epoch: a stale epoch would be purged before the write runs.
+        let epoch = epoch_from_timestamp(Utc::now(), config.window_interval);
+        writes.insert(("write_key".to_string(), epoch), 5);
 
         GlobalRateLimiterImpl::tick(
             &config,
@@ -2088,6 +2171,69 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn test_write_batch_cap_drops_new_keys_but_merges_existing() {
+        // At the cap, an update for a brand-new key is dropped (bounded memory
+        // beats an unbounded map under unique-key floods), while an update for
+        // a key already in the batch still merges -- merging costs no memory
+        // and dropping it would silently undercount a key we are tracking.
+        let mut batch: HashMap<(String, i64), u64> = HashMap::new();
+        batch.insert(("k1".to_string(), 1), 5);
+        batch.insert(("k2".to_string(), 1), 5);
+
+        GlobalRateLimiterImpl::absorb_update(&mut batch, "k3".to_string(), 1, 7, 2, "test");
+        assert_eq!(batch.len(), 2, "new key at cap must be dropped");
+        assert!(!batch.contains_key(&("k3".to_string(), 1)));
+
+        GlobalRateLimiterImpl::absorb_update(&mut batch, "k1".to_string(), 1, 7, 2, "test");
+        assert_eq!(
+            batch.get(&("k1".to_string(), 1)),
+            Some(&12),
+            "existing key at cap must still merge"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_tick_purges_stale_epochs_instead_of_writing_them() {
+        let mock = Arc::new(MockRedisClient::new());
+        let client: Arc<dyn Client + Send + Sync> = mock.clone();
+        let config = config_with_floor(0); // 60s window
+        let cache: Cache<String, CacheEntry> = Cache::builder().max_capacity(100).build();
+        let pending: Arc<DashSet<String>> = Arc::new(DashSet::new());
+
+        let current_epoch = epoch_from_timestamp(Utc::now(), config.window_interval);
+        let mut writes: HashMap<(String, i64), u64> = HashMap::new();
+        writes.insert(("live".to_string(), current_epoch), 1);
+        writes.insert(("stale".to_string(), current_epoch - 5), 1);
+
+        GlobalRateLimiterImpl::tick(
+            &config,
+            std::slice::from_ref(&client),
+            &cache,
+            &pending,
+            &mut writes,
+            "test",
+            1,
+        )
+        .await;
+
+        let write_calls: Vec<String> = mock
+            .get_calls()
+            .into_iter()
+            .filter(|c| c.op == "batch_incr_by_expire")
+            .map(|c| c.key)
+            .collect();
+        assert_eq!(
+            write_calls,
+            vec![format!("items=1;ttl={}", config.global_cache_ttl.as_secs())],
+            "only the readable-epoch entry may be written; a stale epoch can              never be read (reads consult current + previous only) and must              not spend write commands"
+        );
+        assert!(
+            writes.is_empty(),
+            "stale entry must be purged, not deferred"
+        );
+    }
+
+    #[tokio::test]
     async fn test_tick_bounds_write_drain_and_carries_remainder() {
         let client: Arc<dyn Client + Send + Sync> = Arc::new(MockRedisClient::new());
         let config = GlobalRateLimiterConfig {
@@ -2097,8 +2243,9 @@ mod tests {
         let cache: Cache<String, CacheEntry> = Cache::builder().max_capacity(100).build();
         let pending: Arc<DashSet<String>> = Arc::new(DashSet::new());
         let mut writes: HashMap<(String, i64), u64> = HashMap::new();
+        let epoch = epoch_from_timestamp(Utc::now(), config.window_interval);
         for i in 0..25 {
-            writes.insert((format!("w{i}"), 1), 1);
+            writes.insert((format!("w{i}"), epoch), 1);
         }
 
         GlobalRateLimiterImpl::tick(

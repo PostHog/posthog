@@ -82,14 +82,26 @@ impl GlobalRateLimiter {
                 .global_rate_limit_token_distinctid_overrides_csv
                 .as_ref(),
             config.global_rate_limit_token_distinctid_local_cache_max_entries,
+            config.global_rate_limit_min_sync_floor,
             &prefix,
             &metrics_scope,
             config.global_rate_limit_custom_threshold_key.is_some(),
         )
     }
 
+    /// Build the token-level rate limiter from the capture config, mirroring
+    /// `try_from_config`. Uses its own Redis connection off the same
+    /// configuration, so the two limiters' pipelines cannot head-of-line block
+    /// each other.
+    pub async fn try_token_from_config(
+        config: &Config,
+        shared_redis: Arc<dyn Client + Send + Sync>,
+    ) -> anyhow::Result<Self> {
+        let redis_client = Self::build_redis_client(config, shared_redis).await?;
+        Self::new_token(config, vec![redis_client])
+    }
+
     /// Create a per-token rate limiter sharing the given Redis instances.
-    /// Not currently wired into production call sites -- retained for future use.
     pub fn new_token(
         config: &Config,
         redis_instances: Vec<Arc<dyn Client + Send + Sync>>,
@@ -102,12 +114,13 @@ impl GlobalRateLimiter {
             config.global_rate_limit_token_threshold,
             config.global_rate_limit_token_overrides_csv.as_ref(),
             config.global_rate_limit_token_local_cache_max_entries,
+            config.global_rate_limit_token_min_sync_floor,
             &prefix,
             &metrics_scope,
-            // The token-only limiter is not wired to the dynamic refresh source.
-            // (The hierarchical resolver is still set but is a no-op for bare
-            // token keys, which have no `:distinct_id` suffix.)
-            false,
+            // Same dynamic source as the tok_distid limiter: lookup keys here
+            // are bare tokens, so only the blob's token-level entries resolve
+            // (the hierarchical resolver's `:`-split fallback never fires).
+            config.global_rate_limit_custom_threshold_key.is_some(),
         )
     }
 
@@ -136,6 +149,7 @@ impl GlobalRateLimiter {
         threshold: u64,
         custom_keys_csv: Option<&String>,
         local_cache_max_entries: u64,
+        min_sync_floor: u64,
         redis_key_prefix: &str,
         metrics_scope: &str,
         enable_dynamic_source: bool,
@@ -197,10 +211,11 @@ impl GlobalRateLimiter {
             ),
             local_cache_max_entries,
             metrics_scope: metrics_scope.to_string(),
-            min_sync_floor: config.global_rate_limit_min_sync_floor,
+            min_sync_floor,
             max_sync_keys_per_tick: config.global_rate_limit_max_sync_keys_per_tick,
             max_keys_per_command: config.global_rate_limit_max_keys_per_command,
             max_concurrent_commands: config.global_rate_limit_max_concurrent_commands,
+            max_write_batch_entries: config.global_rate_limit_max_write_batch_entries,
             global_read_timeout: Duration::from_millis(config.global_rate_limit_read_timeout_ms),
             global_write_timeout: Duration::from_millis(config.global_rate_limit_write_timeout_ms),
             local_cache_ttl: Duration::from_secs(config.global_rate_limit_local_cache_ttl_secs),

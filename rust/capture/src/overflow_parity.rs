@@ -141,6 +141,7 @@ async fn run_v0(limits: Limits, batch_size: usize, observe: usize) -> Observed {
         None,
         HistoricalConfig::new(false, 1),
         global,
+        None,
         v0_overflow_limiter(limits),
         None,
         None,

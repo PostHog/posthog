@@ -165,6 +165,15 @@ pub async fn process_batch(
     // Import is unaffected by both: the GRL never runs (guard below) and no
     // overflowable lane is reachable, so behavior is identical across paths.
     if state.capture_mode.applies_global_rate_limit() {
+        // Token-level aggregate first: a token-limited event keeps
+        // `EventResult::Ok` (only person processing and destination are
+        // stamped), so the per-key loop below still counts its volume --
+        // preserving the v0/v1 invariant that both pipelines feed the shared
+        // per-key limiter identical counts. The loop then reports such events
+        // as `already_disabled` and never double-stamps them.
+        if let Some(ref limiter) = state.global_rate_limiter_token {
+            apply_token_limits(limiter, context, &mut events).await;
+        }
         if let Some(ref limiter) = state.global_rate_limiter_token_distinctid {
             let _ = apply_token_distinct_id_limits(
                 limiter,
@@ -837,6 +846,79 @@ struct TokenDistinctIdTally {
     allowed: u64,
     limited: u64,
     already_disabled: u64,
+}
+
+/// Apply the token-level aggregate limit to a batch.
+///
+/// One limiter check per batch (every event in a v1 batch shares the token),
+/// counting the batch's non-dropped volume. On `Limited`, stamps the same
+/// consequence as a person-processing restriction -- person processing off,
+/// `AnalyticsMain` rerouted to overflow -- and nothing else: `result` stays
+/// `Ok` so downstream stages (including the per-key limiter) treat the event
+/// as live, and no event is ever dropped here.
+async fn apply_token_limits(
+    limiter: &GlobalRateLimiter,
+    context: &RequestContext,
+    events: &mut [WrappedEvent],
+) {
+    let ok_count = events
+        .iter()
+        .filter(|e| e.result == EventResult::Ok)
+        .count() as u64;
+    if ok_count == 0 {
+        return;
+    }
+
+    let cache_key = GlobalRateLimitKey::Token(&context.api_token).to_cache_key();
+    if limiter.is_limited(&cache_key, ok_count).await.is_none() {
+        metrics::counter!(
+            CAPTURE_V1_RATE_LIMITER,
+            "limiter" => "token",
+            "outcome" => "allowed",
+        )
+        .increment(ok_count);
+        return;
+    }
+
+    let mut limited_count: u64 = 0;
+    let mut already_disabled_count: u64 = 0;
+    for event in events.iter_mut() {
+        if event.result != EventResult::Ok {
+            continue;
+        }
+        if event.force_disable_person_processing {
+            already_disabled_count += 1;
+            continue;
+        }
+        event.force_disable_person_processing = true;
+        if event.destination == Destination::AnalyticsMain {
+            event.destination = Destination::Overflow;
+        }
+        limited_count += 1;
+    }
+
+    if limited_count > 0 {
+        metrics::counter!(
+            CAPTURE_V1_RATE_LIMITER,
+            "limiter" => "token",
+            "outcome" => "limited",
+        )
+        .increment(limited_count);
+        crate::ctx_log!(
+            Level::WARN,
+            context,
+            limited_event_count = limited_count,
+            "events rate limited by token -- person processing disabled"
+        );
+    }
+    if already_disabled_count > 0 {
+        metrics::counter!(
+            CAPTURE_V1_RATE_LIMITER,
+            "limiter" => "token",
+            "outcome" => "already_disabled",
+        )
+        .increment(already_disabled_count);
+    }
 }
 
 async fn apply_token_distinct_id_limits(
@@ -2375,6 +2457,72 @@ mod tests {
         let mut ctx = test_utils::test_context();
         ctx.api_token = "phc_tok".to_string();
         ctx
+    }
+
+    #[tokio::test]
+    async fn token_limits_stamp_batch_and_never_drop() {
+        // Limited on the bare token key: every Ok event loses person
+        // processing, AnalyticsMain reroutes to overflow, nothing is dropped
+        // and `result` stays Ok so downstream stages still see live events.
+        let limiter = mock_limiter(vec!["phc_tok"]);
+        let ctx = td_context();
+        let mut events = vec![
+            wrapped_event("$pageview", "user-1"),
+            wrapped_event("$identify", "user-2"),
+        ];
+        events[1].destination = Destination::AnalyticsHistorical;
+
+        apply_token_limits(&limiter, &ctx, &mut events).await;
+
+        for ev in &events {
+            assert_eq!(ev.result, EventResult::Ok);
+            assert!(ev.force_disable_person_processing);
+        }
+        assert_eq!(events[0].destination, Destination::Overflow);
+        assert_eq!(
+            events[1].destination,
+            Destination::AnalyticsHistorical,
+            "only AnalyticsMain may reroute to overflow"
+        );
+    }
+
+    #[tokio::test]
+    async fn token_allowed_batch_untouched() {
+        let limiter = mock_limiter(vec![]);
+        let ctx = td_context();
+        let mut events = vec![wrapped_event("$pageview", "user-1")];
+
+        apply_token_limits(&limiter, &ctx, &mut events).await;
+
+        assert_eq!(events[0].result, EventResult::Ok);
+        assert!(!events[0].force_disable_person_processing);
+        assert_eq!(events[0].destination, Destination::AnalyticsMain);
+    }
+
+    #[tokio::test]
+    async fn token_limited_events_still_feed_per_key_limiter() {
+        // The v0/v1 invariant: both pipelines consult the shared per-key
+        // limiter for every non-dropped event. A token-limited batch must not
+        // vanish from the per-key counts -- the per-key loop still evaluates
+        // each event and reports it as already_disabled.
+        let token_limiter = mock_limiter(vec!["phc_tok"]);
+        let (per_key_limiter, calls) = mock_limiter_with_log(vec![]);
+        let ctx = td_context();
+        let mut events = vec![
+            wrapped_event("$pageview", "user-1"),
+            wrapped_event("$pageview", "user-2"),
+        ];
+
+        apply_token_limits(&token_limiter, &ctx, &mut events).await;
+        let tally = apply_token_distinct_id_limits(&per_key_limiter, &ctx, None, &mut events).await;
+
+        assert_eq!(
+            calls.lock().unwrap().len(),
+            2,
+            "per-key limiter must still count token-limited events"
+        );
+        assert_eq!(tally.already_disabled, 2);
+        assert_eq!(tally.limited, 0);
     }
 
     #[tokio::test]
