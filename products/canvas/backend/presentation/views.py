@@ -25,6 +25,8 @@ from posthog.storage.object_storage import ObjectStorageError
 from posthog.temporal.oauth import SANDBOX_OAUTH_APP_CLIENT_IDS
 
 from products.canvas.backend import build_service, error_reports
+from products.canvas.backend.capabilities import declared_state_scopes
+from products.canvas.backend.contract import contract_limits
 from products.canvas.backend.models import Canvas, CanvasBuild, CanvasSourceVersion, CanvasState
 from products.canvas.backend.presentation.serializers import (
     CanvasBuildActionSerializer,
@@ -67,10 +69,11 @@ from products.tasks.backend.facade import api as tasks_facade
 BUILDS_WINDOW = 20
 # Version-history window for the client's undo/revert browser.
 VERSIONS_WINDOW = 100
-# Write-time bounds on canvas runtime state (ph.state). They keep every access
-# a point lookup and cap table growth by canvas count rather than usage.
-CANVAS_STATE_MAX_VALUE_BYTES = 64 * 1024
-CANVAS_STATE_MAX_KEYS_PER_SCOPE = 256
+# Write-time bounds on canvas runtime state (ph.state), from the platform
+# contract so the desktop bridge mirrors them instead of restating numbers.
+# They keep every access a point lookup and cap table growth by canvas count.
+CANVAS_STATE_MAX_VALUE_BYTES = contract_limits()["maxStateValueBytes"]
+CANVAS_STATE_MAX_KEYS_PER_SCOPE = contract_limits()["maxStateKeysPerScope"]
 
 
 def _capacity_response() -> Response:
@@ -100,6 +103,13 @@ def _invalid_response(diagnostics: list[dict[str, Any]]) -> Response:
             "diagnostics": diagnostics,
         },
         status=status.HTTP_400_BAD_REQUEST,
+    )
+
+
+def _state_rejection() -> Response:
+    return Response(
+        {"detail": "Canvas state is a viewer surface; sandbox tokens cannot use it."},
+        status=status.HTTP_403_FORBIDDEN,
     )
 
 
@@ -1058,10 +1068,7 @@ class CanvasViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         canvas = self.get_object()
         user = self._state_actor(request)
         if user is None:
-            return Response(
-                {"detail": "Canvas state is a viewer surface; sandbox tokens cannot use it."},
-                status=status.HTTP_403_FORBIDDEN,
-            )
+            return _state_rejection()
         entries = (
             CanvasState.objects.for_team(self.team_id)
             .filter(canvas=canvas)
@@ -1092,10 +1099,7 @@ class CanvasViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         canvas = self.get_object()
         user = self._state_actor(request)
         if user is None:
-            return Response(
-                {"detail": "Canvas state is a viewer surface; sandbox tokens cannot use it."},
-                status=status.HTTP_403_FORBIDDEN,
-            )
+            return _state_rejection()
         payload = CanvasStateSetSerializer(data=request.data)
         payload.is_valid(raise_exception=True)
         scope = payload.validated_data["scope"]
@@ -1104,7 +1108,7 @@ class CanvasViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         # The head version's declared capabilities gate writes: state is part of
         # the canvas's reviewed permission boundary, exactly like insights.
         version = canvas.current_source_version
-        declared = set((((version.capabilities if version else None) or {}).get("posthog") or {}).get("state") or [])
+        declared = declared_state_scopes(version.capabilities if version else None)
         if scope not in declared:
             return Response(
                 {
@@ -1114,23 +1118,21 @@ class CanvasViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 status=status.HTTP_403_FORBIDDEN,
             )
         owner = user if scope == CanvasState.SCOPE_USER else None
-        existing = CanvasState.objects.for_team(self.team_id).filter(canvas=canvas, scope=scope, user=owner, key=key)
+        scoped = CanvasState.objects.for_team(self.team_id).filter(canvas=canvas, scope=scope, user=owner)
+        existing = scoped.filter(key=key)
         if value is None:
             existing.delete()
             return Response(status=status.HTTP_204_NO_CONTENT)
         if len(json.dumps(value, separators=(",", ":")).encode()) > CANVAS_STATE_MAX_VALUE_BYTES:
             return Response(
                 {
-                    "detail": "State values are capped at 64 KB serialized. "
+                    "detail": f"State values are capped at {CANVAS_STATE_MAX_VALUE_BYTES // 1024} KB serialized. "
                     "Store large data in PostHog (insights, the warehouse) and reference it."
                 },
                 status=status.HTTP_400_BAD_REQUEST,
             )
         if not existing.exists():
-            key_count = (
-                CanvasState.objects.for_team(self.team_id).filter(canvas=canvas, scope=scope, user=owner).count()
-            )
-            if key_count >= CANVAS_STATE_MAX_KEYS_PER_SCOPE:
+            if scoped.count() >= CANVAS_STATE_MAX_KEYS_PER_SCOPE:
                 return Response(
                     {
                         "detail": f"A canvas may hold at most {CANVAS_STATE_MAX_KEYS_PER_SCOPE} state keys per scope. "

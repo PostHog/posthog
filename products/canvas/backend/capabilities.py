@@ -18,6 +18,11 @@ def _network_origins(manifest: dict | None) -> list[str]:
     return ((manifest or {}).get("network") or {}).get("origins") or []
 
 
+def declared_state_scopes(manifest: dict | None) -> set[str]:
+    """The ph.state scopes a capabilities manifest declares."""
+    return set(_posthog_section(manifest).get("state") or [])
+
+
 @dataclass(frozen=True, kw_only=True)
 class CapabilityWidening:
     """What `after` declares beyond `before`. Narrowings are not reported here

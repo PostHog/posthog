@@ -1170,15 +1170,15 @@ class TestCanvasState(CanvasAPIBaseTest):
         assert response.status_code == status.HTTP_200_OK, response.json()
         return canvas_id
 
-    def _set_state(self, canvas_id: str, scope: str, key: str, value: Any, client: APIClient | None = None):
-        return (client or self.client).post(
+    def _set_state(self, canvas_id: str, scope: str, key: str, value: Any):
+        return self.client.post(
             f"/api/projects/{self.team.id}/canvases/{canvas_id}/state/set/",
             {"scope": scope, "key": key, "value": value},
             format="json",
         )
 
-    def _entries(self, canvas_id: str, client: APIClient | None = None) -> list[dict[str, Any]]:
-        response = (client or self.client).get(f"/api/projects/{self.team.id}/canvases/{canvas_id}/state/")
+    def _entries(self, canvas_id: str) -> list[dict[str, Any]]:
+        response = self.client.get(f"/api/projects/{self.team.id}/canvases/{canvas_id}/state/")
         assert response.status_code == status.HTTP_200_OK, response.json()
         return response.json()["entries"]
 
