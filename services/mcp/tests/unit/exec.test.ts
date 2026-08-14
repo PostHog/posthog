@@ -168,6 +168,7 @@ describe('exec tool', () => {
                 stateManager: {
                     getProjectId: async () => '1',
                     getOrFetchSelfDrivingStatus: async () => ({
+                        error_tracking_signals_enabled: true,
                         autostart_enabled: true,
                         github_connected: false,
                         quota_blocked: false,

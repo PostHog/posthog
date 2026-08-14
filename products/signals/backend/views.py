@@ -439,6 +439,14 @@ class SignalTeamConfigViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         return Response(
             SelfDrivingStatusSerializer(
                 {
+                    # Mirrors the emission gates: emit_signal drops everything without org AI
+                    # approval, and error tracking only emits for enabled source config rows.
+                    "error_tracking_signals_enabled": bool(self.team.organization.is_ai_data_processing_approved)
+                    and SignalSourceConfig.objects.filter(
+                        team=self.team,
+                        source_product=SignalSourceConfig.SourceProduct.ERROR_TRACKING,
+                        enabled=True,
+                    ).exists(),
                     "autostart_enabled": config.autostart_enabled is not False,
                     "github_connected": Integration.objects.filter(
                         team=self.team, kind=Integration.IntegrationKind.GITHUB

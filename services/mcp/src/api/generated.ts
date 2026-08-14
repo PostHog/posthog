@@ -69539,6 +69539,8 @@ export namespace Schemas {
     }
 
     export interface SelfDrivingStatus {
+      /** Whether error tracking issues feed the signals pipeline: at least one error tracking signal source is enabled and the organization approved AI data processing. Without this, self-driving never sees error issues. */
+      error_tracking_signals_enabled: boolean;
       /** Effective autostart state: true unless the team explicitly switched autonomous inbox PRs off. A team that never touched the setting reads as true. */
       autostart_enabled: boolean;
       /** Whether the team has a GitHub integration. Self-driving needs one to open pull requests. */

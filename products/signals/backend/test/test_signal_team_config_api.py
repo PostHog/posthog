@@ -6,7 +6,7 @@ from rest_framework import status
 
 from posthog.models.integration import Integration
 
-from products.signals.backend.models import SignalTeamConfig
+from products.signals.backend.models import SignalSourceConfig, SignalTeamConfig
 from products.signals.backend.quota import SelfDrivingQuotaGate
 
 
@@ -203,3 +203,29 @@ class TestSelfDrivingStatusAPI(APIBaseTest):
         data = response.json()
         assert response.status_code == status.HTTP_200_OK, data
         assert data["quota_blocked"] is True
+
+    @parameterized.expand(
+        [
+            ("no_source_rows", False, True, False),
+            ("source_enabled_and_org_approved", True, True, True),
+            ("source_enabled_without_ai_approval", True, None, False),
+        ]
+    )
+    def test_error_tracking_signals_enabled_requires_source_and_consent(
+        self, _name, create_source, ai_approved, expected
+    ):
+        # A team without an enabled error tracking source (or without AI approval) emits no
+        # signals, so reporting enabled would point the nudge at the wrong setup step.
+        self.organization.is_ai_data_processing_approved = ai_approved
+        self.organization.save(update_fields=["is_ai_data_processing_approved"])
+        if create_source:
+            SignalSourceConfig.objects.create(
+                team=self.team,
+                source_product=SignalSourceConfig.SourceProduct.ERROR_TRACKING,
+                source_type=SignalSourceConfig.SourceType.ISSUE_CREATED,
+                enabled=True,
+            )
+        response = self.client.get(self._url())
+        data = response.json()
+        assert response.status_code == status.HTTP_200_OK, data
+        assert data["error_tracking_signals_enabled"] is expected

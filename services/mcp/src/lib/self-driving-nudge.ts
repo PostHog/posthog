@@ -18,12 +18,13 @@ import type { Context } from '@/tools/types'
  *   deploy;
  * - the result must actually contain issue detail or events, so empty result
  *   sets and unknown response shapes get no note;
- * - the team's self-driving status must show a gap the user can close
- *   (autostart switched off, or no GitHub connection). Teams that are fully
- *   set up, quota-paused, or whose status cannot be read get no note.
+ * - the team's self-driving status must show a gap the user can close (error
+ *   tracking signals not enabled, no GitHub connection, or autostart switched
+ *   off). Teams that are fully set up, quota-paused, or whose status cannot
+ *   be read get no note.
  */
 
-export type SelfDrivingGap = 'github_missing' | 'autostart_off'
+export type SelfDrivingGap = 'signals_off' | 'github_missing' | 'autostart_off'
 
 export interface SelfDrivingNudge {
     note: string
@@ -40,6 +41,8 @@ const PITCH =
     'PostHog can fix issues like this proactively: self-driving researches new error tracking issues and opens pull requests for the team to review.'
 
 const GAP_NOTES: Record<SelfDrivingGap, (settingsUrl: string) => string> = {
+    signals_off: (settingsUrl) =>
+        `${PITCH} This team has not enabled error tracking as a signal source, so self-driving never sees these issues. If the user wants proactive fixes, send them to ${settingsUrl} to turn on error tracking signals in the Inbox.`,
     github_missing: (settingsUrl) =>
         `${PITCH} This project has no GitHub connection, so self-driving cannot open those PRs yet. If the user wants proactive fixes, send them to ${settingsUrl} to connect GitHub and finish setup.`,
     autostart_off: (settingsUrl) =>
@@ -66,14 +69,19 @@ function hasIssueDetail(toolName: string, handlerResult: unknown): boolean {
 
 /**
  * The single user-actionable gap the note should name, or `undefined` when
- * there is nothing to say. GitHub wins over the autostart switch because
- * flipping the switch does nothing while no repository is connected. A
- * quota-paused org gets no note: the missing piece there is billing headroom,
- * not setup, and autostart resumes on its own when the quota lifts.
+ * there is nothing to say. Ordered by the setup chain: without error tracking
+ * signals the pipeline never sees these issues, so that gap comes first;
+ * GitHub wins over the autostart switch because flipping the switch does
+ * nothing while no repository is connected. A quota-paused org gets no note:
+ * the missing piece there is billing headroom, not setup, and autostart
+ * resumes on its own when the quota lifts.
  */
 export function selectSelfDrivingGap(status: SelfDrivingStatus): SelfDrivingGap | undefined {
     if (status.quota_blocked) {
         return undefined
+    }
+    if (!status.error_tracking_signals_enabled) {
+        return 'signals_off'
     }
     if (!status.github_connected) {
         return 'github_missing'

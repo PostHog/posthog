@@ -8,7 +8,13 @@ const FLAG_ON = { 'mcp-error-tracking-self-driving-nudge': true }
 const ISSUE_DETAIL = { id: 'issue-1', name: 'TypeError: x is not a function' }
 
 function makeStatus(overrides: Partial<SelfDrivingStatus> = {}): SelfDrivingStatus {
-    return { autostart_enabled: true, github_connected: true, quota_blocked: false, ...overrides }
+    return {
+        error_tracking_signals_enabled: true,
+        autostart_enabled: true,
+        github_connected: true,
+        quota_blocked: false,
+        ...overrides,
+    }
 }
 
 function makeContext(status: SelfDrivingStatus | undefined, fetchError = false): Context {
@@ -27,10 +33,21 @@ describe('self-driving nudge', () => {
     describe('selectSelfDrivingGap', () => {
         it.each([
             ['fully set up', makeStatus(), undefined],
+            ['error tracking signals off', makeStatus({ error_tracking_signals_enabled: false }), 'signals_off'],
             ['no GitHub connection', makeStatus({ github_connected: false }), 'github_missing'],
             ['autostart switched off', makeStatus({ autostart_enabled: false }), 'autostart_off'],
-            // GitHub first: flipping the switch does nothing while no repo is connected.
-            ['both gaps', makeStatus({ github_connected: false, autostart_enabled: false }), 'github_missing'],
+            // Setup-chain order: without signals nothing downstream matters, and flipping
+            // the autostart switch does nothing while no repo is connected.
+            [
+                'signals and GitHub both missing',
+                makeStatus({ error_tracking_signals_enabled: false, github_connected: false }),
+                'signals_off',
+            ],
+            [
+                'GitHub and autostart both missing',
+                makeStatus({ github_connected: false, autostart_enabled: false }),
+                'github_missing',
+            ],
             ['quota paused', makeStatus({ quota_blocked: true, github_connected: false }), undefined],
         ])('%s', (_label, status, expected) => {
             expect(selectSelfDrivingGap(status)).toBe(expected)

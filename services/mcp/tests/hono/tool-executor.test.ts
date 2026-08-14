@@ -133,6 +133,7 @@ describe('ToolExecutor', () => {
                 stateManager: {
                     getProjectId: vi.fn().mockResolvedValue('1'),
                     getOrFetchSelfDrivingStatus: vi.fn().mockResolvedValue({
+                        error_tracking_signals_enabled: true,
                         autostart_enabled: false,
                         github_connected: true,
                         quota_blocked: false,

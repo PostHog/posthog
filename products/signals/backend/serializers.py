@@ -181,6 +181,13 @@ class SignalTeamConfigSerializer(serializers.ModelSerializer):
 
 
 class SelfDrivingStatusSerializer(serializers.Serializer):
+    error_tracking_signals_enabled = serializers.BooleanField(
+        help_text=(
+            "Whether error tracking issues feed the signals pipeline: at least one error tracking "
+            "signal source is enabled and the organization approved AI data processing. Without "
+            "this, self-driving never sees error issues."
+        )
+    )
     autostart_enabled = serializers.BooleanField(
         help_text=(
             "Effective autostart state: true unless the team explicitly switched autonomous inbox PRs off. "
