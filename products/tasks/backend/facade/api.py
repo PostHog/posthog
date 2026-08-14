@@ -7220,15 +7220,22 @@ def post_comment_thread_update(*, team_id: int, comment_id: UUID) -> None:
 
 
 def _announce_agent_artifact_uploads(run: TaskRun, new_entries: list[dict], manifest: list[dict]) -> None:
-    """Manifest entries carry no version, so an announcement counts same-named entries:
-    re-uploading a file reads as a revision of it, the way the artifacts list groups
-    versions. The artifact_id dedup absorbs a retried upload."""
-    new_ids = {entry.get("id") for entry in new_entries}
+    """Announce files the agent delivered as task outputs.
+
+    The manifest also holds internal state such as git handoff checkpoints and skill
+    bundles. Those files support the run but are not deliverables for the timeline.
+    Manifest entries carry no version, so same-named output entries determine whether
+    an upload created or revised a file. The artifact id deduplicates retried uploads.
+    """
+    output_entries = [entry for entry in new_entries if entry.get("type") == "output"]
+    new_output_ids = {entry.get("id") for entry in output_entries}
     announced_in_batch: dict[str, int] = {}
-    for entry in new_entries:
+    for entry in output_entries:
         name = entry.get("name")
         prior_versions = sum(
-            1 for other in manifest if other.get("name") == name and other.get("id") not in new_ids
+            1
+            for other in manifest
+            if other.get("type") == "output" and other.get("name") == name and other.get("id") not in new_output_ids
         ) + announced_in_batch.get(name or "", 0)
         announced_in_batch[name or ""] = announced_in_batch.get(name or "", 0) + 1
         post_artifact_thread_update(
