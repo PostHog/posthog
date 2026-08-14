@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from collections.abc import Collection
+from collections.abc import Collection, Sequence
+from dataclasses import asdict, dataclass
 from datetime import datetime
 from typing import Any
 from uuid import UUID
@@ -32,6 +33,46 @@ ALERT_INTERNAL_EVENT_DELIVERY_FAILURES = Counter(
     "Number of alert internal events that failed delivery",
     labelnames=["event_name"],
 )
+
+
+@dataclass(frozen=True, kw_only=True)
+class AlertDelivery:
+    """Receipt for one destination that accepted a send. `status` is an open set
+    ("accepted" now, "unknown" synthesized for legacy rows in the API)."""
+
+    channel: str  # "email" | "hog_function" (open set — "in_app" may join later)
+    target: str  # email address or destination name
+    target_id: str | None = None  # hog function id
+    template: str | None = None  # "slack" | "discord" | "webhook" | "teams"
+    status: str = "accepted"
+    at: str  # ISO-8601 timestamp
+
+
+def serialize_deliveries(deliveries: Sequence[AlertDelivery]) -> list[dict[str, Any]]:
+    return [asdict(delivery) for delivery in deliveries]
+
+
+@dataclass(frozen=True, kw_only=True)
+class ActiveAlertDestination:
+    id: str
+    name: str
+    destination_type: str | None
+
+
+_TEMPLATE_ID_TO_DESTINATION_TYPE = {
+    template_id: destination_type.value for destination_type, template_id in DESTINATION_TEMPLATE_IDS.items()
+}
+
+
+def _active_alert_destinations_qs(*, team_id: int, alert_id: str, allowed_event_ids: Collection[str]):
+    return HogFunction.objects.filter(
+        _allowed_event_filter(allowed_event_ids),
+        team_id=team_id,
+        deleted=False,
+        enabled=True,
+        template_id__in=DESTINATION_TEMPLATE_IDS.values(),
+        filters__properties__contains=[{"key": "alert_id", "value": alert_id}],
+    )
 
 
 def create_alert_destination_hog_functions(configs: list[AlertDestinationConfig], *, request: Any) -> list[HogFunction]:
@@ -109,14 +150,25 @@ def soft_delete_all_alert_destinations(*, team_id: int, alert_id: str, allowed_e
 
 
 def count_active_alert_destinations(*, team_id: int, alert_id: str, allowed_event_ids: Collection[str]) -> int:
-    return HogFunction.objects.filter(
-        _allowed_event_filter(allowed_event_ids),
-        team_id=team_id,
-        deleted=False,
-        enabled=True,
-        template_id__in=DESTINATION_TEMPLATE_IDS.values(),
-        filters__properties__contains=[{"key": "alert_id", "value": alert_id}],
+    return _active_alert_destinations_qs(
+        team_id=team_id, alert_id=alert_id, allowed_event_ids=allowed_event_ids
     ).count()
+
+
+def list_active_alert_destinations(
+    *, team_id: int, alert_id: str, allowed_event_ids: Collection[str]
+) -> list[ActiveAlertDestination]:
+    rows = _active_alert_destinations_qs(
+        team_id=team_id, alert_id=alert_id, allowed_event_ids=allowed_event_ids
+    ).values_list("id", "name", "template_id")
+    return [
+        ActiveAlertDestination(
+            id=str(hog_function_id),
+            name=name or "Destination",
+            destination_type=_TEMPLATE_ID_TO_DESTINATION_TYPE.get(template_id),
+        )
+        for hog_function_id, name, template_id in rows
+    ]
 
 
 def _allowed_event_filter(allowed_event_ids: Collection[str]) -> Q:
