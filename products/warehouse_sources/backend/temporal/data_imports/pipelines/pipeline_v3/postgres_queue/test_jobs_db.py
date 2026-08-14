@@ -1694,6 +1694,32 @@ class TestGetFailedRuns:
         else:
             assert refs == []
 
+    @pytest.mark.parametrize(
+        "batch_age_seconds,grace_seconds,expect_returned",
+        [
+            (3 * 86_400, 0, True),  # older than the lookback, but must not strand
+            (0, 3600, False),  # grace applies too, measured on the fallback
+        ],
+    )
+    @pytest.mark.asyncio
+    async def test_legacy_rows_without_a_failure_timestamp(
+        self, conn, batch_age_seconds, grace_seconds, expect_returned
+    ):
+        # Pre-dual-write rows are 'failed' with no state_changed_at, so batch
+        # created_at stands in. It predates the failure, so measuring the lookback
+        # on it would age the row out while its run is still stranded.
+        await _insert_batch(conn, run_uuid="run-legacy", job_id="job-f")
+        await BatchQueue.fail_run(conn, run_uuid="run-legacy", team_id=1, schema_id="schema-1", reason="boom")
+        await conn.execute(
+            f"UPDATE {BATCH_TABLE} SET state_changed_at = NULL, created_at = now() - make_interval(secs => %s) "
+            f"WHERE run_uuid = 'run-legacy'",
+            [batch_age_seconds],
+        )
+
+        refs = await BatchQueue.get_failed_runs(conn, grace_seconds=grace_seconds, lookback_seconds=86_400, limit=10)
+
+        assert [r.run_uuid for r in refs] == (["run-legacy"] if expect_returned else [])
+
     @pytest.mark.asyncio
     async def test_superseded_runs_are_not_reconciled(self, conn, sync_conn):
         await _insert_batch(conn, run_uuid="run-old", job_id="job-f")

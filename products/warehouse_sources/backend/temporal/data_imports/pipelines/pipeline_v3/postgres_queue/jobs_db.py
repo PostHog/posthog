@@ -1127,12 +1127,13 @@ class BatchQueue:
         sweep returns fewer than ``limit`` refs), which only delays other
         reconciles to a later sweep.
 
-        ``state_changed_at`` is nullable; NULL rows must stay visible or a
-        failed run could strand until the retention prune (the stranded sweep
-        skips runs that have a failed batch). Every writer of
-        ``latest_state = 'failed'`` also sets ``state_changed_at``, so the NULL
-        arm matches only legacy rows; their batch ``created_at`` stands in for
-        the failure time.
+        ``state_changed_at`` is nullable, and the NULL arm is exempt from the
+        lookback only: batch ``created_at`` predates the failure, so a lookback
+        measured on it would age such a row out while the run is still stranded
+        (the stranded sweep skips runs that have a failed batch). Grace does
+        apply to them, through that same ``created_at`` fallback, which also
+        orders them. Every writer of ``latest_state = 'failed'`` also sets
+        ``state_changed_at``, so the NULL arm matches only legacy rows.
         """
         async with conn.cursor(row_factory=dict_row) as cur:
             await cur.execute(
@@ -1149,8 +1150,9 @@ class BatchQueue:
                             AND b.latest_state = 'failed'
                             AND NOT b.superseded
                             AND (b.state_changed_at IS NULL
-                                 OR (b.state_changed_at >= now() - make_interval(secs => %(lookback)s)
-                                     AND b.state_changed_at <= now() - make_interval(secs => %(grace)s)))
+                                 OR b.state_changed_at >= now() - make_interval(secs => %(lookback)s))
+                            AND COALESCE(b.state_changed_at, b.created_at)
+                                <= now() - make_interval(secs => %(grace)s)
                         ORDER BY b.run_uuid, COALESCE(b.state_changed_at, b.created_at) DESC
                     ) ranked
                     ORDER BY failed_at DESC
