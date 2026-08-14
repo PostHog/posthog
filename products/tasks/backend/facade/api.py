@@ -256,6 +256,7 @@ __all__ = [
     "start_task_run",
     "task_accessible_for_run_view",
     "task_channel_id",
+    "task_exempt_from_code_access",
     "task_exists",
     "task_ids_with_pr_url_subquery",
     "task_run_has_slack_mapping",
@@ -766,6 +767,48 @@ def task_channel_id(task_id: str | UUID, team_id: int) -> UUID | None:
 
 def task_owned_by_user(task_id: str | UUID, team_id: int, user_id: int) -> bool:
     return Task.objects.filter(id=task_id, team_id=team_id, created_by_id=user_id).exists()
+
+
+def task_exempt_from_code_access(task_id: str | UUID, team_id: int) -> bool:
+    """Whether this task's cloud runs are entitled outside PostHog Desktop.
+
+    The run/command endpoints gate on Desktop access (``code_access_required_response``) but
+    also serve the generally-available Inbox, whose tasks must run without the waitlist. Only
+    server-verifiable Inbox shapes qualify:
+
+    - ``SIGNAL_REPORT`` linked to a report in this team and repo-less (Inbox "Discuss").
+      Reports are minted by scouts and the link is team-scoped by the write serializer, so a
+      caller can't forge one. Acting on a report is entitled through self-driving
+      (`product-autonomy`). Repository-backed report tasks require Desktop access.
+    - ``SIGNALS_CHAT`` (Inbox scout chat), reserved for server-side creation by the signals
+      scout-chat endpoint; the write serializer rejects it from API callers. Only while
+      repo-less: chat tasks are minted without repositories, and attaching one via update
+      would turn the exemption into ungated cloud code work.
+
+    A bare ``SIGNAL_REPORT`` origin without a report link deliberately does not qualify:
+    ``origin_product`` is client input, so an FK-less claim would be a one-field waitlist
+    bypass. The report's own team is re-checked here even though the write serializer
+    already enforces it, so a future write path can't silently widen the exemption.
+    """
+    return Task.objects.filter(
+        Q(
+            origin_product=Task.OriginProduct.SIGNAL_REPORT,
+            signal_report__team_id=team_id,
+            repository__isnull=True,
+            repositories=[],
+            github_integration__isnull=True,
+            github_user_integration__isnull=True,
+        )
+        | Q(
+            origin_product=Task.OriginProduct.SIGNALS_CHAT,
+            repository__isnull=True,
+            repositories=[],
+            github_integration__isnull=True,
+            github_user_integration__isnull=True,
+        ),
+        id=task_id,
+        team_id=team_id,
+    ).exists()
 
 
 def count_in_progress_runs_for_github_integration(team_id: int, integration_id: int) -> int:
@@ -4693,7 +4736,14 @@ def create_task(
     pending_user_artifact_ids = validated_data.pop("pending_user_artifact_ids", None) or []
     warm_auto_publish = validated_data.pop("auto_publish", None)
     channel = validated_data.get("channel")
-    if channel is not None and "repositories" not in validated_data and "repository" not in validated_data:
+    if (
+        channel is not None
+        and "repositories" not in validated_data
+        and "repository" not in validated_data
+        # A signal_report task's repo must come from the report (resolved below), never a
+        # channel-carried one, or the code-access exemption runs against an attacker-picked repo.
+        and validated_data["origin_product"] != Task.OriginProduct.SIGNAL_REPORT
+    ):
         validated_data["repositories"] = channel.repositories
         validated_data["github_integration"] = channel.github_integration
     if "repositories" in validated_data:
@@ -4799,11 +4849,6 @@ def create_task(
     # Popped so it isn't forwarded to the model; the link itself is recorded by record_report_task below.
     signal_report_task_relationship = validated_data.pop("signal_report_task_relationship", None)
 
-    if not validated_data.get("github_integration"):
-        default_integration = Integration.objects.filter(team=team, kind="github").first()
-        if default_integration:
-            validated_data["github_integration"] = default_integration
-
     # Inbox "Create PR" / "Discuss" don't pre-select a repo, so resolve one here rather than
     # creating a report-linked task that can never open a PR.
     signal_report = validated_data.get("signal_report")
@@ -4836,6 +4881,11 @@ def create_task(
         )
         if resolved_repository:
             validated_data["repository"] = resolved_repository
+
+    if validated_data.get("repository") and not validated_data.get("github_integration"):
+        default_integration = Integration.objects.filter(team=team, kind="github").first()
+        if default_integration:
+            validated_data["github_integration"] = default_integration
 
     if (
         validated_data.get("repository")
@@ -4913,6 +4963,12 @@ def update_task(
     validated_data.pop("signal_report_task_relationship", None)
     validated_data.pop("origin_product", None)
     validated_data.pop("branch", None)
+    # Repo is immutable for code-access-exempt tasks; a mutable repo reopens the gate (see task_exempt_from_code_access).
+    if task.origin_product in (Task.OriginProduct.SIGNALS_CHAT, Task.OriginProduct.SIGNAL_REPORT):
+        validated_data.pop("repository", None)
+        validated_data.pop("repositories", None)
+        validated_data.pop("github_integration", None)
+        validated_data.pop("github_user_integration", None)
     if "repositories" in validated_data:
         repositories = validated_data["repositories"]
         validated_data["repository"] = repositories[0] if repositories else None

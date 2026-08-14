@@ -483,6 +483,21 @@ export const SignalsScoutCreateBody = /* @__PURE__ */ zod
     .describe('Create a runnable custom scout and its config in one atomic request.')
 
 /**
+ * Create and run a cloud task for one of the fixed scout chat templates (suggest a scout, fleet overview, recent signals). The prompt is server-owned; the response carries the task id to navigate to.
+ * @summary Start a scout chat task
+ */
+export const SignalsScoutChatTasksCreateBody = /* @__PURE__ */ zod.object({
+    chat_type: zod
+        .enum(['author_scout', 'fleet_overview', 'recent_signals'])
+        .describe(
+            '\* `author_scout` - author_scout\n\* `fleet_overview` - fleet_overview\n\* `recent_signals` - recent_signals'
+        )
+        .describe(
+            'Which scout chat to start: `author_scout` (guided scout authoring), `fleet_overview` (health of the scout fleet), or `recent_signals` (walk through recently emitted signals). The prompt template is owned server-side.\n\n\* `author_scout` - author_scout\n\* `fleet_overview` - fleet_overview\n\* `recent_signals` - recent_signals'
+        ),
+})
+
+/**
  * Register the config for a `signals-scout-*` skill immediately, without waiting for the coordinator to auto-register it. The same call can optionally set `run_interval_minutes`, a cron `run_cron_schedule`, `enabled`, `emit`, `network_access`, and output destinations. The skill must already exist on this project. Upsert: if a config already exists for the skill, the provided fields are applied to it.
  * @summary Create a scout config
  */
