@@ -26,12 +26,12 @@ from posthog.models.organization import Organization
 from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
 from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
 from posthog.security.url_validation import is_url_allowed
-from posthog.settings.temporal import TEMPORAL_WORKFLOW_MAX_ATTEMPTS
 from posthog.slo.types import SloArea, SloConfig, SloOperation
 from posthog.temporal.common.client import async_connect
 from posthog.temporal.common.search_attributes import POSTHOG_SESSION_RECORDING_ID_KEY, POSTHOG_TEAM_ID_KEY
 from posthog.temporal.exports.workflows import ExportAssetWorkflow, ExportAssetWorkflowInputs
 from posthog.temporal.session_replay.rasterize_recording.types import (
+    MAX_EXPORTABLE_DURATION_SECONDS,
     RASTERIZE_WORKFLOW_TIMEOUT,
     RasterizeRecordingInputs,
 )
@@ -104,6 +104,33 @@ class ExportedAssetSerializer(UserAccessControlSerializerMixin, serializers.Mode
 
         return data
 
+    @staticmethod
+    def _validate_exportable_duration(export_context: dict) -> None:
+        """Refuse a span the renderer can only turn into something unwatchable.
+
+        Fitting a very long recording into the render budget takes a speed at which each frame covers
+        seconds of the session. Exporting a chosen range is the way to get one of these, so failing
+        here beats spending a render on a video nobody can use.
+        """
+        duration = export_context.get("duration")
+        if duration is None:
+            return
+        try:
+            requested_seconds = float(duration)
+        except (TypeError, ValueError):
+            raise ValidationError({"export_context": ["duration must be a number."]})
+
+        if requested_seconds > MAX_EXPORTABLE_DURATION_SECONDS:
+            hours = MAX_EXPORTABLE_DURATION_SECONDS // 3600
+            raise ValidationError(
+                {
+                    "export_duration_unsupported": [
+                        f"Video export supports recordings up to {hours} hours long. "
+                        "Export a shorter part of this recording instead."
+                    ]
+                }
+            )
+
     def validate(self, data: dict) -> dict:
         if not data.get("export_format"):
             raise ValidationError("Must provide export format")
@@ -132,6 +159,8 @@ class ExportedAssetSerializer(UserAccessControlSerializerMixin, serializers.Mode
         )
 
         if is_full_video_export:
+            self._validate_exportable_duration(export_context)
+
             # Calculate the start of the current month
             current_time = now()
             start_of_month = current_time.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
@@ -268,7 +297,10 @@ class ExportedAssetSerializer(UserAccessControlSerializerMixin, serializers.Mode
                         RasterizeRecordingInputs(exported_asset_id=instance.id),
                         id=f"export-video-{instance.id}",
                         task_queue=settings.SESSION_REPLAY_TASK_QUEUE,
-                        retry_policy=RetryPolicy(maximum_attempts=int(TEMPORAL_WORKFLOW_MAX_ATTEMPTS)),
+                        # One attempt: the render activity owns its own retries, and a workflow-level
+                        # retry would redo the prep and re-render from the first frame. At this cost
+                        # per render, that only spends the budget the render itself needs.
+                        retry_policy=RetryPolicy(maximum_attempts=1),
                         id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE_FAILED_ONLY,
                         execution_timeout=RASTERIZE_WORKFLOW_TIMEOUT,
                         search_attributes=TypedSearchAttributes(

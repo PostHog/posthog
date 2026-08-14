@@ -32,7 +32,10 @@ from posthog.settings import (
     OBJECT_STORAGE_SECRET_ACCESS_KEY,
 )
 from posthog.tasks import exporter
-from posthog.temporal.session_replay.rasterize_recording.types import RASTERIZE_WORKFLOW_TIMEOUT
+from posthog.temporal.session_replay.rasterize_recording.types import (
+    MAX_EXPORTABLE_DURATION_SECONDS,
+    RASTERIZE_WORKFLOW_TIMEOUT,
+)
 
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_tile import DashboardTile
@@ -815,6 +818,39 @@ class TestExports(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         results_by_id = {result["id"]: result for result in response.json()["results"]}
         self.assertEqual(results_by_id[export.id]["exception"] is not None, expected_failed)
+
+    @parameterized.expand(
+        [
+            ("at_the_limit", MAX_EXPORTABLE_DURATION_SECONDS, status.HTTP_201_CREATED),
+            ("past_the_limit", MAX_EXPORTABLE_DURATION_SECONDS + 1, status.HTTP_400_BAD_REQUEST),
+        ]
+    )
+    @patch("products.exports.backend.api.exports.async_to_sync")
+    @patch("products.exports.backend.api.exports.async_connect")
+    def test_refuses_a_recording_too_long_to_render_watchably(
+        self,
+        _name,
+        duration: int,
+        expected_status: int,
+        mock_async_connect,
+        mock_async_to_sync,
+    ) -> None:
+        """Past the limit no rate produces a usable video, so spending a render on one helps nobody.
+
+        Failing at the API keeps the reason in front of the person asking, rather than an hour later on
+        an asset they have stopped watching.
+        """
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/exports",
+            {
+                "export_format": "video/mp4",
+                "export_context": {"session_recording_id": "session_long", "duration": duration},
+            },
+        )
+
+        self.assertEqual(response.status_code, expected_status)
+        if expected_status == status.HTTP_400_BAD_REQUEST:
+            self.assertEqual(response.json()["attr"], "export_duration_unsupported")
 
     def test_listing_stuck_exports_emits_no_analytics_events(self) -> None:
         """Reporting stuck exports is a read path, so polling the list must not emit events.

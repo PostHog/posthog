@@ -1,3 +1,4 @@
+import math
 import hashlib
 from datetime import timedelta
 from typing import Literal
@@ -21,6 +22,77 @@ RASTERIZE_WORKFLOW_TIMEOUT = RASTERIZE_RENDER_TIMEOUT * RASTERIZE_RENDER_MAX_ATT
 # with their own phase budget (the replay_vision sweep and evaluation). It still exceeds the render
 # start-to-close, so a fast first failure leaves room to schedule a retry that fits the budget.
 RASTERIZE_WORKFLOW_SINGLE_ATTEMPT_TIMEOUT = RASTERIZE_RENDER_TIMEOUT + timedelta(minutes=10)
+
+# Every captured frame costs a beginFrame round-trip, a screenshot and an ffmpeg write, so the frame
+# count is what decides whether a render finishes inside RASTERIZE_RENDER_TIMEOUT. Budget it from that
+# timeout at a deliberately pessimistic per-frame cost, staying clear of the deadline so setup, upload
+# and a heavy DOM still fit.
+_ASSUMED_MS_PER_FRAME = 150
+_RENDER_BUDGET_HEADROOM = 0.6
+MAX_CAPTURE_FRAMES = int(
+    RASTERIZE_RENDER_TIMEOUT.total_seconds() * 1000 * _RENDER_BUDGET_HEADROOM / _ASSUMED_MS_PER_FRAME
+)
+
+# Output frame rates to fall back through, highest first. A lower frame rate costs smoothness, while a
+# higher speed costs the viewer's ability to follow the session, so frame rate gives way first.
+_FPS_LADDER = (24, 15, 12, 10)
+_FPS_FLOOR = _FPS_LADDER[-1]
+
+# Past this, playback is too fast to follow, so it is only reached once frame rate has bottomed out.
+_COMFORTABLE_PLAYBACK_SPEED = 8.0
+
+# Short enough that speeding it up would leave nothing watchable.
+REALTIME_CLIP_MAX_SECONDS = 5
+
+# Beyond this, scaling stops helping: fitting the budget needs a speed at which each frame covers so
+# much of the session that the video shows nothing useful. Exporting a chosen range is the answer for
+# these, so the API refuses the whole-session export rather than returning something unwatchable.
+MAX_EXPORTABLE_DURATION_SECONDS = 3 * 60 * 60
+_DEFAULT_PLAYBACK_SPEED = 4.0
+_DEFAULT_RECORDING_FPS = 24
+
+
+class RenderRate(BaseModel, frozen=True):
+    """The rate a recording is captured at.
+
+    Named fields rather than a pair: both are numbers, and swapping them silently produces a render
+    nobody asked for.
+    """
+
+    playback_speed: float
+    recording_fps: int
+
+
+def resolve_render_rate(rendered_span_s: float | None) -> RenderRate:
+    """Pick a capture rate whose frame count fits the render budget.
+
+    Frames are `span / playback_speed * recording_fps`, so a long recording at the defaults suited to a
+    short one asks for more frames than any render can reach in time. Trading smoothness, and then
+    speed, for a video that exists beats holding both fixed and producing nothing.
+
+    `rendered_span_s` is wall time. Skipping inactivity means fewer frames than that implies, so this
+    errs toward scaling slightly harder than strictly needed.
+    """
+    if rendered_span_s is None:
+        return RenderRate(playback_speed=_DEFAULT_PLAYBACK_SPEED, recording_fps=_DEFAULT_RECORDING_FPS)
+
+    if rendered_span_s <= REALTIME_CLIP_MAX_SECONDS:
+        return RenderRate(playback_speed=1, recording_fps=_DEFAULT_RECORDING_FPS)
+
+    for fps in _FPS_LADDER:
+        required_speed = rendered_span_s * fps / MAX_CAPTURE_FRAMES
+        if required_speed <= _COMFORTABLE_PLAYBACK_SPEED:
+            return RenderRate(
+                playback_speed=max(_DEFAULT_PLAYBACK_SPEED, math.ceil(required_speed)),
+                recording_fps=fps,
+            )
+
+    # Long enough that even the lowest frame rate needs an uncomfortable speed. The alternative is a
+    # render that never finishes, and the API refuses the recordings where this stops being watchable.
+    return RenderRate(
+        playback_speed=math.ceil(rendered_span_s * _FPS_FLOOR / MAX_CAPTURE_FRAMES),
+        recording_fps=_FPS_FLOOR,
+    )
 
 
 class RasterizeRecordingInputs(BaseModel, frozen=True):

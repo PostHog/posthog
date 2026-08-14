@@ -24,6 +24,7 @@ from ..types import (
     RasterizationActivityInput,
     RasterizationActivityOutput,
     compute_params_fingerprint,
+    resolve_render_rate,
 )
 
 logger = structlog.get_logger(__name__)
@@ -43,6 +44,23 @@ _FAILURE_FIELDS = ["exception", "exception_type", "failure_type"]
 _PERSISTED_OUTPUT_FIELDS: frozenset[str] = frozenset(
     {"video_duration_s", "playback_speed", "truncated", "file_size_bytes", "inactivity_periods"}
 )
+
+
+def _rendered_span_s(
+    duration: float | None,
+    start_offset_s: float | None,
+    end_offset_s: float | None,
+) -> float | None:
+    """Seconds of recording this export covers, or None when the caller didn't say.
+
+    A range export renders its range rather than the whole session, so the offsets decide the span
+    whenever a duration wasn't given directly.
+    """
+    if duration is not None:
+        return float(duration)
+    if end_offset_s is not None:
+        return float(end_offset_s) - float(start_offset_s or 0)
+    return None
 
 
 def report_export_event(asset: ExportedAsset, event: str, **properties: Any) -> None:
@@ -91,14 +109,14 @@ def build_rasterization_input(exported_asset_id: int) -> BuildRasterizationResul
     if viewport_height is not None:
         viewport_height = max(300, min(2160, int(viewport_height)))
 
-    # The output video is always real-time (the ffmpeg setpts filter undoes the speed-up); speed
-    # only reduces the virtual time a render spends playing the session. 1x for short clips keeps
-    # capture simple; 4x for full sessions bounds virtual time on long recordings.
-    default_speed = 1 if (duration is not None and duration <= 5) else 4
+    # Derived from how much recording is being rendered, so a long session can't ask for more frames
+    # than the render captures before its timeout. An explicit speed or frame rate wins: that caller
+    # asked for a particular look, and the AI session-moments path relies on it.
+    rate = resolve_render_rate(_rendered_span_s(duration, start_offset_s, end_offset_s))
     # `or` rather than a .get default so an explicit null in export_context also falls back instead
     # of failing pydantic validation three retries in a row.
-    playback_speed = ctx.get("playback_speed") or default_speed
-    recording_fps = ctx.get("recording_fps") or 24
+    playback_speed = ctx.get("playback_speed") or rate.playback_speed
+    recording_fps = ctx.get("recording_fps") or rate.recording_fps
     # Clamp the render rate so a large fps × speed product can't exhaust the shared rasterizer pool.
     # The lower bound matches Node's validateInput: speeds below 1 have no slow-motion filter chain
     # and would misreport the video duration.

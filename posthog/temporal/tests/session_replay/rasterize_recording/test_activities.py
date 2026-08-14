@@ -14,11 +14,15 @@ from posthog.temporal.session_replay.rasterize_recording.activities import (
     finalize_rasterization,
 )
 from posthog.temporal.session_replay.rasterize_recording.types import (
+    MAX_CAPTURE_FRAMES,
+    MAX_EXPORTABLE_DURATION_SECONDS,
     FinalizeRasterizationInput,
     InactivityPeriod,
     RasterizationActivityInput,
     RasterizationActivityOutput,
+    RenderRate,
     compute_params_fingerprint,
+    resolve_render_rate,
 )
 
 from products.exports.backend.models.exported_asset import ExportedAsset
@@ -320,6 +324,25 @@ class TestBuildRasterizationInput:
 
     @parameterized.expand(
         [
+            # A whole-session export sends `duration`; a range export sends offsets instead, and the
+            # span it renders is what has to fit the budget in both cases.
+            ("whole_session", {"session_recording_id": "s1", "duration": 3420}),
+            ("offset_range", {"session_recording_id": "s1", "start_offset_s": 600, "end_offset_s": 4020}),
+        ]
+    )
+    def test_long_span_is_dispatched_within_the_frame_budget(self, _name, export_context):
+        asset = _make_asset(pk=50, export_context=export_context)
+
+        patches, _ = _patches(asset)
+        with patches[0], patches[1], patches[2], patches[3], patches[4]:
+            result = build_rasterization_input(50)
+
+        assert result.activity_input is not None
+        frames = 3420 / result.activity_input.playback_speed * result.activity_input.recording_fps
+        assert frames <= MAX_CAPTURE_FRAMES
+
+    @parameterized.expand(
+        [
             ("fractional_speed", {"session_recording_id": "s1", "playback_speed": 1.5}, "playback_speed", 1.5),
             ("integer_speed", {"session_recording_id": "s1", "playback_speed": 8}, "playback_speed", 8),
             ("fractional_trim", {"session_recording_id": "s1", "trim": 30.5}, "trim", 30.5),
@@ -572,6 +595,53 @@ class TestFingerprint:
         a = self._make_input()
         b = self._make_input(**override)
         assert compute_params_fingerprint(a) != compute_params_fingerprint(b)
+
+
+class TestResolveRenderRate:
+    """A rate whose frame count exceeds the budget is a render that cannot finish in time, which is
+    what left long recordings failing instead of exporting."""
+
+    @parameterized.expand(
+        [
+            ("just_past_realtime", 6),
+            ("five_minutes", 300),
+            ("ten_minutes", 600),
+            ("thirty_minutes", 1800),
+            ("fifty_seven_minutes", 3420),
+            ("two_hours", 7200),
+            ("at_the_exportable_limit", MAX_EXPORTABLE_DURATION_SECONDS),
+        ]
+    )
+    def test_frame_count_fits_the_render_budget(self, _name, span_s: float):
+        rate = resolve_render_rate(span_s)
+
+        frames = span_s / rate.playback_speed * rate.recording_fps
+        assert frames <= MAX_CAPTURE_FRAMES
+
+    @parameterized.expand(
+        [
+            # Short recordings shouldn't pay for the long ones: they are the great majority of exports
+            # and their output should look exactly as it did.
+            ("five_minutes", 300, 4, 24),
+            ("ten_minutes", 600, 4, 24),
+            # Real time, because speeding up a few seconds leaves nothing to watch.
+            ("three_second_clip", 3, 1, 24),
+        ]
+    )
+    def test_keeps_the_established_rate_where_it_already_fits(self, _name, span_s, expected_speed, expected_fps):
+        rate = resolve_render_rate(span_s)
+
+        assert (rate.playback_speed, rate.recording_fps) == (expected_speed, expected_fps)
+
+    def test_trades_frame_rate_before_speed(self):
+        """Speed costs the viewer's ability to follow the session, so it gives way second."""
+        rate = resolve_render_rate(3420)
+
+        assert rate.recording_fps < 24
+        assert rate.playback_speed <= 8
+
+    def test_falls_back_to_defaults_without_a_span(self):
+        assert resolve_render_rate(None) == RenderRate(playback_speed=4, recording_fps=24)
 
 
 class TestFinalizeRasterization:
