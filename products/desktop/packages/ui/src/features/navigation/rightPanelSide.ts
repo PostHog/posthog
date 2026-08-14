@@ -37,3 +37,27 @@ export function toggleRightPanel(taskId: string): void {
   const open = currentRightPanelSide(taskId) != null;
   openRightPanelSide(open ? null : DEFAULT_RIGHT_PANEL_SIDE, taskId);
 }
+
+/**
+ * How much of the content row's right edge the panel's switcher is sitting on.
+ * Chrome that pins itself to that edge (the panel tree's tab strip and its
+ * split and close controls) reads this and stops short, so the switcher can
+ * float over the content pane without taking a column of its own or swallowing
+ * the clicks meant for what is under it.
+ */
+export const CONTENT_CHROME_RIGHT_VAR = "--content-chrome-right";
+
+/** Whether this session's panel is open, for chrome that has to make room. */
+export function useRightPanelOpen(taskId: string | undefined): boolean {
+  const stored = useRightPanelStore((s) =>
+    taskId ? s.sideByKey[taskId] : undefined,
+  );
+  const reviewMode = useReviewNavigationStore((s) =>
+    taskId ? (s.reviewModes[taskId] ?? "closed") : "closed",
+  );
+  if (!taskId) return false;
+  return (
+    resolveRightPanelSide({ stored, isReviewOpen: reviewMode !== "closed" }) !=
+    null
+  );
+}

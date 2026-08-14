@@ -54,13 +54,12 @@ const SIDE_ORDER: readonly RightPanelSide[] = [
 ];
 
 /**
- * The room the switcher takes at the right of the row. The panel's header
- * leaves it free for the title, and the closed column keeps it rather than
- * collapsing away, so the buttons never come to rest over the content pane's
- * own chrome, which puts its split and close controls in the same corner.
- * It covers SIDE_ORDER at icon-sm, and grows with it.
+ * The room the switcher takes at the right of the row, covering SIDE_ORDER at
+ * icon-sm. The panel's header row leaves it free for the title, and while the
+ * panel is closed the content pane's own chrome (the tab strip and its split
+ * and close controls) keeps out of it through CONTENT_CHROME_RIGHT_VAR.
  */
-const SWITCHER_WIDTH_PX = 112;
+export const SWITCHER_WIDTH_PX = 112;
 
 /** The task the right panel talks about: the one on the current route. */
 function useRightPanelTask(taskId: string): Task | null {
@@ -101,7 +100,7 @@ function RightPanelButtons({
 }) {
   return (
     <TooltipProvider delay={400}>
-      <div className="flex shrink-0 items-center gap-0.5">
+      <div className="pointer-events-auto flex shrink-0 items-center gap-0.5">
         {SIDE_ORDER.map((side) => {
           const { label, Icon } = SIDES[side];
           return (
@@ -223,7 +222,6 @@ function SessionRightPanel({ taskId }: { taskId: string }) {
         setIsResizing={setIsResizing}
         side="right"
         minWidth={RIGHT_PANEL_MIN_WIDTH}
-        collapsedWidth={SWITCHER_WIDTH_PX}
         setOpen={setOpen}
       >
         <div
@@ -265,7 +263,7 @@ function SessionRightPanel({ taskId }: { taskId: string }) {
           layer, which sweeps across this corner at z-50 on the way out; the
           row's own `isolate` keeps that rank from reaching the app's overlays. */}
       <div
-        className="absolute top-0 right-0 z-60 flex h-[32px] items-center justify-end pr-2"
+        className="pointer-events-none absolute top-0 right-0 z-60 flex h-[32px] items-center justify-end pr-2"
         style={{ width: SWITCHER_WIDTH_PX }}
       >
         <RightPanelButtons active={active} taskId={taskId} />

@@ -46,7 +46,14 @@ import {
   useIsDashboardEditing,
 } from "@posthog/ui/features/canvas/stores/dashboardEditStore";
 import { copyCanvasLink } from "@posthog/ui/features/canvas/utils/copyCanvasLink";
-import { RightPanel } from "@posthog/ui/features/navigation/components/RightPanel";
+import {
+  RightPanel,
+  SWITCHER_WIDTH_PX,
+} from "@posthog/ui/features/navigation/components/RightPanel";
+import {
+  CONTENT_CHROME_RIGHT_VAR,
+  useRightPanelOpen,
+} from "@posthog/ui/features/navigation/rightPanelSide";
 import { buildCommentThreads } from "@posthog/ui/features/sessions/components/commentViewTypes";
 import { useCommentsQuery } from "@posthog/ui/features/sessions/components/useComments";
 import {
@@ -66,7 +73,7 @@ import {
   useParams,
   useRouterState,
 } from "@tanstack/react-router";
-import { type ReactNode, useState } from "react";
+import { type CSSProperties, type ReactNode, useState } from "react";
 
 // Edit toggle + autosave status for a canvas. Source is server-versioned now —
 // version browsing and revert live in the canvas view's own toolbar — so the
@@ -360,6 +367,7 @@ export function WebsiteLayout() {
   const channelId = params.channelId;
   const dashboardId = params.dashboardId;
   const taskId = params.taskId;
+  const rightPanelOpen = useRightPanelOpen(taskId);
   const base = channelId ? `/website/${channelId}` : "/website";
 
   const { data: tasks } = useTasks();
@@ -442,8 +450,20 @@ export function WebsiteLayout() {
       {/* The right panel's switcher pins itself to this row's top right, so the
           row is its positioning context. `isolate` keeps the switcher's stacking
           rank inside the row, where it only has to beat the panel's own layer,
-          rather than reaching the app's dialogs and popovers. */}
-      <div className="relative isolate flex min-h-0 flex-1 overflow-hidden">
+          rather than reaching the app's dialogs and popovers. While the panel is
+          closed the switcher floats over the content pane, so the row publishes
+          how much of its right edge is spoken for and the pane's own chrome
+          stops short of it. */}
+      <div
+        className="relative isolate flex min-h-0 flex-1 overflow-hidden"
+        style={
+          {
+            [CONTENT_CHROME_RIGHT_VAR]: rightPanelOpen
+              ? "0px"
+              : `${SWITCHER_WIDTH_PX}px`,
+          } as CSSProperties
+        }
+      >
         <div className="min-w-0 flex-1 overflow-hidden">
           <MentionAvailabilityProvider disabledReason={mentionsDisabledReason}>
             <Outlet />
