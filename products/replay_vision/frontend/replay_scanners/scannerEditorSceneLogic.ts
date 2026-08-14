@@ -1,5 +1,5 @@
 import { MakeLogicType, actions, afterMount, connect, kea, path, reducers, selectors } from 'kea'
-import { router, urlToAction } from 'kea-router'
+import { combineUrl, router, urlToAction } from 'kea-router'
 
 import { urls } from 'scenes/urls'
 
@@ -47,6 +47,18 @@ export function scannerStepErrors(errors: ScannerFieldErrors): Record<ScannerEdi
 export function firstErroredScannerStep(errors: ScannerFieldErrors): ScannerEditorStep | null {
     const stepErrors = scannerStepErrors(errors)
     return SCANNER_EDITOR_STEPS.find((step) => stepErrors[step]) ?? null
+}
+
+/**
+ * Step URL carrying the current query string. ?template drives the type selector and the reload
+ * prefill, so every hop between steps has to preserve it, backwards as well as forwards.
+ */
+export function scannerStepUrlWithParams(
+    step: ScannerEditorStep,
+    scannerId: string,
+    searchParams: Record<string, any>
+): string {
+    return combineUrl(scannerStepUrl(step, scannerId), searchParams).url
 }
 
 export function scannerStepUrl(step: ScannerEditorStep, scannerId: string): string {

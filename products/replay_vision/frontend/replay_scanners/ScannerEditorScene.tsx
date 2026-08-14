@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
-import { combineUrl, router } from 'kea-router'
+import { router } from 'kea-router'
 
 import * as construction2Png from '@posthog/brand/hoggies/png/construction-2'
 import * as imTheDriverPng from '@posthog/brand/hoggies/png/im-the-driver'
@@ -50,7 +50,7 @@ import {
     UNVALIDATED_SCANNER_STEPS,
     scannerStepErrors,
     scannerEditorSceneLogic,
-    scannerStepUrl,
+    scannerStepUrlWithParams,
 } from './scannerEditorSceneLogic'
 import { ScannerEditorStepper, STEP_LABELS } from './ScannerEditorStepper'
 import { SCANNER_TYPE_OPTIONS, getModelOptions, modelNamingVariant } from './types'
@@ -132,7 +132,7 @@ export function ScannerEditorSceneComponent(): JSX.Element {
         if (UNVALIDATED_SCANNER_STEPS.includes(step)) {
             const next = SCANNER_EDITOR_STEPS[SCANNER_EDITOR_STEPS.indexOf(step) + 1]
             if (next) {
-                router.actions.push(combineUrl(scannerStepUrl(next, scannerId), searchParams).url)
+                router.actions.push(scannerStepUrlWithParams(next, scannerId, searchParams))
                 return
             }
         }
@@ -151,7 +151,7 @@ export function ScannerEditorSceneComponent(): JSX.Element {
             advance()
             return
         }
-        router.actions.push(scannerStepUrl(next, scannerId))
+        router.actions.push(scannerStepUrlWithParams(next, scannerId, searchParams))
     }
 
     return (
@@ -411,6 +411,7 @@ function EditorFooter({
     onSave: () => void
 }): JSX.Element {
     const { scanner, durationValidationError, hasUnsavedChanges } = useValues(replayScannerLogic({ id: scannerId }))
+    const { searchParams } = useValues(router)
     const { discardScannerDraft } = useActions(replayScannerLogic({ id: scannerId }))
     const stepIndex = SCANNER_EDITOR_STEPS.indexOf(step)
     const previous = stepIndex > 0 ? SCANNER_EDITOR_STEPS[stepIndex - 1] : null
@@ -451,7 +452,7 @@ function EditorFooter({
                 {prevStep ? (
                     <LemonButton
                         type="tertiary"
-                        to={scannerStepUrl(prevStep, scannerId)}
+                        to={scannerStepUrlWithParams(prevStep, scannerId, searchParams)}
                         data-attr="vision-editor-back"
                     >
                         Back

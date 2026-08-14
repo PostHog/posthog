@@ -763,6 +763,23 @@ describe('replayScannerLogic', () => {
             })
         })
 
+        it('Enter on the details step advances rather than failing validation on unseen fields', async () => {
+            // A from-scratch scanner has an empty prompt, which only the configure step can fix.
+            router.actions.push(urls.replayVisionScannerDetails('new'))
+            scannerEditorSceneLogic.actions.setStep('details')
+            await expectLogic(logic, () => logic.actions.submitScanner()).toFinishAllListeners()
+            expect(router.values.location.pathname).toContain(urls.replayVisionScannerConfigure('new'))
+        })
+
+        it('keeps the ?template param when a rejected submit jumps to the errored step', async () => {
+            router.actions.push(`${urls.replayVisionScannerTriggers('new')}?template=dead_end`)
+            scannerEditorSceneLogic.actions.setStep('triggers')
+            logic.actions.setScannerValues({ scanner_config: { prompt: '' } })
+            await expectLogic(logic, () => logic.actions.submitScanner()).toFinishAllListeners()
+            expect(router.values.location.pathname).toContain(urls.replayVisionScannerConfigure('new'))
+            expect(router.values.searchParams.template).toEqual('dead_end')
+        })
+
         it('Enter on an intermediate step advances instead of saving and leaving the wizard', async () => {
             await expectLogic(editLogic, () => editLogic.actions.loadScanner()).toFinishAllListeners()
             router.actions.push(urls.replayVisionScannerDetails('limited-1'))

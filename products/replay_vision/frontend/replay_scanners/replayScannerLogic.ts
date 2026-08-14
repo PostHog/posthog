@@ -16,7 +16,6 @@ import { forms } from 'kea-forms'
 import type { DeepPartial, DeepPartialMap, FieldName, ValidationErrorType } from 'kea-forms'
 import { loaders } from 'kea-loaders'
 import { actionToUrl, beforeUnload, router, urlToAction } from 'kea-router'
-import { combineUrl } from 'kea-router'
 import { CombinedLocation } from 'kea-router/lib/utils'
 
 import api from 'lib/api'
@@ -77,6 +76,8 @@ import {
     firstErroredScannerStep,
     scannerEditorSceneLogic,
     scannerStepUrl,
+    scannerStepUrlWithParams,
+    UNVALIDATED_SCANNER_STEPS,
 } from './scannerEditorSceneLogic'
 import type { ObservationStatusStats } from './scannerStats'
 import { availableTagsFromStats, daysFromDateRange, deriveObservationStatusStats } from './scannerStats'
@@ -835,7 +836,7 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                 const currentStep = scannerEditorSceneLogic.findMounted()?.values.step ?? 'configure'
                 const nextStep = SCANNER_EDITOR_STEPS[SCANNER_EDITOR_STEPS.indexOf(currentStep) + 1]
                 if (nextStep) {
-                    router.actions.push(combineUrl(scannerStepUrl(nextStep, props.id), router.values.searchParams).url)
+                    router.actions.push(scannerStepUrlWithParams(nextStep, props.id, router.values.searchParams))
                     return
                 }
                 const teamId = teamLogic.values.currentTeamId
@@ -1453,13 +1454,22 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                 if (error?.message !== 'Validation Failed') {
                     return
                 }
+                const currentStep = scannerEditorSceneLogic.findMounted()?.values.step
+                // Enter submits the whole form, so leaving a step that validates nothing must behave like
+                // its Next button: move on, rather than red-flag fields the user has not reached yet.
+                if (currentStep && UNVALIDATED_SCANNER_STEPS.includes(currentStep)) {
+                    const next = SCANNER_EDITOR_STEPS[SCANNER_EDITOR_STEPS.indexOf(currentStep) + 1]
+                    if (next) {
+                        router.actions.push(scannerStepUrlWithParams(next, props.id, router.values.searchParams))
+                    }
+                    return
+                }
                 const erroredStep = firstErroredScannerStep({
                     ...values.scannerValidationErrors,
                     duration: values.durationValidationError,
                 })
-                const currentStep = scannerEditorSceneLogic.findMounted()?.values.step
                 if (erroredStep && erroredStep !== currentStep) {
-                    router.actions.push(scannerStepUrl(erroredStep, props.id))
+                    router.actions.push(scannerStepUrlWithParams(erroredStep, props.id, router.values.searchParams))
                 }
                 // Yield so the step change renders before scrollToFormError looks for `.Field--error`.
                 await Promise.resolve()
