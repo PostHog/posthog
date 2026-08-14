@@ -4051,7 +4051,7 @@ class TestStripeIntegration:
     @pytest.mark.parametrize(
         "include_install_signature,expected_event,expected_level,expected_label",
         [
-            (False, "stripe.marketplace_install_no_signature", "warning", "absent"),
+            (False, "stripe.marketplace_install_no_signature", "info", "absent"),
             (True, "stripe.marketplace_install_signature_verified", "info", "verified"),
         ],
     )

@@ -112,9 +112,10 @@ from products.workflows.backend.services.integration_usage import get_active_hog
 
 logger = structlog.get_logger(__name__)
 
-# Stripe drives this callback, so it carries no PostHog state token and the signature check
-# never fires. The log line alone is searchable, not alertable; count installs by signature
-# state so a rise in unsigned installs can be alerted on rather than discovered afterwards.
+# The published app uses Connect-OAuth, which never signs its callback, so every real install
+# lands unsigned and that alone says nothing. What is alertable is volume: this path can link a
+# Stripe account to whichever project the browser is signed into, so a spike is the abuse signal.
+# The label exists so the split moves if Stripe ever starts signing these.
 stripe_marketplace_install_counter = Counter(
     "stripe_marketplace_install",
     "Stripe marketplace install callbacks, by whether an install signature was present and valid",
@@ -888,7 +889,7 @@ class IntegrationSerializer(serializers.ModelSerializer, UserAccessControlSerial
                         )
                     else:
                         stripe_marketplace_install_counter.labels(signature_state="absent").inc()
-                        logger.warning(
+                        logger.info(
                             "stripe.marketplace_install_no_signature",
                             team_id=team_id,
                             stripe_user_id=stripe_user_id,
