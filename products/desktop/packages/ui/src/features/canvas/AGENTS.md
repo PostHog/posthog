@@ -51,13 +51,14 @@ The root `AGENTS.md` architecture rules still apply.
   horizontal swipe moves between them (`useChannelPaneSwipe`, wheel `deltaX`
   accumulated per gesture and locked until the wheel goes quiet).
 - In the list, "Starred"/"Spaces" are headings above lightly indented rows. The
-  private "personal" row leads the Starred section and takes the same inset as the
+  private "personal space" row leads the Starred section and takes the same inset as the
   spaces beside it. It is the one row that carries a glyph: the lock is the only
   thing saying nobody else can see this space, which is worth its name starting a
   glyph's width right of the others. The alpha's more deeply indented Channels
   tree and hash glyphs are unchanged.
-- **The private space reads as "personal", and only on screen.** The row is `me`
+- **The private space reads as "personal space" without a hash, and only on screen.** The row is `me`
   on the backend; `channelDisplayName` (core) swaps it on the way to a reader.
+  `channelDisplayLabel` adds a hash to shared spaces but leaves personal bare.
   Four routes carry a channel's name — the channel list, an activity row, a
   mention row, and remote search — and each calls it, because only the first
   goes through `useTaskChannels`.
