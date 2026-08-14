@@ -68,7 +68,6 @@ export interface signupLogicValues {
     challengeRequired: boolean
     emailCaseNotice: string | undefined
     emailWasNormalized: boolean
-    error: string | null
     isPasskeyRegistering: boolean
     isPendingInviteResending: boolean
     isSignupPanelAuthSubmitting: boolean
@@ -79,7 +78,6 @@ export interface signupLogicValues {
     isSignupPanelOnboardingValid: boolean
     loginUrl: string
     panel: number
-    panelTitle: string
     passkeyError: string | null
     passkeyRegistered: boolean
     pendingInvite: PendingInvite | null
@@ -153,9 +151,6 @@ export interface signupLogicActions {
     }
     setEmailNormalized: (wasNormalized: boolean) => {
         wasNormalized: boolean
-    }
-    setError: (error: string | null) => {
-        error: string | null
     }
     setPanel: (panel: number) => {
         panel: number
@@ -288,7 +283,6 @@ export interface signupLogicMeta {
         validatedPassword: (signupPanelAuth: SignupPanelAuthForm) => ValidatedPasswordResult
         emailCaseNotice: (emailWasNormalized: boolean) => string | undefined
         loginUrl: (searchParams: Record<string, any>) => string
-        panelTitle: (panel: number, preflight: PreflightStatus | null, pendingInvite: PendingInvite | null) => string
     }
 }
 
@@ -308,7 +302,6 @@ export const signupLogic = kea<signupLogicType>([
         setPasskeyRegistered: (registered: boolean) => ({ registered }),
         setPasskeyRegistering: (registering: boolean) => ({ registering }),
         setPasskeyError: (error: string | null) => ({ error }),
-        setError: (error: string | null) => ({ error }),
         // Turnstile challenge actions
         setChallengeRequired: (required: boolean) => ({ required }),
         setChallengeNonce: (nonce: string | null) => ({ nonce }),
@@ -352,12 +345,6 @@ export const signupLogic = kea<signupLogicType>([
             {
                 setPasskeyError: (_, { error }) => error,
                 registerPasskey: () => null,
-            },
-        ],
-        error: [
-            null as string | null,
-            {
-                setError: (_, { error }) => error,
             },
         ],
         challengeRequired: [
@@ -433,7 +420,6 @@ export const signupLogic = kea<signupLogicType>([
             submit: async ({ email }, breakpoint) => {
                 breakpoint()
                 actions.setPasskeyError(null)
-                actions.setError(null)
                 let precheckResponse: SignupEmailPrecheckResponse
                 try {
                     precheckResponse = await api.create<SignupEmailPrecheckResponse>('api/signup/precheck', {
@@ -445,7 +431,6 @@ export const signupLogic = kea<signupLogicType>([
                         actions.setSignupPanelEmailManualErrors({
                             email: errorMessage,
                         })
-                        actions.setError(errorMessage)
                         actions.setPanel(0)
                         return
                     }
@@ -618,30 +603,6 @@ export const signupLogic = kea<signupLogicType>([
             (searchParams: Record<string, string>) => {
                 const nextParam = getRelativeNextPath(searchParams['next'], location)
                 return nextParam ? `/login?next=${encodeURIComponent(nextParam)}` : '/login'
-            },
-        ],
-        panelTitle: [
-            (s) => [s.panel, s.preflight, s.pendingInvite],
-            (
-                panel: number,
-                preflight: null | import('../../../../types').PreflightStatus,
-                pendingInvite: PendingInvite | null
-            ): string => {
-                if (panel === 0 && pendingInvite) {
-                    return ''
-                }
-                if (preflight?.demo) {
-                    return 'Explore PostHog yourself'
-                }
-
-                switch (panel) {
-                    case 1:
-                        return 'Choose how to sign in'
-                    case 2:
-                        return 'Tell us a bit about yourself'
-                    default:
-                        return 'Get started'
-                }
             },
         ],
     }),
