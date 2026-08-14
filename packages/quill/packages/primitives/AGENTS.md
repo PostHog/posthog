@@ -599,6 +599,22 @@ Icon-only trigger — only the chevron toggles, so the label can be its own butt
 </Popover>
 ```
 
+Pass `arrow` for a pointer connecting the popover to its trigger — use it when the popover is anchored to a small or ambiguous target, and leave it off for panels that read as attached already. `PopoverContent` widens its default `sideOffset` to 9 to make room for it, and `PopoverArrow` is exported for popovers that place the arrow themselves.
+
+```tsx
+<PopoverContent side="top" arrow>
+  {/* content */}
+</PopoverContent>
+```
+
+The arrow inherits the popup's border and background, so restyling the popover carries it along — no arrow-specific overrides:
+
+```tsx
+<PopoverContent arrow className="border-2 border-primary">
+  {/* the arrow is 2px and accent-colored too */}
+</PopoverContent>
+```
+
 `PopoverContent` forwards `collisionAvoidance` to the positioner. Pass `fallbackAxisSide: 'none'` to keep a tall panel on its requested axis (e.g. below the trigger, flipping above only if it won't fit) instead of jumping beside the trigger when vertical space is tight: `collisionAvoidance={{ side: 'flip', align: 'shift', fallbackAxisSide: 'none' }}`.
 
 ### Tooltip
@@ -1077,6 +1093,22 @@ toast.dismiss(id)
 
 // With an action button
 toast({ title: 'Item archived', action: { label: 'Undo', onClick: () => restore() } })
+```
+
+`anchoredToast` positions a toast next to an element instead of stacking it in the corner. It takes the same
+options plus an anchor. An anchored toast with an action also gets a close button, so give it `timeout: 0`
+when the user needs time to decide:
+
+```tsx
+import { anchoredToast } from '@posthog/quill-primitives'
+
+anchoredToast({ description: 'Copied!', anchor: buttonRef.current })
+anchoredToast({
+  title: 'Event deleted',
+  anchor: buttonRef.current,
+  timeout: 0,
+  action: { label: 'Undo', onClick: () => restore() },
+})
 ```
 
 ### Theme Toggle

@@ -101,7 +101,11 @@ describe('replayScannerLogic', () => {
     })
 
     describe('draftScannerFromGoal', () => {
-        it('seeds the form from the AI draft and routes to the details step', async () => {
+        // The box renders on the editor's template step and on the zero-scanner empty state.
+        it.each([
+            ['the template step', urls.replayVisionScannerTemplate('new')],
+            ['the empty scanner list', urls.replayVision()],
+        ])('seeds the form from the AI draft and routes to the details step from %s', async (_origin, path) => {
             const draft = {
                 name: 'User intent',
                 description: 'Tags each session by intent.',
@@ -110,7 +114,7 @@ describe('replayScannerLogic', () => {
                 rationale: 'A classifier fits because you want the mix of visit intents.',
             }
             draftSpy.mockReturnValue([200, draft])
-            router.actions.push(urls.replayVisionScannerTemplate('new'))
+            router.actions.push(path)
             logic.actions.setGoalDraftInput('understand what users come here to do')
 
             await expectLogic(logic, () =>
