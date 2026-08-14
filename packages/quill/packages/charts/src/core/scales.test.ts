@@ -324,8 +324,9 @@ describe('hog-charts scales', () => {
             expect(scale.domain()[1]).toBe(40)
         })
 
-        // The two controls both set the axis floor, and the UI greys out "begin at zero" on the
-        // strength of the bound winning. Reorder the clamp after the bound and that greying lies.
+        // Both set the axis floor, and the explicit one wins: a caller passing `min` said what it
+        // wanted, while the zero clamp is only the default. Consumers that would rather their own
+        // baseline control win hold the bound back before it gets here, as the trends adapter does.
         it('applies a min over the zero-baseline clamp', () => {
             const offset = [makeSeries({ key: 's1', data: [50, 60, 70] })]
             expect(createYScale(offset, dimensions).domain()[0]).toBe(0)

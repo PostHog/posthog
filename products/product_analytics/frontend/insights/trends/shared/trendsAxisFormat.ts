@@ -33,6 +33,11 @@ export interface TrendsYAxisRangeOpts {
  * The y-axis range a chart should actually apply, once the states that pin the domain have vetoed
  * it: a percent stack fixes the axis to 0..1, and a log axis has no zero baseline to drop.
  *
+ * "Begin at zero" vetoes the minimum the same way. It is the coarser of the two controls and the
+ * one that is on by default, so it sets the floor and the minimum is held back. Forwarding both
+ * would leave the toggle inert the moment a minimum was set, since the library applies a bound
+ * after its own zero clamp. The maximum is untouched by any of this and still applies.
+ *
  * The values stay in the filter when vetoed, so switching the display back restores them. This is
  * the only place that rule lives — the UI greys the controls out to explain it, but a chart built
  * from a stored query, the API, or MCP never passes through the UI.
@@ -50,9 +55,10 @@ function resolveTrendsYAxisRange(opts: TrendsYAxisRangeOpts): {
     }
     const bound = (value: number | null | undefined): number | undefined =>
         typeof value === 'number' && isFinite(value) ? value : undefined
+    const beginsAtZero = opts.startAtZero !== false
     return {
-        startAtZero: opts.startAtZero === false ? false : undefined,
-        min: bound(opts.min),
+        startAtZero: beginsAtZero ? undefined : false,
+        min: beginsAtZero ? undefined : bound(opts.min),
         max: bound(opts.max),
     }
 }

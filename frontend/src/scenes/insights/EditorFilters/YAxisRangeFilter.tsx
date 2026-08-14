@@ -29,15 +29,17 @@ export function YAxisRangeFilter(): JSX.Element {
             : showPercentStackView
               ? 'Not available while showing percentages'
               : undefined
-    // The bound is applied after the zero-baseline clamp, so a minimum wins over this toggle rather
-    // than the other way round. Disabling it keeps the axis matching whichever control looks live.
-    const startAtZeroDisabledReason =
-        rangeDisabledReason ??
-        (typeof trendsFilter?.yAxisMin === 'number' ? 'Overridden by the minimum below' : undefined)
+    // "Begin at zero" sets the floor while it is on, so the minimum steps aside rather than
+    // competing with it. A value already typed stays in the field and applies again once the
+    // toggle goes off, so switching back and forth doesn't cost the user their number.
+    const beginsAtZero = trendsFilter?.yAxisStartAtZero !== false
+    const minDisabledReason =
+        rangeDisabledReason ?? (beginsAtZero ? 'Turn off "Begin at zero" to set a minimum' : undefined)
 
     // The chart falls back to its automatic range while the pair is inverted, so say why rather
-    // than leaving the controls looking unresponsive.
+    // than leaving the controls looking unresponsive. Only worth saying while the minimum applies.
     const invalidRange =
+        !beginsAtZero &&
         typeof trendsFilter?.yAxisMin === 'number' &&
         typeof trendsFilter?.yAxisMax === 'number' &&
         trendsFilter.yAxisMin >= trendsFilter.yAxisMax
@@ -59,8 +61,8 @@ export function YAxisRangeFilter(): JSX.Element {
                 label="Begin at zero"
                 tooltip="When off, the axis starts just below your lowest value instead of at zero, so small changes are easier to see."
                 data-attr="trends-y-axis-start-at-zero"
-                checked={trendsFilter?.yAxisStartAtZero !== false}
-                disabledReason={startAtZeroDisabledReason}
+                checked={beginsAtZero}
+                disabledReason={rangeDisabledReason}
                 onChange={(checked) => updateInsightFilter({ yAxisStartAtZero: checked ? undefined : false })}
             />
             <div className="flex flex-col gap-1">
@@ -71,7 +73,7 @@ export function YAxisRangeFilter(): JSX.Element {
                     data-attr="trends-y-axis-min-input"
                     value={minDraft}
                     placeholder="Auto"
-                    disabledReason={rangeDisabledReason}
+                    disabledReason={minDisabledReason}
                     onChange={setMinDraft}
                     onBlur={commitMin}
                     onPressEnter={commitMin}

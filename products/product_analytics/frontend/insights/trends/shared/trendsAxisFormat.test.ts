@@ -129,4 +129,15 @@ describe('buildTrendsYAxisConfig', () => {
         expect(cfg.min).toBeUndefined()
         expect(cfg.max).toBeUndefined()
     })
+
+    // The library applies a bound after its own zero clamp, so forwarding both would leave the
+    // toggle inert the moment a minimum was set. The maximum is unrelated and has to survive.
+    it.each<[string, boolean | undefined]>([
+        ['left at its default', undefined],
+        ['explicitly on', true],
+    ])('holds back the minimum but keeps the maximum with begin-at-zero %s', (_name, startAtZero) => {
+        const cfg = buildTrendsYAxisConfig(null, false, undefined, { ...RANGE, startAtZero })
+        expect(cfg.min).toBeUndefined()
+        expect(cfg.max).toBe(80)
+    })
 })
