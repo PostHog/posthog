@@ -12,7 +12,6 @@ export type AgentRosterSource =
     | 'error_tracking'
     | 'conversations'
     | 'replay_vision'
-    | 'session_replay'
     | 'llm_analytics'
     | 'analytics'
     | 'health_checks'
@@ -104,14 +103,10 @@ export const AGENT_ROSTER_GROUPS: AgentRosterGroup[] = [
                 source: 'llm_analytics',
                 sourceProduct: SignalSourceProduct.LlmAnalytics,
                 label: 'AI observability',
-                watches: 'AI quality problems your evaluations catch',
-                detail: 'An evaluation reaches your inbox only when it is switched on here.',
-                entityNoun: 'evaluations',
-                entityNounSingular: 'evaluation',
-                entitiesAreUserCreated: true,
-                manageUrl: urls.aiObservabilityEvaluations(),
-                docsUrl: 'https://posthog.com/docs/ai-evals',
-                docsLabel: 'evaluations',
+                watches: 'Changes in the quality and behavior of your AI features',
+                detail: 'Completed eval reports can become signals for agent investigation. Configure which reports run and when in AI observability.',
+                docsUrl: 'https://posthog.com/docs/ai-observability/self-driving',
+                docsLabel: 'AI observability Self-driving',
             },
             {
                 source: 'analytics',
@@ -131,16 +126,6 @@ export const AGENT_ROSTER_GROUPS: AgentRosterGroup[] = [
                 detail: 'Checks your setup for missing events, an outdated SDK, proxy problems, failed warehouse syncs, and missing source maps.',
                 docsUrl: urls.health(),
                 docsLabel: 'Health checks',
-            },
-            {
-                source: 'session_replay',
-                sourceProduct: SignalSourceProduct.SessionReplay,
-                label: 'Session replay',
-                watches: 'UX problems in recordings, now covered by Replay Vision',
-                detail: 'Runs on a sample of the recordings that match your filters.',
-                docsUrl: 'https://posthog.com/docs/session-replay',
-                docsLabel: 'Session replay',
-                legacy: true,
             },
         ],
     },

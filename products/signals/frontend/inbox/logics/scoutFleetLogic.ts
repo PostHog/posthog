@@ -4,14 +4,13 @@ import { router } from 'kea-router'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
-import api from 'lib/api'
 import { dayjs } from 'lib/dayjs'
 import { aiConsentLogic } from 'scenes/settings/organization/aiConsentLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
-import { OriginProduct } from 'products/posthog_ai/frontend/types/taskTypes'
 import {
+    signalsScoutChatTasksCreate,
     signalsScoutConfigDestroy,
     signalsScoutConfigList,
     signalsScoutConfigUpdate,
@@ -27,7 +26,6 @@ import type {
     SignalScoutConfigApi,
 } from 'products/signals/frontend/generated/api.schemas'
 import { llmSkillsNameArchiveCreate } from 'products/skills/frontend/generated/api'
-import { RunSourceEnumApi, TaskExecutionModeEnumApi } from 'products/tasks/frontend/generated/api.schemas'
 
 import {
     captureScoutAction,
@@ -44,9 +42,6 @@ import {
     isSettledRun,
     prettifyScoutSkillName,
     reconcileById,
-    SCOUT_AUTHOR_PROMPT,
-    SCOUT_FLEET_OVERVIEW_PROMPT,
-    SCOUT_RECENT_SIGNALS_PROMPT,
     SCOUT_RUNS_PER_SCOUT,
     SCOUT_RUNS_WINDOW_HOURS,
     ScoutRollup,
@@ -57,13 +52,6 @@ import type { ScoutTagOption } from '../utils/scoutTags'
 
 type SignalScoutConfig = SignalScoutConfigApi
 type SignalScoutConfigUpdate = PatchedSignalScoutConfigUpdateApi
-
-// Which CTA a chat task came from, keyed off the templated prompt so the callers stay untouched.
-const SCOUT_CHAT_TYPES: Record<string, ScoutChatType> = {
-    [SCOUT_AUTHOR_PROMPT]: 'author_scout',
-    [SCOUT_FLEET_OVERVIEW_PROMPT]: 'fleet_overview',
-    [SCOUT_RECENT_SIGNALS_PROMPT]: 'recent_signals',
-}
 
 /**
  * One `Scout config changed` per field the request carried. A schedule switch patches both
@@ -122,7 +110,7 @@ export interface scoutFleetLogicValues {
     hideDisabled: boolean
     lastRunAt: string | null
     rollups: Map<string, ScoutRollup>
-    runningChatPrompt: string | null
+    runningChatType: ScoutChatType | null
     runsWindow: {
         complete: boolean
         runs: SignalScoutRunSummary[]
@@ -234,10 +222,10 @@ export interface scoutFleetLogicActions {
     }
     patchScoutConfigLocally: (
         configId: string,
-        updates: SignalScoutConfigUpdate
+        updates: Partial<SignalScoutConfig> | SignalScoutConfigUpdate
     ) => {
         configId: string
-        updates: PatchedSignalScoutConfigUpdateApi
+        updates: Partial<SignalScoutConfigApi> | PatchedSignalScoutConfigUpdateApi
     }
     removeScoutConfigLocally: (configId: string) => {
         configId: string
@@ -255,12 +243,10 @@ export interface scoutFleetLogicActions {
         value: true
     }
     startScoutChatTask: (
-        prompt: string,
-        taskLabel: string,
-        fallbackTitle: string
+        chatType: ScoutChatType,
+        taskLabel: string
     ) => {
-        fallbackTitle: string
-        prompt: string
+        chatType: ScoutChatType
         taskLabel: string
     }
     startScoutChatTaskFailure: () => {
@@ -342,7 +328,11 @@ export const scoutFleetLogic = kea<scoutFleetLogicType>([
     actions({
         updateScoutConfig: (configId: string, updates: SignalScoutConfigUpdate) => ({ configId, updates }),
         updateScoutConfigFinished: (configId: string) => ({ configId }),
-        patchScoutConfigLocally: (configId: string, updates: SignalScoutConfigUpdate) => ({ configId, updates }),
+        // A full server config doubles as a local patch when reconciling optimistic edits.
+        patchScoutConfigLocally: (configId: string, updates: SignalScoutConfigUpdate | Partial<SignalScoutConfig>) => ({
+            configId,
+            updates,
+        }),
         deleteScout: (configId: string) => ({ configId }),
         deleteScoutFinished: (configId: string) => ({ configId }),
         removeScoutConfigLocally: (configId: string) => ({ configId }),
@@ -353,10 +343,9 @@ export const scoutFleetLogic = kea<scoutFleetLogicType>([
         // (which only reads configs) doesn't trigger the paginated runs-window polling.
         startRunsPolling: true,
         stopRunsPolling: true,
-        startScoutChatTask: (prompt: string, taskLabel: string, fallbackTitle: string) => ({
-            prompt,
+        startScoutChatTask: (chatType: ScoutChatType, taskLabel: string) => ({
+            chatType,
             taskLabel,
-            fallbackTitle,
         }),
         startScoutChatTaskSuccess: true,
         startScoutChatTaskFailure: true,
@@ -491,12 +480,12 @@ export const scoutFleetLogic = kea<scoutFleetLogicType>([
     })),
 
     reducers({
-        // Tracks which CTA's chat-task kickoff is mid-flight, keyed by its prompt, so only the
+        // Tracks which CTA's chat-task kickoff is mid-flight, keyed by its chat type, so only the
         // pressed chip spins (the others merely disable). A shared boolean spun all three at once.
-        runningChatPrompt: [
-            null as string | null,
+        runningChatType: [
+            null as ScoutChatType | null,
             {
-                startScoutChatTask: (_, { prompt }) => prompt,
+                startScoutChatTask: (_, { chatType }) => chatType,
                 startScoutChatTaskSuccess: () => null,
                 startScoutChatTaskFailure: () => null,
             },
@@ -822,50 +811,29 @@ export const scoutFleetLogic = kea<scoutFleetLogicType>([
                 actions.deleteScoutFinished(configId)
             }
         },
-        startScoutChatTask: async ({ prompt, fallbackTitle, taskLabel }) => {
-            // Task-kickoff, mirroring inboxTaskKickoffLogic: create an auto-mode cloud
-            // task from a templated prompt, then navigate to it. Not a live chat.
+        startScoutChatTask: async ({ chatType, taskLabel }) => {
+            // Task-kickoff, mirroring inboxTaskKickoffLogic: start a cloud task from a fixed
+            // template, then navigate to it. Not a live chat.
             // The CTAs carry this as a `disabledReason`; this backstops the paths that don't go
-            // through a button press, since the run endpoint enforces no consent of its own.
+            // through a button press, since the endpoint enforces no consent of its own.
             if (values.aiConsentDisabledReason) {
                 lemonToast.error(values.aiConsentDisabledReason)
                 actions.startScoutChatTaskFailure()
                 return
             }
-            const chatType = SCOUT_CHAT_TYPES[prompt]
-            if (chatType) {
-                captureScoutChatStarted({ chatType, surface: 'fleet_list' })
+            captureScoutChatStarted({ chatType, surface: 'fleet_list' })
+            const teamId = teamLogic.values.currentTeamId
+            if (!teamId) {
+                actions.startScoutChatTaskFailure()
+                return
             }
             try {
-                // Deliberately repo-less: these prompts read PostHog data over MCP and never touch
-                // code, while `tasks/repositories/` would hand back whichever repo sorts first across
-                // the team's visible tasks. A SIGNAL_REPORT task clones with full history (for git
-                // blame), so pinning an arbitrary repo would clone it in full for nothing.
-                const task = await api.tasks.create({
-                    title: fallbackTitle,
-                    description: prompt,
-                    origin_product: OriginProduct.SIGNAL_REPORT,
-                })
-                // Creating the task alone lands the user on a "This task hasn't been run yet" screen,
-                // so kick off the run too (same as inboxTaskKickoffLogic). Interactive, not background:
-                // the agent-server only relays approval prompts to the client on non-background runs.
-                try {
-                    await api.tasks.run(task.id, {
-                        run_source: RunSourceEnumApi.Manual,
-                        mode: TaskExecutionModeEnumApi.Interactive,
-                        // The agent-server self-delivers `pending_user_message` from run state on boot,
-                        // and interactive runs skip the workflow's forwarding path. Nothing falls back to
-                        // the task description on the ACP runtime, so without this the sandbox boots with
-                        // no first turn and the run just idles.
-                        pending_user_message: prompt,
-                    })
-                } catch (error: any) {
-                    // The task exists and its page has a Run button, so strand nobody — say what
-                    // failed and still navigate there.
-                    lemonToast.error(error?.detail || error?.message || `Failed to run ${taskLabel}`)
-                }
+                // The server owns the prompt template, creates the task repo-less with the
+                // reserved signals_chat origin (which exempts it from the Desktop access gate
+                // on the task run endpoints) and starts its interactive run in one call.
+                const task = await signalsScoutChatTasksCreate(String(teamId), { chat_type: chatType })
                 actions.startScoutChatTaskSuccess()
-                router.actions.push(urls.taskDetail(task.id))
+                router.actions.push(urls.taskDetail(task.task_id))
             } catch (error: any) {
                 lemonToast.error(error?.detail || error?.message || `Failed to start ${taskLabel}`)
                 actions.startScoutChatTaskFailure()

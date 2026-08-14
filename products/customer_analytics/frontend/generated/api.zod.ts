@@ -902,6 +902,84 @@ export const EventStreamsRemoveAccountCreateBody = /* @__PURE__ */ zod
     })
     .describe('Request body for adding or removing an event-stream member account.')
 
+export const featureRequestProductAreasCreateBodyNameMax = 200
+
+export const featureRequestProductAreasCreateBodyDisplayOrderDefault = 0
+export const featureRequestProductAreasCreateBodyDisplayOrderMin = 0
+
+export const featureRequestProductAreasCreateBodyIsActiveDefault = true
+
+export const FeatureRequestProductAreasCreateBody = /* @__PURE__ */ zod.object({
+    name: zod.string().max(featureRequestProductAreasCreateBodyNameMax).describe('Team-maintained product area name.'),
+    display_order: zod
+        .number()
+        .min(featureRequestProductAreasCreateBodyDisplayOrderMin)
+        .default(featureRequestProductAreasCreateBodyDisplayOrderDefault)
+        .describe('Position in product area selectors. Lower values appear first.'),
+    is_active: zod
+        .boolean()
+        .default(featureRequestProductAreasCreateBodyIsActiveDefault)
+        .describe('Whether editors can select this product area for new requests.'),
+})
+
+export const featureRequestProductAreasUpdateBodyNameMax = 200
+
+export const featureRequestProductAreasUpdateBodyDisplayOrderDefault = 0
+export const featureRequestProductAreasUpdateBodyDisplayOrderMin = 0
+
+export const featureRequestProductAreasUpdateBodyIsActiveDefault = true
+
+export const FeatureRequestProductAreasUpdateBody = /* @__PURE__ */ zod.object({
+    name: zod.string().max(featureRequestProductAreasUpdateBodyNameMax).describe('Team-maintained product area name.'),
+    display_order: zod
+        .number()
+        .min(featureRequestProductAreasUpdateBodyDisplayOrderMin)
+        .default(featureRequestProductAreasUpdateBodyDisplayOrderDefault)
+        .describe('Position in product area selectors. Lower values appear first.'),
+    is_active: zod
+        .boolean()
+        .default(featureRequestProductAreasUpdateBodyIsActiveDefault)
+        .describe('Whether editors can select this product area for new requests.'),
+})
+
+export const featureRequestProductAreasPartialUpdateBodyNameMax = 200
+
+export const featureRequestProductAreasPartialUpdateBodyDisplayOrderDefault = 0
+export const featureRequestProductAreasPartialUpdateBodyDisplayOrderMin = 0
+
+export const featureRequestProductAreasPartialUpdateBodyIsActiveDefault = true
+
+export const FeatureRequestProductAreasPartialUpdateBody = /* @__PURE__ */ zod.object({
+    name: zod
+        .string()
+        .max(featureRequestProductAreasPartialUpdateBodyNameMax)
+        .optional()
+        .describe('Team-maintained product area name.'),
+    display_order: zod
+        .number()
+        .min(featureRequestProductAreasPartialUpdateBodyDisplayOrderMin)
+        .default(featureRequestProductAreasPartialUpdateBodyDisplayOrderDefault)
+        .describe('Position in product area selectors. Lower values appear first.'),
+    is_active: zod
+        .boolean()
+        .default(featureRequestProductAreasPartialUpdateBodyIsActiveDefault)
+        .describe('Whether editors can select this product area for new requests.'),
+})
+
+export const featureRequestsCreateBodyTitleMax = 400
+
+export const FeatureRequestsCreateBody = /* @__PURE__ */ zod.object({
+    title: zod.string().max(featureRequestsCreateBodyTitleMax).describe('Required customer-facing request title.'),
+    description: zod.string().describe('Required customer-facing request description in Markdown.'),
+    account_id: zod.uuid().describe('ID of the affected Customer Analytics account.'),
+    product_area_ids: zod.array(zod.uuid()).describe('One or more active product area IDs. Duplicate IDs are ignored.'),
+    idempotency_key: zod
+        .uuid()
+        .describe(
+            'Client-generated key that makes retries return the original request instead of creating a duplicate.'
+        ),
+})
+
 export const groupsTypesMetricsCreateBodyNameMax = 255
 
 export const groupsTypesMetricsCreateBodyFormatDefault = `numeric`

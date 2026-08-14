@@ -1,5 +1,17 @@
 # posthog-cli
 
+## 0.11.2 — 2026-08-14
+
+### Patch changes
+
+- [751c7c08aa2](https://github.com/PostHog/posthog/commit/751c7c08aa23132834945f86a54e507bd3748bdc) Upload one symbol set per chunk id when processing sourcemaps. In `--release-mode event` a bundler that copies an entry point to a second name (a hashless alias beside `app-<hash>.js`) produces two byte-identical files that share a sourcemap, and so one content-addressed chunk id twice, which the bulk-start endpoint rejects as `invalid_chunk_ids`. — Thanks @ablaszkiewicz!
+
+## 0.11.1 — 2026-08-13
+
+### Patch changes
+
+- [c75bed06227](https://github.com/PostHog/posthog/commit/c75bed062278959c10907d1245c39a0d8ef20d11) Retry transient GitHub release download failures with exponential backoff when installing `@posthog/cli` from npm. — Thanks @marandaneto!
+
 ## 0.11.0 — 2026-08-12
 
 ### Minor changes
