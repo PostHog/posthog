@@ -209,7 +209,9 @@ class TaskProcessingContext:
 
     def inactivity_timeout(self) -> timedelta:
         """Idle time before the workflow times the run out; longer for user-driven runs."""
-        return resolve_inactivity_timeout(is_user_origin=self._is_user_origin(), state=self.state)
+        return resolve_inactivity_timeout(
+            is_user_origin=self._is_user_origin(), origin_product=self.origin_product, state=self.state
+        )
 
     def _is_user_origin(self) -> bool:
         return not self.origin_product or self.origin_product in (

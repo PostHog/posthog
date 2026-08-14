@@ -121,3 +121,45 @@ class TestResponseActionClassification:
         client = RESTClient(base_url="https://api.example.com", max_retry_attempts=1)
         with pytest.raises(HTTPError):
             list(client.paginate(path="/items", data_selector="results", paginator=SinglePagePaginator(), hooks=hooks))
+
+    @patch("tenacity.nap.time.sleep")
+    @patch(f"{MODULE}.make_tracked_session")
+    def test_json_field_action_matches_body_value_only(self, MockSession, _sleep) -> None:
+        mock_session = MockSession.return_value
+        mock_session.headers = {}
+        mock_session.prepare_request.return_value = MagicMock()
+        mock_session.send.side_effect = [
+            _make_response({"code": 40100, "message": "too many requests"}),
+            # A row that merely contains the same number must not be classified as an error —
+            # what substring matching on the serialized body would get wrong.
+            _make_response({"code": 0, "results": [{"id": 40100}]}),
+        ]
+        hooks = create_response_hooks([{"json_field": "code", "json_values": [40100], "action": "retry"}])
+
+        client = RESTClient(base_url="https://api.example.com")
+        pages = list(
+            client.paginate(path="/items", data_selector="results", paginator=SinglePagePaginator(), hooks=hooks)
+        )
+
+        assert pages == [[{"id": 40100}]]
+        assert mock_session.send.call_count == 2
+
+    @patch("tenacity.nap.time.sleep")
+    @patch(f"{MODULE}.make_tracked_session")
+    def test_json_field_action_reads_a_nested_path(self, MockSession, _sleep) -> None:
+        mock_session = MockSession.return_value
+        mock_session.headers = {}
+        mock_session.prepare_request.return_value = MagicMock()
+        mock_session.send.side_effect = [
+            _make_response({"error": {"type": "rate_limit"}}),
+            _make_response({"results": [{"id": 1}]}),
+        ]
+        hooks = create_response_hooks([{"json_field": "error.type", "json_values": ["rate_limit"], "action": "retry"}])
+
+        client = RESTClient(base_url="https://api.example.com")
+        pages = list(
+            client.paginate(path="/items", data_selector="results", paginator=SinglePagePaginator(), hooks=hooks)
+        )
+
+        assert pages == [[{"id": 1}]]
+        assert mock_session.send.call_count == 2

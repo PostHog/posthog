@@ -5,11 +5,7 @@ import {
 } from "@phosphor-icons/react";
 import { useHostTRPC, useHostTRPCClient } from "@posthog/host-router/react";
 import { Button, ButtonGroup } from "@posthog/quill";
-import {
-  BILLING_FLAG,
-  PROJECT_BLUEBIRD_FLAG,
-  SYNC_CLOUD_TASKS_FLAG,
-} from "@posthog/shared";
+import { BILLING_FLAG, PROJECT_BLUEBIRD_FLAG } from "@posthog/shared";
 import { ANALYTICS_EVENTS } from "@posthog/shared/analytics-events";
 import { isContentlessTask } from "@posthog/shared/domain-types";
 import { DeepLinkApprovalModal } from "@posthog/ui/features/agent-applications/components/DeepLinkApprovalModal";
@@ -34,6 +30,7 @@ import {
 import { useCanvasDeepLink } from "@posthog/ui/features/canvas/hooks/useCanvasDeepLink";
 import { useChannelDeepLink } from "@posthog/ui/features/canvas/hooks/useChannelDeepLink";
 import { useChannelsLayout } from "@posthog/ui/features/canvas/hooks/useChannelsLayout";
+import { useShareLinkInterceptor } from "@posthog/ui/features/canvas/hooks/useShareLinkInterceptor";
 import { usePostHogWebFeedbackStore } from "@posthog/ui/features/canvas/stores/posthogWebFeedbackStore";
 import { CommandMenu } from "@posthog/ui/features/command/CommandMenu";
 import { CommandSearchBar } from "@posthog/ui/features/command/CommandSearchBar";
@@ -204,7 +201,6 @@ function RootLayout() {
   const queryClient = useQueryClient();
   const reconcilingTaskIds = useRef<Set<string>>(new Set());
   const billingEnabled = useFeatureFlag(BILLING_FLAG);
-  const syncCloudTasksEnabled = useFeatureFlag(SYNC_CLOUD_TASKS_FLAG);
   // "PostHog Web" is a channels-world affordance — show it only while the user
   // is actually seeing channels (toggle on, which itself requires the flag).
   const bluebirdEnabled = useFeatureFlag(
@@ -241,6 +237,7 @@ function RootLayout() {
   useCanvasDeepLink();
   useChannelDeepLink();
   useLoopDeepLink();
+  useShareLinkInterceptor();
   const approvalDeepLink = useApprovalDeepLink();
   useSetupDiscovery();
   useNewTaskDeepLink();
@@ -249,7 +246,6 @@ function RootLayout() {
   // task cache populates the route automatically.
 
   useEffect(() => {
-    if (!syncCloudTasksEnabled) return;
     if (!tasks || !workspaces || !workspacesFetched) return;
     const missing = tasks.filter(
       (t) =>
@@ -277,15 +273,7 @@ function RootLayout() {
         for (const id of missingIds) reconcilingTaskIds.current.delete(id);
         log.warn("Failed to reconcile cloud workspaces", err);
       });
-  }, [
-    syncCloudTasksEnabled,
-    tasks,
-    workspaces,
-    workspacesFetched,
-    queryClient,
-    hostClient,
-    trpc,
-  ]);
+  }, [tasks, workspaces, workspacesFetched, queryClient, hostClient, trpc]);
 
   // Flags resolve asynchronously — flag-gated routes below wait for this
   // before redirecting away from a restored route the user can't access.
