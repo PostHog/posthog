@@ -529,15 +529,22 @@ class MetricBreakdownInjector:
                     )
 
         # Carry the attributed breakdown into entity_metrics (which aggregates with any()).
+        # Denominator-only users have no numerator_agg row, so the LEFT JOIN yields NULL and any()
+        # returns "". build_breakdown_exprs already maps real null property values to the null
+        # label, so an empty string here means "no numerator event" and gets the null label too,
+        # rather than an invisible "" bucket that steals a top-N slot and collides with real values.
         if query.ctes and "entity_metrics" in query.ctes:
             entity_metrics_cte = query.ctes["entity_metrics"]
             if isinstance(entity_metrics_cte, ast.CTE) and isinstance(entity_metrics_cte.expr, ast.SelectQuery):
                 for alias in aliases:
-                    entity_metrics_cte.expr.select.append(
-                        ast.Alias(
-                            alias=alias, expr=ast.Call(name="any", args=[ast.Field(chain=["numerator_agg", alias])])
-                        )
+                    attributed = parse_expr(
+                        "if(empty({value}), {null_label}, {value})",
+                        placeholders={
+                            "value": ast.Call(name="any", args=[ast.Field(chain=["numerator_agg", alias])]),
+                            "null_label": ast.Constant(value=BREAKDOWN_NULL_STRING_LABEL),
+                        },
                     )
+                    entity_metrics_cte.expr.select.append(ast.Alias(alias=alias, expr=attributed))
 
         # Winsorization carry-through (percentiles + winsorized_entity_metrics) reuses the mean helper.
         self._inject_winsorization_breakdown_columns(query, aliases, final_cte_name)

@@ -1607,3 +1607,7 @@ class TestMetricBreakdown(ExperimentQueryRunnerBaseTest):
         breakdown_values = [br.breakdown_value for br in result.breakdown_results]
         # The normal user's Chrome bucket must be present.
         self.assertIn(["Chrome"], breakdown_values)
+        # The denominator-only user has no numerator event to attribute from, so they land in the
+        # null bucket, not an invisible empty-string bucket.
+        self.assertIn([BREAKDOWN_NULL_STRING_LABEL], breakdown_values)
+        self.assertNotIn([""], breakdown_values)

@@ -484,10 +484,16 @@ class TestMetricBreakdownInjectorRatio:
         injector.inject_ratio_breakdown_columns(query)
 
         expr = _entity_metrics_aliases(query)["breakdown_value_1"]
-        assert isinstance(expr, ast.Call)
-        # any(numerator_agg.breakdown_value_1) — carried through the entity_metrics aggregation.
-        assert expr.name == "any"
-        assert expr.args[0] == ast.Field(chain=["numerator_agg", "breakdown_value_1"])
+        # Denominator-only users have no numerator_agg row, so any() returns "". That empty value
+        # is mapped to the null label instead of forming an invisible "" bucket.
+        assert isinstance(expr, ast.Call) and expr.name == "if"
+        empty_check = expr.args[0]
+        assert isinstance(empty_check, ast.Call) and empty_check.name == "empty"
+        inner_any = empty_check.args[0]
+        assert isinstance(inner_any, ast.Call) and inner_any.name == "any"
+        assert inner_any.args[0] == ast.Field(chain=["numerator_agg", "breakdown_value_1"])
+        null_label = expr.args[1]
+        assert isinstance(null_label, ast.Constant) and null_label.value == BREAKDOWN_NULL_STRING_LABEL
 
     def test_final_select_applies_top_n_other_limit(self):
         metric = _ratio_metric(breakdown_limit=3)
