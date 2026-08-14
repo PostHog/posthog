@@ -31,6 +31,7 @@ import type { AlertApi } from 'products/alerts/frontend/generated/api.schemas'
 import { ScoutCreateButton } from 'products/signals/frontend/inbox/components/config/scouts/ScoutCreateButton'
 import { ScoutRowCard } from 'products/signals/frontend/inbox/components/config/scouts/ScoutRowCard'
 import { scoutFleetLogic } from 'products/signals/frontend/inbox/logics/scoutFleetLogic'
+import { signalSourcesLogic } from 'products/signals/frontend/inbox/signalSourcesLogic'
 
 import { llmEvaluationsLogic } from '../evaluations/llmEvaluationsLogic'
 import type { EvaluationConfig } from '../evaluations/types'
@@ -45,6 +46,7 @@ import {
     type AIObservabilitySelfDrivingSection,
     aiObservabilitySelfDrivingLogic,
 } from './aiObservabilitySelfDrivingLogic'
+import { SelfDrivingSignalSourceToggle } from './SelfDrivingSignalSourceToggle'
 
 const SCOUTS_DOCS_URL = 'https://posthog.com/docs/ai-observability/self-driving'
 const SELF_DRIVING_DOCS_URL = 'https://posthog.com/docs/self-driving'
@@ -200,6 +202,14 @@ export function AIObservabilitySelfDriving(): JSX.Element {
     const { loadAnomalyAlertInvestigations, loadSelfDrivingEvaluationReports, setExpandedSections } = useActions(
         aiObservabilitySelfDrivingLogic
     )
+    const {
+        anomalyInvestigationConfig,
+        evalReportsConfig,
+        isAnomalyInvestigationToggling,
+        isEvalReportsToggling,
+        sourceConfigs,
+    } = useValues(signalSourcesLogic)
+    const { toggleAnomalyInvestigation, toggleEvalReports } = useActions(signalSourcesLogic)
 
     const aiObservabilityScouts = scoutConfigs?.filter(isAIObservabilityScout) ?? []
     const reportFor = (evaluation: EvaluationConfig): EvaluationReportApi | null =>
@@ -411,6 +421,14 @@ export function AIObservabilitySelfDriving(): JSX.Element {
                                         Learn more
                                     </Link>
                                 </p>
+                                <SelfDrivingSignalSourceToggle
+                                    sourceName="AI observability"
+                                    signalNoun="evaluation report"
+                                    enabled={sourceConfigs === null ? null : !!evalReportsConfig?.enabled}
+                                    toggling={isEvalReportsToggling}
+                                    onChange={toggleEvalReports}
+                                    data-attr="self-driving-eval-reports-signal-source"
+                                />
                                 {!evaluationsLoadFailed &&
                                 !evaluationsLoading &&
                                 evaluations.length > 0 &&
@@ -504,6 +522,14 @@ export function AIObservabilitySelfDriving(): JSX.Element {
                                         Learn more
                                     </Link>
                                 </p>
+                                <SelfDrivingSignalSourceToggle
+                                    sourceName="Product analytics"
+                                    signalNoun="anomaly investigation"
+                                    enabled={sourceConfigs === null ? null : !!anomalyInvestigationConfig?.enabled}
+                                    toggling={isAnomalyInvestigationToggling}
+                                    onChange={toggleAnomalyInvestigation}
+                                    data-attr="self-driving-anomaly-investigation-signal-source"
+                                />
                                 {anomalyAlertInvestigationsLoading && anomalyAlertInvestigations === null ? (
                                     <div className="flex flex-col gap-2">
                                         <LemonSkeleton className="h-10 w-full rounded" />

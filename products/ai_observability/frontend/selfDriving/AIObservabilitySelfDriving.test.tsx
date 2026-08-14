@@ -1,6 +1,6 @@
 import '@testing-library/jest-dom'
 
-import { cleanup, render, screen, within } from '@testing-library/react'
+import { cleanup, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { Provider } from 'kea'
 import type { ReactNode } from 'react'
@@ -38,9 +38,28 @@ jest.mock('products/signals/frontend/inbox/components/config/scouts/ScoutCreateB
     ScoutCreateButton: ({ children }: { children: ReactNode }) => <button>{children}</button>,
 }))
 
+const EVAL_REPORTS_SOURCE_CONFIG = {
+    id: 'source-config-eval-reports',
+    source_product: 'llm_analytics',
+    source_type: 'evaluation_report',
+    enabled: true,
+    config: {},
+}
+
+const ANOMALY_INVESTIGATION_SOURCE_CONFIG = {
+    id: 'source-config-anomaly-investigation',
+    source_product: 'analytics',
+    source_type: 'anomaly_investigation',
+    enabled: false,
+    config: {},
+}
+
 describe('AIObservabilitySelfDriving', () => {
+    let patchedSourceConfigs: { id: string; enabled: boolean }[]
+
     beforeEach(() => {
         localStorage.clear()
+        patchedSourceConfigs = []
         useMocks({
             get: {
                 '/api/environments/:teamId/llm_analytics/provider_keys/': { results: [] },
@@ -48,6 +67,22 @@ describe('AIObservabilitySelfDriving', () => {
                     active_provider_key: null,
                     created_at: '2024-01-01T00:00:00Z',
                     updated_at: '2024-01-01T00:00:00Z',
+                },
+                '/api/projects/:team_id/signals/source_configs/': () => [
+                    200,
+                    {
+                        results: [EVAL_REPORTS_SOURCE_CONFIG, ANOMALY_INVESTIGATION_SOURCE_CONFIG],
+                        count: 2,
+                        next: null,
+                        previous: null,
+                    },
+                ],
+            },
+            patch: {
+                '/api/projects/:team_id/signals/source_configs/:id/': async ({ request, params }) => {
+                    const body = (await request.json()) as { enabled: boolean }
+                    patchedSourceConfigs.push({ id: params.id as string, enabled: body.enabled })
+                    return [200, { ...EVAL_REPORTS_SOURCE_CONFIG, id: params.id, enabled: body.enabled }]
                 },
             },
         })
@@ -317,6 +352,26 @@ describe('AIObservabilitySelfDriving', () => {
 
         await userEvent.click(anomalyTableQueries.getByText('Unexpected AI cost'))
         expect(newInternalTab).toHaveBeenLastCalledWith('/alerts?alert_type=insights&alert_id=alert-investigated')
+    })
+
+    // Both sections render the same switch, so a section wired to the other section's signal
+    // source would still look right. This pins each switch to the config it reads and writes.
+    it('reads and writes each section signal source', async () => {
+        render(
+            <Provider>
+                <AIObservabilitySelfDriving />
+            </Provider>
+        )
+
+        const evalReportsSwitch = await screen.findByTestId('self-driving-eval-reports-signal-source')
+        const anomalySwitch = screen.getByTestId('self-driving-anomaly-investigation-signal-source')
+        expect(evalReportsSwitch).toHaveAttribute('aria-checked', 'true')
+        expect(anomalySwitch).toHaveAttribute('aria-checked', 'false')
+
+        await userEvent.click(anomalySwitch)
+        await waitFor(() =>
+            expect(patchedSourceConfigs).toEqual([{ id: 'source-config-anomaly-investigation', enabled: true }])
+        )
     })
 
     it('sorts eval and anomaly alert columns', async () => {
