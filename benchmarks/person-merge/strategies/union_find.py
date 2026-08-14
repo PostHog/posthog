@@ -493,5 +493,101 @@ class UnionFindCompressedStrategy(UnionFindStrategy):
     compress = True
 
 
+class UnionFindLazyStrategy(UnionFindStrategy):
+    """Union-find with amortized depth bounding, two mechanisms:
+
+    1. Walk-path compression: the merge's root walk re-points the nodes it
+       actually traversed straight at the root — O(walk length), so any path
+       that keeps getting walked stays flat.
+    2. Background pointer halving (`maintenance`): one set-based pass re-points
+       every node at its grandparent, halving all depths; repeated until
+       stable, a full flatten costs log2(depth) passes. Runs off the ingest
+       path, so a star's worth of children re-points in one deferred UPDATE
+       instead of inside a merge transaction.
+
+    Between maintenance runs, an unwalked node's depth is bounded by the
+    number of merges its lineage absorbed since the last run.
+    """
+
+    name = "union_find_lazy"
+
+    _FIND_ROOT_WITH_PATH = """
+        WITH RECURSIVE walk AS (
+            SELECT p.id, p.merged_into_id, 1 AS hop
+            FROM posthog_person p
+            JOIN posthog_persondistinctid d ON d.person_id = p.id AND d.team_id = p.team_id
+            WHERE p.team_id = %s AND d.team_id = %s AND d.distinct_id = %s
+              AND d.is_deleted = false AND p.is_deleted = false
+            UNION ALL
+            SELECT p2.id, p2.merged_into_id, w.hop + 1
+            FROM posthog_person p2
+            JOIN walk w ON p2.id = w.merged_into_id
+            WHERE p2.team_id = %s AND p2.is_deleted = false
+        )
+        SELECT
+            (SELECT id FROM walk WHERE merged_into_id IS NULL),
+            (SELECT array_agg(id ORDER BY hop) FROM walk WHERE merged_into_id IS NOT NULL)
+    """
+
+    def _fetch_root_for_update(self, cur: psycopg.Cursor, team_id: int, distinct_id: str) -> _Person | None:
+        cur.execute(self._FIND_ROOT_WITH_PATH, (team_id, team_id, distinct_id, team_id))
+        row = cur.fetchone()
+        if row is None or row[0] is None:
+            return None
+        root_id, walked = row[0], row[1] or []
+        person: _Person | None = None
+        for _ in range(16):
+            cur.execute(_FETCH_BY_ID + " FOR UPDATE", (team_id, root_id))
+            prow = cur.fetchone()
+            if prow is None:
+                raise _RetryableMergeError("pointer chain hit a missing person")
+            person = _row_to_person(prow)
+            if person.merged_into_id is None:
+                break
+            root_id = person.merged_into_id
+        else:
+            raise _RetryableMergeError("root kept moving while locking")
+
+        # Compress the walked path inside the same transaction: every
+        # traversed non-root node points straight at the root afterwards.
+        # No version bump, no emissions — pointers are Postgres-internal.
+        if len(walked) > 1:
+            cur.execute(
+                """
+                UPDATE posthog_person
+                SET merged_into_id = %s
+                WHERE team_id = %s AND id = ANY(%s::bigint[])
+                  AND merged_into_id IS DISTINCT FROM %s
+                """,
+                (person.id, team_id, walked, person.id),
+            )
+        return person
+
+    def maintenance(self, conn: psycopg.Connection, team_id: int) -> dict[str, int]:
+        """Pointer halving until stable. Intended cadence: a background job,
+        so its cost is deliberately not part of any merge transaction."""
+        rows_total = 0
+        passes = 0
+        with conn.cursor() as cur:
+            while passes < 32:
+                cur.execute(
+                    """
+                    UPDATE posthog_person p
+                    SET merged_into_id = gp.merged_into_id
+                    FROM posthog_person gp
+                    WHERE p.team_id = %s AND gp.team_id = %s
+                      AND p.merged_into_id = gp.id
+                      AND gp.merged_into_id IS NOT NULL
+                    """,
+                    (team_id, team_id),
+                )
+                passes += 1
+                rows_total += cur.rowcount
+                if cur.rowcount == 0:
+                    break
+        conn.commit()
+        return {"passes": passes, "rows": rows_total}
+
+
 class _RetryableMergeError(Exception):
     """Concurrency outcomes mapped to refetch-and-retry."""

@@ -30,7 +30,12 @@ import psycopg
 import workload
 from strategies.base import MergeOutcome, Strategy
 from strategies.current import CurrentStrategy
-from strategies.union_find import UnionFindCompatStrategy, UnionFindCompressedStrategy, UnionFindStrategy
+from strategies.union_find import (
+    UnionFindCompatStrategy,
+    UnionFindCompressedStrategy,
+    UnionFindLazyStrategy,
+    UnionFindStrategy,
+)
 
 DSN_DEFAULT = "host=127.0.0.1 port=5544 user=posthog dbname=merge_bench"
 
@@ -39,6 +44,7 @@ STRATEGIES: dict[str, type] = {
     "union_find": UnionFindStrategy,
     "union_find_compat": UnionFindCompatStrategy,
     "union_find_compressed": UnionFindCompressedStrategy,
+    "union_find_lazy": UnionFindLazyStrategy,
 }
 
 
@@ -236,6 +242,7 @@ def run_chain_phase(
     dids_per_person: int,
     depth_max: int,
     chains: int,
+    maintenance_interval: int = 0,
 ) -> dict[str, Any]:
     """Repeated re-merging: at each step the current survivor is merged into a
     fresh person, so the first person's distinct ids sit behind `depth` merges.
@@ -257,12 +264,16 @@ def run_chain_phase(
     # tractable (total merge work grows quadratically with depth).
     checkpoints = sorted({d for base in (1, 2, 5) for e in range(6) if (d := base * 10**e) <= depth_max} | {depth_max})
 
+    maintain = getattr(strategy, "maintenance", None) if maintenance_interval else None
+
     steps: list[dict[str, Any]] = []
     checks = 0
     with psycopg.connect(dsn) as merge_conn, psycopg.connect(dsn) as read_conn:
         window_latencies: list[float] = []
         window_msgs = 0
         window_ops = 0
+        window_maint_ms = 0.0
+        window_maint_rows = 0
         window_start_wal = wal_lsn(seed_conn)
         for depth in range(1, depth_max + 1):
             for c in range(chains):
@@ -276,15 +287,24 @@ def run_chain_phase(
                 window_msgs += len(outcome.emissions)
                 window_ops += 1
 
+            # Strictly on schedule — never right before a checkpoint's reads,
+            # which would flatten chains just in time to flatter the numbers.
+            if maintain is not None and depth % maintenance_interval == 0:
+                t0 = time.perf_counter()
+                stats = maintain(merge_conn, workload.TEAM_ID)
+                window_maint_ms += (time.perf_counter() - t0) * 1000
+                window_maint_rows += stats["rows"]
+
             if depth not in checkpoints:
                 continue
 
             window_end_wal = wal_lsn(seed_conn)
 
             # Deep reads resolve through the full chain (the first person's
-            # ids, repeated for stable stats when each person has only one);
-            # root reads hit the current survivor directly, as the control.
+            # ids — which merge walks may have compressed); mid reads hit a
+            # person the walk never traverses; root reads are the control.
             read_deep: list[float] = []
+            read_mid: list[float] = []
             read_root: list[float] = []
             deep_sample = chain_dids[0][0][: min(dids_per_person, 10)]
             repeats = max(1, 20 // len(deep_sample))
@@ -294,12 +314,18 @@ def run_chain_phase(
                     t0 = time.perf_counter()
                     resolved = strategy.resolve(read_conn, workload.TEAM_ID, did)
                     read_deep.append((time.perf_counter() - t0) * 1000)
+                mid_did = chain_dids[c][max(1, depth // 2)][0]
+                for _ in range(10):
+                    t0 = time.perf_counter()
+                    mid = strategy.resolve(read_conn, workload.TEAM_ID, mid_did)
+                    read_mid.append((time.perf_counter() - t0) * 1000)
                 t0 = time.perf_counter()
                 survivor = strategy.resolve(read_conn, workload.TEAM_ID, chain_dids[c][depth][0])
                 read_root.append((time.perf_counter() - t0) * 1000)
-                assert resolved is not None and survivor is not None
+                assert resolved is not None and mid is not None and survivor is not None
                 assert resolved.person_id == survivor.person_id, f"chain read diverged at depth {depth}"
-                checks += 1
+                assert mid.person_id == survivor.person_id, f"mid-chain read diverged at depth {depth}"
+                checks += 2
 
             def pct(data: list[float], q: float) -> float:
                 return statistics.quantiles(data, n=100)[int(q) - 1] if len(data) >= 2 else data[0]
@@ -311,14 +337,19 @@ def run_chain_phase(
                     "merge_p95_ms": round(pct(window_latencies, 95), 3),
                     "read_p50_ms": round(statistics.median(read_deep), 4),
                     "read_p95_ms": round(pct(read_deep, 95), 4),
+                    "read_mid_p50_ms": round(statistics.median(read_mid), 4),
                     "read_root_p50_ms": round(statistics.median(read_root), 4),
                     "wal_bytes_per_op": round((window_end_wal - window_start_wal) / window_ops),
                     "msgs_per_op": round(window_msgs / window_ops, 1),
+                    "maintenance_ms": round(window_maint_ms, 1),
+                    "maintenance_rows": window_maint_rows,
                 }
             )
             window_latencies = []
             window_msgs = 0
             window_ops = 0
+            window_maint_ms = 0.0
+            window_maint_rows = 0
             window_start_wal = wal_lsn(seed_conn)
     seed_conn.close()
 
@@ -343,6 +374,12 @@ def main() -> None:
     parser.add_argument("--concurrency", type=int, default=1)
     parser.add_argument("--contention", choices=["none", "shared-target"], default="none")
     parser.add_argument("--chain-depth", type=int, default=16, help="max merge depth for the 'chain' case")
+    parser.add_argument(
+        "--maintenance-interval",
+        type=int,
+        default=0,
+        help="run the strategy's background maintenance every N chain steps (0 = never)",
+    )
     parser.add_argument("--preload", type=int, default=workload.PRELOAD_PERSONS)
     parser.add_argument("--dsn", default=DSN_DEFAULT)
     parser.add_argument("--out", default=None)
@@ -361,14 +398,17 @@ def main() -> None:
         sizes = [int(s) for s in args.sizes.split(",")] if case in ("both", "chain") else [0]
         for size in sizes:
             if case == "chain":
-                phase = run_chain_phase(args.dsn, strategy, size, args.chain_depth, args.reps)
+                phase = run_chain_phase(
+                    args.dsn, strategy, size, args.chain_depth, args.reps, args.maintenance_interval
+                )
                 phases.append(phase)
                 for step in phase["steps"]:
                     print(
                         f"{strategy.name:>14} chain dids={size:<6} depth={step['depth']:<6} "
                         f"merge-p50={step['merge_p50_ms']:>9.3f}ms read-deep-p50={step['read_p50_ms']:>8.4f}ms "
+                        f"read-mid-p50={step.get('read_mid_p50_ms', float('nan')):>8.4f}ms "
                         f"read-root-p50={step.get('read_root_p50_ms', float('nan')):>8.4f}ms "
-                        f"wal/op={step['wal_bytes_per_op']:>9} msgs/op={step['msgs_per_op']:>8.1f}"
+                        f"wal/op={step['wal_bytes_per_op']:>9} maint={step.get('maintenance_ms', 0):>7.1f}ms"
                     )
                 continue
             phase = run_phase(args.dsn, strategy, case, size, args.reps, args.concurrency, args.contention)
