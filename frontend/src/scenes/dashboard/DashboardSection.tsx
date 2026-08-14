@@ -141,7 +141,7 @@ export function DashboardSection({
             {highlighted && (
                 <div className="pointer-events-none absolute inset-0 z-20 rounded border-2 border-dashed border-accent bg-accent-highlight-secondary/50" />
             )}
-            {contentMounted && (
+            {contentMounted && !dragPreview && (
                 <div
                     className={clsx(
                         'transition-[height] duration-200 ease-in-out motion-reduce:transition-none',

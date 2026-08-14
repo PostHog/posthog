@@ -664,7 +664,14 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
                                             return
                                         }
                                         event.preventDefault()
-                                        crossSectionDrag.startSectionDrag(section.group.id, event.nativeEvent)
+                                        if (!collapsed) {
+                                            toggleDashboardSectionCollapsed(section.group.id)
+                                        }
+                                        crossSectionDrag.startSectionDrag(
+                                            section.group.id,
+                                            event.nativeEvent,
+                                            event.currentTarget.getBoundingClientRect().height
+                                        )
                                     }}
                                     overlay={
                                         isEditablePlacement && inlineTileInsertionEnabled && !section.isNamed ? (

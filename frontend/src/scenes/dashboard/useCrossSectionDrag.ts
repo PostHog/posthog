@@ -63,7 +63,7 @@ export function useCrossSectionDrag({ sections, disabled, onTileDrop, onSectionD
     sectionDragPreview: DashboardSectionDragPreview | null
     dropTarget: DashboardDropTarget
     startTileDrag: (tileId: number, sectionKey: string) => void
-    startSectionDrag: (groupId: string, event: PointerEvent) => void
+    startSectionDrag: (groupId: string, event: PointerEvent, previewHeight: number) => void
     updateDrag: (event: MouseEvent) => void
     finishDrag: (event: MouseEvent, layout?: DashboardTileDropLayout | null) => boolean
 } {
@@ -321,7 +321,7 @@ export function useCrossSectionDrag({ sections, disabled, onTileDrop, onSectionD
     )
 
     const startSectionDrag = useCallback(
-        (groupId: string, event: PointerEvent): void => {
+        (groupId: string, event: PointerEvent, previewHeight: number): void => {
             if (disabled) {
                 return
             }
@@ -339,7 +339,7 @@ export function useCrossSectionDrag({ sections, disabled, onTileDrop, onSectionD
                 }
                 setSectionDragPreview({
                     groupId,
-                    height: sourceRect.height,
+                    height: previewHeight,
                     left: sourceRect.left,
                     top: sourceRect.top,
                     width: sourceRect.width,

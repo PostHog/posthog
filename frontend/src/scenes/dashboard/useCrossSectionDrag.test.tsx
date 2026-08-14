@@ -24,7 +24,10 @@ describe('useCrossSectionDrag', () => {
         act(() => {
             result.current.registerSection('first', first)
             result.current.registerSection('second', second)
-            result.current.startSectionDrag('first', new MouseEvent('pointerdown', { clientY: 20 }) as PointerEvent)
+            result.current.startSectionDrag('first', new MouseEvent('pointerdown', { clientY: 20 }) as PointerEvent, 44)
+        })
+
+        act(() => {
             window.dispatchEvent(new MouseEvent('pointerup', { clientY: 180 }))
         })
 
@@ -52,7 +55,11 @@ describe('useCrossSectionDrag', () => {
         act(() => {
             result.current.registerSection('first', first)
             result.current.registerSection('second', second)
-            result.current.startSectionDrag('second', new MouseEvent('pointerdown', { clientY: 180 }) as PointerEvent)
+            result.current.startSectionDrag(
+                'second',
+                new MouseEvent('pointerdown', { clientY: 180 }) as PointerEvent,
+                44
+            )
             window.dispatchEvent(new MouseEvent('pointerup', { clientY: 50 }))
         })
 
