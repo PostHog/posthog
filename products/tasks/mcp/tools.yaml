@@ -501,6 +501,9 @@ tools:
     tasks-runs-cancel-create:
         operation: tasks_runs_cancel_create
         enabled: false
+    tasks-runs-clear-conversation-create:
+        operation: tasks_runs_clear_conversation_create
+        enabled: false
     tasks-runs-command-create:
         operation: tasks_runs_command_create
         enabled: false

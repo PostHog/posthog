@@ -19,6 +19,7 @@ export const DISPLAY_TYPES_TO_CATEGORIES: Record<ChartDisplayType, ChartDisplayC
     [ChartDisplayType.WorldMap]: ChartDisplayCategory.TotalValue,
     [ChartDisplayType.CalendarHeatmap]: ChartDisplayCategory.TotalValue,
     [ChartDisplayType.TwoDimensionalHeatmap]: ChartDisplayCategory.TotalValue,
+    [ChartDisplayType.ScatterPlot]: ChartDisplayCategory.TotalValue,
     [ChartDisplayType.BoxPlot]: ChartDisplayCategory.TimeSeries,
     // The slope's two points are the first and last interval bucket, so it's time-series at heart;
     // it keeps the group-by interval and InsightDisplayConfig hides the options between the ends.
@@ -34,6 +35,7 @@ export const NON_BREAKDOWN_DISPLAY_TYPES = [
     ChartDisplayType.Metric,
     ChartDisplayType.CalendarHeatmap,
     ChartDisplayType.TwoDimensionalHeatmap,
+    ChartDisplayType.ScatterPlot,
     ChartDisplayType.BoxPlot,
 ]
 /** Display types which only work with a single series. */
@@ -52,6 +54,7 @@ export const NON_VALUES_ON_SERIES_DISPLAY_TYPES = [
     ChartDisplayType.Metric,
     ChartDisplayType.CalendarHeatmap,
     ChartDisplayType.TwoDimensionalHeatmap,
+    ChartDisplayType.ScatterPlot,
 ]
 
 /** Display types for which a percent stack view is available. */
@@ -205,7 +208,6 @@ export const FEATURE_FLAGS = {
     BATCH_EXPORTS_POSTHOG_HTTP: 'posthog-http-batch-exports', // owner: #team-batch-exports
     BILLING_SKIP_FORECASTING: 'billing-skip-forecasting', // owner: @zach
     BOX_PLOT_INSIGHT: 'box-plot-insight', // owner: @pauldambra #team-product-analytics
-    COOKIELESS_SERVER_HASH_MODE_SETTING: 'cookieless-server-hash-mode-setting', // owner: #team-web-analytics
     EXPERIMENT_INTERVAL_TIMESERIES: 'experiments-interval-timeseries', // owner: @jurajmajerik #team-experiments
     GATEWAY_PERSONAL_API_KEY: 'gateway-personal-api-key', // owner: #team-platform-features
     HEATMAPS_COHORT_FILTER: 'heatmaps-cohort-filter', // owner: #team-web-analytics
@@ -360,7 +362,6 @@ export const FEATURE_FLAGS = {
     LOGS: 'logs', // owner: #team-logs
     LOGS_ALERTING: 'logs-alerting', // owner: #team-logs
     LOGS_ANOMALIES: 'logs-anomalies', // owner: @jonmcwest #team-logs
-    LOGS_COLUMN_CONFIGURATION: 'logs-column-configuration', // owner: #team-logs
     LOGS_GROUP_BY: 'logs-group-by', // owner: #team-logs
     LOGS_IN_ERROR_TRACKING: 'logs-in-error-tracking', // owner: @jonmcwest #team-logs
     LOGS_METRIC_RULES: 'logs-metric-rules', // owner: #team-logs
@@ -374,7 +375,6 @@ export const FEATURE_FLAGS = {
     LOGS_SETTINGS_RETENTION: 'logs-settings-retention', // owner: #team-logs
     LOGS_SETTINGS_RETENTION_RULES: 'logs-settings-retention-rules', // owner: #team-logs
     LOGS_SPARKLINE_SERVICE_BREAKDOWN: 'logs-sparkline-service-breakdown', // owner: #team-logs
-    LOGS_SQL_VIEW: 'logs-sql-view', // owner: #team-logs
     LOGS_TABBED_VIEW: 'logs-tabbed-view', // owner: #team-logs
     LOGS_TRANSFORMATIONS: 'logs-transformations', // owner: #team-logs
     MANAGED_MIGRATIONS_IAM_ROLE_AUTH: 'managed-migrations-iam-role-auth', // owner: #team-ingestion, gates IAM role auth for S3 batch imports
@@ -475,7 +475,7 @@ export const FEATURE_FLAGS = {
     REPLAY_PLAYLIST_SURFACING_SCORE: 'replay-playlist-surfacing-score', // owner: #team-replay
     REPLAY_TRIGGERS_V2: 'replay-triggers-v2', // owner: #team-replay
     REPLAY_UI_REDESIGN_2026: 'replay-ui-redesign-2026', // owner: #team-replay, New UI layout for replay
-    REPLAY_VIDEO_BASED_SUMMARIZATION: 'replay-video-based-summarization', // owner: #team-replay
+    REPLAY_VISION_EMPTY_STATE_EXPERIMENT: 'replay-vision-empty-state-experiment', // owner: #team-replay multivariate=control,templates,example-observations
     REPLAY_VISION_MODEL_TIER_NAMING_EXPERIMENT: 'replay-vision-model-tier-naming-experiment', // owner: #team-replay multivariate=control,test,lite-standard-pro
     REPLAY_VISION_SEND_REASONING: 'replay-vision-send-reasoning', // owner: #team-replay, gates the "include reasoning" checkbox on scanner alerts
     REVAMPED_PY_NOTEBOOKS: 'revamped-py-notebooks', // owner: #team-data-tools
@@ -543,6 +543,7 @@ export const FEATURE_FLAGS = {
     WEB_ANALYTICS_MARKETING: 'marketing-analytics', // owner: @jabahamondes #team-web-analytics
     WEB_ANALYTICS_METRIC_CARDS: 'web-analytics-metric-cards', // owner: #team-web-analytics
     WEB_ANALYTICS_OPEN_URL: 'web-analytics-open-url', // owner: @lricoy #team-web-analytics
+    WEB_ANALYTICS_PAGE_PERFORMANCE: 'web-analytics-page-performance', // owner: @jordanm-posthog #team-web-analytics
     WEB_ANALYTICS_PRECOMPUTE_TOGGLE: 'web-analytics-precompute-toggle', // owner: @lricoy #team-web-analytics
     WEB_ANALYTICS_RECAP: 'web-analytics-recap', // owner: @jordanm-posthog #team-web-analytics
     WEB_ANALYTICS_REGIONS_MAP: 'web-analytics-regions-map', // owner: @jordanm-posthog #team-web-analytics

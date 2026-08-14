@@ -249,6 +249,8 @@ pub struct IssueSnapshot {
     pub name: Option<String>,
     pub description: Option<String>,
     pub status: String,
+    #[serde(default)]
+    pub severity: Option<String>,
     pub created_at: DateTime<Utc>,
 }
 
@@ -270,6 +272,7 @@ mod tests {
                     name: Some("Example".to_string()),
                     description: Some("Example issue".to_string()),
                     status: "active".to_string(),
+                    severity: Some("high".to_string()),
                     created_at: DateTime::from_timestamp(0, 0).unwrap(),
                 },
                 event_properties: serde_json::from_value(serde_json::json!({
@@ -297,6 +300,7 @@ mod tests {
         assert_eq!(json["type"], "issue_created");
         assert_eq!(json["team_id"], 42);
         assert_eq!(json["fingerprint"], "abc");
+        assert_eq!(json["issue"]["severity"], "high");
         assert_eq!(json["event_properties"]["$exception_fingerprint"], "abc");
 
         // Round-trips back to the same JSON through the typed enum.
@@ -346,6 +350,7 @@ mod tests {
                     name: Some("Example".to_string()),
                     description: Some("Example issue".to_string()),
                     status: "active".to_string(),
+                    severity: None,
                     created_at: DateTime::from_timestamp(0, 0).unwrap(),
                 },
                 event_properties: serde_json::from_value(serde_json::json!({
@@ -372,6 +377,12 @@ mod tests {
         object.remove("notification_id");
         object.remove("event_uuid");
         object.remove("event_timestamp");
+        object
+            .get_mut("issue")
+            .unwrap()
+            .as_object_mut()
+            .unwrap()
+            .remove("severity");
 
         let decoded: IngestionNotification = serde_json::from_value(legacy_json).unwrap();
         let fallback_key = format!(

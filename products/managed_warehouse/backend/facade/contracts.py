@@ -26,7 +26,9 @@ __all__ = [
     "DuckgresStoredBucketConfig",
     "DuckgresStoredServerConfig",
     "DuckLakeCatalogConnectionConfig",
+    "DuckLakeCompiledQuery",
     "DuckLakeQueryResult",
+    "DuckLakeS3Secret",
     "DuckLakeTableResult",
     "ManagedWarehouseBackfillState",
     "ManagedWarehouseProvisionStatus",
@@ -219,6 +221,35 @@ class ManagedWarehouseSourceJobRecord:
     workflow_id: str | None
     workflow_run_id: str | None
     last_completed_at: datetime | None = None
+
+
+@dataclass(frozen=True, kw_only=True)
+class DuckLakeS3Secret:
+    """One temporary DuckDB S3 secret, scoped to a single self-managed table's object path."""
+
+    name: str
+    key_id: str = field(repr=False)
+    secret: str = field(repr=False)
+    region: str
+    scope: str
+    use_ssl: bool
+    url_style: str
+    endpoint: str | None = None
+
+
+@dataclass(frozen=True, kw_only=True)
+class DuckLakeCompiledQuery:
+    """A HogQL query compiled to DuckDB SQL, with the secrets its self-managed tables need.
+
+    ``s3_secrets`` covers only the self-managed tables the compiled schema still exposed after
+    warehouse access control, so a caller cannot install credentials for a table its query was
+    not allowed to read.
+    """
+
+    sql: str
+    values: dict[str, Any]
+    hogql: str
+    s3_secrets: tuple[DuckLakeS3Secret, ...] = ()
 
 
 @dataclass

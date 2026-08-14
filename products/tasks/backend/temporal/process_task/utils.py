@@ -574,16 +574,19 @@ def get_user_mcp_server_configs(
     allowed_installation_ids: list[str] | None = None,
     origin_product: str | None = None,
     task_agent_key: str | None = None,
+    credential_owner_id: int | None = None,
+    allowed_gateway_server_ids: list[str] | None = None,
 ) -> list[McpServerConfig]:
     """Fetch MCP Store installations for sandbox use and return configs.
 
     Unmapped tasks include shared team installations. Built-in agent tasks only
-    include the connections granted to that agent by the person the run acts
-    for, and never include a member's personal installations. This path does
-    not resolve that person yet, so built-in agent tasks currently get no Store
-    installations. A mapped origin without its persisted agent marker gets no
-    Store installations. Built-in agent handling is
-    gated per team on the ``mcp-gateway`` rollout flag; teams without it
+    include the connections granted to that agent: those ``credential_owner_id``
+    granted, plus any member's team-scoped grants. They never include a member's
+    personal installations. An agent task whose persisted owner is missing still
+    mounts the team-scoped grants, which is what keeps autonomous runs
+    (support replies, creatorless scouts) working. A mapped origin
+    without its persisted agent marker gets no Store installations. Built-in
+    agent handling is gated per team on the ``mcp-gateway`` rollout flag; teams without it
     resolve mapped origins like unmapped tasks. For unmapped tasks,
     ``include_personal`` includes the user's personal installations when a
     ``user_id`` is provided.
@@ -593,6 +596,11 @@ def get_user_mcp_server_configs(
     behavior for regular tasks), an empty list mounts nothing, and a populated list keeps only
     those installations. Without it, an unattended loop run would mount every shared team connector
     rather than only the ones its owner chose.
+
+    ``allowed_gateway_server_ids`` is the built-in agent counterpart (a scout's per-scout
+    selection, from ``Task.mcp_gateway_server_allowlist``): it narrows the agent's mounts to
+    the listed gateway servers regardless of grant scope. ``None`` leaves them unfiltered;
+    an empty list mounts nothing.
 
     The `x-posthog-mcp-consumer` header is set on every config so the agent's
     identity propagates through the MCP Store proxy to whichever upstream MCP
@@ -608,6 +616,8 @@ def get_user_mcp_server_configs(
         include_personal=include_personal,
         task_origin=origin_product,
         task_agent_key=task_agent_key,
+        credential_owner_id=credential_owner_id,
+        allowed_gateway_server_ids=allowed_gateway_server_ids,
     )
     if allowed_installation_ids is not None:
         allowed = {str(i) for i in allowed_installation_ids}
