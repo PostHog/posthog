@@ -234,7 +234,7 @@ export class ImageFetchRequestMetrics {
         this.shedDropped.inc(count)
     }
 
-    /** The runner owns both. Requirement 28. */
+    /** The runner owns both. Requirement 6.4. */
     public static trackBudget(budget: BudgetCounts, requests: InFlightCount): void {
         this.budget = budget
         this.requests = requests
@@ -243,7 +243,7 @@ export class ImageFetchRequestMetrics {
     /**
      * Read against `ml_image_fetch_requests_total` this is the amplification factor, because the lane
      * reads every republished message again. A rate that approaches the request rate means most work
-     * goes around rather than completes. Requirement 27.
+     * goes around rather than completes. Requirement 6.3.
      */
     private static readonly republished = new Counter({
         name: 'ml_image_fetch_republished_total',
@@ -257,7 +257,7 @@ export class ImageFetchRequestMetrics {
     })
     /**
      * Zero is the common case, which is a URL fetched on first sight. The tail shows redirect chains
-     * and retries, and a value at the budget is a URL the lane gave up on. Requirement 26.
+     * and retries, and a value at the budget is a URL the lane gave up on. Requirement 6.2.
      */
     private static readonly hopsUsed = new Histogram({
         name: 'ml_image_fetch_hops_used',
@@ -309,7 +309,7 @@ export class RetryDelayMetrics {
  *
  * The team ID space is in the low millions, so this bounds `pseudo_team` here rather than at the
  * database. The busiest teams keep their name, everything else is one `other` row, and the count of
- * distinct teams is an estimate in a single series. Requirements 29, 30, and 31.
+ * distinct teams is an estimate in a single series. Requirements 6.5, 6.6, and 6.7.
  *
  * Nothing on this path holds the team ID, so a team ID label here would need the mirror to send it.
  */

@@ -146,7 +146,7 @@ describe('HttpImageFetcher', () => {
         expect(fetchStreamedMock).toHaveBeenCalledTimes(1)
     })
 
-    it('refuses a downgrade when the first hop named its scheme in capitals (requirement 9)', async () => {
+    it('refuses a downgrade when the first hop named its scheme in capitals (requirement 2.4)', async () => {
         // A record can carry `HTTPS://`, because the parser validates a parsed copy and stores the
         // string it was given. A guard that reads the raw string misses the capitals and follows
         // the hop in clear text. `URL.protocol` is lower case whatever the URL used.
@@ -162,7 +162,7 @@ describe('HttpImageFetcher', () => {
         ['a host the collector would have refused', 'https://internal.corp/a.png', { isPublicHost: () => false }],
         ['a target past the length limit', `https://cdn.example.com/${'a'.repeat(300)}.png`, { maxUrlLength: 100 }],
         ['a port the scheme does not own', 'https://cdn.example.com:11211/a.png', {}],
-    ])('refuses a redirect to %s (requirement 8)', async (_name, location, policy) => {
+    ])('refuses a redirect to %s (requirement 2.3)', async (_name, location, policy) => {
         // The collector applied these checks to the first candidate. A redirect target has passed
         // none of them, so a hop could otherwise reach a name that resolves only inside a network.
         fetchStreamedMock.mockResolvedValue(respond(302, { location }))
@@ -173,7 +173,7 @@ describe('HttpImageFetcher', () => {
         expect(fetchStreamedMock).toHaveBeenCalledTimes(1)
     })
 
-    it('hands off an offsite target that arrives at the redirect limit (requirement 7)', async () => {
+    it('hands off an offsite target that arrives at the redirect limit (requirement 2.2)', async () => {
         // The limit bounds the hops this request follows itself. Nobody here follows a target for
         // another operator, so it goes back to Kafka and costs one hop rather than being written off
         // with hops left.

@@ -60,7 +60,7 @@ export interface ImageFetchOptions {
      *
      * The fetch asks this before it applies the redirect limit, and the question spends nothing. The
      * limit bounds the hops this request follows itself. Nobody here follows a target for another
-     * operator, so it goes back to Kafka and costs one hop instead. Requirement 7.
+     * operator, so it goes back to Kafka and costs one hop instead. Requirement 2.2.
      */
     isOffsite: (url: URL) => boolean
 }
@@ -246,7 +246,7 @@ export function parseRetryAfterMs(value: string | undefined): number | undefined
  * The collector applied all of these to the first candidate before it reached the topic. A redirect
  * target has passed none of them, so a hop could otherwise reach a host the collector would have
  * refused, such as a single-label name, or a name under a suffix that resolves only inside a
- * network. Requirement 8.
+ * network. Requirement 2.3.
  */
 export interface RedirectPolicy {
     maxUrlLength: number
@@ -260,7 +260,7 @@ function resolveRedirect(from: string, location: string, policy: RedirectPolicy)
     } catch {
         return null
     }
-    // Requirement 9: no downgrade to plain HTTP. `URL.protocol` is lower case already, which a
+    // Requirement 2.4: no downgrade to plain HTTP. `URL.protocol` is lower case already, which a
     // comparison against the raw location string is not.
     if (next.protocol !== 'https:') {
         return null

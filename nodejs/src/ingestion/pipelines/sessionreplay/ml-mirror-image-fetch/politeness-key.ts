@@ -23,7 +23,7 @@ function addon(): typeof import('@posthog/replay-anonymizer') {
 /**
  * Load the addon now, so a stale `index.node` stops the pod at startup.
  *
- * The parser calls into it for every URL, and requirement 23 says a record is counted and dropped
+ * The parser calls into it for every URL, and requirement 5.4 says a record is counted and dropped
  * rather than thrown. A throw from there would crash loop on the first batch and stall the
  * partition for every site on it.
  */
@@ -41,7 +41,7 @@ export function politenessKey(host: string): string {
  *
  * The connection layer refuses a private address, so this is not the only guard against one. It is
  * the only guard against a name that looks internal and whose DNS answer is public, because no
- * address check can refuse that. Requirement 35.
+ * address check can refuse that. Requirement 7.4.
  */
 export function isPublicHost(host: string): boolean {
     return addon().isPublicHost(host)

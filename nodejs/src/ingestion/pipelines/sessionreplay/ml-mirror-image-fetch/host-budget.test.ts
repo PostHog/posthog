@@ -94,7 +94,7 @@ describe('HostBudget', () => {
 
         host.recordBackoff('example.com', 1000)
         // The burst went with the halving, so even the first request waits. At 2 per second rather
-        // than 4, that wait is 500ms. Requirement 16.
+        // than 4, that wait is 500ms. Requirement 4.1.
         expect(host.take('example.com', 1000, FAR_FUTURE)).toEqual({ granted: true, waitMs: 500 })
         expect(host.take('example.com', 1000, FAR_FUTURE)).toEqual({ granted: true, waitMs: 1000 })
 
@@ -105,7 +105,7 @@ describe('HostBudget', () => {
         expect(host.take('example.com', 20_000, FAR_FUTURE)).toEqual({ granted: true, waitMs: 250 })
     })
 
-    it('makes one failure reach the URLs already queued for the domain (requirement 16)', () => {
+    it('makes one failure reach the URLs already queued for the domain (requirement 4.1)', () => {
         // Without this a site that just failed still receives the whole burst, and the cut reaches
         // only the URLs behind them.
         const host = budget({ requestsPerSecond: 1, burst: 5 })

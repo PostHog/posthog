@@ -7,7 +7,7 @@ import { TeamVolume } from './team-volume'
  * often enough that no small test fails.
  */
 describe('TeamVolume', () => {
-    it('names the busiest teams and sums the rest into one bucket (requirement 29)', () => {
+    it('names the busiest teams and sums the rest into one bucket (requirement 6.5)', () => {
         const volume = new TeamVolume(2)
         volume.record('busiest', 100)
         volume.record('second', 50)
@@ -34,7 +34,7 @@ describe('TeamVolume', () => {
         [10, 10],
         [500, 500],
         [50_000, 50_000],
-    ])('estimates %i distinct teams (requirement 30)', (teams, expected) => {
+    ])('estimates %i distinct teams (requirement 6.6)', (teams, expected) => {
         // A reader takes the order of magnitude, so a few percent of error costs nothing. A set would
         // be exact and would cost hundreds of megabytes at the top of this range.
         const volume = new TeamVolume()
@@ -60,7 +60,7 @@ describe('TeamVolume', () => {
         expect(volume.trackedTeams).toBeLessThanOrEqual(200)
     })
 
-    it('keeps a busy team named through a flood of teams seen once (requirement 29)', () => {
+    it('keeps a busy team named through a flood of teams seen once (requirement 6.5)', () => {
         // Space-Saving holds any team whose share is above total divided by the counters kept. Here
         // that is 15000 over 20, so 750, and a team at a third of all volume sits far above it.
         // Someone who spreads traffic over many tokens therefore cannot hide a heavy team.

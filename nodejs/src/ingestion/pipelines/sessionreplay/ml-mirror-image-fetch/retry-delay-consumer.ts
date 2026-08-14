@@ -19,7 +19,7 @@ export interface RetryDelayConsumerOptions {
     /**
      * Called only for a record this consumer finished with. The consumer that owns this one stores
      * offsets for a whole batch once the handler returns, whatever the handler did with the
-     * records, so a record abandoned mid-wait would commit and never be seen again. Requirement 21.
+     * records, so a record abandoned mid-wait would commit and never be seen again. Requirement 5.2.
      */
     storeOffset: (message: Message) => void
 }
@@ -54,7 +54,7 @@ export class RetryDelayConsumer {
             if (this.stopping()) {
                 // The record stays where it is, with no offset stored. The next pod to own this
                 // partition reads it again and waits out what is left of its period, measured from
-                // when it was written. Requirement 21.
+                // when it was written. Requirement 5.2.
                 RetryDelayMetrics.incReleased('abandoned')
                 return
             }
@@ -70,7 +70,7 @@ export class RetryDelayConsumer {
                 // Thrown, not returned. Returning holds this batch and no more: the next poll reads
                 // the records after it and stores one of their offsets, and an offset is a high
                 // water mark, so that commits this record too. A throw leaves the poll loop, so
-                // nothing is stored and the record is read again. Requirement 21.
+                // nothing is stored and the record is read again. Requirement 5.2.
                 throw new Error('the image fetch retry lane could not publish a record back to the frontier')
             }
             this.options.storeOffset(message)

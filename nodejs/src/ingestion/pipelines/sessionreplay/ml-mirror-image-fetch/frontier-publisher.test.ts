@@ -38,7 +38,7 @@ function build(): { publisher: FrontierPublisher; sent: { topic: string; key: st
 }
 
 describe('FrontierPublisher', () => {
-    it('keeps the original ref when handing a redirect target on (requirement 10)', async () => {
+    it('keeps the original ref when handing a redirect target on (requirement 2.5)', async () => {
         // The recording points at the original ref. A hash of the redirect target names an image
         // nothing refers to, so the fetch would succeed and the image would still be unreachable.
         const { publisher, sent } = build()
@@ -58,7 +58,7 @@ describe('FrontierPublisher', () => {
         })
     })
 
-    it('spends a hop on every republish (requirement 11)', async () => {
+    it('spends a hop on every republish (requirement 3.1)', async () => {
         const { publisher, sent } = build()
 
         await publisher.republish(candidate({ hopsRemaining: 4 }), targetOf(), 'retry', 0)
@@ -88,7 +88,7 @@ describe('FrontierPublisher', () => {
         expect(sent[0].topic).toBe(topic)
     })
 
-    it('never sends a retry straight back to the frontier (requirement 14)', async () => {
+    it('never sends a retry straight back to the frontier (requirement 3.4)', async () => {
         // A retry sent to the frontier is a loop: the consumer reads the record, meets the same
         // condition, and publishes it again, spending a hop each lap until the URL is written off
         // without ever being fetched.
@@ -109,7 +109,7 @@ describe('FrontierPublisher', () => {
         expect(sent[0].body.notBeforeMs).toBe(0)
     })
 
-    it('keeps the requested wait when it is longer than every tier (requirement 15)', async () => {
+    it('keeps the requested wait when it is longer than every tier (requirement 3.5)', async () => {
         // A site that names a day comes back after an hour. The record says it is not due, so the
         // consumer leaves it alone rather than fetching it 23 hours early.
         const { publisher, sent } = build()

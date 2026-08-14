@@ -22,15 +22,15 @@ export interface FetchCandidate {
     domain: string
     pseudoTeam: string
     capturedAtMs: number
-    /** Moves this URL may still make. A republish and a retry each spend one. Requirement 11. */
+    /** Moves this URL may still make. A republish and a retry each spend one. Requirement 3.1. */
     hopsRemaining: number
-    /** The lane must not fetch this URL before this epoch ms. Zero means now. Requirement 15. */
+    /** The lane must not fetch this URL before this epoch ms. Zero means now. Requirement 3.5. */
     notBeforeMs: number
 }
 
 /**
  * One budget rather than one counter for redirects and another for retries, because a chain that
- * alternates between the two would otherwise never end. Requirement 11.
+ * alternates between the two would otherwise never end. Requirement 3.1.
  */
 export const MAX_HOPS = 10
 
@@ -111,7 +111,7 @@ export function parseCollectedUrlsRecord(value: Buffer | null, key: string | nul
         }
         // The connection layer refuses a private address, so this is not the only guard against
         // one. It is the only guard against a name that looks internal and resolves to a public
-        // address, because no address check can refuse that. Requirement 35.
+        // address, because no address check can refuse that. Requirement 7.4.
         if (!isPublicHost(withoutTrailingDot(host))) {
             rejected.push({ reason: 'private_host' })
             continue
@@ -148,7 +148,7 @@ function clampHops(value: unknown): number {
  * of `cdn.example.com` would give that subdomain a rate budget of its own, and a producer that
  * writes one key for each subdomain would hand one operator a multiple of the rate we promise it.
  * The key also decides the partition, so a record that fails this test is on the wrong partition as
- * well. Requirement 3.
+ * well. Requirement 1.3.
  *
  * This drops the trailing dot first. `example.com.` and `example.com` name the same host, and a
  * record written before the producer stripped the dot carries the dotted form.
@@ -198,7 +198,7 @@ function urlDropReason(url: string, host: string): Extract<UrlDropReason, 'bad_u
     try {
         const parsed = new URL(url)
         // HTTPS only, which is what the collector produces. A plain HTTP URL would put an image on
-        // the wire in clear text, and requirement 9 keeps a redirect off HTTP only if the first URL
+        // the wire in clear text, and requirement 2.4 keeps a redirect off HTTP only if the first URL
         // is HTTPS.
         if (parsed.protocol !== 'https:' || parsed.hostname !== host) {
             return 'bad_url'

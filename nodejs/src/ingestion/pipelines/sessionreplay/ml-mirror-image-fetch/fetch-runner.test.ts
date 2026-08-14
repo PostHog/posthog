@@ -175,7 +175,7 @@ describe('FetchRunner', () => {
         expect(attempts).toHaveLength(many.length)
     })
 
-    it('hands a redirect off rather than following it to another domain (requirement 7)', async () => {
+    it('hands a redirect off rather than following it to another domain (requirement 2.2)', async () => {
         const published: { domain: string; url: string; reason: string }[] = []
         const publisher = {
             republish: (candidate: FetchCandidate, target: { url: string; domain: string }, reason: string) => {
@@ -205,7 +205,7 @@ describe('FetchRunner', () => {
         expect(attempts[0].finished).toBe(false)
     })
 
-    it('stops a redirect whose domain was blocked while it waited (requirement 5)', async () => {
+    it('stops a redirect whose domain was blocked while it waited (requirement 1.5)', async () => {
         const budget = new HostBudget({
             requestsPerSecond: 1,
             burst: 1,
@@ -231,7 +231,7 @@ describe('FetchRunner', () => {
         expect(decision).toBe('defer')
     })
 
-    it('follows a redirect that stays on the same domain (requirement 6)', async () => {
+    it('follows a redirect that stays on the same domain (requirement 2.1)', async () => {
         let decision: RedirectDecision | undefined
         const fetcher: ImageFetcher = {
             fetch: async (_url, options) => {
@@ -245,7 +245,7 @@ describe('FetchRunner', () => {
         expect(decision).toBe('allow')
     })
 
-    it('publishes a transient failure to a delay topic rather than dropping it (requirement 14)', async () => {
+    it('publishes a transient failure to a delay topic rather than dropping it (requirement 3.4)', async () => {
         const published: { reason: string; waitMs: number }[] = []
         const publisher = {
             republish: (_c: FetchCandidate, _t: unknown, reason: string, waitMs: number) => {
@@ -271,7 +271,7 @@ describe('FetchRunner', () => {
             },
         ],
     ])(
-        'reports %s the publisher could not send, so the batch does not commit past it (requirement 21)',
+        'reports %s the publisher could not send, so the batch does not commit past it (requirement 5.2)',
         async (_name, result) => {
             const publisher = { republish: () => Promise.resolve(false) } as unknown as FrontierPublisher
             const fetcher = new FakeFetcher(() => result)
@@ -291,7 +291,7 @@ describe('FetchRunner', () => {
         expect(attempts[0]).toMatchObject({ finished: false, lost: false })
     })
 
-    it('checks again when a request reaches the front of the pod queue (requirement 5)', async () => {
+    it('checks again when a request reaches the front of the pod queue (requirement 1.5)', async () => {
         // A sibling request can meet a `Retry-After` while this one waits for a pod slot, and a
         // request sent after that reaches a site which just asked to be left alone.
         const budget = defaultBudget()
@@ -386,7 +386,7 @@ describe('FetchRunner', () => {
         expect(peak).toBeLessThanOrEqual(1000 + 40 * OPTIONS.maxConcurrentPerDomain)
     })
 
-    it('gives up and records a URL with no hops left (requirement 12)', async () => {
+    it('gives up and records a URL with no hops left (requirement 3.2)', async () => {
         const publisher = { republish: () => Promise.resolve(true) } as unknown as FrontierPublisher
         const fetcher = new FakeFetcher(() => ({ outcome: 'timeout' }))
         const spent = { ...candidate('example.com', 0), hopsRemaining: 1 }
@@ -431,7 +431,7 @@ describe('FetchRunner', () => {
         expect(attempts.some((a) => a.outcome === 'rate_limited')).toBe(expectHeld)
     })
 
-    it('does not send a request whose domain was blocked while it waited (requirement 5)', async () => {
+    it('does not send a request whose domain was blocked while it waited (requirement 1.5)', async () => {
         const budget = new HostBudget({
             requestsPerSecond: 1,
             burst: 1,
@@ -454,7 +454,7 @@ describe('FetchRunner', () => {
         expect(attempts.filter((a) => a.outcome === 'rate_limited')).toHaveLength(1)
     })
 
-    it('returns the token of a request it did not send (requirement 5)', () => {
+    it('returns the token of a request it did not send (requirement 1.5)', () => {
         const budget = new HostBudget({
             requestsPerSecond: 1,
             burst: 2,

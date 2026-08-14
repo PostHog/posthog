@@ -11,7 +11,7 @@
  *      guess.
  *
  * These pull in opposite directions on the one signal that serves both — "has this session been seen?"
- * — which decides both whether to rate-limit AND whether to generate vs fetch the encryption key. Rule 2
+ * — which decides both whether to rate-limit AND whether to generate vs fetch the encryption key. Rule 1.2
  * is stricter, so it wins there. That gives the per-op policy this suite locks in:
  *
  *   | Redis op                     | drives                          | policy                        |

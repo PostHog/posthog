@@ -44,7 +44,7 @@ describe('parseCollectedUrlsRecord', () => {
     it.each([
         ['a key that is a subdomain rather than the operator', 'cdn.example.com', 'cdn.example.com'],
         ['a key belonging to another operator', 'cdn.example.com', 'other.net'],
-    ])('drops %s (requirement 3)', (_name, host, key) => {
+    ])('drops %s (requirement 1.3)', (_name, host, key) => {
         // The key scopes the rate budget. One key for each subdomain would give one operator a
         // multiple of the rate we promise it, and the record would be on the wrong partition too.
         const value = Buffer.from(
@@ -61,7 +61,7 @@ describe('parseCollectedUrlsRecord', () => {
     it.each([
         ['plain HTTP', 'http://cdn.example.com/a.png'],
         ['a scheme this lane never fetches', 'ftp://cdn.example.com/a.png'],
-    ])('drops %s (requirements 34 and 35)', (_name, url) => {
+    ])('drops %s (requirements 7.3 and 7.4)', (_name, url) => {
         // The collector produces HTTPS only. Anything else means a wrong or stale producer, and a
         // fetch would put an image on the wire in clear text.
         const value = Buffer.from(
@@ -78,7 +78,7 @@ describe('parseCollectedUrlsRecord', () => {
         ['a name that only resolves inside a network', 'wiki.corp'],
         ['a link-local address', '169.254.169.254'],
         ['a loopback address', '127.0.0.1'],
-    ])('drops %s (requirement 35)', (_name, host) => {
+    ])('drops %s (requirement 7.4)', (_name, host) => {
         // The connect-time address check cannot refuse a name like wiki.corp whose DNS answer is
         // public, so this is the only place that does.
         const value = Buffer.from(

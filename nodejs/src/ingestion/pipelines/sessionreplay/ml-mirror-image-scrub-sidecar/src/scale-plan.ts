@@ -98,7 +98,7 @@ export function faceWindowLong(long: number, short: number, tileAbove: number, t
     return Math.min(long, Math.max(tileAspect * short, toFitCap))
 }
 
-/** Scale that fits `dims` inside an area budget, never above 1 because rule 1 forbids upscaling. */
+/** Scale that fits `dims` inside an area budget, never above 1 because rule 1.1 forbids upscaling. */
 export function scaleToArea(dims: Dims, budgetPixels: number): number {
     return Math.min(1, Math.sqrt(budgetPixels / (dims.width * dims.height)))
 }
@@ -159,7 +159,7 @@ export function fitToCanvas(dims: Dims, budgetPixels: number, stride: number): {
  * How much of the frame the face detector sees.
  *
  * Scaling the long side to fill the square maximises the subject at the model, which is what recall
- * wants, so enlarging a frame smaller than the square is deliberate and allowed by rule 1: the size
+ * wants, so enlarging a frame smaller than the square is deliberate and allowed by rule 1.1: the size
  * is the model's, not ours. What matters here is only the reduction, since that is what narrows the
  * ratio.
  *

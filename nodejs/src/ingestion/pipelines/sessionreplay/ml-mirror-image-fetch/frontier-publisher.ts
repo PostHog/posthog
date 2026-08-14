@@ -26,7 +26,7 @@ export type RepublishReason = 'redirect' | 'retry' | 'not_ready'
  * target goes back as a new candidate. A transient failure cannot be retried here either, because
  * waiting in place holds the partition against every other site on it.
  *
- * Both spend a hop, so neither can go around forever. See the README, requirements 7 and 11 to 15.
+ * Both spend a hop, so neither can go around forever. See the README, requirements 2.2 and 3.1 to 3.5.
  */
 export class FrontierPublisher {
     constructor(
@@ -40,7 +40,7 @@ export class FrontierPublisher {
 
     /**
      * The ref stays the original one. The recording points at that ref, and a hash of a redirect
-     * target matches nothing, so a new ref would leave the image unreachable. Requirement 10.
+     * target matches nothing, so a new ref would leave the image unreachable. Requirement 2.5.
      */
     public async republish(
         candidate: FetchCandidate,
@@ -68,7 +68,7 @@ export class FrontierPublisher {
                 hopsRemaining,
                 // The longer of the wait asked for and the period of the tier holding it. A wait
                 // past the longest tier arrives before it is due, and the consumer sends it back
-                // for the rest. Requirement 15.
+                // for the rest. Requirement 3.5.
                 notBeforeMs: tier ? Date.now() + Math.max(waitMs, tier.delayMs) : 0,
                 urls: [{ ref: candidate.ref, url: target.url, host: target.host }],
             })
@@ -78,7 +78,7 @@ export class FrontierPublisher {
             await this.producer.produce({ topic, key: Buffer.from(target.domain), value })
         } catch (error) {
             // Nothing throws here, because one failed produce must not abandon the rest of the
-            // batch. The caller counts the false return and holds the batch instead. Requirement 21.
+            // batch. The caller counts the false return and holds the batch instead. Requirement 5.2.
             logger.warn('🌐', 'ml_image_fetch_republish_failed', {
                 reason,
                 topic,

@@ -33,11 +33,11 @@ const DEFAULT_LOCAL_CACHE_MAX_SIZE = 100_000
  *   2. Anything that could corrupt encryption — recording without a key (cleartext), or switching a
  *      session's key mid-stream — must FAIL HARD (throw and let the retry re-run), never guess.
  *
- * {@link hasSeen} answers "new or existing?", which the record path uses BOTH to rate-limit (rule 1)
- * AND to decide generate-vs-fetch of the encryption key (rule 2). Because a wrong answer there records
- * cleartext or switches keys, rule 2 wins: hasSeen fails hard. {@link markSeen} only persists the seen
+ * {@link hasSeen} answers "new or existing?", which the record path uses BOTH to rate-limit (rule 1.1)
+ * AND to decide generate-vs-fetch of the encryption key (rule 1.2). Because a wrong answer there records
+ * cleartext or switches keys, rule 1.2 wins: hasSeen fails hard. {@link markSeen} only persists the seen
  * flag; if it's lost the session is treated as new again next batch, but the key store is idempotent
- * (same key, no cleartext, no switch), so there's no integrity risk — it fails open under rule 1, with
+ * (same key, no cleartext, no switch), so there's no integrity risk — it fails open under rule 1.1, with
  * the local cache masking the loss on this consumer.
  */
 export class SessionTracker {
@@ -130,7 +130,7 @@ export class SessionTracker {
      * key has been durably generated, so a failure before the key exists leaves the session unseen and
      * the retry regenerates.
      *
-     * Fails open (rate-limiting rule 1 — see the class doc): if Redis is unavailable the marks aren't
+     * Fails open (rate-limiting rule 1.1 — see the class doc): if Redis is unavailable the marks aren't
      * persisted, but the local cache still records them for this consumer (the same session stays on this
      * consumer via partition affinity). A lost mark can only make the session look new again later, which
      * the idempotent key store handles without any cleartext/key-switch — so there's no integrity reason

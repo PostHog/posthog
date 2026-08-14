@@ -85,7 +85,7 @@ export class HostBudget {
      *
      * A caller that waited for a token asks again before it sends. A `Retry-After` or an open
      * breaker can arrive during a wait, and a request sent after that reaches a site which just
-     * asked to be left alone. Requirement 5.
+     * asked to be left alone. Requirement 1.5.
      */
     public blockedReason(domain: string, nowMs: number): 'breaker_open' | 'rate_limited' | null {
         const state = this.domains.get(domain)
@@ -160,7 +160,7 @@ export class HostBudget {
      *
      * The tokens go with it. A domain holds a burst while it is idle, so without this the URLs
      * already queued behind the failed one would leave at the old rate and the cut would reach only
-     * the URLs after them. Requirement 16.
+     * the URLs after them. Requirement 4.1.
      */
     public recordBackoff(domain: string, nowMs: number): void {
         const state = this.stateFor(domain, nowMs)

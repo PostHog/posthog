@@ -28,7 +28,7 @@ const HLL_REGISTERS = 1 << HLL_REGISTER_BITS
  * combination for the life of the pod. So this class holds the identities of the busiest teams,
  * bounded, and counts everything else without a name.
  *
- * Requirements 29, 30, and 31.
+ * Requirements 6.5, 6.6, and 6.7.
  */
 export class TeamVolume {
     private readonly counts = new Map<string, number>()

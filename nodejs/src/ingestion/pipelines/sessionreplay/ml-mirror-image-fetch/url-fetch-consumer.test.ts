@@ -160,7 +160,7 @@ describe('UrlFetchConsumer', () => {
         ['still waiting out its delay', NOW + 60_000, 0, [{ reason: 'not_ready', waitMs: 60_000 }]],
         ['past its delay', NOW - 1, 1, []],
     ])(
-        'handles a retry that is %s (requirement 15)',
+        'handles a retry that is %s (requirement 3.5)',
         async (_name, notBeforeMs, expectedWrites, expectedRepublishes) => {
             // A record can come back before its wait is over, because a wait longer than the longest
             // delay topic goes round that topic again. An early fetch would reach a site that asked
@@ -182,7 +182,7 @@ describe('UrlFetchConsumer', () => {
         }
     )
 
-    it('records a URL that is not ready and has no hops left (requirements 12 and 24)', async () => {
+    it('records a URL that is not ready and has no hops left (requirements 3.2 and 5.5)', async () => {
         // It cannot go round again, and nothing else holds it. Without an entry it comes back on
         // every session that refers to the image and is dropped again each time.
         const body = {
@@ -201,7 +201,7 @@ describe('UrlFetchConsumer', () => {
         expect(republished).toEqual([])
     })
 
-    it('fails the batch when a URL that is not ready cannot be sent back (requirement 21)', async () => {
+    it('fails the batch when a URL that is not ready cannot be sent back (requirement 5.2)', async () => {
         publisher = { republish: () => Promise.resolve(false) } as unknown as FrontierPublisher
         const body = { v: 1, pseudoTeam: TEAM, capturedAtMs: NOW, notBeforeMs: NOW + 60_000, urls: [url('a')] }
         const early = message(Buffer.from(JSON.stringify(body)), 'example.com')
@@ -308,7 +308,7 @@ describe('UrlFetchConsumer', () => {
     })
 
     it('commits a batch whose store write failed, because the URL was fetched', async () => {
-        // A missing crawl history entry costs one duplicate fetch later, which requirement 22
+        // A missing crawl history entry costs one duplicate fetch later, which requirement 5.3
         // allows. A replay would cost the same duplicate and stall the partition too.
         crawlHistory.writeFailure = new Error('redis down')
 
@@ -316,7 +316,7 @@ describe('UrlFetchConsumer', () => {
     })
 
     it('replays the batch when the pass could not put a URL back, rather than committing past it', async () => {
-        // Requirement 21. Nothing else holds a URL whose republish failed, so its offset must not
+        // Requirement 5.2. Nothing else holds a URL whose republish failed, so its offset must not
         // commit.
         const runner: FetchPass = {
             run: (candidates: FetchCandidate[]) =>

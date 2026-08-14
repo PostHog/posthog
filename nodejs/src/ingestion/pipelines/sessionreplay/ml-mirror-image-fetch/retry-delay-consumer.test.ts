@@ -131,7 +131,7 @@ describe('RetryDelayConsumer', () => {
     })
 
     it('stores each offset as it goes, so a shutdown keeps only the records it did not reach', async () => {
-        // Requirement 21. The consumer that owns this one stores offsets for a whole batch once the
+        // Requirement 5.2. The consumer that owns this one stores offsets for a whole batch once the
         // handler returns, so anything left unstored here must stay unstored there.
         let releasedSoFar = 0
         const { consumer, published, stored } = build({

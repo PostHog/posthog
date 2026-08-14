@@ -12,7 +12,7 @@ import { politenessKey } from './politeness-key'
 /** Why a URL never reached a request. It shares `rate_limited` with the response of the same name, because both mean the site asked us to wait. */
 export type ShedReason = 'breaker_open' | 'rate_limited' | 'deadline' | 'connection_limit'
 
-/** A URL that ran out of hops. The lane records it so it stops coming back. Requirement 12. */
+/** A URL that ran out of hops. The lane records it so it stops coming back. Requirement 3.2. */
 export const HOPS_EXHAUSTED = 'hops_exhausted'
 
 export type AttemptOutcome = FetchOutcome | ShedReason | typeof HOPS_EXHAUSTED
@@ -25,14 +25,14 @@ export interface FetchAttempt {
      *
      * False means the URL comes back, from a republish to the frontier or to a delay topic, or from
      * a failed republish. A crawl history entry for one of those stops it ever being fetched.
-     * Requirements 12 and 24.
+     * Requirements 3.2 and 5.5.
      */
     finished: boolean
     /**
      * True when the URL was meant to go back to Kafka and did not.
      *
      * Nothing else holds it, so its offset must not commit. The URL is otherwise gone until a
-     * session refers to the same image again. Requirement 21.
+     * session refers to the same image again. Requirement 5.2.
      */
     lost: boolean
 }
@@ -271,13 +271,13 @@ export class FetchRunner implements FetchPass {
                 if (grant.waitMs > 0) {
                     await delay(grant.waitMs)
                     // The budget granted this before the wait. A `Retry-After` or an open breaker
-                    // can arrive during the wait, and the deadline can pass. Requirement 5.
+                    // can arrive during the wait, and the deadline can pass. Requirement 1.5.
                     const stale = this.staleAfterWait(domain, deadlineMs)
                     if (stale) {
                         this.budget.returnGrant(domain, Date.now())
                         // The whole back queue, not this URL alone. Whatever went stale during the
                         // wait is a property of the domain, so it holds for every URL still queued
-                        // for it. Requirement 16.
+                        // for it. Requirement 4.1.
                         await shedRemaining(stale, candidate)
                         return
                     }
@@ -290,7 +290,7 @@ export class FetchRunner implements FetchPass {
         await Promise.all(Array.from({ length: workers }, () => worker()))
     }
 
-    /** Why a granted request must not go out after its wait, or null when it may still go out. Requirement 5. */
+    /** Why a granted request must not go out after its wait, or null when it may still go out. Requirement 1.5. */
     private staleAfterWait(domain: string, deadlineMs: number): ShedReason | null {
         const nowMs = Date.now()
         const blocked = this.budget.blockedReason(domain, nowMs)
@@ -348,7 +348,7 @@ export class FetchRunner implements FetchPass {
                     // The pod queue is the third place a request waits, after the token bucket and
                     // the connection limit, and it can hold a request longest because its slots
                     // serve every domain this pod owns. A sibling request can meet a `Retry-After`
-                    // while this one queues. Requirement 5.
+                    // while this one queues. Requirement 1.5.
                     const stale = this.staleAfterWait(candidate.domain, deadlineMs)
                     if (stale) {
                         return Promise.resolve({ shed: stale })
@@ -450,8 +450,8 @@ export class FetchRunner implements FetchPass {
      * Put a URL back for another try, or give up on it.
      *
      * The lane records a URL with no hops left, so it stops coming back and stops costing requests.
-     * Requirement 12. Everything else goes to the delay topic whose period covers the wait, and the
-     * lane records nothing, because the URL has no answer yet. Requirements 13 to 15.
+     * Requirement 3.2. Everything else goes to the delay topic whose period covers the wait, and the
+     * lane records nothing, because the URL has no answer yet. Requirements 3.3 to 3.5.
      */
     private async reschedule(
         candidate: FetchCandidate,
@@ -473,7 +473,7 @@ export class FetchRunner implements FetchPass {
      *
      * This pod does not follow the hop. That domain's rate, breaker, and connection count live in
      * the pod holding its partition, and a hop followed from this pod spends none of them.
-     * Requirement 7.
+     * Requirement 2.2.
      */
     private async handOff(candidate: FetchCandidate, target: { url: string; host: string }): Promise<FetchAttempt> {
         if (candidate.hopsRemaining <= 1) {
@@ -505,7 +505,7 @@ export class FetchRunner implements FetchPass {
         if (grant.waitMs > 0) {
             await delay(grant.waitMs)
             // A `Retry-After` or an open breaker can arrive while a redirect waits, exactly as it
-            // can while a first request waits. Requirement 5.
+            // can while a first request waits. Requirement 1.5.
             if (this.staleAfterWait(domain, deadlineMs)) {
                 this.budget.returnGrant(domain, Date.now())
                 return 'defer'

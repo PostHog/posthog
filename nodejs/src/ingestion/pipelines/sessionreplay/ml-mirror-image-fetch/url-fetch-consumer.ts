@@ -27,7 +27,7 @@ export interface UrlFetchConsumerOptions {
  */
 export class UrlFetchConsumer {
     private readonly seenRefs: RefDedupCache
-    /** Bounded on purpose: one series for each busy team, one for the rest, one estimate. Requirement 31. */
+    /** Bounded on purpose: one series for each busy team, one for the rest, one estimate. Requirement 6.7. */
     private readonly teamVolume = new TeamVolume()
 
     constructor(
@@ -86,7 +86,7 @@ export class UrlFetchConsumer {
                 }
                 if (candidate.notBeforeMs > nowMs) {
                     // A wait longer than the longest tier, so the tier it came out of covered only
-                    // part of it. It goes back for the rest and spends a hop. Requirement 15.
+                    // part of it. It goes back for the rest and spends a hop. Requirement 3.5.
                     notReady.push(candidate)
                     continue
                 }
@@ -133,11 +133,11 @@ export class UrlFetchConsumer {
         if (lost > 0) {
             // Thrown last, so the counts above publish first. The consumer stores offsets only after
             // this returns, so a throw replays the batch on the pod that takes the partition next.
-            // Requirement 21.
+            // Requirement 5.2.
             //
             // The replay costs little: the URLs already fetched carry a crawl history entry now, and
             // the read at the top of the batch removes them. A URL is a duplicate at worst, which
-            // requirement 22 allows, and the alternative is a lost URL.
+            // requirement 5.3 allows, and the alternative is a lost URL.
             throw new Error(`the image fetch lane could not account for ${lost} URLs`)
         }
     }
@@ -147,7 +147,7 @@ export class UrlFetchConsumer {
      * nothing here has to hold it.
      */
     /**
-     * Never throws. Requirement 23.
+     * Never throws. Requirement 5.4.
      *
      * The parser reads the url policy out of a native addon, so a build that shipped without it
      * raises rather than returning a reason. That must read as a record this lane cannot use, not
@@ -192,7 +192,7 @@ export class UrlFetchConsumer {
      * A URL whose read failed is neither fetched nor counted as new. To count it as new would fetch
      * it, and a store outage would then send the full un-deduped volume at customer sites, in every
      * batch, because our own store is down. It counts as unaccounted instead, which holds the batch
-     * rather than loses it. Requirement 21.
+     * rather than loses it. Requirement 5.2.
      */
     private async removeAlreadySeen(candidates: FetchCandidate[]): Promise<FetchCandidate[]> {
         if (candidates.length === 0) {
@@ -218,10 +218,10 @@ export class UrlFetchConsumer {
 
     /**
      * A URL waiting out a delay has no crawl history entry and no other copy in Kafka, so a drop
-     * here loses it until a session refers to the same image again. Requirements 15 and 21.
+     * here loses it until a session refers to the same image again. Requirements 3.5 and 5.2.
      *
      * One with no hops left cannot go round again. The lane records it and stops, exactly as the
-     * fetch pass does with a URL that runs out mid-chain. Requirements 12 and 24.
+     * fetch pass does with a URL that runs out mid-chain. Requirements 3.2 and 5.5.
      */
     private async rescheduleNotReady(
         candidates: FetchCandidate[],
