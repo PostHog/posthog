@@ -129,17 +129,113 @@ export function shapeExperimentPreview(
   if (experiment.end_date) {
     detail = `Ended ${formatDay(experiment.end_date)}`;
   } else if (experiment.start_date) {
-    detail = `Running since ${formatDay(experiment.start_date)}`;
+    const days = Math.max(
+      1,
+      Math.ceil(
+        (Date.now() - new Date(experiment.start_date).getTime()) / 86_400_000,
+      ),
+    );
+    detail = `Running since ${formatDay(experiment.start_date)} · Day ${days}`;
   } else {
     detail = "Draft";
   }
+
+  const facts: string[] = [];
+  const parameters: Record<string, unknown> = isRecord(experiment.parameters)
+    ? experiment.parameters
+    : {};
+  const variants = Array.isArray(parameters.feature_flag_variants)
+    ? parameters.feature_flag_variants.filter(isRecord)
+    : [];
+  if (variants.length > 1) {
+    const split = variants
+      .map((variant) =>
+        typeof variant.rollout_percentage === "number"
+          ? String(variant.rollout_percentage)
+          : "?",
+      )
+      .join("/");
+    facts.push(`${count(variants.length, "variant")} (${split})`);
+  }
+  if (experiment.feature_flag_key) {
+    facts.push(`Flag: ${experiment.feature_flag_key}`);
+  }
+  return { title: experiment.name, detail, facts };
+}
+
+/** (variant, unique persons) rows -> "control 12.4K · test 12.1K". */
+export function exposureFact(rows: unknown[][]): string | null {
+  const parts = rows
+    .filter((row) => typeof row[0] === "string" && row[0] !== "false")
+    .slice(0, 4)
+    .map((row) => `${row[0]} ${compactCount(Number(row[1]) || 0)}`);
+  return parts.length > 0 ? parts.join(" · ") : null;
+}
+
+/**
+ * Fold the status check and 7-day call volume into a flag preview. A stale
+ * flag leads with that verdict: PostHog's reason ("rolled out to 100% for 30+
+ * days") replaces the name echo because it says what to do about the flag.
+ */
+export function decorateFlagPreview(
+  preview: EvidencePreview,
+  status: Schemas.FeatureFlagStatusResponse | null,
+  volumeRows: unknown[][],
+): EvidencePreview {
+  const facts = [...(preview.facts ?? [])];
+  let detail = preview.detail;
+  if (status?.status?.toLowerCase() === "stale") {
+    facts.unshift("Stale");
+    if (status.reason) detail = status.reason;
+  }
+  const points = dailySparkPoints(volumeRows);
+  const total = points.reduce((sum, value) => sum + value, 0);
+  if (total > 0) facts.push(`${compactCount(total)} calls (7d)`);
   return {
-    title: experiment.name,
+    ...preview,
     detail,
-    facts: experiment.feature_flag_key
-      ? [`Flag: ${experiment.feature_flag_key}`]
-      : undefined,
+    facts,
+    spark: points.length > 1 ? { points, render: "line" } : undefined,
   };
+}
+
+/** One-line trace rollup from the aggregate row over its generations. */
+export function shapeTracePreview(row: unknown[]): EvidencePreview | null {
+  const generations = Number(row?.[0]) || 0;
+  if (generations <= 0) return null;
+  const facts: string[] = [];
+  const cost = Number(row[1]);
+  if (Number.isFinite(cost) && cost > 0) facts.push(`$${cost}`);
+  const latency = Number(row[2]);
+  if (Number.isFinite(latency) && latency > 0) facts.push(`${latency}s`);
+  const models = Array.isArray(row[3])
+    ? row[3].filter((m): m is string => typeof m === "string" && m !== "")
+    : [];
+  if (models.length === 1) facts.push(models[0]);
+  else if (models.length > 1) facts.push(count(models.length, "model"));
+  const errors = Number(row[4]) || 0;
+  if (errors > 0) facts.push(count(errors, "error"));
+  return { title: count(generations, "generation"), facts };
+}
+
+/** Fold `surveys/{id}/stats/` into a survey preview: responses and rate. */
+export function decorateSurveyPreview(
+  preview: EvidencePreview,
+  stats: Record<string, unknown> | null,
+): EvidencePreview {
+  if (!stats) return preview;
+  const facts = [...(preview.facts ?? [])];
+  const byEvent = isRecord(stats.stats) ? stats.stats : {};
+  const sent = isRecord(byEvent["survey sent"])
+    ? Number(byEvent["survey sent"].total_count)
+    : Number.NaN;
+  if (Number.isFinite(sent)) facts.push(count(sent, "response"));
+  const rates = isRecord(stats.rates) ? stats.rates : {};
+  const responseRate = Number(rates.response_rate);
+  if (Number.isFinite(responseRate) && responseRate > 0) {
+    facts.push(`${Math.round(responseRate)}% response rate`);
+  }
+  return { ...preview, facts };
 }
 
 export function shapeErrorIssuePreview(

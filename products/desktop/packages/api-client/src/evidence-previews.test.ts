@@ -2,6 +2,9 @@ import { describe, expect, it } from "vitest";
 import {
   compactCount,
   dailySparkPoints,
+  decorateFlagPreview,
+  decorateSurveyPreview,
+  exposureFact,
   gridRows,
   hogqlEscape,
   shapeCohortPreview,
@@ -13,6 +16,7 @@ import {
   shapeRecordingPreview,
   shapeSurveyPreview,
   shapeTicketPreview,
+  shapeTracePreview,
 } from "./evidence-previews";
 import type { Schemas } from "./generated";
 
@@ -206,6 +210,80 @@ describe("evidence preview shaping", () => {
     });
     expect(dailySparkPoints(rows)).toEqual([5100000, 4900000]);
     expect(compactCount(10000000)).toBe("10M");
+  });
+
+  it("leads a stale flag with the verdict and PostHog's reason", () => {
+    const preview = decorateFlagPreview(
+      {
+        title: "old-flag",
+        detail: "Enabled · Old rollout",
+        facts: ["100% rollout"],
+      },
+      { status: "stale", reason: "Rolled out to 100% for at least 30 days" },
+      [
+        ["2024-01-01", 900000],
+        ["2024-01-02", 1200000],
+      ],
+    );
+    expect(preview.detail).toBe("Rolled out to 100% for at least 30 days");
+    expect(preview.facts).toEqual(["Stale", "100% rollout", "2.1M calls (7d)"]);
+    expect(preview.spark).toEqual({
+      points: [900000, 1200000],
+      render: "line",
+    });
+  });
+
+  it("summarizes variant exposures, dropping boolean noise", () => {
+    expect(
+      exposureFact([
+        ["control", 12400],
+        ["test", 12100],
+        ["false", 900],
+      ]),
+    ).toBe("control 12.4K · test 12.1K");
+    expect(exposureFact([])).toBeNull();
+  });
+
+  it("rolls a trace up to generations, cost, latency, and errors", () => {
+    expect(
+      shapeTracePreview([7, 0.42, 18.3, ["gpt-5", "claude-4"], 2]),
+    ).toEqual({
+      title: "7 generations",
+      facts: ["$0.42", "18.3s", "2 models", "2 errors"],
+    });
+    expect(shapeTracePreview([0, 0, 0, [], 0])).toBeNull();
+  });
+
+  it("adds responses and response rate from survey stats", () => {
+    const preview = decorateSurveyPreview(
+      { title: "Checkout survey", detail: "Running since Jan 3" },
+      {
+        stats: { "survey sent": { total_count: 128 } },
+        rates: { response_rate: 34.4 },
+      },
+    );
+    expect(preview.facts).toEqual(["128 responses", "34% response rate"]);
+  });
+
+  it("describes a running experiment with its day counter and split", () => {
+    const start = new Date(Date.now() - 11.5 * 86_400_000).toISOString();
+    const preview = shapeExperimentPreview({
+      id: 7,
+      name: "Reminder timing",
+      start_date: start,
+      feature_flag_key: "reminder-timing",
+      parameters: {
+        feature_flag_variants: [
+          { key: "control", rollout_percentage: 50 },
+          { key: "test", rollout_percentage: 50 },
+        ],
+      },
+    } as unknown as Schemas.Experiment);
+    expect(preview.detail).toMatch(/· Day 12$/);
+    expect(preview.facts).toEqual([
+      "2 variants (50/50)",
+      "Flag: reminder-timing",
+    ]);
   });
 
   it("describes a survey that has not started as a draft", () => {

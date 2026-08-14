@@ -119,7 +119,10 @@ import {
 import {
   compactCount,
   dailySparkPoints,
+  decorateFlagPreview,
+  decorateSurveyPreview,
   type EvidencePreview,
+  exposureFact,
   gridRows,
   hogqlEscape,
   shapeActionPreview,
@@ -133,6 +136,7 @@ import {
   shapeRecordingPreview,
   shapeSurveyPreview,
   shapeTicketPreview,
+  shapeTracePreview,
 } from "./evidence-previews";
 import {
   ApiRequestError,
@@ -7090,21 +7094,40 @@ export class PostHogAPIClient {
 
     switch (kind) {
       case "flag": {
+        let flag: Schemas.FeatureFlag | undefined;
         if (numericId !== null) {
-          const flag = await this.api.get(
+          flag = await this.api.get(
             "/api/projects/{project_id}/feature_flags/{id}/",
             { path: { project_id: projectId, id: numericId } },
           );
-          return shapeFlagPreview(flag);
+        } else {
+          // Agents often cite flags by key; the API only retrieves by
+          // numeric id, so find the exact key through the list search.
+          const page = await this.api.get(
+            "/api/projects/{project_id}/feature_flags/",
+            { path: { project_id: projectId }, query: { search: id } },
+          );
+          flag = page.results.find((entry) => entry.key === id);
         }
-        // Agents often cite flags by key; the API only retrieves by numeric
-        // id, so find the exact key through the list search.
-        const page = await this.api.get(
-          "/api/projects/{project_id}/feature_flags/",
-          { path: { project_id: projectId }, query: { search: id } },
+        if (!flag) return null;
+        // Depth: PostHog's own staleness verdict, and whether anything still
+        // evaluates the flag (7-day call volume).
+        const [status, volume] = await Promise.all([
+          this.api
+            .get("/api/projects/{project_id}/feature_flags/{id}/status/", {
+              path: { project_id: projectId, id: flag.id },
+            })
+            .catch(() => null),
+          this.runQuery({
+            kind: "HogQLQuery",
+            query: `SELECT toDate(timestamp) AS day, count() FROM events WHERE event = '$feature_flag_called' AND properties.$feature_flag = '${hogqlEscape(flag.key)}' AND timestamp >= now() - INTERVAL 7 DAY GROUP BY day ORDER BY day`,
+          }).catch(() => ({})),
+        ]);
+        return decorateFlagPreview(
+          shapeFlagPreview(flag),
+          status,
+          gridRows(volume),
         );
-        const flag = page.results.find((entry) => entry.key === id);
-        return flag ? shapeFlagPreview(flag) : null;
       }
       case "experiment": {
         if (numericId === null) return null;
@@ -7112,7 +7135,23 @@ export class PostHogAPIClient {
           "/api/projects/{project_id}/experiments/{id}/",
           { path: { project_id: projectId, id: numericId } },
         );
-        return shapeExperimentPreview(experiment);
+        const preview = shapeExperimentPreview(experiment);
+        // Depth: unique persons exposed per variant, showing the experiment
+        // is collecting and roughly balanced.
+        if (!experiment.start_date || !experiment.feature_flag_key) {
+          return preview;
+        }
+        const until = experiment.end_date
+          ? ` AND timestamp <= parseDateTimeBestEffort('${hogqlEscape(experiment.end_date)}')`
+          : "";
+        const exposures = await this.runQuery({
+          kind: "HogQLQuery",
+          query: `SELECT toString(properties.$feature_flag_response) AS variant, uniq(person_id) FROM events WHERE event = '$feature_flag_called' AND properties.$feature_flag = '${hogqlEscape(experiment.feature_flag_key)}' AND timestamp >= parseDateTimeBestEffort('${hogqlEscape(experiment.start_date)}')${until} GROUP BY variant ORDER BY variant`,
+        }).catch(() => ({}));
+        const fact = exposureFact(gridRows(exposures));
+        return fact
+          ? { ...preview, facts: [...(preview.facts ?? []), fact] }
+          : preview;
       }
       case "error": {
         // The issue's identity plus its 30-day activity: total events, users
@@ -7198,11 +7237,29 @@ export class PostHogAPIClient {
         return shapeRecordingPreview(recording);
       }
       case "survey": {
-        const survey = await this.api.get(
-          "/api/projects/{project_id}/surveys/{id}/",
-          { path: { project_id: projectId, id } },
+        const [survey, stats] = await Promise.all([
+          this.api.get("/api/projects/{project_id}/surveys/{id}/", {
+            path: { project_id: projectId, id },
+          }),
+          this.api
+            .get("/api/projects/{project_id}/surveys/{id}/stats/", {
+              path: { project_id: projectId, id },
+              query: {},
+            })
+            .catch(() => null),
+        ]);
+        return decorateSurveyPreview(
+          shapeSurveyPreview(survey),
+          stats as Record<string, unknown> | null,
         );
-        return shapeSurveyPreview(survey);
+      }
+      case "trace": {
+        const rollup = await this.runQuery({
+          kind: "HogQLQuery",
+          query: `SELECT count(), round(sum(toFloat(properties.$ai_total_cost_usd)), 3), round(sum(toFloat(properties.$ai_latency)), 1), groupUniqArray(properties.$ai_model), countIf(toString(properties.$ai_is_error) IN ('true', '1')) FROM events WHERE event IN ('$ai_generation', '$ai_embedding') AND properties.$ai_trace_id = '${hogqlEscape(id)}'`,
+        });
+        const row = gridRows(rollup)[0];
+        return row ? shapeTracePreview(row) : null;
       }
       case "dashboard": {
         if (numericId === null) return null;
