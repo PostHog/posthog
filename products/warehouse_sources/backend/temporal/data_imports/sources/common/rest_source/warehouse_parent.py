@@ -1,6 +1,6 @@
 import uuid
 import datetime as dt
-from collections.abc import Iterator
+from collections.abc import Generator
 from dataclasses import dataclass
 from typing import Any
 
@@ -228,7 +228,7 @@ def iter_parent_pages_from_warehouse(
     columns: list[str],
     page_size: int,
     schema_name: str,
-) -> Iterator[list[dict[str, Any]]]:
+) -> Generator[list[dict[str, Any]]]:
     """Yield fan-out parent rows from the parent schema's already-synced Delta table.
 
     Pages are shaped like the REST parent pages the dependent-resource machinery consumes
@@ -262,7 +262,7 @@ def iter_parent_pages_from_warehouse(
     dataset = delta_table.to_pyarrow_dataset()
 
     rows_streamed = 0
-    completed = False
+    outcome = "failed"
     try:
         page: list[dict[str, Any]] = []
         for batch in dataset.to_batches(columns=projected, batch_size=page_size):
@@ -274,13 +274,16 @@ def iter_parent_pages_from_warehouse(
                     page = []
         if page:
             yield page
-        completed = True
+        outcome = "completed"
+    except GeneratorExit:
+        outcome = "stopped"
+        raise
     finally:
         # In a `finally` because a consumer can stop early: a resumable child checkpoints
         # mid-fan-out, and the pipeline's iterator cleanup closes this generator, which raises
         # GeneratorExit at the `yield` above. Logging after the loop would lose those runs
-        # entirely, and `completed` marks the count as partial so a short scan isn't read as
-        # a shrinking snapshot.
+        # entirely. Only `completed` carries a full row count; a `stopped` or `failed` scan must
+        # not be read as a shrinking snapshot.
         #
         # The snapshot only grows for an incremental parent, while the vendor's own listing
         # drops rows past its retention. This count against the child's ignored stale-parent
@@ -292,5 +295,5 @@ def iter_parent_pages_from_warehouse(
             parent=parent_name,
             rows=rows_streamed,
             version=table.version,
-            completed=completed,
+            outcome=outcome,
         )

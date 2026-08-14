@@ -1,8 +1,7 @@
-from collections.abc import Generator
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from types import SimpleNamespace
-from typing import Any, cast
+from typing import Any
 
 import pytest
 from posthog.test.base import APIBaseTest
@@ -112,14 +111,15 @@ def test_reader_pages_and_rekeys_to_api_field_names(tmp_path: Path) -> None:
 
 
 @pytest.mark.parametrize(
-    "consume_all,expected_rows,expected_completed",
-    [(True, 3, True), (False, 1, False)],
+    "ending,expected_rows,expected_outcome",
+    [("drained", 3, "completed"), ("closed", 1, "stopped"), ("raised", 1, "failed")],
 )
-def test_reader_logs_the_row_count_even_when_the_consumer_stops_early(
-    tmp_path: Path, consume_all: bool, expected_rows: int, expected_completed: bool
+def test_reader_logs_the_row_count_and_how_the_scan_ended(
+    tmp_path: Path, ending: str, expected_rows: int, expected_outcome: str
 ) -> None:
     # A resumable child checkpoints mid-fan-out and the pipeline closes the generator, so a
-    # count logged after the loop would be lost for exactly the runs worth measuring.
+    # count logged after the loop would be lost for exactly the runs worth measuring. Only a
+    # drained scan carries a full count, and a crash must not read as a clean early stop.
     uri = _write_parent_table(tmp_path)
     ref = ParentTableRef(uri=uri, version=deltalake.DeltaTable(uri).version())
 
@@ -127,23 +127,24 @@ def test_reader_logs_the_row_count_even_when_the_consumer_stops_early(
         patch.object(warehouse_parent, "delta_storage_options", return_value={}),
         patch.object(warehouse_parent, "logger") as mock_logger,
     ):
-        pages = cast(
-            Generator[list[dict[str, Any]]],
-            warehouse_parent.iter_parent_pages_from_warehouse(
-                table=ref, parent_name="issues", columns=["id"], page_size=1, schema_name="issue_hashes"
-            ),
+        pages = warehouse_parent.iter_parent_pages_from_warehouse(
+            table=ref, parent_name="issues", columns=["id"], page_size=1, schema_name="issue_hashes"
         )
-        if consume_all:
+        if ending == "drained":
             list(pages)
         else:
             next(pages)
-            pages.close()
+            if ending == "closed":
+                pages.close()
+            else:
+                with pytest.raises(RuntimeError):
+                    pages.throw(RuntimeError("consumer blew up"))
 
     logged = mock_logger.info.call_args
     assert logged.args[0] == "data_imports.fanout_parent_rows_streamed"
     assert logged.kwargs["schema"] == "issue_hashes"
     assert logged.kwargs["rows"] == expected_rows
-    assert logged.kwargs["completed"] is expected_completed
+    assert logged.kwargs["outcome"] == expected_outcome
 
 
 def test_resolve_raises_when_parent_has_no_synced_table(tmp_path: Path) -> None:

@@ -1,5 +1,4 @@
 import string
-import logging
 import graphlib  # type: ignore[import,unused-ignore]
 import warnings
 from collections.abc import Callable
@@ -37,10 +36,7 @@ from .typing import (
 )
 from .utils import exclude_keys
 
-logger = logging.getLogger(__name__)
-# The module's stdlib logger predates structured logging here and stays for the existing
-# call sites; new events that need queryable fields use this one.
-structured_logger = structlog.get_logger(__name__)
+logger = structlog.get_logger(__name__)
 
 PAGINATOR_MAP: dict[PaginatorType, type[BasePaginator] | None] = {
     "json_response": JSONResponsePaginator,
@@ -397,13 +393,10 @@ def _create_response_actions_hook(
         action_type = matched.get("action") if matched else None
 
         if action_type == "ignore":
-            # Structured, and carrying the resource, so an ignored response is countable per
-            # schema. A fan-out child over a warehouse parent injects a `404 -> ignore` for
-            # parents the vendor has since dropped, and counting those against the reader's
-            # `fanout_parent_rows_streamed` is how snapshot drift gets measured.
+            # Carries the resource so ignores are countable per schema.
             # Use response.text, not response.json(): an ignored response (e.g. a 404) often has an
             # empty or non-JSON body, and parsing it here would raise before the ignore takes effect.
-            structured_logger.info(
+            logger.info(
                 "data_imports.response_action_ignored",
                 resource=resource_name,
                 status_code=response.status_code,
