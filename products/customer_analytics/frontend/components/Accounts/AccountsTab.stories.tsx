@@ -9,6 +9,8 @@ import { urls } from 'scenes/urls'
 import { mswDecorator } from '~/mocks/browser'
 import type { MockResolverInfo } from '~/mocks/utils'
 
+import type { PaginatedAccountEmailThreadListApi } from 'products/customer_analytics/frontend/generated/api.schemas'
+
 const QUERY_ENDPOINT = '/api/environments/:team_id/query/:kind/'
 const ACCOUNT_RETRIEVE_ENDPOINT = 'api/projects/:team_id/accounts/:account_id/'
 const ACCOUNT_NOTEBOOKS_ENDPOINT = 'api/projects/:team_id/accounts/:account_id/notebooks/'
@@ -122,7 +124,12 @@ const ACCOUNT_WITHOUT_LINKS = {
 }
 
 const EMPTY_INSIGHTS = { count: 0, next: null, previous: null, results: [] }
-const EMPTY_EMAIL_THREADS = { count: 0, next: null, previous: null, results: [] }
+const EMPTY_EMAIL_THREADS: PaginatedAccountEmailThreadListApi = {
+    count: 0,
+    next: null,
+    previous: null,
+    results: [],
+}
 
 // Every fetch the expansion fires must be mocked (even if empty), because AccountNotebooksExpansion
 // eagerly mounts the related-users, relationships, email-thread, and usage/spend billing logics up front. An
@@ -157,7 +164,9 @@ function billingTabDecorators(
     ]
 }
 
-function expandedRowDecorators(emailThreads = EMPTY_EMAIL_THREADS): ReturnType<typeof mswDecorator>[] {
+function expandedRowDecorators(
+    emailThreads: PaginatedAccountEmailThreadListApi = EMPTY_EMAIL_THREADS
+): ReturnType<typeof mswDecorator>[] {
     return [
         mswDecorator({
             get: {
