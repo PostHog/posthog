@@ -33,7 +33,7 @@ export function ReplayPlayerArea({ sessionId }: { sessionId: string }) {
   const [embedUrl, setEmbedUrl] = useState<string | null>(null);
   const [confirming, setConfirming] = useState(false);
   const [enabling, setEnabling] = useState(false);
-  const [enableFailed, setEnableFailed] = useState(false);
+  const [enableError, setEnableError] = useState<string | null>(null);
 
   const watch = (): void => {
     if (sharing.data?.embedUrl) {
@@ -46,7 +46,7 @@ export function ReplayPlayerArea({ sessionId }: { sessionId: string }) {
   const enableAndWatch = async (): Promise<void> => {
     if (!client || enabling) return;
     setEnabling(true);
-    setEnableFailed(false);
+    setEnableError(null);
     try {
       const info = await client.getRecordingEmbedInfo(sessionId, {
         enable: true,
@@ -55,10 +55,10 @@ export function ReplayPlayerArea({ sessionId }: { sessionId: string }) {
         setEmbedUrl(info.embedUrl);
         setConfirming(false);
       } else {
-        setEnableFailed(true);
+        setEnableError("Sharing was enabled but no player link came back.");
       }
-    } catch {
-      setEnableFailed(true);
+    } catch (error) {
+      setEnableError(error instanceof Error ? error.message : String(error));
     } finally {
       setEnabling(false);
     }
@@ -82,50 +82,60 @@ export function ReplayPlayerArea({ sessionId }: { sessionId: string }) {
           Watching in the chat turns on link sharing for this recording. Anyone
           with the link can view it.
         </span>
-        {enableFailed && (
-          <span className="text-[12px] text-(--red-11)">
+        {enableError && (
+          <span className="break-words text-[11px] text-(--red-11) leading-snug">
             Couldn't turn on sharing. Open the recording in PostHog instead.
+            <span className="block font-mono text-[10px] opacity-80">
+              {enableError}
+            </span>
           </span>
         )}
         <div className="flex items-center gap-2">
-          <Button
+          <button
             type="button"
-            size="1"
-            loading={enabling}
             disabled={!client || enabling}
             onClick={() => void enableAndWatch()}
+            className={playerButtonClass(true)}
           >
-            Enable sharing and watch
-          </Button>
-          <Button
+            {enabling ? "Enabling…" : "Enable sharing and watch"}
+          </button>
+          <button
             type="button"
-            variant="soft"
-            color="gray"
-            size="1"
             disabled={enabling}
             onClick={() => setConfirming(false)}
+            className={playerButtonClass(false)}
           >
             Cancel
-          </Button>
+          </button>
         </div>
       </div>
     );
   }
   return (
     <div className="flex items-center justify-center rounded-(--radius-1) bg-(--gray-a2) py-8">
-      <Button
+      <button
         type="button"
-        variant="soft"
-        color="gray"
-        size="1"
         disabled={sharing.isPending && !sharing.isError}
         onClick={watch}
+        className={playerButtonClass(false)}
       >
-        <PlayIcon size={12} />
+        <PlayIcon size={12} aria-hidden />
         Watch here
-      </Button>
+      </button>
     </div>
   );
+}
+
+/**
+ * Hand-styled buttons: the hover card portals outside the theme root, where
+ * the design system's button styles don't resolve.
+ */
+function playerButtonClass(primary: boolean): string {
+  const base =
+    "inline-flex cursor-pointer items-center gap-1.5 rounded-[5px] border-none px-2.5 py-1 font-medium text-[12px] leading-[1.6] transition-colors disabled:cursor-default disabled:opacity-60";
+  return primary
+    ? `${base} bg-[var(--accent-9,#3e63dd)] text-white hover:bg-[var(--accent-10,#5472e4)]`
+    : `${base} bg-(--gray-a4) text-(--gray-12) hover:bg-(--gray-a5)`;
 }
 
 export function ReplayBlockCard({

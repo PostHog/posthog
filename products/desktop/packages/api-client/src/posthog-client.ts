@@ -7094,6 +7094,12 @@ export class PostHogAPIClient {
       path,
       overrides: { body: JSON.stringify({ enabled: true }) },
     });
+    if (!response.ok) {
+      const body = await response.text().catch(() => "");
+      throw new Error(
+        `Enabling sharing failed with ${response.status}${body ? `: ${body.slice(0, 200)}` : ""}`,
+      );
+    }
     const updated = (await response.json()) as {
       enabled?: boolean;
       access_token?: string | null;
