@@ -197,10 +197,19 @@ class TestListActiveAlertDestinations(APIBaseTest):
         )
         names_and_types = [(d.name, d.destination_type) for d in destinations]
 
-        assert ("Slack #eng-alerts", "slack") in names_and_types
-        assert ("Other #alerts", "slack") in names_and_types
+        assert ("#eng-alerts", "slack") in names_and_types
+        assert ("#alerts", "slack") in names_and_types
         assert all(isinstance(d.id, str) for d in destinations)
         assert len(destinations) == 2
+
+    def test_slack_destination_without_channel_token_falls_back_to_name(self) -> None:
+        self._make_hog_function(template_id="template-slack", alert_id="alert-1", name="My renamed destination")
+
+        destinations = list_active_alert_destinations(
+            team_id=self.team.id, alert_id="alert-1", allowed_event_ids=("$logs_alert_firing",)
+        )
+
+        assert [d.name for d in destinations] == ["My renamed destination"]
 
     def test_list_active_alert_destinations_strips_webhook_urls_to_host(self) -> None:
         # Webhook names embed the full URL, whose path is the channel credential —

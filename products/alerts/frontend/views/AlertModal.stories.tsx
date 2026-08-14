@@ -93,10 +93,10 @@ trendsAlert.checks![trendsAlert.checks!.length - 1].deliveries = [
     { channel: 'email', target: 'alerts@example.com', status: 'accepted', display_label: 'Email: alerts@example.com' },
     {
         channel: 'hog_function',
-        target: 'Eng alerts',
+        target: '#eng-alerts',
         template: 'slack',
         status: 'accepted',
-        display_label: 'Slack: Eng alerts',
+        display_label: 'Slack: #eng-alerts',
     },
 ]
 // A check recorded before delivery receipts existed: "Yes" with the legacy note, no receipt list.

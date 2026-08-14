@@ -196,7 +196,7 @@ class TestAlertUtils:
     def test_trigger_hog_functions_returns_receipt_per_destination(
         self, mock_list: MagicMock, mock_produce: MagicMock
     ) -> None:
-        mock_list.return_value = [ActiveAlertDestination(id="hf-1", name="Slack #eng-alerts", destination_type="slack")]
+        mock_list.return_value = [ActiveAlertDestination(id="hf-1", name="#eng-alerts", destination_type="slack")]
         mock_produce.return_value = MagicMock()  # non-None = enqueue accepted
         alert = MagicMock(spec=AlertConfiguration)
         alert.id = "00000000-0000-0000-0000-000000000001"
@@ -212,7 +212,7 @@ class TestAlertUtils:
         receipts = trigger_alert_hog_functions(alert=alert, properties={"breaches": "x"})
 
         assert [(r.channel, r.target, r.target_id, r.template, r.status) for r in receipts] == [
-            ("hog_function", "Slack #eng-alerts", "hf-1", "slack", "accepted")
+            ("hog_function", "#eng-alerts", "hf-1", "slack", "accepted")
         ]
 
     @patch("posthog.tasks.alerts.utils.produce_alert_internal_event", return_value=None)
@@ -220,7 +220,7 @@ class TestAlertUtils:
     def test_trigger_hog_functions_returns_empty_on_produce_failure(
         self, mock_list: MagicMock, _mock_produce: MagicMock
     ) -> None:
-        mock_list.return_value = [ActiveAlertDestination(id="hf-1", name="Slack #eng-alerts", destination_type="slack")]
+        mock_list.return_value = [ActiveAlertDestination(id="hf-1", name="#eng-alerts", destination_type="slack")]
         alert = MagicMock(spec=AlertConfiguration)
         alert.id = "00000000-0000-0000-0000-000000000001"
         alert.team_id = 2

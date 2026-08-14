@@ -46,10 +46,10 @@ describe('alerts utils', () => {
             { channel: 'email', target: 'a@example.com', status: 'accepted', display_label: 'Email: a@example.com' },
             {
                 channel: 'hog_function',
-                target: 'Eng alerts',
+                target: '#eng-alerts',
                 template: 'slack',
                 status: 'accepted',
-                display_label: 'Slack: Eng alerts',
+                display_label: 'Slack: #eng-alerts',
             },
         ]
         const legacy: AlertCheckDelivery[] = [
@@ -60,7 +60,7 @@ describe('alerts utils', () => {
             expect(summarizeDeliveries(accepted, true)).toEqual({
                 kind: 'delivered',
                 label: 'Yes · 2',
-                lines: ['Email: a@example.com', 'Slack: Eng alerts'],
+                lines: ['Email: a@example.com', 'Slack: #eng-alerts'],
             })
         })
 
