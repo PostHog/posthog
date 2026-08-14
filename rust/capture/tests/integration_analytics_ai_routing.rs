@@ -278,13 +278,12 @@ async fn mixed_batch_diverts_only_ai_events(#[case] ai_events_overflow_enabled: 
     assert_eq!(pageview.metadata.data_type, DataType::AnalyticsMain);
 }
 
-/// Ai-mode deployments don't divert: their main topic is already the AI
-/// topic, so `$ai_*` events stay on the analytics lane alongside everything
-/// else. Pins the no-divert path end-to-end; the `routes_ai_events()` unit
-/// test alone can't catch the router failing to thread the mode into the
-/// pipeline.
+/// Capture mode does not change lane assignment: an Ai-mode deployment splits
+/// a mixed batch exactly like an analytics one. Pins the invariant end-to-end,
+/// so a deployment can never silently rejoin `$ai_*` to the analytics lane and
+/// slip past every AI-lane gate (byte limiter, ai restrictions, AI overflow).
 #[tokio::test]
-async fn ai_mode_keeps_ai_events_on_the_analytics_lane() {
+async fn ai_mode_diverts_ai_events_like_every_other_mode() {
     let (router, sink) = setup_router_for_mode(CaptureMode::Ai, false, None, None);
     let client = TestClient::new(router);
 
@@ -292,14 +291,18 @@ async fn ai_mode_keeps_ai_events_on_the_analytics_lane() {
 
     let events = sink.get_events().await;
     assert_eq!(events.len(), 2);
-    for event in &events {
-        assert_eq!(
-            event.metadata.data_type,
-            DataType::AnalyticsMain,
-            "no event may divert on an Ai-mode deployment ({})",
-            event.metadata.event_name,
-        );
-    }
+
+    let ai_event = events
+        .iter()
+        .find(|e| e.metadata.event_name == "$ai_generation")
+        .expect("$ai_generation must reach the sink");
+    assert_eq!(ai_event.metadata.data_type, DataType::AiEvents);
+
+    let pageview = events
+        .iter()
+        .find(|e| e.metadata.event_name == "$pageview")
+        .expect("$pageview must reach the sink");
+    assert_eq!(pageview.metadata.data_type, DataType::AnalyticsMain);
 }
 
 fn force_keyed_limiter() -> Arc<OverflowLimiter> {

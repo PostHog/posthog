@@ -2298,10 +2298,11 @@ async fn test_ai_endpoint_quota_limiter_returns_billing_limit_error_message() {
 const AI_OVERFLOW_TEST_TOKEN: &str = "phc_VXRzc3poSG9GZm1JenRianJ6TTJFZGh4OWY2QXzx9f3";
 
 /// Variant of `setup_ai_test_router_with_capturing_sink` that wires a real
-/// `OverflowLimiter` into the router. Existing helpers still pass `None`; this
+/// `OverflowLimiter` into the router's AI lane — where AI-endpoint events land,
+/// so it is the limiter they consult. Existing helpers still pass `None`; this
 /// one opts in to exercise the governor path.
 fn setup_ai_test_router_with_overflow_limiter(
-    overflow_limiter: Arc<OverflowLimiter>,
+    ai_events_overflow_limiter: Arc<OverflowLimiter>,
 ) -> (Router, CapturingSink) {
     let (readiness, liveness, _monitor) = test_lifecycle_handlers();
 
@@ -2343,15 +2344,15 @@ fn setup_ai_test_router_with_overflow_limiter(
         256,
         10 * 1024 * 1024, // capture_v1_max_compressed_body_bytes
         50 * 1024 * 1024, // capture_v1_max_decompressed_body_bytes
-        Some(overflow_limiter),
-        None,  // ai_events_overflow_limiter
-        None,  // ai_byte_rate_limiter
-        None,  // replay_overflow_limiter
-        None,  // v1_sink_router
-        8,     // capture_v1_scatter_gather_min_batch
-        None,  // ai_gateway_signing_secret
-        false, // ai_events_overflow_enabled
-        None,  // ingestion_warning_emitter
+        None,             // overflow_limiter
+        Some(ai_events_overflow_limiter),
+        None, // ai_byte_rate_limiter
+        None, // replay_overflow_limiter
+        None, // v1_sink_router
+        8,    // capture_v1_scatter_gather_min_batch
+        None, // ai_gateway_signing_secret
+        true, // ai_events_overflow_enabled
+        None, // ingestion_warning_emitter
     );
 
     (router, sink_clone)

@@ -328,19 +328,8 @@ pub async fn build_components(
             None
         };
 
-    let ai_byte_limit_per_second =
-        if config.ai_byte_limit_per_second > ByteRateLimiter::RATE_CEILING {
-            warn!(
-            ai_byte_limit_per_second = config.ai_byte_limit_per_second,
-            "AI_BYTE_LIMIT_PER_SECOND exceeds 1e9; governor truncates its replenish interval to \
-             zero above that, which disables rate limiting entirely -- clamping to 1e9"
-        );
-            ByteRateLimiter::RATE_CEILING
-        } else {
-            config.ai_byte_limit_per_second
-        };
     let ai_byte_rate_limiter: Option<Arc<ByteRateLimiter>> =
-        std::num::NonZeroU32::new(ai_byte_limit_per_second).map(|per_second| {
+        std::num::NonZeroU32::new(ai_byte_limit_per_second(&config)).map(|per_second| {
             let burst = if config.ai_byte_limit_burst < ByteRateLimiter::BURST_FLOOR {
                 warn!(
                     ai_byte_limit_burst = config.ai_byte_limit_burst,
@@ -451,6 +440,27 @@ fn ai_events_overflow_valve(config: &Config) -> bool {
         "invalid configuration: CAPTURE_ANALYTICS_AI_EVENTS_OVERFLOW_TOPIC must be unset in import mode; imports must never overflow"
     );
     armed
+}
+
+/// The AI byte budget this deployment enforces, or `0` to skip building the
+/// limiter entirely. Import is exempt — backfills are never throttled, matching
+/// the other limiters — and not building the limiter is the whole exemption, so
+/// `drop_ai_byte_limited` needs no capture-mode awareness of its own. Rates
+/// above the governor's ceiling clamp down: above it the replenish interval
+/// truncates to zero, which would disable limiting altogether.
+fn ai_byte_limit_per_second(config: &Config) -> u32 {
+    if matches!(config.capture_mode, CaptureMode::Import) {
+        return 0;
+    }
+    if config.ai_byte_limit_per_second > ByteRateLimiter::RATE_CEILING {
+        warn!(
+            ai_byte_limit_per_second = config.ai_byte_limit_per_second,
+            "AI_BYTE_LIMIT_PER_SECOND exceeds 1e9; governor truncates its replenish interval to \
+             zero above that, which disables rate limiting entirely -- clamping to 1e9"
+        );
+        return ByteRateLimiter::RATE_CEILING;
+    }
+    config.ai_byte_limit_per_second
 }
 
 /// Builds the v1 sink router. The dedicated `$ai_*` topics are
@@ -1127,6 +1137,39 @@ mod tests {
         create_sink(&config, None, None)
             .await
             .expect("boot must proceed when the completeness check is disabled");
+    }
+
+    /// Import deployments never build the AI byte limiter, however the knob is
+    /// set — that omission is the entire import exemption, so a rate leaking
+    /// through here would start throttling backfills.
+    #[rstest::rstest]
+    #[case::events_keeps_the_configured_rate(CaptureMode::Events, 5_000, 5_000)]
+    #[case::ai_keeps_the_configured_rate(CaptureMode::Ai, 5_000, 5_000)]
+    #[case::import_is_exempt(CaptureMode::Import, 5_000, 0)]
+    #[case::rate_above_the_ceiling_clamps(
+        CaptureMode::Events,
+        2_000_000_000,
+        ByteRateLimiter::RATE_CEILING
+    )]
+    #[case::unset_stays_unset(CaptureMode::Events, 0, 0)]
+    fn ai_byte_limit_per_second_by_mode(
+        #[case] mode: CaptureMode,
+        #[case] configured: u32,
+        #[case] expected: u32,
+    ) {
+        let cfg_env: HashMap<String, String> = [
+            ("REDIS_URL", "redis://localhost:6379/"),
+            ("CAPTURE_MODE", mode.as_tag()),
+            ("KAFKA_HOSTS", "localhost:9092"),
+        ]
+        .into_iter()
+        .map(|(k, v)| (k.to_string(), v.to_string()))
+        .collect();
+        let mut config: Config =
+            envconfig::Envconfig::init_from_hashmap(&cfg_env).expect("test config");
+        config.ai_byte_limit_per_second = configured;
+
+        assert_eq!(ai_byte_limit_per_second(&config), expected);
     }
 
     /// Absent gauge means warnings are off on purpose; `0` means an operator

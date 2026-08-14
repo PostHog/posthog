@@ -83,9 +83,6 @@ fn create_heatmap_redirect(
     historical_cfg: router::HistoricalConfig,
     context: &ProcessingContext,
 ) -> Result<Option<ProcessedEvent>, CaptureError> {
-    // The redirect is always a `$$heatmap` event, so AI routing can never
-    // apply to it; hardcode the flag off instead of threading it through.
-    let route_ai_events = false;
     let Some(distinct_id) = event.extract_distinct_id() else {
         return Ok(None);
     };
@@ -115,19 +112,14 @@ fn create_heatmap_redirect(
         set_once: None,
     };
 
-    process_single_event(&heatmap_event, historical_cfg, route_ai_events, context).map(Some)
+    process_single_event(&heatmap_event, historical_cfg, context).map(Some)
 }
 
 /// Process a single analytics event from RawEvent to ProcessedEvent.
-///
-/// `route_ai_events` is the deployment's `CaptureMode::routes_ai_events` (see
-/// `process_events`); when set, `$ai_*` events classify as
-/// `DataType::AiEvents` instead of the analytics main/historical lanes.
 #[instrument(skip_all, fields(event_name, request_id))]
 pub fn process_single_event(
     event: &RawEvent,
     historical_cfg: router::HistoricalConfig,
-    route_ai_events: bool,
     context: &ProcessingContext,
 ) -> Result<ProcessedEvent, CaptureError> {
     if event.event.is_empty() {
@@ -137,8 +129,7 @@ pub fn process_single_event(
     Span::current().record("is_mirror_deploy", context.is_mirror_deploy);
     Span::current().record("request_id", &context.request_id);
 
-    let data_type =
-        DataType::from_event_name(&event.event, context.historical_migration, route_ai_events);
+    let data_type = DataType::from_event_name(&event.event, context.historical_migration);
 
     // Redact the IP address of internally-generated events when tagged as such
     let resolved_ip = if event.properties.contains_key("capture_internal") {
@@ -231,8 +222,8 @@ pub fn process_single_event(
 /// Process a batch of analytics events.
 ///
 /// All routing policy lives here: token dropping, `$ai_*` lane assignment
-/// (per `CaptureMode::routes_ai_events`, resolved into `DataType::AiEvents`
-/// at classification time), event restrictions, global
+/// (resolved into `DataType::AiEvents` at classification time), event
+/// restrictions, global
 /// rate limiting (per `token:distinct_id`), historical rerouting, and
 /// per-key overflow rerouting via [`OverflowLimiter`]. Overflow stamping
 /// goes through the shared [`stamp_overflow_reason`] helper, which the AI
@@ -324,12 +315,6 @@ async fn process_events_inner(
         return Ok(());
     }
 
-    // Whether `$ai_*` events divert to the dedicated AI topic is a deployment
-    // property, mirroring v1's `process_batch`. The flag feeds
-    // `DataType::from_event_name` via `process_single_event`; the kafka sink
-    // maps the resulting `DataType::AiEvents` to `CAPTURE_ANALYTICS_AI_EVENTS_TOPIC`.
-    let route_ai_events = context.capture_mode.routes_ai_events();
-
     // Build the processed batch one raw event at a time so we can split a
     // heatmap-carrying event into a stripped original + a `$$heatmap`
     // redirect *before* serialization happens inside `process_single_event`.
@@ -347,38 +332,23 @@ async fn process_events_inner(
                 .retain(|key, _| !key.starts_with(crate::gateway_provenance::GATEWAY_PREFIX));
         }
         if raw.event == "$$heatmap" || !has_heatmap_data(&raw) {
-            events.push(process_single_event(
-                &raw,
-                historical_cfg,
-                route_ai_events,
-                context,
-            )?);
+            events.push(process_single_event(&raw, historical_cfg, context)?);
             continue;
         }
         let mut redirect = match create_heatmap_redirect(&raw, historical_cfg, context) {
             Ok(Some(redirect)) => redirect,
             Ok(None) => {
-                events.push(process_single_event(
-                    &raw,
-                    historical_cfg,
-                    route_ai_events,
-                    context,
-                )?);
+                events.push(process_single_event(&raw, historical_cfg, context)?);
                 continue;
             }
             Err(err) => {
                 error!("failed to create heatmap redirect: {err:#}");
-                events.push(process_single_event(
-                    &raw,
-                    historical_cfg,
-                    route_ai_events,
-                    context,
-                )?);
+                events.push(process_single_event(&raw, historical_cfg, context)?);
                 continue;
             }
         };
         raw.properties.remove("$heatmap_data");
-        let mut processed = process_single_event(&raw, historical_cfg, route_ai_events, context)?;
+        let mut processed = process_single_event(&raw, historical_cfg, context)?;
         processed.metadata.skip_heatmap_processing = true;
         events.push(processed);
         counter!("capture_heatmap_redirects_created").increment(1);
@@ -402,11 +372,7 @@ async fn process_events_inner(
 
     debug_or_info!(chatty_debug_enabled, context=?context, event_count=?events.len(), "filtered by token_dropper");
 
-    drop_ai_byte_limited(
-        &mut events,
-        ai_byte_rate_limiter.as_ref(),
-        context.capture_mode,
-    );
+    drop_ai_byte_limited(&mut events, ai_byte_rate_limiter.as_ref());
 
     // Apply event restrictions, looking each event up under its `DataType`'s
     // pipeline. The single restriction service holds entries for all
@@ -752,13 +718,9 @@ mod tests {
             token: Some("test_token".to_string()),
         };
 
-        let processed = process_single_event(
-            &event,
-            router::HistoricalConfig::new(false, 1),
-            false,
-            &context,
-        )
-        .unwrap();
+        let processed =
+            process_single_event(&event, router::HistoricalConfig::new(false, 1), &context)
+                .unwrap();
 
         let expected_millis = processed
             .metadata
@@ -793,13 +755,9 @@ mod tests {
             token: Some("test_token".to_string()),
         };
 
-        let processed = process_single_event(
-            &event,
-            router::HistoricalConfig::new(false, 1),
-            false,
-            &context,
-        )
-        .unwrap();
+        let processed =
+            process_single_event(&event, router::HistoricalConfig::new(false, 1), &context)
+                .unwrap();
 
         // The event keeps its pre-epoch timestamp, but the uuid floors to the epoch rather than wrapping to garbage.
         assert!(
@@ -821,12 +779,8 @@ mod tests {
 
         let context = create_test_context(now, None);
         let event = create_test_event(Some("2023-01-01T11:00:00Z".to_string()), None, None);
-        let result = process_single_event(
-            &event,
-            router::HistoricalConfig::new(false, 1),
-            false,
-            &context,
-        );
+        let result =
+            process_single_event(&event, router::HistoricalConfig::new(false, 1), &context);
 
         assert!(result.is_ok());
         let processed = result.unwrap();
@@ -851,12 +805,8 @@ mod tests {
 
         let event = create_test_event(Some("2023-01-01T11:59:55Z".to_string()), None, None);
 
-        let result = process_single_event(
-            &event,
-            router::HistoricalConfig::new(false, 1),
-            false,
-            &context,
-        );
+        let result =
+            process_single_event(&event, router::HistoricalConfig::new(false, 1), &context);
 
         assert!(result.is_ok());
         let processed = result.unwrap();
@@ -879,12 +829,8 @@ mod tests {
 
         let event = create_test_event(Some("2023-01-01T11:00:00Z".to_string()), None, Some(true));
 
-        let result = process_single_event(
-            &event,
-            router::HistoricalConfig::new(false, 1),
-            false,
-            &context,
-        );
+        let result =
+            process_single_event(&event, router::HistoricalConfig::new(false, 1), &context);
 
         assert!(result.is_ok());
         let processed = result.unwrap();
@@ -906,12 +852,8 @@ mod tests {
 
         let event = create_test_event(Some("2023-01-01T11:00:00Z".to_string()), None, None);
 
-        let result = process_single_event(
-            &event,
-            router::HistoricalConfig::new(false, 1),
-            false,
-            &context,
-        );
+        let result =
+            process_single_event(&event, router::HistoricalConfig::new(false, 1), &context);
 
         assert!(result.is_ok());
         let processed = result.unwrap();
@@ -931,12 +873,8 @@ mod tests {
 
         let event = create_test_event(Some("2023-01-01T11:00:00Z".to_string()), None, None);
 
-        let result = process_single_event(
-            &event,
-            router::HistoricalConfig::new(false, 1),
-            false,
-            &context,
-        );
+        let result =
+            process_single_event(&event, router::HistoricalConfig::new(false, 1), &context);
 
         assert!(result.is_ok());
         let processed = result.unwrap();
@@ -1474,10 +1412,10 @@ mod tests {
         );
     }
 
-    /// Under `Ai` mode `$ai_*` rides `AnalyticsMain` (not diverted), so gating
-    /// on `AiEvents` alone would be a no-op there — the gate must limit `AnalyticsMain`.
+    /// Capture mode no longer changes which lane `$ai_*` lands on: under `Ai`
+    /// it diverts to `AiEvents` and the AI topic, exactly as under `Events`.
     #[tokio::test]
-    async fn ai_mode_drops_over_budget_analytics_main_events_end_to_end() {
+    async fn ai_mode_routes_ai_events_to_the_ai_lane_end_to_end() {
         use crate::sinks::kafka::{test_topics, KafkaSinkBase};
         use crate::sinks::producer::MockKafkaProducer;
 
@@ -1539,62 +1477,10 @@ mod tests {
             "only the under-budget event must reach the sink under Ai mode"
         );
         let topics = test_topics();
-        let main_topic = topics.topic_for(&crate::sinks::registry::Output::AnalyticsMain);
+        let ai_topic = topics.topic_for(&crate::sinks::registry::Output::AiMain);
         assert_eq!(
-            records[0].topic, main_topic,
-            "AnalyticsMain events route through the main topic even under Ai mode"
-        );
-    }
-
-    /// Import mode drops any batch not flagged `historical_migration`, so the
-    /// events here carry it to reach (and prove they survive) the byte limiter.
-    #[tokio::test]
-    async fn import_mode_never_throttles_end_to_end() {
-        let limiter = Some(Arc::new(ByteRateLimiter::new(
-            NonZeroU32::new(10).unwrap(),
-            NonZeroU32::new(10).unwrap(),
-            None,
-        )));
-
-        let sink = Arc::new(MockSink::new());
-
-        let now = DateTime::parse_from_rfc3339("2023-01-01T12:00:00Z")
-            .unwrap()
-            .with_timezone(&Utc);
-        let mut context = create_test_context(now, None);
-        context.capture_mode = crate::config::CaptureMode::Import;
-        context.historical_migration = true;
-
-        let mut oversized_event = create_test_event_with_name(
-            "$ai_generation",
-            Some("2023-01-01T11:00:00Z".to_string()),
-            None,
-            None,
-        );
-        oversized_event
-            .properties
-            .insert("$ai_input".to_string(), json!("x".repeat(500)));
-
-        process_events(
-            sink.clone(),
-            Arc::new(TokenDropper::default()),
-            None,
-            router::HistoricalConfig::new(false, 1),
-            None,
-            None,
-            None,
-            None,
-            vec![oversized_event],
-            &context,
-            limiter,
-        )
-        .await
-        .expect("process_events must accept the batch");
-
-        assert_eq!(
-            sink.get_events().len(),
-            1,
-            "import mode must never drop an event via the byte limiter"
+            records[0].topic, ai_topic,
+            "$ai_* diverts to the AI lane under Ai mode too"
         );
     }
 

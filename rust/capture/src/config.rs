@@ -46,19 +46,6 @@ impl CaptureMode {
     pub fn requires_historical_migration(&self) -> bool {
         matches!(self, CaptureMode::Import)
     }
-
-    /// Whether the analytics pipelines divert `$ai_*` events to the dedicated
-    /// AI topic (`CAPTURE_ANALYTICS_AI_EVENTS_TOPIC`). `Events` and `Import` do — the AI
-    /// lane is the only pipeline with AI processing (cost enrichment, the
-    /// ai_events double-write), so historical backfills must divert too or
-    /// their `$ai_*` events import incorrectly. `Ai` deployments don't: they
-    /// already produce to the AI lane as their main topic. Import deployments
-    /// keep their no-overflow guarantee in code: setup refuses to boot import
-    /// mode with the AI overflow valve
-    /// (`CAPTURE_ANALYTICS_AI_EVENTS_OVERFLOW_TOPIC`) set.
-    pub fn routes_ai_events(&self) -> bool {
-        matches!(self, CaptureMode::Events | CaptureMode::Import)
-    }
 }
 
 impl std::str::FromStr for CaptureMode {
@@ -421,11 +408,11 @@ pub struct KafkaConfig {
     #[envconfig(default = "events_plugin_ingestion_dlq")]
     pub kafka_dlq_topic: String,
     /// Dedicated Kafka topic for `$ai_*` events (env: `CAPTURE_ANALYTICS_AI_EVENTS_TOPIC`).
-    /// On deployments whose capture mode routes AI events
-    /// (`CaptureMode::routes_ai_events`), both the v0 pipeline (via
-    /// `DataType::AiEvents`) and the v1 pipeline (via `Destination::AiEvents`)
-    /// divert `$ai_*` events here instead of the analytics main topic. Setup
-    /// also injects it into every v1 sink config.
+    /// Both the v0 pipeline (via `DataType::AiEvents`) and the v1 pipeline
+    /// (via `Destination::AiEvents`) divert `$ai_*` events here instead of the
+    /// analytics main topic, on every deployment that accepts them — including
+    /// capture-ai, whose main topic used to double as the AI topic. Setup also
+    /// injects it into every v1 sink config.
     #[envconfig(default = "events_plugin_ingestion_ai")]
     pub capture_analytics_ai_events_topic: String,
     /// Optional overflow topic for the AI lane (env: `CAPTURE_ANALYTICS_AI_EVENTS_OVERFLOW_TOPIC`).
@@ -592,21 +579,6 @@ mod tests {
             assert!(
                 !mode.requires_historical_migration(),
                 "{mode:?} should not require historical_migration"
-            );
-        }
-    }
-
-    #[test]
-    fn capture_mode_ai_routing_policy() {
-        // Events and Import divert $ai_* events to the AI topic — only the AI
-        // lane has AI processing, so imports must divert too. Ai deployments
-        // already produce to the AI lane as their main topic.
-        assert!(CaptureMode::Events.routes_ai_events());
-        assert!(CaptureMode::Import.routes_ai_events());
-        for mode in [CaptureMode::Recordings, CaptureMode::Ai] {
-            assert!(
-                !mode.routes_ai_events(),
-                "{mode:?} must not route AI events"
             );
         }
     }
