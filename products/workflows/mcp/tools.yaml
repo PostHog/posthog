@@ -145,10 +145,10 @@ tools:
             properties/hash and the server compiles it. For '$account_custom_property_changed', current_value is
             polymorphic. To target multiple property types, repeat that event in filters.events: nested properties in
             each event entry are ANDed, while event entries are ORed. For example, one entry can pair property_name=Plan
-            with current_value=enterprise and another can pair property_name=Seats with current_value greater than 5;
-            do not put one shared current_value condition in top-level properties. A 'batch' trigger broadcasts to an audience
-            (config.filters.properties: person-property conditions and/or cohort references), one run per matching
-            person, and does NOT fire on enable: dispatch with workflows-run-batch or attach a schedule with
+            with current_value=enterprise and another can pair property_name=Seats with current_value greater than 5; do
+            not put one shared current_value condition in top-level properties. A 'batch' trigger broadcasts to an
+            audience (config.filters.properties: person-property conditions and/or cohort references), one run per
+            matching person, and does NOT fire on enable: dispatch with workflows-run-batch or attach a schedule with
             workflows-schedule-create. Behavioral targeting ('did event X at least N times over the last M days') is
             unsupported; reject it and explain why.
         ui_app: workflow
