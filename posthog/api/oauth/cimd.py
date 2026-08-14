@@ -1038,6 +1038,12 @@ def apply_provisioning_defaults(app: OAuthApplication) -> OAuthApplication:
     document, so the caller's copy of the app can be seconds or minutes old, and layering the
     defaults over that copy would write back a capability - or a cleared kill switch - that an
     admin revoked while the fetch was in flight.
+
+    Promotion to confidential happens in the same write. A partner that publishes a key set has
+    to present an assertion, and the bare-client_id path stays open to a public app, so an app
+    that is a partner but still public would accept an unauthenticated caller acting as that
+    partner. The locked row supplies the key set, since a stale in-memory copy could promote an
+    app whose document no longer publishes one.
     """
     with transaction.atomic():
         current = OAuthApplication.objects.select_for_update().get(pk=app.pk)
@@ -1047,7 +1053,12 @@ def apply_provisioning_defaults(app: OAuthApplication) -> OAuthApplication:
         became_partner = not current.is_provisioning_partner
         app.is_provisioning_partner = True
         app.provisioning = _cimd_provisioning_defaults_for(app)
-        app.save(update_fields=["is_provisioning_partner", "_provisioning_config"])
+        updated_fields = ["is_provisioning_partner", "_provisioning_config"]
+        if current.jwks_uri:
+            app.jwks_uri = current.jwks_uri
+            app.client_type = AbstractApplication.CLIENT_CONFIDENTIAL
+            updated_fields.append("client_type")
+        app.save(update_fields=updated_fields)
 
     # A partner appearing without an admin creating it is the event worth watching for abuse,
     # so it fires on the transition only - re-running the defaults over an existing partner is

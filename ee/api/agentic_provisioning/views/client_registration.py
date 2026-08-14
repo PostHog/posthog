@@ -140,12 +140,6 @@ class ClientRegistrationView(ProvisioningAPIView):
         if not app.is_provisioning_partner:
             apply_provisioning_defaults(app)
             app.refresh_from_db()
-            # A declared private_key_jwt is honored only after partner status is confirmed, so the
-            # client is never stored confidential on a document it merely publishes. The jwks_uri is
-            # already stored for a declarer, so promotion is a client_type flip with no re-fetch.
-            if app.is_provisioning_partner and app.jwks_uri and app.client_type != OAuthApplication.CLIENT_CONFIDENTIAL:
-                app.client_type = OAuthApplication.CLIENT_CONFIDENTIAL
-                app.save(update_fields=["client_type"])
         return self._require_partner(app, checks)
 
     def _require_partner(self, app: OAuthApplication, checks: list[dict[str, Any]]) -> OAuthApplication | None:
