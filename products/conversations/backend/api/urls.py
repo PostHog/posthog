@@ -11,6 +11,7 @@ from .email_settings import (
     EmailSetDefaultView,
     EmailStatusView,
     EmailVerifyDomainView,
+    EmailVerifyForwardingView,
 )
 from .external import ExternalTicketView
 from .github_setup import (
@@ -62,6 +63,11 @@ urlpatterns = [
         r"^v1/email/confirm-forwarding/?$",
         EmailConfirmForwardingView.as_view(),
         name="email-confirm-forwarding",
+    ),
+    re_path(
+        r"^v1/email/verify-forwarding/?$",
+        EmailVerifyForwardingView.as_view(),
+        name="email-verify-forwarding",
     ),
     re_path(r"^v1/email/disconnect/?$", EmailDisconnectView.as_view(), name="email-disconnect"),
     re_path(r"^v1/email/set-default/?$", EmailSetDefaultView.as_view(), name="email-set-default"),

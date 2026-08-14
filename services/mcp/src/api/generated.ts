@@ -214,6 +214,11 @@ export namespace Schemas {
        * * `weekly` - weekly
        * * `monthly` - monthly */
       slack_summary_cadence?: SlackSummaryCadenceEnum | null;
+      /**
+         * When the account churned. Null means the account has not churned.
+         * @nullable
+         */
+      churned_at?: string | null;
       readonly created_at: string;
       /** @nullable */
       readonly created_by: number | null;
@@ -834,6 +839,7 @@ export namespace Schemas {
       ExternalId: 'external_id',
       CreatedAt: 'created_at',
       UpdatedAt: 'updated_at',
+      ChurnedAt: 'churned_at',
       StripeCustomerId: 'stripe_customer_id',
       HubspotDealId: 'hubspot_deal_id',
       BillingId: 'billing_id',
@@ -1074,6 +1080,8 @@ export namespace Schemas {
       columns: (AccountsTableAccountFieldColumn | AccountsTableTagsColumn | AccountsTableNoteCountColumn | AccountsTableRelationshipColumn | AccountsTableCustomPropertyColumn | AccountsTableCustomPropertyHistoryColumn)[];
       /** Filters are combined with AND. Values within tag and assignment filters use OR. */
       filters?: (AccountsTableSearchFilter | AccountsTableTagsFilter | AccountsTableAssignedToFilter | AccountsTableUnassignedFilter | AccountsTableAccountIdFilter | AccountsTableCustomPropertyFilter)[] | null;
+      /** Include churned accounts. Churned accounts are hidden by default. */
+      includeChurned?: boolean | null;
       kind?: 'AccountsTableQuery';
       limit?: number | null;
       /** Aggregates to evaluate against the filtered account set. A metrics query skips row loading. */
@@ -8131,6 +8139,8 @@ export namespace Schemas {
     } as const;
 
     export interface ScatterChartSettings {
+      /** Whether to draw a least-squares fit line through each series' points. */
+      showBestFit?: boolean | null;
       /** X-axis scale. A `logarithmic` axis can't place a non-positive value, so those points are dropped. */
       xScale?: XScale | null;
       /** Whether the X axis should start at zero. Off by default, because pinning either axis of two independent measures to zero squashes the correlation into a corner. */
@@ -15239,6 +15249,16 @@ export namespace Schemas {
       /** Reason for rejecting the change request. Required — recorded with the rejection vote and shown to the requester. */
       reason: string;
     }
+
+    /**
+     * * `manual` - Manual
+     */
+    export type ChangeSourceEnum = typeof ChangeSourceEnum[keyof typeof ChangeSourceEnum];
+
+
+    export const ChangeSourceEnum = {
+      Manual: 'manual',
+    } as const;
 
     /**
      * The task currently generating this channel's CONTEXT.md, or null.
@@ -26381,6 +26401,8 @@ export namespace Schemas {
       scanner_config: unknown;
       /** Why the draft picked this scanner type and configuration, addressed to the user. */
       rationale: string;
+      /** Drafted `RecordingsQuery` narrowing which sessions get scanned, holding one event filter picked from the team's real events; null when no event clearly matched the goal. */
+      query: unknown;
     }
 
     export interface DraftStatusResponse {
@@ -31894,7 +31916,7 @@ export namespace Schemas {
          * @nullable
          */
       metric_name: string | null;
-      /** How many recordings the card carries, at most 20. Every card is backed by recordings that actually exist: a finding whose sessions were never recorded is dropped rather than promised. */
+      /** How many recordings the card carries, at most max_card_recordings (20). Every card is backed by recordings that actually exist: a finding whose sessions were never recorded is dropped rather than promised. A count sitting on the ceiling means at least that many, so say 'at least' and never compare two such counts: how often the event happened is the experiment's results, and this only counts what replay kept. */
       recording_count: number;
       /** The recordings themselves, most recent first, ready to hand to the recordings list as-is. */
       session_ids: string[];
@@ -31961,6 +31983,8 @@ export namespace Schemas {
       events_truncated: boolean;
       /** How many exposed people a variant needs before it can be compared at all. Below it a variant's cards would be noise whatever the evidence bar allows. */
       min_arm_persons: number;
+      /** The most recordings one card can carry. A card whose recording_count equals this hit the ceiling, so report it as 'at least this many' rather than as a count. */
+      max_card_recordings: number;
       /** True when fewer than two variants have min_arm_persons exposed people, so no comparison exists and cards is empty. Say 'too early to compare' and show the arms' counts; an empty shelf presented without this would read as 'the variants behaved identically'. */
       too_early: boolean;
     }
@@ -32304,6 +32328,11 @@ export namespace Schemas {
       external_id: string;
       /** Human-readable account name. */
       name: string;
+      /**
+         * When the account churned, or null if it has not churned.
+         * @nullable
+         */
+      churned_at: string | null;
       /** Active relationship assignments to current organization members, keyed by relationship definition name (e.g. 'CSM', 'Account executive'). Definitions with no active assignment are omitted. */
       relationships: ExternalAccountListItemRelationships;
     }
@@ -35830,12 +35859,34 @@ export namespace Schemas {
 
     /**
      * * `requested` - Requested
+     * * `planned` - Planned
+     * * `completed` - Completed
+     * * `wont_fix` - Won't fix
+     * * `duplicate` - Duplicate
      */
-    export type RequestStatusEnum = typeof RequestStatusEnum[keyof typeof RequestStatusEnum];
+    export type FeatureRequestStatusEnum = typeof FeatureRequestStatusEnum[keyof typeof FeatureRequestStatusEnum];
 
 
-    export const RequestStatusEnum = {
+    export const FeatureRequestStatusEnum = {
       Requested: 'requested',
+      Planned: 'planned',
+      Completed: 'completed',
+      WontFix: 'wont_fix',
+      Duplicate: 'duplicate',
+    } as const;
+
+    /**
+     * * `high` - High
+     * * `medium` - Medium
+     * * `low` - Low
+     */
+    export type RequestPriorityEnum = typeof RequestPriorityEnum[keyof typeof RequestPriorityEnum];
+
+
+    export const RequestPriorityEnum = {
+      High: 'high',
+      Medium: 'medium',
+      Low: 'low',
     } as const;
 
     export interface FeatureRequestAccount {
@@ -35873,10 +35924,37 @@ export namespace Schemas {
       readonly title: string;
       /** Customer-facing request description in Markdown. */
       readonly description: string;
-      /** Current customer-facing status. The first release always creates requests as requested.
+      /** Current customer-facing lifecycle status.
        *
-       * * `requested` - Requested */
-      readonly request_status: RequestStatusEnum;
+       * * `requested` - Requested
+       * * `planned` - Planned
+       * * `completed` - Completed
+       * * `wont_fix` - Won't fix
+       * * `duplicate` - Duplicate */
+      readonly request_status: FeatureRequestStatusEnum;
+      /** Manual request priority. Null means no priority.
+       *
+       * * `high` - High
+       * * `medium` - Medium
+       * * `low` - Low */
+      readonly request_priority: RequestPriorityEnum | null;
+      /** Whether the request is archived. */
+      readonly is_archived: boolean;
+      /**
+         * When the request was archived, or null while active.
+         * @nullable
+         */
+      readonly archived_at: string | null;
+      /**
+         * ID of the user who archived the request, or null while active.
+         * @nullable
+         */
+      readonly archived_by: number | null;
+      /**
+         * Version required for optimistic concurrency on mutations.
+         * @minimum 1
+         */
+      readonly version: number;
       /** Affected account in the first release. */
       readonly account: FeatureRequestAccount;
       /** Product areas affected by this request. */
@@ -35911,6 +35989,163 @@ export namespace Schemas {
       product_area_ids: string[];
       /** Client-generated key that makes retries return the original request instead of creating a duplicate. */
       idempotency_key: string;
+    }
+
+    /**
+     * * `status` - Status
+     * * `priority` - Priority
+     * * `account` - Account
+     * * `product_areas` - Product areas
+     */
+    export type FieldEnum = typeof FieldEnum[keyof typeof FieldEnum];
+
+
+    export const FieldEnum = {
+      Status: 'status',
+      Priority: 'priority',
+      Account: 'account',
+      ProductAreas: 'product_areas',
+    } as const;
+
+    /**
+     * Value before the update, including relation snapshots.
+     */
+    export type FeatureRequestHistoryChangeBefore = string | {
+      /** @nullable */
+      id: string | null;
+      name: string;
+    } | {
+      id: string;
+      name: string;
+    }[] | null;
+
+    /**
+     * Value after the update, including relation snapshots.
+     */
+    export type FeatureRequestHistoryChangeAfter = string | {
+      /** @nullable */
+      id: string | null;
+      name: string;
+    } | {
+      id: string;
+      name: string;
+    }[] | null;
+
+    export interface FeatureRequestHistoryChange {
+      /** Request field represented by this change.
+       *
+       * * `status` - Status
+       * * `priority` - Priority
+       * * `account` - Account
+       * * `product_areas` - Product areas */
+      readonly field: FieldEnum;
+      /** Value before the update, including relation snapshots. */
+      readonly before: FeatureRequestHistoryChangeBefore;
+      /** Value after the update, including relation snapshots. */
+      readonly after: FeatureRequestHistoryChangeAfter;
+    }
+
+    export interface FeatureRequestHistory {
+      /** Stable request history entry ID. */
+      readonly id: string;
+      /** Tracked fields changed together in one successful save. */
+      readonly changes: readonly FeatureRequestHistoryChange[];
+      /** Whether this entry records the request's initial values. */
+      readonly is_initial: boolean;
+      /** System that recorded the request change.
+       *
+       * * `manual` - Manual */
+      readonly change_source: ChangeSourceEnum;
+      /**
+         * ID of the user who changed the request, if known.
+         * @nullable
+         */
+      readonly actor_id: number | null;
+      /**
+         * Display name of the user who changed the request, if known.
+         * @nullable
+         */
+      readonly actor_name: string | null;
+      /** When the request changed. */
+      readonly changed_at: string;
+    }
+
+    export interface FeatureRequestStatusHistory {
+      /** Stable status history entry ID. */
+      readonly id: string;
+      /** Status before this change. Null identifies the initial status.
+       *
+       * * `requested` - Requested
+       * * `planned` - Planned
+       * * `completed` - Completed
+       * * `wont_fix` - Won't fix
+       * * `duplicate` - Duplicate */
+      readonly previous_status: FeatureRequestStatusEnum | null;
+      /** Status after this change.
+       *
+       * * `requested` - Requested
+       * * `planned` - Planned
+       * * `completed` - Completed
+       * * `wont_fix` - Won't fix
+       * * `duplicate` - Duplicate */
+      readonly request_status: FeatureRequestStatusEnum;
+      /** System that recorded the status change.
+       *
+       * * `manual` - Manual */
+      readonly change_source: ChangeSourceEnum;
+      /**
+         * ID of the user who changed the status, if known.
+         * @nullable
+         */
+      readonly actor_id: number | null;
+      /**
+         * Display name of the user who changed the status, if known.
+         * @nullable
+         */
+      readonly actor_name: string | null;
+      /** When the status changed. */
+      readonly changed_at: string;
+    }
+
+    export interface FeatureRequestUpdate {
+      /**
+         * Request version loaded by the editor. Stale versions return 409 Conflict.
+         * @minimum 1
+         */
+      expected_version: number;
+      /**
+         * Updated customer-facing request title.
+         * @maxLength 400
+         */
+      title?: string;
+      /** Updated customer-facing request description in Markdown. */
+      description?: string;
+      /** Updated affected Customer Analytics account ID. */
+      account_id?: string;
+      /** One or more product area IDs. Existing inactive areas can remain linked. */
+      product_area_ids?: string[];
+      /** Updated customer-facing lifecycle status.
+       *
+       * * `requested` - Requested
+       * * `planned` - Planned
+       * * `completed` - Completed
+       * * `wont_fix` - Won't fix
+       * * `duplicate` - Duplicate */
+      request_status?: FeatureRequestStatusEnum;
+      /** Updated manual priority. Pass null to remove the priority.
+       *
+       * * `high` - High
+       * * `medium` - Medium
+       * * `low` - Low */
+      request_priority?: RequestPriorityEnum | null;
+    }
+
+    export interface FeatureRequestVersion {
+      /**
+         * Request version loaded by the editor. Stale versions return 409 Conflict.
+         * @minimum 1
+         */
+      expected_version: number;
     }
 
     export interface FeaturebaseFeedbackSignalExtra {
@@ -39903,7 +40138,6 @@ export namespace Schemas {
       expiry_time?: string | null;
       /** External references to third party issues. */
       external_references?: SessionRecordingExternalReference[] | null;
-      has_summary?: boolean | null;
       id: string;
       inactive_seconds?: number | null;
       keypress_count?: number | null;
@@ -53895,6 +54129,11 @@ export namespace Schemas {
        * * `weekly` - weekly
        * * `monthly` - monthly */
       slack_summary_cadence?: SlackSummaryCadenceEnum | null;
+      /**
+         * When the account churned. Null means the account has not churned.
+         * @nullable
+         */
+      churned_at?: string | null;
       readonly created_at?: string;
       /** @nullable */
       readonly created_by?: number | null;
@@ -56282,6 +56521,39 @@ export namespace Schemas {
       readonly created_at?: string;
       /** When the product area was last updated. */
       readonly updated_at?: string;
+    }
+
+    export interface PatchedFeatureRequestUpdate {
+      /**
+         * Request version loaded by the editor. Stale versions return 409 Conflict.
+         * @minimum 1
+         */
+      expected_version?: number;
+      /**
+         * Updated customer-facing request title.
+         * @maxLength 400
+         */
+      title?: string;
+      /** Updated customer-facing request description in Markdown. */
+      description?: string;
+      /** Updated affected Customer Analytics account ID. */
+      account_id?: string;
+      /** One or more product area IDs. Existing inactive areas can remain linked. */
+      product_area_ids?: string[];
+      /** Updated customer-facing lifecycle status.
+       *
+       * * `requested` - Requested
+       * * `planned` - Planned
+       * * `completed` - Completed
+       * * `wont_fix` - Won't fix
+       * * `duplicate` - Duplicate */
+      request_status?: FeatureRequestStatusEnum;
+      /** Updated manual priority. Pass null to remove the priority.
+       *
+       * * `high` - High
+       * * `medium` - Medium
+       * * `low` - Low */
+      request_priority?: RequestPriorityEnum | null;
     }
 
     /**
@@ -59334,6 +59606,7 @@ export namespace Schemas {
       network_access_level?: NetworkAccessLevelEnum;
       /**
          * Allowed domains for custom network access.
+         * @maxItems 100
          * @items.maxLength 255
          */
       allowed_domains?: string[];
@@ -68901,6 +69174,7 @@ export namespace Schemas {
       network_access_level?: NetworkAccessLevelEnum;
       /**
          * Allowed domains for custom network access.
+         * @maxItems 100
          * @items.maxLength 255
          */
       allowed_domains?: string[];
@@ -81703,6 +81977,10 @@ export namespace Schemas {
      */
     all_roles_unassigned?: boolean;
     /**
+     * Include churned accounts. Churned accounts are hidden by default.
+     */
+    include_churned?: boolean;
+    /**
      * Number of results to return per page.
      */
     limit?: number;
@@ -85301,6 +85579,19 @@ export namespace Schemas {
 
     export type FeatureRequestsListParams = {
     /**
+     * Accessible account IDs to include. Multiple values use OR semantics.
+     */
+    account_ids?: string[];
+    /**
+     * Whether to return active requests, archived requests, or all requests.
+     *
+     * * `active` - Active
+     * * `archived` - Archived
+     * * `all` - All
+     * @minLength 1
+     */
+    archive_state?: FeatureRequestsListArchiveState;
+    /**
      * Number of results to return per page.
      */
     limit?: number;
@@ -85308,7 +85599,80 @@ export namespace Schemas {
      * The initial index from which to return the results.
      */
     offset?: number;
+    /**
+     * Priorities to include. Use none for requests without a priority.
+     */
+    priorities?: FeatureRequestsListPrioritiesItem[];
+    /**
+     * Product area IDs to include. Multiple values use OR semantics.
+     */
+    product_area_ids?: string[];
+    /**
+     * Stable ordering for the result list.
+     *
+     * * `-updated_at` - Last updated: newest
+     * * `updated_at` - Last updated: oldest
+     * * `-created_at` - Date created: newest
+     * * `created_at` - Date created: oldest
+     * * `-priority` - Priority: high to low
+     * * `priority` - Priority: low to high
+     * * `title` - Title: A to Z
+     * * `-title` - Title: Z to A
+     * @minLength 1
+     */
+    request_ordering?: string;
+    /**
+     * Case-insensitive text to find in request titles and descriptions.
+     */
+    search?: string;
+    /**
+     * Lifecycle statuses to include. Multiple values use OR semantics.
+     */
+    statuses?: FeatureRequestsListStatusesItem[];
     };
+
+    export type FeatureRequestsListArchiveState = typeof FeatureRequestsListArchiveState[keyof typeof FeatureRequestsListArchiveState];
+
+
+    export const FeatureRequestsListArchiveState = {
+      Active: 'active',
+      Archived: 'archived',
+      All: 'all',
+    } as const;
+
+    /**
+     * * `high` - High
+     * * `medium` - Medium
+     * * `low` - Low
+     * * `none` - No priority
+     */
+    export type FeatureRequestsListPrioritiesItem = typeof FeatureRequestsListPrioritiesItem[keyof typeof FeatureRequestsListPrioritiesItem];
+
+
+    export const FeatureRequestsListPrioritiesItem = {
+      High: 'high',
+      Medium: 'medium',
+      Low: 'low',
+      None: 'none',
+    } as const;
+
+    /**
+     * * `requested` - Requested
+     * * `planned` - Planned
+     * * `completed` - Completed
+     * * `wont_fix` - Won't fix
+     * * `duplicate` - Duplicate
+     */
+    export type FeatureRequestsListStatusesItem = typeof FeatureRequestsListStatusesItem[keyof typeof FeatureRequestsListStatusesItem];
+
+
+    export const FeatureRequestsListStatusesItem = {
+      Requested: 'requested',
+      Planned: 'planned',
+      Completed: 'completed',
+      WontFix: 'wont_fix',
+      Duplicate: 'duplicate',
+    } as const;
 
     export type FieldNotesListParams = {
     /**

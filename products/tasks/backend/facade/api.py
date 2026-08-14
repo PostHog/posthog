@@ -78,6 +78,10 @@ from products.tasks.backend.logic.services.image_builder import (
     is_custom_images_enabled,
     read_spec_from_builder_sandbox,
 )
+from products.tasks.backend.logic.services.network_policy import (
+    MAX_SANDBOX_ALLOWED_DOMAINS,
+    normalize_requested_domains,
+)
 from products.tasks.backend.mentions import resolve_mentioned_user_ids
 from products.tasks.backend.models import (
     Channel,
@@ -1482,7 +1486,7 @@ def upsert_internal_sandbox_env(
         "repositories": [],
     }
     if allowed_domains is not None:
-        defaults["allowed_domains"] = allowed_domains
+        defaults["allowed_domains"] = normalize_sandbox_allowed_domains(allowed_domains)
         defaults["include_default_domains"] = include_default_domains
     try:
         env, _ = SandboxEnvironment.objects.update_or_create(
@@ -1582,6 +1586,12 @@ def _validate_user_sandbox_env_vars(environment_variables: dict | None) -> None:
             raise ValueError(f"Environment variable key {key!r} is not allowed")
 
 
+def normalize_sandbox_allowed_domains(allowed_domains: list[str]) -> list[str]:
+    if len(allowed_domains) > MAX_SANDBOX_ALLOWED_DOMAINS:
+        raise ValueError(f"You can allow up to {MAX_SANDBOX_ALLOWED_DOMAINS} domains")
+    return list(normalize_requested_domains(allowed_domains))
+
+
 def _accessible_sandbox_envs(team_id: int, user_id: int):
     return (
         SandboxEnvironment.objects.filter(team_id=team_id)
@@ -1629,12 +1639,13 @@ def create_sandbox_environment(
     """Create a team environment owned by the user and return it as a DTO."""
     _validate_user_sandbox_env_vars(environment_variables)
     _validate_custom_image_id(team_id, user_id, custom_image_id)
+    normalized_allowed_domains = normalize_sandbox_allowed_domains(allowed_domains)
     env = SandboxEnvironment.objects.create(
         team_id=team_id,
         created_by_id=user_id,
         name=name,
         network_access_level=network_access_level,
-        allowed_domains=allowed_domains,
+        allowed_domains=normalized_allowed_domains,
         include_default_domains=include_default_domains,
         repositories=repositories,
         environment_variables=environment_variables,
@@ -1655,6 +1666,8 @@ def update_sandbox_environment(
         _validate_user_sandbox_env_vars(fields["environment_variables"])
     if "custom_image_id" in fields:
         _validate_custom_image_id(team_id, user_id, fields["custom_image_id"])
+    if "allowed_domains" in fields:
+        fields["allowed_domains"] = normalize_sandbox_allowed_domains(fields["allowed_domains"])
     for key, value in fields.items():
         setattr(env, key, value)
     env.save()
@@ -5450,7 +5463,6 @@ def warm_task_sandbox(
     extra_state: dict = {
         "branch": branch,
         "initial_permission_mode": initial_permission_mode,
-        "use_modal_network_allowlist": False,
     }
     if sandbox_environment is not None:
         extra_state["sandbox_environment_id"] = str(sandbox_environment.id)

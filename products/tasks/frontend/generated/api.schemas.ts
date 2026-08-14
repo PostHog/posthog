@@ -873,6 +873,7 @@ export interface SandboxEnvironmentWriteApi {
     network_access_level?: NetworkAccessLevelEnumApi
     /**
      * Allowed domains for custom network access.
+     * @maxItems 100
      * @items.maxLength 255
      */
     allowed_domains?: string[]
@@ -911,6 +912,7 @@ export interface PatchedSandboxEnvironmentWriteApi {
     network_access_level?: NetworkAccessLevelEnumApi
     /**
      * Allowed domains for custom network access.
+     * @maxItems 100
      * @items.maxLength 255
      */
     allowed_domains?: string[]
