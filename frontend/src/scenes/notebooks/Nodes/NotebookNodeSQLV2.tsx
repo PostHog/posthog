@@ -151,6 +151,7 @@ const Component = ({
         runId: attributes.runId ?? null,
         hasResult: !!attributes.result,
         getContent: () => notebookLogic.values.content ?? null,
+        getVariables: () => notebookLogic.values.runnableVariables,
     })
     const {
         isRunning,
@@ -395,6 +396,7 @@ const Settings = ({
         runId: attributes.runId ?? null,
         hasResult: !!attributes.result,
         getContent: () => notebookLogic.values.content ?? null,
+        getVariables: () => notebookLogic.values.runnableVariables,
     })
     const { isRunning, isInterrupting, operationBlockReason } = useValues(dataLogic)
     const { runQuery, interruptRun } = useActions(dataLogic)

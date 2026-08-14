@@ -1,12 +1,7 @@
-import { parseMarkdownNotebook } from 'lib/components/MarkdownNotebook/markdown'
-import { NotebookComponentProps, NotebookPropValue } from 'lib/components/MarkdownNotebook/types'
 import { JSONContent } from 'lib/components/RichContentEditor/types'
 
 import { collectNotebookFrameNodes, extractPythonIdentifiers } from '../Nodes/notebookNodeContent'
 import { NotebookNodeType } from '../types'
-
-/** The markdown tag holding a notebook's variable declarations. Stable — renaming it is a content migration. */
-export const NOTEBOOK_VARIABLES_TAG = 'Variables'
 
 export type NotebookVariableType = 'string' | 'number' | 'boolean' | 'date'
 
@@ -59,13 +54,13 @@ export function extractSqlVariableReferences(sql: string): string[] {
     return names
 }
 
-function toVariableType(value: NotebookPropValue | undefined): NotebookVariableType {
+function toVariableType(value: unknown): NotebookVariableType {
     return typeof value === 'string' && (NOTEBOOK_VARIABLE_TYPES as string[]).includes(value)
         ? (value as NotebookVariableType)
         : 'string'
 }
 
-function toVariableValue(value: NotebookPropValue | undefined): NotebookVariableValue {
+function toVariableValue(value: unknown): NotebookVariableValue {
     if (value === undefined || value === null) {
         return null
     }
@@ -73,26 +68,27 @@ function toVariableValue(value: NotebookPropValue | undefined): NotebookVariable
 }
 
 /**
- * Read the declarations out of a `<Variables>` block's props. Tolerant on purpose: the props are
- * hand-editable markdown, and one malformed entry must not blank the whole block.
+ * Read the declarations off a notebook. Tolerant on purpose: the column is plain JSON that
+ * older clients and the API can write, and one malformed entry must not blank the rest.
  */
-export function parseNotebookVariableItems(props: NotebookComponentProps): NotebookVariable[] {
-    const items = props.items
-    if (!Array.isArray(items)) {
+export function parseNotebookVariables(value: unknown): NotebookVariable[] {
+    if (!Array.isArray(value)) {
         return []
     }
-    return items.flatMap((item): NotebookVariable[] => {
+    return value.flatMap((item): NotebookVariable[] => {
         if (!item || typeof item !== 'object' || Array.isArray(item)) {
             return []
         }
-        const name = typeof item.name === 'string' ? item.name.trim() : ''
-        const type = toVariableType(item.type)
-        return [{ name, type, value: coerceNotebookVariableValue(type, toVariableValue(item.value)) }]
+        const entry = item as Record<string, unknown>
+        const type = toVariableType(entry.type)
+        return [
+            {
+                name: typeof entry.name === 'string' ? entry.name.trim() : '',
+                type,
+                value: coerceNotebookVariableValue(type, toVariableValue(entry.value)),
+            },
+        ]
     })
-}
-
-export function serializeNotebookVariableItems(variables: NotebookVariable[]): NotebookPropValue {
-    return variables.map((variable) => ({ name: variable.name, type: variable.type, value: variable.value }))
 }
 
 /** Fit a value to its declared type, so a type switch in the editor never leaves a stale shape behind. */
@@ -113,64 +109,16 @@ export function coerceNotebookVariableValue(
     return typeof value === 'string' ? value : String(value)
 }
 
-/**
- * Every variable declared in the notebook, in document order. Duplicate names keep the first
- * declaration — the later one is reported as an error by `getNotebookVariableErrors` rather than
- * silently shadowing, so what runs is always the one the editor flags as valid.
- */
-export function collectNotebookVariables(content?: JSONContent | null): NotebookVariable[] {
-    const variables: NotebookVariable[] = []
-    const seen = new Set<string>()
-
-    for (const declared of collectDeclaredNotebookVariables(content)) {
-        if (!declared.name || seen.has(declared.name)) {
-            continue
-        }
-        seen.add(declared.name)
-        variables.push(declared)
-    }
-
-    return variables
-}
-
-/** Every declaration as written, duplicates included — what the editor validates against. */
-export function collectDeclaredNotebookVariables(content?: JSONContent | null): NotebookVariable[] {
-    if (!content || typeof content !== 'object') {
-        return []
-    }
-
-    const declared: NotebookVariable[] = []
-
-    const walk = (node: any): void => {
-        if (!node || typeof node !== 'object') {
-            return
-        }
-        if (node.type === NotebookNodeType.MarkdownNotebook && typeof node.attrs?.markdown === 'string') {
-            for (const block of parseMarkdownNotebook(node.attrs.markdown).nodes) {
-                if (block.type === 'component' && block.tagName === NOTEBOOK_VARIABLES_TAG) {
-                    declared.push(...parseNotebookVariableItems(block.props))
-                }
-            }
-        }
-        if (Array.isArray(node.content)) {
-            node.content.forEach(walk)
-        }
-    }
-
-    walk(content)
-    return declared
-}
-
 /** Names a variable must not take: every cell's output dataframe, which shares the kernel namespace. */
 export function getNotebookVariableConflictNames(content?: JSONContent | null): Set<string> {
     return new Set(collectNotebookFrameNodes(content).map((node) => node.name))
 }
 
 /**
- * Per-declaration validation error, keyed by the variable's index in the block, or null when the
- * declaration is usable. Uniqueness is checked against the other declarations and against cell
- * dataframe names: a Python cell reads both out of one kernel namespace, so a shared name means
- * one silently clobbers the other.
+ * Per-declaration validation error, keyed by the variable's index, or null when the declaration
+ * is usable. Uniqueness is checked against the other declarations and against cell dataframe
+ * names: a Python cell reads both out of one kernel namespace, so a shared name means one
+ * silently clobbers the other.
  */
 export function getNotebookVariableErrors(
     variables: NotebookVariable[],

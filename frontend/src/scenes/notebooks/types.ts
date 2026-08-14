@@ -18,6 +18,12 @@ export type NotebookListItemType = {
     _create_in_folder?: string
 }
 
+export type NotebookVariableApi = {
+    name: string
+    type: string
+    value?: unknown
+}
+
 export type NotebookParentResource = {
     type: 'account'
     id: string
@@ -32,6 +38,9 @@ export type NotebookType = NotebookListItemType &
         // null when the notebook is standalone; set when it belongs to a resource (e.g. an
         // account note) so the scene can route breadcrumbs back to that resource's list
         parent_resource?: NotebookParentResource | null
+        // Notebook-level variables a SQL cell reads as `{name}` and a Python cell as a global.
+        // A notebook property rather than document content, so editing prose cannot delete it.
+        variables?: NotebookVariableApi[] | null
     }
 
 export enum NotebookNodeType {

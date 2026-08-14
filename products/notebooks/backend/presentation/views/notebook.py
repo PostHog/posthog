@@ -90,6 +90,7 @@ from products.notebooks.backend.sql_v2_serializers import (
     NotebookSQLV2RunResponseSerializer,
     NotebookSQLV2RunStatusResponseSerializer,
     NotebookSQLV2StateResponseSerializer,
+    NotebookVariableSerializer,
 )
 from products.notebooks.backend.sql_v2_state import build_notebook_cell_state
 from products.notebooks.backend.sql_v2_variables import (
@@ -202,6 +203,14 @@ class NotebookMinimalSerializer(serializers.ModelSerializer, UserAccessControlSe
 
 
 class NotebookSerializer(NotebookMinimalSerializer):
+    variables = NotebookVariableSerializer(
+        many=True,
+        required=False,
+        help_text=(
+            "Notebook-level variables, in display order. A SQL cell reads one as a `{name}` "
+            "placeholder and a Python cell as a global. Names must be unique."
+        ),
+    )
     parent_resource = serializers.SerializerMethodField(
         help_text=(
             "Parent resource this notebook is attached to, or `null`. Returns "
@@ -226,6 +235,7 @@ class NotebookSerializer(NotebookMinimalSerializer):
             "last_modified_by",
             "user_access_level",
             "parent_resource",
+            "variables",
             "_create_in_folder",
         ]
         read_only_fields = [
@@ -246,6 +256,16 @@ class NotebookSerializer(NotebookMinimalSerializer):
                 "help_text": "Version number for optimistic concurrency control. Must match the current version when updating content."
             },
         }
+
+    def validate_variables(self, value: list[dict]) -> list[dict]:
+        # A Python cell reads variables and cell dataframes out of one namespace, so a duplicate
+        # would make which value binds depend on ordering. Dataframe names live in `content` and
+        # are checked in the editor; this guards the notebook's own list.
+        names = [variable["name"] for variable in value]
+        duplicates = sorted({name for name in names if names.count(name) > 1})
+        if duplicates:
+            raise serializers.ValidationError(f"Variable names must be unique. Repeated: {', '.join(duplicates)}.")
+        return value
 
     @extend_schema_field(_PARENT_RESOURCE_SCHEMA)
     def get_parent_resource(self, obj: Notebook) -> dict | None:

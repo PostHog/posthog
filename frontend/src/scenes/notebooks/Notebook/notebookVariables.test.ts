@@ -1,27 +1,17 @@
-import { parseMarkdownNotebook, serializeMarkdownNotebook } from 'lib/components/MarkdownNotebook/markdown'
 import { JSONContent } from 'lib/components/RichContentEditor/types'
 
 import { NotebookNodeType } from '../types'
 import {
-    NOTEBOOK_VARIABLES_TAG,
     NotebookVariable,
-    collectNotebookVariables,
     extractSqlVariableReferences,
     getNotebookVariableConflictNames,
     getNotebookVariableErrors,
     getRunnableNotebookVariables,
-    parseNotebookVariableItems,
-    serializeNotebookVariableItems,
+    parseNotebookVariables,
 } from './notebookVariables'
 
 describe('notebookVariables', () => {
-    const markdownContent = (markdown: string): JSONContent => ({
-        type: 'doc',
-        content: [{ type: NotebookNodeType.MarkdownNotebook, attrs: { nodeId: 'md', markdown } }],
-    })
-
-    const variablesMarkdown = (items: NotebookVariable[]): string =>
-        `<${NOTEBOOK_VARIABLES_TAG} items={${JSON.stringify(items)}} />`
+    const country: NotebookVariable = { name: 'country', type: 'string', value: 'US' }
 
     describe('extractSqlVariableReferences', () => {
         it.each([
@@ -37,58 +27,36 @@ describe('notebookVariables', () => {
         })
     })
 
-    describe('collectNotebookVariables', () => {
-        it('reads declarations out of the markdown block', () => {
-            const content = markdownContent(
-                variablesMarkdown([
+    describe('parseNotebookVariables', () => {
+        it('reads the notebook column', () => {
+            expect(
+                parseNotebookVariables([
                     { name: 'country', type: 'string', value: 'US' },
                     { name: 'lookback_days', type: 'number', value: 30 },
                 ])
-            )
-            expect(collectNotebookVariables(content)).toEqual([
+            ).toEqual([
                 { name: 'country', type: 'string', value: 'US' },
                 { name: 'lookback_days', type: 'number', value: 30 },
             ])
         })
 
-        it('keeps the first of two declarations sharing a name', () => {
-            // The editor flags the second as invalid, so what runs must be the one it marks valid.
-            const content = markdownContent(
-                variablesMarkdown([
-                    { name: 'country', type: 'string', value: 'US' },
-                    { name: 'country', type: 'string', value: 'DE' },
-                ])
-            )
-            expect(collectNotebookVariables(content)).toEqual([{ name: 'country', type: 'string', value: 'US' }])
-        })
-
-        it('returns nothing for a notebook with no variables block', () => {
-            expect(collectNotebookVariables(markdownContent('# Just prose'))).toEqual([])
-        })
-    })
-
-    describe('markdown round trip', () => {
-        it('survives a parse and re-serialize as a component block', () => {
-            // Markdown is the only storage: a block that degrades to a paragraph on save loses
-            // every value in it.
-            const markdown = variablesMarkdown([{ name: 'country', type: 'string', value: 'US' }])
-            const document = parseMarkdownNotebook(markdown)
-            const block = document.nodes[0]
-
-            expect(block.type).toBe('component')
-            expect(block.type === 'component' && block.tagName).toBe(NOTEBOOK_VARIABLES_TAG)
-            expect(block.type === 'component' ? parseNotebookVariableItems(block.props) : []).toEqual([
-                { name: 'country', type: 'string', value: 'US' },
-            ])
-            expect(collectNotebookVariables(markdownContent(serializeMarkdownNotebook(document)))).toEqual([
-                { name: 'country', type: 'string', value: 'US' },
-            ])
+        it.each([
+            ['null', null],
+            ['a non-array', { name: 'country' }],
+        ])('returns nothing for %s', (_name, value) => {
+            expect(parseNotebookVariables(value)).toEqual([])
         })
 
         it('drops a malformed entry without losing its neighbours', () => {
-            const props = { items: ['nonsense', { name: 'country', type: 'string', value: 'US' }] }
-            expect(parseNotebookVariableItems(props as never)).toEqual([
-                { name: 'country', type: 'string', value: 'US' },
+            // The column is plain JSON the API can write, so one bad entry must not blank the bar.
+            expect(parseNotebookVariables(['nonsense', { name: 'country', type: 'string', value: 'US' }])).toEqual([
+                country,
+            ])
+        })
+
+        it('coerces a value that does not match its declared type', () => {
+            expect(parseNotebookVariables([{ name: 'days', type: 'number', value: '30' }])).toEqual([
+                { name: 'days', type: 'number', value: 30 },
             ])
         })
     })
@@ -106,10 +74,7 @@ describe('notebookVariables', () => {
         })
 
         it('rejects the second of two declarations sharing a name', () => {
-            const errors = getNotebookVariableErrors([
-                { name: 'country', type: 'string', value: 'US' },
-                { name: 'country', type: 'string', value: 'DE' },
-            ])
+            const errors = getNotebookVariableErrors([country, { ...country, value: 'DE' }])
             expect(errors[0]).toBeNull()
             expect(errors[1]).toContain('already declared')
         })
@@ -147,19 +112,11 @@ describe('notebookVariables', () => {
             // duplicate would make which value binds depend on ordering.
             expect(
                 getRunnableNotebookVariables([
-                    { name: 'country', type: 'string', value: 'US' },
+                    country,
                     { name: 'look-back', type: 'number', value: 7 },
-                    { name: 'country', type: 'string', value: 'DE' },
+                    { ...country, value: 'DE' },
                 ])
-            ).toEqual([{ name: 'country', type: 'string', value: 'US' }])
-        })
-    })
-
-    describe('serializeNotebookVariableItems', () => {
-        it('keeps only the persisted fields', () => {
-            expect(serializeNotebookVariableItems([{ name: 'country', type: 'string', value: 'US' }])).toEqual([
-                { name: 'country', type: 'string', value: 'US' },
-            ])
+            ).toEqual([country])
         })
     })
 })

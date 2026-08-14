@@ -47,7 +47,7 @@ import {
     useRef,
 } from 'react'
 
-import { IconBrackets, IconComment, IconImage } from '@posthog/icons'
+import { IconComment, IconImage } from '@posthog/icons'
 import { LemonButton, LemonInput, LemonSelect, LemonTextArea, lemonToast } from '@posthog/lemon-ui'
 
 import {
@@ -85,8 +85,6 @@ import { NotebookDiscussionComment, getNotebookDiscussionCommentTitle } from './
 import { MarkdownNotebookNodeAttributeInput } from './MarkdownNotebookNodeAttributeInput'
 import { getSqlV2PropsFromQueryProp } from './markdownNotebookV2'
 import { notebookLogic } from './notebookLogic'
-import { NOTEBOOK_VARIABLES_TAG } from './notebookVariables'
-import { NotebookVariablesBlock, NotebookVariablesEditor, getNotebookVariablesTitle } from './NotebookVariablesBlock'
 
 const INTERNAL_MARKDOWN_NODE_ATTRIBUTE_KEYS = new Set([
     'height',
@@ -372,27 +370,6 @@ export const NOTEBOOK_MARKDOWN_REGISTRY: NotebookComponentRegistry = createMarkd
                 ? getNotebookDiscussionCommentTitle(node)
                 : (getUnknownStringProp(node.props.text) ?? 'Comment'),
     },
-    {
-        // Notebook-level variables. The read panel holds the value controls (adjusting a value
-        // is the point of the block), while the filters panel declares the variables themselves.
-        tagName: NOTEBOOK_VARIABLES_TAG,
-        label: 'Variables',
-        category: 'Data',
-        description: 'Notebook-level values that SQL and Python cells read',
-        aliases: ['variable', 'parameter', 'param', 'input'],
-        icon: <IconBrackets />,
-        defaultProps: () => ({ items: [{ name: '', type: 'string', value: '' }] }),
-        ViewComponent: NotebookVariablesBlock,
-        EditComponent: NotebookVariablesEditor,
-        insertCommand: {
-            category: COMMON_INSERT_COMMAND_CATEGORY,
-            aliases: ['variable', 'parameter', 'param'],
-            // Opens on the declaration editor: a fresh block holds one unnamed variable, and the
-            // read panel alone gives you nowhere to name it.
-            defaultProps: () => ({ items: [{ name: '', type: 'string', value: '' }], showFilters: true }),
-        },
-        getTitle: getNotebookVariablesTitle,
-    },
 ])
 
 // Node tags that only appear in the markdown insert menu when their feature flag is on.
@@ -400,9 +377,7 @@ export const NOTEBOOK_MARKDOWN_REGISTRY: NotebookComponentRegistry = createMarkd
 export function getMarkdownRegistryForFeatureFlags(featureFlags: FeatureFlagsSet): NotebookComponentRegistry {
     const hiddenTags: string[] = []
     if (!featureFlags[FEATURE_FLAGS.REVAMPED_PY_NOTEBOOKS]) {
-        // Variables are only read by the revamped cells, so offering the block without them
-        // would insert something nothing in the notebook can use.
-        hiddenTags.push('SQLV2', 'PythonV2', NOTEBOOK_VARIABLES_TAG)
+        hiddenTags.push('SQLV2', 'PythonV2')
     }
 
     if (hiddenTags.length === 0) {

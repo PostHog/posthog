@@ -120,6 +120,13 @@ import {
     pruneNotebookRemotePresence,
 } from './notebookPresence'
 import { notebookSettingsLogic } from './notebookSettingsLogic'
+import {
+    NotebookVariable,
+    getNotebookVariableConflictNames,
+    getNotebookVariableErrors,
+    getRunnableNotebookVariables,
+    parseNotebookVariables,
+} from './notebookVariables'
 
 /** Save debounce for local-only notebooks (scratchpad, canvas), which don't sync to the server. */
 export const SYNC_DELAY = 1000
@@ -285,6 +292,11 @@ export interface notebookLogicValues {
     selectedCommentId: string | null // commentsLogic
     kernelInfo: NotebookKernelInfo | null // notebookKernelInfoLogic
     showKernelInfo: boolean // notebookSettingsLogic
+    showVariablesOverride: boolean | null // notebookSettingsLogic
+    runnableVariables: NotebookVariable[]
+    showVariables: boolean
+    variableErrors: (string | null)[]
+    variables: NotebookVariable[]
     notebookTemplates: NotebookType[] // notebooksModel
     scratchpadNotebook: NotebookListItemType // notebooksModel
     user: UserType | null // userLogic
@@ -315,6 +327,7 @@ export interface notebookLogicValues {
     isShowingLeftColumn: boolean
     isTemplate: boolean
     localContent: JSONContent | null
+    localVariables: NotebookVariable[] | null
     markdownAIPresenceActive: boolean
     markdownEditorBuffer: string | null
     markdownEditorDraft: string | null
@@ -558,6 +571,9 @@ export interface notebookLogicActions {
         editing: boolean
         nodeId: string
     }
+    setVariables: (variables: NotebookVariable[]) => {
+        variables: NotebookVariable[]
+    }
     setLocalContent: (
         jsonContent: JSONContent,
         skipCapture?: any
@@ -706,11 +722,13 @@ export const notebookLogic = kea<notebookLogicType>([
             notebookKernelInfoLogic({ shortId: props.shortId }),
             ['kernelInfo'],
             notebookSettingsLogic,
-            ['showKernelInfo'],
+            ['showKernelInfo', 'showVariablesOverride'],
             userLogic,
             ['user'],
         ],
         actions: [
+            notebookSettingsLogic,
+            ['setShowVariables'],
             notebooksModel,
             ['receiveNotebookUpdate'],
             sidePanelStateLogic,
@@ -739,6 +757,7 @@ export const notebookLogic = kea<notebookLogicType>([
             skipCapture,
         }),
         clearLocalContent: true,
+        setVariables: (variables: NotebookVariable[]) => ({ variables }),
         setPreviewContent: (jsonContent: JSONContent) => ({ jsonContent }),
         clearPreviewContent: true,
         loadNotebook: true,
@@ -797,6 +816,13 @@ export const notebookLogic = kea<notebookLogicType>([
             {
                 setLocalContent: (_, { jsonContent }) => jsonContent,
                 clearLocalContent: () => null,
+            },
+        ],
+        // Local edits ahead of the saved notebook; null means "nothing edited yet, use the server's".
+        localVariables: [
+            null as NotebookVariable[] | null,
+            {
+                setVariables: (_, { variables }) => variables,
             },
         ],
         previewContent: [
@@ -1377,6 +1403,31 @@ export const notebookLogic = kea<notebookLogicType>([
 
         isShowingLeftColumn: [(s) => [s.showHistory], (showHistory: boolean) => showHistory],
 
+        // Local edits win while they exist; otherwise the saved notebook is the source.
+        variables: [
+            (s) => [s.localVariables, s.notebook],
+            (localVariables: NotebookVariable[] | null, notebook: NotebookType | null): NotebookVariable[] =>
+                localVariables ?? parseNotebookVariables(notebook?.variables),
+        ],
+        variableErrors: [
+            (s) => [s.variables, s.content],
+            (variables: NotebookVariable[], content: JSONContent): (string | null)[] =>
+                getNotebookVariableErrors(variables, getNotebookVariableConflictNames(content)),
+        ],
+        // Only valid, unique declarations are safe to bind into a run.
+        runnableVariables: [
+            (s) => [s.variables, s.content],
+            (variables: NotebookVariable[], content: JSONContent): NotebookVariable[] =>
+                getRunnableNotebookVariables(variables, getNotebookVariableConflictNames(content)),
+        ],
+        // Open by default only once the notebook has variables — an empty bar is noise on a
+        // notebook that does not use them. The toggle overrides in both directions.
+        showVariables: [
+            (s) => [s.showVariablesOverride, s.variables],
+            (showVariablesOverride: boolean | null, variables: NotebookVariable[]): boolean =>
+                showVariablesOverride ?? variables.length > 0,
+        ],
+
         isEditable: [
             (s) => [s.shouldBeEditable, s.previewContent, s.notebook, s.mode],
             (
@@ -1452,7 +1503,24 @@ export const notebookLogic = kea<notebookLogicType>([
             },
         ],
     }),
-    listeners(({ values, actions, cache }) => ({
+    listeners(({ values, actions, cache, props }) => ({
+        // Variables save on their own PATCH rather than through the markdown save path: they are
+        // a notebook property, not document content. Debounced so typing a name is one request.
+        setVariables: async (_, breakpoint) => {
+            if (values.isLocalOnly || !values.notebook) {
+                return
+            }
+            await breakpoint(500)
+            try {
+                const response = await api.notebooks.update(props.shortId, { variables: values.variables })
+                actions.receiveNotebookUpdate(response)
+            } catch (error) {
+                // The bar keeps the edit, so the next change retries it. Losing a value silently
+                // would be worse than an error the user can act on.
+                lemonToast.error('Could not save notebook variables')
+                posthog.captureException(error)
+            }
+        },
         connectMarkdownUpdateStream: () => {
             if (!values.markdownRealtimeEnabled) {
                 return

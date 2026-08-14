@@ -1,6 +1,8 @@
 from drf_spectacular.utils import extend_schema_field
 from rest_framework import serializers
 
+from products.notebooks.backend.sql_v2_variables import RESERVED_VARIABLE_NAMES
+
 
 @extend_schema_field(serializers.DictField(child=serializers.FloatField()))
 class LenientTimingsField(serializers.JSONField):
@@ -28,7 +30,9 @@ class NotebookSQLV2RefSerializer(serializers.Serializer):
     )
 
 
-class NotebookSQLV2VariableSerializer(serializers.Serializer):
+class NotebookVariableSerializer(serializers.Serializer):
+    """One notebook-level variable. Shared by the notebook's own `variables` field and a run body."""
+
     name = serializers.CharField(
         help_text="Identifier the cell reads: `{name}` in a SQL cell, a plain global in a Python cell."
     )
@@ -45,6 +49,16 @@ class NotebookSQLV2VariableSerializer(serializers.Serializer):
             "expression ('-7d', 'mStart'), resolved against the project timezone."
         ),
     )
+
+    def validate_name(self, value: str) -> str:
+        name = value.strip()
+        # A SQL cell reads the name as a `{name}` placeholder and a Python cell as a global, so
+        # only a plain identifier can ever resolve.
+        if not name.isidentifier():
+            raise serializers.ValidationError("Use letters, numbers, and underscores, and don't start with a number.")
+        if name in RESERVED_VARIABLE_NAMES:
+            raise serializers.ValidationError(f"'{name}' is reserved by PostHog. Pick another name.")
+        return name
 
 
 class NotebookSQLV2RunRequestSerializer(serializers.Serializer):
@@ -81,7 +95,7 @@ class NotebookSQLV2RunRequestSerializer(serializers.Serializer):
             "DuckDB; a python node materializes the hogql refs its code reads as pandas frames."
         ),
     )
-    variables = NotebookSQLV2VariableSerializer(
+    variables = NotebookVariableSerializer(
         many=True,
         required=False,
         default=list,
