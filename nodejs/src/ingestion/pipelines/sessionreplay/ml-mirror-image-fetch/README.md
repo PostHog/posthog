@@ -496,6 +496,17 @@ request a resource the page never requested.
 `Accept-Encoding`, and it never refuses a response because the server compressed it. The site pays
 for the bandwidth, so the site decides how many bytes it sends.
 
+**14.3** The lane sends no cookie, and it keeps no cookie jar between requests. A cookie makes the
+response depend on a session, and this lane has no session it could speak for.
+
+**14.4** The lane sends no credential. That covers an `Authorization` header, a proxy credential,
+and the userinfo of a URL, which requirement 7.3 drops before the URL reaches the topic. An origin
+that serves an image only to a signed-in reader must keep serving it only to a signed-in reader.
+
+**14.5** The lane sends no `Referer`. The page that referred to the image belongs to a customer's
+site, and its URL is the customer's, not ours to disclose. An image host that received it would
+learn which pages a customer serves.
+
 ### 15. The response the lane accepts
 
 **15.1** The lane refuses a response over the byte cap, and it checks twice. A `Content-Length` above
