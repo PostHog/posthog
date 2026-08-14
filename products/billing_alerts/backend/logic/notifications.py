@@ -168,6 +168,17 @@ def prepare_billing_alert_dispatch(
         )
     kind = _kind_for_event(check.event)
     event_name = EVENT_KIND_CONFIG[kind].event_id if kind is not None else None
+    if (
+        event_name is not None
+        and check.outcome.notification == NotificationAction.ERROR
+        and check.claim.attempts.filter(notification_sent_at__isnull=False).exists()
+    ):
+        # One delivered error notification per evaluation date is enough. Same-day retries of an
+        # already-notified failure would resend an identical message on every attempt, up to
+        # MAX_EVALUATION_ATTEMPTS per day for a sustained outage. notification_sent_at is only set
+        # when destination targets actually received the event, so a failed delivery still retries
+        # delivery, and BROKEN escalation notifications are unaffected.
+        event_name = None
     return PendingBillingAlertDispatch(check=check, event_name=event_name)
 
 

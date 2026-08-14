@@ -191,6 +191,45 @@ class TestBillingAlertNotifications(BaseTest):
         assert event.error_message == "Billing alert evaluation failed."
         assert "billing unavailable" not in event.error_message
 
+    def test_same_day_retry_of_delivered_error_does_not_renotify(self) -> None:
+        alert = self._alert()
+        self._destination(alert, "errored")
+
+        with (
+            patch(
+                "products.billing_alerts.backend.logic.notifications.produce_alert_internal_event",
+                return_value=MagicMock(),
+            ) as produce,
+            patch("products.billing_alerts.backend.logic.notifications.flush_alert_internal_events"),
+            patch(
+                "products.billing_alerts.backend.logic.notifications.alert_internal_event_delivered",
+                return_value=True,
+            ),
+        ):
+            first_event, first_dispatched = evaluate_and_dispatch_billing_alert(
+                alert,
+                now=NOW,
+                error=RuntimeError("billing unavailable"),
+                is_transient_error=True,
+            )
+            second_event, second_dispatched = evaluate_and_dispatch_billing_alert(
+                alert,
+                now=NOW.replace(minute=16),
+                error=RuntimeError("billing unavailable"),
+                is_transient_error=True,
+            )
+
+        alert.refresh_from_db()
+        assert first_dispatched == 1
+        assert first_event.notification_sent_at == NOW
+        # The user already received this evaluation date's error, so the retry keeps its event row
+        # for attempt history but sends nothing.
+        assert produce.call_count == 1
+        assert second_dispatched == 0
+        assert second_event.kind == BillingAlertEvent.Kind.ERRORED
+        assert second_event.notification_sent_at is None
+        assert alert.enabled is True
+
     def test_failed_broken_delivery_keeps_alert_enabled_for_retry(self) -> None:
         alert = self._alert(consecutive_failures=4)
         self._destination(alert, "broken")
