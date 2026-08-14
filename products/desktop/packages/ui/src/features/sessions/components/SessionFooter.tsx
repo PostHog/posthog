@@ -1,11 +1,9 @@
 import { Brain, Pause } from "@phosphor-icons/react";
 import type { Task } from "@posthog/shared/domain-types";
-import { ContextUsageIndicator } from "@posthog/ui/features/sessions/components/ContextUsageIndicator";
 import {
   formatDuration,
   GeneratingIndicator,
 } from "@posthog/ui/features/sessions/components/GeneratingIndicator";
-import type { ContextUsage } from "@posthog/ui/features/sessions/hooks/useContextUsage";
 import { Box, Flex, Text } from "@radix-ui/themes";
 import { DiffStatsChip } from "./DiffStatsChip";
 import { ImageBuilderBuildButton } from "./ImageBuilderBuildButton";
@@ -21,7 +19,9 @@ interface SessionFooterProps {
   hasPendingPermission?: boolean;
   pausedDurationMs?: number;
   isCompacting?: boolean;
-  usage?: ContextUsage | null;
+  /** A /clear is in flight; its dedicated "Clearing…" row replaces the
+   *  generic generating indicator, same as compaction. */
+  isClearing?: boolean;
   /** Number of tool calls finished so far; the generating indicator advances
    *  its status word each time this changes. */
   completedToolCallCount?: number;
@@ -37,7 +37,7 @@ export function SessionFooter({
   hasPendingPermission = false,
   pausedDurationMs,
   isCompacting = false,
-  usage,
+  isClearing = false,
   completedToolCallCount,
 }: SessionFooterProps) {
   const rightSide = (
@@ -46,10 +46,9 @@ export function SessionFooter({
         <ImageBuilderBuildButton taskId={task.id} />
       )}
       {task && <DiffStatsChip task={task} />}
-      <ContextUsageIndicator usage={usage ?? null} />
     </Flex>
   );
-  if (isPromptPending && !isCompacting) {
+  if (isPromptPending && !isCompacting && !isClearing) {
     if (hasPendingPermission) {
       return (
         <Box className="pt-3 pb-1 opacity-50 transition-opacity group-hover/thread:opacity-100">

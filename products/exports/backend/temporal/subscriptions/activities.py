@@ -51,14 +51,23 @@ from ee.tasks.subscriptions.auto_disable import (
     get_subscription_disable_reason,
 )
 from ee.tasks.subscriptions.email_subscriptions import send_email_subscription_report
+from ee.tasks.subscriptions.failure_notifications import (
+    create_subscription_delivery_failure_notification,
+    send_subscription_delivery_failure_email,
+)
 from ee.tasks.subscriptions.slack_subscriptions import send_slack_message_with_integration_async
-from ee.tasks.subscriptions.subscription_utils import MAX_DASHBOARD_INSIGHTS
+from ee.tasks.subscriptions.subscription_utils import MAX_INSIGHTS
 
 LOGGER = get_logger(__name__)
 
 # Used only as the recipient_results error message — `no_assets` doesn't auto-disable
 # (it indicates a transient resolve failure that retries can recover from).
 NO_ASSETS_REASON = "No assets to deliver — likely a transient export pipeline failure; will retry on next schedule"
+# Plain-English twin of NO_ASSETS_REASON for the delivery-history UI: "assets" and "export pipeline"
+# are internal jargon subscribers won't parse.
+NO_ASSETS_HUMAN_READABLE_REASON = (
+    "Nothing could be generated to send this time. We'll try again on the next scheduled run."
+)
 
 
 class NoExportableInsightsError(Exception):
@@ -240,6 +249,7 @@ async def validate_subscription_for_delivery(subscription_id: int) -> Subscripti
             recipient=subscription.target_value,
             status="failed",
             error={"message": reason.description, "type": reason.key},
+            human_readable_error=reason.description,
         )
     )
 
@@ -251,7 +261,7 @@ async def create_export_assets(inputs: CreateExportAssetsInputs) -> CreateExport
         subscription_id=inputs.subscription_id,
     )
 
-    max_asset_count = inputs.max_asset_count if inputs.max_asset_count is not None else MAX_DASHBOARD_INSIGHTS
+    max_asset_count = inputs.max_asset_count if inputs.max_asset_count is not None else MAX_INSIGHTS
     if max_asset_count <= 0:
         raise ApplicationError(
             f"Dashboard insight export limit must be at least 1, received {max_asset_count} for subscription {inputs.subscription_id}",
@@ -307,6 +317,8 @@ async def create_export_assets(inputs: CreateExportAssetsInputs) -> CreateExport
             team_id=team.id,
             distinct_id=str(subscription.created_by.distinct_id) if subscription.created_by else str(team.id),
             target_type=subscription.target_type,
+            available_insight_count=resolved_insights.available_insight_count,
+            selected_insight_count=resolved_insights.selected_insight_count,
             status=ExportAssetPreparationStatus.NO_EXPORTABLE_INSIGHTS,
             failure_context=failure_context,
         )
@@ -376,11 +388,24 @@ async def create_export_assets(inputs: CreateExportAssetsInputs) -> CreateExport
         team_id=team.id,
         distinct_id=str(subscription.created_by.distinct_id) if subscription.created_by else str(team.id),
         target_type=subscription.target_type,
+        available_insight_count=resolved_insights.available_insight_count,
+        selected_insight_count=resolved_insights.selected_insight_count,
     )
 
 
 @temporalio.activity.defn
 async def deliver_subscription(inputs: DeliverSubscriptionInputs) -> DeliverSubscriptionResult:
+    # TODO(2026-07-31): After workflows started before 2026-07-31 have drained, remove this v1 activity,
+    # rename deliver_subscription_v2 to deliver_subscription, and remove the workflow patch.
+    return await _deliver_subscription(inputs)
+
+
+@temporalio.activity.defn(name="deliver-subscription-v2")
+async def deliver_subscription_v2(inputs: DeliverSubscriptionInputs) -> DeliverSubscriptionResult:
+    return await _deliver_subscription(inputs)
+
+
+async def _deliver_subscription(inputs: DeliverSubscriptionInputs) -> DeliverSubscriptionResult:
     recipient_results: list[RecipientResult] = []
 
     subscription = await database_sync_to_async(
@@ -464,6 +489,7 @@ async def _deliver_insight_dashboard_subscription(
                 recipient=subscription.target_value,
                 status="failed",
                 error={"message": NO_ASSETS_REASON, "type": "no_assets"},
+                human_readable_error=NO_ASSETS_HUMAN_READABLE_REASON,
             )
         )
         # Plain Exception — `_capture_delivery_failed_event` only reads `str(e)` and
@@ -484,6 +510,7 @@ async def _deliver_insight_dashboard_subscription(
                 send_async=False,
                 change_summary=inputs.change_summary,
                 summary_skipped_over_budget=inputs.summary_skipped_over_budget,
+                delivery_id=inputs.delivery_id,
             )
 
         result = await deliver_email(subscription, inputs, recipient_results, _send_email)
@@ -585,6 +612,35 @@ async def update_delivery_record(inputs: UpdateDeliveryRecordInputs) -> None:
         delivery_id=inputs.delivery_id,
         status=inputs.status,
     )
+
+
+@temporalio.activity.defn
+async def notify_subscription_delivery_failure(subscription_id: int, failure_id: str) -> None:
+    subscription = await database_sync_to_async(
+        Subscription.objects.select_related("created_by").get,
+        thread_sensitive=False,
+    )(pk=subscription_id)
+    errors: list[Exception] = []
+    try:
+        await database_sync_to_async(send_subscription_delivery_failure_email, thread_sensitive=False)(
+            subscription, failure_id
+        )
+    except Exception as error:
+        errors.append(error)
+        LOGGER.exception("notify_subscription_delivery_failure.email_failed", subscription_id=subscription_id)
+
+    try:
+        await database_sync_to_async(create_subscription_delivery_failure_notification, thread_sensitive=False)(
+            subscription, failure_id
+        )
+    except Exception as error:
+        errors.append(error)
+        LOGGER.exception(
+            "notify_subscription_delivery_failure.in_app_notification_failed", subscription_id=subscription_id
+        )
+
+    if errors:
+        raise errors[0]
 
 
 @temporalio.activity.defn

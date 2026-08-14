@@ -11,7 +11,7 @@ from .activity_logging.notification_viewed import NotificationViewed
 from .async_deletion import AsyncDeletion, DeletionType
 from .async_migration import AsyncMigration, AsyncMigrationError, MigrationStatus
 from .column_configuration import ColumnConfiguration
-from .comment import Comment
+from .comment import Comment, CommentSlackThread
 from .core_event import CoreEvent
 from .data_deletion_request import DataDeletionRequest
 from .data_color_theme import DataColorTheme
@@ -27,8 +27,6 @@ from products.event_definitions.backend.models import EventDefinition
 from products.event_definitions.backend.models import EventProperty
 from .role_external_reference import RoleExternalReference
 from .file_system.file_system import FileSystem
-from .file_system.folder_context_generation import FileSystemFolderContextGeneration
-from .file_system.folder_instructions import FileSystemFolderInstructions
 from .file_system.file_system_view_log import FileSystemViewLog
 from .file_system.persisted_folder import PersistedFolder
 from .file_system.user_product_list import UserProductList
@@ -39,6 +37,7 @@ from .group_type_mapping import GroupTypeMapping
 from .host_definition import HostDefinition
 from .health_issue import HealthIssue
 from .identity_provider_config import IdentityProviderConfig
+from .linked_identity_provider_config import LinkedIdentityProviderConfig  # noqa: F401
 from .instance_setting import InstanceSetting
 from .integration import Integration
 from .integration_repository_cache import IntegrationRepositoryCacheEntry
@@ -109,8 +108,6 @@ __all__ = [
     "EventProperty",
     "RoleExternalReference",
     "FileSystem",
-    "FileSystemFolderContextGeneration",
-    "FileSystemFolderInstructions",
     "FileSystemViewLog",
     "PersistedFolder",
     "UserProductList",
@@ -188,6 +185,7 @@ __all__ = [
     "WebAnalyticsFilterPreset",
     "ScheduledChange",
     "Comment",
+    "CommentSlackThread",
     # Deprecated models here for backwards compatibility
     "Prompt",
     "PromptSequence",

@@ -9,11 +9,13 @@ import { useHostTRPC } from "@posthog/host-router/react";
 import { PROJECT_BLUEBIRD_FLAG } from "@posthog/shared";
 import type { Task } from "@posthog/shared/domain-types";
 import { useChannelsLayout } from "@posthog/ui/features/canvas/hooks/useChannelsLayout";
+import { toggleActivityPanel } from "@posthog/ui/features/canvas/toggleActivityPanel";
 import { getDefaultReviewMode } from "@posthog/ui/features/code-review/getDefaultReviewMode";
 import { useReviewNavigationStore } from "@posthog/ui/features/code-review/reviewNavigationStore";
 import { SHORTCUTS } from "@posthog/ui/features/command/keyboard-shortcuts";
 import { useFeatureFlag } from "@posthog/ui/features/feature-flags/useFeatureFlag";
 import { useFolders } from "@posthog/ui/features/folders/useFolders";
+import { toggleRightPanel } from "@posthog/ui/features/navigation/rightPanelSide";
 import { usePanelLayoutStore } from "@posthog/ui/features/panels/panelLayoutStore";
 import { openSettings } from "@posthog/ui/features/settings/hooks/useOpenSettings";
 import { useSidebarStore } from "@posthog/ui/features/sidebar/sidebarStore";
@@ -203,6 +205,21 @@ export function GlobalEventHandlers({
   );
   useHotkeys(SHORTCUTS.TOGGLE_LEFT_SIDEBAR, toggleLeftSidebar, globalOptions);
   useHotkeys(SHORTCUTS.TOGGLE_REVIEW_PANEL, handleToggleReview, globalOptions);
+  // Under the spaces chrome a session's activity is the right panel, and the
+  // dock this shortcut used to collapse is not rendered, so it goes to the
+  // panel instead. Off that chrome, only the dock exists.
+  const handleToggleActivityPanel = useCallback(() => {
+    if (channelsLayout && currentTaskId) {
+      toggleRightPanel(currentTaskId);
+      return;
+    }
+    toggleActivityPanel();
+  }, [channelsLayout, currentTaskId]);
+
+  useHotkeys(SHORTCUTS.TOGGLE_ACTIVITY_PANEL, handleToggleActivityPanel, {
+    ...globalOptions,
+    enabled: channelsLayout,
+  });
   useHotkeys(SHORTCUTS.SHORTCUTS_SHEET, onToggleShortcutsSheet, globalOptions);
   useHotkeys(SHORTCUTS.INBOX, navigateToInbox, globalOptions);
   useHotkeys(SHORTCUTS.PREV_TASK, handlePrevTask, globalOptions, [

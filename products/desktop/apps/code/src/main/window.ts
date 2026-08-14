@@ -10,10 +10,14 @@ import {
   type MenuItemConstructorOptions,
   screen,
 } from "electron";
+import { APP_WINDOW_ARG } from "../shared/constants";
 import { container } from "./di/container";
+import { MISSION_CONTROL_SERVICE } from "./di/tokens";
 import { setupExternalLinkHandlers } from "./external-links";
 import { buildApplicationMenu } from "./menu";
+import { setupArtifactPreviewWebviews } from "./platform-adapters/electron-artifact-preview";
 import type { ElectronMainWindow } from "./platform-adapters/electron-main-window";
+import type { MissionControlService } from "./platform-adapters/electron-mission-control";
 import { posthogNodeAnalytics } from "./platform-adapters/posthog-analytics";
 import { POSTHOG_SESSION_ID_ARG } from "./posthog-session-arg";
 import {
@@ -255,9 +259,11 @@ export function createWindow(): void {
       nodeIntegration: false,
       contextIsolation: true,
       preload: path.join(__dirname, "preload.js"),
+      webviewTag: true,
       enableBlinkFeatures: "GetDisplayMedia",
       partition: "persist:main",
       additionalArguments: [
+        APP_WINDOW_ARG,
         ...(isDev ? ["--posthog-code-dev"] : []),
         `${POSTHOG_SESSION_ID_ARG}${posthogNodeAnalytics.getOrCreateSessionId()}`,
         encodeDevFlagsForArg(readDevFlagsSync()),
@@ -312,6 +318,18 @@ export function createWindow(): void {
   });
   mainWindow.on("leave-full-screen", () => saveFullScreenState(false));
 
+  // Only watch for Mission Control while the window could actually show up in
+  // it. A hidden or minimized window never appears there, so polling then would
+  // be pure waste.
+  const missionControl = container.get<MissionControlService>(
+    MISSION_CONTROL_SERVICE,
+  );
+  mainWindow.on("show", () => missionControl.arm());
+  mainWindow.on("restore", () => missionControl.arm());
+  mainWindow.on("hide", () => missionControl.disarm());
+  mainWindow.on("minimize", () => missionControl.disarm());
+  mainWindow.on("closed", () => missionControl.disarm());
+
   container
     .get<ElectronMainWindow>(MAIN_WINDOW_SERVICE)
     .setMainWindowGetter(() => mainWindow);
@@ -341,6 +359,7 @@ export function createWindow(): void {
     : pathToFileURL(rendererFilePath);
 
   setupExternalLinkHandlers(mainWindow, appHome);
+  setupArtifactPreviewWebviews(mainWindow);
   setupEditableContextMenu(mainWindow);
   setupCrashLogging(mainWindow);
   buildApplicationMenu();

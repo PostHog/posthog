@@ -5,17 +5,14 @@ import {
 } from "@phosphor-icons/react";
 import { useHostTRPC, useHostTRPCClient } from "@posthog/host-router/react";
 import { Button, ButtonGroup } from "@posthog/quill";
-import {
-  BILLING_FLAG,
-  PROJECT_BLUEBIRD_FLAG,
-  SYNC_CLOUD_TASKS_FLAG,
-} from "@posthog/shared";
+import { BILLING_FLAG, PROJECT_BLUEBIRD_FLAG } from "@posthog/shared";
 import { ANALYTICS_EVENTS } from "@posthog/shared/analytics-events";
 import { isContentlessTask } from "@posthog/shared/domain-types";
 import { DeepLinkApprovalModal } from "@posthog/ui/features/agent-applications/components/DeepLinkApprovalModal";
 import { useApprovalDeepLink } from "@posthog/ui/features/agent-applications/hooks/useApprovalDeepLink";
+import { AnnouncementBanner } from "@posthog/ui/features/announcements/AnnouncementBanner";
+import { AnnouncementsHost } from "@posthog/ui/features/announcements/AnnouncementsHost";
 import { useAuthStateValue } from "@posthog/ui/features/auth/store";
-import { UsageBillingAnnouncementModal } from "@posthog/ui/features/billing/UsageBillingAnnouncementModal";
 import { UsageButton } from "@posthog/ui/features/billing/UsageButton";
 import { UsageLimitModal } from "@posthog/ui/features/billing/UsageLimitModal";
 import { BlankTabView } from "@posthog/ui/features/browser-tabs/BlankTabView";
@@ -33,6 +30,8 @@ import {
 import { useCanvasDeepLink } from "@posthog/ui/features/canvas/hooks/useCanvasDeepLink";
 import { useChannelDeepLink } from "@posthog/ui/features/canvas/hooks/useChannelDeepLink";
 import { useChannelsLayout } from "@posthog/ui/features/canvas/hooks/useChannelsLayout";
+import { useShareLinkInterceptor } from "@posthog/ui/features/canvas/hooks/useShareLinkInterceptor";
+import { usePostHogWebFeedbackStore } from "@posthog/ui/features/canvas/stores/posthogWebFeedbackStore";
 import { CommandMenu } from "@posthog/ui/features/command/CommandMenu";
 import { CommandSearchBar } from "@posthog/ui/features/command/CommandSearchBar";
 import { GlobalFilePicker } from "@posthog/ui/features/command/GlobalFilePicker";
@@ -156,18 +155,33 @@ function RootLayout() {
     currentProjectId ? `/project/${currentProjectId}` : "/",
   );
 
+  const posthogWebFeedbackSeen = usePostHogWebFeedbackStore((s) => s.hasSeen);
+  const posthogWebFeedbackHydrated = usePostHogWebFeedbackStore(
+    (s) => s.hasHydrated,
+  );
+  const markPostHogWebFeedbackSeen = usePostHogWebFeedbackStore(
+    (s) => s.markSeen,
+  );
+
   // "PostHog Web" opens the feedback modal first and performs its navigation
   // only once the modal is submitted or skipped.
   const handleFeedbackFinished = () => {
     const finishedMode = feedbackMode;
     setFeedbackMode(null);
     if (finishedMode === "posthog-web" && posthogWebUrl) {
+      markPostHogWebFeedbackSeen();
       void openUrlInBrowser(posthogWebUrl);
     }
   };
 
   const handleOpenPostHogWeb = () => {
     track(ANALYTICS_EVENTS.POSTHOG_WEB_OPENED);
+    // Only skip the intercept once the persisted flag has hydrated, so a stale
+    // pre-hydration default can't wrongly re-show it.
+    if (posthogWebFeedbackHydrated && posthogWebFeedbackSeen && posthogWebUrl) {
+      void openUrlInBrowser(posthogWebUrl);
+      return;
+    }
     setFeedbackMode("posthog-web");
   };
   const {
@@ -187,7 +201,6 @@ function RootLayout() {
   const queryClient = useQueryClient();
   const reconcilingTaskIds = useRef<Set<string>>(new Set());
   const billingEnabled = useFeatureFlag(BILLING_FLAG);
-  const syncCloudTasksEnabled = useFeatureFlag(SYNC_CLOUD_TASKS_FLAG);
   // "PostHog Web" is a channels-world affordance — show it only while the user
   // is actually seeing channels (toggle on, which itself requires the flag).
   const bluebirdEnabled = useFeatureFlag(
@@ -224,6 +237,7 @@ function RootLayout() {
   useCanvasDeepLink();
   useChannelDeepLink();
   useLoopDeepLink();
+  useShareLinkInterceptor();
   const approvalDeepLink = useApprovalDeepLink();
   useSetupDiscovery();
   useNewTaskDeepLink();
@@ -232,7 +246,6 @@ function RootLayout() {
   // task cache populates the route automatically.
 
   useEffect(() => {
-    if (!syncCloudTasksEnabled) return;
     if (!tasks || !workspaces || !workspacesFetched) return;
     const missing = tasks.filter(
       (t) =>
@@ -260,15 +273,7 @@ function RootLayout() {
         for (const id of missingIds) reconcilingTaskIds.current.delete(id);
         log.warn("Failed to reconcile cloud workspaces", err);
       });
-  }, [
-    syncCloudTasksEnabled,
-    tasks,
-    workspaces,
-    workspacesFetched,
-    queryClient,
-    hostClient,
-    trpc,
-  ]);
+  }, [tasks, workspaces, workspacesFetched, queryClient, hostClient, trpc]);
 
   // Flags resolve asynchronously — flag-gated routes below wait for this
   // before redirecting away from a restored route the user can't access.
@@ -315,6 +320,7 @@ function RootLayout() {
     return (
       <Flex direction="column" height="100%">
         <ConnectivityBanner />
+        <AnnouncementBanner />
         <Outlet />
         <CommandMenu open={commandMenuOpen} onOpenChange={setCommandMenuOpen} />
         <GlobalFilePicker />
@@ -330,7 +336,7 @@ function RootLayout() {
             was stopping Cmd+W from closing the window. */}
         <TabShortcutFallback enabled />
         {billingEnabled && <UsageLimitModal />}
-        <UsageBillingAnnouncementModal />
+        <AnnouncementsHost />
         <UpdateAvailableModal />
         <WhatsNewModal />
         <RemoteBranchCheckoutDialog />
@@ -476,6 +482,9 @@ function RootLayout() {
               }`}
             >
               <Flex direction="column" height="100%">
+                {/* Inside the framed pane, not the app column: announcements
+                    overlay the content, never the sidebar. */}
+                <AnnouncementBanner />
                 {/* The /website space renders its own header (WebsiteLayout);
                       everywhere else the shared header carries the view title
                       and, on a task, its action row. */}
@@ -514,7 +523,7 @@ function RootLayout() {
         />
         <TourOverlay />
         {billingEnabled && <UsageLimitModal />}
-        <UsageBillingAnnouncementModal />
+        <AnnouncementsHost />
         <UpdateAvailableModal />
         <WhatsNewModal />
         <RemoteBranchCheckoutDialog />

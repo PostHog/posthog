@@ -32,7 +32,7 @@ class EventStreamTestMessageError(Exception):
 
 @dataclass(frozen=True)
 class AccountAssignment:
-    """A user assigned to an account role (CSM, account executive, account owner)."""
+    """A user assigned to an account relationship (CSM, account executive, ...)."""
 
     id: int
     email: str
@@ -65,14 +65,11 @@ class AccountRelationship:
 
 @dataclass(frozen=True)
 class AccountProperties:
-    """Typed account properties — assignment roles and external-system identifiers.
+    """Typed account properties — external-system identifiers.
 
     Mirrors ``models.account.AccountProperties`` as a stable, framework-free shape.
     """
 
-    csm: AccountAssignment | None = None
-    account_executive: AccountAssignment | None = None
-    account_owner: AccountAssignment | None = None
     stripe_customer_id: str | None = None
     hubspot_deal_id: str | None = None
     billing_id: str | None = None
@@ -80,6 +77,7 @@ class AccountProperties:
     zendesk_id: str | None = None
     slack_channel_id: str | None = None
     usage_dashboard_link: str | None = None
+    metabase_link: str | None = None
 
 
 @dataclass(frozen=True)
@@ -136,6 +134,39 @@ class AccountChannelSummaryView:
 
 
 @dataclass(frozen=True)
+class CalendarSyncStatus:
+    """Sync state of one connected calendar, as shown in settings."""
+
+    integration_id: int
+    last_synced_at: datetime | None
+    is_syncing: bool
+
+
+@dataclass(frozen=True)
+class MeetingParticipantView:
+    """One attendee of a synced calendar meeting."""
+
+    email: str
+    display_name: str
+    response_status: str
+    is_organizer: bool
+    person_id: UUID | None
+
+
+@dataclass(frozen=True)
+class MeetingView:
+    """A synced calendar meeting as returned by the account meetings endpoint."""
+
+    id: UUID
+    title: str
+    start_time: datetime
+    end_time: datetime | None
+    organizer_email: str
+    status: str
+    participants: list[MeetingParticipantView]
+
+
+@dataclass(frozen=True)
 class AccountRef:
     """Lightweight account reference for search/list result rows.
 
@@ -146,6 +177,175 @@ class AccountRef:
     id: str
     name: str
     external_id: str | None
+
+
+class AccountTableField(str, Enum):
+    NAME = "name"
+    EXTERNAL_ID = "external_id"
+    CREATED_AT = "created_at"
+    UPDATED_AT = "updated_at"
+    STRIPE_CUSTOMER_ID = "stripe_customer_id"
+    HUBSPOT_DEAL_ID = "hubspot_deal_id"
+    BILLING_ID = "billing_id"
+    SFDC_ID = "sfdc_id"
+    ZENDESK_ID = "zendesk_id"
+
+
+@dataclass(frozen=True, kw_only=True)
+class AccountTableColumnSelection:
+    account_fields: frozenset[AccountTableField] = frozenset()
+    include_tags: bool = False
+    include_note_count: bool = False
+    relationship_definition_ids: frozenset[UUID] = frozenset()
+    custom_property_definition_ids: frozenset[UUID] = frozenset()
+    custom_property_history_windows: dict[UUID, int] = field(default_factory=dict)
+
+
+@dataclass(frozen=True, kw_only=True)
+class AccountTableSearchFilter:
+    query: str
+
+
+@dataclass(frozen=True, kw_only=True)
+class AccountTableTagsFilter:
+    tag_names: tuple[str, ...]
+
+
+@dataclass(frozen=True, kw_only=True)
+class AccountTableAssignedToFilter:
+    user_ids: tuple[int, ...]
+
+
+@dataclass(frozen=True, kw_only=True)
+class AccountTableUnassignedFilter:
+    pass
+
+
+@dataclass(frozen=True, kw_only=True)
+class AccountTableAccountIdFilter:
+    account_id: UUID
+
+
+class AccountTableCustomPropertyOperator(str, Enum):
+    EXACT = "exact"
+    IS_NOT = "is_not"
+    CONTAINS = "icontains"
+    DOES_NOT_CONTAIN = "not_icontains"
+    REGEX = "regex"
+    NOT_REGEX = "not_regex"
+    GREATER_THAN = "gt"
+    GREATER_THAN_OR_EQUAL = "gte"
+    LESS_THAN = "lt"
+    LESS_THAN_OR_EQUAL = "lte"
+    IS_SET = "is_set"
+    IS_NOT_SET = "is_not_set"
+    DATE_EXACT = "is_date_exact"
+    DATE_BEFORE = "is_date_before"
+    DATE_AFTER = "is_date_after"
+
+
+@dataclass(frozen=True, kw_only=True)
+class AccountTableCustomPropertyFilter:
+    definition_id: UUID
+    operator: AccountTableCustomPropertyOperator
+    values: tuple[float | bool | str, ...] = ()
+
+
+AccountTableFilter = (
+    AccountTableSearchFilter
+    | AccountTableTagsFilter
+    | AccountTableAssignedToFilter
+    | AccountTableUnassignedFilter
+    | AccountTableAccountIdFilter
+    | AccountTableCustomPropertyFilter
+)
+
+
+class AccountTableSortKind(str, Enum):
+    ACCOUNT_FIELD = "account_field"
+    TAGS = "tags"
+    NOTE_COUNT = "note_count"
+    RELATIONSHIP = "relationship"
+    CUSTOM_PROPERTY = "custom_property"
+
+
+class AccountTableSortDirection(str, Enum):
+    ASCENDING = "asc"
+    DESCENDING = "desc"
+
+
+@dataclass(frozen=True, kw_only=True)
+class AccountTableSort:
+    kind: AccountTableSortKind
+    direction: AccountTableSortDirection
+    account_field: AccountTableField | None = None
+    definition_id: UUID | None = None
+
+
+class AccountTableAggregation(str, Enum):
+    SUM = "sum"
+    AVERAGE = "avg"
+    MINIMUM = "min"
+    MAXIMUM = "max"
+    MEDIAN = "median"
+
+
+class AccountTableThresholdOperator(str, Enum):
+    GREATER_THAN = "gt"
+    GREATER_THAN_OR_EQUAL = "gte"
+    LESS_THAN = "lt"
+    LESS_THAN_OR_EQUAL = "lte"
+    EQUAL = "exact"
+    NOT_EQUAL = "is_not"
+
+
+@dataclass(frozen=True, kw_only=True)
+class AccountTableCountMetric:
+    pass
+
+
+@dataclass(frozen=True, kw_only=True)
+class AccountTableAggregateMetric:
+    aggregation: AccountTableAggregation
+    definition_id: UUID
+    scale: float | None = None
+
+
+@dataclass(frozen=True, kw_only=True)
+class AccountTableCountThresholdMetric:
+    definition_id: UUID
+    operator: AccountTableThresholdOperator
+    value: float
+
+
+AccountTableMetric = AccountTableCountMetric | AccountTableAggregateMetric | AccountTableCountThresholdMetric
+
+
+@dataclass(frozen=True, kw_only=True)
+class AccountTableCustomPropertyHistoryPoint:
+    timestamp: datetime
+    value: float
+
+
+@dataclass(frozen=True, kw_only=True)
+class AccountTableRow:
+    id: UUID
+    name: str
+    external_id: str | None
+    account_fields: dict[AccountTableField, str | None] = field(default_factory=dict)
+    tags: list[str] | None = None
+    note_count: int | None = None
+    relationships: dict[UUID, list[int]] = field(default_factory=dict)
+    custom_properties: dict[UUID, float | bool | str | None] = field(default_factory=dict)
+    custom_property_history: dict[UUID, list[AccountTableCustomPropertyHistoryPoint]] = field(default_factory=dict)
+
+
+@dataclass(frozen=True, kw_only=True)
+class AccountTablePage:
+    rows: list[AccountTableRow]
+    has_more: bool
+    limit: int
+    offset: int
 
 
 @dataclass(frozen=True)
@@ -340,6 +540,51 @@ class CustomerJourneyView:
 
 
 @stdlib_dataclass(frozen=True)
+class FeatureRequestProductAreaView:
+    id: UUID | None = None
+    name: str = ""
+    display_order: int = 0
+    is_active: bool = True
+    created_at: datetime | None = None
+    updated_at: datetime | None = None
+
+
+@stdlib_dataclass(frozen=True)
+class FeatureRequestAccountView:
+    id: UUID | None = None
+    name: str = ""
+
+
+@stdlib_dataclass(frozen=True)
+class FeatureRequestView:
+    id: UUID | None = None
+    title: str = ""
+    description: str = ""
+    request_status: str = "requested"
+    account: FeatureRequestAccountView | None = None
+    product_areas: list[FeatureRequestProductAreaView] = field(default_factory=list)
+    created_by: int | None = None
+    updated_by: int | None = None
+    created_at: datetime | None = None
+    updated_at: datetime | None = None
+
+
+@dataclass(frozen=True)
+class CreateFeatureRequestInput:
+    title: str
+    description: str
+    account_id: UUID
+    product_area_ids: tuple[UUID, ...]
+    idempotency_key: UUID
+
+
+@dataclass(frozen=True)
+class FeatureRequestCreateOutcome:
+    request: FeatureRequestView
+    created: bool
+
+
+@stdlib_dataclass(frozen=True)
 class CustomerProfileConfigView:
     """A customer profile config as returned by the profile-config endpoints.
 
@@ -438,6 +683,11 @@ class CustomPropertySourceView:
     sync_frequency_interval_seconds: float | None = None
     next_sync_at: datetime | None = None
     latest_run: "CustomPropertySyncRunView | None" = None
+    # Person-target warehouse binding, for naming and linking to the table this source reads.
+    # ``external_data_source`` is the warehouse source owning the schema; ``table_name`` is the
+    # table as it is named in HogQL. Both None for account sources.
+    external_data_source: UUID | None = None
+    table_name: str | None = None
 
 
 @stdlib_dataclass(frozen=True)

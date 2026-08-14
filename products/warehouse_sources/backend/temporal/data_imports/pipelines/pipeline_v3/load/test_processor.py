@@ -8,6 +8,7 @@ import pyarrow as pa
 from deltalake import DeltaTable, write_deltalake
 from parameterized import parameterized
 from temporalio.exceptions import WorkflowAlreadyStartedError
+from temporalio.service import RPCError, RPCStatusCode
 
 from products.warehouse_sources.backend.temporal.data_imports.cdc.batcher import (
     CDC_OP_COLUMN,
@@ -22,6 +23,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
     _mark_job_completed,
     _promote_staged_cursor,
     _read_existing_rows_by_first_pk,
+    _run_post_load_for_already_processed_batch,
     _trigger_post_import_workflow,
     process_message,
 )
@@ -231,8 +233,9 @@ class TestProcessMessageOwnershipGate:
     @patch(f"{_PROCESSOR}.posthoganalytics")
     @patch(f"{_PROCESSOR}.read_parquet", return_value=pa.table({"id": [1]}))
     @patch(f"{_PROCESSOR}.is_batch_already_processed", return_value=False)
+    @patch(f"{_PROCESSOR}.DeltaWriter")
     @patch(f"{_PROCESSOR}.Scd2DeltaWriter")
-    @patch(f"{_PROCESSOR}.DeltaTableHelper")
+    @patch(f"{_PROCESSOR}.DeltaTableRef")
     @patch(f"{_PROCESSOR}.ExternalDataJob")
     @patch(f"{_PROCESSOR}.s3fs")
     @patch(f"{_PROCESSOR}.close_old_connections")
@@ -243,13 +246,13 @@ class TestProcessMessageOwnershipGate:
         mock_job_model: MagicMock,
         mock_helper_cls: MagicMock,
         mock_scd2_cls: MagicMock,
+        mock_writer_cls: MagicMock,
         _already: MagicMock,
         _read: MagicMock,
         _analytics: MagicMock,
     ) -> None:
         helper = mock_helper_cls.return_value
         helper.get_delta_table = AsyncMock(return_value=None)
-        helper.write_to_deltalake = AsyncMock()
         mock_job_model.objects.prefetch_related.return_value.get.return_value = MagicMock()
 
         def verify_ownership() -> None:
@@ -258,14 +261,14 @@ class TestProcessMessageOwnershipGate:
         with pytest.raises(_LeaseLost):
             process_message(_message(), verify_ownership=verify_ownership)
 
-        helper.write_to_deltalake.assert_not_called()
+        mock_writer_cls.return_value.write.assert_not_called()
         mock_scd2_cls.return_value.write.assert_not_called()
 
     @patch(f"{_PROCESSOR}.posthoganalytics")
     @patch(f"{_PROCESSOR}._mark_job_completed")
     @patch(f"{_PROCESSOR}._run_post_load_for_already_processed_batch")
     @patch(f"{_PROCESSOR}.is_batch_already_processed", return_value=True)
-    @patch(f"{_PROCESSOR}.DeltaTableHelper")
+    @patch(f"{_PROCESSOR}.DeltaTableRef")
     @patch(f"{_PROCESSOR}.ExternalDataJob")
     @patch(f"{_PROCESSOR}.s3fs")
     @patch(f"{_PROCESSOR}.close_old_connections")
@@ -295,7 +298,7 @@ class TestProcessMessageOwnershipGate:
     @patch(f"{_PROCESSOR}._mark_job_completed")
     @patch(f"{_PROCESSOR}._run_post_load_for_already_processed_batch")
     @patch(f"{_PROCESSOR}.is_batch_already_processed", return_value=True)
-    @patch(f"{_PROCESSOR}.DeltaTableHelper")
+    @patch(f"{_PROCESSOR}.DeltaTableRef")
     @patch(f"{_PROCESSOR}.ExternalDataJob")
     @patch(f"{_PROCESSOR}.s3fs")
     @patch(f"{_PROCESSOR}.close_old_connections")
@@ -330,7 +333,7 @@ class TestProcessMessageOwnershipGate:
     @patch(f"{_PROCESSOR}.posthoganalytics")
     @patch(f"{_PROCESSOR}._run_post_load_for_already_processed_batch")
     @patch(f"{_PROCESSOR}.is_batch_already_processed", return_value=True)
-    @patch(f"{_PROCESSOR}.DeltaTableHelper")
+    @patch(f"{_PROCESSOR}.DeltaTableRef")
     @patch(f"{_PROCESSOR}.ExternalDataJob")
     @patch(f"{_PROCESSOR}.s3fs")
     @patch(f"{_PROCESSOR}.close_old_connections")
@@ -466,6 +469,40 @@ class TestMarkJobCompleted:
         mock_release.assert_not_called()
 
 
+class TestRedeliveredFinalBatchPostLoad:
+    @parameterized.expand([("companion", "scd2_append"), ("consolidated", "incremental_merge"), ("snapshot", None)])
+    @patch(f"{_PROCESSOR}.run_post_load_operations", new_callable=AsyncMock, return_value="folder")
+    @patch(f"{_PROCESSOR}.read_parquet", return_value=pa.table({"id": [1]}))
+    @patch(f"{_PROCESSOR}.DeltaTableRef")
+    @patch(f"{_PROCESSOR}.ExternalDataJob")
+    @patch(f"{_PROCESSOR}.s3fs")
+    def test_forwards_the_batch_write_mode(
+        self,
+        _case: str,
+        cdc_write_mode: str | None,
+        _s3fs: MagicMock,
+        mock_job_model: MagicMock,
+        mock_helper_cls: MagicMock,
+        _read: MagicMock,
+        mock_post_load: AsyncMock,
+    ) -> None:
+        # Post-load derives the whole CDC branch from the write mode: whether this is a companion
+        # write (register the _cdc table, leave schema.table alone) or a snapshot to seed the
+        # companion from. Dropping it here let a redelivered streaming batch re-seed the companion,
+        # wiping its SCD2 history, and point schema.table at the companion's folder.
+        delta_table = MagicMock(schema=MagicMock(return_value=pa.schema([_COL_ID])))
+        mock_job_model.objects.prefetch_related.return_value.aget = AsyncMock(return_value=MagicMock())
+        mock_helper_cls.return_value.get_delta_table = AsyncMock(return_value=delta_table)
+
+        signal = MagicMock()
+        signal.cdc_write_mode = cdc_write_mode
+
+        _run_post_load_for_already_processed_batch(signal)
+
+        assert mock_post_load.await_args is not None
+        assert mock_post_load.await_args.kwargs["cdc_write_mode"] == cdc_write_mode
+
+
 class TestPostImportTrigger:
     """The V3 hand-off to `data-import-post-import`: without it the load-dependent
     post-import steps (signals, enrichment, statistics, table size, DuckLake copy)
@@ -479,7 +516,8 @@ class TestPostImportTrigger:
     @patch(f"{_PROCESSOR}.run_post_load_operations", new_callable=AsyncMock, return_value="folder")
     @patch(f"{_PROCESSOR}.read_parquet", return_value=pa.table({"id": [1]}))
     @patch(f"{_PROCESSOR}.is_batch_already_processed", return_value=False)
-    @patch(f"{_PROCESSOR}.DeltaTableHelper")
+    @patch(f"{_PROCESSOR}.DeltaWriter")
+    @patch(f"{_PROCESSOR}.DeltaTableRef")
     @patch(f"{_PROCESSOR}.ExternalDataJob")
     @patch(f"{_PROCESSOR}.s3fs")
     def test_final_batch_triggers_post_import_once(
@@ -487,6 +525,7 @@ class TestPostImportTrigger:
         _s3fs: MagicMock,
         mock_job_model: MagicMock,
         mock_helper_cls: MagicMock,
+        mock_writer_cls: MagicMock,
         _already: MagicMock,
         _read: MagicMock,
         _post_load: AsyncMock,
@@ -501,7 +540,7 @@ class TestPostImportTrigger:
         delta_table.file_uris.return_value = []
         helper = mock_helper_cls.return_value
         helper.get_delta_table = AsyncMock(return_value=None)
-        helper.write_to_deltalake = AsyncMock(return_value=delta_table)
+        mock_writer_cls.return_value.write = AsyncMock(return_value=delta_table)
         mock_job_model.objects.prefetch_related.return_value.get.return_value = MagicMock()
 
         process_message(_message(is_final_batch=True))
@@ -514,7 +553,7 @@ class TestPostImportTrigger:
     @patch(f"{_PROCESSOR}._mark_job_completed")
     @patch(f"{_PROCESSOR}._run_post_load_for_already_processed_batch", return_value=None)
     @patch(f"{_PROCESSOR}.is_batch_already_processed", return_value=True)
-    @patch(f"{_PROCESSOR}.DeltaTableHelper")
+    @patch(f"{_PROCESSOR}.DeltaTableRef")
     @patch(f"{_PROCESSOR}.ExternalDataJob")
     @patch(f"{_PROCESSOR}.s3fs")
     def test_redelivered_final_batch_triggers_post_import(
@@ -589,6 +628,58 @@ class TestPostImportTrigger:
         _trigger_post_import_workflow(signal)
 
         assert mock_capture.called is expect_captured
+
+    def _signal(self) -> MagicMock:
+        signal = MagicMock()
+        signal.sync_type = "incremental"
+        signal.cdc_write_mode = None
+        signal.team_id = 1
+        signal.job_id = "job-1"
+        signal.schema_id = "schema-1"
+        signal.source_id = "source-1"
+        return signal
+
+    @patch(f"{_PROCESSOR}.capture_exception")
+    @patch("posthog.temporal.common.client.async_connect", new_callable=AsyncMock)
+    def test_transient_rpc_timeout_is_retried_and_recovers(
+        self,
+        mock_connect: AsyncMock,
+        mock_capture: MagicMock,
+    ) -> None:
+        # This start runs as a bare client RPC outside a Temporal workflow, so it gets
+        # none of the server-side retry a `workflow.start_child_workflow` command would
+        # have — a single transient timeout must not drop the trigger permanently.
+        client = MagicMock()
+        client.start_workflow = AsyncMock(
+            side_effect=[RPCError("Timeout expired", RPCStatusCode.DEADLINE_EXCEEDED, b""), None]
+        )
+        mock_connect.return_value = client
+
+        _trigger_post_import_workflow(self._signal())
+
+        assert client.start_workflow.call_count == 2
+        mock_capture.assert_not_called()
+
+    @patch(f"{_PROCESSOR}.capture_exception")
+    @patch("posthog.temporal.common.client.async_connect", new_callable=AsyncMock)
+    def test_persistent_rpc_timeout_is_captured_after_retries_exhausted(
+        self,
+        mock_connect: AsyncMock,
+        mock_capture: MagicMock,
+    ) -> None:
+        client = MagicMock()
+        client.start_workflow = AsyncMock(side_effect=RPCError("Timeout expired", RPCStatusCode.DEADLINE_EXCEEDED, b""))
+        mock_connect.return_value = client
+
+        _trigger_post_import_workflow(self._signal())
+
+        assert client.start_workflow.call_count == 3
+        mock_capture.assert_called_once()
+        # tenacity defaults to wrapping the last attempt in a RetryError once retries are
+        # exhausted; `reraise=True` must be set so the underlying RPCError reaches capture
+        # instead, keeping the error-tracking issue actionable.
+        captured_exception = mock_capture.call_args[0][0]
+        assert isinstance(captured_exception, RPCError)
 
 
 # Regression guard for #70476: pyarrow 21+ string_view broke delta pushdown on string PKs.

@@ -25,7 +25,10 @@ import {
   type IAuthSessionStore,
   type IAuthTokenCipher,
 } from "@posthog/core/auth/identifiers";
-import { canvasCoreModule } from "@posthog/core/canvas/canvas.module";
+import {
+  canvasApplicationModule,
+  canvasCoreModule,
+} from "@posthog/core/canvas/canvas.module";
 import { taskThreadCoreModule } from "@posthog/core/canvas/taskThread.module";
 import type { CloudTaskService } from "@posthog/core/cloud-task/cloud-task";
 import { cloudTaskModule } from "@posthog/core/cloud-task/cloud-task.module";
@@ -190,7 +193,7 @@ import {
   type IPowerManager,
   POWER_MANAGER_SERVICE,
 } from "@posthog/platform/power-manager";
-import { type Adapter, SYNC_CLOUD_TASKS_FLAG } from "@posthog/shared";
+import type { Adapter } from "@posthog/shared";
 import { sandboxProxyHtml } from "@posthog/shared/mcp-sandbox-proxy";
 import { authUiModule } from "@posthog/ui/features/auth/auth.module";
 import {
@@ -484,10 +487,11 @@ container.bind(CLOUD_TASK_AUTH).toDynamicValue((ctx) => ({
 }));
 
 // ── Canvas / Channels: host-agnostic dashboard + freeform canvas services ──
-// They only need AuthService + fetch (they reach the PostHog desktop_file_system
-// API), so the web host binds them by loading the same core module desktop does;
-// the web host router forwards its canvas routers to these.
+// They only need AuthService + fetch (they reach the PostHog canvases and
+// task_channels APIs), so the web host binds them by loading the same core
+// module desktop does; the web host router forwards its canvas routers to these.
 container.load(canvasCoreModule);
+container.load(canvasApplicationModule);
 container.load(taskThreadCoreModule);
 
 // SessionService is built from host-agnostic deps (host tRPC client + UI
@@ -497,18 +501,10 @@ container
   .toDynamicValue(() => getSessionService())
   .inSingletonScope();
 
-// ── Feature flags (real posthog-js, with one host-forced flag) ──
-container.bind(FEATURE_FLAGS).toConstantValue({
-  // Cloud-task sync is a hard requirement of the cloud-only host — __root's
-  // reconcile effect derives the (localStorage-backed) sidebar task list from it
-  // — so force it on regardless of the remote flag, then defer every other flag
-  // to posthog-js. When posthog isn't initialized (no real VITE_POSTHOG_API_KEY),
-  // isEnabled returns false for everything else, so only the forced flag is on —
-  // same behavior as the old stub, but real flags light up once a key is set.
-  isEnabled: (flagKey: string) =>
-    flagKey === SYNC_CLOUD_TASKS_FLAG || posthogFeatureFlags.isEnabled(flagKey),
-  onFlagsLoaded: posthogFeatureFlags.onFlagsLoaded,
-});
+// ── Feature flags (real posthog-js) ──
+// When posthog isn't initialized (no real VITE_POSTHOG_API_KEY), isEnabled
+// returns false for everything; real flags light up once a key is set.
+container.bind(FEATURE_FLAGS).toConstantValue(posthogFeatureFlags);
 
 // ── Analytics + error tracking (real posthog-js) ──
 // Both ports share the single posthog-js instance initialized in main.tsx (see
@@ -766,6 +762,10 @@ container.bind(LOCAL_HANDOFF_HOST).toConstantValue({
   selectDirectory: () => Promise.resolve(null),
   addFolder: () =>
     Promise.reject(new Error("Local handoff is not available on the web")),
+  getWorktreeLocation: () => Promise.resolve(""),
+  cloneRepository: () =>
+    Promise.reject(new Error("Local handoff is not available on the web")),
+  addAdditionalDirectory: () => Promise.resolve(),
 });
 container.bind(LOCAL_HANDOFF_DIALOG).toConstantValue(localHandoffDialog);
 container.bind(LOCAL_HANDOFF_NOTIFIER).toConstantValue(localHandoffNotifier);
