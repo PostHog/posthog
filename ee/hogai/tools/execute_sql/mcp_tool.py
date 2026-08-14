@@ -221,9 +221,13 @@ def _only_reads_information_schema(query: str) -> bool:
     return bool(tables) and all(_CATALOG_LOOKUP_TABLE in table.lower() for table in tables)
 
 
+# Same predicate as approved_metric_names_for_team (status='approved' AND NOT drifted): the count
+# `N` above is that set, so the search the agent runs has to resolve to it too — otherwise a match
+# on a proposed or drifted metric gets reported as the project's approved number.
 _METRIC_SEARCH_SQL = (
     "SELECT name, description FROM system.information_schema.metrics "
-    "WHERE name ILIKE '%<term>%' OR description ILIKE '%<term>%'"
+    "WHERE status = 'approved' AND NOT is_drifted "
+    "AND (name ILIKE '%<term>%' OR description ILIKE '%<term>%')"
 )
 _WHAT_TO_DO_WITH_A_MATCH = (
     "Run a match with `data-catalog-metric-run` and report that result instead of your own: a "

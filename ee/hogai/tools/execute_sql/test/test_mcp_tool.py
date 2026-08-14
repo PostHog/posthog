@@ -323,5 +323,9 @@ class TestCanonicalMetricsBlock(SimpleTestCase):
 
         self.assertIn("200 approved canonical metrics", output)
         self.assertIn("ILIKE", output)
+        # The search must resolve to the same approved, non-drifted set the count describes, or a
+        # match on a proposed or drifted metric gets reported as the project's approved number.
+        self.assertIn("status = 'approved'", output)
+        self.assertIn("NOT is_drifted", output)
         self.assertNotIn("`metric_with_a_fairly_long_name_0`", output)
         self.assertLess(len(output.split("</canonical_metrics>")[0]), 1000)
