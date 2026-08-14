@@ -200,7 +200,7 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
             cancelAnimationFrame(secondFrame)
         }
     }, [scrollToBottomSignal])
-    const classNameForSection = (isLastSection: boolean, hasGroup: boolean): string =>
+    const classNameForSection = (isLastSection: boolean): string =>
         clsx({
             'dashboard-view-mode mb-8': !layoutEditMode,
             // In edit mode, dragging is bounded to the grid's own clientHeight, which is exactly the
@@ -209,8 +209,7 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
             // since preflight defaults everything to border-box), opening up draggable space below the
             // last tile that scales with content. A margin wouldn't work — it sits outside clientHeight.
             'dashboard-edit-mode box-content': layoutEditMode,
-            'pb-[40vh]': layoutEditMode && isLastSection && !hasGroup,
-            'pb-16': layoutEditMode && isLastSection && hasGroup,
+            'pb-[40vh]': layoutEditMode && isLastSection,
         })
 
     const { width, containerRef, mounted } = useContainerWidth()
@@ -706,7 +705,7 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
                                     }
                                     gridProps={{
                                         width: gridWidth,
-                                        className: classNameForSection(isLastSection, !!section.group),
+                                        className: classNameForSection(isLastSection),
                                         dragConfig,
                                         resizeConfig,
                                         layouts: displayLayouts as Partial<Record<DashboardLayoutSize, Layout>>,
