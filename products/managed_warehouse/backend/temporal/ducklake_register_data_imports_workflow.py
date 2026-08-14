@@ -10,7 +10,7 @@ import datetime as dt
 import threading
 import contextlib
 import dataclasses
-from collections.abc import Iterator
+from collections.abc import Iterator, Mapping, Sequence
 
 from django.conf import settings
 from django.db import close_old_connections
@@ -331,8 +331,10 @@ def copy_and_register_ducklake_data_imports_activity(inputs: DuckLakeRegisterDat
     if not settings.TEST:
         close_old_connections()
 
+    progress = _RegisterProgress(schema_id=schema_id, job_id=inputs.job_id)
     heartbeater = HeartbeaterSync(
-        details=("ducklake_register_data_imports", inputs.metadata.source_schema_id),
+        details=progress.heartbeat_details(),
+        details_provider=progress.heartbeat_details,
         logger=logger,
     )
     with heartbeater:
@@ -341,11 +343,13 @@ def copy_and_register_ducklake_data_imports_activity(inputs: DuckLakeRegisterDat
             job_id=inputs.job_id,
             prepared_queryable_folder=inputs.metadata.prepared_queryable_folder,
         )
+        progress.set_stage("copy")
         with _stage_timer(stage="copy", team_id=inputs.team_id, schema_id=schema_id):
             landing_paths, copied_bytes = _copy_prepared_parquet_files(
                 inputs.metadata.prepared_source_uri,
                 landing_uri,
             )
+        progress.file_count = len(landing_paths)
         try:
             with _connect_to_duckgres_for_team(inputs.team_id) as conn:
                 cancel_delay = _duckgres_cancel_delay(activity_started_monotonic)
@@ -355,6 +359,7 @@ def copy_and_register_ducklake_data_imports_activity(inputs: DuckLakeRegisterDat
                         conn,
                         landing_paths,
                         cancel_requested=cancel_requested,
+                        progress=progress,
                     )
         except _StalePreparedGenerationError:
             get_ducklake_register_data_imports_stale_metric(
@@ -623,12 +628,161 @@ def _raise_if_duckgres_cancel_requested(cancel_requested: threading.Event | None
         raise TimeoutError("Duckgres registration reached the Temporal activity deadline")
 
 
+# Duckgres intercepts `FROM pg_stat_activity` and always returns this column
+# order. Keep in sync with duckgres/server/conn_pg_stat_activity.go.
+_PG_STAT_ACTIVITY_COLUMNS = (
+    "datid",
+    "datname",
+    "pid",
+    "usesysid",
+    "usename",
+    "application_name",
+    "client_addr",
+    "client_port",
+    "backend_start",
+    "xact_start",
+    "query_start",
+    "state_change",
+    "wait_event_type",
+    "wait_event",
+    "state",
+    "backend_xid",
+    "backend_xmin",
+    "query",
+    "backend_type",
+    "leader_pid",
+    "worker_id",
+    "query_progress",
+    "rows_processed",
+    "total_rows_to_process",
+)
+
+
+class _RegisterProgress:
+    def __init__(self, *, schema_id: str, job_id: str) -> None:
+        self.schema_id = schema_id
+        self.job_id = job_id
+        self.stage = "starting"
+        self.file_count = 0
+        self.shadow_name = ""
+        self._progress_conn: psycopg.Connection | None = None
+        self._progress_lock = threading.Lock()
+
+    def set_stage(self, stage: str) -> None:
+        self.stage = stage
+        LOGGER.info(
+            "DuckLake registration progress",
+            stage=stage,
+            file_count=self.file_count,
+        )
+
+    def snapshot(self) -> dict[str, str | int | float]:
+        payload: dict[str, str | int | float] = {
+            "schema_id": self.schema_id,
+            "job_id": self.job_id,
+            "stage": self.stage,
+            "file_count": self.file_count,
+        }
+        with self._progress_lock:
+            progress_conn = self._progress_conn
+            marker = self.shadow_name
+            if progress_conn is not None:
+                payload.update(_query_progress_payload(progress_conn, marker=marker))
+        return payload
+
+    def heartbeat_details(self) -> tuple[object, ...]:
+        return ("ducklake_register_data_imports", self.snapshot())
+
+    @contextlib.contextmanager
+    def track_duckgres(self, team_id: int) -> Iterator[None]:
+        # The CALL connection is blocked, so progress has to use a second session.
+        # Hold it only for the long add_data_files statement.
+        opened = False
+        try:
+            with _connect_to_duckgres_for_team(team_id) as conn:
+                opened = True
+                with self._progress_lock:
+                    self._progress_conn = conn
+                try:
+                    yield
+                finally:
+                    with self._progress_lock:
+                        self._progress_conn = None
+        except Exception:
+            if opened:
+                raise
+            LOGGER.exception("Failed to open Duckgres progress connection")
+            yield
+
+
+def _activity_row_mapping(row: object, *, column_names: Sequence[str] | None = None) -> dict[str, object]:
+    if isinstance(row, Mapping):
+        return {str(key): value for key, value in row.items()}
+    if not isinstance(row, Sequence) or isinstance(row, str | bytes):
+        return {}
+    names = column_names if column_names is not None else _PG_STAT_ACTIVITY_COLUMNS
+    return {name: row[index] for index, name in enumerate(names) if index < len(row)}
+
+
+def _progress_from_stat_rows(
+    rows: Sequence[object],
+    *,
+    marker: str,
+    column_names: Sequence[str] | None = None,
+) -> dict[str, str | int | float]:
+    matched: Mapping[str, object] | None = None
+    fallback: Mapping[str, object] | None = None
+    for row in rows:
+        mapped = _activity_row_mapping(row, column_names=column_names)
+        query = str(mapped.get("query") or "")
+        if marker and marker in query:
+            matched = mapped
+            break
+        if fallback is None and "ducklake_add_data_files" in query:
+            fallback = mapped
+    selected = matched or fallback
+    if selected is None:
+        return {}
+
+    payload: dict[str, str | int | float] = {}
+    query = str(selected.get("query") or "")
+    if "ducklake_add_data_files" in query:
+        payload["statement"] = "add_data_files"
+    elif "read_parquet" in query:
+        payload["statement"] = "read_parquet"
+
+    progress = selected.get("query_progress")
+    if isinstance(progress, int | float) and progress >= 0:
+        payload["query_progress"] = float(progress)
+
+    rows_processed = selected.get("rows_processed")
+    if isinstance(rows_processed, int) and rows_processed >= 0:
+        payload["rows_processed"] = rows_processed
+
+    total_rows = selected.get("total_rows_to_process")
+    if isinstance(total_rows, int) and total_rows >= 0:
+        payload["total_rows"] = total_rows
+    return payload
+
+
+def _query_progress_payload(conn: psycopg.Connection, *, marker: str) -> dict[str, str | int | float]:
+    try:
+        cursor = conn.execute("SELECT * FROM pg_stat_activity")
+        rows = cursor.fetchall()
+        column_names = tuple(column.name for column in cursor.description) if cursor.description is not None else None
+    except Exception:
+        LOGGER.exception("Failed to read Duckgres query progress")
+        return {}
+    return _progress_from_stat_rows(rows, marker=marker, column_names=column_names)
+
+
 def _register_prepared_parquet_files(
     inputs: DuckLakeRegisterDataImportsActivityInputs,
     conn: psycopg.Connection,
     landing_paths: list[str],
     *,
     cancel_requested: threading.Event | None = None,
+    progress: _RegisterProgress | None = None,
 ) -> int:
     schema_name = inputs.metadata.ducklake_schema_name
     table_name = inputs.metadata.ducklake_table_name
@@ -641,6 +795,12 @@ def _register_prepared_parquet_files(
     parquet_glob = psql.Literal(f"{landing_uri}/{_PARQUET_FILE_GLOB}")
     partition_columns = _hive_partition_columns(landing_uri, landing_paths)
 
+    def set_stage(stage: str) -> None:
+        if progress is not None:
+            progress.file_count = len(landing_paths)
+            progress.set_stage(stage)
+            progress.shadow_name = registration_names.shadow_name
+
     _raise_if_duckgres_cancel_requested(cancel_requested)
     setup_duckgres_session(conn, extensions=("ducklake", "httpfs"))
     shadow_is_published = False
@@ -648,6 +808,7 @@ def _register_prepared_parquet_files(
     try:
         with _stage_timer(stage="register", team_id=inputs.team_id, schema_id=inputs.metadata.source_schema_id):
             _raise_if_duckgres_cancel_requested(cancel_requested)
+            set_stage("create_shadow")
             conn.execute(psql.SQL("CREATE SCHEMA IF NOT EXISTS {}").format(psql.Identifier(schema_name)))
             _raise_if_duckgres_cancel_requested(cancel_requested)
             conn.execute(
@@ -662,6 +823,7 @@ def _register_prepared_parquet_files(
             )
             if partition_columns:
                 _raise_if_duckgres_cancel_requested(cancel_requested)
+                set_stage("partition")
                 conn.execute(
                     psql.SQL("ALTER TABLE {}.{} SET PARTITIONED BY ({})").format(
                         psql.Identifier(schema_name),
@@ -670,19 +832,23 @@ def _register_prepared_parquet_files(
                     )
                 )
             _raise_if_duckgres_cancel_requested(cancel_requested)
-            conn.execute(
-                psql.SQL(
-                    "CALL ducklake_add_data_files({}, {}, {}, schema => {}, "
-                    "allow_missing => true, hive_partitioning => true)"
-                ).format(
-                    psql.Literal("ducklake"),
-                    psql.Literal(registration_names.shadow_name),
-                    parquet_glob,
-                    psql.Literal(schema_name),
+            set_stage("add_data_files")
+            progress_cm = progress.track_duckgres(inputs.team_id) if progress is not None else contextlib.nullcontext()
+            with progress_cm:
+                conn.execute(
+                    psql.SQL(
+                        "CALL ducklake_add_data_files({}, {}, {}, schema => {}, "
+                        "allow_missing => true, hive_partitioning => true)"
+                    ).format(
+                        psql.Literal("ducklake"),
+                        psql.Literal(registration_names.shadow_name),
+                        parquet_glob,
+                        psql.Literal(schema_name),
+                    )
                 )
-            )
 
         with _stage_timer(stage="verify", team_id=inputs.team_id, schema_id=inputs.metadata.source_schema_id):
+            set_stage("verify")
             _raise_if_duckgres_cancel_requested(cancel_requested)
             source_row = conn.execute(
                 psql.SQL("SELECT count(*) FROM read_parquet({}, union_by_name=true, hive_partitioning=true)").format(
@@ -707,6 +873,7 @@ def _register_prepared_parquet_files(
 
         generation_is_stale = False
         with _stage_timer(stage="publish", team_id=inputs.team_id, schema_id=inputs.metadata.source_schema_id) as timer:
+            set_stage("publish")
             _raise_if_duckgres_cancel_requested(cancel_requested)
             if _should_publish_prepared_generation(inputs):
                 _raise_if_duckgres_cancel_requested(cancel_requested)

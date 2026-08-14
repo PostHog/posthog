@@ -4,7 +4,7 @@ import contextlib
 from collections.abc import Iterator
 
 import pytest
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, call, patch
 
 from parameterized import parameterized
 from temporalio.exceptions import ApplicationError
@@ -240,7 +240,10 @@ def test_copy_activity_uses_s3_copy_and_local_duckgres_postgres_connection(monke
     applied = copy_and_register_ducklake_data_imports_activity(inputs)
 
     assert applied is True
-    connect.assert_called_once_with("postgresql://duckgres", autocommit=True)
+    assert connect.call_args_list == [
+        call("postgresql://duckgres", autocommit=True),
+        call("postgresql://duckgres", autocommit=True),
+    ]
     assert s3.copy_calls == [
         (
             [
@@ -475,6 +478,93 @@ def test_should_publish_prepared_generation(
     )
 
     assert registration_module._should_publish_prepared_generation(_activity_inputs()) is expected
+
+
+def _stat_row(
+    *, query: str, query_progress: float = -1.0, rows_processed: int = 0, total_rows: int = 0
+) -> list[object]:
+    row: list[object] = [None] * len(registration_module._PG_STAT_ACTIVITY_COLUMNS)
+    row[registration_module._PG_STAT_ACTIVITY_COLUMNS.index("query")] = query
+    row[registration_module._PG_STAT_ACTIVITY_COLUMNS.index("query_progress")] = query_progress
+    row[registration_module._PG_STAT_ACTIVITY_COLUMNS.index("rows_processed")] = rows_processed
+    row[registration_module._PG_STAT_ACTIVITY_COLUMNS.index("total_rows_to_process")] = total_rows
+    return row
+
+
+def test_progress_from_stat_rows_prefers_the_shadow_table_query() -> None:
+    rows = [
+        _stat_row(query="SELECT 1"),
+        _stat_row(
+            query="CALL ducklake_add_data_files('ducklake', '__ph_register_other', 's3://other')",
+            query_progress=0.1,
+            rows_processed=10,
+            total_rows=100,
+        ),
+        _stat_row(
+            query="CALL ducklake_add_data_files('ducklake', '__ph_register_mine', 's3://mine')",
+            query_progress=0.4,
+            rows_processed=40,
+            total_rows=100,
+        ),
+    ]
+
+    payload = registration_module._progress_from_stat_rows(rows, marker="__ph_register_mine")
+
+    assert payload == {
+        "statement": "add_data_files",
+        "query_progress": 0.4,
+        "rows_processed": 40,
+        "total_rows": 100,
+    }
+
+
+def test_progress_from_stat_rows_omit_untracked_query_progress() -> None:
+    rows = [_stat_row(query="CALL ducklake_add_data_files('ducklake', '__ph_register_mine', 's3://mine')")]
+
+    payload = registration_module._progress_from_stat_rows(rows, marker="__ph_register_mine")
+
+    assert payload == {"statement": "add_data_files", "rows_processed": 0, "total_rows": 0}
+
+
+def test_register_progress_records_sql_stages(monkeypatch) -> None:
+    monkeypatch.setattr(registration_module, "setup_duckgres_session", MagicMock())
+    monkeypatch.setattr(registration_module, "_should_publish_prepared_generation", lambda inputs: True)
+    conn = MagicMock()
+
+    def execute(query: object) -> MagicMock:
+        result = MagicMock()
+        result.fetchone.return_value = (2,)
+        return result
+
+    conn.execute.side_effect = execute
+    progress = registration_module._RegisterProgress(schema_id="schema", job_id="job")
+    stages: list[str] = []
+    original_set_stage = progress.set_stage
+
+    def capture_stage(stage: str) -> None:
+        stages.append(stage)
+        original_set_stage(stage)
+
+    monkeypatch.setattr(progress, "set_stage", capture_stage)
+    monkeypatch.setattr(progress, "track_duckgres", lambda team_id: contextlib.nullcontext())
+    landing_uri = registration_module._generation_scoped_landing_uri(
+        _activity_inputs().metadata.landing_uri,
+        job_id=_activity_inputs().job_id,
+        prepared_queryable_folder=_activity_inputs().metadata.prepared_queryable_folder,
+    )
+    landing_paths = [f"{landing_uri}/_ph_partition_key=2026-07/a.parquet"]
+
+    registered = registration_module._register_prepared_parquet_files(
+        _activity_inputs(),
+        conn,
+        landing_paths,
+        progress=progress,
+    )
+
+    assert registered == 2
+    assert stages == ["create_shadow", "partition", "add_data_files", "verify", "publish"]
+    assert progress.file_count == 1
+    assert progress.shadow_name.startswith("__ph_register_")
 
 
 def test_copy_activity_registers_when_prepared_generation_is_no_longer_current(monkeypatch):
