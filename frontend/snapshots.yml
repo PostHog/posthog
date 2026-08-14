@@ -5444,6 +5444,26 @@ snapshots:
         hash: v1.k794b7964.5cdaae6b72efa77261704903c3b14197bd4996f9db290718a4a585758aaa6cf2.xbF6ujFL2OI5SqKxuBM4wYp4MT4t2IC_HjI5-9mkT4c
     scenes-app-ai-observability-prompts--prompts-list--light:
         hash: v1.k794b7964.f4a3e9e0c94c327fbf41ea4698bb4d9cb92b5112848b3ee7f31c57466f0075b2.MoyySImBvALTiYl2FHqO1UG4XLCdcaJJzoUG56t_7gI
+    scenes-app-ai-observability-self-driving-signal-source-toggle--load-failed--dark:
+        hash: v1.k794b7964.594419147aefa58da5dddcb6b52c77c2f0c89f4830115a85cb93be8a719cfcc3.-0XtR5ua7OLwsi_LNT4ez5y9XsLqX4eQLrRsOX25y9U
+    scenes-app-ai-observability-self-driving-signal-source-toggle--load-failed--light:
+        hash: v1.k794b7964.666b8ed873bf7556fcbc614b1eff5d35be355cf20ae802d17a4296a7c28f4695.EhTofW4HGRg0NTr6BzBVSYLZtX7cj6H1r6u3Y06eICY
+    scenes-app-ai-observability-self-driving-signal-source-toggle--loading--dark:
+        hash: v1.k794b7964.4ccfbd9c7bc2fd77e7921b99926ca649cf2d278f3f52ad6aeef4a833877a0763.TIxsDf72HoX3oaW_c3Y1Vgauvkm8r_BMkiTnk-JqaC8
+    scenes-app-ai-observability-self-driving-signal-source-toggle--loading--light:
+        hash: v1.k794b7964.e4c2dbbde9aa9afcf7be121e5d357173a7da8cb243aac62f78a62dc4d63f198b.dWlu0w4h48kprw6oJpUUnFhruNVseXvmk7tgOexgGr8
+    scenes-app-ai-observability-self-driving-signal-source-toggle--off--dark:
+        hash: v1.k794b7964.8b44e85a56d3b162b3768808a1b3792d090a04eb2eeb24570ccde26757774aa0.KQZsisW5PcYcBbSNnuePRg1HErLXOhvMd7PTkDsCQXg
+    scenes-app-ai-observability-self-driving-signal-source-toggle--off--light:
+        hash: v1.k794b7964.32444d7760fdd3fe980414e14d0c29510dbcc79e53ac2e68480547ee798cf4b2.lWBrIzdl1fKU_qkGaN2mD1PdBRfYv1rGKzxWoXVmoSo
+    scenes-app-ai-observability-self-driving-signal-source-toggle--on--dark:
+        hash: v1.k794b7964.0947900b570417a054728ab484ebd682d108bbee215c93ad3c778c37a802c9e9.s-j4c2rVP1u58Lccoz68vFvzfVcN9VZAC5p0MeFhqSE
+    scenes-app-ai-observability-self-driving-signal-source-toggle--on--light:
+        hash: v1.k794b7964.65507eafae6b5eaf562fe40465076636506836ecdd66d27a4b99b381dbfb81ef.tRa6_ayTerymDxICixAGiw5Ps1nRLfxpXHrp3cyenfk
+    scenes-app-ai-observability-self-driving-signal-source-toggle--toggling--dark:
+        hash: v1.k794b7964.698da88937d031d692634a6f51af5cd6a45073adb0ececbe2c4f5ccee21c1390.lOPHKqkKlf_TQsmBTx5c2EyzsNDp2MeNqX_D8mjtguI
+    scenes-app-ai-observability-self-driving-signal-source-toggle--toggling--light:
+        hash: v1.k794b7964.c965506f3fa35369674cf3940c90a5c2de5776e3d8ed68db83089ec1480ed7d5.uBDe4ORwPrZR2iyF9JYRLhLzi5-pwke4LrzIicgf4aE
     scenes-app-ai-observability-sentiment--bar-full-width--dark:
         hash: v1.k794b7964.c85f4138877bf5f706d5675ad8ebca39a87300e45359ba3f5325551815fb5885.E-9wb0W7JxbRPXtj3-swTXq2QVbMKq-BpfDn-PXxcfU
     scenes-app-ai-observability-sentiment--bar-full-width--light:
