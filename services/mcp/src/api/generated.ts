@@ -15425,9 +15425,50 @@ export namespace Schemas {
       star?: boolean;
     }
 
+    /**
+     * * `author_scout` - author_scout
+     * * `fleet_overview` - fleet_overview
+     * * `recent_signals` - recent_signals
+     */
+    export type ChatTypeEnum = typeof ChatTypeEnum[keyof typeof ChatTypeEnum];
+
+
+    export const ChatTypeEnum = {
+      AuthorScout: 'author_scout',
+      FleetOverview: 'fleet_overview',
+      RecentSignals: 'recent_signals',
+    } as const;
+
     export interface CheckDatabaseNameResponse {
       name: string;
       available: boolean;
+    }
+
+    /**
+     * Body of the `check_incremental` action: a query and an optional config to check it against.
+     */
+    export interface CheckIncremental {
+      /**
+         * The HogQL query to check.
+         * @maxLength 65536
+         */
+      query: string;
+      /**
+         * Output column whose advancing value marks rows as new. Omit to only list candidates.
+         * @nullable
+         */
+      incremental_key?: string | null;
+      /**
+         * Output columns that identify a row. Must include every GROUP BY column.
+         * @nullable
+         */
+      unique_key?: string[] | null;
+      /**
+         * How far back before the watermark to re-read each run, to pick up late-arriving data.
+         * @minimum 0
+         * @maximum 2592000
+         */
+      lookback_seconds?: number;
     }
 
     export interface CheckSchemaNameResponse {
@@ -19208,11 +19249,28 @@ export namespace Schemas {
       Skipped: 'Skipped',
     } as const;
 
+    /**
+     * * `full_refresh` - Full refresh
+     * * `incremental` - Incremental
+     */
+    export type DataModelingJobRunModeEnum = typeof DataModelingJobRunModeEnum[keyof typeof DataModelingJobRunModeEnum];
+
+
+    export const DataModelingJobRunModeEnum = {
+      FullRefresh: 'full_refresh',
+      Incremental: 'incremental',
+    } as const;
+
     export interface DataModelingJob {
       readonly id: string;
       /** @nullable */
       readonly saved_query_id: string | null;
       readonly status: DataModelingJobStatusEnum;
+      /** What this run wrote: full_refresh rebuilt the whole table, so rows_materialized is the table's size; incremental wrote only its window, so rows_materialized counts just the rows synced. Null for runs from before modes were recorded, or that failed before the plan resolved.
+       *
+       * * `full_refresh` - Full refresh
+       * * `incremental` - Incremental */
+      readonly run_mode: DataModelingJobRunModeEnum | null;
       readonly rows_materialized: number;
       /** @nullable */
       readonly error: string | null;
@@ -19386,6 +19444,62 @@ export namespace Schemas {
      * Engines this query's materialization is suspended for after repeated failures. Suspended engines are skipped by scheduled runs until the query is resumed.
      */
     export type DataWarehouseSavedQuerySuspended = {[key: string]: SavedQuerySuspension};
+
+    /**
+     * How a view updates its materialized table in place rather than rebuilding it.
+     */
+    export interface IncrementalConfig {
+      /** Whether runs update the table incrementally instead of rebuilding it. */
+      enabled?: boolean;
+      /** Output column whose advancing value marks rows as new. Each run reads only rows at or after the last run's highest value for it. When the query groups, this must be one of the grouped columns, so every group a run touches is recomputed in full. */
+      incremental_key: string;
+      /** Output columns that identify a row, used to match recomputed rows against stored ones. Must include every GROUP BY column. These columns can never be null. */
+      unique_key: string[];
+      /**
+         * How far back before the last run's high point to re-read, so late-arriving data is picked up. Only applies when the incremental key is a date or time.
+         * @minimum 0
+         * @maximum 2592000
+         */
+      lookback_seconds?: number;
+    }
+
+    /**
+     * * `incremental` - incremental
+     * * `full_refresh` - full_refresh
+     */
+    export type LastRunModeEnum = typeof LastRunModeEnum[keyof typeof LastRunModeEnum];
+
+
+    export const LastRunModeEnum = {
+      Incremental: 'incremental',
+      FullRefresh: 'full_refresh',
+    } as const;
+
+    /**
+     * Read-only progress written by the materialization run.
+     */
+    export interface IncrementalState {
+      /**
+         * Highest incremental key value written so far. The next run starts here.
+         * @nullable
+         */
+      watermark?: string | null;
+      /**
+         * Fingerprint of the query, incremental key, and unique key the stored rows were built from. When it stops matching, the next run rebuilds the whole table. Lookback is not part of it: changing lookback never forces a rebuild.
+         * @nullable
+         */
+      definition_fingerprint?: string | null;
+      /**
+         * When the table was last rebuilt from scratch.
+         * @nullable
+         */
+      last_full_refresh_at?: string | null;
+      /** Whether the last run updated the table or rebuilt it.
+       *
+       * * `incremental` - incremental
+       * * `full_refresh` - full_refresh */
+      last_run_mode?: LastRunModeEnum | null;
+    }
 
     /**
      * * `never` - never
@@ -19576,6 +19690,10 @@ export namespace Schemas {
       name: string;
       /** HogQL query definition as a JSON object with a "query" key containing the SQL string and a "kind" key (always "HogQLQuery"). Format the SQL string multi-line with indentation and inline `--` comments for non-obvious logic — the SQL editor renders it verbatim, so avoid minified single-line SQL. Example: {"kind": "HogQLQuery", "query": "SELECT\n    event,\n    count() AS cnt\nFROM events\nGROUP BY event\nLIMIT 100"} */
       query: DataWarehouseSavedQueryQuery;
+      /** Update the materialized table in place instead of rebuilding it. Null or absent means every run rebuilds the whole table. */
+      incremental?: IncrementalConfig | null;
+      /** How far incremental materialization has progressed. Null until the first run records any. Written by the materialization run, not by this API. */
+      readonly incremental_state: IncrementalState | null;
       readonly created_by: UserBasic;
       readonly created_at: string;
       /**
@@ -26263,6 +26381,8 @@ export namespace Schemas {
       scanner_config: unknown;
       /** Why the draft picked this scanner type and configuration, addressed to the user. */
       rationale: string;
+      /** Drafted `RecordingsQuery` narrowing which sessions get scanned, holding one event filter picked from the team's real events; null when no event clearly matched the goal. */
+      query: unknown;
     }
 
     export interface DraftStatusResponse {
@@ -31776,7 +31896,7 @@ export namespace Schemas {
          * @nullable
          */
       metric_name: string | null;
-      /** How many recordings the card carries, at most 20. Every card is backed by recordings that actually exist: a finding whose sessions were never recorded is dropped rather than promised. */
+      /** How many recordings the card carries, at most max_card_recordings (20). Every card is backed by recordings that actually exist: a finding whose sessions were never recorded is dropped rather than promised. A count sitting on the ceiling means at least that many, so say 'at least' and never compare two such counts: how often the event happened is the experiment's results, and this only counts what replay kept. */
       recording_count: number;
       /** The recordings themselves, most recent first, ready to hand to the recordings list as-is. */
       session_ids: string[];
@@ -31843,6 +31963,8 @@ export namespace Schemas {
       events_truncated: boolean;
       /** How many exposed people a variant needs before it can be compared at all. Below it a variant's cards would be noise whatever the evidence bar allows. */
       min_arm_persons: number;
+      /** The most recordings one card can carry. A card whose recording_count equals this hit the ceiling, so report it as 'at least this many' rather than as a count. */
+      max_card_recordings: number;
       /** True when fewer than two variants have min_arm_persons exposed people, so no comparison exists and cards is empty. Say 'too early to compare' and show the arms' counts; an empty shelf presented without this would read as 'the variants behaved identically'. */
       too_early: boolean;
     }
@@ -39785,7 +39907,6 @@ export namespace Schemas {
       expiry_time?: string | null;
       /** External references to third party issues. */
       external_references?: SessionRecordingExternalReference[] | null;
-      has_summary?: boolean | null;
       id: string;
       inactive_seconds?: number | null;
       keypress_count?: number | null;
@@ -41067,6 +41188,29 @@ export namespace Schemas {
          * @items.maxLength 256
          */
       id_jag_allowed_clients?: string[];
+    }
+
+    /**
+     * Coarse type per candidate, keyed by column name: datetime, date, integer, decimal, float, string, or uuid. A candidate with no entry has a type the check could not determine.
+     */
+    export type IncrementalEligibilityKeyCandidateTypes = {[key: string]: string};
+
+    /**
+     * Whether a query can be materialized incrementally, and what stands in the way.
+     */
+    export interface IncrementalEligibility {
+      /** True when nothing blocks incremental materialization. */
+      eligible: boolean;
+      /** Output columns that could be used as the incremental key. Excludes aggregates, columns whose type cannot serve as an advancing watermark (strings, booleans, arrays), and for a union only includes columns every branch produces. */
+      key_candidates: string[];
+      /** Output columns the unique key may be built from. A superset of key_candidates: identifying a row only needs equality, so strings qualify here even though they cannot be the incremental key. */
+      unique_key_candidates: string[];
+      /** Coarse type per candidate, keyed by column name: datetime, date, integer, decimal, float, string, or uuid. A candidate with no entry has a type the check could not determine. */
+      key_candidate_types: IncrementalEligibilityKeyCandidateTypes;
+      /** Reasons this query cannot be incremental. Each names the construct responsible. */
+      blockers: string[];
+      /** Things that still work but are worth knowing, such as a filter that cannot be pushed down so each run reads as much data as a full refresh. */
+      warnings: string[];
     }
 
     /**
@@ -47493,6 +47637,7 @@ export namespace Schemas {
      * * `image_builder` - Image Builder
      * * `loop` - Loop
      * * `mcp_analytics` - MCP Analytics
+     * * `signals_chat` - Signals Chat
      */
     export type OriginProductEnum = typeof OriginProductEnum[keyof typeof OriginProductEnum];
 
@@ -47516,6 +47661,7 @@ export namespace Schemas {
       ImageBuilder: 'image_builder',
       Loop: 'loop',
       McpAnalytics: 'mcp_analytics',
+      SignalsChat: 'signals_chat',
     } as const;
 
     /**
@@ -54716,6 +54862,10 @@ export namespace Schemas {
       name?: string;
       /** HogQL query definition as a JSON object with a "query" key containing the SQL string and a "kind" key (always "HogQLQuery"). Format the SQL string multi-line with indentation and inline `--` comments for non-obvious logic — the SQL editor renders it verbatim, so avoid minified single-line SQL. Example: {"kind": "HogQLQuery", "query": "SELECT\n    event,\n    count() AS cnt\nFROM events\nGROUP BY event\nLIMIT 100"} */
       query?: PatchedDataWarehouseSavedQueryQuery;
+      /** Update the materialized table in place instead of rebuilding it. Null or absent means every run rebuilds the whole table. */
+      incremental?: IncrementalConfig | null;
+      /** How far incremental materialization has progressed. Null until the first run records any. Written by the materialization run, not by this API. */
+      readonly incremental_state?: IncrementalState | null;
       readonly created_by?: UserBasic;
       readonly created_at?: string;
       /**
@@ -60592,7 +60742,8 @@ export namespace Schemas {
        * * `review_hog` - ReviewHog
        * * `image_builder` - Image Builder
        * * `loop` - Loop
-       * * `mcp_analytics` - MCP Analytics */
+       * * `mcp_analytics` - MCP Analytics
+       * * `signals_chat` - Signals Chat */
       origin_product?: OriginProductEnum;
       /**
          * Target GitHub repository in `organization/repo` format (e.g. `posthog/posthog-js`).
@@ -68362,10 +68513,10 @@ export namespace Schemas {
      * * `review_only` - review_only
      * * `resolve_only` - resolve_only
      */
-    export type RunModeEnum = typeof RunModeEnum[keyof typeof RunModeEnum];
+    export type ReviewTriggerRequestRunModeEnum = typeof ReviewTriggerRequestRunModeEnum[keyof typeof ReviewTriggerRequestRunModeEnum];
 
 
-    export const RunModeEnum = {
+    export const ReviewTriggerRequestRunModeEnum = {
       Review: 'review',
       ReviewOnly: 'review_only',
       ResolveOnly: 'resolve_only',
@@ -68379,7 +68530,7 @@ export namespace Schemas {
        * * `review` - review
        * * `review_only` - review_only
        * * `resolve_only` - resolve_only */
-      run_mode?: RunModeEnum;
+      run_mode?: ReviewTriggerRequestRunModeEnum;
     }
 
     export interface ReviewTriggerResponse {
@@ -68913,6 +69064,14 @@ export namespace Schemas {
     }
 
     /**
+     * Body of the `run` action.
+     */
+    export interface SavedQueryRun {
+      /** Rebuild the whole table instead of updating it incrementally. Has no effect on a view that is not incremental. This is how you reprocess history after changing what the query means without changing its text, or after upstream data was corrected. */
+      full_refresh?: boolean;
+    }
+
+    /**
      * Distinct creators across all scanners on the team — feeds the `Created by` filter dropdown.
      */
     export interface ScannerCreatorsResponse {
@@ -68997,6 +69156,20 @@ export namespace Schemas {
          * @minimum 1
          */
       base_version?: number;
+    }
+
+    export interface ScoutChatTask {
+      /** The created chat task. Open it on the task detail page to continue. */
+      task_id: string;
+    }
+
+    export interface ScoutChatTaskCreate {
+      /** Which scout chat to start: `author_scout` (guided scout authoring), `fleet_overview` (health of the scout fleet), or `recent_signals` (walk through recently emitted signals). The prompt template is owned server-side.
+       *
+       * * `author_scout` - author_scout
+       * * `fleet_overview` - fleet_overview
+       * * `recent_signals` - recent_signals */
+      chat_type: ChatTypeEnum;
     }
 
     /**
@@ -76195,7 +76368,8 @@ export namespace Schemas {
        * * `review_hog` - ReviewHog
        * * `image_builder` - Image Builder
        * * `loop` - Loop
-       * * `mcp_analytics` - MCP Analytics */
+       * * `mcp_analytics` - MCP Analytics
+       * * `signals_chat` - Signals Chat */
       origin_product?: OriginProductEnum;
       /**
          * Target GitHub repository in `organization/repo` format (e.g. `posthog/posthog-js`).
@@ -77349,7 +77523,8 @@ export namespace Schemas {
        * * `review_hog` - ReviewHog
        * * `image_builder` - Image Builder
        * * `loop` - Loop
-       * * `mcp_analytics` - MCP Analytics */
+       * * `mcp_analytics` - MCP Analytics
+       * * `signals_chat` - Signals Chat */
       origin_product?: OriginProductEnum;
       /**
          * Target GitHub repository in `organization/repo` format (e.g. `posthog/posthog-js`).

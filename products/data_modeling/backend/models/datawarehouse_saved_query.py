@@ -65,6 +65,15 @@ def validate_saved_query_name(value):
         )
 
 
+class V1SchedulingPathReached(Exception):
+    """Reported, never raised. Marks a caller that still mints a v1 per-query schedule.
+
+    v1 scheduling is being retired and the fleet no longer runs it, so this exists to find any
+    remaining path into it before the workflow type is deregistered — a schedule pointing at a
+    deregistered type does not fail loudly, it fires forever with failing workflow tasks.
+    """
+
+
 class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, UpdatedMetaFields, DeletedMetaFields):
     class Status(models.TextChoices):
         """Possible states of this SavedQuery."""
@@ -152,6 +161,24 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, UpdatedMetaFields, 
         blank=True,
         help_text="Fingerprint of the view definition and column set used to skip AI semantic-description "
         "regeneration when nothing relevant changed. Not user-facing.",
+    )
+
+    # Config and progress are split because the API writes the first and the materialization
+    # activity writes the second, concurrently. Two fields let the worker save its progress with
+    # update_fields without clobbering a config edit that landed mid-run.
+    incremental_config = models.JSONField(
+        default=None,
+        null=True,
+        blank=True,
+        help_text="Incremental materialization settings: enabled, incremental_key, unique_key, "
+        "lookback_seconds. Null means this view is always fully refreshed.",
+    )
+    incremental_state = models.JSONField(
+        default=None,
+        null=True,
+        blank=True,
+        help_text="Incremental materialization progress: watermark, definition_fingerprint, "
+        "last_full_refresh_at, last_run_mode. System-written, not user-editable.",
     )
 
     def save(self, *args, **kwargs):
@@ -273,6 +300,18 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, UpdatedMetaFields, 
                     # runs inside an atomic block); immediate under autocommit.
                     transaction.on_commit(self._start_immediate_materialization)
                 return
+
+            # Both regions hold zero `data-modeling-run` schedules, so nothing should reach here.
+            # Report each arrival with the caller's context, but still schedule: a customer's
+            # materialization must not be what proves this path is dead.
+            capture_exception(
+                V1SchedulingPathReached(f"Saved query {self.id} scheduled through the v1 per-query path"),
+                {
+                    "saved_query_id": str(self.id),
+                    "team_id": self.team_id,
+                    "dag_id": str(node.dag_id) if node is not None else None,
+                },
+            )
 
             self.setup_model_paths()
 
