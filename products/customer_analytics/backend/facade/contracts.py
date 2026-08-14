@@ -16,7 +16,7 @@ from dataclasses import (
 )
 from datetime import datetime
 from enum import Enum
-from typing import Any
+from typing import Any, TypedDict
 from uuid import UUID
 
 from pydantic.dataclasses import dataclass
@@ -565,12 +565,56 @@ class FeatureRequestView:
     title: str = ""
     description: str = ""
     request_status: str = "requested"
+    request_priority: str | None = None
+    is_archived: bool = False
+    archived_at: datetime | None = None
+    archived_by: int | None = None
+    version: int = 1
     account: FeatureRequestAccountView | None = None
     product_areas: list[FeatureRequestProductAreaView] = field(default_factory=list)
     created_by: int | None = None
     updated_by: int | None = None
     created_at: datetime | None = None
     updated_at: datetime | None = None
+
+
+class FeatureRequestHistoryChange(TypedDict):
+    field: str
+    before: object
+    after: object
+
+
+@dataclass(frozen=True)
+class FeatureRequestHistoryView:
+    id: UUID
+    changes: list[FeatureRequestHistoryChange]
+    is_initial: bool
+    change_source: str
+    actor_id: int | None
+    actor_name: str | None
+    changed_at: datetime
+
+
+@dataclass(frozen=True)
+class FeatureRequestStatusHistoryView:
+    id: UUID
+    previous_status: str | None
+    request_status: str
+    change_source: str
+    actor_id: int | None
+    actor_name: str | None
+    changed_at: datetime
+
+
+@dataclass(frozen=True)
+class FeatureRequestListFilters:
+    search: str = ""
+    statuses: tuple[str, ...] = ()
+    priorities: tuple[str, ...] = ()
+    product_area_ids: tuple[UUID, ...] = ()
+    account_ids: tuple[UUID, ...] = ()
+    archive_state: str = "active"
+    ordering: str = "-updated_at"
 
 
 @dataclass(frozen=True)
@@ -586,6 +630,18 @@ class CreateFeatureRequestInput:
 class FeatureRequestCreateOutcome:
     request: FeatureRequestView
     created: bool
+
+
+@dataclass(frozen=True)
+class UpdateFeatureRequestInput:
+    expected_version: int
+    title: str | None = None
+    description: str | None = None
+    account_id: UUID | None = None
+    product_area_ids: tuple[UUID, ...] | None = None
+    request_status: str | None = None
+    request_priority: str | None = None
+    request_priority_is_set: bool = False
 
 
 @stdlib_dataclass(frozen=True)
