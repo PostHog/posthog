@@ -20,6 +20,10 @@ snapshots:
         hash: v1.k794b7964.8e7770037014d788ef5b7299b6b2f834c2afcad14dd6c6033ddd8ac885faa1c6.buSflXKIcQC5dcm7fbQWsczrZY8TleOkvO86ugYW8yw
     charts-heatmap--linear-color-scale--light:
         hash: v1.k794b7964.c94c02704b7f9b4972f811336d019e15b77cff047551902ca74d65c1571ea6ff.PA6k_wyPYr-SNYm1-Mv8sa0DFCLb2-8QxOVNlDn4hE8
+    charts-scatterchart--best-fit--dark:
+        hash: v1.k794b7964.16cd70cbd14b6b074187753443b03c278fe2c1232a3964fb3cecc43db143022a.cW424mhub6jtCjmXr_ka4Tpy1H103wjp5syvHYhLkGk
+    charts-scatterchart--best-fit--light:
+        hash: v1.k794b7964.512d62c420b1c1cd4859e3f5b54b3c143790ffe97dbf612a0433d176815bbb9d.SDshqmWYkWbvkPR0uVwaM-eSys8hE9549vav7A3m96w
     charts-scatterchart--clusters-with-centroids--dark:
         hash: v1.k794b7964.21db57f09c276546fb27d3a6ba87bdb6e91c323ea1070df94f9ab87a8c1945d3.tANHwlLV16_HsvrEm1NqaeZNbmXRJRRk1P26nJ1hH6c
     charts-scatterchart--clusters-with-centroids--light:
@@ -6121,7 +6125,7 @@ snapshots:
     scenes-app-experiments--experiment-stopped-with-conclusion--light:
         hash: v1.k794b7964.793a4b6109b2c0ab65b07d9eaefd1c8862f12bfc7f33b2f452ad20044396b2a7.6B0Meq7yO75vBEoBmuP2dNl2oKTugzzr_IKTcJHhEi0
     scenes-app-experiments--experiment-with-funnel-metric--dark:
-        hash: v1.k794b7964.bd425da753ec6f788f968fb15c6a7783af3c8479103849bf3ab4fad4f4276287.KPZegtTwokdMxA6_KV2bsmFYxTZO1AYRlPZp4tZ6y7E
+        hash: v1.k794b7964.fd0d0ad7569f50079a322a8901513f854823ce694796a2a24a1e6714ac9c5902.fBtAQkm1LZ7xYp6DTXoQSDqDFjsUkxMCP-aNAZJ1Fmc
     scenes-app-experiments--experiment-with-funnel-metric--light:
         hash: v1.k794b7964.a608f24a82fc56569fb7029e98bab3121baa3fd6c5c63492fe9952aa6a43afc5.ZgTLiUZPjDNcaChht0ijSp2F7HoqRkdn__-6JKI7p4A
     scenes-app-experiments--experiment-with-legacy-funnels-query--dark:
