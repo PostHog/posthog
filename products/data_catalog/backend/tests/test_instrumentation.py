@@ -15,6 +15,7 @@ from posthog.hogql.errors import ExposedHogQLError, QueryError
 from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
 from posthog.clickhouse.query_tagging import Product, get_query_tags
 from posthog.errors import ExposedCHQueryError
+from posthog.exceptions import ClickHouseAtCapacity, ClickHouseQueryTimeOut
 
 from products.data_catalog.backend.logic import relationships
 from products.data_catalog.backend.logic.exceptions import MetricHasNoDefinition
@@ -35,6 +36,14 @@ _PROBE_OUTCOMES = get_args(RelationshipProbeOutcome)
 _SURFACES = get_args(CatalogSurface)
 
 _PROCESS_QUERY = "products.data_catalog.backend.logic.execution.process_query_dict"
+
+# ClickHouse error codes. Every one is user_safe, so all four surface as ExposedCHQueryError, but
+# they classify differently: a missing table is the definition's problem, a timeout is a cost
+# guardrail, and an unreadable S3 file is ours.
+_UNKNOWN_TABLE_CODE = 60
+_ILLEGAL_TYPE_CODE = 43
+_TIMEOUT_EXCEEDED_CODE = 159
+_S3_ERROR_CODE = 499
 
 _HOGQL = {"kind": "HogQLQuery", "query": "select count() as c from events"}
 _EVENTS_NODE = {"kind": "EventsNode", "event": "purchase"}
@@ -117,7 +126,7 @@ class TestMetricRunOutcomes(APIBaseTest):
             (
                 "definition_error_clickhouse",
                 _HOGQL,
-                {"side_effect": ExposedCHQueryError("memory limit")},
+                {"side_effect": ExposedCHQueryError("Unknown table", code=_UNKNOWN_TABLE_CODE)},
                 {},
                 ValidationError,
                 "hogql",
@@ -151,6 +160,42 @@ class TestMetricRunOutcomes(APIBaseTest):
                 Throttled,
                 "hogql",
                 "concurrency_limited",
+            ),
+            (
+                "query_performance_timeout",
+                _HOGQL,
+                {"side_effect": ClickHouseQueryTimeOut()},
+                {},
+                ClickHouseQueryTimeOut,
+                "hogql",
+                "query_performance",
+            ),
+            (
+                "query_performance_exposed_guardrail",
+                _HOGQL,
+                {"side_effect": ExposedCHQueryError("timeout exceeded", code=_TIMEOUT_EXCEEDED_CODE)},
+                {},
+                ValidationError,
+                "hogql",
+                "query_performance",
+            ),
+            (
+                "capacity",
+                _HOGQL,
+                {"side_effect": ClickHouseAtCapacity()},
+                {},
+                ClickHouseAtCapacity,
+                "hogql",
+                "capacity",
+            ),
+            (
+                "internal_error_operational_clickhouse",
+                _HOGQL,
+                {"side_effect": ExposedCHQueryError("S3 file changed during read", code=_S3_ERROR_CODE)},
+                {},
+                ValidationError,
+                "hogql",
+                "internal_error",
             ),
             (
                 "internal_error",
@@ -198,10 +243,12 @@ class TestRelationshipProbeOutcomes(BaseTest):
             ("join_invalid_hogql", QueryError("no such column"), ValidationError, "join_invalid"),
             (
                 "join_invalid_clickhouse",
-                ExposedCHQueryError("Illegal types of arguments"),
+                ExposedCHQueryError("Illegal types of arguments", code=_ILLEGAL_TYPE_CODE),
                 ValidationError,
                 "join_invalid",
             ),
+            ("query_performance", ClickHouseQueryTimeOut(), ValidationError, "query_performance"),
+            ("capacity", ClickHouseAtCapacity(), ValidationError, "capacity"),
             ("error", RuntimeError("probe infrastructure down"), ValidationError, "error"),
         ]
     )
@@ -227,7 +274,9 @@ class TestRelationshipProbeOutcomes(BaseTest):
     def test_clickhouse_rejection_reports_the_real_error(self) -> None:
         proposal = self._propose()
         with patch.object(
-            relationships, "execute_hogql_query", side_effect=ExposedCHQueryError("Illegal types of arguments")
+            relationships,
+            "execute_hogql_query",
+            side_effect=ExposedCHQueryError("Illegal types of arguments", code=_ILLEGAL_TYPE_CODE),
         ):
             with self.assertRaises(ValidationError) as ctx:
                 accept_proposal(proposal, self.user)

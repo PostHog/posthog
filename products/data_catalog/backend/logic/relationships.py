@@ -41,7 +41,7 @@ from posthog.models import Team, User
 from products.data_tools.backend.facade.models import DataWarehouseJoin
 
 from ..facade.enums import RelationshipStatus
-from ..metrics import record_relationship_probe
+from ..metrics import record_relationship_probe, relationship_probe_outcome_for
 from ..models import RelationshipProposal
 from .analytics import (
     RELATIONSHIP_ACCEPTED_EVENT,
@@ -176,10 +176,10 @@ def _probe_join(
         record_relationship_probe("join_invalid")
         raise
     except (ExposedHogQLError, ExposedCHQueryError) as e:
-        record_relationship_probe("join_invalid")
+        record_relationship_probe(relationship_probe_outcome_for(e))
         raise ValidationError({"join": f"The join does not work: {e}"})
     except Exception as e:
-        record_relationship_probe("error")
+        record_relationship_probe(relationship_probe_outcome_for(e))
         capture_exception(e)
         raise ValidationError({"join": "The join could not be validated against the data."})
     record_relationship_probe("ok")

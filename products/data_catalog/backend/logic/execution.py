@@ -38,7 +38,7 @@ from posthog.models import Team, User
 from posthog.utils import absolute_uri
 
 from ..facade.enums import HOGQL_DEFINITION_KIND, MARKDOWN_DEFINITION_KIND, NODE_DEFINITION_KINDS
-from ..metrics import metric_run_outcome
+from ..metrics import metric_run_outcome, metric_run_outcome_for
 from ..models import Metric
 from .analytics import METRIC_RUN_EVENT, METRIC_RUN_FAILED_EVENT, capture_metric_event
 from .drift import compute_drift
@@ -107,7 +107,7 @@ def run_metric(
                     is_query_service=is_api_key_access_method(get_query_tag_value("access_method")),
                 )
         except (ExposedHogQLError, ExposedCHQueryError) as e:
-            run.record("definition_error")
+            run.record(metric_run_outcome_for(e))
             capture_run(METRIC_RUN_FAILED_EVENT, reason="definition_error")
             raise ValidationError(
                 {
@@ -122,7 +122,7 @@ def run_metric(
             run.record("rejected")
             raise
         except Exception as e:
-            run.record("internal_error")
+            run.record(metric_run_outcome_for(e))
             capture_exception(e)
             raise
         elapsed_seconds = time.monotonic() - started_at

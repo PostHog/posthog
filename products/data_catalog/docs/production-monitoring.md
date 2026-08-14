@@ -90,6 +90,22 @@ The instruments ship in this repo: the run and probe counters in `products/data_
 
 No counter carries `team_id`. Each increment sits next to a `logger.exception` that does, so the counter says something is broken and the structured log says for whom.
 
+### How a failed query picks its outcome
+
+Both the run counter and the probe counter classify a failed query with `classify_query_error`, the same function the query SLO path uses. That keeps three classes of failure out of the buckets people alert on:
+
+| `classify_query_error` category | Metric run outcome  | Probe outcome       |
+| ------------------------------- | ------------------- | ------------------- |
+| `USER_ERROR`                    | `definition_error`  | `join_invalid`      |
+| `QUERY_PERFORMANCE_ERROR`       | `query_performance` | `query_performance` |
+| `RATE_LIMITED`                  | `capacity`          | `capacity`          |
+| `CANCELLED`                     | `cancelled`         | `cancelled`         |
+| `ERROR`                         | `internal_error`    | `error`             |
+
+The distinction is not cosmetic. A metric that times out is the query's cost, not a rotten definition, so it must not raise the rot ratio. A ClickHouse error that the classifier calls `ERROR` (an unreadable Parquet file, an S3 object that changed under a warehouse table) is ours to fix, so it must not read as a user's broken definition. A timeout on a join probe does not mean the probe is broken, so it must not page.
+
+`concurrency_limited` stays separate from `capacity`: it is the API concurrency limiter rejecting the run with a 429, not the shared ClickHouse pool saturating.
+
 ### Proposed alerts
 
 **Catalog reads are failing** (warning, not a page). Every read path is fail-soft, so a broken catalog looks to an agent exactly like an empty one. This is the only signal that the difference exists.
@@ -100,7 +116,7 @@ sum by (surface) (increase(posthog_data_catalog_read_failures_total[15m])) > 5
 
 A rate threshold rather than `> 0`: one team with a poisoned metric definition increments on every read until someone fixes it, and a `> 0` page could never resolve. During triage, divide by `posthog_data_catalog_reads_total` for blast radius and read the `team_id` from the logs.
 
-**Metric runs are hitting system faults** (page). `internal_error` is the only outcome that means PostHog broke rather than a definition or a user.
+**Metric runs are hitting system faults** (page). `internal_error` is the only outcome that means PostHog broke rather than a definition, a cost guardrail, or a user.
 
 ```promql
 sum(increase(posthog_data_catalog_metric_runs_total{outcome="internal_error"}[15m])) > 0
@@ -118,7 +134,7 @@ and
 sum(increase(posthog_data_catalog_metric_runs_total{outcome!="async_enqueued"}[30m])) > 20
 ```
 
-The threshold and the minimum-volume guard are starting numbers and want tuning against real traffic. `async_enqueued` leaves the denominator because an enqueue has no outcome yet.
+The threshold and the minimum-volume guard are starting numbers and want tuning against real traffic. `async_enqueued` leaves the denominator because an enqueue has no outcome yet. `query_performance`, `capacity`, and `cancelled` stay in the denominator and out of the numerator: those runs happened, and none of them says the definition is stale.
 
 **The join probe is broken** (page). No relationship can be accepted while it is.
 

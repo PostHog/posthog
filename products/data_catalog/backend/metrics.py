@@ -4,6 +4,8 @@ from typing import Literal, get_args
 
 from prometheus_client import Counter, Histogram
 
+from posthog.errors import QueryErrorCategory, classify_query_error
+
 from .facade.enums import HOGQL_DEFINITION_KIND, MARKDOWN_DEFINITION_KIND, NODE_DEFINITION_KINDS
 
 MetricRunOutcome = Literal[
@@ -11,6 +13,9 @@ MetricRunOutcome = Literal[
     "definition_error",
     "invalid_query",
     "rejected",
+    "query_performance",
+    "capacity",
+    "cancelled",
     "concurrency_limited",
     "async_enqueued",
     "internal_error",
@@ -18,7 +23,7 @@ MetricRunOutcome = Literal[
 
 DefinitionKindLabel = Literal["hogql", "insight", "node", "markdown", "none"]
 
-RelationshipProbeOutcome = Literal["ok", "join_invalid", "error"]
+RelationshipProbeOutcome = Literal["ok", "join_invalid", "query_performance", "capacity", "cancelled", "error"]
 
 METRIC_RUNS_COUNTER = Counter(
     "posthog_data_catalog_metric_runs_total",
@@ -27,6 +32,9 @@ METRIC_RUNS_COUNTER = Counter(
     "definition_error (the stored definition no longer runs — the table or column it names is gone); "
     "invalid_query (the engine rejected the prepared query, returned as 400); "
     "rejected (refused before execution: no definition, or a date override on a fixed-window metric); "
+    "query_performance (the query hit a ClickHouse cost guardrail — timeout/memory/size/estimated-too-slow); "
+    "capacity (shared ClickHouse pool momentarily saturated); "
+    "cancelled (the caller dropped the query); "
     "concurrency_limited (denominator only — alert on posthog_clickhouse_query_concurrency_limit_exceeded); "
     "async_enqueued (a query status was returned to poll, not results — completion lands in the generic query series); "
     "or internal_error (unexpected system failure). "
@@ -46,10 +54,30 @@ RELATIONSHIP_PROBE_COUNTER = Counter(
     "posthog_data_catalog_relationship_probe_total",
     "Live join probes run while accepting a relationship proposal. "
     "outcome is ok; join_invalid (the proposed join does not work against the team's data, returned as 400); "
+    "query_performance (the probe query hit a ClickHouse cost guardrail); "
+    "capacity (shared ClickHouse pool momentarily saturated); cancelled (the caller dropped the query); "
     'or error (the probe itself broke). Only error is a system fault — alert on outcome="error", '
     "because no relationship can be accepted while the probe is broken.",
     labelnames=["outcome"],
 )
+
+# Both counters classify a query failure with the same function the query SLO path uses, so a
+# ClickHouse cost guardrail or a saturated pool never reads as a broken definition or a broken probe.
+_RUN_OUTCOME_BY_CATEGORY: dict[QueryErrorCategory, MetricRunOutcome] = {
+    QueryErrorCategory.USER_ERROR: "definition_error",
+    QueryErrorCategory.QUERY_PERFORMANCE_ERROR: "query_performance",
+    QueryErrorCategory.RATE_LIMITED: "capacity",
+    QueryErrorCategory.CANCELLED: "cancelled",
+    QueryErrorCategory.ERROR: "internal_error",
+}
+
+_PROBE_OUTCOME_BY_CATEGORY: dict[QueryErrorCategory, RelationshipProbeOutcome] = {
+    QueryErrorCategory.USER_ERROR: "join_invalid",
+    QueryErrorCategory.QUERY_PERFORMANCE_ERROR: "query_performance",
+    QueryErrorCategory.RATE_LIMITED: "capacity",
+    QueryErrorCategory.CANCELLED: "cancelled",
+    QueryErrorCategory.ERROR: "error",
+}
 
 for _kind in get_args(DefinitionKindLabel):
     METRIC_RUN_DURATION_SECONDS.labels(kind=_kind)
@@ -98,6 +126,14 @@ def metric_run_outcome(definition_kind: str | None) -> Iterator[MetricRunRecorde
         raise
     else:
         recorder.record("success")
+
+
+def metric_run_outcome_for(error: Exception) -> MetricRunOutcome:
+    return _RUN_OUTCOME_BY_CATEGORY.get(classify_query_error(error), "internal_error")
+
+
+def relationship_probe_outcome_for(error: Exception) -> RelationshipProbeOutcome:
+    return _PROBE_OUTCOME_BY_CATEGORY.get(classify_query_error(error), "error")
 
 
 def record_relationship_probe(outcome: RelationshipProbeOutcome) -> None:
