@@ -51,11 +51,27 @@ The root `AGENTS.md` architecture rules still apply.
   horizontal swipe moves between them (`useChannelPaneSwipe`, wheel `deltaX`
   accumulated per gesture and locked until the wheel goes quiet).
 - In the list, "Starred"/"Spaces" are headings above lightly indented rows. The
-  private "me" row leads the Starred section and takes the same inset as the
-  spaces beside it. No row carries a glyph: "me" drops its lock here so every
-  name starts in the same column, and it still marks the space everywhere it is
-  named on its own (the back row, the breadcrumb). The alpha's more deeply
-  indented Channels tree and hash glyphs are unchanged.
+  private "personal space" row leads the Starred section and takes the same inset as the
+  spaces beside it. It is the one row that carries a glyph: the lock is the only
+  thing saying nobody else can see this space, which is worth its name starting a
+  glyph's width right of the others. The alpha's more deeply indented Channels
+  tree and hash glyphs are unchanged.
+- **The private space reads as "personal space" without a hash, and only on screen.** The row is `me`
+  on the backend; `channelDisplayName` (core) swaps it on the way to a reader.
+  `channelDisplayLabel` adds a hash to shared spaces but leaves personal bare.
+  Four routes carry a channel's name — the channel list, an activity row, a
+  mention row, and remote search — and each calls it, because only the first
+  goes through `useTaskChannels`.
+  Recognition uses `channel_type`, never the name.
+- **The lock follows what a space is, not what it is called.** `channelGlyph`
+  takes a `personal` flag, and every caller holding the channel passes
+  `channelType === "personal"`; the name match behind it is a fallback for
+  surfaces that hold a bare name.
+  A public space named `personal` used to wear the lock while the real private
+  space showed none, which is a space impersonating yours.
+  `validateChannelName` reserves `personal` and `me` so the create and rename
+  forms refuse them — client-side only, so it neither binds the API nor renames
+  a space that already took one.
 - **The list is a tree.** Each space has a disclosure caret that opens it onto
   its most recent sessions (`useRecentSpaceTasks` — one task query per open
   space, polling slower than the channel feed; expansion lives in

@@ -454,6 +454,48 @@ class TestCoarsenTrigger:
         schema.refresh_from_db()
         assert schema.repartition_pending is None
 
+    @pytest.mark.parametrize(
+        "case,expected_reason",
+        [
+            ("rule_excluded_oom", "oom_within_free_window"),
+            ("fresh_layout", "layout_too_young"),
+            ("flag_disabled", "flag_disabled"),
+        ],
+    )
+    def test_declining_to_coarsen_records_which_gate_stopped_it(self, team, case, expected_reason):
+        # A stalled rollout is otherwise invisible: every gate returns silently, so "the flag reached
+        # nobody" and "no table was eligible" look identical from outside. The reason label is what
+        # tells those apart without shell access to a customer's tables.
+        schema = self._fragmented_schema(
+            team,
+            **(
+                {"last_repartition_at": datetime.datetime.now(datetime.UTC).isoformat()}
+                if case == "fresh_layout"
+                else {}
+            ),
+        )
+        if case == "rule_excluded_oom":
+            ExternalDataSchemaOOMEvent.objects.for_team(schema.team_id).create(
+                team_id=schema.team_id,
+                schema=schema,
+                run_id="run-1",
+                self_phase="extract",
+                self_report_age_at_death_seconds=1.0,
+            )
+
+        with tempfile.TemporaryDirectory() as d:
+            delta = _write_partitioned_delta(f"{d}/t", [str(bucket) for bucket in range(16)])
+            with (
+                patch.object(ctrl, "target_partition_bytes", return_value=10**12),
+                patch.object(ctrl, "is_auto_repartition_enabled", return_value=True),
+                patch.object(ctrl, "is_auto_coarsen_enabled", return_value=case != "flag_disabled"),
+                patch.object(ctrl, "capture_repartition_event"),
+                patch.object(ctrl, "DELTA_COARSEN_DECLINE_TOTAL") as decline_metric,
+            ):
+                self._detect(team, schema, delta)
+
+        assert decline_metric.labels.call_args.kwargs == {"reason": expected_reason}
+
     def test_operator_nomination_overrides_the_policy_gates(self, team):
         # The backlog of already-over-split tables is blocked by the OOM-free gate, because the signal
         # that over-split them keeps firing. A nomination is how an operator gets past that, so it has

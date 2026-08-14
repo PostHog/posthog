@@ -378,6 +378,53 @@ export const CanvasesPublishCurrentVersionCreateBody = /* @__PURE__ */ zod.objec
 })
 
 /**
+ * Report a runtime error observed while rendering a canvas build.
+ *
+ * Files the report in the authoring task's thread (deduped per build and
+ * error type) so the canvas's agent can be asked to fix it. Reports never
+ * start an agent run by themselves — dispatch is `request_fix`. Only the
+ * error class crosses the server; full messages and stacks stay
+ * client-side because rendering sessions can carry viewer data.
+ */
+export const canvasesReportErrorCreateBodyErrorTypeMax = 64
+
+export const CanvasesReportErrorCreateBody = /* @__PURE__ */ zod
+    .object({
+        build_id: zod.uuid().describe('Id of the build that was rendering when the error occurred.'),
+        error_type: zod
+            .string()
+            .max(canvasesReportErrorCreateBodyErrorTypeMax)
+            .describe(
+                "Error class name only, for example TypeError. Values that are not a plain class-name identifier are recorded as 'unknown'. Full error messages and stack traces must stay client-side."
+            ),
+    })
+    .describe('Payload for reporting a runtime error observed while rendering a canvas build.')
+
+/**
+ * Wake the canvas's authoring agent to fix a failing build or runtime error.
+ *
+ * Starts (or signals) an agent run on the authoring task, instructed to
+ * stage the fix as a draft the user reviews and promotes. This is the
+ * human-initiated dispatch step behind error reports; it spends agent
+ * compute, so it never fires automatically, and only the authoring
+ * task's creator may dispatch — the run executes with their credentials.
+ */
+export const canvasesRequestFixCreateBodyErrorTypeMax = 64
+
+export const CanvasesRequestFixCreateBody = /* @__PURE__ */ zod
+    .object({
+        build_id: zod.uuid().describe('Id of the failing or erroring build the fix should address.'),
+        error_type: zod
+            .string()
+            .max(canvasesRequestFixCreateBodyErrorTypeMax)
+            .optional()
+            .describe(
+                'Error class from the runtime report, when fixing a runtime error. Omit for a failed build; its diagnostics are read server-side.'
+            ),
+    })
+    .describe("Payload for asking the canvas's authoring agent to fix a failing build or runtime error.")
+
+/**
  * Move the canvas's head back to an existing source version and rebuild it.
  */
 export const CanvasesRevertCreateBody = /* @__PURE__ */ zod

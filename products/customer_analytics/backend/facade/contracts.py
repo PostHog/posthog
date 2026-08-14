@@ -540,6 +540,51 @@ class CustomerJourneyView:
 
 
 @stdlib_dataclass(frozen=True)
+class FeatureRequestProductAreaView:
+    id: UUID | None = None
+    name: str = ""
+    display_order: int = 0
+    is_active: bool = True
+    created_at: datetime | None = None
+    updated_at: datetime | None = None
+
+
+@stdlib_dataclass(frozen=True)
+class FeatureRequestAccountView:
+    id: UUID | None = None
+    name: str = ""
+
+
+@stdlib_dataclass(frozen=True)
+class FeatureRequestView:
+    id: UUID | None = None
+    title: str = ""
+    description: str = ""
+    request_status: str = "requested"
+    account: FeatureRequestAccountView | None = None
+    product_areas: list[FeatureRequestProductAreaView] = field(default_factory=list)
+    created_by: int | None = None
+    updated_by: int | None = None
+    created_at: datetime | None = None
+    updated_at: datetime | None = None
+
+
+@dataclass(frozen=True)
+class CreateFeatureRequestInput:
+    title: str
+    description: str
+    account_id: UUID
+    product_area_ids: tuple[UUID, ...]
+    idempotency_key: UUID
+
+
+@dataclass(frozen=True)
+class FeatureRequestCreateOutcome:
+    request: FeatureRequestView
+    created: bool
+
+
+@stdlib_dataclass(frozen=True)
 class CustomerProfileConfigView:
     """A customer profile config as returned by the profile-config endpoints.
 
