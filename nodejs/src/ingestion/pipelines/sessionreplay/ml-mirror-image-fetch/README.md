@@ -338,6 +338,24 @@ change in 30 days. A conditional request asks the server to send the image only 
 76. A `304` answer means the lane never reads the bytes. A change to the scrub lane or to the model
     therefore needs a way to fetch every image again, and the lane provides one.
 
+### One fetch for every customer
+
+A CDN logo appears in the recordings of many customers. The lane once fetched it one time for each
+of them, because the crawl history key held the team. The origin saw all of those requests, so the
+request count grew with the customer count rather than with the number of distinct images.
+
+The URL ref used a keyed hash to stop a reader of the ML bucket learning which sites a team's users
+visited. Only PostHog employees read that bucket, and the data preparation step replaces a ref with
+the scrubbed image, so no ref reaches the training data. The hash is therefore unkeyed, and one URL
+gives one ref for every customer.
+
+77. The crawl history key holds the hash of the URL and no team. One fetch of a URL answers for
+    every customer.
+78. The hash in a URL ref is unkeyed. Two customers whose recordings refer to one image produce one
+    ref. The mirror mints a ref, so this rule binds the mirror as well as this lane.
+79. A content ref keeps its keyed hash. It names the bytes of an image rather than a URL, so it
+    carries a different risk and needs its own decision.
+
 ## How a message waits
 
 Kafka has no delayed delivery. The delay belongs to the topic, not to the message, because a
