@@ -143,6 +143,28 @@ class TestFinalize:
 
         assert result.scanner_config == {"prompt": _draft().prompt, "length": "short"}
 
+    def test_offered_filter_event_becomes_a_recordings_query(self):
+        result = _finalize(_draft(filter_event="checkout_started"), offered_events=["checkout_started", "signup"])
+
+        assert result.query == {
+            "kind": "RecordingsQuery",
+            "events": [{"type": "events", "id": "checkout_started", "name": "checkout_started", "order": 0}],
+        }
+
+    @pytest.mark.parametrize(
+        "filter_event,offered_events",
+        [
+            ("checkout started", ["checkout_started"]),  # reworded, would match nothing
+            ("made_up_event", ["checkout_started"]),  # hallucinated
+            ("checkout_started", []),  # nothing offered to ground it
+            (None, ["checkout_started"]),  # model declined
+        ],
+    )
+    def test_ungrounded_filter_event_yields_no_query(self, filter_event, offered_events):
+        result = _finalize(_draft(filter_event=filter_event), offered_events=offered_events)
+
+        assert result.query is None
+
     def test_rationale_is_trimmed_and_capped(self):
         result = _finalize(_draft(rationale="  why " + "x" * 600))
 
@@ -309,6 +331,7 @@ class TestDraftScannerEndpoint(_VisionAPITestCase):
                 "multi_label": False,
             },
             "rationale": "A classifier fits because you want the mix of visit intents, not a single yes/no.",
+            "query": None,
         }
 
     @patch(_CORE_MEMORY_FLAG_PATH, return_value=False)
