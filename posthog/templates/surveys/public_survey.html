@@ -104,10 +104,17 @@
                 root.style.setProperty('--ph-survey-page-background', appearance.backgroundColor)
             }
 
-            const cardBg = appearance.inputBackground || appearance.backgroundColor
+            // Card background follows the user's survey background color, not the
+            // input background default. Prioritizing inputBackground here made dark
+            // hosted surveys render white (inputBackground is always '#ffffff' from
+            // HOSTED_SURVEY_DEFAULTS even when the user only set backgroundColor).
+            const cardBg = appearance.backgroundColor || appearance.inputBackground
             if (cardBg) {
-                root.style.setProperty('--ph-survey-input-background', cardBg)
                 root.style.setProperty('--ph-survey-background-color', cardBg)
+            }
+            const inputBg = appearance.inputBackground || appearance.backgroundColor
+            if (inputBg) {
+                root.style.setProperty('--ph-survey-input-background', inputBg)
             }
             if (appearance.borderColor) {
                 root.style.setProperty('--ph-survey-border-color', appearance.borderColor)
