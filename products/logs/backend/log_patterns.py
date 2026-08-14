@@ -139,7 +139,7 @@ class LogSample:
     truncated: bool = False
 
 
-@dataclass
+@dataclass(frozen=True)
 class MinedPattern:
     pattern: str
     count: int
@@ -164,7 +164,7 @@ class MinedPattern:
     match_literal: str | None
 
 
-@dataclass
+@dataclass(frozen=False)
 class _Accumulator:
     template: str
     first_seen: dt.datetime
@@ -179,6 +179,10 @@ class _Accumulator:
     # play that role once JSON reduction exists: an extracted message is a *substring* of its
     # raw line, so a predicate can match every prepared example yet zero raw rows.
     raw_examples: list[str] = field(default_factory=list)
+    # True only while every raw example above was mined from the message field of a JSON body,
+    # which is what licenses the unanchored predicate. One prose row merging into the cluster
+    # turns it off. See compile_match_regex.
+    raw_examples_from_json: bool = True
     services: list[str] = field(default_factory=list)
     bucket_counts: list[int] = field(default_factory=list)
     severity_counts: dict[str, int] = field(default_factory=dict)
@@ -188,6 +192,11 @@ class _Accumulator:
 class _PreparedBody:
     text: str
     truncated: bool
+    # True when `text` is a message field lifted out of a JSON body, so it is a substring of the
+    # raw line rather than the whole of it. Recorded here because the miner already parsed the
+    # body to find out — compile_match_regex needs the same answer, and re-deriving it there
+    # would parse every retained example a second time.
+    from_json: bool
 
 
 # Keys checked (in order) for the human-readable message inside a JSON body. Matches Loki's
@@ -244,19 +253,18 @@ def _prepare_body(body: str, truncate: int) -> _PreparedBody:
     # other body, JSON or prose, passes through unchanged.
     # Then collapse newlines / whitespace runs so multi-line bodies (stack traces) mine as a
     # single line, and bound length to keep Drain's parse tree and memory in check.
-    prepared = _prepare_json_body(body)
-    if prepared is None:
-        prepared = body
-    collapsed = _WHITESPACE_RE.sub(" ", prepared).strip()
+    message = _prepare_json_body(body)
+    from_json = message is not None
+    collapsed = _WHITESPACE_RE.sub(" ", body if message is None else message).strip()
     if len(collapsed) <= truncate:
-        return _PreparedBody(collapsed, truncated=False)
+        return _PreparedBody(collapsed, truncated=False, from_json=from_json)
     # Cut back to the last space inside the cap. Drain splits on whitespace, so a mid-word
     # cut hands it a fragment ("(Macinto") that it treats as a literal token, and one long
     # statement then fragments into a cluster per distinct cut point. A body with no space
     # inside the cap has no boundary to cut at, so it still cuts hard.
     head = collapsed[:truncate]
     boundary = head.rfind(" ")
-    return _PreparedBody(head[:boundary] if boundary > 0 else head, truncated=True)
+    return _PreparedBody(head[:boundary] if boundary > 0 else head, truncated=True, from_json=from_json)
 
 
 def _build_miner(sim_th: float, depth: int, max_clusters: int) -> tuple[LogMasker, Drain]:
@@ -316,7 +324,12 @@ def pattern_fingerprint(template: str) -> str:
 
 
 def compile_match_regex(
-    template: str, examples: list[LogSample], raw_examples: list[str], *, truncated: bool | None = None
+    template: str,
+    examples: list[LogSample],
+    raw_examples: list[str],
+    *,
+    truncated: bool | None = None,
+    mined_from_json: bool = False,
 ) -> str | None:
     """Compile a mined template into an RE2-safe regex over raw log bodies, self-validated
     against the raw bodies of the pattern's own sampled rows.
@@ -326,15 +339,17 @@ def compile_match_regex(
     silently matches the wrong logs is worse than no filter. Validation runs against *raw*
     bodies because that is what the predicate executes against in ClickHouse. The anchored
     form is tried first (start-anchored; end anchor dropped when the cluster held a truncated
-    body). An unanchored fallback applies only to JSON-derived patterns, where the mined
+    body). An unanchored fallback applies only when `mined_from_json` holds, where the mined
     message is a substring of its raw row so only the unanchored form can match — prose keeps
     the strict anchoring guarantee, since an unanchored prose predicate would silently match
     mid-line occurrences the anchored form was designed to exclude. A template whose content
     never appears verbatim in the raw lines (canonicalized JSON shapes, messages with
     JSON-escaped characters) fails validation and is withheld.
 
-    Pass `truncated` from the cluster. Falling back to the retained examples under-reports it,
-    because dedup and the example cap can both drop the truncated body.
+    Pass `truncated` and `mined_from_json` from the cluster. Falling back to the retained
+    examples under-reports truncation, because dedup and the example cap can both drop the
+    truncated body, and the miner already knows which rows it extracted a message from, so
+    re-deriving that here would parse every retained raw example a second time.
     """
     if not examples or not raw_examples:
         return None
@@ -366,7 +381,6 @@ def compile_match_regex(
     # otherwise get an unanchored predicate on the strength of one JSON row, and that predicate
     # matches a prose line wherever the text appears, not just where the statement starts. When a
     # mixed cluster cannot anchor, withholding is the correct outcome.
-    mined_from_json = all(_prepare_json_body(raw) is not None for raw in raw_examples)
     if mined_from_json and all(core_re.search(raw) for raw in raw_examples):
         return core
     return None
@@ -455,6 +469,7 @@ def mine_patterns(
             # A predicate needing content beyond the cap fails validation and is withheld,
             # which is fail-safe.
             acc.raw_examples.append(sample.body[: truncate * _RAW_EXAMPLE_CAP_MULTIPLIER])
+            acc.raw_examples_from_json = acc.raw_examples_from_json and prepared.from_json
         if sample.service_name not in acc.services and len(acc.services) < max_services:
             acc.services.append(sample.service_name)
         if buckets:
@@ -475,7 +490,13 @@ def mine_patterns(
             services=acc.services,
             bucket_counts=acc.bucket_counts,
             severity_counts=acc.severity_counts,
-            match_regex=compile_match_regex(acc.template, acc.examples, acc.raw_examples, truncated=acc.truncated),
+            match_regex=compile_match_regex(
+                acc.template,
+                acc.examples,
+                acc.raw_examples,
+                truncated=acc.truncated,
+                mined_from_json=acc.raw_examples_from_json,
+            ),
             match_literal=extract_match_literal(acc.template, acc.raw_examples),
         )
         for acc in accumulators.values()
