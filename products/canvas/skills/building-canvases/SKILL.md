@@ -88,7 +88,9 @@ That field is the only valid link to a canvas — never construct one yourself; 
   host refuses them at runtime. Registered verbs: `annotations.create`
   (`{content, date_marker?}`) and `tasks.create` (`{title, description}` — files into the
   canvas's own channel under the viewer's name). Wire actions to explicit user gestures
-  (a button the viewer clicks), never to load or render.
+  (a button the viewer clicks), never to load or render. Each verb's behavior, result shape,
+  and the confirmation copy it warrants are in the `querying-canvas-data` skill's per-verb
+  sections — read them before wiring a verb.
 
 ## Source-project shape
 
