@@ -107,14 +107,16 @@ function Component({
     const generationStatus =
         isRefreshingInputs || isGenerating ? (
             <div className="flex w-full min-w-0 flex-1 items-start gap-2" role="status" aria-live="polite">
-                <Spinner className="mt-0.5 shrink-0 text-sm" />
                 <div className="min-w-0 flex-1">
-                    <div className="font-semibold text-primary">
-                        {isRefreshingInputs
-                            ? 'Running required dataframe cells'
-                            : lifecycleStatus === 'building'
-                              ? 'Building visualization'
-                              : 'Agent is building the visualization'}
+                    <div className="flex min-w-0 items-start gap-1.5 font-semibold text-primary">
+                        <Spinner className="mt-0.5 shrink-0 text-sm" />
+                        <span className="min-w-0">
+                            {isRefreshingInputs
+                                ? 'Running required dataframe cells'
+                                : lifecycleStatus === 'building'
+                                  ? 'Building visualization'
+                                  : 'Agent is building the visualization'}
+                        </span>
                     </div>
                     <div className="text-muted">
                         {error ||
