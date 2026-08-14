@@ -222,13 +222,7 @@ export const SESSION_LOGS_PAGE_TIMEOUT_MS = 30_000;
 
 export interface TaskRunSessionLogsResult {
   entries: StoredLogEntry[];
-  /**
-   * False only when entries went missing unintentionally (a page failed). A
-   * deliberate tail fetch of an oversized log stays complete; the dropped
-   * head is reported via {@link truncatedHeadCount}.
-   */
   complete: boolean;
-  /** Oldest entries skipped when an oversized log restarted from the tail. */
   truncatedHeadCount: number;
 }
 
@@ -3683,12 +3677,8 @@ export class PostHogAPIClient {
       .entries;
   }
 
-  /**
-   * One session-logs page request: bounded by a timeout, retried once on
-   * transient failure. Timeouts use AbortController + setTimeout because
-   * `AbortSignal.timeout` is unimplemented in Hermes, which the mobile app
-   * runs this client under.
-   */
+  // AbortController + setTimeout because Hermes, which runs this client on
+  // mobile, has no AbortSignal.timeout.
   private async fetchSessionLogsPageResponse(
     url: URL,
     path: string,
@@ -3766,8 +3756,7 @@ export class PostHogAPIClient {
             response.headers.get("X-Matching-Count"),
           );
           if (Number.isFinite(matchingCount) && matchingCount > maxEntries) {
-            // Oversized log: restart from the tail so the newest maxEntries
-            // survive instead of the fetch dying at the cap with nothing usable.
+            // Restart from the tail so the newest maxEntries survive the cap.
             truncatedHeadCount = matchingCount - maxEntries;
             offset = truncatedHeadCount;
             continue;
@@ -3780,8 +3769,8 @@ export class PostHogAPIClient {
         }
         offset += page.length;
       }
-      // A capped tail fetch is a usable snapshot; hitting the cap without a
-      // matching count means unknown loss, so only then report incomplete.
+      // A deliberate tail fetch is complete; capping out without a matching
+      // count means unknown loss.
       return { entries, complete: truncatedHeadCount > 0, truncatedHeadCount };
     } catch (err) {
       log.warn("Failed to fetch task run session logs", err);

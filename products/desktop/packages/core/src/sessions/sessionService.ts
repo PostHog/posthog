@@ -4254,8 +4254,6 @@ export class SessionService {
       if (session.cloudStatus === "failed" && session.status !== "connected") {
         let errorMessage = session.cloudErrorMessage;
         if (!errorMessage) {
-          // A restart drops the in-memory error; refetch the run so the user
-          // sees the real failure instead of the generic fallback.
           await this.refreshCloudRunStatus(session);
           errorMessage =
             this.d.store.getSessions()[session.taskRunId]?.cloudErrorMessage;
@@ -4677,9 +4675,8 @@ export class SessionService {
       );
     } catch (error) {
       rollbackOptimisticPrompt();
-      // The backend hides the run action from non-creators of a channeled
-      // task with a 404 (not a 403), so a 404 on a task the app can already
-      // read means the creator-only control gate.
+      // The backend answers non-creators of a channeled task with a 404, not
+      // a 403, so on a task the app can already read it means the control gate.
       if (requestErrorStatus(error) === 404 && session.isTaskAuthor === false) {
         throw new Error(
           "Only the person who created this task can send it messages. Start a new session to continue the work yourself.",
