@@ -5,6 +5,7 @@ import type {
 } from "./canvasBuildSchemas";
 import type { ChannelTaskRecord } from "./channelTaskSchemas";
 import type {
+  CanvasDraft,
   CanvasSource,
   CanvasVersion,
   DashboardRecord,
@@ -47,18 +48,35 @@ export interface IDashboardsService {
     taskId: string | null;
   }): Promise<DashboardRecord>;
   setPinned(input: { id: string; pinned: boolean }): Promise<DashboardRecord>;
+  // File a rendering error against the build that threw it (best-effort).
+  reportError(input: {
+    id: string;
+    buildId: string;
+    errorType: string;
+  }): Promise<void>;
   // Read the canvas's source project (the head, or a historical version).
   getSource(input: { id: string; versionId?: string }): Promise<CanvasSource>;
   // The canvas's source-version history, newest first (metadata only).
   listVersions(id: string): Promise<CanvasVersion[]>;
+  // The canvas's staged drafts, newest first, each with its latest build status.
+  listDrafts(id: string): Promise<CanvasDraft[]>;
+  // Make a draft version the canvas's live head (and build it if needed).
+  promoteDraft(input: {
+    id: string;
+    versionId: string;
+    expectedCurrentVersionId: string | null;
+  }): Promise<CanvasBuildRecord>;
   // Move the canvas's head back to an existing version and rebuild it.
   revertToVersion(input: {
     id: string;
     versionId: string;
     expectedCurrentVersionId: string | null;
   }): Promise<CanvasBuildRecord>;
-  // Read a canvas's build lifecycle (pointers + recent builds).
-  getBuilds(id: string): Promise<CanvasBuildLifecycle>;
+  // Read a canvas's build lifecycle, optionally including a historical build.
+  getBuilds(input: {
+    id: string;
+    versionId?: string;
+  }): Promise<CanvasBuildLifecycle>;
   actOnBuild(input: CanvasBuildActionInput): Promise<CanvasBuildRecord>;
   rename(input: { id: string; name: string }): Promise<DashboardRecord>;
   delete(id: string): Promise<void>;

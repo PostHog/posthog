@@ -60,6 +60,25 @@ class TestScheduleMaterializationV2Guard(BaseTest):
         self.sq.refresh_from_db()
         assert self.sq.sync_frequency_interval is None
 
+    def test_saved_query_whose_node_vanished_is_refused_instead_of_scheduled(self):
+        nodeless = DataWarehouseSavedQuery.objects.create(
+            name="sync_failed",
+            team=self.team,
+            query={"query": "SELECT 1", "kind": "HogQLQuery"},
+            sync_frequency_interval=timedelta(hours=12),
+            is_materialized=True,
+        )
+        with (
+            mock.patch(GET_V2_DAG_IDS, return_value={str(self.dag.id)}),
+            mock.patch(f"{SERVICE}.sync_saved_query_workflow") as sync_wf,
+            mock.patch(f"{SERVICE}.saved_query_workflow_exists", return_value=False),
+            self.captureOnCommitCallbacks(execute=True),
+        ):
+            nodeless.schedule_materialization()
+        sync_wf.assert_not_called()
+        nodeless.refresh_from_db()
+        assert nodeless.is_materialized is False
+
     def test_creates_v1_schedule_when_dag_not_on_v2(self):
         # an unmigrated v1 DAG: a live per-query schedule already covers this query, so the
         # bootstrap below must not fire and stack tiers on top of it

@@ -180,4 +180,85 @@ describe("commandCenterStore", () => {
       expect(useCommandCenterStore.getState().hasAutofilled).toBe(true);
     });
   });
+
+  // The write every bulk placement lands through. The plan itself is covered by
+  // placement.test.ts; what's here is the reconciliation only this write does.
+  describe("applyPlacement", () => {
+    it("follows the active task to its new index when the grid grows", () => {
+      useCommandCenterStore.setState({
+        layout: "2x2",
+        cells: ["a", "b", "c", null],
+        activeTaskId: "c",
+        activeCellIndex: 2,
+      });
+
+      useCommandCenterStore.getState().applyPlacement({
+        layout: "3x2",
+        cells: ["a", "b", "d", "c", "e", "f"],
+      });
+
+      const state = useCommandCenterStore.getState();
+      expect(state.layout).toBe("3x2");
+      expect(state.activeTaskId).toBe("c");
+      expect(state.activeCellIndex).toBe(3);
+    });
+
+    it("drops the active task when the placement left it off the grid", () => {
+      useCommandCenterStore.setState({
+        cells: ["a", null, null, null],
+        activeTaskId: "a",
+        activeCellIndex: 0,
+      });
+
+      useCommandCenterStore
+        .getState()
+        .applyPlacement({ layout: "2x2", cells: ["b", null, null, null] });
+
+      const state = useCommandCenterStore.getState();
+      expect(state.activeTaskId).toBeNull();
+      expect(state.activeCellIndex).toBe(0);
+    });
+
+    // Otherwise a "creating" spinner sits on a tile that now holds a session.
+    it("stops marking a filled cell as creating", () => {
+      useCommandCenterStore.setState({
+        cells: [null, null, null, null],
+        creatingCells: [1, 2],
+      });
+
+      useCommandCenterStore
+        .getState()
+        .applyPlacement({ layout: "2x2", cells: [null, "a", null, null] });
+
+      expect(useCommandCenterStore.getState().creatingCells).toEqual([2]);
+    });
+
+    it("marks the grid curated so autofill can't stuff it later", () => {
+      useCommandCenterStore
+        .getState()
+        .applyPlacement({ layout: "2x2", cells: ["a", null, null, null] });
+
+      expect(useCommandCenterStore.getState().hasAutofilled).toBe(true);
+    });
+  });
+
+  describe("pending placement", () => {
+    it("keeps the requested task available until placement is canceled", () => {
+      useCommandCenterStore.getState().requestPlacement("t1", "Fix signup");
+      expect(useCommandCenterStore.getState().pendingPlacement).toEqual({
+        taskId: "t1",
+        taskTitle: "Fix signup",
+      });
+
+      useCommandCenterStore.getState().cancelPlacement();
+      expect(useCommandCenterStore.getState().pendingPlacement).toBeNull();
+    });
+
+    it("clears the request when the task is assigned", () => {
+      useCommandCenterStore.getState().requestPlacement("t1", "Fix signup");
+      useCommandCenterStore.getState().assignTask(2, "t1");
+      expect(useCommandCenterStore.getState().pendingPlacement).toBeNull();
+      expect(useCommandCenterStore.getState().cells[2]).toBe("t1");
+    });
+  });
 });

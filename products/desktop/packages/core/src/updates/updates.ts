@@ -29,25 +29,9 @@ import {
   type UpdatesStatusPayload,
 } from "./schemas";
 
+import { isVersionNewer } from "./version";
+
 type CheckSource = "user" | "periodic";
-
-function versionTriple(version: string): number[] {
-  return version
-    .replace(/^v/, "")
-    .split(".", 3)
-    .map((segment) => Number.parseInt(segment, 10) || 0);
-}
-
-export function isVersionNewer(candidate: string, current: string): boolean {
-  const a = versionTriple(candidate);
-  const b = versionTriple(current);
-  for (let i = 0; i < 3; i++) {
-    if ((a[i] ?? 0) !== (b[i] ?? 0)) {
-      return (a[i] ?? 0) > (b[i] ?? 0);
-    }
-  }
-  return false;
-}
 type UpdateState =
   | "idle"
   | "checking"
@@ -113,7 +97,6 @@ export class UpdatesService extends TypedEventEmitter<UpdatesEvents> {
   private availableInfo: UpdateAvailableInfo | null = null;
   private downloadProgress: UpdateDownloadProgress | null = null;
   private autoDownloadEnabled = false;
-  private stagedUpdatesEnabled = false;
   private lastProgressEmit = 0;
   private activeDownload: Promise<void> | null = null;
 
@@ -152,25 +135,6 @@ export class UpdatesService extends TypedEventEmitter<UpdatesEvents> {
 
     if (enabled && this.state === "available") {
       this.requestDownload();
-    }
-  }
-
-  // Synced from the posthog-desktop-staged-updates rollout flag; off keeps
-  // the legacy flow where polling stops once an update is staged.
-  setStagedUpdatesEnabled(enabled: boolean): void {
-    if (enabled === this.stagedUpdatesEnabled) {
-      return;
-    }
-    this.stagedUpdatesEnabled = enabled;
-    this.log.info("Staged-updates rollout flag updated", { enabled });
-
-    // The flag arrives async after boot; if a staged download already stopped
-    // the legacy interval, restart it so background checks resume.
-    if (enabled && this.initialized && this.checkIntervalId === null) {
-      this.checkIntervalId = setInterval(
-        () => this.checkForUpdates("periodic"),
-        UpdatesService.CHECK_INTERVAL_MS,
-      );
     }
   }
 
@@ -265,17 +229,6 @@ export class UpdatesService extends TypedEventEmitter<UpdatesEvents> {
       source === "periodic" &&
       (this.state === "ready" || this.state === "available")
     ) {
-      if (!this.stagedUpdatesEnabled) {
-        this.logStateTransition(this.state, {
-          source,
-          skippedBecauseUpdateStaged: this.state === "ready",
-          reason:
-            this.state === "ready"
-              ? "check skipped because update is already staged"
-              : "periodic check skipped because an update is already available",
-        });
-        return { success: true };
-      }
       return this.performBackgroundCheck(source);
     }
 
@@ -470,16 +423,6 @@ export class UpdatesService extends TypedEventEmitter<UpdatesEvents> {
       return;
     }
 
-    if (this.state === "ready" && !this.stagedUpdatesEnabled) {
-      this.log.info(
-        "Ignoring update-available because an update is already staged",
-        {
-          downloadedVersion: this.downloadedVersion,
-        },
-      );
-      return;
-    }
-
     // Strictly newer only: a manifest rollback must not downgrade what is
     // already staged, regardless of state — an offer accepted while
     // "available" or "downloading" would still re-stage over the download.
@@ -586,9 +529,7 @@ export class UpdatesService extends TypedEventEmitter<UpdatesEvents> {
 
     if (
       this.state === "installing" ||
-      (this.state === "ready" &&
-        (!this.stagedUpdatesEnabled ||
-          (version ?? null) === this.downloadedVersion))
+      (this.state === "ready" && (version ?? null) === this.downloadedVersion)
     ) {
       this.log.info("Ignoring duplicate update-downloaded event", {
         existingVersion: this.downloadedVersion,
@@ -602,9 +543,6 @@ export class UpdatesService extends TypedEventEmitter<UpdatesEvents> {
       reason: "update downloaded",
       incomingVersion: version ?? null,
     });
-    if (!this.stagedUpdatesEnabled) {
-      this.clearCheckInterval();
-    }
     this.emitStatus(this.stagedStatusPayload());
 
     this.log.info("Update downloaded, awaiting user confirmation", {

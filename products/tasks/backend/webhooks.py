@@ -15,6 +15,7 @@ from posthog.models.integration import Integration
 from posthog.models.team.team import Team
 
 from products.signals.backend.models import InvalidStatusTransition, SignalReport
+from products.signals.backend.report_generation.resolve_reviewers import resolve_org_github_login_to_users
 from products.tasks.backend.facade.api import post_pr_created_thread_update, signal_workflow_completion
 from products.tasks.backend.facade.cancellation import cancel_task_run
 from products.tasks.backend.models import TaskRun
@@ -79,6 +80,22 @@ def find_task_run(
             TaskRun.objects.filter(
                 _run_repository_filter(repository),
                 branch=branch,
+                state__wizard_head_branch__isnull=True,
+            )
+            .select_related(*TASK_RUN_SELECT_RELATED)
+            .first()
+        )
+        if task_run:
+            return task_run
+
+        # Signed commits report every pushed repository/branch pair separately
+        # from ``branch``. The latter controls provisioning's next checkout and
+        # cannot represent nested repositories or multiple PR branches.
+        head_branch = {"repository": repository.lower(), "branch": branch}
+        task_run = (
+            TaskRun.objects.filter(
+                _run_repository_filter(repository),
+                output__head_branches__contains=[head_branch],
                 state__wizard_head_branch__isnull=True,
             )
             .select_related(*TASK_RUN_SELECT_RELATED)
@@ -224,6 +241,49 @@ def handle_pull_request_event(payload: dict) -> HttpResponse:
             task_run.task_id, pr_url, SignalReport.Status.SUPPRESSED, "github_pr_webhook_signal_report_archived"
         )
 
+    return HttpResponse(status=200)
+
+
+def handle_pull_request_review_event(payload: dict) -> HttpResponse:
+    """Process a pre-verified pull_request_review webhook event.
+
+    Called from ``posthog.urls.github_webhook`` (unified dispatcher). Captures a
+    ``pr_reviewed`` analytics event for human review submissions (approved,
+    changes_requested, commented), attributed to the reviewer when their GitHub
+    login resolves to an org member.
+    """
+    if payload.get("action") != "submitted":
+        return HttpResponse(status=200)
+
+    review = payload.get("review") or {}
+    reviewer = review.get("user") or {}
+    pull_request = payload.get("pull_request") or {}
+    pr_url = pull_request.get("html_url")
+    if not pr_url:
+        logger.warning("github_pr_review_webhook_no_pr_url")
+        return HttpResponse(status=200)
+
+    # StampHog, ReviewHog, and CI apps review every self-driving PR, so without this
+    # filter the event stream is mostly bots and the human review signal drowns.
+    if (reviewer.get("type") or "").lower() == "bot":
+        logger.debug("github_pr_review_webhook_bot_review_skipped", pr_url=pr_url)
+        return HttpResponse(status=200)
+
+    branch = (pull_request.get("head") or {}).get("ref")
+    repository_full_name = (payload.get("repository") or {}).get("full_name")
+    task_run = find_task_run(pr_url=pr_url, branch=branch, repository=repository_full_name)
+
+    # One review submission = one event; GitHub redeliveries collapse on the review id.
+    event_uuid = str(uuid.uuid5(uuid.NAMESPACE_URL, f"{pr_url}:pr_reviewed:{review.get('id')}"))
+    _capture_pr_review_event(payload, task_run, event_uuid)
+
+    logger.info(
+        "github_pr_review_webhook_processed",
+        pr_url=pr_url,
+        review_state=review.get("state"),
+        pr_source="task" if task_run else "external",
+        run_id=str(task_run.id) if task_run else None,
+    )
     return HttpResponse(status=200)
 
 
@@ -431,17 +491,69 @@ def _pr_payload_properties(payload: dict) -> dict:
     }
 
 
-def _capture_pr_event(payload: dict, task_run: TaskRun | None, analytics_event: str, event_uuid: str) -> None:
-    pr_properties = _pr_payload_properties(payload)
+def _resolve_github_login_distinct_id(login: str | None, team_id: int) -> str | None:
+    """Distinct id of the org member matching a GitHub login, or None when unresolvable."""
+    if not login:
+        return None
+    try:
+        resolved = resolve_org_github_login_to_users(team_id, [login]).get(str(login).strip().lower())
+    except Exception as e:
+        logger.warning("github_webhook_login_resolution_failed", login=login, team_id=team_id, error=str(e))
+        return None
+    return str(resolved.distinct_id) if resolved is not None else None
+
+
+def _merged_by_attribution(payload: dict, team_id: int) -> tuple[dict, str | None]:
+    """Identity of the GitHub user who merged the PR, resolved to a PostHog user when possible.
+
+    Merging is the one unambiguous personal act in the loop, so when the merger's GitHub
+    login maps to an org member the pr_merged event attributes to them. Without a match the
+    event keeps the task's assigned user (an auto-resolved reviewer or fallback for
+    auto-started reports), so a consumer tells the two apart by the presence of
+    pr_merged_by_distinct_id.
+    """
+    merged_by = (payload.get("pull_request") or {}).get("merged_by") or {}
+    login = merged_by.get("login")
+    if not login:
+        return {}, None
+    properties: dict = {"pr_merged_by_login": login, "pr_merged_by_id": merged_by.get("id")}
+    distinct_id = _resolve_github_login_distinct_id(login, team_id)
+    if distinct_id is not None:
+        properties["pr_merged_by_distinct_id"] = distinct_id
+    return properties, distinct_id
+
+
+def _capture_pr_review_event(payload: dict, task_run: TaskRun | None, event_uuid: str) -> None:
+    review = payload.get("review") or {}
+    reviewer = review.get("user") or {}
+    login = reviewer.get("login")
+    review_properties: dict = {
+        "pr_review_state": review.get("state"),
+        "pr_reviewed_by_login": login,
+        "pr_reviewed_by_id": reviewer.get("id"),
+    }
+    pr_properties = {**_pr_payload_properties(payload), **review_properties}
 
     if task_run is not None:
-        task_run.capture_event(analytics_event, {**pr_properties, "pr_source": "task"}, event_uuid=event_uuid)
+        reviewer_distinct_id = _resolve_github_login_distinct_id(login, task_run.team_id)
+        if reviewer_distinct_id is not None:
+            pr_properties["pr_reviewed_by_distinct_id"] = reviewer_distinct_id
+        task_run.capture_event(
+            "pr_reviewed",
+            {**pr_properties, "pr_source": "task"},
+            event_uuid=event_uuid,
+            distinct_id_override=reviewer_distinct_id,
+        )
         return
 
     team = _resolve_external_team(payload)
     if team is None:
-        logger.debug("github_pr_webhook_unresolved_installation", pr_url=pr_properties.get("pr_url"))
+        logger.debug("github_pr_review_webhook_unresolved_installation", pr_url=pr_properties.get("pr_url"))
         return
+
+    reviewer_distinct_id = _resolve_github_login_distinct_id(login, team.id)
+    if reviewer_distinct_id is not None:
+        pr_properties["pr_reviewed_by_distinct_id"] = reviewer_distinct_id
 
     properties: dict = {
         **pr_properties,
@@ -454,7 +566,55 @@ def _capture_pr_event(payload: dict, task_run: TaskRun | None, analytics_event: 
 
     try:
         posthoganalytics.capture(
-            distinct_id=str(team.uuid),
+            distinct_id=reviewer_distinct_id or str(team.uuid),
+            event="pr_reviewed",
+            properties=properties,
+            groups=groups(team=team),
+            uuid=event_uuid,
+        )
+    except Exception as e:
+        logger.warning("github_pr_review_webhook_capture_failed", error=str(e))
+
+
+def _capture_pr_event(payload: dict, task_run: TaskRun | None, analytics_event: str, event_uuid: str) -> None:
+    pr_properties = _pr_payload_properties(payload)
+
+    if task_run is not None:
+        merger_distinct_id: str | None = None
+        if analytics_event == "pr_merged":
+            merged_by_properties, merger_distinct_id = _merged_by_attribution(payload, task_run.team_id)
+            pr_properties = {**pr_properties, **merged_by_properties}
+        task_run.capture_event(
+            analytics_event,
+            {**pr_properties, "pr_source": "task"},
+            event_uuid=event_uuid,
+            distinct_id_override=merger_distinct_id,
+        )
+        return
+
+    team = _resolve_external_team(payload)
+    if team is None:
+        logger.debug("github_pr_webhook_unresolved_installation", pr_url=pr_properties.get("pr_url"))
+        return
+
+    external_distinct_id = str(team.uuid)
+    if analytics_event == "pr_merged":
+        merged_by_properties, merger_distinct_id = _merged_by_attribution(payload, team.id)
+        pr_properties = {**pr_properties, **merged_by_properties}
+        external_distinct_id = merger_distinct_id or external_distinct_id
+
+    properties: dict = {
+        **pr_properties,
+        "repository": ((payload.get("repository") or {}).get("full_name") or "").strip().lower() or None,
+        "pr_source": "external",
+        "team_id": team.id,
+        # title omitted to avoid leaking customer business context.
+        **dict.fromkeys(_TASK_ATTRIBUTION_KEYS, None),
+    }
+
+    try:
+        posthoganalytics.capture(
+            distinct_id=external_distinct_id,
             event=analytics_event,
             properties=properties,
             groups=groups(team=team),

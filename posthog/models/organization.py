@@ -1,5 +1,4 @@
 import sys
-from dataclasses import dataclass
 from datetime import datetime, timedelta
 from functools import cache as functools_cache
 from typing import TYPE_CHECKING, Any, Literal, Optional, TypedDict, Union
@@ -21,6 +20,7 @@ from rest_framework import exceptions
 
 from posthog.cloud_utils import is_cloud
 from posthog.constants import INVITE_DAYS_VALIDITY, MAX_SLUG_LENGTH, AvailableFeature
+from posthog.dataclasses import frozen
 from posthog.models.activity_logging.model_activity import ModelActivityMixin
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.utils import LowercaseSlugField, UUIDTModel, create_with_slug, sane_repr
@@ -57,6 +57,10 @@ class OrganizationUsageInfo(TypedDict):
     ai_credits: OrganizationUsageResource | None
     signals_credits: OrganizationUsageResource | None
     posthog_code_credits: OrganizationUsageResource | None
+    posthog_code_token_credits: OrganizationUsageResource | None
+    sandbox_compute_credits: OrganizationUsageResource | None
+    sandbox_compute_cpu_millicore_seconds: OrganizationUsageResource | None
+    sandbox_compute_memory_mib_seconds: OrganizationUsageResource | None
     workflow_emails: OrganizationUsageResource | None
     workflow_push: OrganizationUsageResource | None
     workflow_destinations_dispatched: OrganizationUsageResource | None
@@ -65,7 +69,7 @@ class OrganizationUsageInfo(TypedDict):
     period: list[str] | None
 
 
-@dataclass(frozen=True, kw_only=True, slots=True)
+@frozen
 class BillingPeriod:
     start: datetime
     end: datetime

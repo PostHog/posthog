@@ -55,6 +55,25 @@ def _dt(value: str) -> datetime:
     return datetime.fromisoformat(value).replace(tzinfo=UTC)
 
 
+_seed_clock: datetime | None = None
+
+
+def anchor_seed_clock() -> None:
+    """Pin the clock every seed in one test reads from. Called per test by the autouse fixture.
+
+    Seeds format to whole seconds, so two calls that straddle a wall-clock second land a second
+    apart even when the test asked for an exact number of days between them. Tests assert on the
+    distance between seeded rows (`merged_at` minus a `ready_for_review` event, for one), so
+    sampling the clock per call turned that distance into a coin flip on sub-second timing.
+    """
+    global _seed_clock
+    _seed_clock = timezone.now()
+
+
+def _seed_now() -> datetime:
+    return _seed_clock if _seed_clock is not None else timezone.now()
+
+
 def _ago(days: int) -> str:
     return _ago_with_duration(days, 0)[0]
 
@@ -62,7 +81,15 @@ def _ago(days: int) -> str:
 def _ago_with_duration(days: int, duration_seconds: int) -> tuple[str, str]:
     # Seed dates relative to real time: HogQL now() runs server-side and ignores
     # freezegun, so window/age assertions must share the clock the query uses.
-    started_at = timezone.now() - timedelta(days=days)
+    started_at = _seed_now() - timedelta(days=days)
+    updated_at = started_at + timedelta(seconds=duration_seconds)
+    fmt = "%Y-%m-%d %H:%M:%S"
+    return started_at.strftime(fmt), updated_at.strftime(fmt)
+
+
+def _ago_offset_with_duration(days: int, offset_seconds: int, duration_seconds: int) -> tuple[str, str]:
+    """Like ``_ago_with_duration`` but shifted forward, so several runs can share one round anchor."""
+    started_at = _seed_now() - timedelta(days=days) + timedelta(seconds=offset_seconds)
     updated_at = started_at + timedelta(seconds=duration_seconds)
     fmt = "%Y-%m-%d %H:%M:%S"
     return started_at.strftime(fmt), updated_at.strftime(fmt)
@@ -210,6 +237,20 @@ class _EndpointsWarehouseMixin(_WarehouseMixin):
                 # A non-CI workflow so the CI workflow-health assertions stay at 2 runs.
                 _run_row(
                     2003, "Deploy", "sha10b", "completed", "success", _ago(1), _ago(1), pr_number=10, run_attempt=2
+                ),
+                # PR 10 queued to merge: the gate run is credited to PR 10 (its branch names it) but
+                # its head SHA is a rebase the queue made, so it must not read as a third push.
+                _run_row(
+                    2004,
+                    "Deploy",
+                    "sha10queue",
+                    "completed",
+                    "success",
+                    _ago(1),
+                    _ago(1),
+                    pr_number=9001,
+                    head_branch="trunk-merge/pr-10/cabec75e-5181-4429-aea5-0501a52d0688",
+                    actor="trunk-io[bot]",
                 ),
             ],
         )

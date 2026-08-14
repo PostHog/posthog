@@ -246,6 +246,8 @@ export interface ChartConfig {
 
     /** Custom x-axis tick label formatter. Return null to skip a tick. Called with (label, index). */
     xTickFormatter?: (value: string, index: number) => string | null
+    /** Fixed x-axis tick-label rotation in degrees, clamped to -90..90. Defaults to 0. */
+    xTickLabelRotation?: number
     /** Custom y-axis tick label formatter. Overrides the built-in auto-precision formatter. */
     yTickFormatter?: (value: number) => string
     /** Hide the x-axis labels and reduce bottom margin. */
@@ -542,8 +544,15 @@ export type DateRangeZoomData = LabelRange
 /** Payload of a completed 2D brush ({@link ChartProps.onAreaSelect}). The x axis resolves to
  *  labels like `onDateRangeZoom`; the y axis stays in canvas pixels — the core is label-generic
  *  and has no y-band concept, so chart-type adapters map the pixel range onto their own scales
- *  (e.g. the Heatmap converts it to row indices). */
+ *  (e.g. the Heatmap converts it to row indices). The raw x pixels come along too, for chart types
+ *  whose x axis is continuous rather than a band (e.g. ScatterChart inverts them back to data
+ *  values), where the label range would round the selection to whichever points sit near the drag
+ *  edges. */
 export interface AreaSelectData extends LabelRange {
+    /** Left edge of the dragged range in canvas pixels (always <= xPixel1). */
+    xPixel0: number
+    /** Right edge of the dragged range in canvas pixels. */
+    xPixel1: number
     /** Top of the dragged range in canvas pixels (always <= yPixel1). */
     yPixel0: number
     /** Bottom of the dragged range in canvas pixels. */
@@ -594,6 +603,10 @@ export interface BoxRect {
     whiskerBottom: number
     dataIndex: number
 }
+
+/** Marker glyph drawn at a scatter point. `cross` is the one open glyph, so it stays readable as a
+ *  distinct category where the filled shapes overlap into a blob. */
+export type ScatterMarkerShape = 'circle' | 'square' | 'triangle' | 'cross'
 
 /** Generic scale interface that Chart uses for shared overlays and interaction. */
 export interface ChartScales {

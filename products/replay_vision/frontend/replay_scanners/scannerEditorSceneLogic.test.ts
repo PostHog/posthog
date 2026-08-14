@@ -5,7 +5,19 @@ import { urls } from 'scenes/urls'
 
 import { initKeaTests } from '~/test/init'
 
-import { scannerEditorSceneLogic } from './scannerEditorSceneLogic'
+import { firstErroredScannerStep, scannerEditorSceneLogic } from './scannerEditorSceneLogic'
+
+describe('firstErroredScannerStep', () => {
+    it.each([
+        ['name error lands on configure', { name: 'Required' }, 'configure'],
+        ['config error lands on configure', { scanner_config: { prompt: 'Required' } }, 'configure'],
+        ['sampling error lands on triggers', { sampling_rate: 'Out of range' }, 'triggers'],
+        ['credit limit error lands on triggers', { credit_limit: 'Enter a credit amount' }, 'triggers'],
+        ['no errors maps nowhere', {}, null],
+    ])('%s', (_label, errors, expected) => {
+        expect(firstErroredScannerStep(errors)).toBe(expected)
+    })
+})
 
 describe('scannerEditorSceneLogic', () => {
     let logic: ReturnType<typeof scannerEditorSceneLogic.build>

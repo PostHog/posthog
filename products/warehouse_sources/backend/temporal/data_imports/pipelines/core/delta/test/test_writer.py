@@ -13,6 +13,7 @@ import pyarrow.compute as pc
 from parameterized import parameterized
 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arrow_utils import (
+    MissingPrimaryKeysException,
     SchemaColumnTypeChangedException,
     evolve_pyarrow_schema,
     first_per_pk_table,
@@ -338,6 +339,26 @@ class TestLegacyDltTableReconciliation:
         assert final.num_rows == 3
         assert set(final.column("id").to_pylist()) == {1, 2, 3}
 
+    @pytest.mark.asyncio
+    async def test_incremental_merge_raises_when_primary_key_column_missing_from_batch(self, tmp_path: Path) -> None:
+        """A configured primary key that no longer matches any column in the batch (e.g. a stale
+        persisted key name after the source's schema changed) must fail clearly instead of building
+        an empty merge predicate — delta-rs rejects an empty predicate with an opaque
+        "sql parser error: Expected: an expression, found: EOF" DeltaError."""
+        delta_path = str(tmp_path / "table")
+        deltalake.write_deltalake(delta_path, pa.table({"id": [1, 2], "name": ["a", "b"]}))
+
+        helper = make_local_table_ref(delta_path)
+        batch = pa.table({"name": ["c"]})
+
+        with pytest.raises(MissingPrimaryKeysException):
+            await DeltaWriter(helper).write(
+                data=batch,
+                write_type="incremental",
+                should_overwrite_table=False,
+                primary_keys=["id"],
+            )
+
 
 class TestAppendDecimalReconciliation:
     """Appending a decimal column that outgrew decimal128 must reconcile to the stored type.
@@ -405,6 +426,45 @@ class TestAppendDecimalReconciliation:
             await DeltaWriter(helper).write(
                 data=batch, write_type="append", should_overwrite_table=False, primary_keys=None
             )
+
+
+class TestFullRefreshDecimalReconciliation:
+    """A later batch of a full_refresh (or first incremental) sync infers its own decimal type
+    independently of earlier batches, same as the incremental-merge and append-continuation
+    paths. Without reconciling to the table's already-established stored type before writing,
+    a batch whose inferred scale is wider than the stored column hits delta-rs's merge-schema
+    SchemaMismatchError, since schema_mode="merge" can't widen a stored column's scale in place.
+    """
+
+    @pytest.mark.asyncio
+    async def test_wider_scale_batch_is_rounded_to_stored_type(self, tmp_path: Path) -> None:
+        delta_path = str(tmp_path / "table")
+        # First batch establishes a narrower-scale decimal column, as independent per-batch
+        # inference would.
+        deltalake.write_deltalake(
+            delta_path,
+            pa.table(
+                {"id": pa.array([1], type=pa.int64()), "amount": pa.array([Decimal("1.0")], type=pa.decimal128(4, 1))}
+            ),
+        )
+        helper = make_local_table_ref(delta_path)
+
+        # Second batch's own values infer a wider scale.
+        batch = pa.table(
+            {
+                "id": pa.array([2], type=pa.int64()),
+                "amount": pa.array([Decimal("2.23456")], type=pa.decimal128(8, 5)),
+            }
+        )
+
+        result = await DeltaWriter(helper).write(
+            data=batch, write_type="full_refresh", should_overwrite_table=False, primary_keys=None
+        )
+
+        final = result.to_pyarrow_table()
+        assert final.schema.field("amount").type == pa.decimal128(4, 1)
+        assert set(final.column("id").to_pylist()) == {1, 2}
+        assert Decimal("2.2") in final.column("amount").to_pylist()
 
 
 class TestSchemaEvolutionNullability:
@@ -506,6 +566,49 @@ class TestIncrementalBatchDeduplication:
         final = result.to_pyarrow_table()
         assert final.column("id").to_pylist() == [1]
         assert final.column("name").to_pylist() == ["second_copy"]
+
+
+class TestCreateRaceWithExistingTable:
+    """DeltaTable.create() defaults to mode="error", raising "table already exists at that
+    location" whenever the destination is non-empty. get_delta_table() can report "no table
+    yet" while one already exists there — e.g. a zombie Temporal activity attempt (heartbeat-
+    timed-out but still running while its retry starts, same unfenced race this package's
+    README documents for repartition) races another writer that already created it. write()
+    must tolerate that race instead of failing the sync.
+    """
+
+    @pytest.mark.parametrize(
+        "write_type,expected_ids",
+        [("full_refresh", {2, 3}), ("append", {1, 2, 3})],
+        ids=["full_refresh", "append"],
+    )
+    @pytest.mark.asyncio
+    async def test_create_tolerates_a_table_already_created_by_a_racing_writer(
+        self, write_type: str, expected_ids: set[int], tmp_path: Path
+    ):
+        delta_path = str(tmp_path / "table")
+        # A concurrent writer (e.g. a zombie retry) has already created the table at this location.
+        deltalake.write_deltalake(delta_path, pa.table({"id": [1]}))
+
+        helper = make_local_table_ref(delta_path)
+        real_get_delta_table = helper.get_delta_table
+        calls = {"n": 0}
+
+        async def flaky_first_check():
+            calls["n"] += 1
+            return None if calls["n"] == 1 else await real_get_delta_table()
+
+        batch = pa.table({"id": [2, 3]})
+
+        with patch.object(helper, "get_delta_table", AsyncMock(side_effect=flaky_first_check)):
+            result = await DeltaWriter(helper).write(
+                data=batch,
+                write_type=write_type,  # type: ignore[arg-type]
+                should_overwrite_table=write_type == "full_refresh",
+                primary_keys=None,
+            )
+
+        assert set(result.to_pyarrow_table().column("id").to_pylist()) == expected_ids
 
 
 class TestUnpartitionedTableWithPartitionKeyColumn:

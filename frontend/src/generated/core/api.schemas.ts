@@ -64,10 +64,20 @@ export interface UserBasicApi {
     role_at_organization?: RoleAtOrganizationEnumApi | BlankEnumApi | null
 }
 
+/**
+ * Read shape for list/retrieve/create-response. `cimd_url` is nullable here for
+ * tokens issued before URL binding; the write serializers below require a value.
+ */
 export interface CIMDVerificationTokenApi {
     readonly id: string
-    /** @maxLength 40 */
-    label: string
+    /** Human-readable name to identify this token later, e.g. 'Production CIMD partner'. */
+    readonly label: string
+    /**
+     * HTTPS URL of the CIMD metadata document this token verifies at. Null on tokens issued before URL binding; those no longer verify until bound via PATCH or reissued.
+     * @maxLength 2048
+     * @nullable
+     */
+    readonly cimd_url: string | null
     /** @nullable */
     readonly mask_value: string | null
     readonly created_by: UserBasicApi
@@ -86,6 +96,23 @@ export interface PaginatedCIMDVerificationTokenListApi {
 }
 
 /**
+ * Write shape for `create`. `cimd_url` is required and non-null: only tokens
+ * issued before URL binding existed are nullable, not new ones.
+ */
+export interface CIMDVerificationTokenCreateApi {
+    /**
+     * Human-readable name to identify this token later, e.g. 'Production CIMD partner'.
+     * @maxLength 40
+     */
+    label: string
+    /**
+     * HTTPS URL of the CIMD metadata document this token will be published in. The token only verifies at this URL, so a copy hosted anywhere else is rejected. Host case, an explicit :443 and a trailing slash are normalized away; the path is case-sensitive.
+     * @maxLength 2048
+     */
+    cimd_url: string
+}
+
+/**
  * Create-response variant that includes the plaintext token.
  *
  * Only emitted from the create endpoint - storage-side we only persist the
@@ -93,8 +120,14 @@ export interface PaginatedCIMDVerificationTokenListApi {
  */
 export interface CIMDVerificationTokenWithValueApi {
     readonly id: string
-    /** @maxLength 40 */
-    label: string
+    /** Human-readable name to identify this token later, e.g. 'Production CIMD partner'. */
+    readonly label: string
+    /**
+     * HTTPS URL of the CIMD metadata document this token verifies at. Null on tokens issued before URL binding; those no longer verify until bound via PATCH or reissued.
+     * @maxLength 2048
+     * @nullable
+     */
+    readonly cimd_url: string | null
     /** @nullable */
     readonly mask_value: string | null
     readonly created_by: UserBasicApi
@@ -103,6 +136,19 @@ export interface CIMDVerificationTokenWithValueApi {
     readonly last_used_at: string | null
     /** Plaintext token, only returned on creation */
     readonly value: string
+}
+
+/**
+ * Write shape for `partial_update` (PATCH). Exposes only `cimd_url`, and only ever
+ * performs a null -> value transition: `validate` rejects any instance whose `cimd_url`
+ * is already set, so an existing binding can never be re-pointed through this endpoint.
+ */
+export interface PatchedCIMDVerificationTokenUpdateApi {
+    /**
+     * HTTPS URL of the CIMD metadata document to bind this token to. Only settable once, on a token with no existing binding; an already-bound token must be reissued instead.
+     * @maxLength 2048
+     */
+    cimd_url?: string
 }
 
 export interface OrganizationDomainApi {
@@ -1006,6 +1052,14 @@ export const CountPerActorMathTypeApi = {
     P99CountPerActor: 'p99_count_per_actor',
 } as const
 
+export type GroupMathTypeApi = (typeof GroupMathTypeApi)[keyof typeof GroupMathTypeApi]
+
+export const GroupMathTypeApi = {
+    UniqueGroup: 'unique_group',
+    FirstTimeForGroup: 'first_time_for_group',
+    FirstMatchingEventForGroup: 'first_matching_event_for_group',
+} as const
+
 export type ExperimentMetricMathTypeApi = (typeof ExperimentMetricMathTypeApi)[keyof typeof ExperimentMetricMathTypeApi]
 
 export const ExperimentMetricMathTypeApi = {
@@ -1325,9 +1379,9 @@ export interface MarketingAnalyticsEventConversionGoalApi {
         | FunnelMathTypeApi
         | PropertyMathTypeApi
         | CountPerActorMathTypeApi
+        | GroupMathTypeApi
         | ExperimentMetricMathTypeApi
         | CalendarHeatmapMathTypeApi
-        | 'unique_group'
         | 'hogql'
         | null
     math_group_type_index?: MathGroupTypeIndexApi | null
@@ -1378,9 +1432,9 @@ export interface MarketingAnalyticsActionConversionGoalApi {
         | FunnelMathTypeApi
         | PropertyMathTypeApi
         | CountPerActorMathTypeApi
+        | GroupMathTypeApi
         | ExperimentMetricMathTypeApi
         | CalendarHeatmapMathTypeApi
-        | 'unique_group'
         | 'hogql'
         | null
     math_group_type_index?: MathGroupTypeIndexApi | null
@@ -1432,9 +1486,9 @@ export interface MarketingAnalyticsWarehouseConversionGoalApi {
         | FunnelMathTypeApi
         | PropertyMathTypeApi
         | CountPerActorMathTypeApi
+        | GroupMathTypeApi
         | ExperimentMetricMathTypeApi
         | CalendarHeatmapMathTypeApi
-        | 'unique_group'
         | 'hogql'
         | null
     math_group_type_index?: MathGroupTypeIndexApi | null
@@ -3334,10 +3388,12 @@ export interface SharingConfigurationApi {
  * * `video/mp4` - video/mp4
  * * `image/gif` - image/gif
  * * `application/json` - application/json
+ * * `application/x-ndjson` - application/x-ndjson
  */
-export type ExportFormatEnumApi = (typeof ExportFormatEnumApi)[keyof typeof ExportFormatEnumApi]
+export type ExportedAssetExportFormatEnumApi =
+    (typeof ExportedAssetExportFormatEnumApi)[keyof typeof ExportedAssetExportFormatEnumApi]
 
-export const ExportFormatEnumApi = {
+export const ExportedAssetExportFormatEnumApi = {
     ImagePng: 'image/png',
     ApplicationPdf: 'application/pdf',
     TextCsv: 'text/csv',
@@ -3347,6 +3403,7 @@ export const ExportFormatEnumApi = {
     VideoMp4: 'video/mp4',
     ImageGif: 'image/gif',
     ApplicationJson: 'application/json',
+    ApplicationXNdjson: 'application/x-ndjson',
 } as const
 
 /**
@@ -3358,7 +3415,18 @@ export interface ExportedAssetApi {
     dashboard?: number | null
     /** @nullable */
     insight?: number | null
-    export_format: ExportFormatEnumApi
+    /** File format of the generated export.
+     *
+     * * `image/png` - image/png
+     * * `application/pdf` - application/pdf
+     * * `text/csv` - text/csv
+     * * `application/vnd.openxmlformats-officedocument.spreadsheetml.sheet` - application/vnd.openxmlformats-officedocument.spreadsheetml.sheet
+     * * `video/webm` - video/webm
+     * * `video/mp4` - video/mp4
+     * * `image/gif` - image/gif
+     * * `application/json` - application/json
+     * * `application/x-ndjson` - application/x-ndjson */
+    readonly export_format: ExportedAssetExportFormatEnumApi
     readonly created_at: string
     readonly has_content: boolean
     export_context?: unknown
@@ -3381,6 +3449,66 @@ export interface PaginatedExportedAssetListApi {
     /** @nullable */
     previous?: string | null
     results: ExportedAssetApi[]
+}
+
+/**
+ * * `image/png` - image/png
+ * * `application/pdf` - application/pdf
+ * * `text/csv` - text/csv
+ * * `application/vnd.openxmlformats-officedocument.spreadsheetml.sheet` - application/vnd.openxmlformats-officedocument.spreadsheetml.sheet
+ * * `video/webm` - video/webm
+ * * `video/mp4` - video/mp4
+ * * `image/gif` - image/gif
+ * * `application/json` - application/json
+ */
+export type ExportedAssetCreateExportFormatEnumApi =
+    (typeof ExportedAssetCreateExportFormatEnumApi)[keyof typeof ExportedAssetCreateExportFormatEnumApi]
+
+export const ExportedAssetCreateExportFormatEnumApi = {
+    ImagePng: 'image/png',
+    ApplicationPdf: 'application/pdf',
+    TextCsv: 'text/csv',
+    ApplicationVndopenxmlformatsOfficedocumentspreadsheetmlsheet:
+        'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    VideoWebm: 'video/webm',
+    VideoMp4: 'video/mp4',
+    ImageGif: 'image/gif',
+    ApplicationJson: 'application/json',
+} as const
+
+/**
+ * Standard ExportedAsset serializer that doesn't return content.
+ */
+export interface ExportedAssetCreateApi {
+    readonly id: number
+    /** @nullable */
+    dashboard?: number | null
+    /** @nullable */
+    insight?: number | null
+    /** File format to generate. Dataset JSONL exports use the dataset export endpoint.
+     *
+     * * `image/png` - image/png
+     * * `application/pdf` - application/pdf
+     * * `text/csv` - text/csv
+     * * `application/vnd.openxmlformats-officedocument.spreadsheetml.sheet` - application/vnd.openxmlformats-officedocument.spreadsheetml.sheet
+     * * `video/webm` - video/webm
+     * * `video/mp4` - video/mp4
+     * * `image/gif` - image/gif
+     * * `application/json` - application/json */
+    export_format: ExportedAssetCreateExportFormatEnumApi
+    readonly created_at: string
+    readonly has_content: boolean
+    export_context?: unknown
+    readonly filename: string
+    /** @nullable */
+    readonly expires_after: string | null
+    /** @nullable */
+    readonly exception: string | null
+    /**
+     * The effective access level the user has for this object
+     * @nullable
+     */
+    readonly user_access_level: string | null
 }
 
 export interface FileSystemApi {
@@ -3723,6 +3851,42 @@ export interface BulkUpdateTagsErrorApi {
 export interface BulkUpdateTagsResponseApi {
     updated: BulkUpdateTagsItemApi[]
     skipped: BulkUpdateTagsErrorApi[]
+}
+
+export interface LeakedKeyReportApi {
+    /**
+     * The leaked PostHog personal API key, project secret API key, or OAuth access/refresh token to revoke.
+     * @maxLength 200
+     */
+    token: string
+}
+
+/**
+ * * `personal_api_key` - personal_api_key
+ * * `project_secret_api_key` - project_secret_api_key
+ * * `oauth_access_token` - oauth_access_token
+ * * `oauth_refresh_token` - oauth_refresh_token
+ */
+export type LeakedKeyReportResponseTypeEnumApi =
+    (typeof LeakedKeyReportResponseTypeEnumApi)[keyof typeof LeakedKeyReportResponseTypeEnumApi]
+
+export const LeakedKeyReportResponseTypeEnumApi = {
+    PersonalApiKey: 'personal_api_key',
+    ProjectSecretApiKey: 'project_secret_api_key',
+    OauthAccessToken: 'oauth_access_token',
+    OauthRefreshToken: 'oauth_refresh_token',
+} as const
+
+export interface LeakedKeyReportResponseApi {
+    /** Whether a matching PostHog key or token was found and revoked. */
+    found: boolean
+    /** The type of key that was found and revoked, or null if no match was found.
+     *
+     * * `personal_api_key` - personal_api_key
+     * * `project_secret_api_key` - project_secret_api_key
+     * * `oauth_access_token` - oauth_access_token
+     * * `oauth_refresh_token` - oauth_refresh_token */
+    type: LeakedKeyReportResponseTypeEnumApi | null
 }
 
 /**
