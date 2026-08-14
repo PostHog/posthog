@@ -1,6 +1,5 @@
 use posthog_cli::{
     sourcemaps::{
-        args::ReleaseMode,
         content::SourceMapContent,
         inject::{inject_pairs, inject_pairs_legacy},
         plain::inject::is_javascript_file,
@@ -426,54 +425,12 @@ fn test_upload_set() {
 
     // Convert to UploadSet
     let upload_set = pair_with_different_ids
-        .into_upload(ReleaseMode::SymbolSet)
+        .into_upload()
         .expect("Failed to convert to SymbolSetUpload");
 
     // Verify that the upload set uses the source's chunk ID, not the sourcemap's
     assert_eq!(upload_set.chunk_id, source_chunk_id);
     assert_ne!(upload_set.chunk_id, sourcemap_chunk_id);
-    // Symbol-set uploads must not precompute a hash: the server stores raw-payload hashes
-    // for previously uploaded chunks, and a different hash form would flag every unchanged
-    // chunk as a content conflict.
-    assert!(upload_set.content_hash.is_none());
-}
-
-#[test]
-fn test_event_mode_content_hash_is_stable_across_release_states() {
-    // The hash must not depend on which snippet variant is embedded. A chunk injected while
-    // no release was resolvable, the same chunk injected with a release, and the transition
-    // between the two all keep one chunk id, so they must hash identically or the server
-    // rejects the later upload as a content_hash_mismatch.
-    let case_path = get_case_path("inject");
-    let load = || {
-        read_pairs(vec![case_path.clone()], vec![], vec![], &None).expect("Failed to read pairs")
-    };
-    let hash_of = |pairs: Vec<SourcePair>| -> String {
-        pairs
-            .into_iter()
-            .next()
-            .expect("Failed to get first pair")
-            .into_upload(ReleaseMode::Event)
-            .expect("Failed to convert to SymbolSetUpload")
-            .content_hash
-            .expect("event mode always sets a content hash")
-    };
-
-    let releaseless = hash_of(inject_pairs(load(), None).expect("Failed to inject pairs"));
-    let with_release = hash_of(
-        inject_pairs(load(), Some("11111111-2222-4333-8444-555555555555"))
-            .expect("Failed to inject pairs"),
-    );
-    let transitioned = {
-        let injected = inject_pairs(load(), None).expect("Failed to inject pairs");
-        hash_of(
-            inject_pairs(injected, Some("99999999-8888-4777-8666-000000000000"))
-                .expect("Failed to re-inject pairs"),
-        )
-    };
-
-    assert_eq!(releaseless, with_release);
-    assert_eq!(releaseless, transitioned);
 }
 
 #[test]

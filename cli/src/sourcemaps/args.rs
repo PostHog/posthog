@@ -131,7 +131,8 @@ pub struct ReleaseArgs {
 
 #[derive(clap::Args, Clone, Default)]
 pub struct UploadConflictArgs {
-    /// Allow overwriting an existing symbol set whose content has changed. [default: false]
+    /// Allow overwriting an existing symbol set whose content has changed. Always on with
+    /// `--release-mode=event`. [default: false]
     #[arg(long, default_value_t = false, conflicts_with = "skip_on_conflict")]
     pub force: bool,
 
@@ -139,6 +140,20 @@ pub struct UploadConflictArgs {
     /// Existing symbol sets are left unchanged. [default: false]
     #[arg(long, default_value_t = false, conflicts_with = "force")]
     pub skip_on_conflict: bool,
+}
+
+impl UploadConflictArgs {
+    /// Whether to overwrite symbol sets whose stored content differs from what is being uploaded.
+    ///
+    /// Event mode overwrites without being asked, because a chunk's id and its uploaded bytes
+    /// move independently there: the id is derived from the pristine pair and so survives a new
+    /// release, while the injected snippet inside the payload carries the release id and changes
+    /// with every release. The server would see a known chunk id arriving with different content
+    /// and reject the upload as `content_hash_mismatch`. An explicit `--skip-on-conflict` still
+    /// wins, since it asks to keep whatever is already stored.
+    pub fn effective_force(&self, release_mode: ReleaseMode) -> bool {
+        self.force || (release_mode == ReleaseMode::Event && !self.skip_on_conflict)
+    }
 }
 
 /// Pack version and build into a single string for release uniqueness.
@@ -223,6 +238,31 @@ mod tests {
                 builder.has_version(),
                 expect_version,
                 "version={version:?} build={build:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn event_mode_forces_unless_the_user_asked_to_skip() {
+        let cases = [
+            // (force, skip_on_conflict, release_mode,         expected)
+            (false, false, ReleaseMode::Event, true),
+            (false, true, ReleaseMode::Event, false),
+            (true, false, ReleaseMode::Event, true),
+            (false, false, ReleaseMode::SymbolSet, false),
+            (false, true, ReleaseMode::SymbolSet, false),
+            (true, false, ReleaseMode::SymbolSet, true),
+        ];
+
+        for (force, skip_on_conflict, release_mode, expected) in cases {
+            let conflict = UploadConflictArgs {
+                force,
+                skip_on_conflict,
+            };
+            assert_eq!(
+                conflict.effective_force(release_mode),
+                expected,
+                "force={force} skip_on_conflict={skip_on_conflict} release_mode={release_mode:?}"
             );
         }
     }

@@ -454,7 +454,6 @@ impl TryInto<SymbolSetUpload> for SourceMapFile {
             chunk_id,
             release_id,
             data,
-            content_hash: None,
         })
     }
 }

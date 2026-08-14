@@ -83,7 +83,6 @@ impl DsymFile {
                 chunk_id: entry.uuid,
                 release_id: self.release_id.clone(),
                 data: entry.data,
-                content_hash: None,
             })
             .collect()
     }
