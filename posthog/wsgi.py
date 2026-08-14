@@ -48,9 +48,10 @@ try:
 
     # Load the warehouse source catalog before this worker serves, so its first warehouse
     # query skips the multi-second import. No-op unless PREWARM_WAREHOUSE_SOURCE_REGISTRY
-    # is set; bin/docker-server-unit enables it for the Granian WSGI tier, where each
-    # worker imports this module itself. Running inside the GC window lands the catalog
-    # in the frozen heap, so future full collections skip it.
+    # is set, which deployment config enables only for the Granian deployment that serves
+    # warehouse queries; each Granian worker imports this module itself. Running inside
+    # the GC window lands the catalog in the frozen heap, so future full collections
+    # skip it.
     prewarm_warehouse_source_registry()
 finally:
     gc.freeze()

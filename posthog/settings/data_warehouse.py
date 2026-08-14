@@ -37,9 +37,10 @@ PYARROW_DEBUG_LOGGING = get_from_env("PYARROW_DEBUG_LOGGING", False, type_cast=s
 # the worker starts serving, so its first warehouse query doesn't pay the multi-second
 # catalog import at request time. WSGI workers load while importing posthog.wsgi, ASGI
 # workers during lifespan startup; a failed prewarm logs and leaves the worker to lazy
-# loading. Off by default: only bin/docker-server-unit's Granian WSGI branch (the tier
-# that serves warehouse queries) opts in, so shells, migrations, tests, Celery, and the
-# ASGI tier keep lazy source loading.
+# loading. Off by default everywhere, including the shared web launcher: deployment
+# config enables it only for the dedicated Granian deployment that serves warehouse
+# queries, so web and report workers, shells, migrations, tests, and Celery keep lazy
+# source loading.
 PREWARM_WAREHOUSE_SOURCE_REGISTRY = get_from_env("PREWARM_WAREHOUSE_SOURCE_REGISTRY", False, type_cast=str_to_bool)
 
 # Region hosting BUCKET_URL. Only used to build the bucket's virtual-hosted hostname for the
