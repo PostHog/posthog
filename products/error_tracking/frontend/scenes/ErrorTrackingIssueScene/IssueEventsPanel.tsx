@@ -134,7 +134,7 @@ function IssueEventsLayout({
                             iconOnly
                             renderControls={({ filterPicker, activeFilters }) => (
                                 <div className="flex w-full flex-col gap-2">
-                                    <div className="flex w-full flex-nowrap items-center gap-2">
+                                    <div className="hide-scrollbar flex w-full min-w-0 flex-nowrap items-center gap-2 overflow-x-auto overflow-y-hidden overscroll-x-contain">
                                         <Tooltip>
                                             <TooltipTrigger
                                                 render={
