@@ -1,6 +1,5 @@
-import type { EvidencePreview } from "@posthog/api-client/evidence-previews";
 import { getCloudUrlFromRegion } from "@posthog/shared";
-import type { MouseEvent, ReactNode } from "react";
+import { type MouseEvent, type ReactNode, useId } from "react";
 import { useOptionalAuthenticatedClient } from "../../../features/auth/authClient";
 import { useAuthStateValue } from "../../../features/auth/store";
 import { useAuthenticatedQuery } from "../../../hooks/useAuthenticatedQuery";
@@ -11,6 +10,10 @@ import {
   evidenceWebPath,
 } from "../../../utils/evidenceLinks";
 import { getObjectKind } from "../../../utils/objectKinds";
+import {
+  type EvidenceCardData,
+  fetchEvidencePreview,
+} from "../evidencePreview";
 
 /**
  * Inline evidence reference inside an agent message, authored as a
@@ -29,6 +32,100 @@ import { getObjectKind } from "../../../utils/objectKinds";
  * object is stored in the message itself.
  */
 
+const SPARK_W = 100;
+const SPARK_H = 30;
+const SPARK_PAD = 2;
+
+/** Mini chart of the preview's primary series: a line for time series, columns for categories. */
+function Sparkline({
+  points,
+  render,
+}: {
+  points: number[];
+  render: "line" | "bar";
+}) {
+  const gradientId = useId();
+  const max = Math.max(...points);
+  const min = render === "bar" ? Math.min(0, ...points) : Math.min(...points);
+  const range = max - min || 1;
+  const scaleY = (value: number): number =>
+    SPARK_H - SPARK_PAD - ((value - min) / range) * (SPARK_H - 2 * SPARK_PAD);
+
+  if (render === "bar") {
+    const step = SPARK_W / points.length;
+    const gap = Math.min(step * 0.25, 2);
+    return (
+      <svg
+        viewBox={`0 0 ${SPARK_W} ${SPARK_H}`}
+        preserveAspectRatio="none"
+        className="h-9 w-full"
+        role="img"
+        aria-label="Column sparkline"
+        data-testid="evidence-sparkline"
+      >
+        {points.map((point, index) => (
+          <rect
+            // biome-ignore lint/suspicious/noArrayIndexKey: static series, never reorders
+            key={index}
+            x={index * step + gap / 2}
+            width={step - gap}
+            y={scaleY(point)}
+            height={Math.max(SPARK_H - SPARK_PAD - scaleY(point), 0.5)}
+            fill="var(--accent-9)"
+            fillOpacity={0.85}
+          />
+        ))}
+      </svg>
+    );
+  }
+
+  const coords = points.map(
+    (point, index) =>
+      [
+        points.length === 1 ? 0 : (index / (points.length - 1)) * SPARK_W,
+        scaleY(point),
+      ] as const,
+  );
+  const line = coords
+    .map(
+      ([x, y], index) =>
+        `${index === 0 ? "M" : "L"}${x.toFixed(1)} ${y.toFixed(1)}`,
+    )
+    .join(" ");
+  const [lastX, lastY] = coords[coords.length - 1];
+  return (
+    <svg
+      viewBox={`0 0 ${SPARK_W} ${SPARK_H}`}
+      preserveAspectRatio="none"
+      className="h-9 w-full"
+      role="img"
+      aria-label="Trend sparkline"
+      data-testid="evidence-sparkline"
+    >
+      <defs>
+        <linearGradient id={gradientId} x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stopColor="var(--accent-9)" stopOpacity={0.25} />
+          <stop offset="100%" stopColor="var(--accent-9)" stopOpacity={0.02} />
+        </linearGradient>
+      </defs>
+      <path
+        d={`${line} L${SPARK_W} ${SPARK_H} L0 ${SPARK_H} Z`}
+        fill={`url(#${gradientId})`}
+      />
+      <path
+        d={line}
+        fill="none"
+        stroke="var(--accent-9)"
+        strokeWidth={1.6}
+        strokeLinejoin="round"
+        strokeLinecap="round"
+        vectorEffect="non-scaling-stroke"
+      />
+      <circle cx={lastX} cy={lastY} r={2} fill="var(--accent-9)" />
+    </svg>
+  );
+}
+
 /**
  * The hover card, presentation only. `preview` is the live lookup result:
  * `undefined` while loading, `null` when there is nothing to show (unknown
@@ -37,55 +134,89 @@ import { getObjectKind } from "../../../utils/objectKinds";
 export function EvidenceHoverCard({
   target,
   children,
-  clickable,
+  url,
   preview,
+  onOpen = openExternalUrl,
 }: {
   target: EvidenceLinkTarget;
   children: ReactNode;
-  clickable: boolean;
-  preview: EvidencePreview | null | undefined;
+  url: string | null;
+  preview: EvidenceCardData | null | undefined;
+  onOpen?: (url: string) => void;
 }) {
   const meta = getObjectKind(target.kind);
   const KindIcon = meta.icon;
   return (
-    <div className="w-72 p-3">
-      <div className="flex items-center gap-1.5 text-[10.5px] text-(--gray-9) uppercase tracking-[0.04em]">
+    <div className="w-80 p-3.5">
+      <div className="flex items-center gap-1.5 text-[10.5px] text-(--gray-9)">
         <KindIcon size={12} aria-hidden />
-        <span className="truncate">{meta.kindLabel}</span>
-        <span className="ml-auto shrink-0 normal-case tracking-normal">
-          {meta.source}
+        <span className="truncate uppercase tracking-[0.06em]">
+          {meta.kindLabel}
         </span>
+        <span className="ml-auto shrink-0">{meta.source}</span>
       </div>
       {preview === undefined ? (
-        <div
-          className="mt-2.5 space-y-1.5"
-          data-testid="evidence-preview-loading"
-        >
-          <div className="h-3.5 w-3/5 animate-pulse rounded bg-(--gray-a4)" />
-          <div className="h-2.5 w-2/5 animate-pulse rounded bg-(--gray-a3)" />
+        <div className="mt-3 space-y-2" data-testid="evidence-preview-loading">
+          <div className="h-4 w-3/5 animate-pulse rounded bg-(--gray-a4)" />
+          <div className="h-9 w-full animate-pulse rounded bg-(--gray-a3)" />
         </div>
       ) : preview ? (
-        <div className="mt-2" data-testid="evidence-preview">
-          <span className="block font-semibold text-(--gray-12) text-[14px] leading-snug">
-            {preview.title}
-          </span>
-          {preview.detail && (
-            <span className="mt-1 block text-(--gray-10) text-[11.5px] leading-snug">
-              {preview.detail}
+        <div className="mt-2.5" data-testid="evidence-preview">
+          <div className="flex items-baseline justify-between gap-3">
+            <span className="min-w-0 truncate font-semibold text-(--gray-12) text-[14px] leading-snug">
+              {preview.title}
             </span>
+            {preview.headline && (
+              <span className="flex shrink-0 items-baseline gap-1">
+                <span className="font-semibold text-(--gray-12) text-[15px] tabular-nums leading-none">
+                  {preview.headline.value}
+                </span>
+                {preview.headline.delta && (
+                  <span
+                    className={`font-medium text-[11px] tabular-nums ${
+                      preview.headline.delta.direction === "up"
+                        ? "text-(--green-11)"
+                        : "text-(--red-11)"
+                    }`}
+                  >
+                    {preview.headline.delta.direction === "up" ? "▲" : "▼"}
+                    {preview.headline.delta.label}
+                  </span>
+                )}
+              </span>
+            )}
+          </div>
+          {preview.spark && preview.spark.points.length > 1 && (
+            <div className="mt-2.5">
+              <Sparkline
+                points={preview.spark.points}
+                render={preview.spark.render}
+              />
+            </div>
+          )}
+          {preview.detail && (
+            <div className="mt-1.5 text-(--gray-10) text-[11.5px] leading-snug">
+              {preview.detail}
+            </div>
           )}
         </div>
       ) : (
-        <div className="mt-2">
+        <div className="mt-2.5">
           <span className="block font-semibold text-(--gray-12) text-[14px] leading-snug">
             {children}
           </span>
         </div>
       )}
-      <div className="mt-2.5 flex items-center justify-between gap-3 text-[10.5px]">
+      <div className="mt-3 flex items-center justify-between gap-3 text-[10.5px]">
         <span className="truncate font-mono text-(--gray-8)">{target.id}</span>
-        {clickable && (
-          <span className="shrink-0 text-(--gray-10)">Opens in PostHog ↗</span>
+        {url && (
+          <button
+            type="button"
+            onClick={() => onOpen(url)}
+            className="shrink-0 cursor-pointer border-none bg-transparent p-0 text-(--gray-10) text-[10.5px] transition-colors hover:text-(--gray-12)"
+          >
+            Open in PostHog ↗
+          </button>
         )}
       </div>
     </div>
@@ -100,16 +231,16 @@ export function EvidenceHoverCard({
 function EvidenceHoverCardLoader({
   target,
   children,
-  clickable,
+  url,
 }: {
   target: EvidenceLinkTarget;
   children: ReactNode;
-  clickable: boolean;
+  url: string | null;
 }) {
   const client = useOptionalAuthenticatedClient();
   const query = useAuthenticatedQuery(
     ["evidence-preview", target.kind, target.id],
-    (apiClient) => apiClient.getEvidencePreview(target.kind, target.id),
+    (apiClient) => fetchEvidencePreview(apiClient, target),
     {
       staleTime: 5 * 60 * 1000,
       refetchOnWindowFocus: false,
@@ -124,7 +255,7 @@ function EvidenceHoverCardLoader({
         ? (query.data ?? null)
         : undefined;
   return (
-    <EvidenceHoverCard target={target} clickable={clickable} preview={preview}>
+    <EvidenceHoverCard target={target} url={url} preview={preview}>
       {children}
     </EvidenceHoverCard>
   );
@@ -169,7 +300,7 @@ export function EvidenceRefChip({
   return (
     <Tooltip
       content={
-        <EvidenceHoverCardLoader target={target} clickable={!!url}>
+        <EvidenceHoverCardLoader target={target} url={url}>
           {children}
         </EvidenceHoverCardLoader>
       }

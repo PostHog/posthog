@@ -123,11 +123,11 @@ function InsightChartCard({
   blockKey: string;
 }) {
   const openOptions = useOpenOptions();
-  const query = useAuthenticatedQuery<InsightChartResult>(
+  const query = useAuthenticatedQuery<InsightChartResult | null>(
     ["message-chart-block", blockKey],
     async (client) => {
       const insight = await client.getInsightDefinition(spec.shortId);
-      if (!insight) throw new Error(`No insight with short id ${spec.shortId}`);
+      if (!insight) return null;
       const plan = planReportChart(insight.query);
       if (plan.kind !== "run") return { name: insight.name, data: null };
       const response = await client.runQuery(plan.source);
@@ -136,13 +136,19 @@ function InsightChartCard({
     { staleTime: 5 * 60 * 1000, refetchOnWindowFocus: false, retry: 1 },
   );
 
-  const state: ReportChartCardState = query.isPending
-    ? { kind: "loading" }
-    : query.isError
-      ? { kind: "error", message: CHART_ERROR_MESSAGE }
-      : query.data.data
-        ? { kind: "data", data: query.data.data }
-        : { kind: "link-out" };
+  const state: ReportChartCardState =
+    query.isPending || (!query.isError && query.data === undefined)
+      ? { kind: "loading" }
+      : query.isError
+        ? { kind: "error", message: CHART_ERROR_MESSAGE }
+        : query.data === null
+          ? {
+              kind: "error",
+              message: `No insight matches "${spec.shortId}" in the current project.`,
+            }
+          : query.data?.data
+            ? { kind: "data", data: query.data.data }
+            : { kind: "link-out" };
 
   return (
     <ChartCard

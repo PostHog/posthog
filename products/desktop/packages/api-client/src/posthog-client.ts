@@ -124,8 +124,6 @@ import {
   shapeErrorIssuePreview,
   shapeExperimentPreview,
   shapeFlagPreview,
-  shapeHogqlPreview,
-  shapeInsightPreview,
   shapeRecordingPreview,
   shapeSurveyPreview,
 } from "./evidence-previews";
@@ -7071,10 +7069,10 @@ export class PostHogAPIClient {
 
   /**
    * Resolves an `evidence:<kind>/<id>` citation from an agent message to a
-   * small live summary of the object it points at. For `hogql` the id is the
-   * SQL itself and the summary is its live result. Returns null for kinds
+   * small live summary of the object it points at. Returns null for kinds
    * without a lookup and for ids that don't resolve, so the caller can fall
-   * back to a static reference.
+   * back to a static reference. Query-backed kinds (hogql, insight) resolve
+   * in the UI instead, where chart shaping lives.
    */
   async getEvidencePreview(
     kind: string,
@@ -7084,14 +7082,6 @@ export class PostHogAPIClient {
     const numericId = /^\d+$/.test(id) ? Number(id) : null;
 
     switch (kind) {
-      case "insight": {
-        const page = await this.api.get(
-          "/api/projects/{project_id}/insights/",
-          { path: { project_id: projectId }, query: { short_id: id } },
-        );
-        const insight = page.results[0];
-        return insight ? shapeInsightPreview(insight) : null;
-      }
       case "flag": {
         if (numericId !== null) {
           const flag = await this.api.get(
@@ -7161,10 +7151,6 @@ export class PostHogAPIClient {
           { path: { project_id: projectId, id: numericId }, query: {} },
         );
         return shapeActionPreview(action);
-      }
-      case "hogql": {
-        const response = await this.runQuery({ kind: "HogQLQuery", query: id });
-        return shapeHogqlPreview(response);
       }
       default:
         return null;

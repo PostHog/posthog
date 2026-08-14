@@ -4,31 +4,13 @@ import {
   shapeErrorIssuePreview,
   shapeExperimentPreview,
   shapeFlagPreview,
-  shapeHogqlPreview,
-  shapeInsightPreview,
   shapeRecordingPreview,
   shapeSurveyPreview,
 } from "./evidence-previews";
 import type { Schemas } from "./generated";
 
 // The shapers only read the fields they show; build minimal inputs and cast.
-function insight(fields: Partial<Schemas.Insight>): Schemas.Insight {
-  return { short_id: "9pQx3", ...fields } as Schemas.Insight;
-}
-
 describe("evidence preview shaping", () => {
-  it.each([
-    ["name", insight({ name: "Checkout funnel" }), "Checkout funnel"],
-    [
-      "derived name",
-      insight({ name: null, derived_name: "Pageview trend" }),
-      "Pageview trend",
-    ],
-    ["short id", insight({ name: null, derived_name: null }), "9pQx3"],
-  ])("falls back to the insight %s for the title", (_case, input, title) => {
-    expect(shapeInsightPreview(input).title).toBe(title);
-  });
-
   it("keys the flag preview by key and carries the numeric id for links", () => {
     const preview = shapeFlagPreview({
       id: 42,
@@ -114,27 +96,6 @@ describe("evidence preview shaping", () => {
         description: "Weekly active users",
       } as Schemas.Cohort).detail,
     ).toBe("Weekly active users");
-  });
-
-  it.each([
-    [
-      "a single numeric cell as the value",
-      { results: [[17100]], columns: ["count"] },
-      { title: "17,100", detail: "count" },
-    ],
-    [
-      "a grid as a row count with its columns",
-      {
-        results: [
-          [1, 2],
-          [3, 4],
-        ],
-        columns: ["day", "users"],
-      },
-      { title: "2 rows", detail: "day, users" },
-    ],
-  ])("summarizes a hogql result: %s", (_case, response, expected) => {
-    expect(shapeHogqlPreview(response)).toEqual(expected);
   });
 
   it("describes a survey that has not started as a draft", () => {

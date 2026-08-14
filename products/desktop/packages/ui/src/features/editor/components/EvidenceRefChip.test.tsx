@@ -91,7 +91,7 @@ describe("EvidenceHoverCard", () => {
     renderInTheme(
       <EvidenceHoverCard
         target={{ kind: "insight", id: "9pQx3" }}
-        clickable={false}
+        url={null}
         preview={preview}
       >
         Checkout funnel
@@ -102,5 +102,32 @@ describe("EvidenceHoverCard", () => {
     if (preview) {
       expect(screen.getByText("conversion, last 30 days")).toBeDefined();
     }
+  });
+
+  it("draws a sparkline and headline for a series preview and opens on click", () => {
+    const onOpen = vi.fn();
+    renderInTheme(
+      <EvidenceHoverCard
+        target={{ kind: "hogql", id: "SELECT 1" }}
+        url="https://us.posthog.com/project/2/sql?open_query=SELECT%201"
+        onOpen={onOpen}
+        preview={{
+          title: "active_users",
+          headline: {
+            value: "1.5M",
+            delta: { label: "71%", direction: "down" },
+          },
+          spark: { points: [5, 5.1, 5.7, 1.5], render: "line" },
+        }}
+      >
+        active users per day
+      </EvidenceHoverCard>,
+    );
+    expect(screen.getByTestId("evidence-sparkline")).toBeDefined();
+    expect(screen.getByText("1.5M")).toBeDefined();
+    fireEvent.click(screen.getByRole("button", { name: /Open in PostHog/ }));
+    expect(onOpen).toHaveBeenCalledWith(
+      "https://us.posthog.com/project/2/sql?open_query=SELECT%201",
+    );
   });
 });

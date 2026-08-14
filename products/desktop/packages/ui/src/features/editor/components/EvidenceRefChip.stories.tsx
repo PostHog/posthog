@@ -79,7 +79,7 @@ export const HoverCardStates: Story = {
       <div className="rounded-md border border-(--gray-a5) bg-(--color-panel-solid)">
         <EvidenceHoverCard
           target={{ kind: "insight", id: "9pQx3" }}
-          clickable={false}
+          url={null}
           preview={undefined}
         >
           Checkout funnel
@@ -88,7 +88,7 @@ export const HoverCardStates: Story = {
       <div className="rounded-md border border-(--gray-a5) bg-(--color-panel-solid)">
         <EvidenceHoverCard
           target={{ kind: "insight", id: "9pQx3" }}
-          clickable={true}
+          url="https://us.posthog.com/project/2/insights/9pQx3"
           preview={{
             title: "Coupon → purchase conversion",
             detail: "Funnel conversion, last 30 days",
@@ -100,7 +100,7 @@ export const HoverCardStates: Story = {
       <div className="rounded-md border border-(--gray-a5) bg-(--color-panel-solid)">
         <EvidenceHoverCard
           target={{ kind: "flag", id: "new-checkout-flow" }}
-          clickable={false}
+          url={null}
           preview={{
             title: "new-checkout-flow",
             detail: "Enabled · New checkout rollout",
@@ -111,8 +111,27 @@ export const HoverCardStates: Story = {
       </div>
       <div className="rounded-md border border-(--gray-a5) bg-(--color-panel-solid)">
         <EvidenceHoverCard
+          target={{ kind: "hogql", id: "SELECT toDate(timestamp) AS day ..." }}
+          url="https://us.posthog.com/project/2/sql"
+          preview={{
+            title: "active_users",
+            headline: {
+              value: "1.5M",
+              delta: { label: "71%", direction: "down" },
+            },
+            spark: {
+              points: [4.9, 5.1, 5.7, 5.8, 5.7, 5.1, 1.5],
+              render: "line",
+            },
+          }}
+        >
+          active users per day
+        </EvidenceHoverCard>
+      </div>
+      <div className="rounded-md border border-(--gray-a5) bg-(--color-panel-solid)">
+        <EvidenceHoverCard
           target={{ kind: "ticket", id: "conv_88" }}
-          clickable={true}
+          url="https://us.posthog.com/project/2/insights/9pQx3"
           preview={null}
         >
           9 “coupon” tickets
