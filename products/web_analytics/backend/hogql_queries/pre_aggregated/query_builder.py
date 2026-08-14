@@ -115,7 +115,7 @@ class WebAnalyticsPreAggregatedQueryBuilder:
                     value=(
                         self.runner.query_compare_to_date_range.date_from()
                         if self.runner.query_compare_to_date_range
-                        else self.runner.query_date_range.date_from()
+                        else self.current_date_from()
                     )
                 ),
             ),
@@ -153,8 +153,14 @@ class WebAnalyticsPreAggregatedQueryBuilder:
 
         return ast.And(exprs=filter_exprs)
 
+    def current_date_from(self):
+        date_from = self.runner.query_date_range.date_from()
+        if self.runner.query.dateRange and self.runner.query.dateRange.date_from == "all":
+            return date_from.replace(minute=0, second=0, microsecond=0)
+        return date_from
+
     def get_date_ranges(self, table_name: Optional[str] = None) -> PeriodFilters:
-        current_date_from = self.runner.query_date_range.date_from()
+        current_date_from = self.current_date_from()
         current_date_to = self.runner.query_date_range.date_to()
 
         if self.runner.query_compare_to_date_range:
