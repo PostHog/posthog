@@ -29,6 +29,7 @@ import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { SIDE_PANEL_CONTEXT_KEY, SidePanelSceneContext } from '~/layout/navigation-3000/sidepanel/types'
+import type { RecordingsQuery } from '~/queries/schema/schema-general'
 
 import {
     visionScannersAffectedCohortCreate,
@@ -1589,8 +1590,13 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                     return
                 }
                 // The model call can take a while; if the user picked a template or navigated away
-                // meanwhile, their newer state wins and the stale draft is dropped.
-                if (!router.values.location.pathname.endsWith(urls.replayVisionScannerTemplate('new'))) {
+                // meanwhile, their newer state wins and the stale draft is dropped. The box lives on
+                // the template step and the zero-scanner empty state, so both count as still there.
+                const pathname = router.values.location.pathname
+                if (
+                    !pathname.endsWith(urls.replayVisionScannerTemplate('new')) &&
+                    !pathname.endsWith(urls.replayVision())
+                ) {
                     return
                 }
                 actions.resetScanner(newScanner())
@@ -1601,6 +1607,9 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                     description: goalDraft.description,
                     scanner_type: goalDraft.scanner_type as ScannerType,
                     scanner_config: goalDraft.scanner_config as ScannerConfig,
+                    // The drafted event filter (when the goal mapped to a real event); the triggers step
+                    // shows it for review like any hand-picked filter.
+                    ...(goalDraft.query ? { query: goalDraft.query as RecordingsQuery } : {}),
                 })
                 router.actions.push(urls.replayVisionScannerConfigure('new'))
             },

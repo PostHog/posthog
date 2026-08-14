@@ -1,6 +1,6 @@
 import logging
 from dataclasses import dataclass
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from django.conf import settings
 
@@ -9,9 +9,13 @@ from rest_framework import status
 from rest_framework.response import Response
 
 from posthog.models import OAuthAccessToken
+
+if TYPE_CHECKING:
+    from posthog.models import User
 from posthog.temporal.oauth import create_oauth_access_token_for_user
 from posthog.utils import get_instance_region
 
+from products.tasks.backend.access import has_tasks_access
 from products.tasks.backend.logic.services.compute_quota import (
     COMPUTE_QUOTA_DENIAL_CODE,
     ORGANIZATION_DEACTIVATED_DENIAL_CODE,
@@ -164,14 +168,37 @@ def compute_quota_limit_response(reason: str = COMPUTE_QUOTA_DENIAL_CODE) -> Res
     )
 
 
+def code_access_required_response(user: "User") -> Response | None:
+    """Return a 403 when the user lacks PostHog Desktop access, else None.
+
+    The entitlement gate for user-triggered cloud execution: usage-based billing alone
+    doesn't control cost for credit-funded teams (startup-program credits cover the meter),
+    so cloud runs additionally require the Desktop waitlist (the `tasks` flag or a redeemed
+    invite). Endpoints serving generally-available Inbox surfaces skip this for tasks whose
+    Inbox entitlement is server-verifiable — see ``task_exempt_from_code_access``.
+    """
+    if has_tasks_access(user):
+        return None
+    return Response(
+        TaskRunErrorResponseSerializer(
+            {
+                "type": "permission_denied",
+                "code": "code_access_required",
+                "error": "PostHog Desktop access is required to run tasks in the cloud.",
+            }
+        ).data,
+        status=status.HTTP_403_FORBIDDEN,
+    )
+
+
 def usage_limit_response(user, team_id: int) -> Response | None:
     """Return a 429 when the team is over its PostHog Desktop usage limit, else None.
 
-    Since Desktop moved to usage-based billing, this is the whole cost control on cloud runs —
-    no waitlist check is involved. Fails open when the gateway can't be reached, so every check
-    is counted by outcome (`checked_allowed` / `checked_blocked` / `fail_open`) and a degraded
-    gateway silently removing the backstop is visible, not just logged. Deactivated organizations
-    are blocked locally first, so that block holds even when the gateway check fails open.
+    The cost backstop on cloud runs, applied on top of the entitlement gate above. Fails
+    open when the gateway can't be reached, so every check is counted by outcome
+    (`checked_allowed` / `checked_blocked` / `fail_open`) and a degraded gateway silently
+    removing the backstop is visible, not just logged. Deactivated organizations are blocked
+    locally first, so that block holds even when the gateway check fails open.
     """
     if organization_deactivated(team_id):
         observe_code_usage_gate_check(outcome="org_deactivated")

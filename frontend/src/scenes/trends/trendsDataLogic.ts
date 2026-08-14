@@ -197,7 +197,6 @@ export interface trendsDataLogicValues {
         | undefined
     results: TrendResult[]
     showConfidenceIntervals: boolean
-    showLegendIsolateSeriesItem: boolean
     showMovingAverage: boolean
     showTrendLines: boolean
 }
@@ -390,7 +389,7 @@ export interface trendsDataLogicMeta {
                 | Record<string, ResultCustomizationByValue>
                 | Record<number, ResultCustomizationByPosition>
                 | undefined,
-            getTheme: (themeId: number | string | null | undefined) => DataColorTheme | null,
+            getTheme: (themeId: number | string | null | undefined) => DataColorTheme | null, // insightVizDataLogic
             breakdownFilter: BreakdownFilter | null | undefined,
             querySource:
                 | FunnelsQuery
@@ -416,10 +415,6 @@ export interface trendsDataLogicMeta {
                 | undefined
         ) => (dataset: IndexedTrendResult) => boolean
         areAllSeriesVisible: (
-            indexedResults: IndexedTrendResult[],
-            getTrendsHidden: (dataset: IndexedTrendResult) => boolean
-        ) => boolean
-        showLegendIsolateSeriesItem: (
             indexedResults: IndexedTrendResult[],
             getTrendsHidden: (dataset: IndexedTrendResult) => boolean
         ) => boolean
@@ -1029,14 +1024,6 @@ export const trendsDataLogic = kea<trendsDataLogicType>([
                 indexedResults: IndexedTrendResult[],
                 getTrendsHidden: (dataset: IndexedTrendResult) => boolean
             ): boolean => indexedResults.every((d) => !getTrendsHidden(d)),
-        ],
-
-        showLegendIsolateSeriesItem: [
-            (s) => [s.indexedResults, s.getTrendsHidden],
-            (
-                indexedResults: IndexedTrendResult[],
-                getTrendsHidden: (dataset: IndexedTrendResult) => boolean
-            ): boolean => indexedResults.length > 0 && !indexedResults.every((d) => getTrendsHidden(d)),
         ],
 
         legendSeriesIsolationMenuEligible: [
