@@ -396,7 +396,7 @@ function progressLabel(review: ReviewRecentReviewApi): string {
     }
 }
 
-/** "Resolving comments · 6/10 · 5 fixed, 1 needs you" — the live resolution run's row label. */
+/** The live resolution run's row label, e.g. "Resolving comments · 6/10 · 5 fixed, 1 needs you". */
 function resolutionLabel(resolution: ReviewResolutionStatusApi): string {
     const outcomes = [
         resolution.fixed > 0 ? `${resolution.fixed} fixed` : null,
