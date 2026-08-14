@@ -336,6 +336,10 @@ no error message.
 other proxied workload. An operator who blocks those addresses to refuse the lane also blocks the
 webhook delivery that operator asked for.
 
+**9.9** The page the user agent names links to this file. That page tells an operator what the lane
+does and how to refuse it. This file is the source of truth for both, so the page carries a reader
+who wants the detail to it rather than repeating it.
+
 ### 10. Opt-out signals
 
 `robots.txt` speaks about a path. It cannot express a rule for one image, because an image is a
@@ -392,6 +396,19 @@ and parses no HTML.
 **10.12** The lane reads every signal that answers for a whole origin before it requests an image
 from that origin. Those are robots.txt and tdmrep.json. A refusal there costs the host nothing and
 covers every URL on it. A refusal in a response header costs the host one fetch, and covers one URL.
+
+**10.13** The lane checks every opt-out signal at fetch time, and that check is the only one. The
+lane never revisits a URL to ask whether the answer changed. It never changes or deletes an image it
+already holds because a site published a signal after the fetch. This is deliberate, and it is a
+requirement not to do it rather than work nobody has built yet. A training run that already used an
+image cannot be made to forget it, so a promise to withdraw the image later would be a promise we
+could not keep.
+
+**10.14** An image can carry a reservation inside its own bytes. The PLUS Data Mining property in
+XMP holds it. `DMI-PROHIBITED-AIMLTRAINING`, `DMI-PROHIBITED-GENAIMLTRAINING`, and `DMI-PROHIBITED`
+each refuse the image. The scrub lane reads this property and drops the image, because the value
+arrives with the bytes rather than before them. This is the first reading of that signal, not a
+second reading of one requirement 10.13 already answered.
 
 ### 11. Politeness a site asks for
 
@@ -526,6 +543,7 @@ that must land before it can: reading robots.txt, and producing the image to the
 | ------------------------------------------------------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | [RFC 9309](https://www.rfc-editor.org/rfc/rfc9309.html), Robots Exclusion Protocol                                       | Section 8. The response classes, the 24 hour cache, the redirect count, the 500 KiB parse limit, a line that does not parse, and how a product token matches a group |
 | [TDMRep](https://www.w3.org/community/reports/tdmrep/CG-FINAL-tdmrep-20240202/), W3C Community Group Final Report        | Requirement 10.2, and requirements 10.8 to 10.11. A Community Group report, which is not a W3C Standard                                                              |
+| [IPTC Photo Metadata](https://www.iptc.org/std/photometadata/documentation/userguide/), Data Mining                      | Requirement 10.14. The PLUS Data Mining property, and the values that refuse AI training                                                                             |
 | [Directive (EU) 2019/790](https://eur-lex.europa.eu/eli/dir/2019/790/oj), Article 4                                      | Why a TDMRep reservation matters. It removes a permission rather than adds a prohibition                                                                             |
 | [RFC 9421](https://www.rfc-editor.org/rfc/rfc9421.html), HTTP Message Signatures                                         | Requirements 9.3 to 9.6. The signature, and the components and parameters it covers                                                                                  |
 | [draft-meunier-webbotauth-httpsig-protocol](https://datatracker.ietf.org/doc/draft-meunier-webbotauth-httpsig-protocol/) | Requirements 9.3 and 9.4. Web Bot Auth. An individual submission, not yet adopted by the working group                                                               |
