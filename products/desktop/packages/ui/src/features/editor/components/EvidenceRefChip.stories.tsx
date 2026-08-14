@@ -61,6 +61,8 @@ export const Clickable: Story = {
           kind: "insight",
           id: "9pQx3",
           url: "https://us.posthog.com/project/2/insights/9pQx3",
+          value: "28.1%",
+          desc: "coupon → purchase conversion, down 12.9pts since Jan 3",
         }}
       >
         Checkout funnel
@@ -74,12 +76,12 @@ export const InsideAgentMessage: Story = {
     <div className="max-w-xl">
       <MarkdownRenderer
         content={[
-          "The [coupon → purchase conversion](evidence:insight/9pQx3) dropped",
+          "The [coupon → purchase conversion](evidence:insight/9pQx3?value=28.1%25&desc=down+12.9pts+since+Jan+3) dropped",
           "41% → 28% on Jan 3, the same day",
-          "[a TypeError in CouponValidator](evidence:error/018f44aa) first",
-          "appeared, and [14 recordings](evidence:replay/s_01HQ4K) show users",
+          "[a TypeError in CouponValidator](evidence:error/018f44aa?value=1%2C247+users&desc=first+seen+Jan+3%2C+spiking) first",
+          "appeared, and [14 recordings](evidence:replay/s_01HQ4K?desc=users+retry+3%E2%80%935%C3%97+then+leave) show users",
           "retrying the field before leaving. This area is gated by",
-          "[new-checkout-flow](evidence:flag/new-checkout-flow?url=https%3A%2F%2Fus.posthog.com%2Fproject%2F2%2Ffeature_flags%2F42).",
+          "[new-checkout-flow](evidence:flag/new-checkout-flow?url=https%3A%2F%2Fus.posthog.com%2Fproject%2F2%2Ffeature_flags%2F42&value=100%25&desc=all+users+since+Dec+12).",
         ].join(" ")}
       />
     </div>

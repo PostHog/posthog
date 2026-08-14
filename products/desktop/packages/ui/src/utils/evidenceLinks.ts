@@ -6,9 +6,12 @@
  * the markdown `a` component renders it as an inline evidence reference with a
  * hover preview, instead of an external link.
  *
- * An optional `url` query parameter carries the PostHog web URL of the
- * underlying object, so clicking the reference can open it:
- * `evidence:insight/9pQx3?url=https%3A%2F%2Fus.posthog.com%2F...`
+ * Optional query parameters enrich the reference without any data fetching:
+ * - `url`: PostHog web URL of the object, makes the reference clickable.
+ * - `value`: headline figure for the hover card, e.g. `28.1%`.
+ * - `desc`: one context line for the hover card, e.g. `down 12.9pts since Jan 3`.
+ *
+ * `evidence:insight/9pQx3?url=https%3A%2F%2Fus.posthog.com%2F...&value=28.1%25&desc=down+12.9pts`
  */
 
 const EVIDENCE_SCHEME = "evidence:";
@@ -20,7 +23,16 @@ export interface EvidenceLinkTarget {
   id: string;
   /** PostHog web URL of the underlying object, when the agent included one. */
   url?: string;
+  /** Headline figure for the hover card, e.g. "28.1%". */
+  value?: string;
+  /** One context line for the hover card. */
+  desc?: string;
 }
+
+// Display params are agent-written text headed for a small card; caps keep a
+// runaway link from flooding the layout.
+const MAX_VALUE_LENGTH = 40;
+const MAX_DESC_LENGTH = 160;
 
 function decodePart(part: string): string {
   try {
@@ -55,6 +67,10 @@ export function parseEvidenceLink(
     if (url && (url.startsWith("https://") || url.startsWith("http://"))) {
       target.url = url;
     }
+    const value = params.get("value")?.trim();
+    if (value) target.value = value.slice(0, MAX_VALUE_LENGTH);
+    const desc = params.get("desc")?.trim();
+    if (desc) target.desc = desc.slice(0, MAX_DESC_LENGTH);
   }
 
   return target;

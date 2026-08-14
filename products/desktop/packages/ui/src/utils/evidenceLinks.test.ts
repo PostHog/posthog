@@ -20,6 +20,27 @@ describe("parseEvidenceLink", () => {
     ).toEqual({ kind: "insight", id: "9pQx3", url });
   });
 
+  it("carries display params for the hover card", () => {
+    expect(
+      parseEvidenceLink(
+        "evidence:insight/9pQx3?value=28.1%25&desc=down+12.9pts+since+Jan+3",
+      ),
+    ).toEqual({
+      kind: "insight",
+      id: "9pQx3",
+      value: "28.1%",
+      desc: "down 12.9pts since Jan 3",
+    });
+  });
+
+  it("caps display params so a runaway link cannot flood the card", () => {
+    const parsed = parseEvidenceLink(
+      `evidence:insight/x?value=${"9".repeat(80)}&desc=${"a".repeat(400)}`,
+    );
+    expect(parsed?.value?.length).toBe(40);
+    expect(parsed?.desc?.length).toBe(160);
+  });
+
   it("drops url values that are not http(s)", () => {
     expect(
       parseEvidenceLink(

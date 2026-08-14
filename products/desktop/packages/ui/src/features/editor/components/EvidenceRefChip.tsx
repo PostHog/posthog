@@ -21,12 +21,17 @@ import type { EvidenceLinkTarget } from "../../../utils/evidenceLinks";
  * Inline evidence reference inside an agent message.
  *
  * Renders as a dotted-underline span with a small kind icon, so it reads as
- * part of the sentence and wraps like text. Hovering shows a preview card
- * with what the reference points at; clicking opens the underlying object in
- * PostHog when the link carries a `url`.
+ * part of the sentence and wraps like text. The underline is a bottom border
+ * rather than text-decoration: decoration never paints under an atomic
+ * inline like the icon's svg, while a bottom border runs under the full
+ * reference on every wrapped line fragment.
  *
- * UI layer only: the card shows the metadata the link itself carries. A live
- * data preview can slot into `preview` once evidence fetching exists.
+ * Hovering shows a preview card with what the reference points at; clicking
+ * opens the underlying object in PostHog when the link carries a `url`.
+ *
+ * UI layer only: the card shows the metadata the link itself carries
+ * (including the optional `value` and `desc` display params). A live data
+ * preview can slot into `preview` once evidence fetching exists.
  */
 
 interface EvidenceKindMeta {
@@ -104,38 +109,59 @@ export function EvidenceRefChip({
   };
 
   const card = (
-    <div className="w-60">
-      <div className="flex items-center gap-2 px-2.5 py-2">
-        <span className="flex size-5 shrink-0 items-center justify-center rounded-[5px] bg-(--gray-4)">
-          <KindIcon size={12} className="text-(--gray-11)" aria-hidden />
+    <div className="w-72">
+      <div className="flex items-center gap-2.5 px-3 pt-2.5 pb-2">
+        <span className="flex size-6 shrink-0 items-center justify-center rounded-md border border-(--gray-a4) bg-(--gray-a3)">
+          <KindIcon size={14} className="text-(--gray-11)" aria-hidden />
         </span>
         <span className="min-w-0 flex-1">
-          <span className="block truncate font-medium text-(--gray-12) text-xs leading-[1.35]">
+          <span className="block truncate font-medium text-(--gray-12) text-[12.5px] leading-[1.4]">
             {children}
           </span>
-          <span className="block text-(--gray-10) text-[11px] leading-[1.35]">
+          <span className="block text-(--gray-10) text-[11px] leading-[1.4]">
             {meta.kindLabel} · {meta.source}
           </span>
         </span>
       </div>
-      {preview && <div className="px-2.5 pb-2">{preview}</div>}
-      <div className="flex items-center justify-between gap-3 border-(--gray-4) border-t px-2.5 py-1.5 text-(--gray-9) text-[10.5px]">
-        <span className="truncate font-mono">{target.id}</span>
-        {clickable && (
-          <span className="shrink-0 text-(--gray-10)">Opens in PostHog ↗</span>
+      {(target.value || target.desc) && (
+        <div className="border-(--gray-a4) border-t px-3 py-2">
+          {target.value && (
+            <div className="font-[600] text-(--gray-12) text-[17px] leading-tight tracking-[-0.01em]">
+              {target.value}
+            </div>
+          )}
+          {target.desc && (
+            <div
+              className={`text-(--gray-10) text-[11.5px] leading-snug ${target.value ? "mt-1" : ""}`}
+            >
+              {target.desc}
+            </div>
+          )}
+        </div>
+      )}
+      {preview && (
+        <div className="border-(--gray-a4) border-t px-3 py-2">{preview}</div>
+      )}
+      <div className="flex items-center justify-between gap-3 rounded-b-[5px] border-(--gray-a4) border-t bg-(--gray-a2) px-3 py-[7px] text-[10.5px]">
+        <span className="truncate font-mono text-(--gray-9)">{target.id}</span>
+        {clickable ? (
+          <span className="shrink-0 text-(--gray-11)">Opens in PostHog ↗</span>
+        ) : (
+          <span className="shrink-0 text-(--gray-9)">{meta.source}</span>
         )}
       </div>
     </div>
   );
 
   const refClass =
-    "text-(--gray-12) underline decoration-(--gray-8) decoration-dotted underline-offset-[3px] hover:decoration-(--gray-11) hover:decoration-solid";
+    "border-b border-dotted border-(--gray-a8) pb-px text-(--gray-12) no-underline hover:border-solid hover:border-(--gray-a11)";
   const inner = (
     <>
-      {/* inline-block escapes the ancestor underline, keeping it off the icon */}
-      <span className="mr-[3px] inline-block align-[-1px]">
-        <KindIcon size={11} className="text-(--gray-10)" aria-hidden />
-      </span>
+      <KindIcon
+        size={12}
+        className="mr-[3px] inline-block translate-y-[-1px] align-middle text-(--gray-10)"
+        aria-hidden
+      />
       {children}
     </>
   );
