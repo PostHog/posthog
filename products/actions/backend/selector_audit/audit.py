@@ -16,6 +16,7 @@ from datetime import timedelta
 from pathlib import Path
 from typing import Any, Optional
 
+from django.db import transaction
 from django.utils import timezone
 
 from posthog.clickhouse.client import sync_execute
@@ -23,6 +24,7 @@ from posthog.clickhouse.workload import Workload
 from posthog.models import Team
 from posthog.models.event.event import Selector as LiveSelector
 from posthog.models.property.util import build_selector_regex as live_build_selector_regex
+from posthog.security.spreadsheet_safety import sanitize_formula_injection
 
 from products.actions.backend.models.action import Action
 from products.actions.backend.selector_audit.compilers import (
@@ -430,26 +432,55 @@ def save_report(path: Path, report: Report) -> Path:
             ]
         )
         for row in iter_report_rows(report):
-            writer.writerow(
-                [
-                    row["team_id"],
-                    row["action_id"],
-                    row["action_name"],
-                    row["step_index"],
-                    row["selector"],
-                    row["rewrite"] or "",
-                    row["structure"],
-                    row["flags"]["nth_child"],
-                    row["flags"]["outside_old_allowlist"],
-                    row["flags"]["unsupported_css"],
-                    *[row["counts"][key] if row["counts"][key] is not None else "" for key in COUNT_KEYS],
-                    row["bucket"],
-                    (row["suggestion"] or {}).get("selector", ""),
-                    "|".join(f"{ref['type']}:{ref['id']}" for ref in row["references"] or []),
-                    row["applied_at"] or "",
-                ]
-            )
+            cells = [
+                row["team_id"],
+                row["action_id"],
+                row["action_name"],
+                row["step_index"],
+                row["selector"],
+                row["rewrite"] or "",
+                row["structure"],
+                row["flags"]["nth_child"],
+                row["flags"]["outside_old_allowlist"],
+                row["flags"]["unsupported_css"],
+                *[row["counts"][key] if row["counts"][key] is not None else "" for key in COUNT_KEYS],
+                row["bucket"],
+                (row["suggestion"] or {}).get("selector", ""),
+                "|".join(f"{ref['type']}:{ref['id']}" for ref in row["references"] or []),
+                row["applied_at"] or "",
+            ]
+            # Action names and selectors are user-controlled and this file is meant
+            # to be opened in a spreadsheet, where a leading =, +, -, or @ executes
+            # as a formula.
+            writer.writerow([sanitize_formula_injection(cell) for cell in cells])
     return csv_path
+
+
+def _appliable_rows(
+    action: Optional[Action],
+    team_id: int,
+    action_id: int,
+    action_rows: list[Row],
+    log: Callable[[str], object],
+    summary: dict[str, int],
+) -> tuple[list[Row], list[dict[str, Any]]]:
+    if action is None:
+        log(f"  skip action {action_id} (team {team_id}): no longer exists")
+        summary["skipped"] += len(action_rows)
+        return [], []
+    steps = list(action.steps_json or [])
+    to_apply: list[Row] = []
+    for row in action_rows:
+        index = row["step_index"]
+        if index >= len(steps) or (steps[index].get("selector") or "").strip() != row["selector"]:
+            log(
+                f"  skip action {action_id} step {index} (team {team_id}): "
+                f"selector changed since the report was generated, re-run the audit"
+            )
+            summary["skipped"] += 1
+            continue
+        to_apply.append(row)
+    return to_apply, steps
 
 
 def apply_rewrites(
@@ -463,39 +494,38 @@ def apply_rewrites(
         rows_by_action.setdefault((row["team_id"], row["action_id"]), []).append(row)
 
     for (team_id, action_id), action_rows in sorted(rows_by_action.items()):
-        action = Action.objects.filter(team_id=team_id, id=action_id, deleted=False).first()
-        if action is None:
-            log(f"  skip action {action_id} (team {team_id}): no longer exists")
-            summary["skipped"] += len(action_rows)
-            continue
-        steps = list(action.steps_json or [])
-        to_apply: list[Row] = []
-        for row in action_rows:
-            index = row["step_index"]
-            if index >= len(steps) or (steps[index].get("selector") or "").strip() != row["selector"]:
-                log(
-                    f"  skip action {action_id} step {index} (team {team_id}): "
-                    f"selector changed since the report was generated, re-run the audit"
-                )
-                summary["skipped"] += 1
-                continue
-            to_apply.append(row)
-        if not to_apply:
-            continue
-        for row in to_apply:
-            log(
-                f"  {'apply' if live_run else 'would apply'} team {team_id} action {action_id} "
-                f"step {row['step_index']}: {row['selector']!r} -> {row['rewrite']!r}"
-            )
-        if live_run:
+        if not live_run:
+            action = Action.objects.filter(team_id=team_id, id=action_id, deleted=False).first()
+            to_apply, _ = _appliable_rows(action, team_id, action_id, action_rows, log, summary)
             for row in to_apply:
+                log(
+                    f"  would apply team {team_id} action {action_id} "
+                    f"step {row['step_index']}: {row['selector']!r} -> {row['rewrite']!r}"
+                )
+            summary["planned"] += len(to_apply)
+            continue
+
+        # Lock the row so verify-mutate-save is atomic against a concurrent save
+        # of the same action from the API.
+        with transaction.atomic():
+            action = Action.objects.select_for_update().filter(team_id=team_id, id=action_id, deleted=False).first()
+            to_apply, steps = _appliable_rows(action, team_id, action_id, action_rows, log, summary)
+            if not to_apply:
+                continue
+            assert action is not None
+            for row in to_apply:
+                log(
+                    f"  apply team {team_id} action {action_id} "
+                    f"step {row['step_index']}: {row['selector']!r} -> {row['rewrite']!r}"
+                )
                 steps[row["step_index"]]["selector"] = row["rewrite"]
             action.steps_json = steps
-            action.save()
-            applied_at = timezone.now().isoformat()
-            for row in to_apply:
-                row["applied_at"] = applied_at
-            summary["applied"] += len(to_apply)
-        else:
-            summary["planned"] += len(to_apply)
+            # Confine the write to the fields this command changes (save() also
+            # refreshes bytecode), so it cannot clobber concurrent edits to any
+            # other field.
+            action.save(update_fields=["steps_json", "bytecode", "bytecode_error", "updated_at"])
+        applied_at = timezone.now().isoformat()
+        for row in to_apply:
+            row["applied_at"] = applied_at
+        summary["applied"] += len(to_apply)
     return summary

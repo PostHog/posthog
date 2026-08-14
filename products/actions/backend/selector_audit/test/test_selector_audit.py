@@ -1,4 +1,5 @@
 import re
+import csv
 import json
 from io import StringIO
 from pathlib import Path
@@ -212,7 +213,14 @@ class TestReportRoundtrip(SimpleTestCase):
             assert [key.split(":")[1] for key in diff["still_open"]] == ["1"]
             assert [key.split(":")[1] for key in diff["new"]] == ["3"]
 
-    def test_carry_over_keeps_apply_history_and_measurements(self) -> None:
+    def test_csv_cells_cannot_start_a_spreadsheet_formula(self) -> None:
+        hostile = make_row(action_name='=HYPERLINK("https://example.com")', selector="-moz-only > span")
+        with TemporaryDirectory() as tmp:
+            csv_path = save_report(Path(tmp) / "audit.json", build_report([hostile], {}, {"days": 7}, "old"))
+            with open(csv_path, newline="") as file:
+                data_row = list(csv.reader(file))[1]
+        assert data_row[2] == '\'=HYPERLINK("https://example.com")'
+        assert data_row[4] == "'-moz-only > span"
         counts = {"old_original": 10, "new_original": 1, "old_rewritten": 10, "new_rewritten": 10}
         previous_row = make_row(bucket=BUCKET_SAFE_REWRITE, counts=counts, applied_at="2026-01-01T00:00:00Z")
         previous = build_report([previous_row], {}, {"days": 7}, "old")
@@ -354,6 +362,7 @@ class TestApplyRewrites(BaseTest):
 
     def test_live_run_rewrites_and_logs_activity(self) -> None:
         action = self._make_action()
+        bytecode_before = action.bytecode
         row = self._safe_row(action)
 
         summary = apply_rewrites([row], frozenset({BUCKET_SAFE_REWRITE}), live_run=True, log=_noop_log)
@@ -362,6 +371,10 @@ class TestApplyRewrites(BaseTest):
         action.refresh_from_db()
         assert _steps(action)[0]["selector"] == '[id="root"] span'
         assert _steps(action)[1] == {"event": "$pageview"}
+        # The narrowed update_fields write must still persist the bytecode that
+        # save() recompiles, or destinations keep matching the old selector.
+        assert action.bytecode is not None
+        assert action.bytecode != bytecode_before
         assert row["applied_at"] is not None
         assert ActivityLog.objects.filter(scope="Action", item_id=str(action.pk), activity="updated").exists()
 
