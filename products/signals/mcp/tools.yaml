@@ -873,6 +873,9 @@ tools:
     signals-reports-viewed-create:
         operation: signals_reports_viewed_create
         enabled: false
+    signals-scout-chat-tasks-create:
+        operation: signals_scout_chat_tasks_create
+        enabled: false
     signals-scout-config-create:
         operation: signals_scout_config_create
         enabled: true
