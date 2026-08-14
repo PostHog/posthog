@@ -626,7 +626,10 @@ export function HogInvocations({
                     >
                         Refresh
                     </LemonButton>
-                    {functionKind === 'hog_flow' ? (
+                    {/* Workflow-wide cancel. Hidden in a parent-run-scoped or compact view (the batch
+                        panel), where its `{ all: true }` scope reads as the batch but cancels the whole
+                        workflow — that panel offers its own batch-scoped Stop instead. */}
+                    {functionKind === 'hog_flow' && !compact && !parentRunId ? (
                         <LemonButton
                             size="small"
                             type="secondary"
