@@ -17,7 +17,6 @@ export interface AbstractLemonTab<T extends string | number> {
     disabledReason?: string
     /** URL of the tab if it can be linked to (which is usually a good practice). */
     link?: string
-    linkTarget?: React.HTMLAttributeAnchorTarget
     tooltipDocLink?: string
     completed?: boolean
     /** data-attr to be placed on the tab button, useful for autocapture */
@@ -100,8 +99,6 @@ export function LemonTabs<T extends string | number>({
                 >
                     {realTabs.map((tab) => {
                         const disabled = !!tab.disabledReason
-                        const isLinked = !!tab.link
-                        const opensInNewTab = tab.linkTarget === '_blank'
                         const content = (
                             <div className="relative flex items-center gap-1" data-attr={tab['data-attr']}>
                                 {tab.label}
@@ -128,13 +125,13 @@ export function LemonTabs<T extends string | number>({
                                         tab.key === activeKey && 'LemonTabs__tab--active',
                                         disabled && 'LemonTabs__tab--disabled'
                                     )}
-                                    onClick={onChange && !disabled && !isLinked ? () => onChange(tab.key) : undefined}
-                                    role={isLinked ? undefined : 'tab'}
-                                    aria-selected={isLinked ? undefined : tab.key === activeKey}
-                                    aria-disabled={isLinked ? undefined : disabled || undefined}
-                                    tabIndex={isLinked ? undefined : disabled ? -1 : 0}
+                                    onClick={onChange && !disabled ? () => onChange(tab.key) : undefined}
+                                    role="tab"
+                                    aria-selected={tab.key === activeKey}
+                                    aria-disabled={disabled || undefined}
+                                    tabIndex={disabled ? -1 : 0}
                                     onKeyDown={
-                                        onChange && !disabled && !isLinked && !opensInNewTab
+                                        onChange && !disabled
                                             ? (e) => {
                                                   if (e.key === 'Enter') {
                                                       onChange(tab.key)
@@ -145,7 +142,7 @@ export function LemonTabs<T extends string | number>({
                                     ref={tab.key === activeKey ? selectionRef : undefined}
                                 >
                                     {tab.link ? (
-                                        <Link className="LemonTabs__tab-content" to={tab.link} target={tab.linkTarget}>
+                                        <Link className="LemonTabs__tab-content" to={tab.link}>
                                             {content}
                                         </Link>
                                     ) : (

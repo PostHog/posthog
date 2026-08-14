@@ -120,7 +120,6 @@ export function EditAlertTabs({
                       </span>
                   ),
                   link: observedLogsUrl,
-                  linkTarget: '_blank',
               }
             : null,
     ]
