@@ -2778,6 +2778,90 @@ describe("AgentServer HTTP Mode", () => {
       expect(resetTurnMessages).not.toHaveBeenCalled();
     }, 20000);
 
+    it("declines steering while an initial or resume turn is starting", async () => {
+      const s = createServer();
+      await s.start();
+      const prompt = vi.fn();
+      const serverInternals = s as unknown as {
+        activeOwnedTurnCount: number;
+        activeStartupTurnCount: number;
+        session: { clientConnection: { prompt: typeof prompt } };
+      };
+      serverInternals.activeOwnedTurnCount = 1;
+      serverInternals.activeStartupTurnCount = 1;
+      serverInternals.session.clientConnection.prompt = prompt;
+
+      const response = await fetch(`http://localhost:${port}/command`, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${createToken()}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          jsonrpc: "2.0",
+          id: "steer-during-resume",
+          method: "user_message",
+          params: {
+            content: "status?",
+            messageId: "steer-during-resume",
+            steer: true,
+          },
+        }),
+      });
+
+      expect(response.status).toBe(200);
+      await expect(response.json()).resolves.toMatchObject({
+        result: { stopReason: "steer_declined", steered: false },
+      });
+      expect(prompt).not.toHaveBeenCalled();
+    }, 20000);
+
+    it("declines steering while a prewarmed first turn is starting", async () => {
+      const s = createServer();
+      await s.start();
+      let finishTurn!: (result: { stopReason: "end_turn" }) => void;
+      const prompt = vi.fn(
+        () =>
+          new Promise<{ stopReason: "end_turn" }>((resolve) => {
+            finishTurn = resolve;
+          }),
+      );
+      const serverInternals = s as unknown as {
+        prewarmedStartupTurnPending: boolean;
+        session: { clientConnection: { prompt: typeof prompt } };
+      };
+      serverInternals.prewarmedStartupTurnPending = true;
+      serverInternals.session.clientConnection.prompt = prompt;
+
+      const token = createToken();
+      const send = (id: string, steer = false) =>
+        fetch(`http://localhost:${port}/command`, {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${token}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            jsonrpc: "2.0",
+            id,
+            method: "user_message",
+            params: { content: id, messageId: id, ...(steer && { steer }) },
+          }),
+        });
+
+      const firstTurn = send("first-turn");
+      await vi.waitFor(() => expect(prompt).toHaveBeenCalledOnce());
+
+      const steerResponse = await send("steer-during-first-turn", true);
+      await expect(steerResponse.json()).resolves.toMatchObject({
+        result: { stopReason: "steer_declined", steered: false },
+      });
+      expect(prompt).toHaveBeenCalledOnce();
+
+      finishTurn({ stopReason: "end_turn" });
+      await firstTurn;
+    }, 20000);
+
     it("does not queue steering behind an active non-steering turn", async () => {
       const s = createServer();
       await s.start();

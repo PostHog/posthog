@@ -350,7 +350,7 @@ export function getCookie(name: string): string | null {
     return cookieValue
 }
 
-function isAbortError(error: unknown): boolean {
+export function isAbortError(error: unknown): boolean {
     return (error as { name?: string } | null)?.name === 'AbortError'
 }
 
@@ -3605,7 +3605,9 @@ const api = {
     },
 
     organizationMembers: {
-        async list(params: ListOrganizationMembersParams = {}): Promise<PaginatedResponse<OrganizationMemberType>> {
+        async list(
+            params: ListOrganizationMembersParams = {}
+        ): Promise<CountedPaginatedResponse<OrganizationMemberType>> {
             return await new ApiRequest().organizationMembers().withQueryString(params).get()
         },
 

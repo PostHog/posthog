@@ -141,6 +141,7 @@ const AssistantDataVisualizationDisplayType = z.enum([
     'ActionsStackedBar',
     'ActionsAreaGraph',
     'TwoDimensionalHeatmap',
+    'ScatterPlot',
 ])
 
 const AssistantDataVisualizationTableSettings = z.object({

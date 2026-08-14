@@ -20,7 +20,7 @@ def _make_scanner(team, **overrides) -> ReplayScanner:
         "name": "my-scanner",
         "scanner_type": ScannerType.MONITOR,
         "scanner_config": {"prompt": "test"},
-        "model": ScannerModel.GEMINI_3_6_FLASH,
+        "model": ScannerModel.GEMINI_3_7_FLASH,
     }
     defaults.update(overrides)
     return ReplayScanner.objects.create(**defaults)
@@ -53,7 +53,7 @@ class TestReplayScanner(BaseTest):
             name="shared",
             scanner_type=ScannerType.MONITOR,
             scanner_config={"prompt": "test"},
-            model=ScannerModel.GEMINI_3_6_FLASH,
+            model=ScannerModel.GEMINI_3_7_FLASH,
         )
 
     def test_str_includes_name_and_type(self) -> None:
@@ -172,6 +172,23 @@ class TestReplayScanner(BaseTest):
         self.assertEqual(scanner.last_seen_session_id, "sess-tie")
         self.assertEqual(scanner.last_deep_swept_at, stale)
 
+    def test_full_save_does_not_clobber_sweep_owned_columns(self) -> None:
+        # A concurrent sweep stamps these via targeted updates; a full save from a stale
+        # in-memory instance (any API PATCH) must not write them back to their old values.
+        scanner = self._create_scanner()
+        watermark = timezone.now() - timedelta(days=3)
+        stamp = timezone.now() - timedelta(days=10)
+        ReplayScanner.objects.filter(pk=scanner.pk).update(
+            last_swept_at=watermark, last_seen_session_id="sess-tie", limit_notified_period_start=stamp
+        )
+        scanner.name = "renamed during a sweep"
+        scanner.save()
+        scanner.refresh_from_db()
+        self.assertEqual(scanner.name, "renamed during a sweep")
+        self.assertEqual(scanner.last_swept_at, watermark)
+        self.assertEqual(scanner.last_seen_session_id, "sess-tie")
+        self.assertEqual(scanner.limit_notified_period_start, stamp)
+
 
 class TestReplayObservation(BaseTest):
     def _create_scanner(self, **overrides) -> ReplayScanner:
@@ -208,7 +225,7 @@ class TestReplayObservation(BaseTest):
             name="other-scanner",
             scanner_type=ScannerType.MONITOR,
             scanner_config={"prompt": "test"},
-            model=ScannerModel.GEMINI_3_6_FLASH,
+            model=ScannerModel.GEMINI_3_7_FLASH,
         )
         self._create_observation(scanner_a, session_id="shared-session")
         self._create_observation(scanner_b, session_id="shared-session")
@@ -275,7 +292,7 @@ class TestReplayObservation(BaseTest):
             name="doomed",
             scanner_type=ScannerType.MONITOR,
             scanner_config={"prompt": "test"},
-            model=ScannerModel.GEMINI_3_6_FLASH,
+            model=ScannerModel.GEMINI_3_7_FLASH,
         )
         self._create_observation(scanner, session_id="doomed-session")
         scanner_id = scanner.id
@@ -317,7 +334,7 @@ class TestScannerCreditLimit(APIBaseTest):
             name=f"limit-scanner-{ReplayScanner.objects.count()}",
             scanner_type=ScannerType.MONITOR,
             scanner_config={"prompt": "p"},
-            model=ScannerModel.GEMINI_3_6_FLASH,
+            model=ScannerModel.GEMINI_3_7_FLASH,
             **kwargs,
         )
 
@@ -331,7 +348,7 @@ class TestScannerCreditLimit(APIBaseTest):
             name="limit-validator-scanner",
             scanner_type=ScannerType.MONITOR,
             scanner_config={"prompt": "p"},
-            model=ScannerModel.GEMINI_3_6_FLASH,
+            model=ScannerModel.GEMINI_3_7_FLASH,
             credit_limit=limit,
         )
         with self.assertRaises(ValidationError) as ctx:

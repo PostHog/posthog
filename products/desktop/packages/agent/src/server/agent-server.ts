@@ -320,6 +320,19 @@ function isManualCompactPrompt(prompt: ContentBlock[]): boolean {
   return /^\/compact(?:\s|$)/.test(promptBlocksToText(prompt).trimStart());
 }
 
+/** True when the agent implements `/clear` and honours the conversation-cleared boundary. */
+function extractConversationClearCapability(result: unknown): boolean {
+  return (
+    (
+      result as {
+        agentCapabilities?: {
+          _meta?: { posthog?: { conversationClear?: unknown } };
+        };
+      }
+    )?.agentCapabilities?._meta?.posthog?.conversationClear === true
+  );
+}
+
 function extractSteeringCapability(result: unknown): string | undefined {
   const steering = (
     result as {
@@ -434,6 +447,7 @@ export class AgentServer {
   // --autoPublish flag can't carry the user's choice; it is resolved from run
   // state when the first message arrives (see resolveWarmActivationSettings).
   private prewarmedRun = false;
+  private prewarmedStartupTurnPending = false;
   private warmAutoPublishResolved = false;
   private warmReasoningEffortResolved = false;
   private installedSkillBundles = new Set<string>();
@@ -452,6 +466,7 @@ export class AgentServer {
   private pendingCompactContinuationMessageIds = new Set<string>();
   private inFlightMessageDeliveries = new Map<string, Promise<unknown>>();
   private activeOwnedTurnCount = 0;
+  private activeStartupTurnCount = 0;
   // Normal follow-ups own turns in arrival order. Explicit steering bypasses
   // this tail so it can still reach the active adapter turn immediately.
   private nonSteerDeliveryTail: Promise<void> = Promise.resolve();
@@ -1208,7 +1223,10 @@ export class AgentServer {
           };
 
           if (params.steer === true) {
-            if (this.activeOwnedTurnCount > 0) {
+            if (
+              this.activeOwnedTurnCount > 0 &&
+              this.activeStartupTurnCount === 0
+            ) {
               const result = await commandSession.clientConnection.prompt({
                 sessionId: commandSession.acpSessionId,
                 prompt,
@@ -1258,7 +1276,7 @@ export class AgentServer {
                 this.pendingCompactContinuationMessageIds.delete(messageId);
               }
             } else {
-              result = await this.runOwnedTurn(() => {
+              const runPrompt = () => {
                 const promptResult = commandSession.clientConnection.prompt({
                   sessionId: commandSession.acpSessionId,
                   prompt,
@@ -1270,7 +1288,13 @@ export class AgentServer {
                   throw new Error("Agent connection did not accept the prompt");
                 }
                 return promptResult;
-              });
+              };
+              if (this.prewarmedStartupTurnPending) {
+                this.prewarmedStartupTurnPending = false;
+                result = await this.runStartupTurn(runPrompt);
+              } else {
+                result = await this.runOwnedTurn(runPrompt);
+              }
 
               if (result.stopReason === "end_turn" && manualCompactPrompt) {
                 commitDelivery();
@@ -1589,6 +1613,7 @@ export class AgentServer {
     this.nativeResume = null;
     this.preSessionEvents = [];
     this.prewarmedRun = false;
+    this.prewarmedStartupTurnPending = false;
     this.warmAutoPublishResolved = false;
     this.warmReasoningEffortResolved = false;
 
@@ -1628,6 +1653,7 @@ export class AgentServer {
     this.prewarmedRun =
       (preTaskRun?.state as Record<string, unknown> | undefined)?.prewarmed ===
       true;
+    this.prewarmedStartupTurnPending = this.prewarmedRun;
 
     const gatewayEnv = this.configureEnvironment({
       isInternal: preTask?.internal === true,
@@ -1778,6 +1804,8 @@ export class AgentServer {
       clientCapabilities: {},
     });
     const steering = extractSteeringCapability(initializeResult);
+    const conversationClear =
+      extractConversationClearCapability(initializeResult);
 
     const runState = preTaskRun?.state as Record<string, unknown> | undefined;
     // Preserve native Codex modes for cloud runs so they behave the same as
@@ -1976,6 +2004,8 @@ export class AgentServer {
         taskId: payload.task_id,
         agentVersion: this.config.version ?? packageJson.version,
         ...(steering ? { steering } : {}),
+        // Absent on older agents, which is exactly what the host gates on.
+        ...(conversationClear ? { conversationClear } : {}),
       },
     };
     this.broadcastEvent({
@@ -2044,6 +2074,15 @@ export class AgentServer {
       return await operation();
     } finally {
       this.activeOwnedTurnCount -= 1;
+    }
+  }
+
+  private async runStartupTurn<T>(operation: () => Promise<T>): Promise<T> {
+    this.activeStartupTurnCount += 1;
+    try {
+      return await this.runOwnedTurn(operation);
+    } finally {
+      this.activeStartupTurnCount -= 1;
     }
   }
 
@@ -2278,7 +2317,7 @@ export class AgentServer {
         throw new Error("Agent session is missing its ACP session ID");
       }
 
-      const result = await this.runOwnedTurn(() =>
+      const result = await this.runStartupTurn(() =>
         this.promptWithUpstreamRetry({
           sessionId: acpSessionId,
           prompt: initialPrompt,
@@ -2516,7 +2555,7 @@ export class AgentServer {
         throw new Error("Agent session is missing its ACP session ID");
       }
 
-      const result = await this.runOwnedTurn(() =>
+      const result = await this.runStartupTurn(() =>
         this.promptWithUpstreamRetry({
           sessionId: acpSessionId,
           prompt: builtPrompt.prompt,
@@ -4365,7 +4404,7 @@ ${commonInstructions}
 
         // Tools on relayed MCP servers execute on the user's machine with
         // their local privileges: always ask, regardless of permission mode
-        // (docs/cloud-mcp-relay.md). Without a reachable client, deny rather
+        // (docs/CLOUD-MCP-RELAY.md). Without a reachable client, deny rather
         // than auto-approve.
         {
           // Read the MCP server through the adapter-neutral `_meta.posthog`

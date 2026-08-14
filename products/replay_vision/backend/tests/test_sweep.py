@@ -16,7 +16,10 @@ from products.replay_vision.backend.models.replay_observation import (
     ObservationTrigger,
     ReplayObservation,
 )
+from products.replay_vision.backend.models.replay_observation_usage import ReplayObservationUsage
 from products.replay_vision.backend.models.replay_scanner import ReplayScanner, ScannerModel, ScannerType
+from products.replay_vision.backend.models.replay_scanner_backfill import ReplayScannerBackfill
+from products.replay_vision.backend.queries import excluded_sessions
 from products.replay_vision.backend.queries.scanner_candidate_query import (
     DEFAULT_CANDIDATE_LIMIT,
     SWEEP_EVENTS_LOOKBACK,
@@ -41,6 +44,7 @@ from products.replay_vision.backend.temporal.constants import (
     SWEEP_READ_BUDGET_BYTES_24H,
     build_process_vision_action_workflow_id,
 )
+from products.replay_vision.backend.temporal.snapshots import BackfillScannerSnapshot
 from products.replay_vision.backend.temporal.sweep_types import (
     AdvanceScannerWatermarkInputs,
     CandidateSessionPayload,
@@ -56,7 +60,7 @@ from products.replay_vision.backend.temporal.vision_actions.types import DueVisi
 from products.replay_vision.backend.tests.helpers import seed_scanner_spend, snapshot_for
 
 # Every scanner built below runs on this model, so its price sets what one observation draws.
-_OBSERVATION_CREDITS = observation_credits_for_model(ScannerModel.GEMINI_3_6_FLASH)
+_OBSERVATION_CREDITS = observation_credits_for_model(ScannerModel.GEMINI_3_7_FLASH)
 
 
 def _make_scanner(**overrides) -> ReplayScanner:
@@ -67,7 +71,7 @@ def _make_scanner(**overrides) -> ReplayScanner:
         "name": "sweep-scanner",
         "scanner_type": ScannerType.MONITOR,
         "scanner_config": {"prompt": "p"},
-        "model": ScannerModel.GEMINI_3_6_FLASH,
+        "model": ScannerModel.GEMINI_3_7_FLASH,
     }
     defaults.update(overrides)
     return ReplayScanner.objects.create(**defaults)
@@ -438,6 +442,51 @@ class TestFindScannerCandidatesActivity:
             assert result.swept_through is None
             assert result.candidates == []
 
+    _NEGATIVE_QUERY = {
+        "kind": "RecordingsQuery",
+        "properties": [{"key": "$host", "value": ["internal.example.com"], "operator": "is_not", "type": "event"}],
+    }
+
+    def test_fully_excluded_batch_still_advances_the_keyset(self) -> None:
+        # Falling back to the last surviving candidate would leave the keyset where it was and refetch
+        # the same excluded rows forever.
+        scanner = _make_scanner(query=self._NEGATIVE_QUERY)
+        fetched = [CandidateSession(session_id="blocked", session_end=dt.datetime(2026, 5, 1, 10, 0, tzinfo=dt.UTC))]
+
+        with (
+            patch(
+                "products.replay_vision.backend.temporal.activities.find_scanner_candidates.ScannerCandidateQuery"
+            ) as MockQuery,
+            patch.object(excluded_sessions, "excluded_session_ids", return_value={"blocked"}),
+        ):
+            MockQuery.return_value.run.return_value = fetched
+            result = find_scanner_candidates_activity(
+                FindScannerCandidatesInputs(scanner_id=scanner.id, team_id=scanner.team_id)
+            )
+
+        assert MockQuery.call_args.kwargs["skip_negative_blocklists"] is True
+        assert result.candidates == []
+        assert result.keyset_session_id == "blocked"
+        assert result.keyset_end == fetched[0].session_end
+
+    def test_exclusion_failure_fails_the_tick_rather_than_dispatching(self) -> None:
+        # The in-query blocklists are off by this point, so swallowing this would dispatch unfiltered.
+        scanner = _make_scanner(query=self._NEGATIVE_QUERY)
+
+        with (
+            patch(
+                "products.replay_vision.backend.temporal.activities.find_scanner_candidates.ScannerCandidateQuery"
+            ) as MockQuery,
+            patch.object(excluded_sessions, "excluded_session_ids", side_effect=RuntimeError("clickhouse down")),
+        ):
+            MockQuery.return_value.run.return_value = [
+                CandidateSession(session_id="sess-a", session_end=dt.datetime(2026, 5, 1, 10, 0, tzinfo=dt.UTC))
+            ]
+            with pytest.raises(RuntimeError):
+                find_scanner_candidates_activity(
+                    FindScannerCandidatesInputs(scanner_id=scanner.id, team_id=scanner.team_id)
+                )
+
     def test_raises_non_retryable_on_malformed_query(self) -> None:
         scanner = _make_scanner()
         scanner.query = {"kind": "TrendsQuery"}
@@ -603,6 +652,214 @@ def test_check_scanner_budget_activity_capped_by_in_flight_alone_does_not_advanc
     assert scanner.last_swept_at == stale
     assert scanner.last_seen_session_id == "sess-old"
     assert scanner.last_deep_swept_at == stale
+
+
+@pytest.mark.django_db(transaction=True)
+def test_check_scanner_budget_activity_capped_by_in_flight_alone_does_not_notify() -> None:
+    # A transient in-flight-only cap may clear itself within minutes as reservations release;
+    # notifying there could tell a user their scanner stopped when it's about to resume on its own.
+    limit = 20 * _OBSERVATION_CREDITS
+    scanner = _make_scanner(credit_limit=limit)
+    seed_scanner_spend(scanner, _OBSERVATION_CREDITS, observations=10)
+    _seed_in_flight_observations(scanner, count=10)
+
+    with patch("products.notifications.backend.facade.api.create_notification") as mock_notify:
+        output = check_scanner_budget_activity(CheckScannerBudgetInputs(scanner_id=scanner.id, team_id=scanner.team_id))
+
+    assert output.capped is True
+    mock_notify.assert_not_called()
+
+
+@pytest.mark.django_db(transaction=True)
+def test_check_scanner_budget_activity_notifies_once_per_period_on_settled_exhaustion() -> None:
+    limit = 20 * _OBSERVATION_CREDITS
+    scanner = _make_scanner(credit_limit=limit)
+    seed_scanner_spend(scanner, _OBSERVATION_CREDITS, observations=20)
+
+    with patch("products.notifications.backend.facade.api.create_notification") as mock_notify:
+        first = check_scanner_budget_activity(CheckScannerBudgetInputs(scanner_id=scanner.id, team_id=scanner.team_id))
+        second = check_scanner_budget_activity(CheckScannerBudgetInputs(scanner_id=scanner.id, team_id=scanner.team_id))
+
+    # The pause is not conditional on the notification: both calls still report capped.
+    assert first.capped is True
+    assert second.capped is True
+    mock_notify.assert_called_once()
+    scanner.refresh_from_db()
+    assert scanner.limit_notified_period_start is not None
+
+
+@pytest.mark.parametrize("has_running_backfill", [True, False])
+@pytest.mark.django_db(transaction=True)
+def test_limit_notification_mentions_a_running_backfill_only_when_there_is_one(has_running_backfill: bool) -> None:
+    # The cap holds a running backfill without changing its status, so the notification is the one
+    # place that can say why the backfill stalled; scanners without one must not get that line.
+    limit = 20 * _OBSERVATION_CREDITS
+    scanner = _make_scanner(credit_limit=limit)
+    seed_scanner_spend(scanner, _OBSERVATION_CREDITS, observations=20)
+    if has_running_backfill:
+        ReplayScannerBackfill.objects.for_team(scanner.team_id).create(
+            scanner=scanner,
+            team=scanner.team,
+            window_start=dt.datetime(2026, 4, 1, tzinfo=dt.UTC),
+            window_end=dt.datetime(2026, 5, 1, tzinfo=dt.UTC),
+            scanner_snapshot=BackfillScannerSnapshot.from_scanner(scanner).model_dump(mode="json"),
+            credits_per_observation=_OBSERVATION_CREDITS,
+            total_count=10,
+        )
+
+    with patch("products.notifications.backend.facade.api.create_notification") as mock_notify:
+        check_scanner_budget_activity(CheckScannerBudgetInputs(scanner_id=scanner.id, team_id=scanner.team_id))
+
+    mock_notify.assert_called_once()
+    body = mock_notify.call_args[0][0].body
+    assert ("backfill is on hold" in body) is has_running_backfill
+
+
+@pytest.mark.django_db(transaction=True)
+def test_scanner_capped_last_period_is_uncapped_after_the_period_resets() -> None:
+    # The cap is per billing period: a scanner that went dark last period resumes on the first
+    # tick of the new one, still collecting into the same scanner.
+    limit = 20 * _OBSERVATION_CREDITS
+    scanner = _make_scanner(credit_limit=limit)
+    seed_scanner_spend(scanner, _OBSERVATION_CREDITS, observations=20)
+    last_period = dt.datetime.now(dt.UTC) - dt.timedelta(days=40)
+    ReplayObservation.objects.filter(scanner=scanner).update(created_at=last_period)
+    ReplayObservationUsage.objects.filter(scanner_id=scanner.id).update(observation_created_at=last_period)
+
+    with patch("products.notifications.backend.facade.api.create_notification") as mock_notify:
+        output = check_scanner_budget_activity(CheckScannerBudgetInputs(scanner_id=scanner.id, team_id=scanner.team_id))
+
+    assert output.capped is False
+    mock_notify.assert_not_called()
+
+
+@pytest.mark.django_db(transaction=True)
+def test_check_scanner_budget_activity_notifies_again_after_period_rolls_over() -> None:
+    limit = 20 * _OBSERVATION_CREDITS
+    scanner = _make_scanner(credit_limit=limit)
+    seed_scanner_spend(scanner, _OBSERVATION_CREDITS, observations=20)
+    prior_period = dt.datetime(2020, 1, 1, tzinfo=dt.UTC)
+    ReplayScanner.objects.filter(pk=scanner.pk).update(limit_notified_period_start=prior_period)
+
+    with patch("products.notifications.backend.facade.api.create_notification") as mock_notify:
+        output = check_scanner_budget_activity(CheckScannerBudgetInputs(scanner_id=scanner.id, team_id=scanner.team_id))
+
+    assert output.capped is True
+    mock_notify.assert_called_once()
+    scanner.refresh_from_db()
+    assert scanner.limit_notified_period_start is not None
+    assert scanner.limit_notified_period_start > prior_period
+
+
+@pytest.mark.django_db(transaction=True)
+def test_limit_notification_excludes_users_denied_on_the_scanner() -> None:
+    from posthog.constants import AvailableFeature
+    from posthog.models import OrganizationMembership, User
+
+    from products.notifications.backend.facade.enums import TargetType
+
+    from ee.models.rbac.access_control import AccessControl
+
+    limit = 20 * _OBSERVATION_CREDITS
+    scanner = _make_scanner(credit_limit=limit)
+    seed_scanner_spend(scanner, _OBSERVATION_CREDITS, observations=20)
+    organization = scanner.team.organization
+    organization.available_product_features = [
+        {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
+    ]
+    organization.save()
+    allowed = User.objects.create_and_join(organization, "allowed@posthog.com", "testtest")
+    denied = User.objects.create_and_join(organization, "denied@posthog.com", "testtest")
+    AccessControl.objects.create(
+        team=scanner.team,
+        resource="replay_scanner",
+        resource_id=str(scanner.id),
+        access_level="none",
+        organization_member=OrganizationMembership.objects.get(user=denied, organization=organization),
+    )
+
+    with patch("products.notifications.backend.facade.api.create_notification") as mock_notify:
+        check_scanner_budget_activity(CheckScannerBudgetInputs(scanner_id=scanner.id, team_id=scanner.team_id))
+
+    mock_notify.assert_called_once()
+    data = mock_notify.call_args[0][0]
+    assert data.resource_type == "replay_scanner"
+    assert data.resource_id == str(scanner.id)
+    recipients = data.resolver.resolve(TargetType.TEAM, str(scanner.team_id), scanner.team_id)
+    assert allowed.id in recipients
+    assert denied.id not in recipients
+
+
+@pytest.mark.django_db(transaction=True)
+def test_limit_notification_is_delivered_end_to_end() -> None:
+    # Everything real except the remote feature flag and Kafka: mock-only coverage let the
+    # whole delivery path regress invisibly.
+    from posthog.models import User
+
+    from products.notifications.backend.models import NotificationEvent
+
+    limit = 20 * _OBSERVATION_CREDITS
+    scanner = _make_scanner(credit_limit=limit)
+    seed_scanner_spend(scanner, _OBSERVATION_CREDITS, observations=20)
+    member = User.objects.create_and_join(scanner.team.organization, "member@posthog.com", "testtest")
+
+    with (
+        patch("products.notifications.backend.logic.posthoganalytics.feature_enabled", return_value=True),
+        patch("products.notifications.backend.logic._publish_to_kafka"),
+    ):
+        output = check_scanner_budget_activity(CheckScannerBudgetInputs(scanner_id=scanner.id, team_id=scanner.team_id))
+
+    assert output.capped is True
+    event = NotificationEvent.objects.get(resource_type="replay_scanner", resource_id=str(scanner.id))
+    assert member.id in event.resolved_user_ids
+    assert event.source_url == f"/project/{scanner.team.project_id}/replay-vision/{scanner.id}"
+    assert scanner.name in event.title
+
+
+@pytest.mark.django_db(transaction=True)
+def test_failed_send_returns_the_notification_to_the_next_tick() -> None:
+    # A transient pipeline outage must delay the period's one notification, not consume it.
+    limit = 20 * _OBSERVATION_CREDITS
+    scanner = _make_scanner(credit_limit=limit)
+    seed_scanner_spend(scanner, _OBSERVATION_CREDITS, observations=20)
+
+    with patch(
+        "products.notifications.backend.facade.api.create_notification", side_effect=RuntimeError("pipeline down")
+    ):
+        check_scanner_budget_activity(CheckScannerBudgetInputs(scanner_id=scanner.id, team_id=scanner.team_id))
+
+    scanner.refresh_from_db()
+    assert scanner.limit_notified_period_start is None
+
+    with patch("products.notifications.backend.facade.api.create_notification") as mock_notify:
+        check_scanner_budget_activity(CheckScannerBudgetInputs(scanner_id=scanner.id, team_id=scanner.team_id))
+
+    mock_notify.assert_called_once()
+    scanner.refresh_from_db()
+    assert scanner.limit_notified_period_start is not None
+
+
+@pytest.mark.django_db(transaction=True)
+def test_raising_the_limit_rearms_the_notification_for_the_same_period() -> None:
+    # Editing the limit clears the stamp (see the serializer), so hitting the raised limit later in
+    # the same period notifies again instead of staying silent until the next period.
+    limit = 20 * _OBSERVATION_CREDITS
+    scanner = _make_scanner(credit_limit=limit)
+    seed_scanner_spend(scanner, _OBSERVATION_CREDITS, observations=20)
+
+    with patch("products.notifications.backend.facade.api.create_notification") as mock_notify:
+        check_scanner_budget_activity(CheckScannerBudgetInputs(scanner_id=scanner.id, team_id=scanner.team_id))
+    mock_notify.assert_called_once()
+
+    # The user raises the limit; the serializer clears the stamp alongside.
+    ReplayScanner.objects.filter(pk=scanner.pk).update(credit_limit=2 * limit, limit_notified_period_start=None)
+    seed_scanner_spend(scanner, _OBSERVATION_CREDITS, observations=20)
+
+    with patch("products.notifications.backend.facade.api.create_notification") as mock_notify:
+        output = check_scanner_budget_activity(CheckScannerBudgetInputs(scanner_id=scanner.id, team_id=scanner.team_id))
+
+    assert output.capped is True
+    mock_notify.assert_called_once()
 
 
 # SweepScannerWorkflow (mocked-Temporal)
