@@ -257,18 +257,18 @@ function ClassifierOverview({ scannerId }: { scannerId: string }): JSX.Element |
     }
     const freeformAllowed = !!scanner.scanner_config.allow_freeform_tags
     const fixedEmpty = hasActiveOverviewFilters
-        ? 'No fixed-vocabulary tags match the current filter.'
-        : 'No fixed-vocabulary tags emitted yet.'
+        ? 'No configured categories match the current filter.'
+        : 'No configured categories emitted yet.'
     const freeformEmpty = hasActiveOverviewFilters
-        ? 'No freeform tags match the current filter.'
-        : 'No freeform tags emitted yet.'
+        ? 'No freeform categories match the current filter.'
+        : 'No freeform categories emitted yet.'
 
     const cohortAction = (tag: string): JSX.Element => (
         <LemonButton
             type="secondary"
             size="xsmall"
             icon={<IconPeople />}
-            tooltip={`Save users tagged "${tag}" in the last 30 days as a cohort`}
+            tooltip={`Save users in category "${tag}" from the last 30 days as a cohort`}
             onClick={() => saveAffectedCohort(tag)}
             loading={affectedCohortLoading && savingCohortTag === tag}
             disabledReason={
@@ -282,7 +282,7 @@ function ClassifierOverview({ scannerId }: { scannerId: string }): JSX.Element |
 
     return (
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-            <OverviewPanel title="Top fixed tags" subtitle="from configured vocabulary" fill>
+            <OverviewPanel title="Top configured categories" subtitle="from the categories you defined" fill>
                 <RankedTermList
                     ranked={fixedRanked}
                     loading={overviewStatsApiLoading}
@@ -293,8 +293,8 @@ function ClassifierOverview({ scannerId }: { scannerId: string }): JSX.Element |
             </OverviewPanel>
 
             <OverviewPanel
-                title="Top freeform tags"
-                subtitle={freeformAllowed ? 'outside configured vocabulary' : 'disabled'}
+                title="Top freeform categories"
+                subtitle={freeformAllowed ? 'outside the categories you defined' : 'disabled'}
                 disabled={!freeformAllowed}
                 fill
             >
@@ -308,8 +308,9 @@ function ClassifierOverview({ scannerId }: { scannerId: string }): JSX.Element |
                     />
                 ) : (
                     <div className="text-muted text-sm">
-                        Freeform tags are disabled for this scanner, so the model can only pick from your configured
-                        vocabulary. Enable "Allow freeform tags" in the scanner config to let it propose new ones.
+                        Freeform categories are disabled for this scanner, so the model can only pick from the
+                        categories you defined. Enable "Allow freeform categories" in the scanner config to let it
+                        propose new ones.
                     </div>
                 )}
             </OverviewPanel>

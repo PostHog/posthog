@@ -2238,7 +2238,7 @@ class SuggestReplayVisionTagsTool(ReplayVisionGatesMixin, MaxTool):
         if scanner is None:
             return f"Scanner {scanner_id} not found.", {"error": "not_found"}
         if scanner.scanner_type != ScannerType.CLASSIFIER:
-            return "Only classifier scanners have a tag vocabulary.", {"error": "not_a_classifier"}
+            return "Only classifier scanners have categories.", {"error": "not_a_classifier"}
         # Pooled rather than thread-sensitive: the model call carries a 90s timeout, and the shared
         # executor would queue every other database operation behind it. Still connection-managed,
         # because the suggestion path reads observations and event definitions.
