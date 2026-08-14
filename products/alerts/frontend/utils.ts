@@ -12,7 +12,7 @@ export enum AlertsTab {
 export function resolveSnoozeUntil(value: string): string {
     const relativeValue = value.match(/^\+(\d+)([mhdwMy])$/)
     if (!relativeValue) {
-        return dayjs(value).endOf('day').toISOString()
+        return dayjs(value).toISOString()
     }
 
     const amount = Number(relativeValue[1])

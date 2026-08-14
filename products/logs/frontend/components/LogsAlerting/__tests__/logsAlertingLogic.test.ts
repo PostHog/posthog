@@ -15,6 +15,10 @@ import {
     logsAlertsPartialUpdate,
     logsAlertsResetCreate,
 } from 'products/logs/frontend/generated/api'
+import {
+    LogsAlertConfigurationApi,
+    LogsAlertConfigurationStateEnumApi,
+} from 'products/logs/frontend/generated/api.schemas'
 
 import { logsAlertingLogic } from '../logsAlertingLogic'
 
@@ -40,6 +44,42 @@ const mockList = logsAlertsList as jest.MockedFunction<typeof logsAlertsList>
 const mockCreate = logsAlertsCreate as jest.MockedFunction<typeof logsAlertsCreate>
 const mockPartialUpdate = logsAlertsPartialUpdate as jest.MockedFunction<typeof logsAlertsPartialUpdate>
 
+const MOCK_ALERT: LogsAlertConfigurationApi = {
+    id: 'alert-1',
+    name: 'Errors',
+    enabled: true,
+    filters: { severityLevels: ['error'] },
+    threshold_count: 100,
+    threshold_operator: 'above',
+    window_minutes: 5,
+    evaluation_periods: 1,
+    datapoints_to_alarm: 1,
+    cooldown_minutes: 0,
+    snooze_until: null,
+    check_interval_minutes: 5,
+    state: LogsAlertConfigurationStateEnumApi.NotFiring,
+    next_check_at: null,
+    last_notified_at: null,
+    last_checked_at: null,
+    consecutive_failures: 0,
+    last_error_message: null,
+    state_timeline: [],
+    destination_types: [],
+    first_enabled_at: null,
+    created_at: '2026-08-12T12:00:00.000Z',
+    created_by: {
+        id: 1,
+        uuid: 'user-1',
+        email: 'test@example.com',
+        hedgehog_config: null,
+    },
+    updated_at: null,
+}
+
+function createMockAlert(overrides: Partial<LogsAlertConfigurationApi> = {}): LogsAlertConfigurationApi {
+    return { ...MOCK_ALERT, ...overrides }
+}
+
 function deferred<T>(): { promise: Promise<T>; resolve: (value: T) => void } {
     let resolve!: (value: T) => void
     const promise = new Promise<T>((resolvePromise) => {
@@ -52,7 +92,7 @@ describe('logsAlertingLogic', () => {
     beforeEach(() => {
         initKeaTests()
         jest.clearAllMocks()
-        mockList.mockResolvedValue({ results: [] } as any)
+        mockList.mockResolvedValue({ count: 0, results: [] })
     })
 
     describe('createdByFilter', () => {
@@ -102,13 +142,13 @@ describe('logsAlertingLogic', () => {
             await expectLogic(logic).toFinishAllListeners()
 
             const previousProjectResponse = deferred<Awaited<ReturnType<typeof logsAlertsList>>>()
-            const currentProjectAlerts = [{ id: 'current-project-alert' }] as any
+            const currentProjectAlerts = [createMockAlert({ id: 'current-project-alert' })]
             const nextTeamId = MOCK_DEFAULT_TEAM.id + 1
             mockList.mockImplementation((projectId) => {
                 if (projectId === String(MOCK_DEFAULT_TEAM.id)) {
                     return previousProjectResponse.promise
                 }
-                return Promise.resolve({ results: currentProjectAlerts } as any)
+                return Promise.resolve({ count: currentProjectAlerts.length, results: currentProjectAlerts })
             })
             await expectLogic(logic, () => {
                 logic.actions.setCreatedByFilter('019abcde-1234-7000-8000-000000000001')
@@ -119,7 +159,10 @@ describe('logsAlertingLogic', () => {
             }).toDispatchActions(['loadAlerts', 'loadAlertsSuccess'])
             expect(logic.values.alerts).toEqual(currentProjectAlerts)
 
-            previousProjectResponse.resolve({ results: [{ id: 'previous-project-alert' }] } as any)
+            previousProjectResponse.resolve({
+                count: 1,
+                results: [createMockAlert({ id: 'previous-project-alert' })],
+            })
             await Promise.resolve()
             await Promise.resolve()
 
@@ -131,7 +174,7 @@ describe('logsAlertingLogic', () => {
 
     describe('resetAlert', () => {
         it('calls the reset endpoint, reloads the list, and surfaces a success toast', async () => {
-            mockReset.mockResolvedValue(undefined as any)
+            mockReset.mockResolvedValue(undefined)
 
             const logic = logsAlertingLogic()
             logic.mount()
@@ -188,7 +231,7 @@ describe('logsAlertingLogic', () => {
     describe('edit alert modal', () => {
         it('opens for the selected alert and clears it on close', async () => {
             const logic = logsAlertingLogic()
-            const alert = { id: 'alert-1', name: 'Errors' } as any
+            const alert = createMockAlert()
             logic.mount()
             await expectLogic(logic).toFinishAllListeners()
 
@@ -205,7 +248,7 @@ describe('logsAlertingLogic', () => {
 
         it('updates the open editor after disabling an alert', async () => {
             const logic = logsAlertingLogic()
-            const alert = { id: 'alert-1', name: 'Errors', enabled: true } as any
+            const alert = createMockAlert()
             const updatedAlert = { ...alert, enabled: false }
             mockPartialUpdate.mockResolvedValue(updatedAlert)
             logic.mount()
@@ -228,7 +271,7 @@ describe('logsAlertingLogic', () => {
 
         it('updates the open editor after snoozing an alert', async () => {
             const logic = logsAlertingLogic()
-            const alert = { id: 'alert-1', name: 'Errors', snooze_until: null } as any
+            const alert = createMockAlert()
             const updatedAlert = { ...alert, snooze_until: '2026-08-13T12:00:00.000Z' }
             mockPartialUpdate.mockResolvedValue(updatedAlert)
             logic.mount()
@@ -246,7 +289,7 @@ describe('logsAlertingLogic', () => {
 
         it('does not open the editor after snoozing from the alert list', async () => {
             const logic = logsAlertingLogic()
-            const alert = { id: 'alert-1', name: 'Errors', snooze_until: null } as any
+            const alert = createMockAlert()
             mockPartialUpdate.mockResolvedValue({ ...alert, snooze_until: '2026-08-13T12:00:00.000Z' })
             logic.mount()
             await expectLogic(logic).toFinishAllListeners()
@@ -262,7 +305,7 @@ describe('logsAlertingLogic', () => {
 
         it('updates the open editor after unsnoozing an alert', async () => {
             const logic = logsAlertingLogic()
-            const alert = { id: 'alert-1', name: 'Errors', snooze_until: '2026-08-13T12:00:00.000Z' } as any
+            const alert = createMockAlert({ snooze_until: '2026-08-13T12:00:00.000Z' })
             const updatedAlert = { ...alert, snooze_until: null }
             mockPartialUpdate.mockResolvedValue(updatedAlert)
             logic.mount()
@@ -292,6 +335,10 @@ describe('logsAlertingLogic', () => {
             expect(resolveSnoozeUntil(value)).toBe(expected)
 
             jest.useRealTimers()
+        })
+
+        it('preserves a custom datetime', () => {
+            expect(resolveSnoozeUntil('2026-08-13T14:30:00.000Z')).toBe('2026-08-13T14:30:00.000Z')
         })
     })
 })
