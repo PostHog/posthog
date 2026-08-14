@@ -124,9 +124,6 @@ export interface onboardingLogicActions {
     completeOnboarding: (options?: { redirectUrlOverride?: string }) => {
         redirectUrlOverride: string | undefined
     }
-    setCompletionRedirectPending: (pending: boolean) => {
-        pending: boolean
-    }
     goToNextStep: () => {
         value: true
     }
@@ -138,6 +135,9 @@ export interface onboardingLogicActions {
     }
     resetOnboardingFlowState: () => {
         value: true
+    }
+    setCompletionRedirectPending: (pending: boolean) => {
+        pending: boolean
     }
     setIsCompleting: (isCompleting: boolean) => {
         isCompleting: boolean
