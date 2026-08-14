@@ -74,8 +74,9 @@ const STALENESS_FALLBACK_SECONDS_PER_FILE = 5
 //
 // .test_durations has migration-tax contamination removed by
 // optimize_test_durations.py: tests recorded far above their JUnit call
-// time (the DB-setup walk lands on whichever test first hits the DB) are
-// floored back to that call time. Durations reflect actual test work.
+// time (the DB-setup walk lands on the first DB-touching test whenever a
+// run built the DB in-pytest) are floored back to that call time.
+// Durations reflect actual test work.
 //
 // Per-segment overhead constants below cover the fixed per-shard cost
 // outside test work: job setup, pytest collection, per-shard DB setup,

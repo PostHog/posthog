@@ -246,9 +246,63 @@ export interface PatchedOrganizationApi {
     readonly is_pending_deletion?: boolean | null
 }
 
+export interface OrganizationRemoveBlockedMembersResponseApi {
+    /** Whether verified-domain enforcement was turned on. */
+    success: boolean
+    /** How many members with an email outside the verified domains were removed from the organization. Owners are never removed. */
+    removed_members: number
+}
+
 export interface OrganizationAIAccessRequestResponseApi {
     /** Whether the access request was accepted and the organization admins were notified. */
     success: boolean
+}
+
+/**
+ * * `never` - never
+ * * `live` - live
+ * * `stale` - stale
+ */
+export type FreshnessEnumApi = (typeof FreshnessEnumApi)[keyof typeof FreshnessEnumApi]
+
+export const FreshnessEnumApi = {
+    Never: 'never',
+    Live: 'live',
+    Stale: 'stale',
+} as const
+
+export interface DataFreshnessSourceApi {
+    /** The product this timestamp is about, as a `ProductKey` (e.g. `session_replay`, `logs`). Not an enum: products declare their own data sources, so the set grows without an API change. */
+    data_source: string
+    /** When data of this kind last reached the project. Only sources with data inside the lookback window are listed. */
+    last_data_at: string
+}
+
+export interface DataFreshnessProjectApi {
+    /** ID of the project this freshness verdict is for. */
+    team_id: number
+    /** `live` if data of any kind arrived within `quiet_after_days`, `stale` if none did, `never` if the project has never ingested anything at all.
+     *
+     * * `never` - never
+     * * `live` - live
+     * * `stale` - stale */
+    freshness: FreshnessEnumApi
+    /**
+     * When data of any kind last reached the project, or null if nothing arrived within the lookback window.
+     * @nullable
+     */
+    last_data_at: string | null
+    /** Per-source breakdown, most recently active first. */
+    sources: DataFreshnessSourceApi[]
+}
+
+export interface OrganizationDataFreshnessApi {
+    /** One entry per project the requesting user can see. */
+    results: DataFreshnessProjectApi[]
+    /** How many days back the check looks. Data older than this is not visible to the check. */
+    lookback_days: number
+    /** How many days without data make a project or source count as quiet. */
+    quiet_after_days: number
 }
 
 /**
@@ -763,13 +817,19 @@ export interface ChangeRequestRejectApi {
 export interface CommentSlackThreadRefApi {
     /** Slack channel ID this discussion is mirrored to. */
     channel_id: string
+    /** Slack channel name resolved from Slack when the discussion was sent (no leading #). Empty for private channels and when unknown; may lag behind a rename in Slack. */
+    channel_name: string
     /** Deep link that opens the mirrored Slack thread. */
     url: string
 }
 
 export interface CommentApi {
     readonly id: string
-    readonly created_by: UserBasicApi
+    readonly created_by: UserBasicApi | null
+    /** @maxLength 79 */
+    scope?: string
+    /** Metadata for the comment target, anchor, thread state, and owning task. */
+    item_context?: unknown
     /** @nullable */
     deleted?: boolean | null
     mentions?: number[]
@@ -790,9 +850,6 @@ export interface CommentApi {
      * @nullable
      */
     item_id?: string | null
-    item_context?: unknown
-    /** @maxLength 79 */
-    scope: string
     /**
      * ISO timestamp when the task was marked complete. Only meaningful when is_task is true. Read-only — toggled via the /complete and /reopen actions, not via PATCH.
      * @nullable
@@ -810,9 +867,20 @@ export interface PaginatedCommentListApi {
     results: CommentApi[]
 }
 
+export interface CommentErrorApi {
+    /** Human-readable explanation of what went wrong. */
+    detail: string
+    /** Stable machine-readable identifier for the failure. */
+    error_type?: string
+}
+
 export interface PatchedCommentApi {
     readonly id?: string
-    readonly created_by?: UserBasicApi
+    readonly created_by?: UserBasicApi | null
+    /** @maxLength 79 */
+    scope?: string
+    /** Metadata for the comment target, anchor, thread state, and owning task. */
+    item_context?: unknown
     /** @nullable */
     deleted?: boolean | null
     mentions?: number[]
@@ -833,9 +901,6 @@ export interface PatchedCommentApi {
      * @nullable
      */
     item_id?: string | null
-    item_context?: unknown
-    /** @maxLength 79 */
-    scope?: string
     /**
      * ISO timestamp when the task was marked complete. Only meaningful when is_task is true. Read-only — toggled via the /complete and /reopen actions, not via PATCH.
      * @nullable
@@ -849,7 +914,7 @@ export interface SendCommentToSlackApi {
     /** ID of the Slack integration (kind='slack') whose bot posts the thread. */
     integration_id: number
     /**
-     * Slack channel ID to create the mirrored thread in. The bot must be a member of the channel.
+     * Slack channel ID to create the mirrored thread in. The bot must be a member of the channel. The channel's display name is resolved server-side.
      * @maxLength 255
      */
     channel_id: string
@@ -870,6 +935,8 @@ export interface CommentSlackThreadApi {
     readonly integration: number
     /** Slack channel the mirrored thread lives in. */
     readonly slack_channel_id: string
+    /** Slack channel name resolved from Slack at send time (no leading #). Empty for private channels and when unknown. */
+    readonly slack_channel_name: string
     /** Slack thread timestamp anchoring the mirrored thread. */
     readonly slack_thread_ts: string
     /**
@@ -943,6 +1010,14 @@ export type ListParams = {
 
 export type MembersListParams = {
     /**
+     * Only return members whose email address is on this domain (case-insensitive).
+     */
+    email_domain?: string
+    /**
+     * Comma-separated membership levels to return, e.g. `1,8`. Levels are 1 member, 8 admin, 15 owner.
+     */
+    levels?: string
+    /**
      * Number of results to return per page.
      */
     limit?: number
@@ -954,6 +1029,10 @@ export type MembersListParams = {
      * Sort order. Defaults to `-joined_at`.
      */
     order?: string
+    /**
+     * When `true`, only return members whose email domain is not one of the organization's verified domains — the members who would lose access under verified-domain enforcement.
+     */
+    outside_verified_domains?: boolean
     /**
      * Match against member `first_name`, `last_name`, and `email`. Returns exact (case-insensitive substring) matches only; if no exact match exists, returns similar (fuzzy trigram — typos, prefix-as-you-type) matches instead. Each result's `search_match_type` is `exact` or `similar`. Capped at 200 characters.
      */
@@ -1034,6 +1113,7 @@ export type ActivityLogListParams = {
      * * `EventDefinition` - EventDefinition
      * * `PropertyDefinition` - PropertyDefinition
      * * `Notebook` - Notebook
+     * * `Canvas` - Canvas
      * * `Endpoint` - Endpoint
      * * `EndpointVersion` - EndpointVersion
      * * `Dashboard` - Dashboard
@@ -1048,6 +1128,7 @@ export type ActivityLogListParams = {
      * * `Team` - Team
      * * `Project` - Project
      * * `ErrorTrackingIssue` - ErrorTrackingIssue
+     * * `DataWarehouseExpression` - DataWarehouseExpression
      * * `DataWarehouseSavedQuery` - DataWarehouseSavedQuery
      * * `LegalDocument` - LegalDocument
      * * `Organization` - Organization
@@ -1095,6 +1176,7 @@ export type ActivityLogListParams = {
      * * `StreamlitApp` - StreamlitApp
      * * `Metric` - Metric
      * * `TableCertification` - TableCertification
+     * * `DataQualityCheck` - DataQualityCheck
      * * `Billing` - Billing
      * * `Loop` - Loop
      * @minLength 1
@@ -1126,6 +1208,7 @@ export const ActivityLogListScope = {
     EventDefinition: 'EventDefinition',
     PropertyDefinition: 'PropertyDefinition',
     Notebook: 'Notebook',
+    Canvas: 'Canvas',
     Endpoint: 'Endpoint',
     EndpointVersion: 'EndpointVersion',
     Dashboard: 'Dashboard',
@@ -1140,6 +1223,7 @@ export const ActivityLogListScope = {
     Team: 'Team',
     Project: 'Project',
     ErrorTrackingIssue: 'ErrorTrackingIssue',
+    DataWarehouseExpression: 'DataWarehouseExpression',
     DataWarehouseSavedQuery: 'DataWarehouseSavedQuery',
     LegalDocument: 'LegalDocument',
     Organization: 'Organization',
@@ -1187,6 +1271,7 @@ export const ActivityLogListScope = {
     StreamlitApp: 'StreamlitApp',
     Metric: 'Metric',
     TableCertification: 'TableCertification',
+    DataQualityCheck: 'DataQualityCheck',
     Billing: 'Billing',
     Loop: 'Loop',
 } as const
@@ -1205,6 +1290,7 @@ export const ActivityLogListScope = {
  * * `EventDefinition` - EventDefinition
  * * `PropertyDefinition` - PropertyDefinition
  * * `Notebook` - Notebook
+ * * `Canvas` - Canvas
  * * `Endpoint` - Endpoint
  * * `EndpointVersion` - EndpointVersion
  * * `Dashboard` - Dashboard
@@ -1219,6 +1305,7 @@ export const ActivityLogListScope = {
  * * `Team` - Team
  * * `Project` - Project
  * * `ErrorTrackingIssue` - ErrorTrackingIssue
+ * * `DataWarehouseExpression` - DataWarehouseExpression
  * * `DataWarehouseSavedQuery` - DataWarehouseSavedQuery
  * * `LegalDocument` - LegalDocument
  * * `Organization` - Organization
@@ -1266,6 +1353,7 @@ export const ActivityLogListScope = {
  * * `StreamlitApp` - StreamlitApp
  * * `Metric` - Metric
  * * `TableCertification` - TableCertification
+ * * `DataQualityCheck` - DataQualityCheck
  * * `Billing` - Billing
  * * `Loop` - Loop
  */
@@ -1285,6 +1373,7 @@ export const ActivityLogListScopesItem = {
     EventDefinition: 'EventDefinition',
     PropertyDefinition: 'PropertyDefinition',
     Notebook: 'Notebook',
+    Canvas: 'Canvas',
     Endpoint: 'Endpoint',
     EndpointVersion: 'EndpointVersion',
     Dashboard: 'Dashboard',
@@ -1299,6 +1388,7 @@ export const ActivityLogListScopesItem = {
     Team: 'Team',
     Project: 'Project',
     ErrorTrackingIssue: 'ErrorTrackingIssue',
+    DataWarehouseExpression: 'DataWarehouseExpression',
     DataWarehouseSavedQuery: 'DataWarehouseSavedQuery',
     LegalDocument: 'LegalDocument',
     Organization: 'Organization',
@@ -1346,6 +1436,7 @@ export const ActivityLogListScopesItem = {
     StreamlitApp: 'StreamlitApp',
     Metric: 'Metric',
     TableCertification: 'TableCertification',
+    DataQualityCheck: 'DataQualityCheck',
     Billing: 'Billing',
     Loop: 'Loop',
 } as const
@@ -1525,6 +1616,10 @@ export type CommentsListParams = {
      * @minLength 1
      */
     source_comment?: string
+    /**
+     * Owning task for task, task_artifact, and desktop_canvas comment scopes.
+     */
+    task_id?: string
 }
 
 export type CommentsListCompleted = (typeof CommentsListCompleted)[keyof typeof CommentsListCompleted]

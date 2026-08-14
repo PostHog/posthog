@@ -19,6 +19,8 @@ from products.tasks.backend.constants import (
     vm_sandbox_allowed_origin_products,
     vm_sandbox_default_base_origin_products,
     vm_sandbox_default_custom_image,
+    vm_sandbox_origin_in_rollout,
+    vm_sandbox_origin_rollout_percentages,
 )
 from products.tasks.backend.exceptions import TaskInvalidStateError, TaskRunNotReadyError
 from products.tasks.backend.models import SandboxEnvironment, Task
@@ -866,9 +868,8 @@ class TestGetTaskProcessingContextActivity:
         payload_mock.assert_not_called()
 
     def test_modal_vm_sandbox_restricted_egress_overrides_default_base(self):
-        # Restricted egress must win over the default-base allowlist: VM can't enforce Modal's
-        # outbound domain allowlist, so a default-base origin with a custom domain list stays on
-        # gVisor and the flag is never consulted (the egress gate returns before the fetch).
+        # A restricted run cannot use any VM routing source until the independent network-policy
+        # flag is enabled, so the runtime flag is not consulted on this path.
         with patch(
             VM_FLAG_PAYLOAD_TARGET,
             return_value='{"default_base_origin_products": ["user_created"]}',
@@ -885,6 +886,54 @@ class TestGetTaskProcessingContextActivity:
             )
 
         payload_mock.assert_not_called()
+
+    def test_modal_vm_sandbox_restricted_egress_uses_vm_when_provider_policy_is_enabled(self):
+        with patch(
+            VM_FLAG_PAYLOAD_TARGET,
+            return_value='{"origin_products": ["user_created"]}',
+        ):
+            decision = _resolve_modal_vm_sandbox(
+                distinct_id="distinct-id",
+                organization_id="organization-id",
+                run_id="run-id",
+                origin_product="user_created",
+                allowed_domains=["github.com"],
+                use_modal_network_allowlist=True,
+                custom_image_available=True,
+            )
+
+        assert decision.use_vm_sandbox is True
+
+    def test_modal_vm_sandbox_restricted_state_override_requires_provider_policy(self):
+        with patch(VM_FLAG_PAYLOAD_TARGET, return_value=None) as payload_mock:
+            decision = _resolve_modal_vm_sandbox(
+                distinct_id="distinct-id",
+                organization_id="organization-id",
+                run_id="run-id",
+                origin_product="image_builder",
+                allowed_domains=["github.com"],
+                use_modal_network_allowlist=True,
+                state={"use_modal_vm_sandbox": True},
+            )
+
+        assert decision.use_vm_sandbox is True
+        payload_mock.assert_not_called()
+
+    def test_modal_vm_sandbox_restricted_default_base_requires_provider_policy(self):
+        with patch(
+            VM_FLAG_PAYLOAD_TARGET,
+            return_value='{"default_base_origin_products": ["user_created"]}',
+        ):
+            decision = _resolve_modal_vm_sandbox(
+                distinct_id="distinct-id",
+                organization_id="organization-id",
+                run_id="run-id",
+                origin_product="user_created",
+                allowed_domains=["github.com"],
+                use_modal_network_allowlist=True,
+            )
+
+        assert decision.use_vm_sandbox is True
 
     def test_modal_vm_sandbox_false_state_override_forces_gvisor_over_default_base(self):
         # A trusted server-set use_modal_vm_sandbox=False forces gVisor even when the org's payload
@@ -932,6 +981,7 @@ class TestGetTaskProcessingContextActivity:
             ("user_created", {"default_base_origin_products": ["user_created"]}, False, True),
             # the waiver is scoped per origin — an unlisted origin still gets gVisor.
             ("signals_scout", {"default_base_origin_products": ["user_created"]}, False, False),
+            ("signals_scout", {"origin_product_rollout_percentages": {"signals_scout": 100}}, False, True),
             # origin_products membership alone does NOT waive the custom-image requirement.
             (
                 "user_created",
@@ -989,6 +1039,34 @@ class TestGetTaskProcessingContextActivity:
     )
     def test_vm_sandbox_default_base_origin_products_parsing(self, payload, expected):
         assert vm_sandbox_default_base_origin_products(payload) == expected
+
+    @pytest.mark.parametrize(
+        "payload,expected",
+        [
+            ({"origin_product_rollout_percentages": {"signals_scout": 10}}, {"signals_scout": 10.0}),
+            ('{"origin_product_rollout_percentages":{"signals_scout":12.5}}', {"signals_scout": 12.5}),
+            ({"origin_product_rollout_percentages": {"negative": -1, "large": 101, "bool": True}}, {}),
+            ({"origin_product_rollout_percentages": ["signals_scout"]}, {}),
+            (None, {}),
+        ],
+    )
+    def test_vm_sandbox_origin_rollout_percentages_parsing(self, payload, expected):
+        assert vm_sandbox_origin_rollout_percentages(payload) == expected
+
+    def test_vm_sandbox_origin_percentage_rollout_is_stable_and_distributed(self):
+        percentages = {"signals_scout": 10.0}
+        decisions = [
+            vm_sandbox_origin_in_rollout("signals_scout", f"run-{index}", percentages) for index in range(1000)
+        ]
+
+        assert decisions == [
+            vm_sandbox_origin_in_rollout("signals_scout", f"run-{index}", percentages) for index in range(1000)
+        ]
+        assert 70 <= sum(decisions) <= 130
+        assert not vm_sandbox_origin_in_rollout("onboarding", "run-1", percentages)
+        assert vm_sandbox_origin_in_rollout(None, "run-1", {"": 50}) == vm_sandbox_origin_in_rollout(
+            "", "run-1", {"": 50}
+        )
 
     @pytest.mark.parametrize(
         "payload, expected",

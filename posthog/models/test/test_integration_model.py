@@ -48,6 +48,7 @@ from posthog.models.integration import (
     GoogleAdsIntegration,
     GoogleCloudIntegration,
     GoogleCloudServiceAccountIntegration,
+    InstagramIntegration,
     Integration,
     JiraIntegration,
     LinearIntegration,
@@ -306,8 +307,12 @@ class TestOauthIntegrationModel(BaseTest):
         "HUBSPOT_APP_CLIENT_SECRET": "hubspot-client-secret",
         "GOOGLE_ADS_APP_CLIENT_ID": "google-client-id",
         "GOOGLE_ADS_APP_CLIENT_SECRET": "google-client-secret",
+        "GOOGLE_CALENDAR_APP_CLIENT_ID": "google-calendar-client-id",
+        "GOOGLE_CALENDAR_APP_CLIENT_SECRET": "google-calendar-client-secret",
         "LINKEDIN_APP_CLIENT_ID": "linkedin-client-id",
         "LINKEDIN_APP_CLIENT_SECRET": "linkedin-client-secret",
+        "TIKTOK_ADS_CLIENT_ID": "tiktok-app-id",
+        "TIKTOK_ADS_CLIENT_SECRET": "tiktok-secret",
     }
 
     def create_integration(
@@ -378,6 +383,14 @@ class TestOauthIntegrationModel(BaseTest):
             assert (
                 url
                 == "https://accounts.google.com/o/oauth2/v2/auth?client_id=google-client-id&scope=https%3A%2F%2Fwww.googleapis.com%2Fauth%2Fadwords+https%3A%2F%2Fwww.googleapis.com%2Fauth%2Fuserinfo.email&redirect_uri=https%3A%2F%2Flocalhost%3A8010%2Fintegrations%2Fgoogle-ads%2Fcallback&response_type=code&state=next%3D%252Fprojects%252Ftest%26token%3Dstate_token&access_type=offline&prompt=consent"
+            )
+
+    def test_authorize_url_google_calendar(self):
+        with self.settings(**self.mock_settings):
+            url = OauthIntegration.authorize_url("google-calendar", token="state_token", next="/projects/test")
+            assert (
+                url
+                == "https://accounts.google.com/o/oauth2/v2/auth?client_id=google-calendar-client-id&scope=https%3A%2F%2Fwww.googleapis.com%2Fauth%2Fcalendar.readonly+https%3A%2F%2Fwww.googleapis.com%2Fauth%2Fuserinfo.email&redirect_uri=https%3A%2F%2Flocalhost%3A8010%2Fintegrations%2Fgoogle-calendar%2Fcallback&response_type=code&state=next%3D%252Fprojects%252Ftest%26token%3Dstate_token&access_type=offline&prompt=consent"
             )
 
     @patch("posthog.models.integration.requests.post")
@@ -703,6 +716,37 @@ class TestOauthIntegrationModel(BaseTest):
 
         assert integration.sensitive_config["access_token"] == "REFRESHED_ACCESS_TOKEN"
         assert integration.sensitive_config["refresh_token"] == expected_refresh_token
+
+    @patch("posthog.models.integration.reload_integrations_on_workers")
+    @patch("posthog.models.integration.requests.post")
+    def test_tiktok_ads_refresh_uses_business_api_and_unwraps_data(self, mock_post, mock_reload):
+        # TikTok Business API refreshes against its own endpoint with app_id/secret (JSON) and nests
+        # the refreshed tokens under `data` — not the Login Kit client_key/open.tiktokapis.com flow.
+        mock_post.return_value.status_code = 200
+        mock_post.return_value.json.return_value = {
+            "code": 0,
+            "data": {"access_token": "REFRESHED_ACCESS_TOKEN", "refresh_token": "ROTATED_REFRESH_TOKEN"},
+        }
+
+        integration = self.create_integration(kind="tiktok-ads", config={"expires_in": 1000})
+
+        with freeze_time("2024-01-01T14:00:00Z"):
+            with self.settings(**self.mock_settings):
+                OauthIntegration(integration).refresh_access_token()
+
+        mock_post.assert_called_with(
+            "https://business-api.tiktok.com/open_api/v1.3/oauth2/refresh_token/",
+            json={
+                "app_id": "tiktok-app-id",
+                "secret": "tiktok-secret",
+                "refresh_token": "REFRESH",
+                "grant_type": "refresh_token",
+            },
+            headers={"Content-Type": "application/json"},
+            timeout=10,
+        )
+        assert integration.sensitive_config["access_token"] == "REFRESHED_ACCESS_TOKEN"
+        assert integration.sensitive_config["refresh_token"] == "ROTATED_REFRESH_TOKEN"
 
     @patch("posthog.models.integration.reload_integrations_on_workers")
     @patch("posthog.models.integration.requests.post")
@@ -1687,7 +1731,13 @@ class TestGitHubIntegrationModel(BaseTest):
         )
 
     def mock_github_client_request(
-        self, status_code=201, token="ACCESS_TOKEN", repository_selection="all", expires_in_hours=1, error_text=None
+        self,
+        status_code=201,
+        token="ACCESS_TOKEN",
+        repository_selection="all",
+        expires_in_hours=1,
+        error_text=None,
+        permissions=None,
     ):
         def _client_request(endpoint, method="GET"):
             mock_response = MagicMock()
@@ -1701,13 +1751,17 @@ class TestGitHubIntegrationModel(BaseTest):
                         "token": token,
                         "repository_selection": repository_selection,
                         "expires_at": iso_time,
+                        **({"permissions": permissions} if permissions is not None else {}),
                     }
                 else:
                     mock_response.text = error_text or "error"
                     mock_response.json.return_value = {}
             else:
                 mock_response.status_code = 200
-                mock_response.json.return_value = {"account": {"type": "Organization", "login": "PostHog"}}
+                mock_response.json.return_value = {
+                    "account": {"type": "Organization", "login": "PostHog"},
+                    **({"permissions": permissions} if permissions is not None else {}),
+                }
             return mock_response
 
         return _client_request
@@ -2301,6 +2355,25 @@ class TestGitHubIntegrationModel(BaseTest):
         assert integration.sensitive_config == {
             "access_token": "ACCESS_TOKEN",
         }
+
+    @patch("posthog.models.github_integration_base.GitHubIntegrationBase.client_request")
+    def test_github_integration_persists_installation_permissions(self, mock_client_request):
+        # The warehouse schema picker reads config["permissions"] to mark tables the installation
+        # can't sync. Dropping this on connect or refresh silently returns the picker to offering
+        # tables whose every sync 403s.
+        mock_client_request.side_effect = self.mock_github_client_request(
+            permissions={"contents": "read", "metadata": "read"}
+        )
+        integration = GitHubIntegration.integration_from_installation_id("INSTALLATION_ID", self.team.id, self.user)
+        assert integration.config["permissions"] == {"contents": "read", "metadata": "read"}
+
+        # A permission update to the App shows up on the next hourly token refresh, including for
+        # integrations connected before this key was persisted at all.
+        mock_client_request.side_effect = self.mock_github_client_request(
+            permissions={"contents": "read", "metadata": "read", "deployments": "read"}
+        )
+        GitHubIntegration(integration).refresh_access_token()
+        assert integration.config["permissions"] == {"contents": "read", "metadata": "read", "deployments": "read"}
 
     @patch("posthog.models.integration.reload_integrations_on_workers")
     @patch("posthog.models.github_integration_base.GitHubIntegrationBase.client_request")
@@ -4593,3 +4666,62 @@ class TestPardotIntegrationModel(BaseTest):
 
         assert integration.integration_id == "https://acme.my.salesforce.com"
         assert integration.config["expires_in"] == 3600
+
+
+@override_settings(INSTAGRAM_APP_CLIENT_ID="instagram-client-id", INSTAGRAM_APP_CLIENT_SECRET="instagram-client-secret")
+class TestInstagramIntegrationModel(BaseTest):
+    def test_oauth_config(self):
+        config = OauthIntegration.oauth_config_for_kind("instagram")
+
+        assert config.authorize_url == "https://www.facebook.com/v23.0/dialog/oauth"
+        assert config.token_url == "https://graph.facebook.com/v23.0/oauth/access_token"
+        assert config.token_info_url == "https://graph.facebook.com/v23.0/me"
+        assert config.client_id == "instagram-client-id"
+        assert config.client_secret == "instagram-client-secret"
+        assert config.id_path == "id"
+        assert config.name_path == "name"
+        # Instagram is reached through the Facebook page it is linked to, so the page scopes
+        # are as load-bearing as the Instagram ones.
+        assert set(config.scope.split(" ")) == {
+            "instagram_basic",
+            "instagram_manage_insights",
+            "instagram_manage_comments",
+            "pages_show_list",
+            "pages_read_engagement",
+        }
+
+    @override_settings(INSTAGRAM_APP_CLIENT_ID="", INSTAGRAM_APP_CLIENT_SECRET="")
+    def test_oauth_config_unconfigured_raises(self):
+        with pytest.raises(NotImplementedError, match="Instagram app not configured"):
+            OauthIntegration.oauth_config_for_kind("instagram")
+
+    def test_the_instagram_grant_is_separate_from_the_meta_ads_one(self):
+        # Both ride the same Meta app, but an ads grant carries none of the Instagram scopes,
+        # so pointing the Instagram source at a meta-ads integration must not be possible.
+        integration = Integration.objects.create(team=self.team, kind="meta-ads", integration_id="1")
+
+        with pytest.raises(Exception, match="wrong 'kind'"):
+            InstagramIntegration(integration)
+
+    @patch("posthog.models.integration.requests.post")
+    def test_refresh_exchanges_the_long_lived_token_rather_than_a_refresh_token(self, mock_post):
+        # Meta issues no refresh token: the current access token is swapped for a fresh one.
+        integration = Integration.objects.create(
+            team=self.team,
+            kind="instagram",
+            integration_id="fb-user-1",
+            config={"expires_in": 100, "refreshed_at": int(time.time()) - 90},
+            sensitive_config={"access_token": "old-token"},
+        )
+        mock_post.return_value.status_code = 200
+        mock_post.return_value.json.return_value = {"access_token": "new-token", "expires_in": 5184000}
+
+        InstagramIntegration(integration).refresh_access_token()
+
+        sent = mock_post.call_args.kwargs["data"]
+        assert sent["grant_type"] == "fb_exchange_token"
+        assert sent["fb_exchange_token"] == "old-token"
+        assert sent["client_id"] == "instagram-client-id"
+        integration.refresh_from_db()
+        assert integration.sensitive_config["access_token"] == "new-token"
+        assert integration.errors == ""

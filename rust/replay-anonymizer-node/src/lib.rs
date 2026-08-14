@@ -12,7 +12,8 @@ use std::sync::RwLock;
 use neon::prelude::*;
 use neon::types::buffer::TypedArray;
 use posthog_replay_anonymizer::{
-    snapshot, AllowLists, FailKind, ImageCollection, ImagePolicy, PhaseTimings,
+    is_public_host, politeness_key, snapshot, AllowLists, FailKind, ImageCollection, ImagePolicy,
+    PhaseTimings, UrlCollection,
 };
 use serde::Deserialize;
 
@@ -99,13 +100,27 @@ fn anonymize_kafka_payload_ffi(mut cx: FunctionContext) -> JsResult<JsPromise> {
     };
     let pseudo_team = opt_string_arg(&mut cx, 2)?;
     let content_key = opt_string_arg(&mut cx, 3)?;
-    let image_collection = match (pseudo_team, content_key) {
+    // The URL lane is enabled independently of the image lane, but it needs the same pseudonym, so
+    // a urlKey without a pseudoTeam is a mis-keyed ref rather than a partial opt-in.
+    let url_key = opt_string_arg(&mut cx, 4)?;
+    // Each lane needs the pseudonym, because its ref embeds it, and its own per-team key. A key
+    // without the pseudonym would mint refs nothing can attribute, so it fails loudly instead.
+    if pseudo_team.is_none() && (content_key.is_some() || url_key.is_some()) {
+        return cx.throw_error("contentKey and urlKey each require pseudoTeam");
+    }
+    let image_collection = match (pseudo_team.clone(), content_key) {
         (Some(pseudo_team), Some(content_key)) => Some(ImageCollection {
             pseudo_team,
             content_key,
         }),
-        (None, None) => None,
-        _ => return cx.throw_error("pseudoTeam and contentKey must be passed together"),
+        _ => None,
+    };
+    let url_collection = match (pseudo_team, url_key) {
+        (Some(pseudo_team), Some(url_key)) => Some(UrlCollection {
+            pseudo_team,
+            url_key,
+        }),
+        _ => None,
     };
     // Created on the JS thread so every offset shares one monotonic origin: the task-start mark
     // becomes the threadpool queue wait, and no wall clock is involved.
@@ -131,7 +146,7 @@ fn anonymize_kafka_payload_ffi(mut cx: FunctionContext) -> JsResult<JsPromise> {
                     };
                 timings.decompress_finished();
                 timings.scrub_started();
-                let scrubbed = snapshot::anonymize_kafka_payload_timed(
+                let scrubbed = snapshot::anonymize_kafka_payload_collecting(
                     allow,
                     &mut payload,
                     snapshot::AnonymizeOpts {
@@ -140,6 +155,7 @@ fn anonymize_kafka_payload_ffi(mut cx: FunctionContext) -> JsResult<JsPromise> {
                     },
                     Some(&timings),
                     image_collection,
+                    url_collection,
                 );
                 timings.scrub_finished();
                 match scrubbed {
@@ -222,9 +238,25 @@ fn anonymize_kafka_payload_ffi(mut cx: FunctionContext) -> JsResult<JsPromise> {
     Ok(promise)
 }
 
+/// The registrable domain of a host. It needs no initialized state, so a lane that only fetches
+/// never calls `initAnonymizer`.
+fn politeness_key_ffi(mut cx: FunctionContext) -> JsResult<JsString> {
+    let host = cx.argument::<JsString>(0)?.value(&mut cx);
+    Ok(cx.string(politeness_key(&host)))
+}
+
+/// Whether the fetch lane may send a request to a host. It needs no initialized state, so a lane
+/// that only fetches never calls `initAnonymizer`.
+fn is_public_host_ffi(mut cx: FunctionContext) -> JsResult<JsBoolean> {
+    let host = cx.argument::<JsString>(0)?.value(&mut cx);
+    Ok(cx.boolean(is_public_host(&host)))
+}
+
 #[neon::main]
 fn main(mut cx: ModuleContext) -> NeonResult<()> {
     cx.export_function("initAnonymizer", init_anonymizer)?;
     cx.export_function("anonymizeKafkaPayload", anonymize_kafka_payload_ffi)?;
+    cx.export_function("politenessKey", politeness_key_ffi)?;
+    cx.export_function("isPublicHost", is_public_host_ffi)?;
     Ok(())
 }

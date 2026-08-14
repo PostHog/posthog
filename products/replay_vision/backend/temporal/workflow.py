@@ -237,6 +237,7 @@ class ApplyScannerWorkflow(PostHogWorkflow):
                 triggered_by=inputs.triggered_by,
                 triggered_by_user_id=inputs.triggered_by_user_id,
                 workflow_id=workflow_id,
+                backfill_id=inputs.backfill_id,
             ),
             start_to_close_timeout=dt.timedelta(seconds=30),
             schedule_to_close_timeout=_STATE_ACTIVITY_SCHEDULE_TO_CLOSE,

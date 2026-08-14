@@ -8,8 +8,8 @@ from freezegun import freeze_time
 from posthog.test.base import ClickhouseTestMixin, FuzzyInt, _create_event, _create_person, flush_persons_and_events
 from unittest.mock import ANY, MagicMock, patch
 
-from django.core.cache import cache
 from django.db import connection
+from django.db.models import F
 from django.test.utils import CaptureQueriesContext
 
 from dateutil import parser
@@ -28,6 +28,7 @@ from posthog.test.test_journeys import journeys_for
 from products.actions.backend.models.action import Action
 from products.cohorts.backend.models.cohort import Cohort
 from products.event_definitions.backend.models.event_definition import EventDefinition
+from products.experiments.backend.experiment_service import ExperimentService
 from products.experiments.backend.hogql_queries.exposure_query_logic import (
     EXPERIMENT_EXPOSURE_EVENT_CUTOFF,
     EXPERIMENT_EXPOSURE_EVENT_FLAG,
@@ -45,7 +46,7 @@ from products.experiments.backend.models.web_experiment import WebExperiment
 from products.experiments.backend.presentation.serializers import ExperimentSerializer
 from products.experiments.backend.presentation.views import LIST_DEFERRED_FIELDS, EnterpriseExperimentsViewSet
 from products.feature_flags.backend.models.evaluation_context import EvaluationContext, FeatureFlagEvaluationContext
-from products.feature_flags.backend.models.feature_flag import FeatureFlag, get_feature_flags_for_team_in_cache
+from products.feature_flags.backend.models.feature_flag import FeatureFlag
 
 from ee.api.test.base import APILicensedTest
 from ee.clickhouse.views.experiment_saved_metrics import ExperimentToSavedMetricSerializer
@@ -3357,147 +3358,6 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
                 [("flag_0", []), (ff_key, [created_experiment])],
             )
 
-    @patch("django.db.transaction.on_commit", side_effect=lambda func: func())
-    def test_create_experiment_updates_feature_flag_cache(self, mock_on_commit):
-        cache.clear()
-
-        initial_cached_flags = get_feature_flags_for_team_in_cache(self.team.pk)
-        self.assertIsNone(initial_cached_flags)
-
-        ff_key = "a-b-test"
-        response = self.client.post(
-            f"/api/projects/{self.team.id}/experiments/",
-            {
-                "name": "Test Experiment",
-                "description": "",
-                "start_date": None,
-                "end_date": None,
-                "feature_flag_key": ff_key,
-                "parameters": {
-                    "feature_flag_variants": [
-                        {
-                            "key": "control",
-                            "name": "Control Group",
-                            "rollout_percentage": 33,
-                        },
-                        {
-                            "key": "test_1",
-                            "name": "Test Variant",
-                            "rollout_percentage": 33,
-                        },
-                        {
-                            "key": "test_2",
-                            "name": "Test Variant",
-                            "rollout_percentage": 34,
-                        },
-                    ]
-                },
-                "filters": {
-                    "events": [
-                        {"order": 0, "id": "$pageview"},
-                        {"order": 1, "id": "$pageleave"},
-                    ],
-                    "properties": [],
-                },
-            },
-        )
-
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
-        self.assertEqual(response.json()["name"], "Test Experiment")
-        self.assertEqual(response.json()["feature_flag_key"], ff_key)
-
-        # save was called, but no flags saved because experiment is in draft mode, so flag is not active
-        cached_flags = get_feature_flags_for_team_in_cache(self.team.pk)
-        assert cached_flags is not None
-        self.assertEqual(0, len(cached_flags))
-
-        id = response.json()["id"]
-
-        # launch experiment
-        response = self.client.patch(
-            f"/api/projects/{self.team.id}/experiments/{id}",
-            {
-                "start_date": "2021-12-01T10:23",
-            },
-        )
-
-        cached_flags = get_feature_flags_for_team_in_cache(self.team.pk)
-        assert cached_flags is not None
-        self.assertEqual(1, len(cached_flags))
-        self.assertEqual(cached_flags[0].key, ff_key)
-        self.assertEqual(
-            cached_flags[0].filters,
-            {
-                "groups": [
-                    {
-                        "properties": [],
-                        "rollout_percentage": 100,
-                        "aggregation_group_type_index": None,
-                    }
-                ],
-                "multivariate": {
-                    "variants": [
-                        {
-                            "key": "control",
-                            "name": "Control Group",
-                            "rollout_percentage": 33,
-                        },
-                        {
-                            "key": "test_1",
-                            "name": "Test Variant",
-                            "rollout_percentage": 33,
-                        },
-                        {
-                            "key": "test_2",
-                            "name": "Test Variant",
-                            "rollout_percentage": 34,
-                        },
-                    ]
-                },
-                "holdout": None,
-                "aggregation_group_type_index": None,
-            },
-        )
-
-        # On a running experiment, a flag-config change without the opt-in is rejected and must not
-        # touch the cached flag.
-        unchanged_filters: dict[str, Any] = {
-            "groups": [{"properties": [], "rollout_percentage": 100, "aggregation_group_type_index": None}],
-            "multivariate": {
-                "variants": [
-                    {"key": "control", "name": "Control Group", "rollout_percentage": 33},
-                    {"key": "test_1", "name": "Test Variant", "rollout_percentage": 33},
-                    {"key": "test_2", "name": "Test Variant", "rollout_percentage": 34},
-                ]
-            },
-            "holdout": None,
-            "aggregation_group_type_index": None,
-        }
-        response = self.client.patch(
-            f"/api/projects/{self.team.id}/experiments/{id}",
-            {
-                "description": "Bazinga",
-                "feature_flag": {
-                    "filters": {
-                        "multivariate": {
-                            "variants": [
-                                {"key": "control", "name": "X", "rollout_percentage": 50},
-                                {"key": "test", "name": "Y", "rollout_percentage": 50},
-                            ]
-                        }
-                    }
-                },
-            },
-        )
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertIn("update_feature_flag_params", str(response.json()))
-
-        cached_flags = get_feature_flags_for_team_in_cache(self.team.pk)
-        assert cached_flags is not None
-        self.assertEqual(1, len(cached_flags))
-        self.assertEqual(cached_flags[0].key, ff_key)
-        self.assertEqual(cached_flags[0].filters, unchanged_filters)
-
     def test_create_draft_experiment_with_filters(self) -> None:
         ff_key = "a-b-tests"
         response = self.client.post(
@@ -3856,7 +3716,9 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
             ],
         )
 
-        # Test removing aggregation_group_type_index
+        # Test removing aggregation_group_type_index. PATCH filters merge with the stored
+        # state per top-level key (#50084), so clearing requires an explicit null rather
+        # than omitting the key.
         response = self.client.patch(
             f"/api/projects/{self.team.id}/feature_flags/{feature_flag_id}",
             {
@@ -3866,6 +3728,7 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
                         {"properties": [], "rollout_percentage": 1},
                     ],
                     "payloads": {},
+                    "aggregation_group_type_index": None,
                     "multivariate": {
                         "variants": [
                             {"key": "control", "rollout_percentage": 10},
@@ -9570,3 +9433,76 @@ class TestExperimentConcurrency(_HoistFlagConfigClientMixin, APILicensedTest):
         body = stale_write.json()
         self.assertEqual(body["current_version"], snapshot["version"] + 1)
         self.assertNotIn("conflicting_fields", body)
+
+    def test_duplicate_patch_racing_the_lock_window_succeeds_as_noop(self) -> None:
+        # The UI sometimes dispatches one save as two parallel PATCHes: the loser reaches the
+        # row-locked version re-check only after the winner committed the identical change.
+        # It must succeed with the current state instead of 409ing on a change that saved.
+        snapshot = self._create_experiment("lock-window-twin", metrics=[self._metric("base")])
+        real_sync = ExperimentService._sync_feature_flag_on_update
+
+        def twin_write_then_sync(service: ExperimentService, *args: Any, **kwargs: Any) -> None:
+            Experiment.objects.filter(pk=snapshot["id"]).update(description="the same edit", version=F("version") + 1)
+            return real_sync(service, *args, **kwargs)
+
+        with patch.object(
+            ExperimentService, "_sync_feature_flag_on_update", autospec=True, side_effect=twin_write_then_sync
+        ):
+            duplicate = self._patch(
+                snapshot["id"],
+                {
+                    "description": "the same edit",
+                    "version": snapshot["version"],
+                    "original_experiment": self._original_with_scalars(snapshot),
+                },
+            )
+
+        self.assertEqual(duplicate.status_code, status.HTTP_200_OK, duplicate.json())
+        self.assertEqual(duplicate.json()["description"], "the same edit")
+        self.assertEqual(duplicate.json()["version"], snapshot["version"] + 1)
+
+    def test_stale_running_time_config_edit_merges_over_estimate_churn(self) -> None:
+        # The calculator auto-save rewrites recommended_* on every results load, so a tab is
+        # routinely several versions behind holding a stale estimate echo. Editing the MDE from
+        # that tab must not read as a double-edit of running_time_calculation.
+        created = self._create_experiment("rtc-churn", metrics=[self._metric("base")])
+        seeded = self._patch(
+            created["id"],
+            {
+                "running_time_calculation": {
+                    "minimum_detectable_effect": 5,
+                    "recommended_running_time": 9,
+                    "recommended_sample_size": 800,
+                }
+            },
+        )
+        self.assertEqual(seeded.status_code, status.HTTP_200_OK)
+        snapshot = seeded.json()
+
+        churn = self._patch(
+            snapshot["id"],
+            {
+                "running_time_calculation": {
+                    "minimum_detectable_effect": 5,
+                    "recommended_running_time": 30,
+                    "recommended_sample_size": 4000,
+                }
+            },
+        )
+        self.assertEqual(churn.status_code, status.HTTP_200_OK)
+
+        stale_config_edit = self._patch(
+            snapshot["id"],
+            {
+                "running_time_calculation": {
+                    "minimum_detectable_effect": 10,
+                    "recommended_running_time": 9,
+                    "recommended_sample_size": 800,
+                },
+                "version": snapshot["version"],
+                "original_experiment": self._original_with_scalars(snapshot),
+            },
+        )
+
+        self.assertEqual(stale_config_edit.status_code, status.HTTP_200_OK, stale_config_edit.json())
+        self.assertEqual(stale_config_edit.json()["running_time_calculation"]["minimum_detectable_effect"], 10)

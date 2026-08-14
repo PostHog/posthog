@@ -1,5 +1,6 @@
 import { isSafePostHogUrl } from "@posthog/shared";
 import { z } from "zod";
+import { textCommentAnchorDataSchema } from "../comments/anchors";
 
 // The template id for freeform-React canvases. Stored on a canvas's meta so the
 // generation path can resolve the right system prompt.
@@ -59,12 +60,23 @@ export type CanvasDataResult = z.infer<typeof canvasDataResultSchema>;
 // `dateRange` (the canvas date picker's window) re-scopes the insight for this
 // request via `filters_override`. The result is the same `{ columns, results }`
 // shape as `ph.query`.
+//
+// `variables` supplies per-request values for a SQL insight's HogQL variables (the
+// `{variables.code_name}` placeholders), forwarded as `variables_override`. This is
+// what lets ONE saved insight serve a whole board — a per-product revenue insight
+// rendered once per product — instead of only ever resolving its saved defaults. A
+// SQL variable is a SEPARATE axis from `dateRange`: an insight whose month comes
+// from a `{variables.month}` placeholder is driven through `variables`, and no
+// `dateRange` will ever reach it.
 // ---------------------------------------------------------------------------
 export const canvasLoadInsightInput = z.object({
   shortId: z.string().min(1).max(128),
   dateRange: z
     .object({ date_from: z.string().nullish(), date_to: z.string().nullish() })
     .optional(),
+  // Keyed by the variable's `code_name`, not its uuid — the host resolves ids
+  // server-side, so canvas code never carries a variable uuid.
+  variables: z.record(z.string().min(1).max(128), z.unknown()).optional(),
 });
 export type CanvasLoadInsightInput = z.infer<typeof canvasLoadInsightInput>;
 
@@ -126,23 +138,74 @@ export type CanvasAnalyticsConfig = z.infer<typeof canvasAnalyticsConfigSchema>;
 export const canvasThemeSchema = z.enum(["light", "dark"]);
 export type CanvasTheme = z.infer<typeof canvasThemeSchema>;
 
+const canvasTextSelectionDataSchema = textCommentAnchorDataSchema.extend({
+  rect: z.object({
+    top: z.number().finite(),
+    right: z.number().finite(),
+    bottom: z.number().finite(),
+    left: z.number().finite(),
+  }),
+});
+export const canvasTextSelectionSchema = canvasTextSelectionDataSchema.refine(
+  ({ start, end }) => end > start,
+);
+export type CanvasTextSelection = z.infer<typeof canvasTextSelectionSchema>;
+
+export const canvasCommentHighlightSchema = z.object({
+  id: z.string().min(1).max(128),
+  active: z.boolean(),
+  anchor: textCommentAnchorDataSchema.refine(({ start, end }) => end > start),
+});
+export type CanvasCommentHighlight = z.infer<
+  typeof canvasCommentHighlightSchema
+>;
+
+export const MAX_CANVAS_COMMENT_HIGHLIGHTS = 500;
+export const MAX_CANVAS_COMMENT_HIGHLIGHT_TEXT_LENGTH = 100_000;
+
+export function limitCanvasCommentHighlights(
+  highlights: CanvasCommentHighlight[],
+): CanvasCommentHighlight[] {
+  const limited: CanvasCommentHighlight[] = [];
+  let textLength = 0;
+  for (const highlight of highlights) {
+    const nextTextLength =
+      textLength +
+      highlight.anchor.quote.length +
+      highlight.anchor.prefix.length +
+      highlight.anchor.suffix.length;
+    if (
+      limited.length >= MAX_CANVAS_COMMENT_HIGHLIGHTS ||
+      nextTextLength > MAX_CANVAS_COMMENT_HIGHLIGHT_TEXT_LENGTH
+    ) {
+      break;
+    }
+    limited.push(highlight);
+    textLength = nextTextLength;
+  }
+  return limited;
+}
+
 // host -> iframe
 export const hostToCanvasMessageSchema = z.discriminatedUnion("type", [
-  // First frame: hand the iframe its source + the run mode. The iframe does not
-  // fetch its own code; the host injects it so the host controls what runs.
+  // First frame: hand the iframe its source. The iframe does not fetch its own
+  // code; the host injects it so the host controls what runs. Only the srcDoc
+  // authoring sandbox takes an `init` — a published canvas is a built artifact
+  // that boots itself and only receives the frames below.
   z.object({
     channel: z.literal(CANVAS_CHANNEL),
     type: z.literal("init"),
     code: z.string(),
-    // "edit" = author in-app (full-API shim, CDN packages, open egress).
-    // "view" = published/shared (frozen named queries, closed egress).
-    mode: z.enum(["edit", "view"]),
     // Present when analytics/replay should run in the iframe. Absent = no capture.
     analytics: canvasAnalyticsConfigSchema.optional(),
     // The appearance to render in. Carried on `init` so the first render is
     // already correct; live theme changes use the `set-theme` frame below
     // (which re-themes without remounting). Absent = light.
     theme: canvasThemeSchema.optional(),
+    highlights: z
+      .array(canvasCommentHighlightSchema)
+      .max(MAX_CANVAS_COMMENT_HIGHLIGHTS)
+      .optional(),
   }),
   // Live theme change: re-apply light/dark WITHOUT remounting the app. Sent on
   // its own (not folded into `init`) so toggling the host theme — or an OS
@@ -151,6 +214,17 @@ export const hostToCanvasMessageSchema = z.discriminatedUnion("type", [
     channel: z.literal(CANVAS_CHANNEL),
     type: z.literal("set-theme"),
     theme: canvasThemeSchema,
+  }),
+  z.object({
+    channel: z.literal(CANVAS_CHANNEL),
+    type: z.literal("set-comment-highlights"),
+    highlights: z
+      .array(canvasCommentHighlightSchema)
+      .max(MAX_CANVAS_COMMENT_HIGHLIGHTS),
+  }),
+  z.object({
+    channel: z.literal(CANVAS_CHANNEL),
+    type: z.literal("clear-text-selection"),
   }),
   // Reply to a data-request, correlated by `id`.
   z.object({
@@ -222,6 +296,20 @@ export const canvasToHostMessageSchema = z.discriminatedUnion("type", [
     channel: z.literal(CANVAS_CHANNEL),
     type: z.literal("open-external"),
     url: z.string().refine(isSafePostHogUrl),
+  }),
+  z.object({
+    channel: z.literal(CANVAS_CHANNEL),
+    type: z.literal("text-selection"),
+    selection: canvasTextSelectionSchema,
+  }),
+  z.object({
+    channel: z.literal(CANVAS_CHANNEL),
+    type: z.literal("text-selection-cleared"),
+  }),
+  z.object({
+    channel: z.literal(CANVAS_CHANNEL),
+    type: z.literal("comment-activate"),
+    id: z.string().min(1).max(128),
   }),
 ]);
 export type CanvasToHostMessage = z.infer<typeof canvasToHostMessageSchema>;

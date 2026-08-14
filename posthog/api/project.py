@@ -13,7 +13,7 @@ from django.utils.dateparse import parse_datetime
 import structlog
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter, extend_schema, extend_schema_field, extend_schema_view
-from rest_framework import exceptions, filters, request, response, serializers, viewsets
+from rest_framework import exceptions, request, response, serializers, viewsets
 from rest_framework.decorators import action
 from rest_framework.permissions import BasePermission, IsAuthenticated
 
@@ -41,6 +41,7 @@ from posthog.api.team import (
     _format_serializer_errors,
     get_or_mint_live_events_token,
     handle_conversations_token_on_update,
+    handle_experiments_config,
     handle_logs_config,
     report_conversations_settings_changes,
     validate_secret_token_generation,
@@ -53,6 +54,7 @@ from posthog.constants import AvailableFeature
 from posthog.decorators import disallow_if_impersonated
 from posthog.event_usage import report_user_action
 from posthog.exceptions import Conflict
+from posthog.filters import PhraseSearchFilter
 from posthog.geoip import get_geoip_properties
 from posthog.helpers.impersonation import is_impersonated
 from posthog.models import User
@@ -118,9 +120,9 @@ from products.notifications.backend.facade.api import (
     TargetType,
     create_notification,
 )
-from products.signals.backend.models import SignalSourceConfig
 
 from ee.api.rbac.access_control import AccessControlViewSetMixin
+from ee.api.rbac.access_control_settings import AccessControlSettingsViewSetMixin
 
 logger = structlog.get_logger(__name__)
 
@@ -317,37 +319,6 @@ def team_default_release_conditions_view(team: Team, request: request.Request) -
     )
 
     return response.Response({"enabled": config.enabled, "default_groups": config.default_groups})
-
-
-def team_experiments_config_view(team: Team, request: request.Request) -> response.Response:
-    """Manage experiment configuration for this project."""
-    from products.experiments.backend.models.team_experiments_config import TeamExperimentsConfig
-
-    class TeamExperimentsConfigSerializer(serializers.ModelSerializer):
-        class Meta:
-            model = TeamExperimentsConfig
-            fields = [
-                "experiment_recalculation_time",
-                "default_experiment_confidence_level",
-                "default_experiment_stats_method",
-                "experiment_precomputation_enabled",
-                "default_only_count_matured_users",
-                "default_cuped_enabled",
-                "default_cuped_lookback_days",
-                "default_minimum_detectable_effect",
-                "default_sequential_testing_enabled",
-                "default_sequential_tuning_parameter",
-            ]
-
-    config = get_or_create_team_extension(team, TeamExperimentsConfig)
-
-    if request.method == "PATCH":
-        serializer = TeamExperimentsConfigSerializer(config, data=request.data, partial=True)
-        serializer.is_valid(raise_exception=True)
-        serializer.save()
-        return response.Response(serializer.data)
-
-    return response.Response(TeamExperimentsConfigSerializer(config).data)
 
 
 def team_settings_as_of_view(team: Team, request: request.Request) -> response.Response:
@@ -1053,6 +1024,10 @@ class ProjectBackwardCompatSerializer(
     def validate_test_account_filters(value: object) -> list[dict[str, object]]:
         return TeamSerializer.validate_test_account_filters(value)
 
+    @staticmethod
+    def validate_path_cleaning_filters(value: object) -> object:
+        return TeamSerializer.validate_path_cleaning_filters(value)
+
     def validate_proactive_tasks_enabled(self, value: bool | None) -> bool | None:
         return TeamSerializer.validate_proactive_tasks_enabled(cast(TeamSerializer, self), value)
 
@@ -1272,21 +1247,6 @@ class ProjectBackwardCompatSerializer(
             team.refresh_from_db()
             set_team_in_cache(team.api_token, team)
 
-        if "proactive_tasks_enabled" in validated_data:
-            if validated_data["proactive_tasks_enabled"]:
-                SignalSourceConfig.objects.get_or_create(
-                    team=team,
-                    source_product=SignalSourceConfig.SourceProduct.SESSION_REPLAY,
-                    source_type=SignalSourceConfig.SourceType.SESSION_ANALYSIS_CLUSTER,
-                    defaults={"enabled": True, "config": {}, "created_by": self.context["request"].user},
-                )
-            else:
-                SignalSourceConfig.objects.filter(
-                    team=team,
-                    source_product=SignalSourceConfig.SourceProduct.SESSION_REPLAY,
-                    source_type=SignalSourceConfig.SourceType.SESSION_ANALYSIS_CLUSTER,
-                ).delete()
-
         project_after_update = instance.__dict__.copy()
         team_changes = dict_changes_between("Team", team_before_update, team_after_update, use_field_exclusions=True)
         project_changes = dict_changes_between(
@@ -1348,7 +1308,9 @@ class ProjectBackwardCompatSerializer(
         ),
     ),
 )
-class ProjectViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.ModelViewSet):
+class ProjectViewSet(
+    TeamAndOrgViewSetMixin, AccessControlSettingsViewSetMixin, AccessControlViewSetMixin, viewsets.ModelViewSet
+):
     """
     Projects for the current organization.
     """
@@ -1358,7 +1320,7 @@ class ProjectViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets
     queryset = Project.objects.all().select_related("organization").prefetch_related("teams")
     lookup_field = "id"
     ordering = "-created_by"
-    filter_backends = [filters.SearchFilter]
+    filter_backends = [PhraseSearchFilter]
     search_fields = ["name"]
 
     def safely_get_queryset(self, queryset):
@@ -1703,7 +1665,7 @@ class ProjectViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets
     )
     def experiments_config(self, request: request.Request, id: str, **kwargs) -> response.Response:
         """Manage experiment configuration for this project."""
-        return team_experiments_config_view(self.get_object().passthrough_team, request)
+        return handle_experiments_config(request, self.get_object().passthrough_team)
 
     @action(
         methods=["GET", "POST", "DELETE"],

@@ -202,9 +202,12 @@ export function WebsiteChannelHome({ channelId }: { channelId: string }) {
     [handleOpenFull],
   );
 
+  // Under the spaces chrome there is no thread dock to peek into, so the feed
+  // opens the session itself and the right panel carries what the dock used to.
   const handleOpenThread = useCallback(
-    (task: Task) => openThread(channelId, task.id),
-    [channelId, openThread],
+    (task: Task) =>
+      spacesLayout ? handleOpenFull(task.id) : openThread(channelId, task.id),
+    [channelId, openThread, spacesLayout, handleOpenFull],
   );
 
   const threadTask = threadTaskId
@@ -297,6 +300,8 @@ export function WebsiteChannelHome({ channelId }: { channelId: string }) {
             channelId={channelId}
             channelName={channelName}
             channelContext={channelContext}
+            channelRepositories={channel?.repositories}
+            channelGithubIntegration={channel?.github_integration}
             onTaskCreated={onTaskCreated}
             onPendingStart={addPending}
             onPendingEnd={removePending}
@@ -304,15 +309,17 @@ export function WebsiteChannelHome({ channelId }: { channelId: string }) {
         </div>
       </div>
 
-      {threadTaskId && threadTaskId !== inheritedThreadTaskId && (
-        <ThreadSidebar
-          taskId={threadTaskId}
-          channelId={channelId}
-          task={threadTask}
-          onClose={() => closeThread(channelId)}
-          onOpenFull={() => handleOpenFull(threadTaskId)}
-        />
-      )}
+      {!spacesLayout &&
+        threadTaskId &&
+        threadTaskId !== inheritedThreadTaskId && (
+          <ThreadSidebar
+            taskId={threadTaskId}
+            channelId={channelId}
+            task={threadTask}
+            onClose={() => closeThread(channelId)}
+            onOpenFull={() => handleOpenFull(threadTaskId)}
+          />
+        )}
 
       {channelName && (
         <CreateChannelModal

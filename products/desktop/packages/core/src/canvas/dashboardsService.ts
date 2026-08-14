@@ -6,6 +6,7 @@ import {
   canvasBuildRecordSchema,
 } from "./canvasBuildSchemas";
 import type {
+  CanvasDraft,
   CanvasSource,
   CanvasSourceProject,
   CanvasVersion,
@@ -42,6 +43,15 @@ interface ApiVersion {
   task_id: string | null;
   created_by?: ApiCanvas["created_by"];
   created_at: string;
+}
+
+interface ApiDraft {
+  version_id: string;
+  prompt: string | null;
+  created_by?: ApiCanvas["created_by"];
+  created_at: string;
+  build_status: "queued" | "building" | "ready" | "failed" | null;
+  build_id: string | null;
 }
 
 function creatorLabel(created_by: ApiCanvas["created_by"]): string | undefined {
@@ -196,6 +206,32 @@ export class DashboardsService {
     return this.patch(input.id, { pinned: input.pinned }, "set pin");
   }
 
+  // File a rendering error in the canvas's authoring-task thread (the server
+  // dedupes per build and error type). Best-effort: a report must never affect
+  // the render, and backends without the endpoint just refuse it, so every
+  // failure is swallowed.
+  async reportError(input: {
+    id: string;
+    buildId: string;
+    errorType: string;
+  }): Promise<void> {
+    try {
+      await this.api.fetch(
+        `canvases/${encodeURIComponent(input.id)}/report_error/`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            build_id: input.buildId,
+            error_type: input.errorType,
+          }),
+        },
+      );
+    } catch {
+      // Advisory call — rendering carries on regardless.
+    }
+  }
+
   rename(input: { id: string; name: string }): Promise<DashboardRecord> {
     return this.patch(input.id, { name: input.name }, "rename canvas");
   }
@@ -235,6 +271,44 @@ export class DashboardsService {
     }));
   }
 
+  // The canvas's staged drafts, newest first, each with its latest build status.
+  async listDrafts(id: string): Promise<CanvasDraft[]> {
+    const rows = await this.api.json<ApiDraft[]>(
+      `canvases/${encodeURIComponent(id)}/drafts/`,
+      "list canvas drafts",
+    );
+    return rows.map((row) => ({
+      versionId: row.version_id,
+      prompt: row.prompt,
+      createdBy: creatorLabel(row.created_by),
+      createdAt: toEpoch(row.created_at) ?? 0,
+      buildStatus: row.build_status,
+      buildId: row.build_id,
+    }));
+  }
+
+  // Make a draft version the canvas's live head (adopting its ready build, or
+  // rebuilding when the artifacts aged out). Returns the now-live build.
+  async promoteDraft(input: {
+    id: string;
+    versionId: string;
+    expectedCurrentVersionId: string | null;
+  }): Promise<CanvasBuildRecord> {
+    const build = await this.api.json<Record<string, unknown>>(
+      `canvases/${encodeURIComponent(input.id)}/promote/`,
+      "promote canvas draft",
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          version_id: input.versionId,
+          expected_current_version_id: input.expectedCurrentVersionId,
+        }),
+      },
+    );
+    return toBuildRecord(build);
+  }
+
   // Move the canvas's head back to an existing version and rebuild it.
   async revertToVersion(input: {
     id: string;
@@ -258,12 +332,21 @@ export class DashboardsService {
 
   // Read a canvas's build lifecycle (pointers + recent builds). Publishing
   // queues a build server-side; callers poll this until it settles.
-  async getBuilds(id: string): Promise<CanvasBuildLifecycle> {
+  async getBuilds(input: {
+    id: string;
+    versionId?: string;
+  }): Promise<CanvasBuildLifecycle> {
+    const suffix = input.versionId
+      ? `?version_id=${encodeURIComponent(input.versionId)}`
+      : "";
     const body = await this.api.json<{
       published_build_id: string | null;
       current_version_id: string | null;
       builds: Record<string, unknown>[];
-    }>(`canvases/${encodeURIComponent(id)}/builds/`, "load canvas builds");
+    }>(
+      `canvases/${encodeURIComponent(input.id)}/builds/${suffix}`,
+      "load canvas builds",
+    );
     // Each build row is already validated by tryToBuildRecord; this endpoint is
     // polled every couple of seconds during builds, so don't re-run the whole
     // lifecycle schema (which would zod-parse every record a second time).

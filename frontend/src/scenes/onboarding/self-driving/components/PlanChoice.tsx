@@ -31,7 +31,7 @@ export function PlanChoice({
     completing: boolean
 }): JSX.Element {
     const { startPaymentEntryFlow } = useActions(paymentEntryLogic)
-    const { reportSelfDrivingOnboardingPlanSelected } = useActions(onboardingEventUsageLogic)
+    const { reportOnboardingPlanSelected } = useActions(onboardingEventUsageLogic)
     // Guard the subscribe button against double-submit: `isLoading` covers the returning-customer
     // activate call, `paymentEntryModalOpen` covers a new customer once the Stripe modal is up.
     const { isLoading, paymentEntryModalOpen } = useValues(paymentEntryLogic)
@@ -43,12 +43,12 @@ export function PlanChoice({
     // Reported at the pick, not at payment completion — whether payment then resolves is billing's
     // own funnel (GROW-89).
     const subscribe = (): void => {
-        reportSelfDrivingOnboardingPlanSelected('pay_as_you_go')
+        reportOnboardingPlanSelected('pay_as_you_go')
         // Returning the user to the same URL keeps them in the onboarding flow once payment resolves.
         startPaymentEntryFlow(platformProduct, window.location.pathname + window.location.search)
     }
     const continueFree = (): void => {
-        reportSelfDrivingOnboardingPlanSelected('free')
+        reportOnboardingPlanSelected('free')
         onContinue()
     }
 

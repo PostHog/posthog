@@ -128,6 +128,49 @@ function toUnifiedDiffPatch(
   return `diff --git a/${oldPath} b/${filename}\n--- ${fromPath}\n+++ ${toPath}\n${rawPatch}`;
 }
 
+/** One entry of the `files[]` array GitHub's REST diff endpoints (PR files, compare, commit) share. */
+interface GithubApiFile {
+  filename: string;
+  status: string;
+  previous_filename?: string;
+  additions: number;
+  deletions: number;
+  patch?: string;
+  sha?: string;
+}
+
+function mapGithubApiFiles(files: GithubApiFile[]): ChangedFile[] {
+  return files.map((f) => {
+    let status: ChangedFile["status"];
+    switch (f.status) {
+      case "added":
+        status = "added";
+        break;
+      case "removed":
+        status = "deleted";
+        break;
+      case "renamed":
+        status = "renamed";
+        break;
+      default:
+        status = "modified";
+        break;
+    }
+
+    return {
+      path: f.filename,
+      status,
+      originalPath: f.previous_filename,
+      linesAdded: f.additions,
+      linesRemoved: f.deletions,
+      sha: f.sha,
+      patch: f.patch
+        ? toUnifiedDiffPatch(f.patch, f.filename, f.previous_filename, status)
+        : undefined,
+    };
+  });
+}
+
 /**
  * Narrow GitHub GraphQL's `PullRequestState` (OPEN | CLOSED | MERGED) to the
  * lowercased literal the batch schema expects. Anything unexpected falls back
@@ -231,7 +274,7 @@ export class GitService extends TypedEventEmitter<GitCloneEvents> {
     env?: Record<string, string>,
   ): Promise<{ success: boolean; message: string; prUrl: string | null }> {
     const prFooter =
-      "\n\n---\n*Created with [PostHog Code](https://posthog.com/code?ref=pr)*";
+      "\n\n---\n*Created with [PostHog Desktop](https://posthog.com/desktop?ref=pr)*";
     const args = ["pr", "create"];
     if (title) {
       args.push("--title", title);
@@ -1053,48 +1096,8 @@ export class GitService extends TypedEventEmitter<GitCloneEvents> {
       );
     }
 
-    const pages = JSON.parse(result.stdout) as Array<
-      Array<{
-        filename: string;
-        status: string;
-        previous_filename?: string;
-        additions: number;
-        deletions: number;
-        patch?: string;
-        sha?: string;
-      }>
-    >;
-    const files = pages.flat();
-
-    return files.map((f) => {
-      let status: ChangedFile["status"];
-      switch (f.status) {
-        case "added":
-          status = "added";
-          break;
-        case "removed":
-          status = "deleted";
-          break;
-        case "renamed":
-          status = "renamed";
-          break;
-        default:
-          status = "modified";
-          break;
-      }
-
-      return {
-        path: f.filename,
-        status,
-        originalPath: f.previous_filename,
-        linesAdded: f.additions,
-        linesRemoved: f.deletions,
-        sha: f.sha,
-        patch: f.patch
-          ? toUnifiedDiffPatch(f.patch, f.filename, f.previous_filename, status)
-          : undefined,
-      };
-    });
+    const pages = JSON.parse(result.stdout) as GithubApiFile[][];
+    return mapGithubApiFiles(pages.flat());
   }
 
   /**
@@ -1245,49 +1248,42 @@ export class GitService extends TypedEventEmitter<GitCloneEvents> {
     }
 
     const response = JSON.parse(result.stdout) as {
-      files?: Array<{
-        filename: string;
-        status: string;
-        previous_filename?: string;
-        additions: number;
-        deletions: number;
-        patch?: string;
-        sha?: string;
-      }>;
+      files?: GithubApiFile[];
     };
-    const files = response.files;
+    return mapGithubApiFiles(response.files ?? []);
+  }
 
-    if (!files) return [];
+  async getCommitChangedFiles(
+    repo: string,
+    sha: string,
+  ): Promise<ChangedFile[]> {
+    const parts = repo.split("/");
+    if (parts.length !== 2) return [];
+    // The sha comes from event payloads; the guard keeps a crafted value from
+    // steering the authenticated request to a different GitHub endpoint.
+    if (!/^[0-9a-f]{7,40}$/i.test(sha)) return [];
 
-    return files.map((f) => {
-      let status: ChangedFile["status"];
-      switch (f.status) {
-        case "added":
-          status = "added";
-          break;
-        case "removed":
-          status = "deleted";
-          break;
-        case "renamed":
-          status = "renamed";
-          break;
-        default:
-          status = "modified";
-          break;
+    const [owner, repoName] = parts;
+    // A stalled fetch would otherwise hang this call forever, holding the expanded
+    // commit row on a permanent skeleton with no error the query can recover from.
+    const result = await execGh(
+      ["api", `repos/${owner}/${repoName}/commits/${sha}`],
+      { timeoutMs: 10_000 },
+    );
+
+    if (result.exitCode !== 0) {
+      if (/HTTP 404\b/.test(`${result.stderr} ${result.error ?? ""}`)) {
+        return [];
       }
+      throw new Error(
+        `Failed to fetch commit files: ${result.stderr || result.error || "Unknown error"}`,
+      );
+    }
 
-      return {
-        path: f.filename,
-        status,
-        originalPath: f.previous_filename,
-        linesAdded: f.additions,
-        linesRemoved: f.deletions,
-        sha: f.sha,
-        patch: f.patch
-          ? toUnifiedDiffPatch(f.patch, f.filename, f.previous_filename, status)
-          : undefined,
-      };
-    });
+    const response = JSON.parse(result.stdout) as {
+      files?: GithubApiFile[];
+    };
+    return mapGithubApiFiles(response.files ?? []);
   }
 
   async getLocalBranchChangedFiles(
@@ -1480,11 +1476,11 @@ export class GitService extends TypedEventEmitter<GitCloneEvents> {
     const [comments, reviewSummaries] = await Promise.all([
       this.fetchPrCommentFeed(
         `repos/${pr.owner}/${pr.repo}/issues/${pr.number}/comments`,
-        '.[] | {id, author: (.user.login // "unknown"), avatarUrl: (.user.avatar_url // null), body: (.body // ""), createdAt: .created_at, url: (.html_url // null)}',
+        '.[] | {id, author: (.user.login // "unknown"), isBot: (.user.type == "Bot"), avatarUrl: (.user.avatar_url // null), body: (.body // ""), createdAt: .created_at, url: (.html_url // null)}',
       ),
       this.fetchPrCommentFeed(
         `repos/${pr.owner}/${pr.repo}/pulls/${pr.number}/reviews`,
-        '.[] | select(.state != "PENDING") | select((.body // "") != "") | {id, author: (.user.login // "unknown"), avatarUrl: (.user.avatar_url // null), body, createdAt: (.submitted_at // ""), url: (.html_url // null)}',
+        '.[] | select(.state != "PENDING") | select((.body // "") != "") | {id, author: (.user.login // "unknown"), isBot: (.user.type == "Bot"), avatarUrl: (.user.avatar_url // null), body, createdAt: (.submitted_at // ""), url: (.html_url // null)}',
       ),
     ]);
     return [...comments, ...reviewSummaries];
@@ -1546,7 +1542,7 @@ export class GitService extends TypedEventEmitter<GitCloneEvents> {
                     path
                     diffHunk
                     replyTo { databaseId }
-                    author { login avatarUrl }
+                    author { __typename login avatarUrl }
                     createdAt
                     updatedAt
                   }
@@ -1576,7 +1572,11 @@ export class GitService extends TypedEventEmitter<GitCloneEvents> {
           path: string;
           diffHunk: string;
           replyTo: { databaseId: number } | null;
-          author: { login: string; avatarUrl: string };
+          author: {
+            __typename: string;
+            login: string;
+            avatarUrl: string;
+          } | null;
           createdAt: string;
           updatedAt: string;
         }>;
@@ -1642,7 +1642,11 @@ export class GitService extends TypedEventEmitter<GitCloneEvents> {
         start_line: thread.startLine,
         start_side: thread.startDiffSide,
         in_reply_to_id: c.replyTo?.databaseId ?? null,
-        user: { login: c.author.login, avatar_url: c.author.avatarUrl },
+        user: {
+          login: c.author?.login ?? "ghost",
+          avatar_url: c.author?.avatarUrl ?? "",
+          isBot: c.author?.__typename === "Bot",
+        },
         created_at: c.createdAt,
         updated_at: c.updatedAt,
         subject_type: thread.subjectType

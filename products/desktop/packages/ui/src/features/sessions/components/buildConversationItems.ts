@@ -79,6 +79,9 @@ export interface BuildResult {
   items: ConversationItem[];
   lastTurnInfo: LastTurnInfo | null;
   isCompacting: boolean;
+  /** A `/clear` is in flight (its status row shows the dedicated spinner), so
+   *  the generic "Generating…" footer must stay hidden — same as compaction. */
+  isClearing: boolean;
   /** Number of tool calls settled into a terminal status so far. Monotonic
    *  within a thread; consumers treat a change as "a tool/MCP call finished". */
   completedToolCallCount: number;
@@ -122,6 +125,7 @@ export interface ItemBuilder {
   pendingPrompts: Map<number | string, TurnState>;
   shellExecutes: Map<string, { item: UserShellExecute; index: number }>;
   isCompacting: boolean;
+  isClearing: boolean;
   nextId: () => number;
   /** Progress cards keyed by the backend-supplied `group` id. The first event
    *  for a group opens the card inline where it arrived; every subsequent
@@ -152,6 +156,7 @@ export function createItemBuilder(): ItemBuilder {
     pendingPrompts: new Map(),
     shellExecutes: new Map(),
     isCompacting: false,
+    isClearing: false,
     nextId: () => idCounter++,
     progressCards: new Map(),
     lowestTouchedProgressIndex: Number.POSITIVE_INFINITY,
@@ -227,6 +232,30 @@ export interface BuildConversationOptions {
   showDebugLogs?: boolean;
 }
 
+/**
+ * The single ordering policy every conversation builder reads events in:
+ * ascending timestamp, ties keeping arrival order (`Array.sort` is stable).
+ * Returns `events` untouched when it already ascends — the normal streaming
+ * case — so the common path costs a scan rather than a copy and a sort.
+ *
+ * Both full builders and the incremental one must agree here, or the same
+ * transcript renders in one order while a turn streams and another once it
+ * settles.
+ */
+export function orderEventsByTimestamp<T>(
+  events: T[],
+  timestampOf: (event: T) => number,
+): T[] {
+  for (let i = 1; i < events.length; i++) {
+    if (timestampOf(events[i]) < timestampOf(events[i - 1])) {
+      return events.toSorted(
+        (left, right) => timestampOf(left) - timestampOf(right),
+      );
+    }
+  }
+  return events;
+}
+
 export function buildConversationItems(
   events: AcpMessage[],
   isPromptPending: boolean | null,
@@ -234,13 +263,7 @@ export function buildConversationItems(
 ): BuildResult {
   const b = createItemBuilder();
 
-  let ordered = events;
-  for (let i = 1; i < events.length; i++) {
-    if (events[i].ts < events[i - 1].ts) {
-      ordered = [...events].sort((a, b) => a.ts - b.ts);
-      break;
-    }
-  }
+  const ordered = orderEventsByTimestamp(events, (event) => event.ts);
   for (const event of ordered) {
     processEvent(b, event, options);
   }
@@ -253,6 +276,7 @@ export function buildConversationItems(
     items: b.items,
     lastTurnInfo,
     isCompacting: b.isCompacting,
+    isClearing: b.isClearing,
     completedToolCallCount: b.completedToolCallCount,
   };
 }
@@ -295,9 +319,7 @@ export function buildAgentConversationItems(
   isPromptPending: boolean | null,
 ): BuildResult {
   const b = createItemBuilder();
-  const ordered = [...events].sort(
-    (left, right) => left.timestamp - right.timestamp,
-  );
+  const ordered = orderEventsByTimestamp(events, (event) => event.timestamp);
 
   for (const event of ordered) {
     processAgentConversationEvent(b, event);
@@ -309,6 +331,7 @@ export function buildAgentConversationItems(
     items: b.items,
     lastTurnInfo: readLastTurnInfo(b),
     isCompacting: b.isCompacting,
+    isClearing: b.isClearing,
     completedToolCallCount: b.completedToolCallCount,
   };
 }
@@ -701,6 +724,13 @@ function handleNotification(
     return;
   }
 
+  if (isNotification(msg.method, POSTHOG_NOTIFICATIONS.CONVERSATION_CLEARED)) {
+    ensureImplicitTurn(b, ts);
+    markRuntimeStatusComplete(b, "clearing");
+    pushItem(b, { sessionUpdate: "conversation_cleared" });
+    return;
+  }
+
   if (isNotification(msg.method, POSTHOG_NOTIFICATIONS.STATUS)) {
     ensureImplicitTurn(b, ts);
     const params = msg.params as {
@@ -761,6 +791,26 @@ function handleRuntimeStatus(
     return;
   } else if (status.status === "retrying" && status.isComplete) {
     markRuntimeStatusComplete(b, "retrying");
+    return;
+  } else if (status.status === "clearing") {
+    if (status.isComplete) {
+      markRuntimeStatusComplete(b, "clearing");
+      return;
+    }
+    // The /clear prompt RPC keeps isPromptPending true for the whole swap,
+    // so without this flag the generic "Generating…" footer would render
+    // alongside the dedicated "Clearing…" row (compaction has the same
+    // gate via isCompacting).
+    b.isClearing = true;
+  } else if (status.status === "clearing_failed") {
+    // A timed-out clear emits no `conversation_cleared` marker, so clear
+    // the spinner and render the outcome as its own status row.
+    markRuntimeStatusComplete(b, "clearing");
+    pushItem(b, {
+      sessionUpdate: "status",
+      status: "clearing_failed",
+      error: status.error,
+    });
     return;
   }
 
@@ -880,6 +930,9 @@ function normalizeStepStatus(raw: string | undefined): StepStatus {
 function markRuntimeStatusComplete(b: ItemBuilder, status: string) {
   if (status === "compacting") {
     b.isCompacting = false;
+  }
+  if (status === "clearing") {
+    b.isClearing = false;
   }
   for (let i = b.items.length - 1; i >= 0; i--) {
     const item = b.items[i];

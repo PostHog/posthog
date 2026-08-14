@@ -113,11 +113,17 @@ export const AccountsListParams = /* @__PURE__ */ zod.object({
         ),
 })
 
+export const accountsListQueryIncludeChurnedDefault = false
+
 export const AccountsListQueryParams = /* @__PURE__ */ zod.object({
     all_roles_unassigned: zod
         .boolean()
         .optional()
         .describe('When true, returns only accounts where no user actively holds any relationship.'),
+    include_churned: zod
+        .boolean()
+        .default(accountsListQueryIncludeChurnedDefault)
+        .describe('Include churned accounts. Churned accounts are hidden by default.'),
     limit: zod.number().optional().describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
     ordering: zod.string().optional().describe("Sort order. Defaults to '-created_at'."),
@@ -154,6 +160,16 @@ export const AccountsCreateBody = /* @__PURE__ */ zod
             ),
         properties: zod
             .object({
+                email_domains: zod
+                    .array(zod.string())
+                    .optional()
+                    .describe(
+                        "Email domains owned by this account's company, used to match inbound touchpoints to the account."
+                    ),
+                known_emails: zod
+                    .array(zod.string())
+                    .optional()
+                    .describe('Individual email addresses pinned to this account, matched before the domain fallback.'),
                 stripe_customer_id: zod.string().nullish(),
                 hubspot_deal_id: zod.string().nullish(),
                 billing_id: zod.string().nullish(),
@@ -165,7 +181,7 @@ export const AccountsCreateBody = /* @__PURE__ */ zod
             })
             .nullish()
             .describe(
-                'Typed account properties: external system identifiers (stripe_customer_id, hubspot_deal_id, billing_id, sfdc_id, zendesk_id, slack_channel_id, usage_dashboard_link, metabase_link). Defaults to an empty object. Unknown keys are rejected. User assignments live on account relationships, not here.'
+                "Typed account properties: external system identifiers (stripe_customer_id, hubspot_deal_id, billing_id, sfdc_id, zendesk_id, slack_channel_id, usage_dashboard_link, metabase_link) plus touchpoint matching lists: email_domains (the company's email domains) and known_emails (individual addresses pinned to the account). Defaults to an empty object. Unknown keys are rejected. User assignments live on account relationships, not here."
             ),
         tags: zod
             .array(zod.string())
@@ -182,6 +198,10 @@ export const AccountsCreateBody = /* @__PURE__ */ zod
             .describe(
                 "How often to generate an AI summary of the account's bound Slack channel (daily, weekly, or monthly). Null means summaries are off.\n\n\* `daily` - daily\n\* `weekly` - weekly\n\* `monthly` - monthly"
             ),
+        churned_at: zod.iso
+            .datetime({ offset: true })
+            .nullish()
+            .describe('When the account churned. Null means the account has not churned.'),
     })
     .describe('A Customer Analytics account — a logical grouping used to assign customer-success ownership.')
 
@@ -349,6 +369,16 @@ export const AccountsPartialUpdateBody = /* @__PURE__ */ zod
             ),
         properties: zod
             .object({
+                email_domains: zod
+                    .array(zod.string())
+                    .optional()
+                    .describe(
+                        "Email domains owned by this account's company, used to match inbound touchpoints to the account."
+                    ),
+                known_emails: zod
+                    .array(zod.string())
+                    .optional()
+                    .describe('Individual email addresses pinned to this account, matched before the domain fallback.'),
                 stripe_customer_id: zod.string().nullish(),
                 hubspot_deal_id: zod.string().nullish(),
                 billing_id: zod.string().nullish(),
@@ -360,7 +390,7 @@ export const AccountsPartialUpdateBody = /* @__PURE__ */ zod
             })
             .nullish()
             .describe(
-                'Typed account properties: external system identifiers (stripe_customer_id, hubspot_deal_id, billing_id, sfdc_id, zendesk_id, slack_channel_id, usage_dashboard_link, metabase_link). Defaults to an empty object. Unknown keys are rejected. User assignments live on account relationships, not here.'
+                "Typed account properties: external system identifiers (stripe_customer_id, hubspot_deal_id, billing_id, sfdc_id, zendesk_id, slack_channel_id, usage_dashboard_link, metabase_link) plus touchpoint matching lists: email_domains (the company's email domains) and known_emails (individual addresses pinned to the account). Defaults to an empty object. Unknown keys are rejected. User assignments live on account relationships, not here."
             ),
         tags: zod
             .array(zod.string())
@@ -377,6 +407,10 @@ export const AccountsPartialUpdateBody = /* @__PURE__ */ zod
             .describe(
                 "How often to generate an AI summary of the account's bound Slack channel (daily, weekly, or monthly). Null means summaries are off.\n\n\* `daily` - daily\n\* `weekly` - weekly\n\* `monthly` - monthly"
             ),
+        churned_at: zod.iso
+            .datetime({ offset: true })
+            .nullish()
+            .describe('When the account churned. Null means the account has not churned.'),
     })
     .describe('A Customer Analytics account — a logical grouping used to assign customer-success ownership.')
 

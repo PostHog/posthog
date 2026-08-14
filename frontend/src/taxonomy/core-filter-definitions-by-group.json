@@ -48,6 +48,10 @@
         "name": {
             "description": "The name of an issue.",
             "label": "Issue name"
+        },
+        "severity": {
+            "description": "The severity level assigned to an issue.",
+            "label": "Issue severity"
         }
     },
     "event_metadata": {
@@ -1550,9 +1554,9 @@
             "label": "Exception list",
             "system": true
         },
-        "$exception_releases": {
-            "description": "The releases in which this exception has been observed.",
-            "label": "Exception releases",
+        "$exception_release": {
+            "description": "The release associated with this exception event.",
+            "label": "Exception release",
             "type": "String"
         },
         "$exception_source": {
@@ -5989,9 +5993,9 @@
             "label": "Exception list",
             "system": true
         },
-        "$exception_releases": {
-            "description": "The releases in which this exception has been observed.",
-            "label": "Exception releases",
+        "$exception_release": {
+            "description": "The release associated with this exception event.",
+            "label": "Exception release",
             "type": "String"
         },
         "$exception_source": {

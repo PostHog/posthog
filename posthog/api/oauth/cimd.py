@@ -11,6 +11,7 @@ import re
 import json
 import time
 import hashlib
+from collections.abc import Callable
 from typing import TYPE_CHECKING, TypedDict, cast
 from urllib.parse import urlparse
 
@@ -33,6 +34,7 @@ from posthog.models.oauth import (
     OAuthApplication,
     TokenEndpointAuthMethod,
     find_cimd_verification_token,
+    normalize_cimd_url,
 )
 from posthog.ph_client import ph_scoped_capture
 from posthog.rate_limit import IPThrottle
@@ -47,9 +49,16 @@ if TYPE_CHECKING:
 
 logger = structlog.get_logger(__name__)
 
+# The signature shared by posthoganalytics.capture and the ph_scoped_capture callable, so
+# every function on the capture path can accept either interchangeably. The return is
+# `object` because the two disagree on it and no caller uses it.
+CapturePhEvent = Callable[..., object]
+
 # Limits per the CIMD specification
 CIMD_MAX_DOCUMENT_SIZE = 5 * 1024  # 5KB
 CIMD_FETCH_TIMEOUT_SECONDS = 5
+# Sized past the refresh task's 30s time_limit, so the sentinel outlives any task it gates.
+CIMD_REFRESH_PENDING_TTL_SECONDS = 60
 
 # Cache TTL bounds (seconds)
 CIMD_CACHE_DEFAULT_TTL = 3600  # 1 hour
@@ -165,23 +174,29 @@ def validate_fetchable_https_url(
     return True, None
 
 
-def validate_cimd_url(url: str | None, *, perform_dns_check: bool = False) -> tuple[bool, str | None]:
+def validate_cimd_url(
+    url: str | None, *, perform_dns_check: bool = False, what: str = "CIMD client_id"
+) -> tuple[bool, str | None]:
     """
     Validate a CIMD URL for format and optionally SSRF safety.
 
     Adds the identity requirements a CIMD ``client_id`` carries on top of the safety checks:
     the URL is the client's stable identifier, so it must name a document (a path) and must
     not vary by query string.
+
+    ``what`` names the thing being validated in the returned message. It defaults to the
+    OAuth term because these errors usually surface against a ``client_id`` on /authorize,
+    but the settings form calls the same value a metadata URL and passes its own label.
     """
-    safe, error = validate_fetchable_https_url(url, perform_dns_check=perform_dns_check, what="CIMD client_id")
+    safe, error = validate_fetchable_https_url(url, perform_dns_check=perform_dns_check, what=what)
     if not safe:
         return False, error
 
     parsed = urlparse(url or "")
     if not parsed.path or parsed.path == "/":
-        return False, "CIMD client_id must include a path component"
+        return False, f"{what} must include a path component"
     if parsed.query:
-        return False, "CIMD client_id must not contain query parameters"
+        return False, f"{what} must not contain query parameters"
 
     return True, None
 
@@ -431,24 +446,105 @@ def fetch_cimd_metadata(url: str) -> tuple[CIMDMetadataDocument, int]:
     return metadata, cache_ttl
 
 
-def _resolve_verification_token(metadata: CIMDMetadataDocument) -> CIMDVerificationToken | None:
+def _resolve_verification_token(
+    metadata: CIMDMetadataDocument, url: str, *, capture_ph_event: CapturePhEvent = posthoganalytics.capture
+) -> CIMDVerificationToken | None:
     """Look up a verification token from CIMD metadata, preferring the nested
     `com.posthog.verification_token` and falling back to the legacy top-level
     `posthog_verification_token`. Falls back to the top-level token when the nested
     one is absent OR present-but-unrecognized, so a typo'd nested token doesn't drop
-    a partner whose legacy token still resolves. Returns the token record, or None."""
+    a partner whose legacy token still resolves. Returns the token record, or None.
+
+    A token only resolves at the URL it was issued for. The document is public,
+    so a token found here may have been copied from someone else's document —
+    `url` is the only thing distinguishing the real publisher from a copier.
+
+    A recognized nested token bound to some other URL resolves to None rather than
+    falling through to the legacy field: it means this document is quoting someone
+    else's credential, and trying a second one would be working around that."""
     com_posthog = metadata.get("com.posthog")
     if isinstance(com_posthog, dict):
         nested_raw = com_posthog.get("verification_token")
         if nested_raw and isinstance(nested_raw, str):
             token = find_cimd_verification_token(nested_raw)
             if token is not None:
-                return token
+                return token if _token_is_bound_to_url(token, url, capture_ph_event=capture_ph_event) else None
 
     raw = metadata.get("posthog_verification_token")
     if not raw or not isinstance(raw, str):
         return None
-    return find_cimd_verification_token(raw)
+    token = find_cimd_verification_token(raw)
+    if token is None:
+        return None
+    return token if _token_is_bound_to_url(token, url, capture_ph_event=capture_ph_event) else None
+
+
+def _token_is_bound_to_url(
+    token: CIMDVerificationToken, url: str, *, capture_ph_event: CapturePhEvent = posthoganalytics.capture
+) -> bool:
+    """Whether this token was issued for the document we just fetched.
+
+    Fails closed on tokens with no URL: those pre-date binding and could not be
+    migrated automatically, so they must be reissued rather than keep verifying
+    any document that quotes them. Also fails closed when the app has no metadata
+    URL at all, under its own reason — otherwise it would fall into the mismatch
+    branch below and pollute the metric used to spot copied tokens."""
+    if not token.cimd_url:
+        _capture_verification_rejected(token, url, reason="token_not_bound", capture_ph_event=capture_ph_event)
+        return False
+    if not url:
+        _capture_verification_rejected(token, url, reason="app_url_missing", capture_ph_event=capture_ph_event)
+        return False
+    if token.cimd_url != normalize_cimd_url(url):
+        _capture_verification_rejected(token, url, reason="url_mismatch", capture_ph_event=capture_ph_event)
+        return False
+    return True
+
+
+CAPTURE_VERIFICATION_REJECTED_MIN_INTERVAL = 300  # 5 minutes
+
+
+def _verification_rejected_capture_key(token: CIMDVerificationToken, url: str, reason: str) -> str:
+    url_hash = hashlib.sha256(url.encode()).hexdigest()
+    return f"cimd:verification_rejected:{token.pk}:{reason}:{url_hash}"
+
+
+def _capture_verification_rejected(
+    token: CIMDVerificationToken,
+    url: str,
+    *,
+    reason: str,
+    capture_ph_event: CapturePhEvent = posthoganalytics.capture,
+) -> None:
+    """`url_mismatch` means a valid token was presented at a document it was not
+    issued for, the copied-token case this binding exists to stop. Every rejection
+    reason shares this one event rather than getting its own, so the alert on it
+    filters on `reason="url_mismatch"`.
+
+    The capture (not the log below) is deduped per (token, url, reason) behind a
+    cache sentinel, mirroring `_touch_verification_token`: an unbound legacy token
+    or an app with no metadata URL would otherwise recapture on every refresh and
+    bury the low-volume url_mismatch signal the alert exists to catch."""
+    logger.warning(
+        "cimd_verification_token_rejected",
+        reason=reason,
+        fetched_url=url,
+        bound_url=token.cimd_url,
+        organization_id=str(token.organization_id),
+    )
+    sentinel_key = _verification_rejected_capture_key(token, url, reason)
+    if not cache.add(sentinel_key, True, timeout=CAPTURE_VERIFICATION_REJECTED_MIN_INTERVAL):
+        return
+    capture_ph_event(
+        distinct_id=str(token.organization_id),
+        event="cimd_verification_token_rejected",
+        properties={
+            "reason": reason,
+            "fetched_url": url,
+            "bound_url": token.cimd_url,
+            "organization_id": str(token.organization_id),
+        },
+    )
 
 
 def _resolve_scopes(metadata: CIMDMetadataDocument) -> list[str] | None:
@@ -497,24 +593,46 @@ def _resolve_optional_scopes(metadata: CIMDMetadataDocument) -> list[str] | None
     return filter_to_unprivileged_scopes(raw_optional)
 
 
-def _resolve_client_authentication(metadata: CIMDMetadataDocument) -> tuple[str, str | None]:
+def _resolve_client_authentication(
+    metadata: CIMDMetadataDocument, *, allow_confidential: bool
+) -> tuple[str, str | None]:
     """Map a validated CIMD document's declared auth method onto ``(client_type, jwks_uri)``.
 
     A client advertising private_key_jwt is confidential in the RFC 6749 sense even though it
     holds no secret, because it can authenticate; everything else is public and relies on PKCE.
     Those two stored fields are what OAuthApplication.token_endpoint_auth_method reads back.
 
-    This is what lets a client upgrade in place: it edits its own metadata document, and the
-    next refresh promotes it without the client_id changing or an operator being involved.
+    ``allow_confidential`` gates the promotion to a registered provisioning partner: the
+    document alone is not proof of anything, since the client that publishes it also controls
+    it, so an unregistered CIMD client declaring private_key_jwt stays public and keeps relying
+    on PKCE as its enforced baseline, rather than being upgraded into an auth method it may
+    never actually send. A partner, once registered, keeps upgrading and downgrading in place
+    as it edits its document, with no client_id change or operator involved.
+
+    A self-controlled declaration can only ever lower what we require, never raise it — that
+    takes partner registration. But the jwks_uri is stored either way, so a client that starts
+    signing later (a runtime change PostHog does not control) can still be verified and
+    accepted; see ``verify_client_assertion``. The declaration is a menu, not a mandate.
     """
     auth_method = metadata.get("token_endpoint_auth_method", TokenEndpointAuthMethod.NONE.value)
-    if auth_method == TokenEndpointAuthMethod.PRIVATE_KEY_JWT.value:
+    if auth_method == TokenEndpointAuthMethod.PRIVATE_KEY_JWT.value and allow_confidential:
         return AbstractApplication.CLIENT_CONFIDENTIAL, metadata.get("jwks_uri")
-    return AbstractApplication.CLIENT_PUBLIC, None
+    return AbstractApplication.CLIENT_PUBLIC, metadata.get("jwks_uri")
 
 
-def _create_cimd_application(url: str, metadata: CIMDMetadataDocument) -> OAuthApplication:
-    """Create a new OAuthApplication from CIMD metadata."""
+def _create_cimd_application(
+    url: str,
+    metadata: CIMDMetadataDocument,
+    *,
+    allow_confidential: bool = False,
+    capture_ph_event: CapturePhEvent = posthoganalytics.capture,
+) -> OAuthApplication:
+    """Create a new OAuthApplication from CIMD metadata.
+
+    A brand new row has no ``is_provisioning_partner`` state of its own yet, so
+    ``allow_confidential`` is the caller's only say in whether a declared private_key_jwt is
+    honored on creation; see ``_resolve_client_authentication``.
+    """
     client_name = metadata.get("client_name", "CIMD Client")
     try:
         validate_client_name(client_name)
@@ -525,11 +643,11 @@ def _create_cimd_application(url: str, metadata: CIMDMetadataDocument) -> OAuthA
 
     redirect_uris = " ".join(metadata.get("redirect_uris", []))
     logo_uri = metadata.get("logo_uri") or None
-    verification = _resolve_verification_token(metadata)
+    verification = _resolve_verification_token(metadata, url, capture_ph_event=capture_ph_event)
     resolved_scopes = _resolve_scopes(metadata)
     resolved_optional_scopes = _resolve_optional_scopes(metadata)
 
-    client_type, jwks_uri = _resolve_client_authentication(metadata)
+    client_type, jwks_uri = _resolve_client_authentication(metadata, allow_confidential=allow_confidential)
 
     app = OAuthApplication(
         name=client_name,
@@ -601,7 +719,13 @@ def _retier_account_requests_limit(app: OAuthApplication, *, verified: bool) -> 
         )
 
 
-def _update_cimd_application(app: OAuthApplication, metadata: CIMDMetadataDocument) -> OAuthApplication:
+def _update_cimd_application(
+    app: OAuthApplication,
+    metadata: CIMDMetadataDocument,
+    *,
+    allow_confidential: bool = False,
+    capture_ph_event: CapturePhEvent = posthoganalytics.capture,
+) -> OAuthApplication:
     """
     Update an existing OAuthApplication from refreshed CIMD metadata.
 
@@ -620,14 +744,18 @@ def _update_cimd_application(app: OAuthApplication, metadata: CIMDMetadataDocume
     app.logo_uri = new_uri if (new_uri := metadata.get("logo_uri")) is not None else app.logo_uri
     app.cimd_metadata_last_fetched = timezone.now()
 
-    # Re-derived on every refresh, in both directions: a client that starts publishing a
-    # jwks_uri is promoted to confidential here, and one that stops is demoted back to public
-    # rather than being left as a confidential client whose key source has gone away.
-    app.client_type, app.jwks_uri = _resolve_client_authentication(metadata)
+    # Re-derived on every refresh, in both directions: a registered partner that starts
+    # publishing a jwks_uri is promoted to confidential here, and one that stops is demoted
+    # back to public rather than being left as a confidential client whose key source has gone
+    # away. A non-partner's document never promotes client_type this way, but its jwks_uri is
+    # still stored — see _resolve_client_authentication.
+    app.client_type, app.jwks_uri = _resolve_client_authentication(
+        metadata, allow_confidential=allow_confidential or app.is_provisioning_partner
+    )
 
     # Re-evaluate verification on every refresh so a rotated/removed token
     # unlinks the app on the next fetch.
-    verification = _resolve_verification_token(metadata)
+    verification = _resolve_verification_token(metadata, app.cimd_metadata_url or "", capture_ph_event=capture_ph_event)
     new_org = verification.organization if verification else None
     update_fields = [
         "name",
@@ -676,7 +804,7 @@ def _update_cimd_application(app: OAuthApplication, metadata: CIMDMetadataDocume
         # flipping A→B (or A→None, None→A) is visible in analytics, not
         # just buried in the generic refresh event.
         if old_org_id != new_org_id:
-            posthoganalytics.capture(
+            capture_ph_event(
                 distinct_id=app.cimd_metadata_url or str(app.pk),
                 event="cimd_application_org_changed",
                 properties={
@@ -690,7 +818,12 @@ def _update_cimd_application(app: OAuthApplication, metadata: CIMDMetadataDocume
     return app
 
 
-def fetch_and_upsert_cimd_application(url: str, capture_ph_event=posthoganalytics.capture) -> OAuthApplication | None:
+def fetch_and_upsert_cimd_application(
+    url: str,
+    capture_ph_event: CapturePhEvent = posthoganalytics.capture,
+    *,
+    allow_confidential: bool = False,
+) -> OAuthApplication | None:
     """
     Fetch CIMD metadata and create or update the application.
 
@@ -699,6 +832,13 @@ def fetch_and_upsert_cimd_application(url: str, capture_ph_event=posthoganalytic
     (meaning another caller is already handling it).
 
     Used by both synchronous (new client) and asynchronous (stale refresh) paths.
+
+    ``allow_confidential=True`` is for the explicit provisioning client-registration endpoint
+    only: a client hitting that endpoint is opting in to being a provisioning partner in the
+    same request, so its declared private_key_jwt is honored immediately rather than waiting
+    for the next hourly refresh to notice ``is_provisioning_partner`` has since flipped. Every
+    other caller leaves this False; an already-registered partner still promotes on refresh via
+    its persisted ``is_provisioning_partner``, independent of this flag.
     """
     if is_cimd_url_blocked(url):
         logger.warning("cimd_blocked_url_fetch_attempt", url=url)
@@ -714,7 +854,9 @@ def fetch_and_upsert_cimd_application(url: str, capture_ph_event=posthoganalytic
 
         app = OAuthApplication.objects.filter(cimd_metadata_url=url).first()
         if app:
-            updated = _update_cimd_application(app, metadata)
+            updated = _update_cimd_application(
+                app, metadata, allow_confidential=allow_confidential, capture_ph_event=capture_ph_event
+            )
             logger.debug("cimd_app_updated", url=url, app_id=str(updated.pk))
             capture_ph_event(
                 distinct_id=url,
@@ -731,7 +873,9 @@ def fetch_and_upsert_cimd_application(url: str, capture_ph_event=posthoganalytic
             return updated
 
         try:
-            new_app = _create_cimd_application(url, metadata)
+            new_app = _create_cimd_application(
+                url, metadata, allow_confidential=allow_confidential, capture_ph_event=capture_ph_event
+            )
             logger.debug("cimd_app_created", url=url, app_id=str(new_app.pk), client_name=new_app.name)
             capture_ph_event(
                 distinct_id=url,
@@ -812,8 +956,14 @@ def enqueue_cimd_refresh_if_stale(url: str) -> None:
     provisioning auth path) so document changes are picked up on the same TTL, instead
     of freezing the app's scopes and config at first registration.
     """
-    if not cache.get(_cache_key(url)):
-        refresh_cimd_metadata_task.delay(url)
+    if cache.get(_cache_key(url)):
+        return
+    # One pending refresh per URL: staleness is checked before any client authentication,
+    # so without this an unauthenticated burst against a public client_id would enqueue a
+    # task per request, each repeating the outbound fetch and database upsert.
+    if not cache.add(f"{_cache_key(url)}:refresh-pending", True, timeout=CIMD_REFRESH_PENDING_TTL_SECONDS):
+        return
+    refresh_cimd_metadata_task.delay(url)
 
 
 def get_application_by_client_id(client_id: str) -> OAuthApplication:
@@ -888,6 +1038,12 @@ def apply_provisioning_defaults(app: OAuthApplication) -> OAuthApplication:
     document, so the caller's copy of the app can be seconds or minutes old, and layering the
     defaults over that copy would write back a capability - or a cleared kill switch - that an
     admin revoked while the fetch was in flight.
+
+    Promotion to confidential happens in the same write. A partner that publishes a key set has
+    to present an assertion, and the bare-client_id path stays open to a public app, so an app
+    that is a partner but still public would accept an unauthenticated caller acting as that
+    partner. The locked row supplies the key set, since a stale in-memory copy could promote an
+    app whose document no longer publishes one.
     """
     with transaction.atomic():
         current = OAuthApplication.objects.select_for_update().get(pk=app.pk)
@@ -897,7 +1053,12 @@ def apply_provisioning_defaults(app: OAuthApplication) -> OAuthApplication:
         became_partner = not current.is_provisioning_partner
         app.is_provisioning_partner = True
         app.provisioning = _cimd_provisioning_defaults_for(app)
-        app.save(update_fields=["is_provisioning_partner", "_provisioning_config"])
+        updated_fields = ["is_provisioning_partner", "_provisioning_config"]
+        if current.jwks_uri:
+            app.jwks_uri = current.jwks_uri
+            app.client_type = AbstractApplication.CLIENT_CONFIDENTIAL
+            updated_fields.append("client_type")
+        app.save(update_fields=updated_fields)
 
     # A partner appearing without an admin creating it is the event worth watching for abuse,
     # so it fires on the transition only - re-running the defaults over an existing partner is

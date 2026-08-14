@@ -82,9 +82,23 @@ export const MembersListParams = /* @__PURE__ */ zod.object({
 })
 
 export const MembersListQueryParams = /* @__PURE__ */ zod.object({
+    email_domain: zod
+        .string()
+        .optional()
+        .describe('Only return members whose email address is on this domain (case-insensitive).'),
+    levels: zod
+        .string()
+        .optional()
+        .describe('Comma-separated membership levels to return, e.g. `1,8`. Levels are 1 member, 8 admin, 15 owner.'),
     limit: zod.number().optional().describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
     order: zod.string().optional().describe('Sort order. Defaults to `-joined_at`.'),
+    outside_verified_domains: zod
+        .boolean()
+        .optional()
+        .describe(
+            "When `true`, only return members whose email domain is not one of the organization's verified domains — the members who would lose access under verified-domain enforcement."
+        ),
     search: zod
         .string()
         .optional()
@@ -393,6 +407,10 @@ export const CommentsListQueryParams = /* @__PURE__ */ zod.object({
         ),
     search: zod.string().min(1).optional().describe('Full-text search within comment content.'),
     source_comment: zod.string().min(1).optional().describe('Filter replies to a specific parent comment.'),
+    task_id: zod
+        .string()
+        .optional()
+        .describe('Owning task for task, task_artifact, and desktop_canvas comment scopes.'),
 })
 
 export const CommentsRetrieveParams = /* @__PURE__ */ zod.object({
