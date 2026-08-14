@@ -256,30 +256,34 @@ The ACL says nothing about ports, which is why rule 35 exists.
     proxied workload. An operator who blocks those addresses to refuse the lane also blocks the
     webhook delivery that operator asked for.
 
-### Opt-out signals on the response
+### Opt-out signals
 
 `robots.txt` speaks about a path. It cannot express a rule for one image, because an image is a
-binary with its own URL. These three signals can, and each one arrives on a response the lane
-already reads, so none of them costs an extra request.
+binary with its own URL. These signals can. Each one arrives on a response the lane already reads,
+or in a file the lane already fetches, so none of them costs an extra request.
 
-53. The lane reads these signals on every response it would otherwise act on. That means a 2xx it
-    would read, and a 3xx it would follow. It does not read them on a 4xx or a 5xx, because it
+53. The lane reads a response signal on every response it would otherwise act on. That means a 2xx
+    it would read, and a 3xx it would follow. It does not read one on a 4xx or a 5xx, because it
     already refuses those, and an opt-out label there would misreport the reason.
-54. `X-Robots-Tag` refuses the URL when it carries `noai` or `noimageai`. A directive that names
-    another product token does not bind this lane.
-55. `Content-Usage` refuses the URL when its dictionary sets `train-ai=n`. The signal has two
-    transports: a response header, and a rule inside robots.txt. The lane reads both. RFC 9651
-    defines the dictionary.
-56. `tdm-reservation: 1` refuses the URL. It is the EU DSM Article 4 channel, so it carries legal
-    weight the other two do not.
-57. A signal that is absent means unknown. It does not mean permission. The lane never reads silence
+54. Each of these signals refuses the URL on its own:
+
+    | Signal            | Where it arrives                                | It refuses when                  |
+    | ----------------- | ----------------------------------------------- | -------------------------------- |
+    | `X-Robots-Tag`    | Response header                                 | It carries `noai` or `noimageai` |
+    | `Content-Usage`   | Response header, and a rule in robots.txt       | Its dictionary sets `train-ai=n` |
+    | `Content-Signal`  | A rule in robots.txt                            | It sets `ai-train=no`            |
+    | `tdm-reservation` | Response header, and `/.well-known/tdmrep.json` | It is `1`                        |
+
+55. A signal that is absent means unknown. It does not mean permission. The lane never reads silence
     as consent.
-58. The most restrictive signal wins. One refusal anywhere in the chain stops the fetch, whatever the
+56. The most restrictive signal wins. One refusal anywhere in the chain stops the fetch, whatever the
     other signals say.
-59. A refusal is an answer. The lane writes the URL to the crawl history under rule 24, and counts
+57. A refusal is an answer. The lane writes the URL to the crawl history under rule 24, and counts
     which signal refused it.
-60. The lane counts `X-Robots-Tag: noindex` and does not act on it. `noindex` speaks about search
+58. The lane counts `X-Robots-Tag: noindex` and does not act on it. `noindex` speaks about search
     rather than about training. Phase 0 measures what obedience would cost before we choose it.
+59. `Content-Signal` uses the label `ai-train`. The AIPREF draft uses `train-ai` for the same idea.
+    The lane reads both spellings, because they belong to two different specifications.
 
 ### TDMRep
 
@@ -288,20 +292,35 @@ reads two of them. Article 4 of the EU DSM Directive grants a permission unless 
 reserves those rights by machine-readable means, so a reservation removes a permission rather than
 adds a prohibition.
 
-61. The lane reads `/.well-known/tdmrep.json` for the origin of a URL. That file follows the same
+60. The lane reads `/.well-known/tdmrep.json` for the origin of a URL. That file follows the same
     path as robots.txt. Both answer for one origin, so both use one fetch, one cache of 24 hours,
     and the hold of rule 41.
-62. A rule in that file refuses the URL when its location covers the URL and it sets
+61. A rule in that file refuses the URL when its location covers the URL and it sets
     `tdm-reservation` to 1.
-63. TDMRep lets the response header supersede the file. The lane does not rank them. A refusal in
-    either one refuses the URL, under rule 58. The lane is therefore stricter than the
+62. TDMRep lets the response header supersede the file. The lane does not rank them. A refusal in
+    either one refuses the URL, under rule 56. The lane is therefore stricter than the
     specification when the file reserves and the header releases, and principle two is the reason.
-64. The lane does not read the HTML `meta` form of the reservation. The lane fetches images and
+63. The lane does not read the HTML `meta` form of the reservation. The lane fetches images and
     parses no HTML.
-65. The lane reads every signal that answers for a whole origin before it requests an image from
+64. The lane reads every signal that answers for a whole origin before it requests an image from
     that origin. Those are robots.txt and tdmrep.json. A refusal there costs the host nothing and
     covers every URL on it. A refusal in a response header costs the host one fetch, and covers one
     URL.
+
+### Politeness a site asks for
+
+65. `Crawl-delay` in robots.txt sets a minimum interval between two requests to a domain. The lane
+    obeys it.
+66. The lane uses the longer of its own interval and the one `Crawl-delay` names. It never uses the
+    shorter one.
+67. One registrable domain can hold several origins, and each origin can name a different
+    `Crawl-delay`. The lane uses the longest value it holds for that domain.
+68. A `Crawl-delay` longer than the pass deadline sends the URL to a delay topic. The pass does not
+    wait it out, because a pass holds every other domain in the batch.
+69. The lane holds at most one connection to one resolved IP address at a time. Many domains can
+    share one server, and the domain limit of rule 2 does not see that.
+70. Rule 69 counts inside one pod. A pod owns whole partitions, so it sees only the domains those
+    partitions carry. Nothing counts across pods, as rule 19 says of the rest of this knowledge.
 
 ## How a message waits
 
