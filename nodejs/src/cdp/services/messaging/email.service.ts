@@ -494,7 +494,9 @@ export class EmailService {
         // Anything off-domain must fail: allowing it would let a workflow send as a domain the
         // team never proved ownership of.
         const integrationDomain: string = (
-            integration.config.domain ?? integration.config.email.split('@')[1] ?? ''
+            integration.config.domain ??
+            integration.config.email.split('@')[1] ??
+            ''
         ).toLowerCase()
         const overrideDomain = overrideEmail.split('@')[1].toLowerCase()
         if (!integrationDomain || overrideDomain !== integrationDomain) {
