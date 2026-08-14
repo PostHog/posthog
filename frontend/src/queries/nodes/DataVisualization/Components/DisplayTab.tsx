@@ -171,6 +171,16 @@ export const DisplayTab = (): JSX.Element => {
                                     </>
                                 ) : (
                                     <>
+                                        {isScatterPlot && (
+                                            <LemonSwitch
+                                                className="flex-1 w-full"
+                                                label="Show line of best fit"
+                                                checked={chartSettings.scatter?.showBestFit ?? false}
+                                                onChange={(value) => {
+                                                    updateChartSettings({ scatter: { showBestFit: value } })
+                                                }}
+                                            />
+                                        )}
                                         {!isScatterPlot && (
                                             <>
                                                 <LemonSwitch

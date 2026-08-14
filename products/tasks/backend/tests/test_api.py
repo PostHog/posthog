@@ -10948,6 +10948,20 @@ class TestSandboxEnvironmentAPI(BaseTaskAPITest):
         self.assertIn("api.example.com", data["effective_domains"])
         self.assertIn("github.com", data["effective_domains"])
 
+    def test_create_environment_rejects_invalid_allowed_domain(self):
+        response = self.client.post(
+            self.base_url,
+            {
+                "name": "Invalid network policy",
+                "network_access_level": "custom",
+                "allowed_domains": ["https://example.com"],
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.json()["attr"], "allowed_domains")
+
     def test_create_environment_sets_created_by(self):
         response = self.client.post(
             self.base_url,

@@ -214,6 +214,11 @@ export namespace Schemas {
        * * `weekly` - weekly
        * * `monthly` - monthly */
       slack_summary_cadence?: SlackSummaryCadenceEnum | null;
+      /**
+         * When the account churned. Null means the account has not churned.
+         * @nullable
+         */
+      churned_at?: string | null;
       readonly created_at: string;
       /** @nullable */
       readonly created_by: number | null;
@@ -834,6 +839,7 @@ export namespace Schemas {
       ExternalId: 'external_id',
       CreatedAt: 'created_at',
       UpdatedAt: 'updated_at',
+      ChurnedAt: 'churned_at',
       StripeCustomerId: 'stripe_customer_id',
       HubspotDealId: 'hubspot_deal_id',
       BillingId: 'billing_id',
@@ -1074,6 +1080,8 @@ export namespace Schemas {
       columns: (AccountsTableAccountFieldColumn | AccountsTableTagsColumn | AccountsTableNoteCountColumn | AccountsTableRelationshipColumn | AccountsTableCustomPropertyColumn | AccountsTableCustomPropertyHistoryColumn)[];
       /** Filters are combined with AND. Values within tag and assignment filters use OR. */
       filters?: (AccountsTableSearchFilter | AccountsTableTagsFilter | AccountsTableAssignedToFilter | AccountsTableUnassignedFilter | AccountsTableAccountIdFilter | AccountsTableCustomPropertyFilter)[] | null;
+      /** Include churned accounts. Churned accounts are hidden by default. */
+      includeChurned?: boolean | null;
       kind?: 'AccountsTableQuery';
       limit?: number | null;
       /** Aggregates to evaluate against the filtered account set. A metrics query skips row loading. */
@@ -8131,6 +8139,8 @@ export namespace Schemas {
     } as const;
 
     export interface ScatterChartSettings {
+      /** Whether to draw a least-squares fit line through each series' points. */
+      showBestFit?: boolean | null;
       /** X-axis scale. A `logarithmic` axis can't place a non-positive value, so those points are dropped. */
       xScale?: XScale | null;
       /** Whether the X axis should start at zero. Off by default, because pinning either axis of two independent measures to zero squashes the correlation into a corner. */
@@ -26381,6 +26391,8 @@ export namespace Schemas {
       scanner_config: unknown;
       /** Why the draft picked this scanner type and configuration, addressed to the user. */
       rationale: string;
+      /** Drafted `RecordingsQuery` narrowing which sessions get scanned, holding one event filter picked from the team's real events; null when no event clearly matched the goal. */
+      query: unknown;
     }
 
     export interface DraftStatusResponse {
@@ -31894,7 +31906,7 @@ export namespace Schemas {
          * @nullable
          */
       metric_name: string | null;
-      /** How many recordings the card carries, at most 20. Every card is backed by recordings that actually exist: a finding whose sessions were never recorded is dropped rather than promised. */
+      /** How many recordings the card carries, at most max_card_recordings (20). Every card is backed by recordings that actually exist: a finding whose sessions were never recorded is dropped rather than promised. A count sitting on the ceiling means at least that many, so say 'at least' and never compare two such counts: how often the event happened is the experiment's results, and this only counts what replay kept. */
       recording_count: number;
       /** The recordings themselves, most recent first, ready to hand to the recordings list as-is. */
       session_ids: string[];
@@ -31961,6 +31973,8 @@ export namespace Schemas {
       events_truncated: boolean;
       /** How many exposed people a variant needs before it can be compared at all. Below it a variant's cards would be noise whatever the evidence bar allows. */
       min_arm_persons: number;
+      /** The most recordings one card can carry. A card whose recording_count equals this hit the ceiling, so report it as 'at least this many' rather than as a count. */
+      max_card_recordings: number;
       /** True when fewer than two variants have min_arm_persons exposed people, so no comparison exists and cards is empty. Say 'too early to compare' and show the arms' counts; an empty shelf presented without this would read as 'the variants behaved identically'. */
       too_early: boolean;
     }
@@ -32304,6 +32318,11 @@ export namespace Schemas {
       external_id: string;
       /** Human-readable account name. */
       name: string;
+      /**
+         * When the account churned, or null if it has not churned.
+         * @nullable
+         */
+      churned_at: string | null;
       /** Active relationship assignments to current organization members, keyed by relationship definition name (e.g. 'CSM', 'Account executive'). Definitions with no active assignment are omitted. */
       relationships: ExternalAccountListItemRelationships;
     }
@@ -39905,7 +39924,6 @@ export namespace Schemas {
       expiry_time?: string | null;
       /** External references to third party issues. */
       external_references?: SessionRecordingExternalReference[] | null;
-      has_summary?: boolean | null;
       id: string;
       inactive_seconds?: number | null;
       keypress_count?: number | null;
@@ -53897,6 +53915,11 @@ export namespace Schemas {
        * * `weekly` - weekly
        * * `monthly` - monthly */
       slack_summary_cadence?: SlackSummaryCadenceEnum | null;
+      /**
+         * When the account churned. Null means the account has not churned.
+         * @nullable
+         */
+      churned_at?: string | null;
       readonly created_at?: string;
       /** @nullable */
       readonly created_by?: number | null;
@@ -59336,6 +59359,7 @@ export namespace Schemas {
       network_access_level?: NetworkAccessLevelEnum;
       /**
          * Allowed domains for custom network access.
+         * @maxItems 100
          * @items.maxLength 255
          */
       allowed_domains?: string[];
@@ -68903,6 +68927,7 @@ export namespace Schemas {
       network_access_level?: NetworkAccessLevelEnum;
       /**
          * Allowed domains for custom network access.
+         * @maxItems 100
          * @items.maxLength 255
          */
       allowed_domains?: string[];
@@ -81704,6 +81729,10 @@ export namespace Schemas {
      * When true, returns only accounts where no user actively holds any relationship.
      */
     all_roles_unassigned?: boolean;
+    /**
+     * Include churned accounts. Churned accounts are hidden by default.
+     */
+    include_churned?: boolean;
     /**
      * Number of results to return per page.
      */
