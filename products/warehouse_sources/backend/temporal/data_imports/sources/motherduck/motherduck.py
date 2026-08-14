@@ -140,10 +140,13 @@ def connect(access_token: str, database: Optional[str] = None, *, read_only: boo
     write statement engine-side regardless of what the token is granted.
     """
     connection_string = build_motherduck_connection_string(database, access_token)
-    os.makedirs(_DUCKDB_HOME, exist_ok=True)
+    config = dict(DUCKDB_LOCAL_CONFIG)
+    # Extension autoload runs as the connection opens, so the store has to exist by then. Creating
+    # it also creates the home directory above it.
+    os.makedirs(config["extension_directory"], exist_ok=True)
     log_connection_open(db_host=MOTHERDUCK_SERVICE_HOST, via="vendor_https")
     try:
-        return duckdb.connect(connection_string, read_only=read_only, config=dict(DUCKDB_LOCAL_CONFIG))
+        return duckdb.connect(connection_string, read_only=read_only, config=config)
     except duckdb.Error as e:
         raise MotherDuckConnectionError(translate_motherduck_error(e)) from e
 

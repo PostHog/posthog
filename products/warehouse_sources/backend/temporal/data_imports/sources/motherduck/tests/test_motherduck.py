@@ -183,17 +183,23 @@ class TestMotherDuck:
         assert DUCKDB_LOCAL_CONFIG["extension_directory"] != DUCKDB_LOCAL_CONFIG["home_directory"]
         assert DUCKDB_LOCAL_CONFIG["extension_directory"].startswith(DUCKDB_LOCAL_CONFIG["home_directory"])
 
-    def test_connect_creates_the_writable_duckdb_home(self, tmp_path):
+    def test_connect_creates_the_configured_extension_store(self, tmp_path):
         # Regression: extension autoload creates `~/.duckdb` on connect, which raised
         # `Failed to create directory "/root/.duckdb": Permission denied` in a locked-down worker.
-        # connect() must create a writable home first, so driving it (not pre-making the dirs) is
-        # what catches a dropped or reordered makedirs.
-        fresh_home = str(tmp_path / "duckdb-home")
-        with patch(f"{_MODULE}._DUCKDB_HOME", fresh_home), patch(_CONNECT_PATH):
-            assert not os.path.exists(fresh_home)
+        # connect() must create the store it configures, so driving it against a fresh base (rather
+        # than pre-making the directories) is what catches a dropped or reordered makedirs.
+        base = tmp_path / "duckdb-home"
+        config = {
+            **DUCKDB_LOCAL_CONFIG,
+            "home_directory": str(base),
+            "extension_directory": str(base / "extensions"),
+        }
+        with patch(f"{_MODULE}.DUCKDB_LOCAL_CONFIG", config), patch(_CONNECT_PATH) as mock_connect:
+            assert not base.exists()
             connect("md-token", "my_db")
-        assert os.path.isdir(fresh_home)
-        assert os.access(fresh_home, os.W_OK)
+        assert os.path.isdir(config["extension_directory"])
+        assert os.access(config["extension_directory"], os.W_OK)
+        assert mock_connect.call_args.kwargs["config"]["extension_directory"] == config["extension_directory"]
 
     def test_connect_closes_on_exit(self, impl):
         with patch(_CONNECT_PATH) as mock_connect:
