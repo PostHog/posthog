@@ -9,13 +9,20 @@ from posthog.temporal.common.metrics import get_metric_meter
 # buckets per-metric. Keep in sync with the histograms emitted below.
 LOGS_VOLUME_TICK_LATENCY_HISTOGRAM_METRICS = ("logs_volume_tick_clickhouse_duration_ms",)
 
+# Dense between 750ms and 3s because the discovery query lives there. Coarser
+# steps put every sample in one bucket, so the high quantiles interpolate to a
+# bucket edge and report a boundary rather than a latency.
 LOGS_VOLUME_TICK_LATENCY_HISTOGRAM_BUCKETS = [
     50.0,
     100.0,
     250.0,
     500.0,
+    750.0,
     1_000.0,
+    1_500.0,
+    2_000.0,
     2_500.0,
+    3_000.0,
     5_000.0,
     10_000.0,
     30_000.0,
