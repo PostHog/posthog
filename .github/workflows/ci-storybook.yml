@@ -919,6 +919,17 @@ jobs:
                   ref: ${{ github.event.pull_request.head.sha }}
                   repository: ${{ github.event.pull_request.head.repo.full_name }}
 
+            - name: Check out trusted story selector
+              uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              with:
+                  filter: blob:none
+                  fetch-depth: 1
+                  path: story-selector
+                  ref: ${{ github.event.pull_request.base.ref }}
+                  repository: ${{ github.event.pull_request.base.repo.full_name }}
+                  sparse-checkout: bin/find-affected-stories
+                  sparse-checkout-cone-mode: false
+
             - name: Mint setup-action GitHub token
               id: setup-gh-token
               if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
@@ -947,18 +958,18 @@ jobs:
               continue-on-error: true
               env:
                   BASE_REF: ${{ github.event.pull_request.base.ref }}
+                  BASE_REPO: ${{ github.event.pull_request.base.repo.full_name }}
               run: |
-                  # Fetch the *current* tip of the base branch, not pull_request.base.sha —
-                  # base.sha is captured at webhook time and goes stale if the branch later
-                  # merges a newer master, which makes `base.sha...HEAD` balloon to include
-                  # every merged-in master change.
-                  git fetch --no-tags origin "$BASE_REF"
+                  BASE_SHA=$(git -C story-selector rev-parse HEAD)
+                  git fetch --no-tags --depth=500 --filter=blob:none \
+                      "${{ github.server_url }}/$BASE_REPO.git" \
+                      "$BASE_SHA:refs/remotes/base/$BASE_REF"
                   echo "### Changed files" >&2
-                  git diff --name-only "origin/$BASE_REF"...HEAD >&2
+                  git diff --name-only "base/$BASE_REF"...HEAD >&2
 
-                  RESULT=$(bin/find-affected-stories \
+                  RESULT=$(story-selector/bin/find-affected-stories \
                       --graph /tmp/storybook-graph/module-graph.json \
-                      --base-ref "origin/$BASE_REF")
+                      --base-ref "base/$BASE_REF")
                   echo "$RESULT" > /tmp/selection-result.json
                   # Stash compact form in step output (single line) for the summary step.
                   COMPACT=$(node -e 'const d = JSON.parse(require("fs").readFileSync("/tmp/selection-result.json", "utf8")); delete d.affected_stories; delete d.unresolved_changed_files; process.stdout.write(JSON.stringify(d))')
