@@ -280,6 +280,7 @@ export class PostHogAPIClient {
     taskId: string,
     runId: string,
     payload: TaskRunUpdate,
+    signal?: AbortSignal,
   ): Promise<TaskRun> {
     const teamId = this.getTeamId();
     return this.apiRequest<TaskRun>(
@@ -287,6 +288,7 @@ export class PostHogAPIClient {
       {
         method: "PATCH",
         body: JSON.stringify(payload),
+        signal,
       },
     );
   }
@@ -495,10 +497,14 @@ export class PostHogAPIClient {
   }
 
   /** Signal reports the given task is associated with (via report task associations). */
-  async getSignalReportIdsForTask(taskId: string): Promise<string[]> {
+  async getSignalReportIdsForTask(
+    taskId: string,
+    signal?: AbortSignal,
+  ): Promise<string[]> {
     const teamId = this.getTeamId();
     const response = await this.apiRequest<{ results?: { id: string }[] }>(
       `/api/projects/${teamId}/signals/reports/?task_id=${encodeURIComponent(taskId)}&limit=100`,
+      { signal },
     );
     return (response.results ?? []).map((r) => r.id);
   }
@@ -511,6 +517,7 @@ export class PostHogAPIClient {
     reportId: string,
     taskId: string,
     body: { artefact_type: string; content: Record<string, unknown> },
+    signal?: AbortSignal,
   ): Promise<void> {
     const teamId = this.getTeamId();
     await this.apiRequest(
@@ -519,6 +526,7 @@ export class PostHogAPIClient {
         method: "POST",
         body: JSON.stringify(body),
         headers: { "X-PostHog-Task-Id": taskId },
+        signal,
       },
     );
   }

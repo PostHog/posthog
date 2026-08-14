@@ -6,7 +6,11 @@ import { aiConsentLogic } from 'scenes/settings/organization/aiConsentLogic'
 
 import { initKeaTests } from '~/test/init'
 
-import { tasksRunCreate, tasksRunsCommandCreate } from 'products/tasks/frontend/generated/api'
+import {
+    tasksRunCreate,
+    tasksRunsClearConversationCreate,
+    tasksRunsCommandCreate,
+} from 'products/tasks/frontend/generated/api'
 
 import { contextItemLine } from '../utils/posthogContextBlock'
 import { attachedContextLogic } from './attachedContextLogic'
@@ -25,12 +29,14 @@ jest.mock('./runStreamLogic', () => {
         key((p: { streamKey: string }) => p.streamKey),
         actions({
             pushHumanMessage: (content: string) => ({ content }),
+            pushConversationCleared: true,
             respondToPermission: (payload: unknown) => ({ payload }),
             cancelRun: (run?: unknown) => ({ run }),
             markTurnComplete: true,
             setCurrentMode: (mode: string) => ({ mode }),
             setStubStatus: (status: string | null) => ({ status }),
             setStubThinking: (thinking: boolean) => ({ thinking }),
+            setStubClearSupported: (supported: boolean) => ({ supported }),
         }),
         reducers({
             currentRunStatus: [
@@ -46,6 +52,12 @@ jest.mock('./runStreamLogic', () => {
                 },
             ],
             pendingPermissionRequest: [null, {}],
+            conversationClearSupported: [
+                true,
+                {
+                    setStubClearSupported: (_: boolean, { supported }: { supported: boolean }) => supported,
+                },
+            ],
             respondingToPermission: [false, {}],
             currentMode: [
                 null,
@@ -82,6 +94,7 @@ jest.mock('scenes/projectLogic', () => {
 jest.mock('products/tasks/frontend/generated/api', () => ({
     tasksRunsCommandCreate: jest.fn(),
     tasksRunCreate: jest.fn(),
+    tasksRunsClearConversationCreate: jest.fn(),
 }))
 
 jest.mock('lib/lemon-ui/LemonToast', () => ({
@@ -122,6 +135,7 @@ describe('runInteractionLogic', () => {
         jest.clearAllMocks()
         ;(tasksRunsCommandCreate as jest.Mock).mockResolvedValue({})
         ;(tasksRunCreate as jest.Mock).mockResolvedValue({ latest_run: { id: 'run-2' } })
+        ;(tasksRunsClearConversationCreate as jest.Mock).mockResolvedValue({})
         initKeaTests()
         project = projectLogic()
         project.mount()
@@ -365,6 +379,40 @@ describe('runInteractionLogic', () => {
         expect(logic.values.composerForm.draft).toBe('')
     })
 
+    it('records the boundary instead of starting a run when /clear is sent to a terminal run', async () => {
+        setStatus('completed')
+        logic.actions.setComposerFormValues({ draft: '/clear' })
+
+        await expectLogic(logic, () => {
+            logic.actions.submitComposerForm()
+        }).toFinishAllListeners()
+
+        // Booting a sandbox would clear a conversation the next run rebuilds from the log anyway.
+        expect(tasksRunCreate).not.toHaveBeenCalled()
+        expect(tasksRunsClearConversationCreate).toHaveBeenCalledWith('997', TASK_ID, RUN_ID)
+        expect(logic.values.composerForm.draft).toBe('')
+        // Nothing streams back on a finished run, so the boundary is echoed from here.
+        await expectLogic(stream).toDispatchActions([
+            (action) => action.type === stream.actionTypes.pushHumanMessage && action.payload.content === '/clear',
+            (action) => action.type === stream.actionTypes.pushConversationCleared,
+        ])
+    })
+
+    it('falls back to a new run when the chain agent cannot honour the clear boundary', async () => {
+        // An older agent ignores the marker and resumes the conversation it was meant to retire,
+        // so a divider here would claim a clear that never happens.
+        ;(stream.actions as unknown as { setStubClearSupported: (s: boolean) => void }).setStubClearSupported(false)
+        setStatus('completed')
+        logic.actions.setComposerFormValues({ draft: '/clear' })
+
+        await expectLogic(logic, () => {
+            logic.actions.submitComposerForm()
+        }).toFinishAllListeners()
+
+        expect(tasksRunsClearConversationCreate).not.toHaveBeenCalled()
+        expect(tasksRunCreate).toHaveBeenCalled()
+    })
+
     it('keeps the draft and toasts when starting a new run fails', async () => {
         ;(tasksRunCreate as jest.Mock).mockRejectedValue(new Error('boom'))
         setStatus('completed')
@@ -437,6 +485,31 @@ describe('runInteractionLogic', () => {
         const send = (tasksRunsCommandCreate as jest.Mock).mock.calls[0][3] as { params: { content: string } }
         // The only attached item is already in the chain history, so no context block is prepended.
         expect(send.params.content).toBe('follow up')
+    })
+
+    it('sends /clear unwrapped so the agent still sees the command at the front, and keeps the context pending', async () => {
+        const item = { type: 'insight', key: 'sig', label: 'Signups' }
+        attachedContextLogic().actions.registerContext('scene', [item])
+        setThinking(false)
+
+        logic.actions.setComposerFormValues({ draft: '/clear' })
+        await expectLogic(logic, () => {
+            logic.actions.submitComposerForm()
+        }).toFinishAllListeners()
+
+        const send = (tasksRunsCommandCreate as jest.Mock).mock.calls[0][3] as { params: { content: string } }
+        expect(send.params.content).toBe('/clear')
+
+        // The agent drops the message rather than reading it, so the ref was never really delivered:
+        // the next real send must still carry it.
+        ;(tasksRunsCommandCreate as jest.Mock).mockClear()
+        logic.actions.setComposerFormValues({ draft: 'why the drop?' })
+        await expectLogic(logic, () => {
+            logic.actions.submitComposerForm()
+        }).toFinishAllListeners()
+
+        const next = (tasksRunsCommandCreate as jest.Mock).mock.calls[0][3] as { params: { content: string } }
+        expect(next.params.content).toContain('- insight sig ("Signups")')
     })
 
     it('keeps pruning context sent by a terminal-run send after re-pointing to the fresh run', async () => {

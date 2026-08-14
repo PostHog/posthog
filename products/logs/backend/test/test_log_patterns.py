@@ -5,6 +5,7 @@ from itertools import zip_longest
 from unittest import TestCase
 
 from hypothesis import (
+    assume,
     given,
     settings,
     strategies as st,
@@ -12,6 +13,7 @@ from hypothesis import (
 from parameterized import parameterized
 
 from products.logs.backend.log_patterns import (
+    _HOST_SUFFIXES,
     _MASKING_INSTRUCTIONS,
     _PLACEHOLDER_PATTERNS,
     LogSample,
@@ -102,6 +104,18 @@ class TestMinePatterns(TestCase):
                 "397557",
             ),
             (
+                "version_after_product",
+                ["agent Chrome/139.0.0.0 connected", "agent Chrome/140.0.7.1 connected"],
+                "<version>",
+                "139",
+            ),
+            (
+                "protocol_version",
+                ["served HTTP/1.1 request", "served HTTP/2.0 request"],
+                "<version>",
+                "1.1",
+            ),
+            (
                 "timestamp_utc_offset",
                 [
                     "job 2026-08-12T08:10:43+00:00 retried",
@@ -109,6 +123,27 @@ class TestMinePatterns(TestCase):
                 ],
                 "<timestamp>",
                 "12T08",
+            ),
+            (
+                "hostname",
+                ["upstream ingest.example.com refused", "upstream ingest.example.net refused"],
+                "<host>",
+                "example",
+            ),
+            (
+                "subdomains",
+                ["proxied to eu.i.example.com ok", "proxied to us.i.example.com ok"],
+                "<host>",
+                "example",
+            ),
+            (
+                "timestamp_klog",
+                [
+                    "I0812 15:41:23.951822 12 proxier.go:99] synced",
+                    "I0813 16:02:11.112233 12 proxier.go:99] synced",
+                ],
+                "<klogtime>",
+                "0812",
             ),
         ]
     )
@@ -136,6 +171,53 @@ class TestMinePatterns(TestCase):
         patterns = mine_patterns([_sample(line)])
 
         assert "<ip>" not in patterns[0].pattern
+
+    @parameterized.expand(
+        [
+            ("decimal_metric", "request took duration=1.5 seconds"),
+            ("numeric_path_segment", "POST /api/projects/2/query/ returned 200"),
+            ("module_version", "loaded python3.13 runtime"),
+        ]
+    )
+    def test_plain_decimals_are_not_masked_as_versions(self, _name: str, line: str) -> None:
+        # The "/" requirement is what separates a version from a measurement. Masking a
+        # latency or a ratio as <version> hides the number a reader came for.
+        patterns = mine_patterns([_sample(line)])
+
+        assert "<version>" not in patterns[0].pattern
+
+    @parameterized.expand(
+        [
+            ("module_path", "handler resolved in products.logs.backend module"),
+            ("logger_name", "logger django_structlog.celery.receivers ready"),
+            ("source_file", "raised from MergeFromLogEntryTask.cpp while merging"),
+        ]
+    )
+    def test_dotted_code_paths_are_not_masked_as_hosts(self, _name: str, line: str) -> None:
+        # A hostname mask keyed on "any trailing alphabetic label" swallows module paths,
+        # logger names, and source files, which is the literal content the template is for.
+        patterns = mine_patterns([_sample(line)])
+
+        assert "<host>" not in patterns[0].pattern
+
+    def test_a_name_that_starts_with_an_address_masks_the_address_first(self) -> None:
+        # Wildcard-DNS names carry an address in their leading labels ("10.0.0.1.nip.io"), and
+        # ip runs before host by design, so the address masks and the domain masks after it.
+        # Both halves are variable and both are covered; the order is what this pins, because
+        # letting host win would bury the address a reader opened the pattern for.
+        patterns = mine_patterns([_sample("upstream 10.0.0.1.nip.io refused")])
+
+        assert patterns[0].pattern == "upstream <ip>.<host> refused"
+
+    def test_a_dotted_run_longer_than_any_hostname_keeps_its_head_literal(self) -> None:
+        # The label repeat is capped because an uncapped one retries the suffix alternation at
+        # every boundary of a long dotted run, at a cost that grows with the square of its
+        # length. Masking only the tail is the visible price of that cap, so a crafted run of
+        # single-character labels must leave its head in the template.
+        patterns = mine_patterns([_sample("upstream " + "a." * 40 + "example.com refused")])
+
+        assert "<host>" in patterns[0].pattern
+        assert "a.a.a." in patterns[0].pattern
 
     def test_error_count_includes_only_error_and_fatal(self) -> None:
         samples = [
@@ -224,13 +306,29 @@ class TestMinePatterns(TestCase):
         for example in patterns[0].examples:
             assert compiled.search(example.body)
 
-    def test_same_statement_on_different_dates_shares_fingerprint(self) -> None:
+    @parameterized.expand(
+        [
+            (
+                "iso",
+                "2026-08-12T08:10:43.397557Z task_retrying attempt=3",
+                "2026-08-19T09:04:17.112233Z task_retrying attempt=7",
+            ),
+            (
+                "klog",
+                "I0812 08:10:43.397557 12 worker.go:31] task_retrying",
+                "I0819 09:04:17.112233 12 worker.go:31] task_retrying",
+            ),
+        ]
+    )
+    def test_same_statement_on_different_dates_shares_fingerprint(
+        self, _name: str, monday_body: str, week_later_body: str
+    ) -> None:
         # The patterns diff compares fingerprints across two windows (default: one week
         # apart). A timestamp fragment surviving masking becomes a literal run, so the
         # same log statement would fingerprint differently and show up as a false
         # new/gone pair.
-        monday = mine_patterns([_sample("2026-08-12T08:10:43.397557Z task_retrying attempt=3")])
-        week_later = mine_patterns([_sample("2026-08-19T09:04:17.112233Z task_retrying attempt=7")])
+        monday = mine_patterns([_sample(monday_body)])
+        week_later = mine_patterns([_sample(week_later_body)])
 
         assert pattern_fingerprint(monday[0].pattern) == pattern_fingerprint(week_later[0].pattern)
 
@@ -252,9 +350,12 @@ class TestCompileMatchRegex(TestCase):
             ("took <num> ms", "took 12345 ms"),
             ("request <uuid> failed", "request 93fce79d-6926-4b08-8fa5-00ffd8e65f4e failed"),
             ("peer <ip> disconnected", "peer 10.32.243.94 disconnected"),
+            ("upstream <host> refused", "upstream eu.i.example.com refused"),
             ("token <hex> rejected", "token 0xdeadbeef rejected"),
+            ("agent Chrome/<version> connected", "agent Chrome/139.0.0.0 connected"),
             ("path /api/v1/users?id=<num> hit", "path /api/v1/users?id=42 hit"),
             ("job <timestamp> finished", "job 2026-08-12T08:10:43.397557Z finished"),
+            ("I<klogtime> synced iptables", "I0812 15:41:23.951822 synced iptables"),
         ]
     )
     def test_compiled_regex_matches_raw_bodies(self, template: str, raw_body: str) -> None:
@@ -341,7 +442,48 @@ _product_st = st.text("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ", mi
 _scheme_st = st.sampled_from(["http", "https"])
 
 
-_variable_token_st = st.one_of(_uuid_st, _hex_0x_st, _hex_bare_st, _num_st, _timestamp_st(), _ipv4_st)
+# Up to six parts, past the four a browser build uses: a bounded mask consumes the first four
+# of a longer release and leaves the rest as <num>, which is a template of its own again.
+_version_st = st.lists(st.integers(min_value=0, max_value=9999), min_size=2, max_size=6).map(
+    lambda parts: ".".join(map(str, parts))
+)
+_decimal_context_st = st.sampled_from(["duration_ms=", "ratio=", "load ", "p95="])
+_label_st = st.text("abcdefghijklmnopqrstuvwxyz0123456789", min_size=1, max_size=12)
+# A label that is itself a host suffix would make a "code path" strategy generate a real
+# hostname, so it is excluded from both strategies below.
+_non_suffix_label_st = _label_st.filter(lambda label: label not in _HOST_SUFFIXES)
+
+
+# A name whose first four labels are a dotted quad ("0.0.0.0.ai", "10.0.0.1.nip.io") is an
+# address with a domain after it, and ip runs before host by design, so it masks as "<ip>.<host>"
+# rather than a single placeholder. That precedence has its own case above; excluding the shape
+# here keeps this strategy to names the host mask alone owns.
+# The trailing guards mirror the ip mask's own: a fifth label that starts with a digit makes the
+# leading quad the head of a longer dotted run, which the mask leaves alone.
+_LEADING_ADDRESS_RE = re.compile(r"^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}(?!\d)(?!\.\d)")
+
+
+# Up to five labels before the suffix, past the deepest names that show up in real logs
+# ("pod.ns.svc.cluster.local", "a.b.c.example.co.uk"). The mask caps how many labels it will
+# consume, and this range is deliberately not derived from that cap: tightening the cap below
+# what real hostnames need has to fail the collapse property, not narrow the strategy with it.
+@st.composite
+def _fqdn_st(draw: st.DrawFn) -> str:
+    labels = draw(st.lists(_non_suffix_label_st, min_size=1, max_size=5))
+    name = ".".join([*labels, draw(st.sampled_from(_HOST_SUFFIXES))])
+    assume(not _LEADING_ADDRESS_RE.match(name))
+    return name
+
+
+@st.composite
+def _dotted_code_path_st(draw: st.DrawFn) -> str:
+    return ".".join(draw(st.lists(_non_suffix_label_st, min_size=2, max_size=4)))
+
+
+_slash_version_st = st.tuples(_product_st, _version_st).map(lambda t: f"{t[0]}/{t[1]}")
+_variable_token_st = st.one_of(
+    _uuid_st, _hex_0x_st, _hex_bare_st, _num_st, _timestamp_st(), _ipv4_st, _slash_version_st, _fqdn_st()
+)
 
 
 class TestMaskingProperties(TestCase):
@@ -421,6 +563,18 @@ _five_octet_st = st.tuples(*[st.integers(min_value=0, max_value=255)] * 5).map(
     lambda octets: ".".join(map(str, octets))
 )
 _versioned_quad_st = st.tuples(_product_st, _ipv4_st).map(lambda t: f"{t[0]}/{t[1]}")
+_plain_decimal_st = st.tuples(st.integers(min_value=0, max_value=9999), st.integers(min_value=0, max_value=999)).map(
+    lambda t: f"{t[0]}.{t[1]}"
+)
+
+
+@st.composite
+def _bare_klog_st(draw: st.DrawFn) -> str:
+    # A klog date-time with no severity letter in front. The klog mask requires that
+    # letter, so this stays literal and must not be pulled into an ISO timestamp pivot.
+    return draw(_klog_header_st())[1:]
+
+
 # One row per (masked kind, confusable neighbor). Both halves of the row matter: the mask
 # has to tell the pair apart, and so does the pivot regex the mask produces. A single
 # union-of-everything property dilutes each pair to a fraction of the example budget, so
@@ -434,6 +588,9 @@ _CONFUSABLE_PAIRS = [
     ("hex_vs_letter_only_hex", st.one_of(_hex_0x_st, _hex_bare_st), _letter_hex_st),
     ("ip_vs_five_octets", _ipv4_st, _five_octet_st),
     ("ip_vs_versioned_quad", _ipv4_st, _versioned_quad_st),
+    ("version_vs_plain_decimal", _slash_version_st, _plain_decimal_st),
+    ("host_vs_dotted_code_path", _fqdn_st(), _dotted_code_path_st()),
+    ("timestamp_vs_bare_klog_form", _timestamp_st(), _bare_klog_st()),
 ]
 
 
@@ -511,3 +668,134 @@ class TestIpMaskProperties(TestCase):
 
         assert "<ip>" in patterns[0].pattern
         assert address not in patterns[0].pattern
+
+
+class TestVersionMaskProperties(TestCase):
+    """The cases above pin browser and protocol versions; these hold the rule over all parts.
+
+    The mask trades on one character. Everything after a slash is a version, everything else
+    keeps its number, so both properties test that line rather than a handful of versions.
+    """
+
+    @given(product=_product_st, version=_version_st)
+    @settings(max_examples=400, deadline=None)
+    def test_any_version_after_a_product_name_collapses_to_one_placeholder(self, product: str, version: str) -> None:
+        patterns = mine_patterns([_sample(f"agent {product}/{version} connected")])
+
+        # exact template: however many parts, one placeholder, not one <num> per part
+        assert patterns[0].pattern == f"agent {product}/<version> connected"
+
+    @given(context=_decimal_context_st, whole=st.integers(min_value=0, max_value=9999), frac=st.integers(0, 999))
+    @settings(max_examples=400, deadline=None)
+    def test_decimals_outside_a_path_keep_their_number(self, context: str, whole: int, frac: int) -> None:
+        # Latencies, ratios, and load averages are decimals too. Reading one as a version
+        # would hide the measurement the person opened the pattern for.
+        patterns = mine_patterns([_sample(f"request {context}{whole}.{frac} done")])
+
+        assert "<version>" not in patterns[0].pattern
+
+    @given(product=_product_st, version_a=_version_st, version_b=_version_st)
+    @settings(max_examples=300, deadline=None)
+    def test_lines_differing_only_by_version_share_a_fingerprint(
+        self, product: str, version_a: str, version_b: str
+    ) -> None:
+        # This is what the mask is for: one template per client, not one per release.
+        line = f"agent {product}/{{}} connected"
+        first = mine_patterns([_sample(line.format(version_a))])
+        second = mine_patterns([_sample(line.format(version_b))])
+
+        assert pattern_fingerprint(first[0].pattern) == pattern_fingerprint(second[0].pattern)
+
+
+class TestHostMaskProperties(TestCase):
+    """The cases above pin specific hostnames; these hold the rule over every shape of name.
+
+    The host mask is a trade: it has to catch any real domain while leaving dotted code
+    paths alone, and only the whole input space shows whether the suffix list draws that
+    line in the right place.
+    """
+
+    @given(fqdn=_fqdn_st())
+    @settings(max_examples=300, deadline=None)
+    def test_any_hostname_collapses_to_one_placeholder(self, fqdn: str) -> None:
+        patterns = mine_patterns([_sample(f"upstream {fqdn} refused")])
+
+        # exact template: the whole name is consumed, not partly masked and partly literal
+        assert patterns[0].pattern == "upstream <host> refused"
+
+    @given(path=_dotted_code_path_st())
+    @settings(max_examples=300, deadline=None)
+    def test_dotted_paths_without_a_host_suffix_stay_literal(self, path: str) -> None:
+        patterns = mine_patterns([_sample(f"handler in {path} module")])
+
+        assert "<host>" not in patterns[0].pattern
+
+    @given(host_a=_fqdn_st(), host_b=_fqdn_st())
+    @settings(max_examples=300, deadline=None)
+    def test_lines_differing_only_by_hostname_share_a_fingerprint(self, host_a: str, host_b: str) -> None:
+        # This is what the mask is for. The patterns diff and the pattern list both key on
+        # the fingerprint, so two hostnames that fingerprint apart show up as two templates.
+        line = '{{"authority":"{}","upstream_cluster":"capture"}}'
+        a = mine_patterns([_sample(line.format(host_a))])
+        b = mine_patterns([_sample(line.format(host_b))])
+
+        assert pattern_fingerprint(a[0].pattern) == pattern_fingerprint(b[0].pattern)
+
+
+@st.composite
+def _klog_header_st(draw: st.DrawFn, severity: str | None = None) -> str:
+    """A klog / glog header: severity letter, MMDD, HH:MM:SS, optional microseconds."""
+    severity = severity or draw(st.sampled_from("IWEF"))
+    month = draw(st.integers(min_value=1, max_value=12))
+    day = draw(st.integers(min_value=1, max_value=31))
+    hour = draw(st.integers(min_value=0, max_value=23))
+    minute = draw(st.integers(min_value=0, max_value=59))
+    second = draw(st.integers(min_value=0, max_value=59))
+    micros = draw(st.one_of(st.none(), st.integers(min_value=0, max_value=999999)))
+    header = f"{severity}{month:02d}{day:02d} {hour:02d}:{minute:02d}:{second:02d}"
+    return header if micros is None else f"{header}.{micros:06d}"
+
+
+@st.composite
+def _klog_header_pair_st(draw: st.DrawFn) -> tuple[str, str]:
+    """Two headers sharing a severity letter, which is content rather than a variable."""
+    severity = draw(st.sampled_from("IWEF"))
+    return draw(_klog_header_st(severity)), draw(_klog_header_st(severity))
+
+
+class TestKlogTimestampProperties(TestCase):
+    """The cases above pin two dates; these hold the invariants over every date and time.
+
+    A klog template has to stop moving when the clock moves, so both properties compare the
+    same statement logged at two different instants.
+    """
+
+    @given(header=_klog_header_st())
+    @settings(max_examples=400, deadline=None)
+    def test_any_klog_header_collapses_to_a_severity_and_a_placeholder(self, header: str) -> None:
+        patterns = mine_patterns([_sample(f"{header} 12 worker.go:31] task_retrying")])
+
+        # exact template: the date is fully consumed and the severity letter survives
+        assert patterns[0].pattern == f"{header[0]}<klogtime> <num> worker.go:<num>] task_retrying"
+
+    @given(headers=_klog_header_pair_st())
+    @settings(max_examples=400, deadline=None)
+    def test_klog_lines_at_different_instants_share_a_fingerprint(self, headers: tuple[str, str]) -> None:
+        # The patterns diff compares fingerprints across windows a week apart, so a date left
+        # in the template turns one statement into a new/gone pair every day.
+        line = "{} 12 worker.go:31] task_retrying"
+        first = mine_patterns([_sample(line.format(headers[0]))])
+        second = mine_patterns([_sample(line.format(headers[1]))])
+
+        assert pattern_fingerprint(first[0].pattern) == pattern_fingerprint(second[0].pattern)
+
+    @given(headers=_klog_header_pair_st())
+    @settings(max_examples=400, deadline=None)
+    def test_klog_match_regex_matches_a_sibling_at_another_instant(self, headers: tuple[str, str]) -> None:
+        # The <klogtime> fragment has to cover every klog instant, or the
+        # pivot from a klog pattern to its logs returns only the minute it was mined from.
+        line = "{} 12 worker.go:31] task_retrying"
+        patterns = mine_patterns([_sample(line.format(headers[0]))])
+
+        assert patterns[0].match_regex is not None
+        assert re.search(patterns[0].match_regex, line.format(headers[1]))
