@@ -57,7 +57,7 @@ export interface DateFilterProps {
     resolvedDateRange?: ResolvedDateRangeResponse
     showJumpToTimestamp?: boolean
     showCustomRelativeRange?: boolean
-    clearOption?: { label: string; onClick: () => void }
+    footerComponent?: (onClose: () => void) => React.ReactNode
     /**
      * When true, surfaces every option — presets, rolling picker, "Custom date…" (single exact),
      * "Custom fixed date range…", and "Custom relative range…" — in one flat list. Callers opt
@@ -130,7 +130,7 @@ export const DateFilter = forwardRef<HTMLButtonElement, RawDateFilterProps>(func
         showCustomRelativeRange = false,
         allowSingleAndRange = false,
         onOpenChange,
-        clearOption,
+        footerComponent,
     },
     ref
 ) {
@@ -209,7 +209,7 @@ export const DateFilter = forwardRef<HTMLButtonElement, RawDateFilterProps>(func
         showExplicitDateToggle ||
         showExclusions ||
         showJumpToTimestamp ||
-        Boolean(clearOption)
+        Boolean(footerComponent)
 
     const popoverOverlay =
         view === DateFilterView.FixedRange ? (
@@ -412,22 +412,7 @@ export const DateFilter = forwardRef<HTMLButtonElement, RawDateFilterProps>(func
                                 )}
                             </>
                         )}
-                        {clearOption && (
-                            <>
-                                <LemonDivider />
-                                <LemonButton
-                                    onClick={() => {
-                                        clearOption.onClick()
-                                        close()
-                                    }}
-                                    size={optionsSize}
-                                    status="danger"
-                                    fullWidth
-                                >
-                                    {clearOption.label}
-                                </LemonButton>
-                            </>
-                        )}
+                        {footerComponent?.(close)}
                         {showCustomRangeOptions && (showExplicitDateToggle || showExclusions) && <LemonDivider />}
                         {showExplicitDateToggle && (
                             <div

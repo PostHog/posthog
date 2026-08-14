@@ -1,5 +1,5 @@
 import { IconCalendar } from '@posthog/icons'
-import { LemonButton } from '@posthog/lemon-ui'
+import { LemonButton, LemonDivider } from '@posthog/lemon-ui'
 
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { dayjs } from 'lib/dayjs'
@@ -39,7 +39,26 @@ export function SnoozeButton({ onChange, onClear, value, disabledReason }: Snooz
                 showRollingRangePicker={false}
                 allowedRollingDateOptions={['days', 'weeks', 'months', 'years']}
                 showCustom
-                clearOption={onClear && value ? { label: 'Clear snooze', onClick: onClear } : undefined}
+                footerComponent={
+                    onClear && value
+                        ? (onClose) => (
+                              <>
+                                  <LemonDivider />
+                                  <LemonButton
+                                      onClick={() => {
+                                          onClear()
+                                          onClose()
+                                      }}
+                                      size="medium"
+                                      status="danger"
+                                      fullWidth
+                                  >
+                                      Clear snooze
+                                  </LemonButton>
+                              </>
+                          )
+                        : undefined
+                }
                 dateOptions={[
                     {
                         key: '30 minutes',
