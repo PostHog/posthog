@@ -38523,6 +38523,7 @@ export namespace Schemas {
     export interface HogInvocationCancelRequest {
       /**
          * Cancel these specific invocations. Capped at 10000 per request. Invocations that already finished are reported per id rather than failing the request.
+         * @minItems 1
          * @maxItems 10000
          */
       invocation_ids?: string[];
