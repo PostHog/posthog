@@ -285,11 +285,7 @@ export function MetricsTable({
                                                     return
                                                 }
 
-                                                updateMetricAttribution(
-                                                    metric.uuid,
-                                                    attributionType,
-                                                    attributionValue
-                                                )
+                                                updateMetricAttribution(metric.uuid, attributionType, attributionValue)
                                             }}
                                             onBreakdownLimitChange={(breakdownLimit) => {
                                                 if (!metric.uuid) {
