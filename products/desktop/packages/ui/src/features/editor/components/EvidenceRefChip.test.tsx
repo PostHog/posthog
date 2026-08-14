@@ -6,19 +6,6 @@ vi.mock("../../../shell/openExternal", () => ({
   openExternalUrl: vi.fn(),
 }));
 
-// The replay hover card mounts the shared player area, which resolves the
-// sharing state through the app shell; "not shared yet" is enough here.
-vi.mock("../../auth/authClient", () => ({
-  useOptionalAuthenticatedClient: () => null,
-}));
-vi.mock("../../../hooks/useAuthenticatedQuery", () => ({
-  useAuthenticatedQuery: () => ({
-    isPending: false,
-    isError: false,
-    data: { enabled: false, embedUrl: null },
-  }),
-}));
-
 import { openExternalUrl } from "../../../shell/openExternal";
 import { ANONYMOUS_AUTH_STATE, useAuthStore } from "../../auth/store";
 import { EvidenceHoverCard, EvidenceRefChip } from "./EvidenceRefChip";
@@ -161,19 +148,6 @@ describe("EvidenceHoverCard", () => {
     expect(screen.getByTestId("evidence-query").textContent).toBe(sql);
     fireEvent.click(screen.getByRole("button", { name: "Hide query" }));
     expect(screen.queryByTestId("evidence-query")).toBeNull();
-  });
-
-  it("offers the in-card player for a replay reference", () => {
-    renderInTheme(
-      <EvidenceHoverCard
-        target={{ kind: "replay", id: "s_01HQ4K" }}
-        url={null}
-        preview={{ title: "Session by ann@example.com" }}
-      >
-        14 recordings
-      </EvidenceHoverCard>,
-    );
-    expect(screen.getByRole("button", { name: /Watch here/ })).toBeDefined();
   });
 
   it("renders preview facts as pills", () => {

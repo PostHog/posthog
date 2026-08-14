@@ -7056,58 +7056,6 @@ export class PostHogAPIClient {
   }
 
   /**
-   * The recording's shared-player embed URL. Reads the sharing
-   * configuration; with `enable: true` it turns sharing on first. Enabling is
-   * a write with security meaning - the recording becomes viewable by anyone
-   * with the link - so callers must collect explicit user consent before
-   * passing it.
-   */
-  async getRecordingEmbedInfo(
-    recordingId: string,
-    options: { enable?: boolean } = {},
-  ): Promise<{ enabled: boolean; embedUrl: string | null }> {
-    const projectId = (await this.getTeamId()).toString();
-    const toEmbedUrl = (
-      config:
-        | { enabled?: boolean; access_token?: string | null }
-        | undefined
-        | null,
-    ): string | null =>
-      config?.enabled && config.access_token
-        ? `${this.apiHost}/embedded/${config.access_token}`
-        : null;
-
-    const configs = await this.api
-      .get(
-        "/api/projects/{project_id}/session_recordings/{recording_id}/sharing/",
-        { path: { project_id: projectId, recording_id: recordingId } },
-      )
-      .catch(() => []);
-    const existing = toEmbedUrl(Array.isArray(configs) ? configs[0] : configs);
-    if (existing) return { enabled: true, embedUrl: existing };
-    if (!options.enable) return { enabled: false, embedUrl: null };
-
-    const path = `/api/projects/${projectId}/session_recordings/${recordingId}/sharing/`;
-    const response = await this.api.fetcher.fetch({
-      method: "patch",
-      url: new URL(`${this.api.baseUrl}${path}`),
-      path,
-      overrides: { body: JSON.stringify({ enabled: true }) },
-    });
-    if (!response.ok) {
-      const body = await response.text().catch(() => "");
-      throw new Error(
-        `Enabling sharing failed with ${response.status}${body ? `: ${body.slice(0, 200)}` : ""}`,
-      );
-    }
-    const updated = (await response.json()) as {
-      enabled?: boolean;
-      access_token?: string | null;
-    };
-    return { enabled: !!updated.enabled, embedUrl: toEmbedUrl(updated) };
-  }
-
-  /**
    * The insight's identity and query node, by short id. Backs saved-insight
    * chart cards in agent messages: the caller plans and runs the query.
    */

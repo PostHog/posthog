@@ -14,7 +14,6 @@ import {
   type EvidenceCardData,
   fetchEvidencePreview,
 } from "../evidencePreview";
-import { ReplayPlayerArea } from "./ReplayBlockCard";
 
 /**
  * Inline evidence reference inside an agent message, authored as a
@@ -152,10 +151,9 @@ export function EvidenceHoverCard({
   const meta = getObjectKind(target.kind);
   const KindIcon = meta.icon;
   const isQuery = target.kind === "hogql";
-  const isReplay = target.kind === "replay";
   const [showQuery, setShowQuery] = useState(false);
   return (
-    <div className={`${isReplay ? "w-96" : "w-80"} p-3.5`}>
+    <div className="w-80 p-3.5">
       <div className="flex items-center gap-1.5 text-(--gray-9) text-[10.5px]">
         <KindIcon size={12} aria-hidden />
         <span className="truncate uppercase tracking-[0.06em]">
@@ -226,11 +224,6 @@ export function EvidenceHoverCard({
           <span className="block font-semibold text-(--gray-12) text-[14px] leading-snug">
             {children}
           </span>
-        </div>
-      )}
-      {isReplay && (
-        <div className="mt-2.5">
-          <ReplayPlayerArea sessionId={target.id} />
         </div>
       )}
       {isQuery && showQuery && (
