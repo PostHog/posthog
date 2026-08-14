@@ -38,6 +38,14 @@ def _first_set_property(properties: dict[str, Any], *keys: str) -> Any:
     return None
 
 
+def _normalize_hierarchy_id(value: Any) -> str | None:
+    if isinstance(value, bool):
+        return str(value).lower()
+    if isinstance(value, str | int | float):
+        return str(value)
+    return None
+
+
 def _latency_ms(event: LLMTraceEvent) -> float:
     try:
         latency = float(event.properties.get("$ai_latency", 0))
@@ -69,30 +77,30 @@ def _to_formatter_event(event: LLMTraceEvent) -> dict[str, Any]:
 
 def _nest_events(llm_trace: LLMTrace) -> list[dict[str, Any]]:
     """Rebuild the parent/child hierarchy the trace view shows, following `$ai_parent_id` links."""
-    events_by_node_id: dict[Any, LLMTraceEvent] = {}
+    events_by_node_id: dict[str, LLMTraceEvent] = {}
 
     for event in llm_trace.events:
         if event.event in FEEDBACK_EVENT_TYPES:
             continue
-        node_id = _first_set_property(event.properties, "$ai_generation_id", "$ai_span_id")
+        node_id = _normalize_hierarchy_id(_first_set_property(event.properties, "$ai_generation_id", "$ai_span_id"))
         if node_id is None:
             node_id = event.id
         events_by_node_id[node_id] = event
 
-    child_ids: dict[Any, list[Any]] = {}
+    child_ids: dict[str, list[str]] = {}
     for node_id, event in events_by_node_id.items():
-        parent_id = _first_set_property(event.properties, "$ai_parent_id", "$ai_trace_id")
+        parent_id = _normalize_hierarchy_id(_first_set_property(event.properties, "$ai_parent_id", "$ai_trace_id"))
         if parent_id is not None:
             child_ids.setdefault(parent_id, []).append(node_id)
 
-    def sort_key(node_id: Any) -> tuple[float, float]:
+    def sort_key(node_id: str) -> tuple[float, float]:
         event = events_by_node_id[node_id]
         # Siblings that began together are ordered longest first, matching the timeline.
         return (_operation_start_ms(event), -_latency_ms(event))
 
-    emitted_node_ids: set[Any] = set()
+    emitted_node_ids: set[str] = set()
 
-    def build(node_id: Any, depth: int) -> dict[str, Any] | None:
+    def build(node_id: str, depth: int) -> dict[str, Any] | None:
         event = events_by_node_id.get(node_id)
         if event is None or node_id in emitted_node_ids or depth > MAX_TREE_DEPTH:
             return None
@@ -107,7 +115,10 @@ def _nest_events(llm_trace: LLMTrace) -> list[dict[str, Any]]:
     orphan_ids = [
         node_id
         for node_id, event in events_by_node_id.items()
-        if (parent_id := _first_set_property(event.properties, "$ai_parent_id", "$ai_trace_id")) is not None
+        if (
+            parent_id := _normalize_hierarchy_id(_first_set_property(event.properties, "$ai_parent_id", "$ai_trace_id"))
+        )
+        is not None
         and parent_id != llm_trace.id
         and parent_id not in events_by_node_id
     ]

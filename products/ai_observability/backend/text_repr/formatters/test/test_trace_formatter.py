@@ -6,6 +6,8 @@ Tests cover tree structure rendering, expandable nodes, ASCII art, and options h
 
 from typing import Any
 
+from parameterized import parameterized
+
 from posthog.schema import LLMTrace, LLMTraceEvent
 
 from ..constants import MAX_TREE_DEPTH
@@ -710,6 +712,42 @@ class TestLLMTraceToFormatterFormat:
         _, hierarchy = llm_trace_to_formatter_format(trace, nest_children=True)
 
         assert sorted(node["event"]["id"] for node in hierarchy) == ["gen-1", "span-1"]
+
+    @parameterized.expand(
+        [
+            ("generation_list", "$ai_generation_id", ["invalid"]),
+            ("span_object", "$ai_span_id", {"invalid": "id"}),
+            ("parent_list", "$ai_parent_id", ["invalid"]),
+            ("trace_object", "$ai_trace_id", {"invalid": "id"}),
+        ]
+    )
+    def test_ignores_non_scalar_hierarchy_ids(
+        self, _case_name: str, property_name: str, malformed_id: list[str] | dict[str, str]
+    ) -> None:
+        properties: dict[str, Any] = {property_name: malformed_id}
+        if property_name in {"$ai_generation_id", "$ai_span_id"}:
+            properties["$ai_trace_id"] = self.TRACE_ID
+        else:
+            properties["$ai_span_id"] = "span-1"
+        trace = self._trace(self._event("event-1", properties))
+
+        _, hierarchy = llm_trace_to_formatter_format(trace, nest_children=True)
+
+        assert [node["event"]["id"] for node in hierarchy] == ["event-1"]
+
+    @parameterized.expand([("integer", 1, "1"), ("boolean", True, "true")])
+    def test_normalizes_scalar_hierarchy_ids(
+        self, _case_name: str, parent_id: int | bool, child_parent_id: str
+    ) -> None:
+        trace = self._trace(
+            self._event("parent", {"$ai_span_id": parent_id, "$ai_trace_id": self.TRACE_ID}),
+            self._event("child", {"$ai_span_id": "child", "$ai_parent_id": child_parent_id}),
+        )
+
+        _, hierarchy = llm_trace_to_formatter_format(trace, nest_children=True)
+
+        assert [node["event"]["id"] for node in hierarchy] == ["parent"]
+        assert [node["event"]["id"] for node in hierarchy[0]["children"]] == ["child"]
 
     def test_excludes_feedback_and_metric_events(self):
         trace = self._trace(
