@@ -23,6 +23,26 @@ export function SnoozeButton({ onChange, onClear, value, disabledReason }: Snooz
         )
     }
 
+    let footerComponent: ((onClose: () => void) => JSX.Element) | undefined
+    if (onClear && value) {
+        footerComponent = (onClose) => (
+            <>
+                <LemonDivider />
+                <LemonButton
+                    onClick={() => {
+                        onClear()
+                        onClose()
+                    }}
+                    size="medium"
+                    status="danger"
+                    fullWidth
+                >
+                    Clear snooze
+                </LemonButton>
+            </>
+        )
+    }
+
     return (
         <div className="flex items-center gap-2">
             {value ? <span className="text-sm text-muted-alt">Snoozed until</span> : null}
@@ -39,26 +59,7 @@ export function SnoozeButton({ onChange, onClear, value, disabledReason }: Snooz
                 showRollingRangePicker={false}
                 allowedRollingDateOptions={['days', 'weeks', 'months', 'years']}
                 showCustom
-                footerComponent={
-                    onClear && value
-                        ? (onClose) => (
-                              <>
-                                  <LemonDivider />
-                                  <LemonButton
-                                      onClick={() => {
-                                          onClear()
-                                          onClose()
-                                      }}
-                                      size="medium"
-                                      status="danger"
-                                      fullWidth
-                                  >
-                                      Clear snooze
-                                  </LemonButton>
-                              </>
-                          )
-                        : undefined
-                }
+                footerComponent={footerComponent}
                 dateOptions={[
                     {
                         key: '30 minutes',
