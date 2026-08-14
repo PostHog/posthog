@@ -36,6 +36,12 @@ type PropParseResult = {
     errors: string[]
 }
 
+type ComponentScanState = {
+    expressionDepth: number
+    quote: '"' | "'" | null
+    escaped: boolean
+}
+
 const COMPONENT_START_REGEX = /^<[A-Z][A-Za-z0-9]*(\s|>|\/)/
 const ORDERED_LIST_REGEX = /^\s*\d+[.)](?:\s+|$)/
 const BULLET_LIST_REGEX = /^\s*[-*+•](?:\s+|$)/
@@ -1088,26 +1094,38 @@ function parseComponentBlock(lines: string[], lineIndex: number): BlockParseResu
     const rawLines: string[] = []
     const firstLine = lines[lineIndex].trim()
     const tagName = firstLine.match(/^<([A-Z][A-Za-z0-9]*)/)?.[1]
+    const scanState: ComponentScanState = { expressionDepth: 0, quote: null, escaped: false }
     let nextLineIndex = lineIndex
     let foundTerminator = false
 
-    // Components are block-level: a blank line ends the scan so an unterminated tag can
-    // never swallow the rest of the document
-    while (nextLineIndex < lines.length && (nextLineIndex === lineIndex || lines[nextLineIndex].trim())) {
-        rawLines.push(lines[nextLineIndex])
+    while (nextLineIndex < lines.length) {
+        const line = lines[nextLineIndex]
+        // A blank line belongs to the component only while a prop value is open. If the tag
+        // never closes, the fallback below still uses the first contiguous block so later
+        // notebook content cannot be swallowed.
+        if (!line.trim() && scanState.quote === null && scanState.expressionDepth === 0) {
+            break
+        }
+
+        const source = `${rawLines.length ? '\n' : ''}${line}`
+        scanComponentSource(source, scanState)
+        rawLines.push(line)
         const raw = rawLines.join('\n').trim()
-        if (raw.endsWith('/>') || (tagName && raw.includes(`</${tagName}>`))) {
+        const endsWithTerminator = raw.endsWith('/>') || (tagName && raw.endsWith(`</${tagName}>`))
+        const isCompleteValue = scanState.quote === null && scanState.expressionDepth === 0
+        if (endsWithTerminator && (isCompleteValue || rawLines.length === 1)) {
             foundTerminator = true
             break
         }
         nextLineIndex += 1
     }
 
-    const raw = rawLines.join('\n').trim()
+    const fallbackEndLine = findComponentFallbackEndLine(lines, lineIndex)
+    const raw = foundTerminator ? rawLines.join('\n').trim() : lines.slice(lineIndex, fallbackEndLine).join('\n').trim()
     if (!foundTerminator) {
         return {
             node: makeComponentFallbackParagraph(raw),
-            nextLineIndex,
+            nextLineIndex: fallbackEndLine,
             error: { message: 'Unclosed component tag', raw, line: lineIndex + 1 },
         }
     }
@@ -1120,6 +1138,37 @@ function parseComponentBlock(lines: string[], lineIndex: number): BlockParseResu
         nextLineIndex: nextLineIndex + 1,
         error: parsed.error ? { ...parsed.error, line: lineIndex + 1 } : undefined,
     }
+}
+
+function scanComponentSource(source: string, state: ComponentScanState): void {
+    for (const character of source) {
+        if (state.quote !== null) {
+            if (state.escaped) {
+                state.escaped = false
+            } else if (character === '\\') {
+                state.escaped = true
+            } else if (character === state.quote) {
+                state.quote = null
+            }
+            continue
+        }
+
+        if (character === '"' || character === "'") {
+            state.quote = character
+        } else if (character === '{') {
+            state.expressionDepth += 1
+        } else if (character === '}') {
+            state.expressionDepth = Math.max(0, state.expressionDepth - 1)
+        }
+    }
+}
+
+function findComponentFallbackEndLine(lines: string[], lineIndex: number): number {
+    let nextLineIndex = lineIndex + 1
+    while (nextLineIndex < lines.length && lines[nextLineIndex].trim()) {
+        nextLineIndex += 1
+    }
+    return nextLineIndex
 }
 
 function makeComponentFallbackParagraph(raw: string): NotebookTextBlockNode {

@@ -109,6 +109,9 @@ String props serialize as attributes:
 <RevenueCard metric="arr" />
 ```
 
+The parser accepts physical line breaks, including blank lines, inside a quoted string prop.
+The next save normalizes them to escaped `\n` sequences so the stored component remains on one line.
+
 Object and array props serialize with JSX-like expression syntax:
 
 ```md

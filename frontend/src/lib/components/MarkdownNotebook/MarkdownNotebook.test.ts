@@ -763,6 +763,24 @@ continued line
         expect(serializeMarkdownNotebook(document)).toEqual(markdown)
     })
 
+    it('normalizes physical line breaks inside quoted component props', () => {
+        const markdown = `<GenUI prompt="First paragraph.\n\nSecond paragraph." inputs="frame" />\n\n<Prompt question="" />`
+        const document = parseMarkdownNotebook(markdown)
+
+        expect(document.errors).toEqual([])
+        expect(document.nodes).toMatchObject([
+            {
+                type: 'component',
+                tagName: 'GenUI',
+                props: { prompt: 'First paragraph.\n\nSecond paragraph.', inputs: 'frame' },
+            },
+            { type: 'component', tagName: 'Prompt' },
+        ])
+        expect(serializeMarkdownNotebook(document)).toEqual(
+            '<GenUI prompt="First paragraph.\\n\\nSecond paragraph." inputs="frame" />\n\n<Prompt question="" />'
+        )
+    })
+
     it('serializes bold links in a stable mark order', () => {
         const url = 'http://localhost:8010/project/1/notebooks/hjH8ysXW'
         const canonicalMarkdown = `asda [**blala**](${url}) sdasdas`
