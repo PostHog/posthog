@@ -17,6 +17,7 @@ import { ProductKey } from '~/queries/schema/schema-general'
 
 import { LogsAlertingSection } from 'products/logs/frontend/components/LogsAlerting/LogsAlertingSection'
 import { LogsServices } from 'products/logs/frontend/components/LogsServices/LogsServices'
+import { LogsServicesV2 } from 'products/logs/frontend/components/LogsServices/LogsServicesV2'
 import { LogsSqlEditor } from 'products/logs/frontend/components/LogsSqlEditor/LogsSqlEditor'
 import { LogsTransformations } from 'products/logs/frontend/components/LogsTransformations/LogsTransformations'
 import { LogsViewer } from 'products/logs/frontend/components/LogsViewer'
@@ -94,6 +95,7 @@ const LogsSceneTabbedContent = (): JSX.Element => {
     const { setActiveTab } = useActions(logsSceneLogic)
     const { hasLogs, teamHasLogsCheckFailed } = useValues(logsIngestionLogic)
     const showServicesView = useFeatureFlag('LOGS_SERVICES_VIEW')
+    const showServicesV2 = useFeatureFlag('LOGS_SERVICES_VIEW_V2')
     const showAlerting = useFeatureFlag('LOGS_ALERTING')
     const showTransformations = useFeatureFlag('LOGS_TRANSFORMATIONS')
     const showAnomalies = useFeatureFlag('LOGS_ANOMALIES')
@@ -151,12 +153,16 @@ const LogsSceneTabbedContent = (): JSX.Element => {
                     </div>
                 </LogsSetupPrompt>
             </div>
-            {activeTab === 'services' && showServicesView && (
-                <>
-                    <LogsServices />
-                    <LogsViewerModal />
-                </>
-            )}
+            {activeTab === 'services' &&
+                showServicesView &&
+                (showServicesV2 ? (
+                    <LogsServicesV2 />
+                ) : (
+                    <>
+                        <LogsServices />
+                        <LogsViewerModal />
+                    </>
+                ))}
             {activeTab === 'alerts' && showAlerting && <LogsAlertingSection />}
             {activeTab === 'anomalies' && showAnomalies && <LogsAnomalies />}
             {activeTab === 'sql' && <LogsSqlEditor id={LOGS_SCENE_VIEWER_ID} />}

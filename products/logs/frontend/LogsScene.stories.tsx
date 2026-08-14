@@ -430,7 +430,8 @@ export default {
             post: {
                 '/api/environments/:team_id/logs/query': queryMock,
                 '/api/environments/:team_id/logs/sparkline': sparklineMock,
-                '/api/environments/:team_id/logs/services': servicesMock,
+                // The generated client posts to the project-scoped path, not the environment one.
+                '/api/projects/:team_id/logs/services': servicesMock,
             },
         }),
     ],
@@ -463,8 +464,31 @@ export function LogsSceneServicesTab(): JSX.Element {
     return <App />
 }
 LogsSceneServicesTab.parameters = {
-    featureFlags: [FEATURE_FLAGS.LOGS_SERVICES_VIEW],
+    // Without the tabbed flag there is no Services tab to land on, so this story
+    // rendered the plain viewer instead. Paired with the v2 story, it now covers
+    // the flag-off half of the gate.
+    featureFlags: [FEATURE_FLAGS.LOGS_TABBED_VIEW, FEATURE_FLAGS.LOGS_SERVICES_VIEW],
     testOptions: {
         waitForSelector: '.LemonTable',
+    },
+}
+
+export function LogsSceneServicesTabV2(): JSX.Element {
+    useEffect(() => {
+        router.actions.push(combineUrl(urls.logs(), { activeTab: 'services' }).url)
+    }, [])
+    return <App />
+}
+LogsSceneServicesTabV2.parameters = {
+    // Story parameters replace the meta's rather than merging, so every flag this
+    // path needs is listed here: the tabs, the tab itself, then the v2 rebuild.
+    featureFlags: [
+        FEATURE_FLAGS.LOGS_TABBED_VIEW,
+        FEATURE_FLAGS.LOGS_SERVICES_VIEW,
+        FEATURE_FLAGS.LOGS_SERVICES_VIEW_V2,
+    ],
+    testOptions: {
+        // v2-specific, so this fails rather than passes if the gate falls through to the v1 table.
+        waitForSelector: '[data-attr="logs-services-view-mode-list"]',
     },
 }
