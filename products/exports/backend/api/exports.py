@@ -1,4 +1,3 @@
-import re
 from datetime import timedelta
 from typing import Any, Literal
 
@@ -36,12 +35,12 @@ from posthog.temporal.exports.workflows import ExportAssetWorkflow, ExportAssetW
 from posthog.temporal.session_replay.rasterize_recording.types import RasterizeRecordingInputs
 
 from products.exports.backend.facade.api import EXPORT_WORKFLOW_TIMEOUT
-from products.exports.backend.models.exported_asset import ExportedAsset, get_content_response
+from products.exports.backend.models.exported_asset import (
+    ExportedAsset,
+    get_content_response,
+    is_valid_session_recording_id,
+)
 from products.product_analytics.backend.models.insight import Insight
-
-# Downstream renderers interpolate the session id straight into internal API paths, so anything
-# that could change the shape of that path (separators, percent escapes, dot segments) is rejected.
-SESSION_RECORDING_ID_RE = re.compile(r"^[A-Za-z0-9_.:-]{1,200}$")
 
 # Full video exports per team per calendar month, tiered by plan.
 FULL_VIDEO_EXPORTS_LIMIT_BY_TIER: dict[Literal["free", "paid", "enterprise"], int] = {
@@ -139,10 +138,11 @@ class ExportedAssetSerializer(UserAccessControlSerializerMixin, serializers.Mode
             raise ValidationError({"insight": ["This insight does not belong to your team."]})
 
         export_context = data.get("export_context") or {}
-        if export_context.get("session_recording_id") is not None:
-            session_recording_id = export_context["session_recording_id"]
-            if not isinstance(session_recording_id, str) or not SESSION_RECORDING_ID_RE.match(session_recording_id):
-                raise ValidationError({"export_context": ["Invalid session_recording_id."]})
+        # Truthiness, not `is not None`: an absent or empty id is a no-op everywhere downstream,
+        # and rejecting it here would 400 exports that never touch a recording.
+        session_recording_id = export_context.get("session_recording_id")
+        if session_recording_id and not is_valid_session_recording_id(session_recording_id):
+            raise ValidationError({"export_context": ["Invalid session_recording_id."]})
 
         # Check full video export limit for team (video session recording exports)
         export_format = data.get("export_format")
@@ -475,7 +475,8 @@ class ExportedAssetViewSet(
     viewsets.GenericViewSet,
 ):
     scope_object = "export"
-    queryset = ExportedAsset.objects.order_by("-created_at")
+    # Both FKs are read on every retrieve to authorize the asset, so fetch them with it.
+    queryset = ExportedAsset.objects.select_related("dashboard", "insight").order_by("-created_at")
     serializer_class = ExportedAssetSerializer
 
     def get_serializer_class(self) -> type[serializers.BaseSerializer]:
@@ -517,13 +518,12 @@ class ExportedAssetViewSet(
 
         # Both can be set on one asset, and the renderer prefers the insight, so checking only the
         # first non-null one would let an accessible dashboard authorize an inaccessible insight.
-        for related in (instance.dashboard, instance.insight):
-            if related is not None and not self.user_access_control.check_access_level_for_object(
-                related, required_level="viewer"
-            ):
+        authorizing_objects = [related for related in (instance.dashboard, instance.insight) if related is not None]
+        for related in authorizing_objects:
+            if not self.user_access_control.check_access_level_for_object(related, required_level="viewer"):
                 raise NotFound()
 
-        if instance.dashboard or instance.insight or not session_recording_id:
+        if authorizing_objects or not session_recording_id:
             return instance
 
         from posthog.session_recordings.models.session_recording import SessionRecording

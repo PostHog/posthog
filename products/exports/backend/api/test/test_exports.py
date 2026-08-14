@@ -855,6 +855,8 @@ class TestExports(APIBaseTest):
             ("backslash", "abc\\def"),
             ("percent_encoded", "%2e%2e%2f2"),
             ("not_a_string", 12345),
+            ("dot_segment", ".."),
+            ("trailing_newline", "abc\n"),
         ]
     )
     def test_cannot_create_export_with_unsafe_session_recording_id(self, _name, session_recording_id) -> None:

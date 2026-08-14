@@ -51,6 +51,11 @@ describe('config', () => {
             expect(() => validateInput(baseInput())).not.toThrow()
         })
 
+        // Dots are legal inside an id; only a dot-only id is a path segment.
+        it('accepts a session_id containing dots', () => {
+            expect(() => validateInput(baseInput({ session_id: 'a..b' }))).not.toThrow()
+        })
+
         it.each([
             { field: 'playback_speed', value: 0, error: 'playback_speed must be positive' },
             { field: 'playback_speed', value: -1, error: 'playback_speed must be positive' },
@@ -71,9 +76,14 @@ describe('config', () => {
             expect(() => validateInput(baseInput({ session_id: '' }))).toThrow('session_id is required')
         })
 
-        it.each(['../../2/recordings/other', 'abc\\..\\def', 'a..b'])('rejects traversal session_id %s', (id) => {
-            expect(() => validateInput(baseInput({ session_id: id }))).toThrow('session_id contains illegal characters')
-        })
+        it.each(['../../2/recordings/other', 'abc\\..\\def', '%2e%2e%2f2', 'abc?x=1', 'a b', '..', '.', 'abc\n'])(
+            'rejects session_id %s',
+            (id) => {
+                expect(() => validateInput(baseInput({ session_id: id }))).toThrow(
+                    'session_id contains illegal characters'
+                )
+            }
+        )
 
         it('rejects invalid team_id', () => {
             expect(() => validateInput(baseInput({ team_id: 0 }))).toThrow('team_id must be a positive integer')
