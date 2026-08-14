@@ -43,13 +43,10 @@ class TestRecordingsThatMatchPlaylistFilters(APIBaseTest, QueryMatchingTest):
         mock_capture_exception.assert_not_called()
 
     @patch("posthoganalytics.capture_exception")
-    def test_stores_error_instead_of_raising_when_an_exposure_filters_experiment_is_gone(
-        self, mock_capture_exception: MagicMock
-    ):
-        # A saved playlist can outlive the experiment its experiment_exposure filter points
-        # at; resolving the filter then raises ValidationError. The count must record the
-        # failure (feeding the error cooldown that eventually parks the playlist) rather
-        # than let it escape the per-playlist activity.
+    def test_skips_exposure_playlists_without_counting_or_erroring(self, mock_capture_exception: MagicMock):
+        # The task runs userless and the exposure filter refuses userless callers, so counting
+        # can only fail. The skip must fire before any query runs, whether or not the
+        # experiment still exists, and must not feed the error cooldown.
         playlist = SessionRecordingPlaylist.objects.create(
             team=self.team,
             name="exposed sessions",
@@ -63,12 +60,8 @@ class TestRecordingsThatMatchPlaylistFilters(APIBaseTest, QueryMatchingTest):
 
         count_recordings_that_match_playlist_filters(playlist.id)
 
-        counts = self._get_counts_from_redis(playlist)
-        assert counts["error_count"] == 1
-        assert counts["errored_at"] is not None
-        # At least once: tolerated must not mean silent. The exact count is not asserted,
-        # since the query path reports the resolution failure on its own too.
-        mock_capture_exception.assert_called()
+        assert self.redis_client.get(f"{PLAYLIST_COUNT_REDIS_PREFIX}{playlist.short_id}") is None
+        mock_capture_exception.assert_not_called()
 
     @patch("posthoganalytics.capture_exception")
     @patch("posthog.temporal.session_replay.count_playlist_items.counting_logic.list_recordings_from_query")
