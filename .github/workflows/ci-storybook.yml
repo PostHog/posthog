@@ -855,8 +855,8 @@ jobs:
         needs: [select-stories]
         runs-on: ubuntu-latest
         timeout-minutes: 5
-        # select-stories only runs on PRs without a forced full run; fire only when it produced a
-        # decision. DevEx project only; continue-on-error so telemetry never reds CI.
+        # select-stories only runs on PRs without a forced full run. Fire only when it
+        # produced a decision. DevEx project only; continue-on-error so telemetry never reds CI.
         if: |
             !cancelled() && github.run_attempt == '1'
             && github.actor != 'dependabot[bot]'
