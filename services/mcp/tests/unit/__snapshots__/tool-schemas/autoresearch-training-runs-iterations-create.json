@@ -22,13 +22,15 @@
         "holdout_score": {
             "anyOf": [
                 {
+                    "maximum": 1,
+                    "minimum": 0,
                     "type": "number"
                 },
                 {
                     "type": "null"
                 }
             ],
-            "description": "Held-out AUC for this iteration. Used to pick the champion at completion."
+            "description": "Held-out AUC for this iteration (0-1). Used to pick the champion at completion."
         },
         "id": {
             "description": "A UUID string identifying this autoresearch training run.",
@@ -73,13 +75,15 @@
         "train_score": {
             "anyOf": [
                 {
+                    "maximum": 1,
+                    "minimum": 0,
                     "type": "number"
                 },
                 {
                     "type": "null"
                 }
             ],
-            "description": "Training-set AUC for this iteration."
+            "description": "Training-set AUC for this iteration (0-1)."
         }
     },
     "required": ["id", "pipeline_id", "iteration_number", "recipe_snapshot", "model_spec", "status"],
