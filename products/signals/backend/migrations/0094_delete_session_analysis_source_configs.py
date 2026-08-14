@@ -30,7 +30,5 @@ class Migration(migrations.Migration):
     # Deleting rows nothing reads is not reversible in any meaningful sense: re-creating them would
     # invent config a team never asked for.
     operations = [
-        migrations.RunPython(
-            delete_session_analysis_configs, migrations.RunPython.noop, elidable=True
-        ),
+        migrations.RunPython(delete_session_analysis_configs, migrations.RunPython.noop, elidable=True),
     ]
