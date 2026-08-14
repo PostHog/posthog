@@ -27,6 +27,13 @@ BUCKET_SECONDS = BUCKET_MINUTES * 60
 # 99.96% of rows land within 10 minutes; the residual tail is reconciliation's job.
 # A dial, not grid identity: env-tunable (read at import, so a worker restart applies it).
 FINALIZATION_ALLOWANCE = timedelta(minutes=int(os.environ.get("LOGS_VOLUME_TICK_FINALIZATION_ALLOWANCE_MINUTES", "10")))
+# Teams the rollup writer may write rows for, as comma-separated ids. Empty means
+# no team: an unset variable writes nothing rather than the whole fleet, so a
+# wrong query costs one team's rows and not 3,000. Discovery is unaffected — it
+# stays fleet-wide, because its scan is what measures per-tick compute.
+TEAM_ALLOWLIST: tuple[int, ...] = tuple(
+    int(team_id) for team_id in os.environ.get("LOGS_VOLUME_TICK_TEAM_ALLOWLIST", "").split(",") if team_id.strip()
+)
 # Starts as a mirror of the alerting policy but is tuned independently.
 ACTIVITY_RETRY_POLICY = RetryPolicy(
     maximum_attempts=3,
