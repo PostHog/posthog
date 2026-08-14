@@ -1079,6 +1079,22 @@ toast.dismiss(id)
 toast({ title: 'Item archived', action: { label: 'Undo', onClick: () => restore() } })
 ```
 
+`anchoredToast` positions a toast next to an element instead of stacking it in the corner. It takes the same
+options plus an anchor. An anchored toast with an action also gets a close button, so give it `timeout: 0`
+when the user needs time to decide:
+
+```tsx
+import { anchoredToast } from '@posthog/quill-primitives'
+
+anchoredToast({ description: 'Copied!', anchor: buttonRef.current })
+anchoredToast({
+  title: 'Event deleted',
+  anchor: buttonRef.current,
+  timeout: 0,
+  action: { label: 'Undo', onClick: () => restore() },
+})
+```
+
 ### Theme Toggle
 
 ```tsx
