@@ -34,6 +34,7 @@ from products.warehouse_sources.backend.models.external_data_schema import (
     update_sync_type_config_keys,
 )
 from products.warehouse_sources.backend.models.external_data_source import (
+    MANAGED_WAREHOUSE_PROJECT_READER_CREDENTIAL_KIND,
     MANAGED_WAREHOUSE_SOURCE_PREFIX,
     ExternalDataSource,
     get_direct_external_data_source_for_connection,
@@ -71,6 +72,7 @@ __all__ = [
     "ExternalDataJob",
     "ExternalDataSchema",
     "ExternalDataSource",
+    "MANAGED_WAREHOUSE_PROJECT_READER_CREDENTIAL_KIND",
     "MANAGED_WAREHOUSE_SOURCE_PREFIX",
     "PendingSourceCredential",
     "SERIALIZED_FIELD_TO_CLICKHOUSE_MAPPING",

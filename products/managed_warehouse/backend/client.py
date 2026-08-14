@@ -45,8 +45,8 @@ def make_duckgres_conninfo(
     """Build a psycopg conninfo for a team's duckgres server.
 
     Default (no ``service_credential``): use the username/password from the
-    stored ``DuckgresServer`` row. The SQL editor and materialization inherit
-    the permissions of that login.
+    stored ``DuckgresServer`` row. Materialization and internal warehouse
+    helpers inherit the permissions of that login.
 
     With ``service_credential``: connect with a CP-issued, org-scoped
     per-credential grant (``svc_…`` credential_id + secret), short-lived and

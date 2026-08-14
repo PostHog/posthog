@@ -9,6 +9,7 @@ from posthog.hogql.constants import HogQLDialect
 from posthog.hogql.direct_sql.adapter import DirectQueryRequest, DirectQueryResult
 from posthog.hogql.direct_sql.capability import is_direct_capable
 from posthog.hogql.direct_sql.pgwire import (
+    MANAGED_WAREHOUSE_CONNECTION_ERROR,
     LenientDirectPostgresDateLoader,
     postgres_error_to_message,
     postgres_oid_to_clickhouse_type,
@@ -201,7 +202,12 @@ class PostgresAdapter:
                         connection_kwargs["sslmode"] = "require"
 
                     with request.timings.measure("postgres_connect", emit_span=True):
-                        connection_context = psycopg.connect(**connection_kwargs)
+                        try:
+                            connection_context = psycopg.connect(**connection_kwargs)
+                        except (psycopg.Error, RuntimeError, ValueError) as error:
+                            if source.is_managed_warehouse_ready:
+                                raise ExposedHogQLError(MANAGED_WAREHOUSE_CONNECTION_ERROR) from error
+                            raise
                     with connection_context as connection:
                         runtime_connection_metadata = source.connection_metadata
                         if should_hydrate_runtime_direct_postgres_connection_metadata(

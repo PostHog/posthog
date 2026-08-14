@@ -4,6 +4,7 @@ import socket
 import threading
 from collections.abc import Generator, Iterator
 from contextlib import closing, contextmanager
+from dataclasses import field
 from itertools import chain
 from typing import TYPE_CHECKING, cast
 
@@ -18,12 +19,15 @@ from posthog.hogql.constants import HogQLDialect
 from posthog.hogql.direct_query_metrics import DIRECT_QUERY_ROW_CAP_EXCEEDED_TOTAL, observe_direct_query
 from posthog.hogql.direct_sql.adapter import DirectQueryRequest, DirectQueryResult
 from posthog.hogql.direct_sql.pgwire import (
+    MANAGED_WAREHOUSE_CONNECTION_ERROR,
     LenientDirectPostgresDateLoader,
     postgres_error_to_message,
     postgres_oid_to_clickhouse_type,
 )
 from posthog.hogql.direct_sql.raw_sql import ensure_single_direct_statement
 from posthog.hogql.errors import ExposedHogQLError
+
+from posthog.dataclasses import frozen
 
 if TYPE_CHECKING:
     from psycopg.pq.abc import PGresult
@@ -43,12 +47,18 @@ DIRECT_DUCKGRES_ROW_CAP_ERROR = (
     f"Managed warehouse query returned more than {DIRECT_DUCKGRES_MAX_ROWS:,} rows. Add a LIMIT clause."
 )
 MANAGED_WAREHOUSE_UNAVAILABLE_ERROR = "Managed warehouse is unavailable. Contact support if the problem persists."
-MANAGED_WAREHOUSE_CONNECTION_ERROR = (
-    "Could not connect to the managed warehouse. Try again, and contact support if the problem persists."
-)
 MANAGED_WAREHOUSE_TIMEOUT_ERROR = "Managed warehouse query exceeded the execution time limit."
 
 logger = structlog.get_logger(__name__)
+
+
+@frozen
+class _DuckgresProjectReaderConfig:
+    host: str
+    port: int
+    database: str
+    user: str
+    password: str = field(repr=False)
 
 
 class _DuckgresStreamingClientCursor(psycopg.ClientCursor[tuple[object, ...]]):
@@ -92,14 +102,6 @@ class _DuckgresStreamingClientCursor(psycopg.ClientCursor[tuple[object, ...]]):
             return None
 
         return self._raise_for_result(result)
-
-
-def make_duckgres_conninfo(*, team_id: int, organization_id: str) -> str:
-    from products.managed_warehouse.backend.facade.client import (
-        make_duckgres_conninfo as make_conninfo,  # noqa: PLC0415 - keeps managed-warehouse client imports off the direct-SQL module path
-    )
-
-    return make_conninfo(team_id=team_id, organization_id=organization_id)
 
 
 @contextmanager
@@ -166,8 +168,48 @@ class DuckgresRawAdapter:
     engine = "duckgres"
     dialect: HogQLDialect | None = None
 
-    def validate_source_config(self, source: ExternalDataSource, team: Team) -> tuple[None, None]:
-        return None, None
+    def validate_source_config(
+        self, source: ExternalDataSource, team: Team
+    ) -> tuple[None, _DuckgresProjectReaderConfig]:
+        if source.team_id != team.pk or not source.is_managed_warehouse_ready:
+            raise ExposedHogQLError(MANAGED_WAREHOUSE_UNAVAILABLE_ERROR)
+
+        job_inputs = source.job_inputs
+        if not isinstance(job_inputs, dict):
+            raise ExposedHogQLError(MANAGED_WAREHOUSE_UNAVAILABLE_ERROR)
+
+        host = job_inputs.get("host")
+        database = job_inputs.get("database")
+        user = job_inputs.get("user")
+        password = job_inputs.get("password")
+        raw_port = job_inputs.get("port")
+        if (
+            not isinstance(host, str)
+            or not host.strip()
+            or not isinstance(database, str)
+            or not database.strip()
+            or not isinstance(user, str)
+            or user != f"posthog_team_{team.pk}"
+            or not isinstance(password, str)
+            or not password
+            or isinstance(raw_port, bool)
+        ):
+            raise ExposedHogQLError(MANAGED_WAREHOUSE_UNAVAILABLE_ERROR)
+
+        try:
+            port = int(raw_port)
+        except (TypeError, ValueError) as error:
+            raise ExposedHogQLError(MANAGED_WAREHOUSE_UNAVAILABLE_ERROR) from error
+        if not 1 <= port <= 65535:
+            raise ExposedHogQLError(MANAGED_WAREHOUSE_UNAVAILABLE_ERROR)
+
+        return None, _DuckgresProjectReaderConfig(
+            host=host,
+            port=port,
+            database=database,
+            user=user,
+            password=password,
+        )
 
     def prepare_raw_sql(self, sql: str) -> str:
         return ensure_single_direct_statement(sql)
@@ -184,14 +226,21 @@ class DuckgresRawAdapter:
 
         try:
             with request.timings.measure("duckgres_execute"), observe_direct_query("duckgres"):
+                with request.timings.measure("duckgres_source_validation"):
+                    _, source_config = self.validate_source_config(request.source, request.team)
                 try:
                     with request.timings.measure("duckgres_connect", emit_span=True):
                         connection_context = psycopg.connect(
-                            make_duckgres_conninfo(
-                                team_id=request.team.pk,
-                                organization_id=str(request.team.organization_id),
-                            ),
+                            host=source_config.host,
+                            port=source_config.port,
+                            dbname=source_config.database,
+                            user=source_config.user,
+                            password=source_config.password,
                             connect_timeout=DIRECT_DUCKGRES_CONNECT_TIMEOUT_SECONDS,
+                            sslmode="require",
+                            sslcert="/tmp/no.txt",
+                            sslkey="/tmp/no.txt",
+                            sslrootcert="/tmp/no.txt",
                             cursor_factory=_DuckgresStreamingClientCursor,
                         )
                 except (RuntimeError, ValueError) as error:

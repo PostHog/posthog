@@ -1389,7 +1389,7 @@ class Database(BaseModel):
                     direct_source.access_method == ExternalDataSource.AccessMethod.DIRECT
                     or is_direct_capable(direct_source)
                 ):
-                    is_managed_warehouse_connection = direct_source.is_managed_warehouse
+                    is_managed_warehouse_connection = direct_source.is_managed_warehouse_ready
                     direct_connection_metadata = direct_source.connection_metadata
                     # A capable non-DIRECT (synced) source drives the dual-mode virtual-table path.
                     if direct_source.access_method != ExternalDataSource.AccessMethod.DIRECT:

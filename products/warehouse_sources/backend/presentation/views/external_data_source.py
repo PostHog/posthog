@@ -102,6 +102,7 @@ from products.data_warehouse.backend.facade.models import ExternalDataSourceReve
 from products.revenue_analytics.backend.facade.api import ensure_person_join, remove_person_join
 from products.warehouse_sources.backend.facade.api import validate_source_prefix
 from products.warehouse_sources.backend.facade.models import (
+    MANAGED_WAREHOUSE_PROJECT_READER_CREDENTIAL_KIND,
     MANAGED_WAREHOUSE_SOURCE_PREFIX,
     DataWarehouseTable,
     ExternalDataJob,
@@ -4591,25 +4592,38 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
             # Pure-direct sources are always live; synced sources only when the toggle is on.
             .filter(Q(access_method=ExternalDataSource.AccessMethod.DIRECT) | Q(direct_query_enabled=True))
             .exclude(deleted=True)
-            .only("id", "prefix", "description", "connection_metadata", "source_type", "access_method")
+            .only(
+                "id",
+                "prefix",
+                "description",
+                "connection_metadata",
+                "source_type",
+                "access_method",
+            )
             .order_by(self.ordering)
         )
-        from products.managed_warehouse.backend.facade.api import (  # noqa: PLC0415 - keeps managed warehouse off the viewset import path
-            has_provisioned_warehouse,
-        )
-
         managed_warehouse_filter = Q(
             source_type=ExternalDataSourceType.POSTGRES,
             access_method=ExternalDataSource.AccessMethod.DIRECT,
+            direct_query_enabled=True,
             prefix=MANAGED_WAREHOUSE_SOURCE_PREFIX,
             connection_metadata__engine="duckdb",
             connection_metadata__system_managed=True,
+            connection_metadata__credential_kind=MANAGED_WAREHOUSE_PROJECT_READER_CREDENTIAL_KIND,
+            connection_metadata__reader_configured=True,
         )
-        managed_source = (
-            connection_sources.filter(managed_warehouse_filter).first()
-            if has_provisioned_warehouse(self.team.organization_id)
-            else None
+        managed_candidates = connection_sources.filter(managed_warehouse_filter).only(
+            "id",
+            "team_id",
+            "prefix",
+            "description",
+            "connection_metadata",
+            "source_type",
+            "access_method",
+            "direct_query_enabled",
+            "job_inputs",
         )
+        managed_source = next((source for source in managed_candidates if source.is_managed_warehouse_ready), None)
         external_sources = connection_sources.exclude(prefix=MANAGED_WAREHOUSE_SOURCE_PREFIX)
         if is_service_auth(request):
             accessible_external_sources = external_sources

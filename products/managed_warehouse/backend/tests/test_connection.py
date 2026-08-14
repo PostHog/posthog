@@ -3,6 +3,8 @@ from typing import TypedDict
 import pytest
 from unittest.mock import MagicMock, patch
 
+from parameterized import parameterized
+
 from posthog.hogql.direct_connection import get_direct_connection_source
 from posthog.hogql.query import HogQLQueryExecutor
 
@@ -24,8 +26,16 @@ from products.managed_warehouse.backend.logic.connection import (
 )
 from products.managed_warehouse.backend.models import DuckgresServer
 from products.managed_warehouse.backend.presentation import views as managed_warehouse
-from products.warehouse_sources.backend.facade.models import DataWarehouseTable, ExternalDataSchema, ExternalDataSource
+from products.warehouse_sources.backend.facade.models import (
+    MANAGED_WAREHOUSE_PROJECT_READER_CREDENTIAL_KIND,
+    DataWarehouseTable,
+    ExternalDataSchema,
+    ExternalDataSource,
+)
 from products.warehouse_sources.backend.facade.source_management import SourceSchema
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.postgres import (
+    PostgresSourceConfig,
+)
 
 
 class _Connection(TypedDict):
@@ -43,6 +53,8 @@ _CONNECTION: _Connection = {
     "username": "root",
     "password": "pw",
 }
+
+_PROJECT_READER_PASSWORD = "project-reader-password"
 
 
 # Per-test control-plane membership rows, keyed by org id. The periodic sweep uses
@@ -107,66 +119,77 @@ def _create_server(org: Organization, **overrides: object) -> DuckgresServer:
     return DuckgresServer.objects.create(organization=org, **{**_CONNECTION, **overrides})
 
 
+def _create_project_reader_source(
+    team: Team,
+    *,
+    reader_configured: bool = True,
+    direct_query_enabled: bool = True,
+) -> ExternalDataSource:
+    return ExternalDataSource.objects.create(
+        team=team,
+        source_id=f"managed-source-{team.id}",
+        connection_id=f"managed-connection-{team.id}",
+        destination_id=f"managed-destination-{team.id}",
+        status=ExternalDataSource.Status.RUNNING,
+        source_type="Postgres",
+        prefix=MANAGED_WAREHOUSE_SOURCE_PREFIX,
+        access_method=ExternalDataSource.AccessMethod.DIRECT,
+        direct_query_enabled=direct_query_enabled,
+        job_inputs={
+            "host": _CONNECTION["host"],
+            "port": _CONNECTION["port"],
+            "database": _CONNECTION["database"],
+            "user": f"posthog_team_{team.id}",
+            "password": _PROJECT_READER_PASSWORD,
+        },
+        connection_metadata={
+            "engine": "duckdb",
+            "system_managed": True,
+            "credential_kind": MANAGED_WAREHOUSE_PROJECT_READER_CREDENTIAL_KIND,
+            "reader_configured": reader_configured,
+        },
+    )
+
+
+def _create_stored_login_source(team: Team) -> ExternalDataSource:
+    return ExternalDataSource.objects.create(
+        team=team,
+        source_id=f"stored-source-{team.id}",
+        connection_id=f"stored-connection-{team.id}",
+        destination_id=f"stored-destination-{team.id}",
+        status=ExternalDataSource.Status.RUNNING,
+        source_type="Postgres",
+        prefix=MANAGED_WAREHOUSE_SOURCE_PREFIX,
+        access_method=ExternalDataSource.AccessMethod.DIRECT,
+        direct_query_enabled=True,
+        job_inputs={
+            "host": _CONNECTION["host"],
+            "port": _CONNECTION["port"],
+            "database": _CONNECTION["database"],
+            "user": _CONNECTION["username"],
+            "password": _CONNECTION["password"],
+        },
+        connection_metadata={
+            "engine": "duckdb",
+            "system_managed": True,
+            "credential_kind": "stored_server_login",
+        },
+    )
+
+
 @pytest.mark.django_db
 class TestEnsureManagedWarehouseDirectSource:
-    def test_creates_a_query_source_with_the_stored_server_login(self) -> None:
+    def test_fails_without_creating_a_source_when_project_reader_is_missing(self) -> None:
         org = Organization.objects.create(name="Org")
         team = Team.objects.create(organization=org)
         _create_server(org)
 
-        source = _ensure(team)
+        with pytest.raises(ExternalDataSource.DoesNotExist, match="project reader is not configured"):
+            _ensure(team)
 
-        assert source.source_type == "Postgres"
-        assert source.access_method == ExternalDataSource.AccessMethod.DIRECT
-        assert source.direct_query_enabled is True
-        assert isinstance(source.connection_metadata, dict)
-        assert source.connection_metadata["engine"] == "duckdb"
-        assert source.prefix == MANAGED_WAREHOUSE_SOURCE_PREFIX
-        # job_inputs carry the stored server login used by live queries and discovery.
-        assert source.job_inputs["host"] == _CONNECTION["host"]
-        assert source.job_inputs["user"] == _CONNECTION["username"]
-        assert source.job_inputs["password"] == _CONNECTION["password"]
-        assert source.connection_metadata["credential_kind"] == "stored_server_login"
+        assert not ExternalDataSource.objects.filter(team_id=team.id).exists()
 
-    def test_is_idempotent(self) -> None:
-        # Without dedup, every status poll / re-enable would spawn a duplicate connection.
-        org = Organization.objects.create(name="Org")
-        team = Team.objects.create(organization=org)
-        _create_server(org)
-
-        first = _ensure(team)
-        second = _ensure(team)
-
-        assert first.pk == second.pk
-        assert ExternalDataSource.objects.filter(team_id=team.id, prefix=MANAGED_WAREHOUSE_SOURCE_PREFIX).count() == 1
-
-    def test_works_for_a_legacy_shared_tables_team(self) -> None:
-        # No per-team reader policy exists anymore, so nothing about the team's row
-        # layout (including the legacy shared tables) blocks its connection.
-        org = Organization.objects.create(name="Org")
-        team = Team.objects.create(organization=org)
-        _create_server(org)
-        _add_membership(team, legacy_shared=True)
-
-        source = _ensure(team)
-
-        assert source.direct_query_enabled is True
-        assert isinstance(source.connection_metadata, dict)
-        assert source.connection_metadata["credential_kind"] == "stored_server_login"
-
-    def test_explicit_enrollment_does_not_reread_control_plane_membership(self) -> None:
-        org = Organization.objects.create(name="Org")
-        team = Team.objects.create(organization=org)
-        _create_server(org)
-
-        source = _ensure(team)
-
-        assert source.direct_query_enabled is True
-        assert isinstance(source.connection_metadata, dict)
-        assert source.connection_metadata["credential_kind"] == "stored_server_login"
-
-    @pytest.mark.parametrize("legacy_kind", ["org_root", "project_reader"])
-    def test_migrates_a_legacy_source_onto_the_stored_server_login(self, legacy_kind: str) -> None:
+    def test_does_not_use_or_modify_an_existing_organization_login(self) -> None:
         org = Organization.objects.create(name="Org")
         team = Team.objects.create(organization=org)
         _create_server(org)
@@ -190,7 +213,7 @@ class TestEnsureManagedWarehouseDirectSource:
             connection_metadata={
                 "engine": "duckdb",
                 "system_managed": True,
-                "credential_kind": legacy_kind,
+                "credential_kind": "org_root",
                 "reader_configured": True,
             },
         )
@@ -200,49 +223,85 @@ class TestEnsureManagedWarehouseDirectSource:
             name="posthog.events_prod",
             should_sync=True,
         )
+        source.refresh_from_db()
+        original_job_inputs = dict(source.job_inputs)
+        original_metadata = dict(source.connection_metadata)
 
-        managed_source = _ensure(team)
+        with pytest.raises(ExternalDataSource.DoesNotExist, match="project reader is not configured"):
+            _ensure(team)
 
-        managed_source.refresh_from_db()
+        source.refresh_from_db()
         team_schema.refresh_from_db()
-        assert managed_source.id == source.id
-        assert managed_source.job_inputs["user"] == _CONNECTION["username"]
-        assert managed_source.job_inputs["password"] == _CONNECTION["password"]
-        assert managed_source.direct_query_enabled is True
-        assert isinstance(managed_source.connection_metadata, dict)
-        assert managed_source.connection_metadata["credential_kind"] == "stored_server_login"
-        assert "reader_configured" not in managed_source.connection_metadata
-        # The existing catalog remains available while the source moves to the current login snapshot.
+        assert source.job_inputs == original_job_inputs
+        assert source.connection_metadata == original_metadata
         assert team_schema.deleted is False
 
-    def test_removes_existing_schemas_when_upgrading_an_unknown_credential_kind(self) -> None:
+    def test_preserves_a_ready_project_reader_without_a_server_row(self) -> None:
         org = Organization.objects.create(name="Org")
         team = Team.objects.create(organization=org)
-        _create_server(org)
-        source = ExternalDataSource.objects.create(
-            team=team,
-            source_id="managed-source",
-            connection_id="managed-connection",
-            destination_id="managed-destination",
-            status=ExternalDataSource.Status.RUNNING,
-            source_type="Postgres",
-            prefix=MANAGED_WAREHOUSE_SOURCE_PREFIX,
-            access_method=ExternalDataSource.AccessMethod.DIRECT,
-            job_inputs={"password": "old-password"},
-            connection_metadata={"engine": "duckdb", "system_managed": True},
-        )
+        source = _create_project_reader_source(team)
+        source.connection_metadata = {**source.connection_metadata, "provisioner_marker": "keep"}
+        source.save(update_fields=["connection_metadata"])
+        source.refresh_from_db()
         schema = ExternalDataSchema.objects.create(
             team=team,
             source=source,
-            name="events_other_team",
+            name="posthog.events_prod",
             should_sync=True,
         )
+        original_job_inputs = dict(source.job_inputs)
+        original_metadata = dict(source.connection_metadata)
 
-        managed_source = _ensure(team)
+        first = _ensure(team)
+        second = _ensure(team)
 
-        assert managed_source.id == source.id
-        assert managed_source.access_method == ExternalDataSource.AccessMethod.DIRECT
-        assert not ExternalDataSchema.objects.filter(id=schema.id).exists()
+        first.refresh_from_db()
+        assert first.id == source.id
+        assert second.id == source.id
+        assert first.job_inputs == original_job_inputs
+        assert first.connection_metadata == original_metadata
+        assert first.direct_query_enabled is True
+        assert ExternalDataSchema.objects.filter(id=schema.id, deleted=False).exists()
+
+    def test_uses_a_ready_reader_when_a_newer_reader_is_malformed(self) -> None:
+        org = Organization.objects.create(name="Org")
+        team = Team.objects.create(organization=org)
+        ready_source = _create_project_reader_source(team)
+        malformed_source = _create_project_reader_source(team)
+        malformed_source.job_inputs = {**malformed_source.job_inputs, "user": "root"}
+        malformed_source.save(update_fields=["job_inputs"])
+
+        source = _ensure(team)
+
+        assert source.id == ready_source.id
+
+    @parameterized.expand(
+        [
+            (False, False),
+            (False, True),
+            (True, False),
+        ]
+    )
+    def test_rejects_without_promoting_or_replacing_an_unready_project_reader(
+        self, reader_configured: bool, direct_query_enabled: bool
+    ) -> None:
+        org = Organization.objects.create(name="Org")
+        team = Team.objects.create(organization=org)
+        source = _create_project_reader_source(
+            team,
+            reader_configured=reader_configured,
+            direct_query_enabled=direct_query_enabled,
+        )
+        source.refresh_from_db()
+        original_job_inputs = dict(source.job_inputs)
+
+        with pytest.raises(ExternalDataSource.DoesNotExist, match="project reader is not configured"):
+            _ensure(team)
+
+        source.refresh_from_db()
+        assert source.job_inputs == original_job_inputs
+        assert source.connection_metadata["reader_configured"] is reader_configured
+        assert source.direct_query_enabled is direct_query_enabled
 
 
 def _source_schema(table_name: str, source_schema: str = "posthog") -> SourceSchema:
@@ -263,27 +322,30 @@ class TestReconcileManagedWarehouseTables:
         team = Team.objects.create(organization=org)
         _create_server(org)
         _add_membership(team)
+        _create_project_reader_source(team)
         return org, team
 
-    def test_discovers_the_stored_login_catalog_and_makes_it_queryable(self) -> None:
+    def test_discovers_with_the_existing_project_reader_and_makes_its_catalog_queryable(self) -> None:
         org, team = self._setup()
-        other_team = Team.objects.create(organization=org)
-        # The stored login controls catalog visibility; only engine-internal schemas are excluded.
+        DuckgresServer.objects.filter(organization=org).delete()
         discovered = [
             _source_schema("events_prod"),
             _source_schema("persons_prod"),
-            _source_schema("events_other"),
             _source_schema("customers", "posthog_data_imports_prod"),
             _source_schema("revenue", f"shadow_{team.id}_models"),
             _source_schema("future_table", f"team_{team.id}"),
-            _source_schema("orders", f"team_{other_team.id}"),
             _source_schema("pg_stat_activity", "pg_catalog"),
             _source_schema("tables", "information_schema"),
         ]
 
+        def discover(config: PostgresSourceConfig, *_args: object, **_kwargs: object) -> list[SourceSchema]:
+            assert config.user == f"posthog_team_{team.id}"
+            assert config.password == _PROJECT_READER_PASSWORD
+            return discovered
+
         with patch(
             "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.source.PostgresSource.get_schemas",
-            return_value=discovered,
+            side_effect=discover,
         ):
             reconcile_managed_warehouse_tables(team_id=team.id, organization_id=org.id)
 
@@ -294,11 +356,9 @@ class TestReconcileManagedWarehouseTables:
         ) == {
             "posthog.events_prod",
             "posthog.persons_prod",
-            "posthog.events_other",
             "posthog_data_imports_prod.customers",
             f"shadow_{team.id}_models.revenue",
             f"team_{team.id}.future_table",
-            f"team_{other_team.id}.orders",
         }
         assert set(
             DataWarehouseTable.raw_objects.filter(external_data_source_id=source.id, deleted=False).values_list(
@@ -307,11 +367,9 @@ class TestReconcileManagedWarehouseTables:
         ) == {
             "posthog.events_prod",
             "posthog.persons_prod",
-            "posthog.events_other",
             "posthog_data_imports_prod.customers",
             f"shadow_{team.id}_models.revenue",
             f"team_{team.id}.future_table",
-            f"team_{other_team.id}.orders",
         }
 
         allowed_query = HogQLQueryExecutor(
@@ -337,25 +395,80 @@ class TestReconcileManagedWarehouseTables:
             response = allowed_query.execute()
 
         assert response.results == [("row-uuid",)]
+        connect.assert_called_once()
+        assert {key: connect.call_args.kwargs[key] for key in ("host", "port", "dbname", "user", "password")} == {
+            "host": _CONNECTION["host"],
+            "port": _CONNECTION["port"],
+            "dbname": _CONNECTION["database"],
+            "user": f"posthog_team_{team.id}",
+            "password": _PROJECT_READER_PASSWORD,
+        }
         assert [call.args[0] for call in connection.execute.call_args_list] == [
             "SELECT current_database(), version()",
             "USE ducklake",
         ]
         query_cursor.execute.assert_called_once_with(sql, None)
 
-        # A table visible to the stored login remains queryable even when it belongs to another schema.
-        cross_team_query = HogQLQueryExecutor(
-            query=f"SELECT uuid FROM team_{other_team.id}.orders",
-            team=team,
-            connection_id=str(source.id),
-        )
-        cross_sql, _context = cross_team_query.generate_clickhouse_sql()
-        assert "orders" in cross_sql
-
         assert get_direct_connection_source(team, str(source.id), require_pure_direct=True) == source
 
-    def test_discovers_only_internal_schemas_registers_nothing(self) -> None:
+    @parameterized.expand(
+        [
+            ("missing", None, None, None),
+            ("stored_login", "stored_server_login", None, True),
+            ("org_root", "org_root", None, True),
+            ("pending_reader", MANAGED_WAREHOUSE_PROJECT_READER_CREDENTIAL_KIND, False, False),
+        ]
+    )
+    def test_skips_discovery_without_a_ready_project_reader(
+        self,
+        _name: str,
+        credential_kind: str | None,
+        reader_configured: bool | None,
+        direct_query_enabled: bool | None,
+    ) -> None:
+        org = Organization.objects.create(name="Org")
+        team = Team.objects.create(organization=org)
+        _create_server(org)
+        if credential_kind == MANAGED_WAREHOUSE_PROJECT_READER_CREDENTIAL_KIND:
+            _create_project_reader_source(
+                team,
+                reader_configured=reader_configured is True,
+                direct_query_enabled=direct_query_enabled is True,
+            )
+        elif credential_kind is not None:
+            ExternalDataSource.objects.create(
+                team=team,
+                source_id="managed-source",
+                connection_id="managed-connection",
+                destination_id="managed-destination",
+                status=ExternalDataSource.Status.RUNNING,
+                source_type="Postgres",
+                prefix=MANAGED_WAREHOUSE_SOURCE_PREFIX,
+                access_method=ExternalDataSource.AccessMethod.DIRECT,
+                direct_query_enabled=direct_query_enabled is True,
+                job_inputs={**_CONNECTION, "user": _CONNECTION["username"]},
+                connection_metadata={
+                    "engine": "duckdb",
+                    "system_managed": True,
+                    "credential_kind": credential_kind,
+                },
+            )
+
+        with patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.source.PostgresSource.get_schemas"
+        ) as get_schemas:
+            reconcile_managed_warehouse_tables(team_id=team.id, organization_id=org.id)
+
+        get_schemas.assert_not_called()
+
+    def test_successful_internal_only_discovery_clears_stale_catalog(self) -> None:
         org, team = self._setup()
+        with patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.source.PostgresSource.get_schemas",
+            return_value=[_source_schema("events_prod")],
+        ):
+            reconcile_managed_warehouse_tables(team_id=team.id, organization_id=org.id)
+
         with patch(
             "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.source.PostgresSource.get_schemas",
             return_value=[
@@ -366,7 +479,14 @@ class TestReconcileManagedWarehouseTables:
             reconcile_managed_warehouse_tables(team_id=team.id, organization_id=org.id)
 
         source = ExternalDataSource.objects.get(team_id=team.id, prefix=MANAGED_WAREHOUSE_SOURCE_PREFIX)
-        assert not ExternalDataSchema.objects.filter(source_id=source.id).exists()
+        schema = ExternalDataSchema.objects.get(source_id=source.id, name="posthog.events_prod")
+        assert schema.deleted is True
+        assert schema.table is not None
+        assert schema.table.deleted is True
+        assert not ExternalDataSchema.objects.filter(
+            source_id=source.id,
+            name__in=["pg_catalog.pg_stat_activity", "information_schema.tables"],
+        ).exists()
 
     def test_reintrospects_to_pick_up_new_tables(self) -> None:
         org, team = self._setup()
@@ -418,17 +538,28 @@ class TestReconcileManagedWarehouseTables:
         assert schema.table is not None
         assert schema.table.deleted is False
 
-    def test_skips_quietly_when_the_warehouse_is_not_reachable(self) -> None:
-        # A provisioning warehouse fails introspection on every sweep; that must not raise.
+    def test_failed_introspection_preserves_the_existing_catalog(self) -> None:
         org, team = self._setup()
+        with patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.source.PostgresSource.get_schemas",
+            return_value=[_source_schema("events_prod")],
+        ):
+            reconcile_managed_warehouse_tables(team_id=team.id, organization_id=org.id)
+
+        source = ExternalDataSource.objects.get(team_id=team.id, prefix=MANAGED_WAREHOUSE_SOURCE_PREFIX)
+        schema = ExternalDataSchema.objects.get(source_id=source.id, name="posthog.events_prod")
+        assert schema.table_id is not None
+
         with patch(
             "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.source.PostgresSource.get_schemas",
             side_effect=ConnectionRefusedError("still provisioning"),
         ):
             reconcile_managed_warehouse_tables(team_id=team.id, organization_id=org.id)
 
-        source = ExternalDataSource.objects.get(team_id=team.id, prefix=MANAGED_WAREHOUSE_SOURCE_PREFIX)
-        assert not ExternalDataSchema.objects.filter(source_id=source.id).exists()
+        schema.refresh_from_db()
+        table = DataWarehouseTable.raw_objects.get(id=schema.table_id)
+        assert schema.deleted is False
+        assert table.deleted is False
 
     def test_periodic_sweep_schedules_every_managed_project(self) -> None:
         org, team = self._setup()
@@ -503,13 +634,13 @@ class TestManagedWarehouseLifecycle:
         org = Organization.objects.create(name="Org")
         team = Team.objects.create(organization=org)
         server = _create_server(org)
-        source = ensure_managed_warehouse_direct_source(team_id=team.id, organization_id=org.id)
+        source = _create_project_reader_source(team)
         return org, team, source, server
 
-    def test_update_root_password_rotates_the_server_and_every_managed_source(self) -> None:
+    def test_update_root_password_preserves_project_readers_and_refreshes_stored_login_sources(self) -> None:
         org, team, source, server = self._org_team_source()
         other_team = Team.objects.create(organization=org)
-        other_source = ensure_managed_warehouse_direct_source(team_id=other_team.id, organization_id=org.id)
+        other_source = _create_stored_login_source(other_team)
 
         update_managed_warehouse_root_password(organization_id=org.id, password="rotated")
 
@@ -518,7 +649,7 @@ class TestManagedWarehouseLifecycle:
         server.refresh_from_db()
         assert isinstance(source.job_inputs, dict)
         assert isinstance(other_source.job_inputs, dict)
-        assert source.job_inputs["password"] == "rotated"
+        assert source.job_inputs["password"] == _PROJECT_READER_PASSWORD
         assert other_source.job_inputs["password"] == "rotated"
         assert server.password == "rotated"
 
@@ -532,12 +663,9 @@ class TestManagedWarehouseLifecycle:
         server.refresh_from_db()
         assert server.password == "rotated"
         assert isinstance(source.job_inputs, dict)
-        assert source.job_inputs["password"] == _CONNECTION["password"]
-        # The next ensure revives the source and rewrites its credential from the server.
-        revived = ensure_managed_warehouse_direct_source(team_id=source.team_id, organization_id=org.id)
-        assert revived.deleted is False
-        assert isinstance(revived.job_inputs, dict)
-        assert revived.job_inputs["password"] == "rotated"
+        assert source.job_inputs["password"] == _PROJECT_READER_PASSWORD
+        with pytest.raises(ExternalDataSource.DoesNotExist, match="project reader is not configured"):
+            ensure_managed_warehouse_direct_source(team_id=source.team_id, organization_id=org.id)
 
     def test_soft_delete_removes_sources_and_their_tables(self) -> None:
         org, team, source, _server = self._org_team_source()
@@ -576,8 +704,8 @@ class TestManagedWarehouseLifecycle:
         _create_server(org)
         team_a = Team.objects.create(organization=org)
         team_b = Team.objects.create(organization=org)
-        source_a = _ensure(team_a)
-        source_b = _ensure(team_b)
+        source_a = _create_project_reader_source(team_a)
+        source_b = _create_project_reader_source(team_b)
         original_save = ExternalDataSource.save
 
         def fail_on_second_source(instance: ExternalDataSource, *args: object, **kwargs: object) -> None:

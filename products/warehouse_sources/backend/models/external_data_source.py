@@ -15,6 +15,7 @@ from products.warehouse_sources.backend.types import DIRECT_ENGINE_BY_SOURCE_TYP
 logger = structlog.get_logger(__name__)
 
 MANAGED_WAREHOUSE_SOURCE_PREFIX = "managed_warehouse"
+MANAGED_WAREHOUSE_PROJECT_READER_CREDENTIAL_KIND = "project_reader"
 SYSTEM_MANAGED_SOURCE_PREFIXES = frozenset({MANAGED_WAREHOUSE_SOURCE_PREFIX})
 
 
@@ -136,6 +137,43 @@ class ExternalDataSource(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
             and metadata.get("engine") == "duckdb"
         )
 
+    @property
+    def is_managed_warehouse_ready(self) -> bool:
+        metadata = self.connection_metadata
+        if (
+            not self.is_managed_warehouse
+            or not self.direct_query_enabled
+            or not isinstance(metadata, dict)
+            or metadata.get("credential_kind") != MANAGED_WAREHOUSE_PROJECT_READER_CREDENTIAL_KIND
+            or metadata.get("reader_configured") is not True
+        ):
+            return False
+
+        job_inputs = self.job_inputs
+        if not isinstance(job_inputs, dict):
+            return False
+
+        port = job_inputs.get("port")
+        if isinstance(port, bool):
+            return False
+        if isinstance(port, int):
+            port_number = port
+        elif isinstance(port, str) and port.isdigit():
+            port_number = int(port)
+        else:
+            return False
+
+        return (
+            job_inputs.get("user") == f"posthog_team_{self.team_id}"
+            and isinstance(job_inputs.get("host"), str)
+            and bool(job_inputs["host"].strip())
+            and isinstance(job_inputs.get("database"), str)
+            and bool(job_inputs["database"].strip())
+            and isinstance(job_inputs.get("password"), str)
+            and bool(job_inputs["password"])
+            and 1 <= port_number <= 65535
+        )
+
     @classmethod
     def is_system_managed_prefix(cls, prefix: str | None) -> bool:
         return isinstance(prefix, str) and prefix.strip() in SYSTEM_MANAGED_SOURCE_PREFIXES
@@ -236,7 +274,6 @@ def get_direct_external_data_source_for_connection(
             team_id=team_id,
             id=source_uuid,
         )
-        .select_related("team")
         .exclude(deleted=True)
         .first()
     )
@@ -247,11 +284,6 @@ def get_direct_external_data_source_for_connection(
     ):
         return None
 
-    if source.is_managed_warehouse:
-        from products.managed_warehouse.backend.facade.api import (  # noqa: PLC0415 - avoids loading the managed-warehouse product during django.setup()
-            has_provisioned_warehouse,
-        )
-
-        if not has_provisioned_warehouse(source.team.organization_id):
-            return None
+    if source.is_managed_warehouse and not source.is_managed_warehouse_ready:
+        return None
     return source

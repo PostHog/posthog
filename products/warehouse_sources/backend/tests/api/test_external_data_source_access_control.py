@@ -8,10 +8,10 @@ from rest_framework import status
 
 from posthog.constants import AvailableFeature
 from posthog.models.organization import OrganizationMembership
+from posthog.models.team import Team
 from posthog.models.user import User
 from posthog.rbac.user_access_control import UserAccessControl
 
-from products.managed_warehouse.backend.facade.api import persist_duckgres_server_for_org
 from products.warehouse_sources.backend.facade.models import (
     MANAGED_WAREHOUSE_SOURCE_PREFIX,
     ExternalDataSchema,
@@ -94,17 +94,30 @@ class TestExternalDataSourceAccessControl(APIBaseTest):
         )
 
     def _create_managed_source(self, **overrides: object) -> ExternalDataSource:
+        source_team = overrides.get("team")
+        if not isinstance(source_team, Team):
+            source_team = self.team
         fields: dict[str, object] = {
-            "team": self.team,
+            "team": source_team,
             "source_id": str(uuid.uuid4()),
             "connection_id": str(uuid.uuid4()),
             "source_type": "Postgres",
             "prefix": MANAGED_WAREHOUSE_SOURCE_PREFIX,
             "access_method": ExternalDataSource.AccessMethod.DIRECT,
+            "direct_query_enabled": True,
             "created_by": self.user,
             "connection_metadata": {
                 "engine": "duckdb",
                 "system_managed": True,
+                "credential_kind": "project_reader",
+                "reader_configured": True,
+            },
+            "job_inputs": {
+                "host": "managed.example.com",
+                "port": 5432,
+                "database": "ducklake",
+                "user": f"posthog_team_{source_team.id}",
+                "password": "secret",
             },
         }
         fields.update(overrides)
@@ -303,7 +316,7 @@ class TestExternalDataSourceAccessControl(APIBaseTest):
         self.assertEqual(response.json()["count"], 1)
         self.assertEqual(response.json()["results"][0]["id"], str(self.source.id))
 
-    def test_connections_includes_only_provisioned_managed_warehouse_regardless_of_source_access(self):
+    def test_connections_includes_only_ready_managed_warehouse_regardless_of_source_access(self):
         external_source = ExternalDataSource.objects.create(
             team=self.team,
             source_id=str(uuid.uuid4()),
@@ -312,13 +325,16 @@ class TestExternalDataSourceAccessControl(APIBaseTest):
             prefix="Customer database",
             access_method=ExternalDataSource.AccessMethod.DIRECT,
         )
-        managed_source = self._create_managed_source()
-        self._create_access_control(self.viewer_user, access_level="none")
-        self._create_access_control(
-            self.viewer_user,
-            resource_id=str(managed_source.id),
-            access_level="none",
+        pending_source = self._create_managed_source(
+            direct_query_enabled=False,
+            connection_metadata={
+                "engine": "duckdb",
+                "system_managed": True,
+                "credential_kind": "project_reader",
+                "reader_configured": False,
+            },
         )
+        self._create_access_control(self.viewer_user, access_level="none")
         self.client.force_login(self.viewer_user)
 
         response = self.client.get(f"/api/environments/{self.team.pk}/external_data_sources/connections/")
@@ -326,13 +342,11 @@ class TestExternalDataSourceAccessControl(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json(), [])
 
-        persist_duckgres_server_for_org(
-            self.organization.id,
-            host="managed.example.com",
-            port=5432,
-            database="ducklake",
-            username="root",
-            password="secret",
+        managed_source = self._create_managed_source()
+        self._create_access_control(
+            self.viewer_user,
+            resource_id=str(managed_source.id),
+            access_level="none",
         )
         response = self.client.get(f"/api/environments/{self.team.pk}/external_data_sources/connections/")
 
@@ -340,6 +354,7 @@ class TestExternalDataSourceAccessControl(APIBaseTest):
         returned_ids = [item["id"] for item in response.json()]
         self.assertEqual(returned_ids, [str(managed_source.id)])
         self.assertNotIn(str(external_source.id), returned_ids)
+        self.assertNotIn(str(pending_source.id), returned_ids)
 
     @parameterized.expand(
         [
@@ -356,17 +371,77 @@ class TestExternalDataSourceAccessControl(APIBaseTest):
                     "direct_query_enabled": True,
                 },
             ),
+            ("direct_query_disabled", {"direct_query_enabled": False}),
+            (
+                "reader_pending",
+                {
+                    "connection_metadata": {
+                        "engine": "duckdb",
+                        "system_managed": True,
+                        "credential_kind": "project_reader",
+                        "reader_configured": False,
+                    }
+                },
+            ),
+            (
+                "missing_reader_marker",
+                {
+                    "connection_metadata": {
+                        "engine": "duckdb",
+                        "system_managed": True,
+                        "credential_kind": "project_reader",
+                    }
+                },
+            ),
+            (
+                "legacy_org_root",
+                {
+                    "connection_metadata": {
+                        "engine": "duckdb",
+                        "system_managed": True,
+                        "credential_kind": "org_root",
+                        "reader_configured": True,
+                    }
+                },
+            ),
+            (
+                "stored_server_login",
+                {
+                    "connection_metadata": {
+                        "engine": "duckdb",
+                        "system_managed": True,
+                        "credential_kind": "stored_server_login",
+                        "reader_configured": True,
+                    }
+                },
+            ),
+            (
+                "spoofed_root_username",
+                {
+                    "job_inputs": {
+                        "host": "managed.example.com",
+                        "port": 5432,
+                        "database": "ducklake",
+                        "user": "root",
+                        "password": "secret",
+                    }
+                },
+            ),
+            (
+                "malformed_credentials",
+                {
+                    "job_inputs": {
+                        "host": "managed.example.com",
+                        "port": "invalid",
+                        "database": "ducklake",
+                        "user": "posthog_team_invalid",
+                        "password": "",
+                    }
+                },
+            ),
         ]
     )
     def test_connections_omits_incomplete_reserved_sources(self, _name: str, overrides: dict[str, object]) -> None:
-        persist_duckgres_server_for_org(
-            self.organization.id,
-            host="managed.example.com",
-            port=5432,
-            database="ducklake",
-            username="stored-login",
-            password="secret",
-        )
         source = self._create_managed_source(**overrides)
 
         response = self.client.get(f"/api/environments/{self.team.pk}/external_data_sources/connections/")
@@ -375,14 +450,6 @@ class TestExternalDataSourceAccessControl(APIBaseTest):
         self.assertNotIn(str(source.id), [item["id"] for item in response.json()])
 
     def test_connections_places_managed_warehouse_before_external_sources(self) -> None:
-        persist_duckgres_server_for_org(
-            self.organization.id,
-            host="managed.example.com",
-            port=5432,
-            database="ducklake",
-            username="stored-login",
-            password="secret",
-        )
         managed_source = self._create_managed_source()
         external_source = ExternalDataSource.objects.create(
             team=self.team,
@@ -401,6 +468,37 @@ class TestExternalDataSourceAccessControl(APIBaseTest):
             [item["id"] for item in response.json()],
             [str(managed_source.id), str(external_source.id)],
         )
+
+    def test_connections_uses_a_ready_reader_when_a_newer_reserved_row_is_malformed(self) -> None:
+        managed_source = self._create_managed_source()
+        malformed_source = self._create_managed_source(
+            job_inputs={
+                "host": "managed.example.com",
+                "port": 5432,
+                "database": "ducklake",
+                "user": "root",
+                "password": "secret",
+            }
+        )
+
+        response = self.client.get(f"/api/environments/{self.team.pk}/external_data_sources/connections/")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        returned_ids = [item["id"] for item in response.json()]
+        self.assertIn(str(managed_source.id), returned_ids)
+        self.assertNotIn(str(malformed_source.id), returned_ids)
+
+    def test_connections_omits_deleted_and_cross_team_managed_sources(self) -> None:
+        deleted_source = self._create_managed_source(deleted=True)
+        other_team = Team.objects.create(organization=self.organization, name="Other project")
+        cross_team_source = self._create_managed_source(team=other_team)
+
+        response = self.client.get(f"/api/environments/{self.team.pk}/external_data_sources/connections/")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        returned_ids = [item["id"] for item in response.json()]
+        self.assertNotIn(str(deleted_source.id), returned_ids)
+        self.assertNotIn(str(cross_team_source.id), returned_ids)
 
     @parameterized.expand(
         [

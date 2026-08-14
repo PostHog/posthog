@@ -3,6 +3,10 @@ from datetime import date, datetime
 import psycopg
 from psycopg.types.datetime import DateLoader
 
+MANAGED_WAREHOUSE_CONNECTION_ERROR = (
+    "Could not connect to the managed warehouse. Try again, and contact support if the problem persists."
+)
+
 POSTGRES_OID_TO_CLICKHOUSE_TYPE: dict[int, str] = {
     16: "Bool",
     20: "Int64",

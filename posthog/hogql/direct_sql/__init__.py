@@ -22,7 +22,7 @@ register_adapter(MotherDuckAdapter())
 
 def get_raw_adapter_for_source(source: ExternalDataSource) -> DirectSQLAdapter | None:
     if source.has_managed_warehouse_prefix:
-        return DuckgresRawAdapter() if source.is_managed_warehouse and is_direct_capable(source) else None
+        return DuckgresRawAdapter() if source.is_managed_warehouse_ready and is_direct_capable(source) else None
     return get_adapter(source.direct_engine)
 
 
