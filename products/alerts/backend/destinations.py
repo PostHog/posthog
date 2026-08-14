@@ -2,13 +2,16 @@
 
 from __future__ import annotations
 
-from collections.abc import Collection
+import re
+from collections.abc import Collection, Sequence
+from dataclasses import asdict, dataclass
 from datetime import datetime
 from typing import Any
+from urllib.parse import urlsplit
 from uuid import UUID
 
 from django.db import transaction
-from django.db.models import Q
+from django.db.models import Q, QuerySet
 
 import structlog
 from prometheus_client import Counter
@@ -32,6 +35,48 @@ ALERT_INTERNAL_EVENT_DELIVERY_FAILURES = Counter(
     "Number of alert internal events that failed delivery",
     labelnames=["event_name"],
 )
+
+
+@dataclass(frozen=True, kw_only=True)
+class AlertDelivery:
+    """Receipt for one destination that accepted a send. `status` is an open set, so a
+    future transport can report an outcome other than "accepted"."""
+
+    channel: str  # "email" | "hog_function"
+    target: str  # email address or destination name
+    target_id: str | None = None  # hog function id
+    template: str | None = None  # "slack" | "discord" | "webhook" | "teams"
+    status: str = "accepted"
+    at: str  # ISO-8601 timestamp
+
+
+def serialize_deliveries(deliveries: Sequence[AlertDelivery]) -> list[dict[str, Any]]:
+    return [asdict(delivery) for delivery in deliveries]
+
+
+@dataclass(frozen=True, kw_only=True)
+class ActiveAlertDestination:
+    id: str
+    name: str
+    destination_type: str | None
+
+
+_TEMPLATE_ID_TO_DESTINATION_TYPE = {
+    template_id: destination_type.value for destination_type, template_id in DESTINATION_TEMPLATE_IDS.items()
+}
+
+
+def _active_alert_destinations_qs(
+    *, team_id: int, alert_id: str, allowed_event_ids: Collection[str]
+) -> QuerySet[HogFunction]:
+    return HogFunction.objects.filter(
+        _allowed_event_filter(allowed_event_ids),
+        team_id=team_id,
+        deleted=False,
+        enabled=True,
+        template_id__in=DESTINATION_TEMPLATE_IDS.values(),
+        filters__properties__contains=[{"key": "alert_id", "value": alert_id}],
+    )
 
 
 def create_alert_destination_hog_functions(configs: list[AlertDestinationConfig], *, request: Any) -> list[HogFunction]:
@@ -109,14 +154,55 @@ def soft_delete_all_alert_destinations(*, team_id: int, alert_id: str, allowed_e
 
 
 def count_active_alert_destinations(*, team_id: int, alert_id: str, allowed_event_ids: Collection[str]) -> int:
-    return HogFunction.objects.filter(
-        _allowed_event_filter(allowed_event_ids),
-        team_id=team_id,
-        deleted=False,
-        enabled=True,
-        template_id__in=DESTINATION_TEMPLATE_IDS.values(),
-        filters__properties__contains=[{"key": "alert_id", "value": alert_id}],
+    return _active_alert_destinations_qs(
+        team_id=team_id, alert_id=alert_id, allowed_event_ids=allowed_event_ids
     ).count()
+
+
+# Webhook-style destination names embed the full webhook URL, whose path is a channel
+# credential (Slack/Discord/Teams webhook secret). Receipts flow into the API and the
+# History tooltip, so keep only the host.
+_URL_IN_NAME_RE = re.compile(r"\b[a-z][a-z0-9+.-]*://\S+", re.IGNORECASE)
+
+_DESTINATION_NAME_SEPARATOR = " → "
+
+
+def _url_host(match: re.Match[str]) -> str:
+    # hostname, not the raw authority: it drops any user:password@ prefix.
+    try:
+        return urlsplit(match.group(0)).hostname or "destination"
+    except ValueError:
+        return "destination"
+
+
+def _receipt_safe_name(name: str) -> str:
+    return _URL_IN_NAME_RE.sub(_url_host, name)
+
+
+def _destination_display_name(name: str) -> str:
+    # Names read "<product> — <alert> (<kind>) → <destination>"; keep the trailing
+    # segment. rpartition, since an alert name may contain the separator too.
+    _, _, destination = name.rpartition(_DESTINATION_NAME_SEPARATOR)
+    return _receipt_safe_name(destination or name)
+
+
+def list_active_alert_destinations(
+    *, team_id: int, alert_id: str, allowed_event_ids: Collection[str]
+) -> list[ActiveAlertDestination]:
+    rows = _active_alert_destinations_qs(
+        team_id=team_id, alert_id=alert_id, allowed_event_ids=allowed_event_ids
+    ).values_list("id", "name", "template_id")
+    destinations = []
+    for hog_function_id, name, template_id in rows:
+        destination_type = _TEMPLATE_ID_TO_DESTINATION_TYPE.get(template_id) if template_id else None
+        destinations.append(
+            ActiveAlertDestination(
+                id=str(hog_function_id),
+                name=_destination_display_name(name) if name else "Destination",
+                destination_type=destination_type,
+            )
+        )
+    return destinations
 
 
 def _allowed_event_filter(allowed_event_ids: Collection[str]) -> Q:

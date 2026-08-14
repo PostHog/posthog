@@ -8893,6 +8893,32 @@ export namespace Schemas {
       Inconclusive: 'inconclusive',
     } as const;
 
+    export interface AlertDelivery {
+      /** Delivery channel: 'email' or 'hog_function' (destinations). */
+      channel: string;
+      /** Email address, or destination name, that received the notification. */
+      target: string;
+      /**
+         * Hog function ID, for destination deliveries. Null for email.
+         * @nullable
+         */
+      target_id?: string | null;
+      /**
+         * Destination template: 'slack', 'discord', 'webhook', or 'teams'. Null for email.
+         * @nullable
+         */
+      template?: string | null;
+      /** Delivery status. Always 'accepted', for a confirmed send. */
+      status: string;
+      /**
+         * When the delivery was recorded.
+         * @nullable
+         */
+      at: string | null;
+      /** Ready-to-display description of the delivery, e.g. 'Email: a@example.com' or 'Slack #eng-alerts'. */
+      display_label: string;
+    }
+
     export interface AlertCheck {
       readonly id: string;
       readonly created_at: string;
@@ -8918,6 +8944,11 @@ export namespace Schemas {
       /** @nullable */
       readonly notification_sent_at: string | null;
       readonly notification_suppressed_by_agent: boolean;
+      /**
+         * Destinations that accepted this check's notification, one record per destination (channel, target, status, at). Null when no delivery receipt was recorded, which covers checks that notified nobody and checks predating delivery receipts.
+         * @nullable
+         */
+      readonly deliveries: readonly AlertDelivery[] | null;
     }
 
     export type TrendsAlertConfigType = typeof TrendsAlertConfigType[keyof typeof TrendsAlertConfigType];
