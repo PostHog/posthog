@@ -248,6 +248,30 @@ The ACL says nothing about ports, which is why rule 35 exists.
     proxied workload. An operator who blocks those addresses to refuse the lane also blocks the
     webhook delivery that operator asked for.
 
+### Opt-out signals on the response
+
+`robots.txt` speaks about a path. It cannot express a rule for one image, because an image is a
+binary with its own URL. These three signals can, and each one arrives on a response the lane
+already reads, so none of them costs an extra request.
+
+53. The lane reads these signals on every response it would otherwise act on. That means a 2xx it
+    would read, and a 3xx it would follow. It does not read them on a 4xx or a 5xx, because it
+    already refuses those, and an opt-out label there would misreport the reason.
+54. `X-Robots-Tag` refuses the URL when it carries `noai` or `noimageai`. A directive that names
+    another product token does not bind this lane.
+55. `Content-Usage` refuses the URL when its dictionary sets `train-ai=n`. RFC 9651 defines the
+    dictionary.
+56. `tdm-reservation: 1` refuses the URL. It is the EU DSM Article 4 channel, so it carries legal
+    weight the other two do not.
+57. A signal that is absent means unknown. It does not mean permission. The lane never reads silence
+    as consent.
+58. The most restrictive signal wins. One refusal anywhere in the chain stops the fetch, whatever the
+    other signals say.
+59. A refusal is an answer. The lane writes the URL to the crawl history under rule 24, and counts
+    which signal refused it.
+60. The lane counts `X-Robots-Tag: noindex` and does not act on it. `noindex` speaks about search
+    rather than about training. Phase 0 measures what obedience would cost before we choose it.
+
 ## How a message waits
 
 Kafka has no delayed delivery. The delay belongs to the topic, not to the message, because a
