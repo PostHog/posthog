@@ -8,6 +8,7 @@ from typing import Any, Optional
 from posthog.test.base import BaseTest, ClickhouseTestMixin, _create_event, flush_persons_and_events
 from unittest.mock import patch
 
+from django.apps import apps
 from django.core.management import call_command
 from django.core.management.base import CommandError
 from django.test import SimpleTestCase
@@ -44,6 +45,7 @@ from products.actions.backend.selector_audit.compilers import (
     compile_old,
     rewrite_direct_descendants,
 )
+from products.product_analytics.backend.models.insight import Insight
 
 DIRECT_SPAN_CHAIN = 'span.title:nth-child="1";div:attr_id="root"nth-child="1"'
 DEEP_SPAN_CHAIN = 'span.title:nth-child="1";div.wrap:nth-child="2";div:attr_id="root"nth-child="1"'
@@ -391,10 +393,24 @@ class TestApplyRewrites(BaseTest):
 
 
 class TestCommandSmoke(BaseTest):
-    def test_discovery_only_run_writes_report(self) -> None:
+    def test_discovery_only_run_writes_report_with_references(self) -> None:
         action = Action.objects.create(
-            team=self.team, name="smoke", steps_json=[{"event": "$autocapture", "selector": ".btn"}]
+            team=self.team,
+            name="smoke",
+            steps_json=[{"event": "$autocapture", "selector": ".btn"}],
+            post_to_slack=True,
         )
+        # Resolved dynamically: tach forbids products.actions (test files included)
+        # from importing products.dashboards and products.surveys.
+        dashboard_model = apps.get_model("dashboards", "Dashboard")
+        tile_model = apps.get_model("dashboards", "DashboardTile")
+        survey_model = apps.get_model("surveys", "Survey")
+        insight = Insight.objects.create(team=self.team, filters={"actions": [{"id": action.pk, "type": "actions"}]})
+        dashboard = dashboard_model.objects.create(team=self.team, name="smoke dashboard")
+        tile_model.objects.create(dashboard=dashboard, insight=insight)
+        survey = survey_model.objects.create(team=self.team, name="smoke survey", type="popover")
+        survey.actions.add(action)
+
         with TemporaryDirectory() as tmp:
             path = Path(tmp) / "audit.json"
             call_command(
@@ -403,4 +419,10 @@ class TestCommandSmoke(BaseTest):
             report = json.loads(path.read_text())
             rows = report["teams"][str(self.team.pk)]["rows"]
             assert [(row["action_id"], row["bucket"]) for row in rows] == [(action.pk, BUCKET_NOT_MEASURED)]
-            assert rows[0]["references"] == []
+            references = {(ref["type"], ref["id"]) for ref in rows[0]["references"]}
+            assert references == {
+                ("insight", str(insight.short_id)),
+                ("dashboard", str(dashboard.pk)),
+                ("survey", str(survey.id)),
+                ("webhook", str(action.pk)),
+            }

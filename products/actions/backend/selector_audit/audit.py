@@ -32,8 +32,7 @@ from products.actions.backend.selector_audit.compilers import (
     is_valid_regex,
     rewrite_direct_descendants,
 )
-from products.dashboards.backend.models.dashboard_tile import DashboardTile
-from products.surveys.backend.models import Survey
+from products.product_analytics.backend.models.insight import Insight
 
 BUCKET_UNCHANGED = "unchanged"
 BUCKET_GAIN_ONLY = "gain_only"
@@ -293,26 +292,36 @@ def collect_references(team: Team, rows: list[Row], log: Callable[[str], object]
 
         insight_short_ids = [ref["id"] for ref in references if ref["type"] == "insight"]
         if insight_short_ids:
-            tiles = DashboardTile.objects.filter(
-                insight__team_id=team.pk, insight__short_id__in=insight_short_ids
-            ).select_related("dashboard")
-            dashboards = {tile.dashboard.pk: tile.dashboard for tile in tiles}
-            references.extend(
-                {
-                    "type": "dashboard",
-                    "id": str(dashboard.pk),
-                    "name": dashboard.name or "Unnamed",
-                    "url": f"/dashboard/{dashboard.pk}",
-                }
-                for dashboard in dashboards.values()
+            # Walked through Insight's reverse relation because tach forbids
+            # products.actions importing products.dashboards; the tiles' default
+            # manager still excludes deleted tiles and deleted dashboards.
+            insights = Insight.objects.filter(team_id=team.pk, short_id__in=insight_short_ids).prefetch_related(
+                "dashboard_tiles__dashboard"
             )
-
-        references.extend(
-            {"type": "survey", "id": str(survey.id), "name": survey.name, "url": f"/surveys/{survey.id}"}
-            for survey in Survey.objects.filter(team_id=team.pk, actions__id=action_id, archived=False)
-        )
+            seen_dashboards: set[int] = set()
+            for insight in insights:
+                for tile in insight.dashboard_tiles.all():
+                    dashboard = tile.dashboard
+                    if dashboard.pk in seen_dashboards:
+                        continue
+                    seen_dashboards.add(dashboard.pk)
+                    references.append(
+                        {
+                            "type": "dashboard",
+                            "id": str(dashboard.pk),
+                            "name": dashboard.name or "Unnamed",
+                            "url": f"/dashboard/{dashboard.pk}",
+                        }
+                    )
 
         action = actions_by_id.get(action_id)
+        if action:
+            # Reverse accessor of Survey.actions, reached from the action side
+            # because tach forbids products.actions importing products.surveys.
+            references.extend(
+                {"type": "survey", "id": str(survey.id), "name": survey.name, "url": f"/surveys/{survey.id}"}
+                for survey in action.survey_set.filter(team_id=team.pk, archived=False)
+            )
         if action and action.post_to_slack:
             references.append(
                 {
