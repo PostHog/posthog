@@ -25,12 +25,12 @@ def delete_session_analysis_configs(apps, schema_editor):
 
 
 class Migration(migrations.Migration):
-    dependencies = [
-        ("signals", "0091_signalscoutconfig_mcp_gateway_server_ids"),
-    ]
+    dependencies = [("signals", "0093_delete_per_evaluation_source_configs")]
 
     # Deleting rows nothing reads is not reversible in any meaningful sense: re-creating them would
     # invent config a team never asked for.
     operations = [
-        migrations.RunPython(delete_session_analysis_configs, migrations.RunPython.noop, elidable=True),
+        migrations.RunPython(
+            delete_session_analysis_configs, migrations.RunPython.noop, elidable=True
+        ),
     ]

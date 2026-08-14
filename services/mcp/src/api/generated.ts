@@ -3054,6 +3054,7 @@ export namespace Schemas {
       TwoDimensionalHeatmap: 'TwoDimensionalHeatmap',
       BoxPlot: 'BoxPlot',
       SlopeGraph: 'SlopeGraph',
+      ScatterPlot: 'ScatterPlot',
     } as const;
 
     export interface TrendsFormulaNode {
@@ -8121,6 +8122,21 @@ export namespace Schemas {
       valueDisplay?: ValueDisplay | null;
     }
 
+    export type XScale = typeof XScale[keyof typeof XScale];
+
+
+    export const XScale = {
+      Linear: 'linear',
+      Logarithmic: 'logarithmic',
+    } as const;
+
+    export interface ScatterChartSettings {
+      /** X-axis scale. A `logarithmic` axis can't place a non-positive value, so those points are dropped. */
+      xScale?: XScale | null;
+      /** Whether the X axis should start at zero. Off by default, because pinning either axis of two independent measures to zero squashes the correlation into a corner. */
+      xStartAtZero?: boolean | null;
+    }
+
     export type DisplayType = typeof DisplayType[keyof typeof DisplayType];
 
 
@@ -8189,6 +8205,7 @@ export namespace Schemas {
       /** Per-breakdown-value color customizations. Keyed by the raw breakdown column value. */
       resultCustomizations?: ChartSettingsResultCustomizations;
       rightYAxisSettings?: YAxisSettings | null;
+      scatter?: ScatterChartSettings | null;
       seriesBreakdownColumn?: string | null;
       showLegend?: boolean | null;
       showNullsAsZero?: boolean | null;
@@ -50908,7 +50925,6 @@ export namespace Schemas {
 
     /**
      * * `session_analysis_cluster` - Session analysis cluster
-     * * `evaluation` - Evaluation
      * * `evaluation_report` - Evaluation report
      * * `issue` - Issue
      * * `ticket` - Ticket
@@ -50931,7 +50947,6 @@ export namespace Schemas {
 
     export const SignalSourceConfigSourceTypeEnum = {
       SessionAnalysisCluster: 'session_analysis_cluster',
-      Evaluation: 'evaluation',
       EvaluationReport: 'evaluation_report',
       Issue: 'issue',
       Ticket: 'ticket',
