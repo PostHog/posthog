@@ -1,6 +1,7 @@
 import json
 import datetime as dt
 import tempfile
+from dataclasses import replace
 from pathlib import Path
 
 from unittest import TestCase
@@ -25,17 +26,15 @@ def _sample(body: str, service: str = "svc") -> LogSample:
     return LogSample(body=body, severity_text="info", service_name=service, timestamp=_T0)
 
 
-def _config(**overrides: float | int) -> ReplayConfig:
-    fields: dict[str, float | int] = {"truncate": 512, "sim_th": 0.4, "depth": 4, "max_clusters": 1000}
-    return ReplayConfig(**{**fields, **overrides})  # type: ignore[arg-type]
+_BASE_CONFIG = ReplayConfig(truncate=512, sim_th=0.4, depth=4, max_clusters=1000)
 
 
-def _report(templates: int, prefix_dupes: int, config: ReplayConfig | None = None) -> ReplayReport:
+def _report(templates: int, prefix_dupes: int, config: ReplayConfig = _BASE_CONFIG) -> ReplayReport:
     return ReplayReport(
         sample_count=1000,
         template_count=templates,
         prefix_duplicate_count=prefix_dupes,
-        config=config or _config(),
+        config=config,
     )
 
 
@@ -84,7 +83,7 @@ class TestPatternReplay(TestCase):
     def test_measure_records_the_config_it_ran_under(self) -> None:
         report = measure([_sample("anything at all")])
 
-        self.assertEqual(report.config, _config())
+        self.assertEqual(report.config, _BASE_CONFIG)
 
     def test_diff_subtracts_candidate_from_baseline(self) -> None:
         diff = diff_reports(_report(templates=426, prefix_dupes=106), _report(templates=263, prefix_dupes=35))
@@ -93,10 +92,17 @@ class TestPatternReplay(TestCase):
         self.assertEqual(diff.template_delta, -163)
         self.assertEqual(diff.prefix_duplicate_delta, -71)
 
-    @parameterized.expand([("truncate", 1024), ("sim_th", 0.6), ("depth", 6), ("max_clusters", 5000)])
-    def test_diff_flags_reports_mined_under_different_config(self, field: str, value: float) -> None:
+    @parameterized.expand(
+        [
+            ("truncate", replace(_BASE_CONFIG, truncate=1024)),
+            ("sim_th", replace(_BASE_CONFIG, sim_th=0.6)),
+            ("depth", replace(_BASE_CONFIG, depth=6)),
+            ("max_clusters", replace(_BASE_CONFIG, max_clusters=5000)),
+        ]
+    )
+    def test_diff_flags_reports_mined_under_different_config(self, field: str, changed: ReplayConfig) -> None:
         baseline = _report(templates=426, prefix_dupes=106)
-        candidate = _report(templates=263, prefix_dupes=35, config=_config(**{field: value}))
+        candidate = _report(templates=263, prefix_dupes=35, config=changed)
 
         diff = diff_reports(baseline, candidate)
 

@@ -1,7 +1,7 @@
 """Replay a fixed corpus of log bodies through the miner and measure the result.
 
 Masking and truncation interact: every masking change shifts string lengths, which moves
-the truncation cut point. So a miner change cannot be judged by reading its output — it
+the truncation cut point. So a miner change cannot be judged by reading its output, so it
 needs the same corpus measured before and after. This module is that measurement.
 
 Compare two tunings in one run:
@@ -15,7 +15,7 @@ Compare a code change across two runs, one per branch:
 
 A corpus is one JSON object per line, each with at least a `body`; `service_name`,
 `severity_text`, and `timestamp` are optional. Capture one per service from query-logs rows,
-and keep it under `corpora/`, which is gitignored — corpora hold real log bodies and this
+and keep it under `corpora/`, which is gitignored, because corpora hold real log bodies and this
 repository is public. `test/fixtures/pattern_replay_sample.jsonl` is invented data, small
 enough to smoke-test the command but too small to measure a change against.
 """
@@ -25,10 +25,8 @@ import json
 import argparse
 import datetime as dt
 from collections import defaultdict
-from collections.abc import Callable
 from dataclasses import asdict, fields
 from pathlib import Path
-from typing import Any
 
 from posthog.dataclasses import frozen
 
@@ -44,20 +42,13 @@ _UNDATED = dt.datetime(1970, 1, 1, tzinfo=dt.UTC)
 _UNCAPPED = 1_000_000
 
 
-@frozen
-class _TuningKnob:
-    env_var: str
-    default: float | int
-    cast: Callable[[str], Any]
-
-
-# One row per ReplayConfig field, so reading the tuning, overriding it from the command
-# line, and printing it all stay derived from the same place.
-_TUNING = {
-    "truncate": _TuningKnob(env_var="LOGS_PATTERNS_BODY_TRUNCATE", default=512, cast=int),
-    "sim_th": _TuningKnob(env_var="LOGS_PATTERNS_SIM_TH", default=0.4, cast=float),
-    "depth": _TuningKnob(env_var="LOGS_PATTERNS_DEPTH", default=4, cast=int),
-    "max_clusters": _TuningKnob(env_var="LOGS_PATTERNS_MAX_CLUSTERS", default=1000, cast=int),
+# One home for the env var names, so reading the tuning and overriding it from the command
+# line cannot drift apart.
+_ENV_VARS = {
+    "truncate": "LOGS_PATTERNS_BODY_TRUNCATE",
+    "sim_th": "LOGS_PATTERNS_SIM_TH",
+    "depth": "LOGS_PATTERNS_DEPTH",
+    "max_clusters": "LOGS_PATTERNS_MAX_CLUSTERS",
 }
 
 
@@ -72,7 +63,16 @@ class ReplayConfig:
     def from_env(cls) -> "ReplayConfig":
         # Read through the miner's own _env, so a value it rejects and defaults is recorded
         # here as the default it actually mined with, not the string the environment held.
-        return cls(**{field: _env(knob.env_var, knob.default, knob.cast) for field, knob in _TUNING.items()})  # type: ignore[arg-type]
+        # The default literals below still mirror the ones mine_patterns passes to _env, and
+        # nothing binds the two. Change a default there without changing it here and every
+        # report misstates the tuning it measured, while diff_reports sees two matching
+        # configs and stays quiet, which is the one moment its warning is worth most.
+        return cls(
+            truncate=_env(_ENV_VARS["truncate"], 512, int),
+            sim_th=_env(_ENV_VARS["sim_th"], 0.4, float),
+            depth=_env(_ENV_VARS["depth"], 4, int),
+            max_clusters=_env(_ENV_VARS["max_clusters"], 1000, int),
+        )
 
 
 @frozen
@@ -90,7 +90,7 @@ class ReplayReport:
     prefix_duplicate_count: int
     config: ReplayConfig
     # Each service mined alone, alongside the blended figures above. Production mines every
-    # service together, so the blended number is the one that ships — but fragmentation is a
+    # service together, so the blended number is the one that ships. Fragmentation is a
     # property of one service's body shape, and blending buries which service owns it.
     services: tuple[ServiceReport, ...] = ()
 
@@ -115,7 +115,7 @@ def count_prefix_duplicates(templates: list[str]) -> int:
     ordered = sorted(templates)
     # Only neighbors need comparing. If a sorts before c and is a prefix of it, anything
     # sorting between them also starts with a, so a prefix relation always shows up
-    # adjacent — no pair is missed by skipping the quadratic sweep.
+    # adjacent, so no pair is missed by skipping the quadratic sweep.
     return sum(1 for a, b in zip(ordered, ordered[1:]) if b != a and b.startswith(a))
 
 
@@ -178,7 +178,7 @@ def diff_reports(baseline: ReplayReport, candidate: ReplayReport) -> ReplayDiff:
     """Compare two runs, refusing to imply a delta the numbers cannot support.
 
     A miner change is judged by re-running the same corpus, so the tuning has to be held
-    still across both runs. When it was not, the deltas still compute — they just no longer
+    still across both runs. When it was not, the deltas still compute, they just no longer
     isolate the change, which is why the mismatch travels with them instead of being dropped.
     """
     mismatch = tuple(
@@ -194,6 +194,8 @@ def diff_reports(baseline: ReplayReport, candidate: ReplayReport) -> ReplayDiff:
 
 
 def _measure_with(samples: list[LogSample], overrides: dict[str, str]) -> ReplayReport:
+    # mine_patterns reads its tuning from the environment, so a second tuning means a second
+    # environment. Restored afterwards, so the run that follows reports its own config.
     previous = {name: os.environ.get(name) for name in overrides}
     os.environ.update(overrides)
     try:
@@ -201,7 +203,7 @@ def _measure_with(samples: list[LogSample], overrides: dict[str, str]) -> Replay
     finally:
         for name, value in previous.items():
             if value is None:
-                del os.environ[name]
+                os.environ.pop(name, None)
             else:
                 os.environ[name] = value
 
@@ -210,9 +212,9 @@ def _parse_overrides(pairs: list[str]) -> dict[str, str]:
     overrides = {}
     for pair in pairs:
         key, _, value = pair.partition("=")
-        if key not in _TUNING:
-            raise SystemExit(f"unknown config key {key!r}, expected one of {', '.join(_TUNING)}")
-        overrides[_TUNING[key].env_var] = value
+        if key not in _ENV_VARS:
+            raise SystemExit(f"unknown config key {key!r}, expected one of {', '.join(_ENV_VARS)}")
+        overrides[_ENV_VARS[key]] = value
     return overrides
 
 
@@ -270,11 +272,11 @@ def main(argv: list[str] | None = None) -> None:
     if args.baseline:
         saved = json.loads(args.baseline.read_text())
         baseline = ReplayReport(
-            **{
-                **saved,
-                "config": ReplayConfig(**saved["config"]),
-                "services": tuple(ServiceReport(**service) for service in saved.get("services", ())),
-            }
+            sample_count=saved["sample_count"],
+            template_count=saved["template_count"],
+            prefix_duplicate_count=saved["prefix_duplicate_count"],
+            config=ReplayConfig(**saved["config"]),
+            services=tuple(ServiceReport(**service) for service in saved.get("services", ())),
         )
         print(_format_report("baseline", baseline))
         print(_format_diff(diff_reports(baseline, report)))
