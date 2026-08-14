@@ -161,20 +161,22 @@ export function FeatureRequestFilters(): JSX.Element {
                     {FEATURE_REQUEST_ARCHIVE_OPTIONS.find((option) => option.value === archiveState)?.label}
                 </LemonButton>
             </LemonMenu>
-            {hasActiveFilters && (
-                <LemonButton type="tertiary" size="small" onClick={clearFilters}>
-                    Clear filters
-                </LemonButton>
-            )}
-            <LemonButton
-                type="secondary"
-                size="small"
-                icon={<IconRefresh />}
-                loading={featureRequestsResponseLoading}
-                tooltip="Refresh"
-                aria-label="Refresh feature requests"
-                onClick={loadFeatureRequests}
-            />
+            <div className="flex items-center gap-2 ml-auto">
+                {hasActiveFilters && (
+                    <LemonButton type="tertiary" size="small" onClick={clearFilters}>
+                        Clear filters
+                    </LemonButton>
+                )}
+                <LemonButton
+                    type="secondary"
+                    size="small"
+                    icon={<IconRefresh />}
+                    loading={featureRequestsResponseLoading}
+                    tooltip="Refresh"
+                    aria-label="Refresh feature requests"
+                    onClick={loadFeatureRequests}
+                />
+            </div>
         </div>
     )
 }
