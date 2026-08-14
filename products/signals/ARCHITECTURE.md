@@ -807,7 +807,6 @@ Important side effects:
 
 - Creating an enabled `error_tracking / issue_created` config starts the error-tracking backfill workflow
 - Enabling data-import-backed sources can trigger external data syncs
-- Disabling a clustering config cancels the clustering workflow
 
 #### `SignalTeamConfigViewSet`
 
@@ -932,7 +931,7 @@ Generated MCP tool names:
 - **`SignalSourceConfigSerializer`**
   - Exposes `id`, `source_product`, `source_type`, `enabled`, `config`, `created_at`, `updated_at`, `status`
   - Validates that `recording_filters` in config is a JSON object for `session_replay`
-  - Computes `status` from the clustering workflow or external data import state depending on the source
+  - Computes `status` from external data import state for data-import-backed sources
 - **`SignalTeamConfigSerializer`**
   - ModelSerializer for `SignalTeamConfig`
   - Exposes `id`, `default_autostart_priority`, `created_at`, `updated_at`
