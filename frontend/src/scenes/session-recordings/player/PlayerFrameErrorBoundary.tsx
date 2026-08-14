@@ -38,6 +38,7 @@ export function PlayerFrameErrorBoundary({ sessionRecordingId, children }: Playe
                         action={{
                             children: 'Retry',
                             onClick: () => setRetryKey((key) => key + 1),
+                            'data-attr': 'session-recording-player-retry',
                         }}
                     >
                         This recording failed to render. Retry to load it again, or open another recording.
