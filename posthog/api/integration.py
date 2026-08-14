@@ -16,6 +16,7 @@ from django.utils import timezone
 import structlog
 from django_filters.rest_framework import DjangoFilterBackend
 from drf_spectacular.utils import extend_schema, extend_schema_serializer
+from prometheus_client import Counter
 from rest_framework import mixins, serializers, status, viewsets
 from rest_framework.exceptions import APIException, PermissionDenied, ValidationError
 from rest_framework.permissions import IsAuthenticated
@@ -110,6 +111,15 @@ from products.tasks.backend.facade.api import count_in_progress_runs_for_github_
 from products.workflows.backend.services.integration_usage import get_active_hog_flows_using_integration
 
 logger = structlog.get_logger(__name__)
+
+# Stripe drives this callback, so it carries no PostHog state token and the signature check
+# never fires. The log line alone is searchable, not alertable; count installs by signature
+# state so a rise in unsigned installs can be alerted on rather than discovered afterwards.
+stripe_marketplace_install_counter = Counter(
+    "stripe_marketplace_install",
+    "Stripe marketplace install callbacks, by whether an install signature was present and valid",
+    labelnames=["signature_state"],
+)
 
 GITHUB_REPOSITORY_NAME_RE = re.compile(r"[A-Za-z0-9_.\-]+")
 
@@ -869,6 +879,7 @@ class IntegrationSerializer(serializers.ModelSerializer, UserAccessControlSerial
                                 "Stripe install signature could not be verified.",
                                 code="stripe_install_signature_invalid",
                             )
+                        stripe_marketplace_install_counter.labels(signature_state="verified").inc()
                         logger.info(
                             "stripe.marketplace_install_signature_verified",
                             team_id=team_id,
@@ -876,7 +887,7 @@ class IntegrationSerializer(serializers.ModelSerializer, UserAccessControlSerial
                             user_id=request.user.id,
                         )
                     else:
-                        # Only signal for the phishing gap accepted in #56373. Nothing else records this path.
+                        stripe_marketplace_install_counter.labels(signature_state="absent").inc()
                         logger.warning(
                             "stripe.marketplace_install_no_signature",
                             team_id=team_id,

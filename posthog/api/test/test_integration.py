@@ -16,6 +16,7 @@ from django.utils import timezone
 
 import requests
 from parameterized import parameterized
+from prometheus_client import REGISTRY
 from rest_framework import status
 from rest_framework.exceptions import ValidationError
 from slack_sdk.errors import SlackApiError
@@ -4048,10 +4049,10 @@ class TestStripeIntegration:
         mock_oauth_response.assert_called_once()
 
     @pytest.mark.parametrize(
-        "include_install_signature,expected_event,expected_level",
+        "include_install_signature,expected_event,expected_level,expected_label",
         [
-            (False, "stripe.marketplace_install_no_signature", "warning"),
-            (True, "stripe.marketplace_install_signature_verified", "info"),
+            (False, "stripe.marketplace_install_no_signature", "warning", "absent"),
+            (True, "stripe.marketplace_install_signature_verified", "info", "verified"),
         ],
     )
     @patch("posthog.api.integration.StripeIntegration")
@@ -4063,6 +4064,7 @@ class TestStripeIntegration:
         include_install_signature,
         expected_event,
         expected_level,
+        expected_label,
         stripe_settings,
         client: HttpClient,
     ):
@@ -4080,6 +4082,9 @@ class TestStripeIntegration:
                 state="", user_id="usr_abc", account_id="acct_123"
             )
 
+        counter_labels = {"signature_state": expected_label}
+        before = REGISTRY.get_sample_value("stripe_marketplace_install_total", counter_labels) or 0.0
+
         client.force_login(self.user)
         with capture_logs() as logs:
             response = client.post(
@@ -4095,6 +4100,9 @@ class TestStripeIntegration:
         assert entries[0]["team_id"] == self.team.pk
         assert entries[0]["stripe_user_id"] == "acct_123"
         assert entries[0]["user_id"] == self.user.pk
+
+        after = REGISTRY.get_sample_value("stripe_marketplace_install_total", counter_labels) or 0.0
+        assert after - before == 1.0
 
     @patch("posthog.api.integration.StripeIntegration")
     @patch("posthog.api.integration.OauthIntegration.integration_from_oauth_response")
