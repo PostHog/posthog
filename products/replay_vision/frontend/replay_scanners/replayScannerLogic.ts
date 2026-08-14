@@ -85,6 +85,7 @@ import { findScannerTemplate, newScanner } from './scannerTemplates'
 import {
     MAX_CREDIT_LIMIT,
     ScannerConfig,
+    defaultScannerName,
     ScannerFormValues,
     ScannerType,
     ReplayScanner,
@@ -783,7 +784,10 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
 
     forms(({ props, values, actions }) => ({
         scanner: {
-            defaults: newScanner(props.id === 'new' ? currentTemplateKey() : null),
+            defaults: newScanner(
+                props.id === 'new' ? currentTemplateKey() : null,
+                teamLogic.findMounted()?.values.currentTeam?.name
+            ),
             errors: (scanner: ScannerFormValues) => {
                 // API-loaded scanners never carry the UI-only toggle, so fall back to whether a limit is set.
                 const creditLimitEnabled = scanner.credit_limit_enabled ?? scanner.credit_limit != null
@@ -815,7 +819,6 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                     }
                 }
                 return {
-                    name: !scanner.name?.trim() ? 'Name is required' : undefined,
                     sampling_rate:
                         scanner.sampling_rate > 0 && scanner.sampling_rate <= 1
                             ? undefined
@@ -1475,6 +1478,7 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                     // strip the param so the URL matches what the user actually gets.
                     const templateKey =
                         !draft && urlTemplateKey && findScannerTemplate(urlTemplateKey) ? urlTemplateKey : null
+                    const teamName = teamLogic.findMounted()?.values.currentTeam?.name
                     const experimentParams = parseExperimentScannerParams(router.values.searchParams)
                     // Strip the params the wizard has now consumed so a reload doesn't re-run the prefill
                     // over the user's edits: an unknown template that fell back to from-scratch (a valid
@@ -1504,7 +1508,7 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                                 variantKeys: reconcileVariantKeys(experiment, experimentParams.variantKeys),
                                 useExposureFallback: experimentParams.useExposureFallback,
                             }
-                            const prefilled = prefillScannerForExperiment(newScanner(templateKey), context)
+                            const prefilled = prefillScannerForExperiment(newScanner(templateKey, teamName), context)
                             // Set the context only after the prefill is built, so a throw inside it
                             // doesn't leave a dangling context that the next startFromTemplate re-applies.
                             actions.setExperimentContext(context)
@@ -1513,7 +1517,7 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                             // Clear any context a partial run left set before surfacing the failure.
                             actions.setExperimentContext(null)
                             lemonToast.error("Couldn't load the experiment. Set recording filters manually instead.")
-                            actions.loadScannerSuccess(newScanner(templateKey))
+                            actions.loadScannerSuccess(newScanner(templateKey, teamName))
                         } finally {
                             cache.restoringDraft = false
                         }
@@ -1521,7 +1525,7 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                     }
                     cache.restoringDraft = true
                     try {
-                        actions.loadScannerSuccess(newScanner(templateKey))
+                        actions.loadScannerSuccess(newScanner(templateKey, teamName))
                         if (draft) {
                             actions.setScannerValues(draft.scanner)
                             actions.setScannerDraftSavedAt(draft.savedAt)
@@ -1578,8 +1582,13 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                 if (!current) {
                     return
                 }
+                const teamName = teamLogic.values.currentTeam?.name
+                // Only re-derive a name the user never edited, so a typed name always survives a type change.
+                const keepsDefaultName =
+                    !current.name?.trim() || current.name === defaultScannerName(teamName, current.scanner_type)
                 actions.resetScanner({
                     ...current,
+                    name: keepsDefaultName ? defaultScannerName(teamName, scannerType) : current.name,
                     scanner_type: scannerType,
                     scanner_config: defaultConfigForType(scannerType),
                 } as ScannerFormValues)
@@ -1596,7 +1605,7 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                 if (!router.values.location.pathname.endsWith(urls.replayVisionScannerTemplate('new'))) {
                     return
                 }
-                actions.resetScanner(newScanner())
+                actions.resetScanner(newScanner(null, teamLogic.values.currentTeam?.name))
                 // Applied as form values (not baked into the reset) so the draft persists like hand-edited
                 // input and survives a reload of the configure step.
                 actions.setScannerValues({
@@ -1655,7 +1664,7 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                 actions.setScannerDraftSavedAt(null)
                 // An experiment prefill (targeted query, scoped name) has to survive the template
                 // reset, so re-apply it when the wizard was entered from an experiment.
-                const base = newScanner(templateKey)
+                const base = newScanner(templateKey, teamLogic.values.currentTeam?.name)
                 const context = values.experimentContext
                 actions.resetScanner(context ? prefillScannerForExperiment(base, context) : base)
             },
@@ -2075,6 +2084,7 @@ export type ObservationsUrlParams = Partial<Record<(typeof TABLE_URL_PARAM_KEYS)
 function scannerEditorPaths(scannerId: string): string[] {
     return [
         urls.replayVisionScannerTemplate(scannerId),
+        urls.replayVisionScannerDetails(scannerId),
         urls.replayVisionScannerConfigure(scannerId),
         urls.replayVisionScannerTriggers(scannerId),
         urls.replayVisionScannerBudget(scannerId),

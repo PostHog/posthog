@@ -6,12 +6,22 @@ import * as construction2Png from '@posthog/brand/hoggies/png/construction-2'
 import * as imTheDriverPng from '@posthog/brand/hoggies/png/im-the-driver'
 import * as magnifyingGlassPng from '@posthog/brand/hoggies/png/magnifying-glass-1'
 import * as moneyPng from '@posthog/brand/hoggies/png/money'
+import * as reporterPng from '@posthog/brand/hoggies/png/reporter'
 import * as xRayPng from '@posthog/brand/hoggies/png/x-ray'
 import { IconSparkles } from '@posthog/icons'
-import { LemonButton, LemonCard, LemonSelect, LemonSwitch, LemonTag, Link } from '@posthog/lemon-ui'
+import {
+    LemonButton,
+    LemonCard,
+    LemonInput,
+    LemonSelect,
+    LemonSwitch,
+    LemonTag,
+    LemonTextArea,
+    Link,
+} from '@posthog/lemon-ui'
 
 import { pngHoggie } from 'lib/brand/hoggies'
-import { SceneTags } from 'lib/components/Scenes/SceneTags'
+import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { LemonField } from 'lib/lemon-ui/LemonField'
@@ -22,7 +32,6 @@ import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
-import { ScenePanel, ScenePanelInfoSection } from '~/layout/scenes/SceneLayout'
 import { ProductKey } from '~/queries/schema/schema-general'
 
 import { ReplayVisionFeedbackButton } from '../components/ReplayVisionFeedbackButton'
@@ -32,7 +41,6 @@ import { ScannerGoalDraft } from './components/ScannerGoalDraft'
 import { ScannerTemplatePicker } from './components/ScannerTemplatePicker'
 import { ScannerTriggers } from './components/ScannerTriggers'
 import { ScannerTypeConfigEditor } from './components/ScannerTypeConfigEditor'
-import { SCANNER_RESOURCE_TYPE } from './constants'
 import { replayScannerLogic } from './replayScannerLogic'
 import {
     SCANNER_EDITOR_STEP_ORDER,
@@ -41,12 +49,12 @@ import {
     scannerStepUrl,
 } from './scannerEditorSceneLogic'
 import { ScannerEditorStepper, STEP_LABELS } from './ScannerEditorStepper'
-import { ScannerSceneMenuBar } from './ScannerSceneMenuBar'
 import { SCANNER_TYPE_OPTIONS, getModelOptions, modelNamingVariant } from './types'
 
 const HedgehogConstruction2 = pngHoggie(construction2Png)
 const HedgehogImTheDriver = pngHoggie(imTheDriverPng)
 const HedgehogMagnifyingGlass = pngHoggie(magnifyingGlassPng)
+const HedgehogReporter = pngHoggie(reporterPng)
 const HedgehogMoney = pngHoggie(moneyPng)
 const HedgehogXRay = pngHoggie(xRayPng)
 
@@ -61,6 +69,11 @@ const STEP_HEADERS: Record<
     Exclude<ScannerEditorStep, 'template'>,
     { hedgehog: JSX.Element; title: string; subtitle: string }
 > = {
+    details: {
+        hedgehog: <HedgehogReporter className="h-16 sm:h-24 w-auto shrink-0" />,
+        title: 'Name your scanner',
+        subtitle: 'All optional. Tags help you find it later in the scanner list.',
+    },
     configure: {
         hedgehog: <HedgehogMagnifyingGlass className="h-16 sm:h-24 w-auto shrink-0" />,
         title: 'Configure your scanner',
@@ -92,8 +105,7 @@ export function ScannerEditorSceneComponent(): JSX.Element {
         showScannerErrors,
         durationValidationError,
     } = useValues(scannerLogic)
-    const { submitScanner, setSubmitIntent, setScannerValue } = useActions(scannerLogic)
-    const editDisabledReason = getReplayVisionEditDisabledReason(scanner?.user_access_level)
+    const { submitScanner, setSubmitIntent } = useActions(scannerLogic)
 
     if (step !== 'template' && (scannerLoading || !scanner)) {
         return (
@@ -107,7 +119,8 @@ export function ScannerEditorSceneComponent(): JSX.Element {
 
     const stepErrors: Record<ScannerEditorStep, boolean> = {
         template: false,
-        configure: showScannerErrors && !!(scannerValidationErrors?.name || scannerValidationErrors?.scanner_config),
+        details: false,
+        configure: showScannerErrors && !!scannerValidationErrors?.scanner_config,
         triggers: showScannerErrors && durationValidationError != null,
         budget:
             showScannerErrors &&
@@ -139,26 +152,10 @@ export function ScannerEditorSceneComponent(): JSX.Element {
         <SceneContent>
             <div className="flex flex-col items-center pt-16 pb-8">
                 <div className="w-full max-w-5xl px-4 flex flex-col gap-6">
-                    {/* Form-bound rather than autosaving, so tags on a scanner that doesn't exist yet save with it. */}
-                    {step === 'configure' && (
-                        <>
-                            <ScannerSceneMenuBar scannerId={scannerId} />
-                            <ScenePanel>
-                                <ScenePanelInfoSection>
-                                    <ScannerSceneTags scannerId={scannerId} />
-                                </ScenePanelInfoSection>
-                            </ScenePanel>
-                        </>
-                    )}
                     <SceneTitleSection
                         name={title}
-                        description={step === 'template' ? null : scanner?.description || ''}
                         resourceType={{ type: 'replay_vision' }}
                         actions={<ReplayVisionFeedbackButton />}
-                        canEdit={step !== 'template' && !editDisabledReason}
-                        onNameChange={(name) => setScannerValue('name', name)}
-                        onDescriptionChange={(description) => setScannerValue('description', description)}
-                        descriptionAlwaysVisible
                     />
                     <ScannerEditorStepper
                         currentStep={step}
@@ -200,7 +197,9 @@ export function ScannerEditorSceneComponent(): JSX.Element {
                                         <div className="text-sm text-muted">{STEP_HEADERS[step].subtitle}</div>
                                     </div>
                                 </div>
-                                {step === 'configure' ? (
+                                {step === 'details' ? (
+                                    <DetailsStep />
+                                ) : step === 'configure' ? (
                                     <ConfigureStep />
                                 ) : step === 'triggers' ? (
                                     <ScannerTriggers scannerId={scannerId} />
@@ -228,18 +227,40 @@ export function ScannerEditorSceneComponent(): JSX.Element {
     )
 }
 
-function ScannerSceneTags({ scannerId }: { scannerId: string }): JSX.Element {
-    const { scanner, availableObjectTags } = useValues(replayScannerLogic({ id: scannerId }))
-    const { setScannerValue } = useActions(replayScannerLogic({ id: scannerId }))
+function DetailsStep(): JSX.Element {
+    const { scannerId } = useValues(scannerEditorSceneLogic)
+    const { availableObjectTags } = useValues(replayScannerLogic({ id: scannerId }))
 
     return (
-        <SceneTags
-            onSave={(tags) => setScannerValue('tags', tags)}
-            tags={scanner?.tags ?? []}
-            tagsAvailable={availableObjectTags}
-            canEdit={!getReplayVisionEditDisabledReason(scanner?.user_access_level)}
-            dataAttrKey={SCANNER_RESOURCE_TYPE}
-        />
+        <div className="flex flex-col gap-4">
+            <LemonField name="name" label="Name (optional)">
+                <LemonInput placeholder="e.g. Checkout friction" />
+            </LemonField>
+
+            <LemonField
+                name="description"
+                label="Description (optional)"
+                help="The scanning agent doesn't see this field. It's for you and your team to keep scanners organized."
+            >
+                <LemonTextArea placeholder="What this scanner looks for and why." minRows={2} />
+            </LemonField>
+
+            <LemonField
+                name="tags"
+                label="Tags (optional)"
+                help="For organizing and filtering the scanner list. The scanning agent doesn't see them."
+            >
+                {({ value, onChange }) => (
+                    <ObjectTags
+                        tags={value ?? []}
+                        onChange={onChange}
+                        saving={false}
+                        tagsAvailable={availableObjectTags}
+                        data-attr="vision-editor-tags"
+                    />
+                )}
+            </LemonField>
+        </div>
     )
 }
 
@@ -389,8 +410,7 @@ function EditorFooter({
     onAdvance: () => void
     onSave: () => void
 }): JSX.Element {
-    const { scanner, durationValidationError, hasUnsavedChanges, scannerValidationErrors, showScannerErrors } =
-        useValues(replayScannerLogic({ id: scannerId }))
+    const { scanner, durationValidationError, hasUnsavedChanges } = useValues(replayScannerLogic({ id: scannerId }))
     const { discardScannerDraft } = useActions(replayScannerLogic({ id: scannerId }))
     const stepIndex = visibleSteps.indexOf(step)
     const prevStep = stepIndex > 0 ? visibleSteps[stepIndex - 1] : null
@@ -426,10 +446,6 @@ function EditorFooter({
         <div className="flex flex-col gap-2">
             {/* Past the recordings step the duration field isn't on screen, so a tooltip alone isn't enough. */}
             {step !== 'triggers' && durationError ? <div className="text-danger text-sm">{durationError}</div> : null}
-            {/* The name is edited in the title section, so kea-forms has no field to attach its error to. */}
-            {showScannerErrors && scannerValidationErrors?.name ? (
-                <div className="text-danger text-sm">{scannerValidationErrors.name}</div>
-            ) : null}
             <div className="flex flex-wrap items-center justify-between gap-2">
                 {/* First form step of a new scanner goes back to the template picker; a mid-flow step goes to the
                 previous visible step; editing's first step (configure, no template) has no back. */}

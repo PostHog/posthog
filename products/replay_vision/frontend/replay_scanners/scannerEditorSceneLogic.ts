@@ -6,23 +6,29 @@ import { urls } from 'scenes/urls'
 import { tagsModel } from '~/models/tagsModel'
 import { Breadcrumb } from '~/types'
 
-export type ScannerEditorStep = 'template' | 'configure' | 'triggers' | 'budget'
-export const SCANNER_EDITOR_STEPS: readonly ScannerEditorStep[] = ['template', 'configure', 'triggers', 'budget']
+export type ScannerEditorStep = 'template' | 'details' | 'configure' | 'triggers' | 'budget'
+export const SCANNER_EDITOR_STEPS: readonly ScannerEditorStep[] = [
+    'template',
+    'details',
+    'configure',
+    'triggers',
+    'budget',
+]
 export const SCANNER_EDITOR_STEP_ORDER: Record<ScannerEditorStep, number> = {
     template: 0,
-    configure: 1,
-    triggers: 2,
-    budget: 3,
+    details: 1,
+    configure: 2,
+    triggers: 3,
+    budget: 4,
 }
 
 /** Earliest step rendering an errored form field; must match which step component mounts which fields. */
 export function firstErroredScannerStep(errors: {
-    name?: unknown
     scanner_config?: unknown
     sampling_rate?: unknown
     credit_limit?: unknown
 }): ScannerEditorStep | null {
-    if (errors.name || errors.scanner_config) {
+    if (errors.scanner_config) {
         return 'configure'
     }
     if (errors.sampling_rate || errors.credit_limit) {
@@ -35,6 +41,8 @@ export function scannerStepUrl(step: ScannerEditorStep, scannerId: string): stri
     switch (step) {
         case 'template':
             return urls.replayVisionScannerTemplate(scannerId)
+        case 'details':
+            return urls.replayVisionScannerDetails(scannerId)
         case 'configure':
             return urls.replayVisionScannerConfigure(scannerId)
         case 'triggers':
@@ -158,6 +166,15 @@ export const scannerEditorSceneLogic = kea<scannerEditorSceneLogicType>([
             }
             if (values.step !== 'template') {
                 actions.setStep('template')
+            }
+        },
+        [urls.replayVisionScannerDetails(':id')]: ({ id }) => {
+            const scannerId = id || 'new'
+            if (scannerId !== values.scannerId) {
+                actions.setScannerId(scannerId)
+            }
+            if (values.step !== 'details') {
+                actions.setStep('details')
             }
         },
         [urls.replayVisionScannerConfigure(':id')]: ({ id }) => {

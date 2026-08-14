@@ -296,6 +296,12 @@ export function modelName(model: string | null | undefined, namingVariant: Model
     return names[model as ScannerModelEnumApi] ?? model
 }
 
+/** Fallback name for a scanner the user never named, e.g. "Hedgebox classifier". */
+export function defaultScannerName(teamName: string | null | undefined, scannerType: ScannerType): string {
+    const type = scannerTypeLabel(scannerType).toLowerCase()
+    return teamName ? `${teamName} ${type}` : `New ${type}`
+}
+
 export function scannerTypeLabel(scannerType: ScannerType | null | undefined): string {
     if (!scannerType) {
         return '—'

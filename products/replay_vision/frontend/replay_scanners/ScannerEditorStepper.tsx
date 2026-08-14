@@ -7,6 +7,7 @@ import { SCANNER_EDITOR_STEP_ORDER, ScannerEditorStep } from './scannerEditorSce
 
 export const STEP_LABELS: Record<ScannerEditorStep, string> = {
     template: 'Template',
+    details: 'Details',
     configure: 'Configure',
     triggers: 'Recordings',
     budget: 'Budget',

@@ -9,7 +9,6 @@ import { firstErroredScannerStep, scannerEditorSceneLogic } from './scannerEdito
 
 describe('firstErroredScannerStep', () => {
     it.each([
-        ['name error lands on configure', { name: 'Required' }, 'configure'],
         ['config error lands on configure', { scanner_config: { prompt: 'Required' } }, 'configure'],
         ['sampling error lands on budget', { sampling_rate: 'Out of range' }, 'budget'],
         ['credit limit error lands on budget', { credit_limit: 'Enter a credit amount' }, 'budget'],
@@ -72,17 +71,17 @@ describe('scannerEditorSceneLogic', () => {
     })
 
     describe('visibleSteps', () => {
-        it('shows all four steps for a new scanner', async () => {
+        it('shows every step for a new scanner', async () => {
             router.actions.push(urls.replayVisionScannerConfigure('new'))
             await expectLogic(logic).toMatchValues({
-                visibleSteps: ['template', 'configure', 'triggers', 'budget'],
+                visibleSteps: ['template', 'details', 'configure', 'triggers', 'budget'],
             })
         })
 
         it('keeps every step for an existing scanner, so the numbering matches creation', async () => {
             router.actions.push(urls.replayVisionScannerConfigure('abc-123'))
             await expectLogic(logic).toMatchValues({
-                visibleSteps: ['template', 'configure', 'triggers', 'budget'],
+                visibleSteps: ['template', 'details', 'configure', 'triggers', 'budget'],
             })
         })
     })

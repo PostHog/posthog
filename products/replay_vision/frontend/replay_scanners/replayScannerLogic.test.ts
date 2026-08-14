@@ -78,7 +78,7 @@ describe('replayScannerLogic', () => {
         it('new scanner starts as monitor with empty prompt and default sampling', () => {
             expect(logic.values.scanner).toMatchObject({
                 id: 'new',
-                name: '',
+                name: 'MockHog App + Marketing monitor',
                 enabled: true,
                 scanner_type: 'monitor',
                 scanner_config: { prompt: '' },
@@ -162,7 +162,10 @@ describe('replayScannerLogic', () => {
                 .toFinishAllListeners()
 
             expect(logic.values.goalDraft).toBeNull()
-            expect(logic.values.scanner).toMatchObject({ name: '', scanner_type: 'monitor' })
+            expect(logic.values.scanner).toMatchObject({
+                name: 'MockHog App + Marketing monitor',
+                scanner_type: 'monitor',
+            })
             expect(router.values.location.pathname).toEqual(pathBefore)
         })
     })
@@ -320,7 +323,7 @@ describe('replayScannerLogic', () => {
             logic.actions.setSubmitIntent('advance')
             await expectLogic(logic, () => logic.actions.submitScanner()).toFinishAllListeners()
             // The draft must not be adopted as the saved baseline — no API write happened.
-            expect(logic.values.originalScanner?.name).toBe('')
+            expect(logic.values.originalScanner?.name).toBe('MockHog App + Marketing monitor')
             expect(logic.values.hasUnsavedChanges).toBe(true)
         })
 
@@ -489,11 +492,6 @@ describe('replayScannerLogic', () => {
 
     describe('validation errors', () => {
         it.each([
-            {
-                name: 'flags missing name',
-                setup: () => undefined,
-                expectedErrors: { name: 'Name is required' },
-            },
             {
                 name: 'flags missing prompt',
                 setup: () => undefined,

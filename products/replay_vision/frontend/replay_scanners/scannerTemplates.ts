@@ -9,7 +9,7 @@ import type {
     ScorerScannerConfig,
     SummarizerScannerConfig,
 } from './types'
-import { DEFAULT_MODEL, DEFAULT_PROVIDER, OBSERVATION_CREDITS_BY_MODEL } from './types'
+import { DEFAULT_MODEL, DEFAULT_PROVIDER, OBSERVATION_CREDITS_BY_MODEL, defaultScannerName } from './types'
 
 export type ScannerTemplateIcon = 'warning' | 'notebook' | 'target' | 'thumbs-down' | 'check'
 
@@ -120,7 +120,7 @@ export function findScannerTemplate(key: string | undefined): ScannerTemplate | 
     return defaultScannerTemplates.find((t) => t.key === key)
 }
 
-export function newScanner(templateKey?: string | null): ScannerFormValues {
+export function newScanner(templateKey?: string | null, teamName?: string | null): ScannerFormValues {
     const base = {
         id: 'new',
         enabled: true,
@@ -167,7 +167,8 @@ export function newScanner(templateKey?: string | null): ScannerFormValues {
     }
     return {
         ...base,
-        name: '',
+        // Every details field is optional, so an unnamed scanner starts from a name that already reads sensibly.
+        name: defaultScannerName(teamName, 'monitor'),
         description: '',
         scanner_type: 'monitor',
         scanner_config: { prompt: '' },
