@@ -4,10 +4,10 @@ import type {
   McpGatewayServer,
   McpServiceAccount,
 } from "@posthog/api-client/posthog-client";
+import { UserAvatar } from "@posthog/ui/features/auth/UserAvatar";
 import {
   gatewayUserName,
   RobotAvatar,
-  UserAvatar,
 } from "@posthog/ui/features/mcp-gateway/components/parts/avatars";
 import type { GatewayRoute } from "@posthog/ui/features/mcp-gateway/gatewayRoute";
 import { useGatewayMembers } from "@posthog/ui/features/mcp-gateway/hooks/useGatewayMembers";
@@ -223,9 +223,9 @@ function MemberRow({
     <button
       type="button"
       onClick={onOpen}
-      className="grid w-full grid-cols-[26px_1fr_auto_auto_auto] items-center gap-3 border-gray-5 border-b px-3 py-2 text-left transition-colors last:border-b-0 hover:bg-gray-3"
+      className="grid w-full grid-cols-[24px_1fr_auto_auto_auto] items-center gap-3 border-gray-5 border-b px-3 py-2 text-left transition-colors last:border-b-0 hover:bg-gray-3"
     >
-      <UserAvatar user={member.user} />
+      <UserAvatar user={member.user} size="sm" />
       <Flex direction="column" className="min-w-0">
         <Text truncate className="font-medium text-sm">
           {gatewayUserName(member.user)}
