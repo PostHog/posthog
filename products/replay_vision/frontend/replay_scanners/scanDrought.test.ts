@@ -16,7 +16,22 @@ function scanner(overrides: Partial<ScanDroughtScannerFields> = {}): ScanDrought
 }
 
 function marker(version: number): ObservationVersionMarkerApi {
-    return { version } as ObservationVersionMarkerApi
+    return {
+        date: '2026-01-05',
+        version,
+        prompt: 'Did the user struggle?',
+        scanner_config: { prompt: 'Did the user struggle?' },
+        scanner_type: 'monitor',
+        model: 'gemini-3.7-flash',
+        provider: 'google',
+        emits_signals: false,
+        query: null,
+        sampling_rate: 1,
+        sampling_mode: 'comprehensive',
+        up: 0,
+        down: 0,
+        total: 5,
+    }
 }
 
 describe('scanDrought', () => {

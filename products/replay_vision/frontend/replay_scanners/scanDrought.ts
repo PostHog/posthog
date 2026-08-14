@@ -33,6 +33,9 @@ export function scanDrought(
     if (versionMarkers.some((marker) => marker.version === scanner.scanner_version)) {
         return null
     }
+    // updated_at also advances on metadata-only edits (name, description), re-arming the gates below
+    // and hiding an active warning for up to a day. Accepted: the scanner carries no version-change
+    // timestamp, and this errs toward silence, never toward a false warning.
     const updatedAt = new Date(scanner.updated_at).getTime()
     if (now.getTime() - updatedAt < SCAN_DROUGHT_MIN_AGE_MS) {
         return null
