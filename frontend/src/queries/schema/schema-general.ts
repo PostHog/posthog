@@ -7480,6 +7480,7 @@ export function getEffectiveExcludedColumns(
 export enum MarketingAnalyticsConstants {
     Goal = 'Goal',
     CostPer = 'Cost per',
+    Roas = 'ROAS',
     ConstantValuePrefix = 'const:',
 }
 
