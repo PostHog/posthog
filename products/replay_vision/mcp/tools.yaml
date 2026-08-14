@@ -98,6 +98,9 @@ tools:
     vision-actions-run-create:
         operation: vision_actions_run_create
         enabled: false
+    vision-actions-run-preview-retrieve:
+        operation: vision_actions_run_preview_retrieve
+        enabled: false
     vision-actions-runs-list:
         operation: vision_actions_runs_list
         enabled: true
