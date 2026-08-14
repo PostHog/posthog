@@ -1043,6 +1043,29 @@ class TestGetStaleStrandedRuns:
 
         assert await self._run(conn) == []
 
+    @pytest.mark.asyncio
+    async def test_failed_run_gate_probes_the_run_gate_index(self, conn):
+        # The gate must stay one sb_run_gate_idx probe per candidate run. If the
+        # OFFSET 0 fence is dropped, the planner flattens it into a hash anti-join
+        # whose hash side is every failed batch in the pruning window, and the
+        # sweep degrades with failure-storm size instead of candidate count.
+        from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.jobs_db import (
+            _stranded_candidate_runs_sql,
+        )
+
+        await _insert_batch(conn)
+        await conn.execute("SET enable_seqscan = off")
+        try:
+            cur = await conn.execute(
+                "EXPLAIN (FORMAT TEXT) " + _stranded_candidate_runs_sql(),
+                {"stale": self.STALE, "limit": 100},
+            )
+            plan = "\n".join(row[0] for row in await cur.fetchall())
+        finally:
+            await conn.execute("SET enable_seqscan = on")
+        assert "sb_run_gate_idx" in plan
+        assert "Hash Anti Join" not in plan
+
 
 @pytest.mark.django_db(transaction=True)
 class TestReconcileAbandonedRuns:

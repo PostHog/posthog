@@ -427,7 +427,9 @@ async def record_failed_evaluation(inputs: RecordFailedEvaluationActivityInputs)
         return await _record()
 
 
-def dispatch_alert_firing_realtime_notification(alert: AlertConfiguration, breaches: list[str]) -> None:
+def dispatch_alert_firing_realtime_notification(
+    alert: AlertConfiguration, alert_check: AlertCheck, breaches: list[str]
+) -> None:
     """Fan out one realtime in-app notification per subscribed user when an alert fires.
 
     Exceptions are caught and logged internally so a realtime delivery failure does not
@@ -454,6 +456,9 @@ def dispatch_alert_firing_realtime_notification(alert: AlertConfiguration, breac
                     source_url=source_url,
                     source_type=SourceType.INSIGHT,
                     source_id=str(alert.insight.short_id),
+                    # A dispatch that accepted nothing leaves targets_notified empty, so a
+                    # retried activity reaches this again; dedupe here rather than on that.
+                    idempotency_key=f"alert-firing:{alert_check.id}:{user_id}",
                 )
             )
     except Exception:
@@ -533,21 +538,20 @@ async def notify_alert(inputs: NotifyAlertActivityInputs) -> None:
         alert = alert_check.alert_configuration
 
         # Raises if FIRING with no breaches; caller (workflow) must pipe breaches from evaluate.
-        targets = dispatch_alert_notification(alert, alert_check, inputs.breaches)
-        if targets is None:
+        deliveries = dispatch_alert_notification(alert, alert_check, inputs.breaches)
+        if deliveries is None:
             return
 
         with transaction.atomic():
-            record_alert_delivery(alert, alert_check, targets)
-            # Stamp notification_sent_at in lock-step with delivery — the investigation
-            # workflow and safety-net both read this column to decide whether they still
+            # Writes the sentinel + notification_sent_at together — the investigation
+            # workflow and safety-net read that column to decide whether they still
             # need to dispatch, and the gating path relies on it for idempotency.
-            AlertCheck.objects.filter(id=alert_check.id).update(notification_sent_at=datetime.now(UTC))
+            record_alert_delivery(alert, alert_check, deliveries)
 
-        # Realtime in-app dispatch sits AFTER record_alert_delivery so a Temporal retry
-        # past this point sees `targets_notified` populated and skips the whole _notify.
+        # Both in-app paths dedupe on their own idempotency key, so neither depends on
+        # record_alert_delivery having written the sentinel.
         if alert_check.state == AlertState.FIRING.value and inputs.breaches:
-            dispatch_alert_firing_realtime_notification(alert, inputs.breaches)
+            dispatch_alert_firing_realtime_notification(alert, alert_check, inputs.breaches)
         elif alert_check.state == AlertState.ERRORED.value:
             dispatch_alert_error_in_app_notifications(alert, alert_check)
 
