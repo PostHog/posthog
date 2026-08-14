@@ -88,6 +88,7 @@ rules:
                               |Canvas
                               |CanvasBuild
                               |CanvasSourceVersion
+                              |CanvasState
                               |ChangeRequest
                               |ChannelContextGeneration
                               |ChannelInstructions
@@ -451,6 +452,7 @@ rules:
                         |Canvas
                         |CanvasBuild
                         |CanvasSourceVersion
+                        |CanvasState
                         |ChangeRequest
                         |ChannelContextGeneration
                         |ChannelInstructions
