@@ -311,13 +311,16 @@ def _copy_for(
     semantic_type: str,
     physical_type: str,
 ) -> tuple[str, str | None]:
+    # Messages name the property, never the physical column behind it. A reader cannot select,
+    # create or drop `mat_$browser`, so naming it spends words on something they cannot act on.
+    # The column name stays on the structured `column_name` field for callers that want it.
     label = _SCOPE_LABELS[plan.access.scope]
     name = plan.access.property_name
     source = plan.access.source
 
     if verdict == PredicateIndexVerdict.INDEXED:
         index_names = ", ".join(sorted({_INDEX_LABELS[index] for index in usable}))
-        return f"{label} '{name}' filters on column '{source.column_name}' using its {index_names} index.", None
+        return f"{label} '{name}' uses its {index_names} index, so this filter skips rows that cannot match.", None
 
     if verdict == PredicateIndexVerdict.BLOCKED:
         if type_blocker == PropertyMinmaxBlocker.SOURCE_TYPE_DIFFERS_FROM_PROPERTY_TYPE:
@@ -326,13 +329,13 @@ def _copy_for(
             # Correcting the definition only helps when the definition is the thing that is wrong.
             return (
                 f"{label} '{name}' is stored as {physical_type} but compared as {semantic_type}, so every row is "
-                f"converted before the filter runs and the index on '{source.column_name}' cannot skip any data.",
+                f"converted before the filter runs and the index on '{name}' cannot skip any data.",
                 f"If '{name}' is not really {semantic_type}, correct its type in data management. Otherwise add a "
                 "filter that can skip data, such as a date range on timestamp.",
             )
         return (
             f"{label} '{name}' is compared against a value of another type, so every row has to be "
-            f"converted and the index on '{source.column_name}' goes unused.",
+            f"converted and the index on '{name}' goes unused.",
             f"Compare '{name}' against a {physical_type} value.",
         )
 
@@ -350,7 +353,7 @@ def _copy_for(
 
     if verdict == PredicateIndexVerdict.UNINDEXED_COLUMN:
         return (
-            f"{label} '{name}' reads from column '{source.column_name}', but no index on it covers '{plan.operator}'.",
+            f"{label} '{name}' has its own column, but no index on it covers '{plan.operator}'.",
             None,
         )
 

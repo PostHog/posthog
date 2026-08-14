@@ -66,12 +66,9 @@ export function QueryIndexUsageTable({ predicates }: QueryIndexUsageTableProps):
                     {
                         key: 'source',
                         title: 'Reads from',
-                        render: (_, { source_label, column_name }) => (
-                            <span className="text-xs">
-                                {source_label}
-                                {column_name && source_label !== 'JSON blob' ? ` (${column_name})` : ''}
-                            </span>
-                        ),
+                        // The physical column name is on the response but stays out of the UI: it is not
+                        // something a reader can select, create or drop.
+                        render: (_, { source_label }) => <span className="text-xs">{source_label}</span>,
                     },
                     {
                         key: 'index',
