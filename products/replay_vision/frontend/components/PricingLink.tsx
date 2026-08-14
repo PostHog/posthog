@@ -5,13 +5,7 @@ import { creditsToUsd, formatCreditCount } from '../utils/credits'
 const VISION_PRICING_URL = 'https://posthog.com/replay-vision/pricing'
 
 /** Pricing link for replay vision surfaces. Opens in a new tab so nobody loses a half-configured scanner. */
-export function VisionPricingLink({
-    dataAttr,
-    children,
-}: {
-    dataAttr: string
-    children: React.ReactNode
-}): JSX.Element {
+function VisionPricingLink({ dataAttr, children }: { dataAttr: string; children: React.ReactNode }): JSX.Element {
     return (
         <Link to={VISION_PRICING_URL} target="_blank" data-attr={dataAttr}>
             {children}
