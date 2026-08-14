@@ -172,6 +172,7 @@ __all__ = [
     "build_sandbox_custom_image",
     "create_sandbox_custom_image",
     "create_sandbox_environment",
+    "create_channel_task",
     "create_task",
     "create_task_automation",
     "create_task_without_run",
@@ -1270,6 +1271,26 @@ def create_task_without_run(
         repository=repository,
         channel=channel,
         mcp_builtin_agent_key=mcp_builtin_agent_key,
+    )
+    return task.id
+
+
+def create_channel_task(team_id: int, user_id: int, channel_id: str | UUID, *, title: str, description: str) -> UUID:
+    """Create a task filed into a channel, as the user — for product surfaces
+    (canvas actions) that file work into their own channel. No initial run:
+    the channel's feed shows it and the user drives it from there.
+    """
+    team = Team.objects.get(id=team_id)
+    channel = Channel.objects.filter(id=channel_id, team_id=team_id, deleted=False).first()
+    if channel is None:
+        raise ValueError("Channel not found in this team.")
+    task = Task.create_without_run(
+        team=team,
+        title=title,
+        description=description,
+        origin_product=Task.OriginProduct.USER_CREATED,
+        user_id=user_id,
+        channel=channel,
     )
     return task.id
 

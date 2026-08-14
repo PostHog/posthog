@@ -25,10 +25,14 @@ from posthog.storage.object_storage import ObjectStorageError
 from posthog.temporal.oauth import SANDBOX_OAUTH_APP_CLIENT_IDS
 
 from products.canvas.backend import build_service, error_reports
-from products.canvas.backend.capabilities import declared_state_scopes
+from products.canvas.backend.actions import CANVAS_ACTIONS, canvas_actions_disabled
+from products.canvas.backend.capabilities import declared_actions, declared_state_scopes
 from products.canvas.backend.contract import contract_limits
 from products.canvas.backend.models import Canvas, CanvasBuild, CanvasSourceVersion, CanvasState
 from products.canvas.backend.presentation.serializers import (
+    CanvasActionInvokeSerializer,
+    CanvasActionResultSerializer,
+    CanvasActionsResponseSerializer,
     CanvasBuildActionSerializer,
     CanvasBuildSerializer,
     CanvasBuildsResponseSerializer,
@@ -126,6 +130,13 @@ class CanvasStateWriteThrottle(SimpleRateThrottle):
         return self.cache_format % {"scope": self.scope, "ident": f"{ident}:{view.kwargs.get('pk')}"}
 
 
+class CanvasActionInvokeThrottle(CanvasStateWriteThrottle):
+    """Tighter than state writes: every invocation is a real PostHog write."""
+
+    scope = "canvas_action_invoke"
+    rate = "60/min"
+
+
 class CanvasViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     """Canvases: agent-built sandboxed browser apps, filed into channels.
 
@@ -154,11 +165,14 @@ class CanvasViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         "report_error",
         "request_fix",
         "set_state",
+        "invoke_action",
     ]
 
     def get_throttles(self) -> list[BaseThrottle]:
         if self.action == "set_state":
             return [CanvasStateWriteThrottle()]
+        if self.action == "invoke_action":
+            return [CanvasActionInvokeThrottle()]
         return super().get_throttles()
 
     _CREATOR_ONLY_ACTIONS = {
@@ -1042,6 +1056,88 @@ class CanvasViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         if self._is_sandbox_authenticated(request):
             return None
         return self._request_user()
+
+    @extend_schema(
+        operation_id="canvases_actions_retrieve",
+        responses={200: CanvasActionsResponseSerializer},
+    )
+    @action(methods=["GET"], detail=False, url_path="actions")
+    def actions(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        """List the action registry: every verb a canvas may declare and invoke."""
+        rows = [
+            {"verb": entry.verb, "summary": entry.summary, "destructive": entry.destructive}
+            for entry in sorted(CANVAS_ACTIONS.values(), key=lambda entry: entry.verb)
+        ]
+        return Response({"actions": rows})
+
+    @extend_schema(
+        operation_id="canvases_actions_invoke",
+        request=CanvasActionInvokeSerializer,
+        responses={
+            200: CanvasActionResultSerializer,
+            400: OpenApiResponse(description="Unknown verb, or the payload failed the verb's schema."),
+            403: OpenApiResponse(
+                description="The verb is not declared in the canvas's capabilities, actions are disabled for the "
+                "team, or the caller is a sandbox."
+            ),
+        },
+    )
+    @action(methods=["POST"], detail=True, url_path="actions/invoke")
+    def invoke_action(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        """Invoke one registered action verb as the viewer.
+
+        The canvas must declare the verb in capabilities.posthog.actions (the
+        reviewed permission boundary); the write itself runs with the viewer's
+        own permissions, exactly as if they acted in the app.
+        """
+        canvas = self.get_object()
+        user = self._state_actor(request)
+        if user is None:
+            return Response(
+                {"detail": "Canvas actions are invoked by viewers; sandbox tokens cannot use them."},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+        if canvas_actions_disabled(self.team):
+            return Response(
+                {"detail": "Canvas actions are disabled for this team."},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+        payload = CanvasActionInvokeSerializer(data=request.data)
+        payload.is_valid(raise_exception=True)
+        verb = payload.validated_data["verb"]
+        entry = CANVAS_ACTIONS.get(verb)
+        if entry is None:
+            return Response(
+                {"detail": f'Unknown action verb "{verb}". Registered verbs: {", ".join(sorted(CANVAS_ACTIONS))}.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        version = canvas.current_source_version
+        if verb not in declared_actions(version.capabilities if version else None):
+            return Response(
+                {
+                    "detail": f'The canvas does not declare action "{verb}". '
+                    "Add it to capabilities.posthog.actions and publish."
+                },
+                status=status.HTTP_403_FORBIDDEN,
+            )
+        verb_payload = entry.payload_serializer(data=payload.validated_data["payload"])
+        verb_payload.is_valid(raise_exception=True)
+        try:
+            result = entry.execute(self.team_id, user.id, canvas, verb_payload.validated_data)
+        except ValueError as error:
+            return Response({"detail": str(error)}, status=status.HTTP_400_BAD_REQUEST)
+        # Every execution is audited: the trigger names the verb, the activity
+        # log row names the viewer it ran as.
+        self._log_canvas_activity(
+            canvas,
+            "action_invoked",
+            Detail(
+                name=canvas.name,
+                trigger=Trigger(job_type="canvas_action", job_id=verb, payload={"verb": verb}),
+            ),
+        )
+        self._report_canvas_action("canvas action invoked", canvas, verb=verb)
+        return Response({"verb": verb, "result": result})
 
     @extend_schema(
         operation_id="canvases_state_retrieve",

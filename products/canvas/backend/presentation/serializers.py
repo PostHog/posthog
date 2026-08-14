@@ -143,6 +143,17 @@ class CanvasPostHogCapabilitiesSerializer(serializers.Serializer):
             "and/or 'shared' (one value per canvas, team-visible)."
         ),
     )
+    # Optional so projects published before the action registry exist unchanged.
+    actions = serializers.ListField(
+        child=serializers.CharField(max_length=64),
+        required=False,
+        default=list,
+        max_length=32,
+        help_text=(
+            "Registered action verbs the canvas may invoke via ph.actions (e.g. 'annotations.create', "
+            "'tasks.create'). Each executes as the viewer; declaring one shows it in the promote review."
+        ),
+    )
 
 
 class CanvasNetworkCapabilitiesSerializer(serializers.Serializer):
@@ -190,7 +201,7 @@ class CanvasSourceProjectSerializer(serializers.Serializer):
     capabilities = CanvasCapabilitiesSerializer(
         required=False,
         default=lambda: {
-            "posthog": {"insights": [], "inlineQueries": False, "captureEvents": [], "state": []},
+            "posthog": {"insights": [], "inlineQueries": False, "captureEvents": [], "state": [], "actions": []},
             "network": {"origins": []},
         },
         help_text=(
@@ -572,6 +583,46 @@ class CanvasCapabilityWideningSerializer(serializers.Serializer):
     state_scopes_added = serializers.ListField(
         child=serializers.CharField(),
         help_text="State scopes (user, shared) the draft newly declares for ph.state.",
+    )
+    actions_added = serializers.ListField(
+        child=serializers.CharField(),
+        help_text="Action verbs the draft newly declares it may invoke via ph.actions.",
+    )
+
+
+class CanvasActionDefinitionSerializer(serializers.Serializer):
+    """One registered action verb, as the host renders it before invoking."""
+
+    verb = serializers.CharField(help_text="The verb's registry name, e.g. 'annotations.create'.")
+    summary = serializers.CharField(help_text="One line naming what invoking the verb does.")
+    destructive = serializers.BooleanField(
+        help_text="True when the verb deletes or disables something; the host must confirm with the viewer first."
+    )
+
+
+class CanvasActionsResponseSerializer(serializers.Serializer):
+    """The action registry: every verb a canvas may declare and invoke."""
+
+    actions = CanvasActionDefinitionSerializer(many=True, help_text="Registered verbs, sorted by name.")
+
+
+class CanvasActionInvokeSerializer(serializers.Serializer):
+    """Payload for invoking one action verb."""
+
+    verb = serializers.CharField(max_length=64, help_text="Registered verb to invoke, e.g. 'tasks.create'.")
+    payload = serializers.DictField(
+        required=False,
+        default=dict,
+        help_text="Verb-specific arguments, validated against the verb's payload schema.",
+    )
+
+
+class CanvasActionResultSerializer(serializers.Serializer):
+    """Result of one action invocation."""
+
+    verb = serializers.CharField(help_text="The verb that executed.")
+    result = serializers.DictField(
+        help_text="Verb-specific result, e.g. {'task_id': ...} for tasks.create.",
     )
 
 

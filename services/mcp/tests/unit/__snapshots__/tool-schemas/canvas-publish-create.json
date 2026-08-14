@@ -86,6 +86,15 @@
                         },
                         "posthog": {
                             "properties": {
+                                "actions": {
+                                    "description": "Registered action verbs the canvas may invoke via ph.actions (e.g. 'annotations.create', 'tasks.create'). Each executes as the viewer; declaring one shows it in the promote review.",
+                                    "items": {
+                                        "maxLength": 64,
+                                        "type": "string"
+                                    },
+                                    "maxItems": 32,
+                                    "type": "array"
+                                },
                                 "captureEvents": {
                                     "items": {
                                         "maxLength": 200,

@@ -17,6 +17,7 @@ from posthog.models.scoping import team_scope
 from posthog.models.user import User
 from posthog.temporal.oauth import ARRAY_APP_CLIENT_ID_DEV
 
+from products.annotations.backend.models.annotation import Annotation
 from products.canvas.backend import activity_visibility, build_service
 from products.canvas.backend.models import Canvas, CanvasBuild, CanvasSourceVersion
 from products.canvas.backend.source import synthetic_source_project
@@ -886,11 +887,11 @@ class TestCanvasActivityLog(CanvasAPIBaseTest):
         assert first.status_code == status.HTTP_200_OK, first.json()
 
         default_capabilities = {
-            "posthog": {"insights": [], "inlineQueries": False, "captureEvents": [], "state": []},
+            "posthog": {"insights": [], "inlineQueries": False, "captureEvents": [], "state": [], "actions": []},
             "network": {"origins": []},
         }
         widened_capabilities = {
-            "posthog": {"insights": ["abc123"], "inlineQueries": True, "captureEvents": [], "state": []},
+            "posthog": {"insights": ["abc123"], "inlineQueries": True, "captureEvents": [], "state": [], "actions": []},
             "network": {"origins": []},
         }
         widened = self._project("export default function C() { return 2 }")
@@ -1463,3 +1464,91 @@ class TestCanvasErrorReports(CanvasAPIBaseTest):
         assert response.status_code == status.HTTP_429_TOO_MANY_REQUESTS, response.json()
         assert expected_detail in response.json()["detail"].lower()
         assert not TaskRun.objects.exists()
+
+
+class TestCanvasActions(CanvasAPIBaseTest):
+    def _actions_canvas(self, verbs: tuple[str, ...] = ("tasks.create", "annotations.create")) -> str:
+        canvas_id = self._create_canvas()
+        capabilities = {
+            "posthog": {
+                "insights": [],
+                "inlineQueries": False,
+                "captureEvents": [],
+                "state": [],
+                "actions": list(verbs),
+            },
+            "network": {"origins": []},
+        }
+        response = self._publish(canvas_id, project=self._project(capabilities=capabilities))
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        return canvas_id
+
+    def _invoke(self, canvas_id: str, verb: str, payload: dict[str, Any]):
+        return self.client.post(
+            f"/api/projects/{self.team.id}/canvases/{canvas_id}/actions/invoke/",
+            {"verb": verb, "payload": payload},
+            format="json",
+        )
+
+    def test_tasks_create_files_a_task_in_the_canvas_channel_as_the_viewer(self):
+        canvas_id = self._actions_canvas()
+
+        response = self._invoke(canvas_id, "tasks.create", {"title": "Follow up", "description": "From the board"})
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        task = Task.objects.get(id=response.json()["result"]["task_id"])
+        assert task.created_by_id == self.user.id
+        assert task.channel_id == self.channel.id
+        assert task.title == "Follow up"
+
+    def test_annotations_create_attributes_the_viewer(self):
+        canvas_id = self._actions_canvas()
+
+        response = self._invoke(canvas_id, "annotations.create", {"content": "Marked from the canvas"})
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        annotation = Annotation.objects.get(id=response.json()["result"]["annotation_id"])
+        assert annotation.created_by_id == self.user.id
+        assert annotation.scope == Annotation.Scope.PROJECT
+        assert annotation.content == "Marked from the canvas"
+
+    def test_undeclared_and_unknown_verbs_are_refused(self):
+        canvas_id = self._actions_canvas(verbs=("tasks.create",))
+
+        undeclared = self._invoke(canvas_id, "annotations.create", {"content": "x"})
+        unknown = self._invoke(canvas_id, "flags.delete", {})
+
+        assert undeclared.status_code == status.HTTP_403_FORBIDDEN
+        assert unknown.status_code == status.HTTP_400_BAD_REQUEST
+        assert Annotation.objects.count() == 0
+
+    def test_kill_switch_refuses_every_verb(self):
+        canvas_id = self._actions_canvas()
+
+        with patch("products.canvas.backend.presentation.views.canvas_actions_disabled", return_value=True):
+            response = self._invoke(canvas_id, "tasks.create", {"title": "t"})
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+
+    def test_sandbox_tokens_cannot_invoke_actions(self):
+        canvas_id = self._actions_canvas()
+        task = Task.objects.create(
+            team=self.team,
+            channel=self.channel,
+            created_by=self.user,
+            title="Actions",
+            description="d",
+            origin_product=Task.OriginProduct.USER_CREATED,
+        )
+        Canvas.objects.unscoped().filter(id=canvas_id).update(generation_task_id=task.id)
+        client = self._sandbox_client(task.id)
+
+        response = client.post(
+            f"/api/projects/{self.team.id}/canvases/{canvas_id}/actions/invoke/",
+            {"verb": "tasks.create", "payload": {"title": "t"}},
+            format="json",
+            HTTP_X_POSTHOG_TASK_ID=str(task.id),
+        )
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+>>>>>>> 3b0110e9 (feat(canvas): add the ph.actions verb registry and invoke pipeline)

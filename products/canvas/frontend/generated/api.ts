@@ -9,6 +9,9 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
  * OpenAPI spec version: 1.0.0
  */
 import type {
+    CanvasActionInvokeApi,
+    CanvasActionResultApi,
+    CanvasActionsResponseApi,
     CanvasApi,
     CanvasBuildActionApi,
     CanvasBuildApi,
@@ -149,6 +152,31 @@ export const canvasesDestroy = async (projectId: string, id: string, options?: R
     return apiMutator<void>(getCanvasesDestroyUrl(projectId, id), {
         ...options,
         method: 'DELETE',
+    })
+}
+
+export const getCanvasesActionsInvokeUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/canvases/${id}/actions/invoke/`
+}
+
+/**
+ * Invoke one registered action verb as the viewer.
+ *
+ * The canvas must declare the verb in capabilities.posthog.actions (the
+ * reviewed permission boundary); the write itself runs with the viewer's
+ * own permissions, exactly as if they acted in the app.
+ */
+export const canvasesActionsInvoke = async (
+    projectId: string,
+    id: string,
+    canvasActionInvokeApi: CanvasActionInvokeApi,
+    options?: RequestInit
+): Promise<CanvasActionResultApi> => {
+    return apiMutator<CanvasActionResultApi>(getCanvasesActionsInvokeUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(canvasActionInvokeApi),
     })
 }
 
@@ -588,6 +616,23 @@ export const canvasesVersionsRetrieve = async (
     options?: RequestInit
 ): Promise<PaginatedCanvasVersionListApi> => {
     return apiMutator<PaginatedCanvasVersionListApi>(getCanvasesVersionsRetrieveUrl(projectId, id, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getCanvasesActionsRetrieveUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/canvases/actions/`
+}
+
+/**
+ * List the action registry: every verb a canvas may declare and invoke.
+ */
+export const canvasesActionsRetrieve = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<CanvasActionsResponseApi> => {
+    return apiMutator<CanvasActionsResponseApi>(getCanvasesActionsRetrieveUrl(projectId), {
         ...options,
         method: 'GET',
     })

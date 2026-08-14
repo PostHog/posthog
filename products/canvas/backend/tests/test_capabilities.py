@@ -9,7 +9,13 @@ BASE = {
     "network": {"origins": []},
 }
 WIDER = {
-    "posthog": {"insights": ["abc", "def"], "captureEvents": ["clicked"], "inlineQueries": True, "state": ["user"]},
+    "posthog": {
+        "insights": ["abc", "def"],
+        "captureEvents": ["clicked"],
+        "inlineQueries": True,
+        "state": ["user"],
+        "actions": ["tasks.create"],
+    },
     "network": {"origins": ["https://api.example.com"]},
 }
 NARROWER = {
@@ -38,6 +44,7 @@ class TestCapabilityWidening(TestCase):
         assert widening.inline_queries_enabled is True
         assert widening.network_origins_added == ["https://api.example.com"]
         assert widening.state_scopes_added == ["user"]
+        assert widening.actions_added == ["tasks.create"]
 
     def test_inline_queries_already_enabled_is_not_a_widening(self):
         enabled = {"posthog": {"inlineQueries": True}}

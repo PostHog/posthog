@@ -144,6 +144,39 @@ export interface PatchedCanvasUpdateApi {
 }
 
 /**
+ * Verb-specific arguments, validated against the verb's payload schema.
+ */
+export type CanvasActionInvokeApiPayload = { [key: string]: unknown }
+
+/**
+ * Payload for invoking one action verb.
+ */
+export interface CanvasActionInvokeApi {
+    /**
+     * Registered verb to invoke, e.g. 'tasks.create'.
+     * @maxLength 64
+     */
+    verb: string
+    /** Verb-specific arguments, validated against the verb's payload schema. */
+    payload?: CanvasActionInvokeApiPayload
+}
+
+/**
+ * Verb-specific result, e.g. {'task_id': ...} for tasks.create.
+ */
+export type CanvasActionResultApiResult = { [key: string]: unknown }
+
+/**
+ * Result of one action invocation.
+ */
+export interface CanvasActionResultApi {
+    /** The verb that executed. */
+    verb: string
+    /** Verb-specific result, e.g. {'task_id': ...} for tasks.create. */
+    result: CanvasActionResultApiResult
+}
+
+/**
  * * `queued` - queued
  * * `building` - building
  * * `ready` - ready
@@ -387,6 +420,12 @@ export interface CanvasPostHogCapabilitiesApi {
      * @maxItems 2
      */
     state?: CanvasStateScopeEnumApi[]
+    /**
+     * Registered action verbs the canvas may invoke via ph.actions (e.g. 'annotations.create', 'tasks.create'). Each executes as the viewer; declaring one shows it in the promote review.
+     * @maxItems 32
+     * @items.maxLength 64
+     */
+    actions?: string[]
 }
 
 export interface CanvasNetworkCapabilitiesApi {
@@ -464,6 +503,8 @@ export interface CanvasCapabilityWideningApi {
     network_origins_added: string[]
     /** State scopes (user, shared) the draft newly declares for ph.state. */
     state_scopes_added: string[]
+    /** Action verbs the draft newly declares it may invoke via ph.actions. */
+    actions_added: string[]
 }
 
 /**
@@ -864,6 +905,26 @@ export interface PaginatedCanvasVersionListApi {
     /** @nullable */
     previous?: string | null
     results: CanvasVersionApi[]
+}
+
+/**
+ * One registered action verb, as the host renders it before invoking.
+ */
+export interface CanvasActionDefinitionApi {
+    /** The verb's registry name, e.g. 'annotations.create'. */
+    verb: string
+    /** One line naming what invoking the verb does. */
+    summary: string
+    /** True when the verb deletes or disables something; the host must confirm with the viewer first. */
+    destructive: boolean
+}
+
+/**
+ * The action registry: every verb a canvas may declare and invoke.
+ */
+export interface CanvasActionsResponseApi {
+    /** Registered verbs, sorted by name. */
+    actions: CanvasActionDefinitionApi[]
 }
 
 export type CanvasesListParams = {

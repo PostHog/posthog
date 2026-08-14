@@ -14327,6 +14327,59 @@ export namespace Schemas {
     }
 
     /**
+     * One registered action verb, as the host renders it before invoking.
+     */
+    export interface CanvasActionDefinition {
+      /** The verb's registry name, e.g. 'annotations.create'. */
+      verb: string;
+      /** One line naming what invoking the verb does. */
+      summary: string;
+      /** True when the verb deletes or disables something; the host must confirm with the viewer first. */
+      destructive: boolean;
+    }
+
+    /**
+     * Verb-specific arguments, validated against the verb's payload schema.
+     */
+    export type CanvasActionInvokePayload = { [key: string]: unknown };
+
+    /**
+     * Payload for invoking one action verb.
+     */
+    export interface CanvasActionInvoke {
+      /**
+         * Registered verb to invoke, e.g. 'tasks.create'.
+         * @maxLength 64
+         */
+      verb: string;
+      /** Verb-specific arguments, validated against the verb's payload schema. */
+      payload?: CanvasActionInvokePayload;
+    }
+
+    /**
+     * Verb-specific result, e.g. {'task_id': ...} for tasks.create.
+     */
+    export type CanvasActionResultResult = { [key: string]: unknown };
+
+    /**
+     * Result of one action invocation.
+     */
+    export interface CanvasActionResult {
+      /** The verb that executed. */
+      verb: string;
+      /** Verb-specific result, e.g. {'task_id': ...} for tasks.create. */
+      result: CanvasActionResultResult;
+    }
+
+    /**
+     * The action registry: every verb a canvas may declare and invoke.
+     */
+    export interface CanvasActionsResponse {
+      /** Registered verbs, sorted by name. */
+      actions: CanvasActionDefinition[];
+    }
+
+    /**
      * One emitted file of a built canvas artifact.
      */
     export interface CanvasArtifactAsset {
@@ -14501,6 +14554,12 @@ export namespace Schemas {
          * @maxItems 2
          */
       state?: CanvasStateScopeEnum[];
+      /**
+         * Registered action verbs the canvas may invoke via ph.actions (e.g. 'annotations.create', 'tasks.create'). Each executes as the viewer; declaring one shows it in the promote review.
+         * @maxItems 32
+         * @items.maxLength 64
+         */
+      actions?: string[];
     }
 
     export interface CanvasNetworkCapabilities {
@@ -14533,6 +14592,8 @@ export namespace Schemas {
       network_origins_added: string[];
       /** State scopes (user, shared) the draft newly declares for ph.state. */
       state_scopes_added: string[];
+      /** Action verbs the draft newly declares it may invoke via ph.actions. */
+      actions_added: string[];
     }
 
     /**
