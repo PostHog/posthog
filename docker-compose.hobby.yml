@@ -481,22 +481,6 @@ services:
             - temporal
             - browserless
 
-    cyclotron-janitor:
-        extends:
-            file: docker-compose.base.yml
-            service: cyclotron-janitor
-        build:
-            context: ./posthog/rust
-        logging: *default-logging
-        environment:
-            DATABASE_URL: 'postgres://posthog:posthog@db:5432/posthog'
-            KAFKA_HOSTS: 'kafka:9092'
-        depends_on:
-            db:
-                condition: service_healthy
-            kafka:
-                condition: service_started
-
     capture:
         build:
             context: ./posthog/rust
