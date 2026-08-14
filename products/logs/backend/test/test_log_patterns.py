@@ -557,6 +557,9 @@ class TestPrepareJsonBody(TestCase):
             ("empty_message_is_not_a_message", '{"message": "", "a": 1}', None),
             ("non_string_message_is_not_a_message", '{"message": 42}', None),
             ("no_message_key", '{"user_id": 1, "ok": true}', None),
+            # A producer controls the body, and an integer past sys.get_int_max_str_digits()
+            # raises a bare ValueError from the number parser rather than a JSONDecodeError.
+            ("integer_past_the_digit_limit", '{"message": "hi", "n": ' + "9" * 5000 + "}", None),
         ]
     )
     def test_json_body_reduction(self, _name: str, body: str, expected: str | None) -> None:
@@ -582,6 +585,18 @@ class TestJsonBodyMining(TestCase):
         for raw in raws:
             assert compiled.search(raw)
         assert patterns[0].match_literal == "not found"
+
+    def test_a_cluster_mixing_json_and_prose_rows_withholds_the_unanchored_regex(self) -> None:
+        # The unanchored form is only honest when every raw row is JSON, where the template is a
+        # substring by construction. One JSON row among prose rows would otherwise buy the whole
+        # cluster a regex matching a prose line wherever the text appears, not where it starts.
+        rows = [_sample(f'{{"message": "cache miss for key {i}"}}') for i in range(5)]
+        rows += [_sample(f"cache miss for key {i}") for i in range(5, 10)]
+
+        patterns = mine_patterns(rows)
+
+        assert len(patterns) == 1
+        assert patterns[0].match_regex is None
 
     def test_message_less_json_keeps_a_predicate_that_matches_the_raw_row(self) -> None:
         # Rewriting these bodies into a canonical shape collapses them into one template, but

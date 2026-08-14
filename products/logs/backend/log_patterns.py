@@ -223,7 +223,10 @@ def _prepare_json_body(body: str) -> str | None:
         return None
     try:
         parsed = json.loads(body)
-    except (json.JSONDecodeError, RecursionError):
+    # ValueError rather than JSONDecodeError, which subclasses it. A log producer controls the
+    # body, and an integer literal past sys.get_int_max_str_digits() raises a plain ValueError
+    # from the number parser, which would otherwise fail the whole patterns request with a 500.
+    except (ValueError, RecursionError):
         return None
     if not isinstance(parsed, dict):
         return None
@@ -358,7 +361,12 @@ def compile_match_regex(
         return None
     if all(anchored_re.search(raw) for raw in raw_examples):
         return anchored
-    mined_from_json = any(_prepare_json_body(raw) is not None for raw in raw_examples)
+    # The unanchored form is only honest when every raw example is JSON, because the template is
+    # then a substring of each row by construction. A cluster mixing JSON and prose rows would
+    # otherwise get an unanchored predicate on the strength of one JSON row, and that predicate
+    # matches a prose line wherever the text appears, not just where the statement starts. When a
+    # mixed cluster cannot anchor, withholding is the correct outcome.
+    mined_from_json = all(_prepare_json_body(raw) is not None for raw in raw_examples)
     if mined_from_json and all(core_re.search(raw) for raw in raw_examples):
         return core
     return None
