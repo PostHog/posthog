@@ -53,6 +53,7 @@
     },
     "dependencies": {
         "concurrently": "catalog:",
+        "fflate": "^0.8.2",
         "fuse.js": "catalog:",
         "husky": "catalog:",
         "lint-staged": "catalog:",

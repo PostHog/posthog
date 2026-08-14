@@ -6,6 +6,7 @@ import { sessionPlayerModalLogic } from 'scenes/session-recordings/player/modal/
 
 import { initKeaTests } from '~/test/init'
 
+import { persistReplayIframeData } from '../../replayIframeData'
 import { getBackgroundStepBlockReason, getPageStepBlockReason, heatmapCreationLogic } from './heatmapCreationLogic'
 
 describe('heatmapCreationLogic', () => {
@@ -92,16 +93,14 @@ describe('heatmapCreationLogic', () => {
         expect(modalLogic).toBeTruthy()
         logic.actions.setDisplayUrl('https://example.com/pricing')
         logic.actions.setPageAccess('login')
-        const storageKey = 'recording-background'
-        localStorage.setItem(
-            storageKey,
-            JSON.stringify({
-                html: '<html><body>Pricing</body></html>',
-                width: 1280,
-                height: 720,
-                url: 'https://example.com/pricing',
-            })
-        )
+        const storageKey = persistReplayIframeData({
+            html: '<html><body>Pricing</body></html>',
+            width: 1280,
+            height: 720,
+            startDateTime: undefined,
+            url: 'https://example.com/pricing',
+        })
+        expect(storageKey).not.toBeNull()
 
         modalLogic?.actions.openSessionPlayer({ id: 'recording-one' }, null, {
             type: 'heatmap-background-selection',
@@ -110,7 +109,7 @@ describe('heatmapCreationLogic', () => {
         })
         expect(logic.values.terminalOutcome).toBeNull()
 
-        modalLogic?.actions.completeHeatmapBackgroundSelection(storageKey)
+        modalLogic?.actions.completeHeatmapBackgroundSelection(storageKey!)
         await expectLogic(logic).toFinishAllListeners()
         const startingPathname = router.values.location.pathname
 

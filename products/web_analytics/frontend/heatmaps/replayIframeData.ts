@@ -1,7 +1,7 @@
+import { gunzipSync, gzipSync, strFromU8, strToU8 } from 'fflate'
 import { z } from 'zod'
 
 import { uuid } from 'lib/utils/dom'
-import { localStorageSlot } from 'lib/utils/localStorageSlot'
 
 export interface ReplayIframeData {
     html: string
@@ -13,10 +13,11 @@ export interface ReplayIframeData {
 
 export const ReplayIframeDatakeyPrefix = 'ph_replay_fixed_heatmap_'
 
-// Serializing the replayed DOM allocates several full copies of this on the main thread, in a tab
-// that is already holding a decoded recording. Past roughly this size that spike is what kills the
-// renderer.
-export const MAX_REPLAY_IFRAME_HTML_CHARS = 2_000_000
+// The snapshot travels to the heatmap scene through localStorage, which browsers cap near 5 MB per
+// origin. Real pages reach several million characters, so the uncompressed JSON does not fit. We
+// gzip the snapshot before writing, which shrinks a normal page well under the quota. This ceiling
+// stays only as a backstop, so one pathological page cannot spike the main thread during capture.
+export const MAX_REPLAY_IFRAME_HTML_CHARS = 20_000_000
 
 const replayIframeDataSchema = z.object({
     html: z.string().refine((html) => !!html.trim()),
@@ -25,6 +26,15 @@ const replayIframeDataSchema = z.object({
     startDateTime: z.union([z.string(), z.undefined()]),
     url: z.union([z.string(), z.undefined()]),
 })
+
+// gzip the JSON and keep the bytes as a latin1 string, so localStorage holds one code unit per byte
+function compressReplayIframeData(data: ReplayIframeData): string {
+    return strFromU8(gzipSync(strToU8(JSON.stringify(data))), true)
+}
+
+function decompressReplayIframeData(stored: string): unknown {
+    return JSON.parse(strFromU8(gunzipSync(strToU8(stored, true))))
+}
 
 export function removeReplayIframeDataFromLocalStorage(exceptKey?: string): void {
     for (let i = localStorage.length - 1; i >= 0; i--) {
@@ -37,18 +47,30 @@ export function removeReplayIframeDataFromLocalStorage(exceptKey?: string): void
 
 export function persistReplayIframeData(data: ReplayIframeData): string | null {
     const key = ReplayIframeDatakeyPrefix + uuid()
+    // prune stale snapshots before writing, so a quota failure frees space and the next attempt can recover
+    removeReplayIframeDataFromLocalStorage()
     try {
-        localStorage.setItem(key, JSON.stringify(data))
+        localStorage.setItem(key, compressReplayIframeData(data))
     } catch {
         return null
     }
-    // prune only after a successful write, so a failed write leaves the previous key usable
-    removeReplayIframeDataFromLocalStorage(key)
     return key
 }
 
 // a missing or malformed snapshot must resolve to null rather than throwing, so callers land on the
 // recording fallback instead of unwinding out of a router listener with the scene half-mounted
 export function getStoredRecordingBackground(storageKey: string | null): ReplayIframeData | null {
-    return storageKey ? localStorageSlot(storageKey, replayIframeDataSchema).get() : null
+    if (!storageKey) {
+        return null
+    }
+    try {
+        const stored = localStorage.getItem(storageKey)
+        if (!stored) {
+            return null
+        }
+        const result = replayIframeDataSchema.safeParse(decompressReplayIframeData(stored))
+        return result.success ? result.data : null
+    } catch {
+        return null
+    }
 }

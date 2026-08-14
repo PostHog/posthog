@@ -1,3 +1,5 @@
+import { gzipSync, strFromU8, strToU8 } from 'fflate'
+
 import {
     ReplayIframeData,
     ReplayIframeDatakeyPrefix as PREFIX,
@@ -14,6 +16,11 @@ describe('replayIframeData', () => {
         url: 'https://e',
     }
 
+    // gzipped bytes held as a latin1 string, matching how persistReplayIframeData writes them
+    const storeCompressed = (key: string, json: string): void => {
+        localStorage.setItem(key, strFromU8(gzipSync(strToU8(json)), true))
+    }
+
     const prefixedKeys = (): string[] => Object.keys(localStorage).filter((k) => k.startsWith(PREFIX))
 
     beforeEach(() => {
@@ -24,7 +31,7 @@ describe('replayIframeData', () => {
         jest.restoreAllMocks()
     })
 
-    it('prunes older snapshots once the new one is written', () => {
+    it('round-trips a snapshot through compression, pruning older ones', () => {
         localStorage.setItem(`${PREFIX}stale`, '{}')
 
         const key = persistReplayIframeData(data)
@@ -34,22 +41,37 @@ describe('replayIframeData', () => {
         expect(getStoredRecordingBackground(key)).toEqual(data)
     })
 
-    it('keeps the previous snapshot when the write is rejected', () => {
-        localStorage.setItem(`${PREFIX}previous`, '{"html":"<body>old</body>"}')
-        jest.spyOn(Storage.prototype, 'setItem').mockImplementation(() => {
+    it('stores a snapshot far larger than the old character cap', () => {
+        const large: ReplayIframeData = { ...data, html: `<body>${'x'.repeat(5_000_000)}</body>` }
+
+        const key = persistReplayIframeData(large)
+
+        expect(key).not.toBeNull()
+        expect(getStoredRecordingBackground(key)).toEqual(large)
+    })
+
+    it('recovers on the next write after a rejected one, having pruned first', () => {
+        localStorage.setItem(`${PREFIX}previous`, 'x')
+        const setItem = jest.spyOn(Storage.prototype, 'setItem').mockImplementationOnce(() => {
             throw new DOMException('quota', 'QuotaExceededError')
         })
 
         expect(persistReplayIframeData(data)).toBeNull()
-        expect(prefixedKeys()).toEqual([`${PREFIX}previous`])
+        expect(prefixedKeys()).toEqual([]) // the stale snapshot was pruned before the failed write
+
+        setItem.mockRestore()
+        const key = persistReplayIframeData(data)
+        expect(key).not.toBeNull()
+        expect(getStoredRecordingBackground(key)).toEqual(data)
     })
 
     it.each([
-        ['malformed json', '{not json'],
-        ['a snapshot missing its dimensions', '{"html":"<body>x</body>"}'],
-        ['a blank snapshot', '{"html":"  ","width":1,"height":2}'],
-    ])('reads %s as null', (_name, stored) => {
-        localStorage.setItem('stored', stored)
+        ['not gzip data', (key: string) => localStorage.setItem(key, 'not gzip data')],
+        ['malformed json', (key: string) => storeCompressed(key, '{not json')],
+        ['a snapshot missing its dimensions', (key: string) => storeCompressed(key, '{"html":"<body>x</body>"}')],
+        ['a blank snapshot', (key: string) => storeCompressed(key, '{"html":"  ","width":1,"height":2}')],
+    ])('reads %s as null', (_name, store) => {
+        store('stored')
 
         expect(getStoredRecordingBackground('stored')).toBeNull()
     })

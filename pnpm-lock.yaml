@@ -206,6 +206,9 @@ importers:
       concurrently:
         specifier: 'catalog:'
         version: 5.3.0
+      fflate:
+        specifier: ^0.8.2
+        version: 0.8.2
       fuse.js:
         specifier: 'catalog:'
         version: 7.3.0
