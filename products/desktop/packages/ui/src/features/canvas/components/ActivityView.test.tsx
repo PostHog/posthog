@@ -101,16 +101,19 @@ describe("activityHeadline", () => {
     expect(getByText(expected)).toBeInTheDocument();
   });
 
-  it("prefixes channel names with a hash", () => {
+  it.each([
+    ["shared channel", "engineering", "#engineering"],
+    ["personal channel", "personal", "your personal space"],
+  ])("formats the %s label", (_name, channelName, expected) => {
     const { getByText } = render(
       <div>
         {activityHeadline(
-          item({ activityKind: "completed", channelName: "me" }),
+          item({ activityKind: "completed", channelName }),
           "me@posthog.com",
         )}
       </div>,
     );
-    expect(getByText("#me")).toBeInTheDocument();
+    expect(getByText(expected)).toBeInTheDocument();
   });
 
   it("opens an activity mention at its exact comment thread", () => {

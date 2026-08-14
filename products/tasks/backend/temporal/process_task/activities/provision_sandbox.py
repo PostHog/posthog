@@ -9,6 +9,7 @@ from django.conf import settings
 from django.utils import timezone
 
 from temporalio import activity
+from temporalio.exceptions import ApplicationError
 
 from posthog.models.user_integration import ReauthorizationRequired
 from posthog.temporal.common.utils import asyncify
@@ -26,7 +27,7 @@ from products.tasks.backend.exceptions import (
     TaskNotFoundError,
 )
 from products.tasks.backend.logic.services.agentsh import _get_debug_only_domains, enforced_egress_domains
-from products.tasks.backend.logic.services.compute_quota import is_compute_quota_exhausted
+from products.tasks.backend.logic.services.compute_quota import get_compute_quota_denial_reason
 from products.tasks.backend.logic.services.connection_token import (
     SANDBOX_JWT_STATE_KID_KEY,
     get_primary_sandbox_jwt_kid,
@@ -35,9 +36,12 @@ from products.tasks.backend.logic.services.connection_token import (
 from products.tasks.backend.logic.services.sandbox import (
     ExecutionResult,
     Sandbox,
+    SandboxBase,
     SandboxConfig,
     SandboxTemplate,
     get_sandbox_class,
+    sandbox_repo_path,
+    workload_for_origin_product,
 )
 from products.tasks.backend.logic.services.sandbox_usage import measure_sandbox_cpu_usage, open_sandbox_session
 from products.tasks.backend.models import SandboxSnapshot, Task, TaskRun
@@ -151,6 +155,35 @@ class CheckoutBranchInSandboxInput:
     used_snapshot: bool
 
 
+def _prepare_posthog_desktop_cloud_task(ctx: TaskProcessingContext, sandbox: SandboxBase, repository: str) -> None:
+    """Build Desktop workspace exports from the task's checked-out source.
+
+    The dev-stack image warms pnpm's content-addressed store but deliberately does
+    not retain checkout-specific node_modules or dist directories. Prepare only the
+    internal PostHog checkout that uses that image, after its final branch is in place.
+    """
+    if (
+        ctx.custom_image_name != DEV_STACK_IMAGE_NAME
+        or repository.casefold() != "posthog/posthog"
+        or sandbox.config.image_fallback
+    ):
+        return
+
+    repo_path = f"{sandbox_repo_path(repository)}/products/desktop"
+    emit_agent_log(ctx.run_id, "debug", "Preparing Desktop workspace dependencies")
+    result = sandbox.execute(
+        f"cd {shlex.quote(repo_path)} && pnpm bootstrap:cloud-task",
+        timeout_seconds=10 * 60,
+    )
+    if result.exit_code != 0:
+        output = (result.stderr or result.stdout)[-2_000:]
+        raise ApplicationError(
+            f"Failed to prepare Desktop workspace: {output}",
+            type="DesktopCloudTaskBootstrapError",
+            non_retryable=True,
+        )
+
+
 @dataclass
 class InjectFreshTokensOnResumeInput:
     context: TaskProcessingContext
@@ -231,6 +264,9 @@ def _resolve_sandbox_github_token(
             else "Read-only GitHub token unavailable, continuing without GitHub access",
         )
         return github_token
+
+    if not has_repo and task.origin_product in (Task.OriginProduct.SIGNALS_CHAT, Task.OriginProduct.SIGNAL_REPORT):
+        return ""
 
     should_inject_github_token = ctx.has_github_credentials and (
         has_repo or ctx.github_user_integration_id is not None or ctx.github_integration_id is not None
@@ -582,10 +618,12 @@ def _create_sandbox_for_repository(input: CreateSandboxForRepositoryInput) -> Cr
         image_source=prepared.image_source,
         **ctx.to_log_context(),
     ):
-        if settings.TASKS_COMPUTE_QUOTA_ENFORCEMENT_ENABLED and not (ctx.state or {}).get("await_user_message"):
+        if not (ctx.state or {}).get("await_user_message"):
             task = _load_task(ctx)
-            if is_compute_quota_exhausted(task):
-                raise ComputeBillingLimitError({"team_id": ctx.team_id, "task_id": ctx.task_id, "run_id": ctx.run_id})
+            if reason := get_compute_quota_denial_reason(task):
+                raise ComputeBillingLimitError(
+                    {"team_id": ctx.team_id, "task_id": ctx.task_id, "run_id": ctx.run_id}, reason
+                )
         _emit_image_source_log(ctx, prepared)
         emit_agent_log(
             ctx.run_id,
@@ -599,6 +637,7 @@ def _create_sandbox_for_repository(input: CreateSandboxForRepositoryInput) -> Cr
         config = SandboxConfig(
             name=prepared.sandbox_name,
             template=SandboxTemplate.VM_BASE if use_vm_sandbox else SandboxTemplate.DEFAULT_BASE,
+            workload=workload_for_origin_product(ctx.origin_product),
             custom_image_name=ctx.custom_image_name if use_vm_sandbox else None,
             environment_variables=prepared.environment_variables,
             snapshot_id=prepared.snapshot_id,
@@ -823,6 +862,13 @@ def clone_repository_in_sandbox(input: CloneRepositoryInSandboxInput) -> CloneRe
         if clone_result.exit_code != 0:
             raise RuntimeError(f"Failed to clone repository {input.repository}: {clone_result.stderr}")
 
+        # A fresh single-repository run checks its requested branch out in the next
+        # activity. Resumes clone that branch directly, and multi-repo runs do not run
+        # the checkout activity, so prepare them here once their final source exists.
+        will_checkout_later = len(ctx.repositories) == 1 and bool(ctx.branch) and not is_resume
+        if not will_checkout_later:
+            _prepare_posthog_desktop_cloud_task(ctx, sandbox, input.repository)
+
         return CloneRepositoryInSandboxOutput(clone_ms=clone_timer.elapsed_ms)
 
 
@@ -907,6 +953,8 @@ def checkout_branch_in_sandbox(input: CheckoutBranchInSandboxInput) -> CheckoutB
         if result.exit_code != 0:
             logger.warning("Branch checkout failed", extra={"branch": input.branch, "stderr": result.stderr})
             raise RuntimeError(f"Failed to checkout branch {input.branch}")
+
+        _prepare_posthog_desktop_cloud_task(ctx, sandbox, input.repository)
 
         return CheckoutBranchInSandboxOutput(checkout_ms=checkout_timer.elapsed_ms)
 

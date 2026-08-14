@@ -56,6 +56,7 @@ from products.warehouse_sources.backend.facade.models import (
 from products.warehouse_sources.backend.facade.types import IncrementalFieldType
 from products.warehouse_sources.backend.presentation.views.external_data_schema import ExternalDataSchemaSerializer
 from products.warehouse_sources.backend.presentation.views.external_data_source import (
+    INVALID_CREDENTIALS_FALLBACK_MESSAGE,
     ExternalDataSourceViewSet,
     get_direct_connection_metadata,
     get_nonsensitive_and_sensitive_field_names,
@@ -182,6 +183,31 @@ class TestExternalDataSource(APIBaseTest):
         # so a later default flip never changes their sync behavior
         source = ExternalDataSource.objects.get(id=payload["id"])
         self.assertEqual(source.api_version, "2024-09-30.acacia")
+
+    @patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.stripe.source.StripeSource.validate_credentials",
+        side_effect=AttributeError("boom"),
+    )
+    def test_create_surfaces_400_when_credential_probe_raises(self, _mock_validate):
+        # A source whose validate_credentials raises (rather than returning (False, message)) must
+        # not 500 the create request — the user gets an actionable message and no source is created.
+        response = self.client.post(
+            f"/api/environments/{self.team.pk}/external_data_sources/",
+            data={
+                "source_type": "Stripe",
+                "created_via": "web",
+                "payload": {
+                    "auth_method": {"selection": "api_key", "stripe_secret_key": "sk_test_123"},
+                    "schemas": [
+                        {"name": name, "should_sync": True, "sync_type": "full_refresh"} for name in STRIPE_ENDPOINTS
+                    ],
+                },
+            },
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.json()["message"], INVALID_CREDENTIALS_FALLBACK_MESSAGE)
+        self.assertFalse(ExternalDataSource.objects.filter(team_id=self.team.pk).exists())
 
     def test_api_version_pin_is_read_only_via_api(self):
         source = self._create_external_data_source()
@@ -11426,6 +11452,34 @@ class TestExternalDataSourceSetup(APIBaseTest):
         )
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
         assert "does not support one-shot setup" in response.json()["message"]
+        mock_capture_exception.assert_not_called()
+        assert not ExternalDataSource.objects.filter(team=self.team).exists()
+
+    @patch("products.warehouse_sources.backend.presentation.views.external_data_source.capture_exception")
+    @patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.stripe.source.StripeSource.validate_credentials",
+        return_value=(True, None),
+    )
+    def test_setup_classifies_schema_discovery_error_instead_of_leaking_raw(
+        self, _mock_validate, mock_capture_exception
+    ):
+        # Credentials pass the earlier gate, but `get_schemas` opens its own connection and can still
+        # fail (e.g. the key expired in between). One-shot setup must classify via the source's
+        # non-retryable-error map, same as the `create` path, not surface the raw driver error.
+        with patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.stripe.source.StripeSource.get_schemas",
+            side_effect=Exception("Expired API Key provided"),
+        ):
+            response = self.client.post(
+                f"/api/environments/{self.team.pk}/external_data_sources/setup/",
+                data={
+                    "source_type": "Stripe",
+                    "prefix": "stripe_setup_error",
+                    "payload": {"auth_method": {"selection": "api_key", "stripe_secret_key": "sk_test_123"}},
+                },
+            )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+        assert response.json()["message"] == "Your Stripe API key has expired. Please create a new key and reconnect."
         mock_capture_exception.assert_not_called()
         assert not ExternalDataSource.objects.filter(team=self.team).exists()
 

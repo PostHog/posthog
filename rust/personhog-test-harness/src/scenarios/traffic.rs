@@ -17,10 +17,13 @@
 //! expected behavior legitimately differs across stack versions as
 //! admission hardening lands.
 //!
-//! Every database operation — seeding, verification, cleanup — touches
-//! only the configured target table (the writer's validation table), never
-//! posthog_person; a startup sentinel round-trip proves the router serves
-//! that same table before any traffic flows. Shutdown cuts the in-flight
+//! Direct database access is seeding and verification only — confined to
+//! the configured target table (the writer's validation table), never
+//! posthog_person, and never a DELETE: every row removal goes through the
+//! lifecycle delete saga, so leftovers from crashed runs and the saga's
+//! tombstones are external cleanup's business. A startup sentinel
+//! round-trip proves the router serves that same table before any traffic
+//! flows. Shutdown cuts the in-flight
 //! epoch's load short and runs the normal close-out (verify what was
 //! acked, record, clean up) inside the termination grace window.
 
@@ -30,6 +33,7 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use anyhow::{bail, Context, Result};
 use assignment_coordination::store::{EtcdStore, StoreConfig};
+use futures::stream::{StreamExt, TryStreamExt};
 use metrics::{counter, gauge, histogram};
 use personhog_proto::personhog::types::v1::ConsistencyLevel;
 use rand::{Rng, SeedableRng};
@@ -43,6 +47,7 @@ use uuid::Uuid;
 use crate::cli::TrafficArgs;
 use crate::client::HarnessClient;
 use crate::client::{IdentityClient, LifecycleClient};
+use crate::report::ConsistencyViolation;
 use crate::scenarios::chaos::{self, ChaosConfig, TargetKind, TargetSpec};
 use crate::scenarios::{blast, consistency};
 use crate::seed;
@@ -71,25 +76,61 @@ fn validate_args(args: &TrafficArgs) -> Result<()> {
             args.probers
         );
     }
+    if args.property_keys_per_person < args.concurrency as u64 {
+        // Workers cannot share a key without racing the journal, so each
+        // holds at least one and a smaller budget would quietly deliver
+        // `concurrency` keys per person instead of what was asked for.
+        bail!(
+            "property_keys_per_person ({}) must be at least concurrency ({})",
+            args.property_keys_per_person,
+            args.concurrency
+        );
+    }
+    if args.team_ids.is_empty() {
+        bail!("team_ids must not be empty");
+    }
+    let mut unique = args.team_ids.clone();
+    unique.sort_unstable();
+    unique.dedup();
+    if unique.len() != args.team_ids.len() {
+        // A duplicated team would run two lanes over the same rows:
+        // each lane's rotation deletes the other's pool mid-epoch and
+        // every acked write reads as a violation.
+        bail!("team_ids contains duplicates: {:?}", args.team_ids);
+    }
+    if args.team_ids.contains(&args.hostile_team_id) {
+        // The hostile lane is observed, never verified; sharing its team
+        // with a verified lane would fail verification on hostile rows.
+        bail!(
+            "hostile_team_id {} must not appear in team_ids",
+            args.hostile_team_id
+        );
+    }
+    for team in args.team_ids.iter().chain([&args.hostile_team_id]) {
+        // team_id columns are i32; reject here rather than deep inside
+        // the first seed query.
+        if i32::try_from(*team).is_err() {
+            bail!("team id {team} out of i32 range");
+        }
+    }
     seed::validate_table_name(&args.pg_target_table)
 }
 
-/// How old a leftover row must be before the startup janitor reaps it.
-/// Far above any epoch length, so a live sibling pod's pool is never
-/// touched; far below forever, so crashed instances' rows don't
-/// accumulate.
-const STALE_ROW_AGE: Duration = Duration::from_secs(3600);
+/// Concurrent identity-service create batches while seeding an epoch's
+/// pools. Bounded so a many-team epoch doesn't dogpile the service its
+/// traffic is about to measure.
+const SEED_CONCURRENCY: usize = 8;
 
 pub async fn run(args: TrafficArgs) -> Result<()> {
     validate_args(&args)?;
 
-    let team_id = args.team_id;
+    let team_ids = args.team_ids.clone();
     let hostile_team_id = args.hostile_team_id;
-    // Instances share the team pair; disjointness comes from the boot
-    // nonce in every distinct id, so verification (id-scoped) and the
-    // janitor (age-guarded) never cross instances.
+    // Instances share the team set; disjointness comes from the boot
+    // nonce in every distinct id, so verification (id-scoped) never
+    // crosses instances.
     let nonce = format!("{:08x}", rand::random::<u32>());
-    tracing::info!(%nonce, team_id, hostile_team_id, "instance identity");
+    tracing::info!(%nonce, ?team_ids, hostile_team_id, "instance identity");
 
     traffic_metrics::spawn_server(args.metrics_port)?;
     gauge!("personhog_traffic_enabled").set(if args.enabled { 1.0 } else { 0.0 });
@@ -100,7 +141,8 @@ pub async fn run(args: TrafficArgs) -> Result<()> {
         shutdown_signal().await;
         return Ok(());
     }
-    let client = HarnessClient::connect(&args.router_url).await?;
+    let client =
+        HarnessClient::connect_with_channels(&args.router_url, args.router_channels).await?;
     let identity = IdentityClient::connect(&args.identity_url).await?;
     let lifecycle = LifecycleClient::connect(&args.identity_url).await?;
     let pool = PgPool::connect(&args.persons_db_url)
@@ -110,16 +152,16 @@ pub async fn run(args: TrafficArgs) -> Result<()> {
     // Refuse to send traffic anywhere the router provably doesn't serve
     // this database. On failure the process exits and the Deployment's
     // restart loop retries — which also rides out startup races where the
-    // leader hasn't claimed partitions yet.
-    sentinel_round_trip(&client, &pool, &args.pg_target_table, team_id).await?;
-
-    // A crashed prior run leaves rows behind; reap the ones old enough
-    // that they cannot belong to a live sibling — a rolling restart
-    // briefly runs two bed pods against the same team, each on its own
-    // disjoint id pool, and a fresh row is the sibling's business.
-    for team in [team_id, hostile_team_id] {
-        seed::reap_stale_team_rows(&pool, &args.pg_target_table, team, STALE_ROW_AGE).await?;
-    }
+    // leader hasn't claimed partitions yet. One team suffices: the check
+    // proves the router/database pairing, not per-team routing.
+    sentinel_round_trip(
+        &client,
+        &lifecycle,
+        &pool,
+        &args.pg_target_table,
+        team_ids[0],
+    )
+    .await?;
 
     // Hostile targets live for the process lifetime: their documents stay
     // small (fixed keys, no journal growth) and their outcomes are only
@@ -169,78 +211,115 @@ pub async fn run(args: TrafficArgs) -> Result<()> {
         let rate = rng.gen_range(args.rate_min..=args.rate_max);
         counter!("personhog_traffic_epochs_total").increment(1);
         gauge!("personhog_traffic_epoch_target_rps").set(rate);
-        tracing::info!(epoch, rate = format!("{rate:.0}"), "epoch starting");
+        // The drawn rate is the instance's total blast rate: lanes share
+        // it evenly, and probers are likewise an instance total (see
+        // prober_share), so the team count tunes spread across
+        // partitions, not offered load.
+        let lane_rate = rate / team_ids.len() as f64;
+        tracing::info!(
+            epoch,
+            rate = format!("{rate:.0}"),
+            teams = team_ids.len(),
+            "epoch starting"
+        );
 
-        // The hostile pool outlives epochs; keep its liveness stamp fresh
-        // so a sibling pod's startup janitor never reaps it mid-use.
-        seed::refresh_created_at(&pool, &args.pg_target_table, hostile_team_id, &hostile_ids)
-            .await?;
-
-        // The per-epoch janitor: crashed-run leftovers and the
-        // tombstones lifecycle rotation leaves behind both age into
-        // eligibility; without this the table grows one pool per epoch
-        // for the life of the deployment.
-        for team in [team_id, hostile_team_id] {
-            seed::reap_stale_team_rows(&pool, &args.pg_target_table, team, STALE_ROW_AGE).await?;
-        }
-
-        // Fresh ids every epoch, nonce'd per instance: each create
+        // Seed every lane's pool before any lane starts, concurrently
+        // but bounded so one epoch's create batches don't dogpile the
+        // identity service: the lanes then launch together and share one
+        // load window instead of staggering by the cumulative seeding
+        // time. Fresh ids every epoch, nonce'd per instance: each create
         // inserts a new row rather than reviving a tombstone, and
-        // sibling instances on the shared team never resolve onto each
+        // sibling instances on the shared teams never resolve onto each
         // other's rows.
-        let distinct_ids: Vec<String> = (0..args.pool_size)
-            .map(|i| format!("bed-{nonce}-e{epoch}-p{i}"))
-            .collect();
-        let person_ids =
-            Arc::new(seed::seed_persons_via_identity(&identity, team_id, &distinct_ids).await?);
-        let collector = Arc::new(StatsCollector::new());
-        let state = PersonState::new();
+        let pools: Vec<(i64, Arc<Vec<i64>>)> = if shutdown.load(Ordering::SeqCst) {
+            // A signal before seeding means the pools would only be
+            // seeded to be verified vacuously and deleted.
+            Vec::new()
+        } else {
+            futures::stream::iter(team_ids.iter().map(|&team_id| {
+                let identity = &identity;
+                let nonce = &nonce;
+                async move {
+                    let distinct_ids: Vec<String> = (0..args.pool_size)
+                        .map(|i| format!("bed-{nonce}-e{epoch}-t{team_id}-p{i}"))
+                        .collect();
+                    let ids =
+                        seed::seed_persons_via_identity(identity, team_id, &distinct_ids).await?;
+                    anyhow::Ok((team_id, Arc::new(ids)))
+                }
+            }))
+            .buffered(SEED_CONCURRENCY)
+            .try_collect()
+            .await?
+        };
 
-        let traffic = {
-            let client = client.clone();
-            let person_ids = person_ids.clone();
-            let collector = collector.clone();
-            let state = state.clone();
-            let (team_id, duration, concurrency) = (team_id, args.epoch, args.concurrency);
-            let prefix = format!("traffic_e{epoch}_");
-            let stop = shutdown.clone();
-            tokio::spawn(async move {
-                blast::run_traffic(
-                    &client,
-                    team_id,
-                    person_ids,
-                    duration,
+        // One lane per team, each with its own pool, journal, and stats:
+        // every verifier downstream is team-scoped, so nothing lane-local
+        // can be shared.
+        let mut lanes = Vec::with_capacity(pools.len());
+        for (lane_index, (team_id, person_ids)) in pools.into_iter().enumerate() {
+            let collector = Arc::new(StatsCollector::new());
+            let state = PersonState::new();
+
+            let traffic = {
+                let client = client.clone();
+                let person_ids = person_ids.clone();
+                let collector = collector.clone();
+                let state = state.clone();
+                let (duration, concurrency) = (args.epoch, args.concurrency);
+                let plan = blast::PropertyPlan::new(
+                    format!("traffic_e{epoch}_"),
+                    args.property_keys_per_person,
                     concurrency,
-                    Some(rate),
-                    &prefix,
-                    &collector,
-                    &state,
-                    stop,
-                )
-                .await
-            })
-        };
-        let probers = {
-            let client = client.clone();
-            let person_ids = person_ids.clone();
-            let collector = collector.clone();
-            let state = state.clone();
-            let (team_id, duration, prober_count) = (team_id, args.epoch, args.probers);
-            let stop = shutdown.clone();
-            tokio::spawn(async move {
-                consistency::run_probers(
-                    &client,
-                    team_id,
-                    person_ids,
-                    prober_count,
-                    duration,
-                    &collector,
-                    &state,
-                    stop,
-                )
-                .await
-            })
-        };
+                );
+                let stop = shutdown.clone();
+                tokio::spawn(async move {
+                    blast::run_traffic(
+                        &client,
+                        team_id,
+                        person_ids,
+                        duration,
+                        concurrency,
+                        Some(lane_rate),
+                        &plan,
+                        &collector,
+                        &state,
+                        stop,
+                    )
+                    .await
+                })
+            };
+            let probers = {
+                let client = client.clone();
+                let person_ids = person_ids.clone();
+                let collector = collector.clone();
+                let state = state.clone();
+                let duration = args.epoch;
+                let prober_count = prober_share(args.probers, team_ids.len(), lane_index, epoch);
+                let stop = shutdown.clone();
+                tokio::spawn(async move {
+                    consistency::run_probers(
+                        &client,
+                        team_id,
+                        person_ids,
+                        prober_count,
+                        duration,
+                        &collector,
+                        &state,
+                        stop,
+                    )
+                    .await
+                })
+            };
+            lanes.push(Lane {
+                team_id,
+                person_ids,
+                collector,
+                state,
+                traffic,
+                probers,
+            });
+        }
         let hostile = {
             let client = client.clone();
             let hostile_ids = hostile_ids.clone();
@@ -251,19 +330,80 @@ pub async fn run(args: TrafficArgs) -> Result<()> {
             })
         };
 
-        traffic.await.context("traffic task panicked")??;
-        let prober_violations = probers.await.context("prober task panicked")??;
+        // Close the epoch: everything acked in it must now be visible.
+        // Lanes close concurrently — each lane's verification is
+        // team-scoped and independent, and a lane's worst case (strong
+        // reads with retries plus the Postgres quiesce deadline) is what
+        // the termination grace window is sized for; closing lanes one
+        // after another would multiply that by the team count. Every
+        // lane closes even when one fails: the error propagates only
+        // after the loop below records the other lanes' verification
+        // results and diagnostics.
+        let closed = futures::future::join_all(lanes.iter_mut().map(|lane| {
+            let client = &client;
+            let pool = &pool;
+            let table = &args.pg_target_table;
+            async move {
+                let team_id = lane.team_id;
+                let close = async move {
+                    (&mut lane.traffic)
+                        .await
+                        .context("traffic task panicked")??;
+                    let mut lane_violations = (&mut lane.probers)
+                        .await
+                        .context("prober task panicked")??;
+                    lane_violations.extend(lane.state.take_anomalies().await);
+                    lane_violations.extend(
+                        blast::verify_strong(client, &lane.collector, &lane.state, team_id).await?,
+                    );
+                    let journal = lane.state.snapshot().await;
+                    lane_violations.extend(verify_postgres(pool, table, team_id, &journal).await?);
+                    anyhow::Ok((team_id, lane_violations, lane.collector.writes.snapshot()))
+                };
+                close
+                    .await
+                    .with_context(|| format!("closing the lane for team {team_id}"))
+            }
+        }))
+        .await;
         hostile.await.context("hostile task panicked")?;
 
-        // Close the epoch: everything acked in it must now be visible.
-        let mut violations = prober_violations;
-        violations.extend(state.take_anomalies().await);
-        violations.extend(blast::verify_strong(&client, &collector, &state, team_id).await?);
-        let journal = state.snapshot().await;
-        violations.extend(verify_postgres(&pool, &args.pg_target_table, team_id, &journal).await?);
+        let mut violations = Vec::new();
+        let mut successes: u64 = 0;
+        let mut failures: u64 = 0;
+        let mut close_error = None;
+        for result in closed {
+            match result {
+                Ok((team_id, lane_violations, writes)) => {
+                    // Violation metrics carry no team dimension, so the
+                    // per-lane log line is what attributes a bad epoch to
+                    // its team.
+                    tracing::info!(
+                        epoch,
+                        team_id,
+                        writes = writes.successes,
+                        failed = writes.failures,
+                        violations = lane_violations.len(),
+                        "lane closed"
+                    );
+                    successes += writes.successes;
+                    failures += writes.failures;
+                    violations.extend(lane_violations);
+                }
+                Err(error) => {
+                    tracing::error!(error = format!("{error:#}"), "lane close failed");
+                    close_error.get_or_insert(error);
+                }
+            }
+        }
         traffic_metrics::record_violations(epoch, &violations);
+        if let Some(error) = close_error {
+            // The healthy lanes' violations are recorded above; the
+            // unrotated pools stay behind — the bed never deletes from
+            // Postgres, so leftovers are external cleanup's business.
+            return Err(error);
+        }
 
-        let writes = collector.writes.snapshot();
         gauge!("personhog_traffic_last_epoch_completed_timestamp_seconds").set(
             SystemTime::now()
                 .duration_since(UNIX_EPOCH)
@@ -272,17 +412,27 @@ pub async fn run(args: TrafficArgs) -> Result<()> {
         );
         tracing::info!(
             epoch,
-            writes = writes.successes,
-            failed = writes.failures,
+            writes = successes,
+            failed = failures,
             violations = violations.len(),
             "epoch closed"
         );
 
-        // Rotate the pool through the lifecycle delete saga: the same
+        // Rotate the pools through the lifecycle delete saga: the same
         // path production deletes take, exercised every epoch under
         // whatever chaos is running. By id, not by team — a successor
-        // pod may already be running its own pool against this team.
-        delete_pool(&lifecycle, team_id, &person_ids).await?;
+        // pod may already be running its own pool against these teams.
+        // Every pool's rotation is attempted before the first failure
+        // propagates; a missed pool is left behind for external cleanup.
+        for result in futures::future::join_all(
+            lanes
+                .iter()
+                .map(|lane| delete_pool(&lifecycle, lane.team_id, &lane.person_ids)),
+        )
+        .await
+        {
+            result?;
+        }
 
         if shutdown.load(Ordering::SeqCst) {
             tracing::info!("cleaning up and exiting");
@@ -290,6 +440,31 @@ pub async fn run(args: TrafficArgs) -> Result<()> {
             return Ok(());
         }
     }
+}
+
+/// The lane's share of the instance-total prober count. Probers are
+/// unpaced closed loops — each cycle runs as fast as a write plus a
+/// strong read round-trips — so the total, not a per-team count, is
+/// what bounds their load as teams are added. Rotating the assignment
+/// with the epoch gets every team probed within a few epochs even when
+/// there are fewer probers than teams; end-of-epoch verification covers
+/// every lane regardless.
+fn prober_share(total: usize, lanes: usize, lane: usize, epoch: u64) -> usize {
+    (0..total)
+        .filter(|prober| (prober + epoch as usize) % lanes == lane)
+        .count()
+}
+
+/// One verified team's slice of an epoch: its pool, its journal and
+/// stats, and the two load tasks writing into them. Lane-local because
+/// strong-read and Postgres verification are team-scoped.
+struct Lane {
+    team_id: i64,
+    person_ids: Arc<Vec<i64>>,
+    collector: Arc<StatsCollector>,
+    state: PersonState,
+    traffic: tokio::task::JoinHandle<Result<()>>,
+    probers: tokio::task::JoinHandle<Result<Vec<ConsistencyViolation>>>,
 }
 
 /// The hostile lane: paced writes carrying payloads a correct stack must
@@ -417,9 +592,9 @@ async fn hold_and_run(
 }
 
 /// Delete the epoch's pool through the saga and account for every
-/// outcome. `deleted` is the expected answer; `not_found` means someone
-/// else already removed the row (a startup janitor's reap, never a
-/// second bed — pools are id-disjoint) and is counted, not fatal;
+/// outcome. `deleted` is the expected answer; `not_found` means the row
+/// was already gone (a replayed saga op, never a second bed — pools are
+/// id-disjoint) and is counted, not fatal;
 /// `skipped_conflict` means a lifecycle operation is stuck holding a
 /// pool person, which the bed exists to surface, so it fails the run.
 async fn delete_pool(lifecycle: &LifecycleClient, team_id: i64, person_ids: &[i64]) -> Result<()> {
@@ -553,9 +728,11 @@ fn hostile_payload(counter: u64) -> (&'static str, Value) {
 /// and require an exact match. The router path terminates in the leader's
 /// PG fallback, so a router pointed at any other environment cannot
 /// return a value that was generated here moments ago. The row is
-/// removed by the boot cleanup that follows.
+/// retired through the lifecycle delete saga — traffic mode never
+/// deletes from Postgres directly.
 async fn sentinel_round_trip(
     client: &HarnessClient,
+    lifecycle: &LifecycleClient,
     pool: &PgPool,
     table: &str,
     team_id: i64,
@@ -597,14 +774,9 @@ async fn sentinel_round_trip(
         );
     }
     tracing::info!("sentinel round-trip verified: router and database agree");
-    sqlx::query(&format!(
-        "DELETE FROM {table} WHERE team_id = $1 AND id = $2"
-    ))
-    .bind(team)
-    .bind(person_id)
-    .execute(pool)
-    .await
-    .context("deleting the sentinel person")?;
+    delete_pool(lifecycle, team_id, &[person_id])
+        .await
+        .context("retiring the sentinel person through the delete saga")?;
     Ok(())
 }
 
@@ -628,6 +800,7 @@ async fn shutdown_signal() {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::cli::{DEFAULT_KEYS_PER_PERSON, DEFAULT_ROUTER_CHANNELS};
 
     /// Needs the CI gate's etcd; run explicitly with `--ignored`.
     #[tokio::test]
@@ -672,12 +845,14 @@ mod tests {
             chaos_etcd_namespace: None,
             router_url: "http://localhost:1".to_string(),
             identity_url: "http://localhost:2".to_string(),
+            router_channels: DEFAULT_ROUTER_CHANNELS,
             enabled: true,
-            team_id: 900_101,
+            team_ids: vec![900_101],
             hostile_team_id: 900_102,
             persons_db_url: "postgres://unused".to_string(),
             pg_target_table: "personhog_person_tmp".to_string(),
             pool_size: 200,
+            property_keys_per_person: DEFAULT_KEYS_PER_PERSON,
             epoch: Duration::from_secs(300),
             rate_min: 50.0,
             rate_max: 500.0,
@@ -701,7 +876,29 @@ mod tests {
             ..valid.clone()
         })
         .is_ok());
+        // Multiple disjoint teams are legal.
+        assert!(validate_args(&TrafficArgs {
+            team_ids: vec![900_101, 900_103, 900_104],
+            ..valid.clone()
+        })
+        .is_ok());
         for broken in [
+            TrafficArgs {
+                team_ids: vec![],
+                ..valid.clone()
+            },
+            TrafficArgs {
+                team_ids: vec![900_101, 900_103, 900_101],
+                ..valid.clone()
+            },
+            TrafficArgs {
+                team_ids: vec![900_101, 900_102],
+                ..valid.clone()
+            },
+            TrafficArgs {
+                team_ids: vec![i64::from(i32::MAX) + 1],
+                ..valid.clone()
+            },
             TrafficArgs {
                 pool_size: 0,
                 ..valid.clone()
@@ -712,6 +909,12 @@ mod tests {
             },
             TrafficArgs {
                 probers: 0,
+                ..valid.clone()
+            },
+            // Fewer keys than workers cannot be honoured: each worker
+            // needs its own, so the person would collect `concurrency`.
+            TrafficArgs {
+                property_keys_per_person: valid.concurrency as u64 - 1,
                 ..valid.clone()
             },
             TrafficArgs {
@@ -728,6 +931,30 @@ mod tests {
             },
         ] {
             assert!(validate_args(&broken).is_err());
+        }
+    }
+
+    #[test]
+    fn prober_shares_sum_to_the_total_and_rotate_over_every_lane() {
+        for (total, lanes) in [(2, 1), (2, 3), (5, 3), (1, 64), (2, 64)] {
+            for epoch in 0..(lanes as u64 * 2) {
+                let shares: Vec<usize> = (0..lanes)
+                    .map(|lane| prober_share(total, lanes, lane, epoch))
+                    .collect();
+                assert_eq!(
+                    shares.iter().sum::<usize>(),
+                    total,
+                    "total={total} lanes={lanes} epoch={epoch}"
+                );
+            }
+            // Rotation: every lane is probed at least once within a full
+            // cycle of epochs, even with fewer probers than lanes.
+            for lane in 0..lanes {
+                assert!(
+                    (0..lanes as u64).any(|epoch| prober_share(total, lanes, lane, epoch) > 0),
+                    "lane {lane} never probed with total={total} lanes={lanes}"
+                );
+            }
         }
     }
 

@@ -206,6 +206,32 @@ export class DashboardsService {
     return this.patch(input.id, { pinned: input.pinned }, "set pin");
   }
 
+  // File a rendering error in the canvas's authoring-task thread (the server
+  // dedupes per build and error type). Best-effort: a report must never affect
+  // the render, and backends without the endpoint just refuse it, so every
+  // failure is swallowed.
+  async reportError(input: {
+    id: string;
+    buildId: string;
+    errorType: string;
+  }): Promise<void> {
+    try {
+      await this.api.fetch(
+        `canvases/${encodeURIComponent(input.id)}/report_error/`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            build_id: input.buildId,
+            error_type: input.errorType,
+          }),
+        },
+      );
+    } catch {
+      // Advisory call — rendering carries on regardless.
+    }
+  }
+
   rename(input: { id: string; name: string }): Promise<DashboardRecord> {
     return this.patch(input.id, { name: input.name }, "rename canvas");
   }
