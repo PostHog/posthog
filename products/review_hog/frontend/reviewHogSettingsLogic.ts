@@ -39,7 +39,10 @@ import type {
     ReviewUserSettingsApi,
     ReviewValidatorConfigApi,
 } from 'products/review_hog/frontend/generated/api.schemas'
-import { ReviewHogReviewsListScope, ReviewTriggerRequestRunModeEnumApi } from 'products/review_hog/frontend/generated/api.schemas'
+import {
+    ReviewHogReviewsListScope,
+    ReviewTriggerRequestRunModeEnumApi,
+} from 'products/review_hog/frontend/generated/api.schemas'
 
 export type ReviewSkillKind = 'perspective' | 'blind_spots' | 'validator' | 'resolution'
 
@@ -498,7 +501,9 @@ export const reviewHogSettingsLogic = kea<reviewHogSettingsLogicType>([
         // setting), a review without resolving, or a resolve-only run — the split button's variants.
         // The listener self-guards on `triggeringReview`, so a repeat dispatch mid-flight (Enter
         // spam, double click) is a no-op regardless of the source.
-        submitTriggerReview: (runMode: ReviewTriggerRequestRunModeEnumApi = ReviewTriggerRequestRunModeEnumApi.Review) => ({ runMode }),
+        submitTriggerReview: (
+            runMode: ReviewTriggerRequestRunModeEnumApi = ReviewTriggerRequestRunModeEnumApi.Review
+        ) => ({ runMode }),
         submitTriggerReviewStarted: true,
         submitTriggerReviewFinished: true,
         // Keeps the recent-reviews poll on the tight cadence until a just-triggered review's report
