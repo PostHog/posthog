@@ -41,22 +41,6 @@ _SCHEMA_DIR = Path(__file__).resolve().parent.parent / "schema"
 
 _MAX_RETRIES = 5
 
-_FETCH_BY_DISTINCT_ID = """
-    SELECT posthog_person.id, posthog_person.uuid, posthog_person.created_at,
-           posthog_person.team_id, posthog_person.properties, posthog_person.is_identified,
-           posthog_person.version, posthog_person.merged_into_id
-    FROM posthog_person
-    JOIN posthog_persondistinctid ON (
-        posthog_persondistinctid.person_id = posthog_person.id
-        AND posthog_persondistinctid.team_id = posthog_person.team_id
-    )
-    WHERE posthog_person.team_id = %s
-      AND posthog_persondistinctid.team_id = %s
-      AND posthog_persondistinctid.distinct_id = %s
-      AND posthog_persondistinctid.is_deleted = false
-      AND posthog_person.is_deleted = false
-"""
-
 _FETCH_BY_ID = """
     SELECT id, uuid, created_at, team_id, properties, is_identified, version, merged_into_id
     FROM posthog_person
@@ -159,28 +143,44 @@ class UnionFindStrategy:
 
     # -- locking chain walk --------------------------------------------------
 
+    _FIND_ROOT_ID = """
+        WITH RECURSIVE walk AS (
+            SELECT p.id, p.merged_into_id
+            FROM posthog_person p
+            JOIN posthog_persondistinctid d ON d.person_id = p.id AND d.team_id = p.team_id
+            WHERE p.team_id = %s AND d.team_id = %s AND d.distinct_id = %s
+              AND d.is_deleted = false AND p.is_deleted = false
+            UNION ALL
+            SELECT p2.id, p2.merged_into_id
+            FROM posthog_person p2
+            JOIN walk w ON p2.id = w.merged_into_id
+            WHERE p2.team_id = %s AND p2.is_deleted = false
+        )
+        SELECT id FROM walk WHERE merged_into_id IS NULL
+    """
+
     def _fetch_root_for_update(self, cur: psycopg.Cursor, team_id: int, distinct_id: str) -> _Person | None:
         """Resolve distinct id -> root person, locking the root.
 
-        Classic lock-chase: lock the current node, follow the pointer, and if
-        the locked node gained a pointer while we waited, keep walking.
+        The chain walk happens server-side (one recursive query, no lock), then
+        only the root is locked. If the root gained a pointer while we waited
+        on the lock, follow it — that re-chase is rare and short.
         """
-        cur.execute(_FETCH_BY_DISTINCT_ID + " FOR UPDATE OF posthog_person", (team_id, team_id, distinct_id))
+        cur.execute(self._FIND_ROOT_ID, (team_id, team_id, distinct_id, team_id))
         row = cur.fetchone()
         if row is None:
             return None
-        person = _row_to_person(row)
-        hops = 0
-        while person.merged_into_id is not None:
-            hops += 1
-            if hops > 64:
-                raise _RetryableMergeError("pointer chain too deep or cyclic")
-            cur.execute(_FETCH_BY_ID + " FOR UPDATE", (team_id, person.merged_into_id))
-            row = cur.fetchone()
-            if row is None:
+        root_id = row[0]
+        for _ in range(16):
+            cur.execute(_FETCH_BY_ID + " FOR UPDATE", (team_id, root_id))
+            prow = cur.fetchone()
+            if prow is None:
                 raise _RetryableMergeError("pointer chain hit a missing person")
-            person = _row_to_person(row)
-        return person
+            person = _row_to_person(prow)
+            if person.merged_into_id is None:
+                return person
+            root_id = person.merged_into_id
+        raise _RetryableMergeError("root kept moving while locking")
 
     # -- neither / one: identical shape to the baseline ----------------------
 

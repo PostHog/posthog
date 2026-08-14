@@ -252,13 +252,19 @@ def run_chain_phase(
         workload.seed_chain_persons(seed_conn, depth_max + 1, dids_per_person, f"{tag_base}-{c}") for c in range(chains)
     ]
 
+    # Log-spaced checkpoints: merges run continuously; reads and per-window
+    # write stats are sampled only at these depths so deep chains stay
+    # tractable (total merge work grows quadratically with depth).
+    checkpoints = sorted({d for base in (1, 2, 5) for e in range(6) if (d := base * 10**e) <= depth_max} | {depth_max})
+
     steps: list[dict[str, Any]] = []
     checks = 0
     with psycopg.connect(dsn) as merge_conn, psycopg.connect(dsn) as read_conn:
+        window_latencies: list[float] = []
+        window_msgs = 0
+        window_ops = 0
+        window_start_wal = wal_lsn(seed_conn)
         for depth in range(1, depth_max + 1):
-            wal_before = wal_lsn(seed_conn)
-            merge_latencies: list[float] = []
-            msgs = 0
             for c in range(chains):
                 # Merge the current survivor (reachable via the first person's
                 # first distinct id) into the fresh person at this depth.
@@ -266,21 +272,34 @@ def run_chain_phase(
                 target_did = chain_dids[c][depth][0]
                 t0 = time.perf_counter()
                 outcome = strategy.identify(merge_conn, workload.TEAM_ID, target_did, anon_did)
-                merge_latencies.append((time.perf_counter() - t0) * 1000)
-                msgs += len(outcome.emissions)
-            wal_after = wal_lsn(seed_conn)
+                window_latencies.append((time.perf_counter() - t0) * 1000)
+                window_msgs += len(outcome.emissions)
+                window_ops += 1
 
-            # Reads through the full chain: the first person's distinct ids.
-            read_latencies: list[float] = []
+            if depth not in checkpoints:
+                continue
+
+            window_end_wal = wal_lsn(seed_conn)
+
+            # Deep reads resolve through the full chain (the first person's
+            # ids, repeated for stable stats when each person has only one);
+            # root reads hit the current survivor directly, as the control.
+            read_deep: list[float] = []
+            read_root: list[float] = []
+            deep_sample = chain_dids[0][0][: min(dids_per_person, 10)]
+            repeats = max(1, 20 // len(deep_sample))
             for c in range(chains):
-                for did in chain_dids[c][0][: min(dids_per_person, 20)]:
+                resolved = None
+                for did in [d for d in chain_dids[c][0][: len(deep_sample)] for _ in range(repeats)]:
                     t0 = time.perf_counter()
                     resolved = strategy.resolve(read_conn, workload.TEAM_ID, did)
-                    read_latencies.append((time.perf_counter() - t0) * 1000)
-                    survivor = strategy.resolve(read_conn, workload.TEAM_ID, chain_dids[c][depth][0])
-                    assert resolved is not None and survivor is not None
-                    assert resolved.person_id == survivor.person_id, f"chain read diverged at depth {depth}: {did!r}"
-                    checks += 1
+                    read_deep.append((time.perf_counter() - t0) * 1000)
+                t0 = time.perf_counter()
+                survivor = strategy.resolve(read_conn, workload.TEAM_ID, chain_dids[c][depth][0])
+                read_root.append((time.perf_counter() - t0) * 1000)
+                assert resolved is not None and survivor is not None
+                assert resolved.person_id == survivor.person_id, f"chain read diverged at depth {depth}"
+                checks += 1
 
             def pct(data: list[float], q: float) -> float:
                 return statistics.quantiles(data, n=100)[int(q) - 1] if len(data) >= 2 else data[0]
@@ -288,14 +307,19 @@ def run_chain_phase(
             steps.append(
                 {
                     "depth": depth,
-                    "merge_p50_ms": round(statistics.median(merge_latencies), 3),
-                    "merge_p95_ms": round(pct(merge_latencies, 95), 3),
-                    "read_p50_ms": round(statistics.median(read_latencies), 4),
-                    "read_p95_ms": round(pct(read_latencies, 95), 4),
-                    "wal_bytes_per_op": round((wal_after - wal_before) / chains),
-                    "msgs_per_op": round(msgs / chains, 1),
+                    "merge_p50_ms": round(statistics.median(window_latencies), 3),
+                    "merge_p95_ms": round(pct(window_latencies, 95), 3),
+                    "read_p50_ms": round(statistics.median(read_deep), 4),
+                    "read_p95_ms": round(pct(read_deep, 95), 4),
+                    "read_root_p50_ms": round(statistics.median(read_root), 4),
+                    "wal_bytes_per_op": round((window_end_wal - window_start_wal) / window_ops),
+                    "msgs_per_op": round(window_msgs / window_ops, 1),
                 }
             )
+            window_latencies = []
+            window_msgs = 0
+            window_ops = 0
+            window_start_wal = wal_lsn(seed_conn)
     seed_conn.close()
 
     return {
@@ -341,10 +365,10 @@ def main() -> None:
                 phases.append(phase)
                 for step in phase["steps"]:
                     print(
-                        f"{strategy.name:>14} chain dids={size:<6} depth={step['depth']:<3} "
-                        f"merge-p50={step['merge_p50_ms']:>9.3f}ms read-p50={step['read_p50_ms']:>8.4f}ms "
-                        f"read-p95={step['read_p95_ms']:>8.4f}ms wal/op={step['wal_bytes_per_op']:>9} "
-                        f"msgs/op={step['msgs_per_op']:>8.1f}"
+                        f"{strategy.name:>14} chain dids={size:<6} depth={step['depth']:<6} "
+                        f"merge-p50={step['merge_p50_ms']:>9.3f}ms read-deep-p50={step['read_p50_ms']:>8.4f}ms "
+                        f"read-root-p50={step.get('read_root_p50_ms', float('nan')):>8.4f}ms "
+                        f"wal/op={step['wal_bytes_per_op']:>9} msgs/op={step['msgs_per_op']:>8.1f}"
                     )
                 continue
             phase = run_phase(args.dsn, strategy, case, size, args.reps, args.concurrency, args.contention)

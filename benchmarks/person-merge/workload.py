@@ -65,19 +65,26 @@ def seed_chain_persons(
     """
     did_lists = [[f"chain-{tag}-p{p}-{d}" for d in range(dids_per_person)] for p in range(person_count)]
     with conn.cursor() as cur:
-        for dids in did_lists:
-            cur.execute(
-                """
-                WITH p AS (
-                    INSERT INTO posthog_person (created_at, properties, team_id, is_identified, uuid, version)
-                    VALUES (now(), '{}'::jsonb, %s, false, %s, 0)
-                    RETURNING id
-                )
-                INSERT INTO posthog_persondistinctid (distinct_id, person_id, team_id, version)
-                SELECT d, p.id, %s, 0 FROM p, unnest(%s::text[]) d
-                """,
-                (TEAM_ID, str(uuidlib.uuid4()), TEAM_ID, dids),
+        # Set-based: one statement seeds every person and mapping. Person ids
+        # are sequential, so row_number() over id reproduces the p0..pN order
+        # the client-side did names encode.
+        cur.execute(
+            """
+            WITH people AS (
+                INSERT INTO posthog_person (created_at, properties, team_id, is_identified, uuid, version)
+                SELECT now(), '{}'::jsonb, %s, false, gen_random_uuid(), 0
+                FROM generate_series(0, %s - 1)
+                RETURNING id
+            ),
+            numbered AS (
+                SELECT id, row_number() OVER (ORDER BY id) - 1 AS pnum FROM people
             )
+            INSERT INTO posthog_persondistinctid (distinct_id, person_id, team_id, version)
+            SELECT 'chain-' || %s || '-p' || n.pnum || '-' || d, n.id, %s, 0
+            FROM numbered n, generate_series(0, %s - 1) d
+            """,
+            (TEAM_ID, person_count, tag, TEAM_ID, dids_per_person),
+        )
     conn.commit()
     return did_lists
 
