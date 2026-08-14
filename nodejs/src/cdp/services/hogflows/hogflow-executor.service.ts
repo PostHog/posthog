@@ -310,7 +310,9 @@ export class HogFlowExecutorService {
                 logs.push({
                     level: 'info',
                     timestamp: DateTime.now(),
-                    message: `Workflow is aborting because ${actionIdForLogging(lastExecutedAction)} could not work out the date to wait for`,
+                    message: `Workflow is aborting because ${
+                        lastExecutedAction ? actionIdForLogging(lastExecutedAction) : lastExecutedActionId
+                    } could not work out the date to wait for`,
                 })
             }
         }
