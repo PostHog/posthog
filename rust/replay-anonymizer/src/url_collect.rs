@@ -18,18 +18,22 @@
 //! downstream. Removing the volatile parameters matters more for that than it does for
 //! the request count.
 //!
-//! The hash is a *keyed* HMAC, for the same reason as the image hash. The ML bucket is not
-//! encrypted. An unkeyed digest of a URL would let a reader of the bucket learn which sites the
-//! users of a team visited.
+//! The hash is *unkeyed*, unlike the image hash, so one URL gives one hash for every team. That is
+//! what lets the fetch lane fetch an image one time however many customers refer to it. A keyed
+//! hash gave each team its own value, so the request count grew with the customer count rather
+//! than with the number of distinct images.
 //!
-//! The caller derives the per-team key from the same KMS-held secret as the team pseudonym.
-//! Neither the secret nor the key leaves the ingester.
+//! The cost is that a reader of the ML bucket can tell two teams loaded one image, and can confirm
+//! a URL they name is present. Only PostHog employees read that bucket, and the data preparation
+//! step replaces a ref with the scrubbed image, so no ref reaches the training data.
+//!
+//! The image hash stays keyed. It names the bytes of an image rather than a URL, so it carries a
+//! different risk.
 
 use std::collections::{HashMap, HashSet};
 
 use base64::Engine;
-use hmac::{Hmac, Mac};
-use sha2::Sha256;
+use sha2::{Digest, Sha256};
 
 use crate::url_policy::{try_canonicalize, MAX_URL_LEN};
 /// Distinct raw values one message may memoize.
@@ -57,15 +61,12 @@ pub struct UrlCollection {
     /// The non-reversible HMAC team pseudonym (32 hex chars), computed by the caller. Embedded
     /// verbatim in every emitted ref, exactly as on the image lane.
     pub pseudo_team: String,
-    /// Per-team key for the URL HMAC. The caller derives it under its own domain separator, so a
-    /// URL ref and an image ref stay distinct for one team.
-    pub url_key: String,
 }
 
 /// One collected URL, on its way to the fetch topic.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CollectedUrl {
-    /// First 22 base64url chars of `HMAC-SHA256(url_key, dedup_url)`.
+    /// First 22 base64url chars of `SHA256(dedup_url)`. Unkeyed, so it is the same for every team.
     pub hash: String,
     /// The canonical URL with every parameter intact. This is what the fetcher requests.
     pub url: String,
@@ -76,13 +77,14 @@ pub struct CollectedUrl {
     pub domain: String,
 }
 
-/// First 22 base64url chars of `HMAC-SHA256(url_key, dedup_url)`. Same construction and width as
-/// [`crate::collect::hash_image_bytes`], but carried under the `imageurl:` prefix, because this
-/// hash names a URL rather than the bytes behind it.
-pub fn hash_url(url_key: &[u8], dedup_url: &str) -> String {
-    let mut mac = Hmac::<Sha256>::new_from_slice(url_key).expect("hmac accepts any key length");
-    mac.update(dedup_url.as_bytes());
-    let digest = mac.finalize().into_bytes();
+/// First 22 base64url chars of `SHA256(dedup_url)`. Same width as
+/// [`crate::collect::hash_image_bytes`], and carried under the `imageurl:` prefix, because this
+/// hash names a URL rather than the bytes behind it. Unkeyed, so every team gets one value for one
+/// URL, which is what lets the fetch lane fetch that URL one time.
+pub fn hash_url(dedup_url: &str) -> String {
+    let mut hasher = Sha256::new();
+    hasher.update(dedup_url.as_bytes());
+    let digest = hasher.finalize();
     let mut b64 = base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(digest);
     b64.truncate(22);
     b64
@@ -91,10 +93,9 @@ pub fn hash_url(url_key: &[u8], dedup_url: &str) -> String {
 /// Accumulates the remote image URLs of one message, deduplicated on the hash.
 pub struct UrlCollector {
     pseudo_team: String,
-    url_key: String,
     urls: Vec<CollectedUrl>,
     seen: HashSet<String>,
-    /// One image recurs many times in a message, so a repeat must not pay a parse and an HMAC
+    /// One image recurs many times in a message, so a repeat must not pay a parse and a hash
     /// again. A page controls these keys, hence [`MAX_MEMO_ENTRIES`].
     memo: HashMap<String, Option<String>>,
     /// A refusal is invisible in the collected count, so the lane would look like traffic carries
@@ -106,7 +107,6 @@ impl UrlCollector {
     pub fn new(collection: UrlCollection) -> Self {
         Self {
             pseudo_team: collection.pseudo_team,
-            url_key: collection.url_key,
             urls: Vec::new(),
             seen: HashSet::new(),
             memo: HashMap::new(),
@@ -153,7 +153,7 @@ impl UrlCollector {
                 return None;
             }
         };
-        let hash = hash_url(self.url_key.as_bytes(), &canonical.dedup);
+        let hash = hash_url(&canonical.dedup);
         if self.seen.contains(&hash) {
             return Some(crate::collect::url_ref(&self.pseudo_team, &hash));
         }
@@ -189,23 +189,23 @@ impl UrlCollector {
 #[cfg(test)]
 mod tests {
     use super::*;
-    const TEST_KEY: &[u8] = b"0123456789abcdef0123456789abcdef";
 
     fn collector() -> UrlCollector {
         UrlCollector::new(UrlCollection {
             pseudo_team: "a".repeat(32),
-            url_key: String::from_utf8(TEST_KEY.to_vec()).unwrap(),
         })
     }
 
     #[test]
-    fn hash_is_22_base64url_chars_and_keyed() {
-        let hash = hash_url(TEST_KEY, "https://example.com/a.png");
+    fn hash_is_22_base64url_chars_and_the_same_for_every_team() {
+        let hash = hash_url("https://example.com/a.png");
         assert_eq!(hash.len(), 22);
         assert!(hash
             .chars()
             .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_'));
-        assert_ne!(hash, hash_url(b"another-key", "https://example.com/a.png"));
+        // The fetch lane dedups on this hash, so one URL must give one value whoever asks.
+        assert_eq!(hash, hash_url("https://example.com/a.png"));
+        assert_ne!(hash, hash_url("https://example.com/b.png"));
     }
 
     #[test]

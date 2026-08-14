@@ -12,7 +12,6 @@ use serde_json::{json, Value};
 
 const TS0: f64 = 1_700_000_000_000.0;
 const PSEUDO_TEAM: &str = "0123456789abcdef0123456789abcdef";
-const URL_KEY: &str = "0123456789abcdef0123456789abcdef";
 
 fn payload_tagged(tag: &str, attrs: Value) -> Vec<u8> {
     let inner = json!({
@@ -55,7 +54,6 @@ fn collect_urls_of(tag: &str, attrs: Value) -> Vec<String> {
             None,
             Some(UrlCollection {
                 pseudo_team: PSEUDO_TEAM.to_string(),
-                url_key: URL_KEY.to_string(),
             }),
         )
         .expect("anonymize should succeed");
@@ -130,7 +128,6 @@ fn run(attrs: Value, collect: bool) -> Vec<(String, Value)> {
         let mut bytes = payload(attrs.clone());
         let collection = collect.then(|| UrlCollection {
             pseudo_team: PSEUDO_TEAM.to_string(),
-            url_key: URL_KEY.to_string(),
         });
         let msg = anonymize_kafka_payload_collecting(
             &allow,
@@ -290,7 +287,6 @@ fn one_url_under_two_signatures_collects_once() {
         None,
         Some(UrlCollection {
             pseudo_team: PSEUDO_TEAM.to_string(),
-            url_key: URL_KEY.to_string(),
         }),
     )
     .expect("anonymize should succeed");
@@ -325,7 +321,6 @@ fn every_refusal_is_counted_with_a_reason() {
         None,
         Some(UrlCollection {
             pseudo_team: PSEUDO_TEAM.to_string(),
-            url_key: URL_KEY.to_string(),
         }),
     )
     .expect("anonymize should succeed");

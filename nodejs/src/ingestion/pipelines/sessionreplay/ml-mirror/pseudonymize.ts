@@ -21,6 +21,5 @@ export const PSEUDONYM_IMAGE_CONTENT_KEY = 'image-content-key'
  * Separate from the content key on purpose. Both produce a ref of the same shape, and each hashes
  * a different thing. A separate key keeps the two kinds of ref independent for one team.
  */
-export const PSEUDONYM_IMAGE_URL_KEY = 'image-url-key'
 export const PSEUDONYM_SESSION = 'session'
 export const PSEUDONYM_DISTINCT_ID = 'distinct_id'

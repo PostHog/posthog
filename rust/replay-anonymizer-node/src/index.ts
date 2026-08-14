@@ -1,70 +1,70 @@
 /* eslint-disable @typescript-eslint/no-var-requires */
 // The native addon is built from `src/lib.rs` and copied to `index.node` at the package root.
-const native = require('../index.node')
+const native = require("../index.node");
 
 export interface AllowListsInput {
     /** Words kept verbatim by the text scrubber (ASCII-case-insensitive). */
-    text: string[]
+    text: string[];
     /** URL path segments/params kept verbatim by the URL scrubber. */
-    url: string[]
+    url: string[];
 }
 
 /** Per emitted JSONL line, in line order. */
 export interface AnonymizeEventMeta {
     /** The event's `timestamp` (epoch ms; can be fractional). */
-    ts: number
+    ts: number;
     /** Bitmask of the FLAG_* bits in `snapshot.rs` (mirrored as PRE_SERIALIZED_FLAG_* in the consumer). */
-    flags: number
+    flags: number;
     /** Post-scrub `hrefFrom(event)` (`data.href` / `data.payload.href`, trimmed), when present. */
-    href?: string
+    href?: string;
 }
 
 /** One collected original image: `offset..offset+len` in {@link AnonymizeKafkaPayloadResult.images}. */
 export interface AnonymizeImageEntry {
     /** First 22 base64url chars of `HMAC-SHA256(contentKey, bytes)` (`hashImageBytes` in content-ref.ts). */
-    hash: string
-    offset: number
-    len: number
+    hash: string;
+    offset: number;
+    len: number;
 }
 
 /** One collected remote image URL, ready for the fetch lane. */
 export interface AnonymizeUrlEntry {
-    /** First 22 base64url chars of `HMAC-SHA256(urlKey, dedupUrl)`, where the dedup URL is the
+    /** First 22 base64url chars of `SHA256(dedupUrl)`, unkeyed, where the dedup URL is the
      *  canonical URL minus its volatile parameters. The ref in the mirrored line ends with this. */
-    hash: string
+    hash: string;
     /** The canonical URL with every parameter intact — what the fetcher requests. A signed URL only
      *  works in this form, which is why it is not the value the hash was taken over. */
-    url: string
+    url: string;
     /** The host the request goes to. robots.txt and the connection limit are scoped to this. */
-    host: string
+    host: string;
     /** The registrable domain of `host`. The fetch topic keys on this, so every URL of one operator
      *  lands on one partition and one pod holds its rate budget without a distributed lock. */
-    domain: string
+    domain: string;
 }
 
 /** Envelope + per-event metadata parsed from {@link AnonymizeKafkaPayloadResult.meta}. */
 export interface AnonymizeMeta {
-    distinctId: string
+    distinctId: string;
     /** Raw `$session_id` — normalization stays in TS. */
-    sessionId: string
+    sessionId: string;
     /** `$window_id ?? ''`. */
-    windowId: string
-    snapshotSource: string | null
-    snapshotLibrary: string | null
+    windowId: string;
+    snapshotSource: string | null;
+    snapshotLibrary: string | null;
     /** Min/max valid-event timestamps (epoch ms). */
-    startTs: number
-    endTs: number
+    startTs: number;
+    endTs: number;
     /** rrweb/console@1 plugin events by level. */
-    consoleLogCount: number
-    consoleWarnCount: number
-    consoleErrorCount: number
-    events: AnonymizeEventMeta[]
+    consoleLogCount: number;
+    consoleWarnCount: number;
+    consoleErrorCount: number;
+    events: AnonymizeEventMeta[];
     /** Collected original images (hash-sorted); present only when the collection lane was enabled and images were collected. */
-    images?: AnonymizeImageEntry[]
+    images?: AnonymizeImageEntry[];
     /** Collected remote image URLs (hash-sorted); present only when the URL lane was enabled and URLs were collected. */
-    urls?: AnonymizeUrlEntry[]
+    urls?: AnonymizeUrlEntry[];
     /** Counts by reason for the URLs the collector refused. Absent when it refused none. */
-    urlDeclines?: { reason: string; count: number }[]
+    urlDeclines?: { reason: string; count: number }[];
 }
 
 /**
@@ -74,53 +74,53 @@ export interface AnonymizeMeta {
  */
 export interface AnonymizeTimings {
     /** Threadpool pickup — this offset IS the libuv queue wait. */
-    taskStartNs: number | null
-    decompressStartNs: number | null
-    decompressEndNs: number | null
-    scrubStartNs: number | null
-    scrubEndNs: number | null
+    taskStartNs: number | null;
+    decompressStartNs: number | null;
+    decompressEndNs: number | null;
+    scrubStartNs: number | null;
+    scrubEndNs: number | null;
     /** Accumulated cv de/recompression time across all events in the message. */
-    cvTotalNs: number
-    cvCount: number
+    cvTotalNs: number;
+    cvCount: number;
     /** Accumulated image blur/pixelate time (cache misses only). */
-    blurTotalNs: number
-    blurCount: number
+    blurTotalNs: number;
+    blurCount: number;
     /**
      * The op in flight when processing stopped: `done` on success, else the phase or op
      * (`queued` | `decompress` | `scrub` | `cv` | `blur` | `serialize_meta`) that was running.
      */
-    lastOp: string
+    lastOp: string;
 }
 
 export interface AnonymizeKafkaPayloadResult {
     /** True if the message could not be anonymized — the caller must drop or DLQ it (fail-closed). */
-    failed: boolean
+    failed: boolean;
     /**
      * Failure classification when `failed`, matching the TS parse step's dlq/drop reasons:
      * `invalid_json` | `invalid_message_payload` | `received_non_snapshot_message` |
      * `message_contained_no_valid_rrweb_events` | `anonymize_failed`.
      */
-    reason: string | null
+    reason: string | null;
     /** Failure detail when `failed`, else `null`. */
-    error: string | null
+    error: string | null;
     /** Scrubbed JSONL block lines (`["<windowId>",<event>]\n` per valid event), ready to write. */
-    lines: Buffer | null
+    lines: Buffer | null;
     /** JSON-serialized {@link AnonymizeMeta}. */
-    meta: string | null
+    meta: string | null;
     /**
      * Which implementation produced the output (differential-tested identical). `tree` means the
      * whole-message parse fallback fired; the label is an A/B / fallback-rate signal.
      */
-    route: 'stream' | 'tree' | null
+    route: "stream" | "tree" | null;
     /** Phase timings; present on success and failure alike. `null` only if serialization failed. */
-    timings: AnonymizeTimings | null
+    timings: AnonymizeTimings | null;
     /** Original bytes of the collected images, concatenated in `meta.images` order; null when none. */
-    images: Buffer | null
+    images: Buffer | null;
 }
 
 /** Initialize the process-wide allow lists. Call once at startup before {@link anonymizeKafkaPayload}. */
 export function initAnonymizer(allow: AllowListsInput): void {
-    native.initAnonymizer(JSON.stringify(allow))
+    native.initAnonymizer(JSON.stringify(allow));
 }
 
 /**
@@ -137,37 +137,38 @@ export function initAnonymizer(allow: AllowListsInput): void {
  * blur, and the original bytes come back in `images`/`meta.images` for the caller to produce to
  * the scrub topic.
  *
- * `urlKey` enables the URL-collection lane alongside it: a remote image's `src` is replaced with a
- * ref of the same shape, and its original URL comes back in `meta.urls` for the caller to hand to
- * the fetch lane.
+ * `collectUrls` enables the URL-collection lane alongside it: a remote image's `src` is replaced
+ * with a ref of the same shape, and its original URL comes back in `meta.urls` for the caller to
+ * hand to the fetch lane. That ref's hash is unkeyed, so one URL gives one hash for every team and
+ * the fetch lane fetches it one time.
  *
  * The two lanes are independent: either, both, or neither. Both need `pseudoTeam`, because the ref
- * embeds it, so a `contentKey` or a `urlKey` without one throws.
+ * embeds it, so a `contentKey` or `collectUrls` without one throws.
  */
 export async function anonymizeKafkaPayload(
     payload: Buffer,
     contentEncoding?: string | null,
     pseudoTeam?: string | null,
     contentKey?: string | null,
-    urlKey?: string | null
+    collectUrls?: boolean,
 ): Promise<AnonymizeKafkaPayloadResult> {
     const result = await native.anonymizeKafkaPayload(
         payload,
         contentEncoding ?? undefined,
         pseudoTeam ?? undefined,
         contentKey ?? undefined,
-        urlKey ?? undefined
-    )
+        collectUrls ?? false,
+    );
     // Timings are best-effort telemetry: a malformed timings blob must never fail the message.
-    let timings: AnonymizeTimings | null = null
-    if (typeof result.timings === 'string') {
+    let timings: AnonymizeTimings | null = null;
+    if (typeof result.timings === "string") {
         try {
-            timings = JSON.parse(result.timings)
+            timings = JSON.parse(result.timings);
         } catch {
-            timings = null
+            timings = null;
         }
     }
-    return { ...result, timings }
+    return { ...result, timings };
 }
 
 /**
@@ -182,7 +183,7 @@ export async function anonymizeKafkaPayload(
  * operator.
  */
 export function politenessKey(host: string): string {
-    return native.politenessKey(host)
+    return native.politenessKey(host);
 }
 
 /**
@@ -195,5 +196,5 @@ export function politenessKey(host: string): string {
  * resolves only inside one network, which is the split-horizon DNS case.
  */
 export function isPublicHost(host: string): boolean {
-    return native.isPublicHost(host)
+    return native.isPublicHost(host);
 }

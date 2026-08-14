@@ -5,12 +5,7 @@ import { gzip } from 'zlib'
 import { PipelineResultType } from '~/ingestion/framework/results'
 
 import { imageRef } from './ml-mirror-image-scrub/content-ref'
-import {
-    PSEUDONYM_IMAGE_CONTENT_KEY,
-    PSEUDONYM_IMAGE_URL_KEY,
-    PSEUDONYM_TEAM,
-    pseudonymize,
-} from './ml-mirror/pseudonymize'
+import { PSEUDONYM_IMAGE_CONTENT_KEY, PSEUDONYM_TEAM, pseudonymize } from './ml-mirror/pseudonymize'
 import { createParseAndAnonymizeMessageStep } from './parse-and-anonymize-step'
 import { SessionReplayHeaders } from './pipeline-types'
 
@@ -26,8 +21,8 @@ jest.mock('@posthog/replay-anonymizer', () => ({
         contentEncoding?: string | null,
         pseudoTeam?: string | null,
         contentKey?: string | null,
-        urlKey?: string | null
-    ) => mockAnonymizeKafkaPayload(payload, contentEncoding, pseudoTeam, contentKey, urlKey),
+        collectUrls?: boolean
+    ) => mockAnonymizeKafkaPayload(payload, contentEncoding, pseudoTeam, contentKey, collectUrls),
 }))
 
 describe('createParseAndAnonymizeMessageStep', () => {
@@ -295,7 +290,6 @@ describe('createParseAndAnonymizeMessageStep with image collection', () => {
 describe('createParseAndAnonymizeMessageStep with url collection', () => {
     const secret = 'test-pseudonym-secret'
     const pseudoTeam = pseudonymize(secret, PSEUDONYM_TEAM, '1')
-    const urlKey = pseudonymize(secret, PSEUDONYM_IMAGE_URL_KEY, '1')
     const now = Date.now()
     const team = { teamId: 1, consoleLogIngestionEnabled: true, aiTrainingOptedIn: true }
     const headers: SessionReplayHeaders = {
@@ -348,7 +342,7 @@ describe('createParseAndAnonymizeMessageStep with url collection', () => {
 
         const result: any = await step({ message: kafkaMessage(), headers, team } as any)
 
-        expect(mockAnonymizeKafkaPayload).toHaveBeenCalledWith(expect.anything(), null, pseudoTeam, undefined, urlKey)
+        expect(mockAnonymizeKafkaPayload).toHaveBeenCalledWith(expect.anything(), null, pseudoTeam, undefined, true)
         expect(result.value.collectedUrls).toEqual([
             {
                 ref: `imageurl:${pseudoTeam}:${'h'.repeat(22)}`,
@@ -359,7 +353,7 @@ describe('createParseAndAnonymizeMessageStep with url collection', () => {
         expect(result.value.collectedImages).toBeUndefined()
     })
 
-    it('passes no keys at all when both lanes are off', async () => {
+    it('turns both lanes off when neither is configured', async () => {
         mockAnonymizeKafkaPayload.mockResolvedValue({
             failed: false,
             lines: Buffer.from(''),
@@ -374,12 +368,6 @@ describe('createParseAndAnonymizeMessageStep with url collection', () => {
 
         await step({ message: kafkaMessage(), headers, team } as any)
 
-        expect(mockAnonymizeKafkaPayload).toHaveBeenCalledWith(
-            expect.anything(),
-            null,
-            pseudoTeam,
-            undefined,
-            undefined
-        )
+        expect(mockAnonymizeKafkaPayload).toHaveBeenCalledWith(expect.anything(), null, pseudoTeam, undefined, false)
     })
 })

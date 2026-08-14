@@ -13,12 +13,7 @@ import { SessionRecordingIngesterMetrics } from '~/ingestion/pipelines/sessionre
 import { TeamForReplay } from '~/ingestion/pipelines/sessionreplay/teams/types'
 
 import { hashImageBytes, imageRef, isImageRef, urlRef } from './ml-mirror-image-scrub/content-ref'
-import {
-    PSEUDONYM_IMAGE_CONTENT_KEY,
-    PSEUDONYM_IMAGE_URL_KEY,
-    PSEUDONYM_TEAM,
-    pseudonymize,
-} from './ml-mirror/pseudonymize'
+import { PSEUDONYM_IMAGE_CONTENT_KEY, PSEUDONYM_TEAM, pseudonymize } from './ml-mirror/pseudonymize'
 import { ParseMessageStepInput, ParseMessageStepOutput, getContentEncoding, isGzipped } from './parse-message-step'
 
 const MESSAGE_TIMESTAMP_DIFF_THRESHOLD_DAYS = 7
@@ -105,7 +100,7 @@ export function createParseAndAnonymizeMessageStep<T extends ParseMessageStepInp
     interface TeamImageKeys {
         pseudoTeam: string
         contentKey?: string
-        urlKey?: string
+        collectUrls: boolean
     }
     const teamKeysCache = new Map<number, TeamImageKeys>()
     const teamKeysFor = (teamId: number): TeamImageKeys | undefined => {
@@ -131,9 +126,9 @@ export function createParseAndAnonymizeMessageStep<T extends ParseMessageStepInp
             keys = {
                 pseudoTeam,
                 contentKey: imageCollection.collectImages ? contentKey : undefined,
-                urlKey: imageCollection.collectUrls
-                    ? pseudonymize(imageCollection.pseudonymSecret, PSEUDONYM_IMAGE_URL_KEY, String(teamId))
-                    : undefined,
+                // No key: the URL hash is unkeyed, so one URL gives one hash for every team and the
+                // fetch lane fetches it one time however many customers refer to it.
+                collectUrls: imageCollection.collectUrls,
             }
             teamKeysCache.set(teamId, keys)
         }
@@ -164,7 +159,7 @@ export function createParseAndAnonymizeMessageStep<T extends ParseMessageStepInp
                 contentEncoding,
                 teamKeys?.pseudoTeam,
                 teamKeys?.contentKey,
-                teamKeys?.urlKey
+                teamKeys?.collectUrls
             )
         } catch (error) {
             // A rejected promise (native panic, addon load failure) must fail closed.
@@ -273,7 +268,7 @@ export function createParseAndAnonymizeMessageStep<T extends ParseMessageStepInp
         const collectedImages = teamKeys?.contentKey
             ? unpackCollectedImages(teamKeys.pseudoTeam, meta, result.images)
             : undefined
-        const collectedUrls = teamKeys?.urlKey ? unpackCollectedUrls(teamKeys.pseudoTeam, meta) : undefined
+        const collectedUrls = teamKeys?.collectUrls ? unpackCollectedUrls(teamKeys.pseudoTeam, meta) : undefined
         return ok({ ...input, parsedMessage, collectedImages, collectedUrls })
     }
 }
