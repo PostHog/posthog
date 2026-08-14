@@ -21,15 +21,13 @@ import { IconOpenInNew } from 'lib/lemon-ui/icons'
 import { formatDate } from 'lib/utils/datetime'
 import { humanFriendlyNumber } from 'lib/utils/numbers'
 
-import { AlertState } from '~/queries/schema/schema-general'
-
 import { AlertStateIndicator } from 'products/alerts/frontend/components/AlertDefinition'
 import { AlertHistoryChart } from 'products/alerts/frontend/views/AlertHistoryChart'
 
 import { alertLogic, CHART_CHECKS_LIMIT, TABLE_CHECKS_PAGE_SIZE } from '../logic/alertLogic'
 import { isAnyRowHogQLConfig } from '../types'
 import type { AlertCheck, AlertType, InvestigationVerdict } from '../types'
-import { summarizeDeliveries } from '../utils'
+import { isFailedDelivery, summarizeDeliveries } from '../utils'
 
 const VERDICT_CONFIG: Record<InvestigationVerdict, { label: string; className: string; tooltip: string }> = {
     true_positive: {
@@ -217,7 +215,7 @@ export function AlertHistorySection({
             render: (_value, check) => {
                 const summary = summarizeDeliveries(check.deliveries, check.targets_notified)
                 if (summary.kind === 'none') {
-                    if (check.state === AlertState.FIRING) {
+                    if (isFailedDelivery(check)) {
                         return (
                             <Tooltip title="No email or destination accepted this notification. Check the alert's notification settings.">
                                 <span>No</span>

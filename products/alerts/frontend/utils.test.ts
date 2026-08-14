@@ -1,5 +1,7 @@
-import type { AlertCheckDelivery } from './types'
-import { AlertsTab, getActiveAlertsTab, summarizeDeliveries } from './utils'
+import { AlertState } from '~/queries/schema/schema-general'
+
+import type { AlertCheck, AlertCheckDelivery } from './types'
+import { AlertsTab, getActiveAlertsTab, isFailedDelivery, summarizeDeliveries } from './utils'
 
 describe('alerts utils', () => {
     describe('getActiveAlertsTab', () => {
@@ -79,6 +81,32 @@ describe('alerts utils', () => {
         it('returns none when nothing was recorded', () => {
             expect(summarizeDeliveries(null, false)).toEqual({ kind: 'none' })
             expect(summarizeDeliveries([], false)).toEqual({ kind: 'none' })
+        })
+    })
+
+    describe('isFailedDelivery', () => {
+        const check = (overrides: Partial<AlertCheck>): AlertCheck =>
+            ({ state: AlertState.FIRING, ...overrides }) as AlertCheck
+
+        it.each([
+            { name: 'blames delivery for a plain firing check', overrides: {}, expected: true },
+            {
+                name: 'stays silent when the agent suppressed the notification',
+                overrides: { notification_suppressed_by_agent: true },
+                expected: false,
+            },
+            {
+                name: 'stays silent while an investigation still gates the dispatch',
+                overrides: { investigation_status: 'running' as const },
+                expected: false,
+            },
+            {
+                name: 'stays silent for a non-firing check',
+                overrides: { state: AlertState.NOT_FIRING },
+                expected: false,
+            },
+        ])('$name', ({ overrides, expected }) => {
+            expect(isFailedDelivery(check(overrides))).toBe(expected)
         })
     })
 })

@@ -1,4 +1,6 @@
-import type { AlertCheckDelivery } from './types'
+import { AlertState } from '~/queries/schema/schema-general'
+
+import type { AlertCheck, AlertCheckDelivery } from './types'
 
 export enum AlertsTab {
     INSIGHTS = 'insights',
@@ -70,4 +72,13 @@ export function summarizeDeliveries(
         return { kind: 'legacy', label: 'Yes', lines: all.map((d) => d.display_label) }
     }
     return { kind: 'none' }
+}
+
+/** Whether an empty receipt list means a dispatch accepted nothing, rather than one never running. */
+export function isFailedDelivery(check: AlertCheck): boolean {
+    if (check.state !== AlertState.FIRING || check.notification_suppressed_by_agent) {
+        return false
+    }
+    // Gated on an investigation: no dispatch has run yet, so there is nothing to blame.
+    return check.investigation_status !== 'pending' && check.investigation_status !== 'running'
 }
