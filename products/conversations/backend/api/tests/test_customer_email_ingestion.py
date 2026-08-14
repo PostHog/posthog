@@ -7,6 +7,7 @@ from freezegun import freeze_time
 from posthog.test.base import BaseTest
 from unittest.mock import patch
 
+from django.apps import apps
 from django.test import Client, RequestFactory, SimpleTestCase
 from django.utils import timezone
 
@@ -32,6 +33,7 @@ from products.conversations.backend.models import (
     EmailChannelSetupProvider,
     EmailOutboxMessage,
     EmailThread,
+    EmailThreadAccountLink,
     EmailThreadMessage,
     Ticket,
 )
@@ -378,6 +380,23 @@ class TestCustomerEmailIngestion(BaseTest):
         assert messages[1].references == (
             [] if header_kind == "in_reply_to" else ["<older@customer.example>", root_message_id]
         )
+
+    def test_forwarded_message_links_to_matching_customer_account(self) -> None:
+        account_model = apps.get_model("customer_analytics", "Account")
+        account = account_model.objects.for_team(self.team.id).create(
+            team=self.team,
+            name="Customer account",
+            external_id="customer-account",
+            _properties={"email_domains": ["customer.example"]},
+        )
+
+        response = self._post_email(message_id="<linked@customer.example>")
+
+        assert response.status_code == 200
+        link = EmailThreadAccountLink.objects.for_team(self.team.id).get()
+        assert link.account_id == str(account.id)
+        assert link.account_external_id == "customer-account"
+        assert link.match_source == "email_domain"
 
     def test_duplicate_delivery_creates_one_message_across_customer_channels(self) -> None:
         message_id = "<duplicate@customer.example>"

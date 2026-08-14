@@ -93,6 +93,13 @@ class Account:
 
 
 @dataclass(frozen=True)
+class EmailAccountMatch:
+    account_id: str
+    account_external_id: str | None
+    match_source: str
+
+
+@dataclass(frozen=True)
 class AccountDueForSlackSummary:
     """An account whose bound Slack channel is due a periodic summary.
 

@@ -1,0 +1,126 @@
+from posthog.test.base import BaseTest
+from unittest.mock import MagicMock, patch
+
+from products.conversations.backend.facade.types import EmailThreadForAccountMatching
+from products.customer_analytics.backend.facade import api
+from products.customer_analytics.backend.facade.contracts import EmailAccountMatch
+from products.customer_analytics.backend.facade.email_matching import (
+    match_email_accounts,
+    recalculate_email_thread_links,
+)
+from products.customer_analytics.backend.models import Account
+
+
+class TestEmailAccountMatching(BaseTest):
+    def _create_account(
+        self,
+        *,
+        name: str,
+        external_id: str,
+        known_emails: list[str] | None = None,
+        email_domains: list[str] | None = None,
+    ) -> Account:
+        return Account.objects.for_team(self.team.id).create(
+            team=self.team,
+            name=name,
+            external_id=external_id,
+            _properties={
+                "known_emails": known_emails or [],
+                "email_domains": email_domains or [],
+            },
+        )
+
+    @patch(
+        "products.customer_analytics.backend.logic.email_account_matching.resolve_group_keys_by_email",
+        return_value={"person@group.example": "group-account"},
+    )
+    def test_matches_multiple_accounts_with_explicit_precedence(self, _mock_group_keys: MagicMock) -> None:
+        known = self._create_account(
+            name="Known",
+            external_id="known-account",
+            known_emails=["known@shared.example"],
+            email_domains=["shared.example"],
+        )
+        grouped = self._create_account(name="Grouped", external_id="group-account")
+        domain = self._create_account(
+            name="Domain",
+            external_id="domain-account",
+            email_domains=["domain.example"],
+        )
+
+        matches = match_email_accounts(
+            self.team.id,
+            ["known@shared.example", "person@group.example", "contact@domain.example"],
+        )
+
+        assert {(match.account_id, match.match_source) for match in matches} == {
+            (str(known.id), "known_email"),
+            (str(grouped.id), "person_group"),
+            (str(domain.id), "email_domain"),
+        }
+
+    @patch(
+        "products.customer_analytics.backend.logic.email_account_matching.resolve_group_keys_by_email",
+        return_value={},
+    )
+    def test_ambiguous_known_email_does_not_fall_through_to_domain(self, _mock_group_keys: MagicMock) -> None:
+        for external_id in ("first", "second"):
+            self._create_account(
+                name=external_id,
+                external_id=external_id,
+                known_emails=["shared@ambiguous.example"],
+            )
+        self._create_account(
+            name="Domain fallback",
+            external_id="domain-fallback",
+            email_domains=["ambiguous.example"],
+        )
+
+        matches = match_email_accounts(self.team.id, ["shared@ambiguous.example"])
+
+        assert matches == []
+
+    @patch("products.customer_analytics.backend.facade.email_matching.conversations.replace_email_thread_account_links")
+    @patch(
+        "products.customer_analytics.backend.facade.email_matching.conversations.list_email_threads_for_account_matching"
+    )
+    @patch("products.customer_analytics.backend.facade.email_matching._match_email_accounts")
+    def test_recalculation_replaces_links_for_each_thread(
+        self,
+        mock_match: MagicMock,
+        mock_list_threads: MagicMock,
+        mock_replace: MagicMock,
+    ) -> None:
+        mock_list_threads.side_effect = [
+            [EmailThreadForAccountMatching(id="thread-1", participant_emails=["person@example.com"])],
+            [],
+        ]
+        mock_match.return_value = [
+            EmailAccountMatch(account_id="account-1", account_external_id="group-1", match_source="person_group")
+        ]
+
+        processed = recalculate_email_thread_links(self.team.id, batch_size=1)
+
+        assert processed == 1
+        link = mock_replace.call_args.args[2][0]
+        assert link.account_id == "account-1"
+        assert link.account_external_id == "group-1"
+        assert link.match_source == "person_group"
+
+    @patch("products.customer_analytics.backend.facade.api.schedule_email_thread_link_recalculation")
+    def test_account_matching_changes_schedule_recalculation(self, mock_schedule: MagicMock) -> None:
+        with self.captureOnCommitCallbacks(execute=True):
+            account = api.create_account(
+                team=self.team,
+                name="Account",
+                external_id="account",
+                properties={"known_emails": ["person@example.com"]},
+            )
+
+        mock_schedule.assert_called_once_with(self.team.id)
+        mock_schedule.reset_mock()
+
+        with self.captureOnCommitCallbacks(execute=True):
+            api.update_account(account, properties={"email_domains": ["example.com"]})
+
+        mock_schedule.assert_called_once_with(self.team.id)
