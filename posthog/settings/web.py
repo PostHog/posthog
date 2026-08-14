@@ -591,6 +591,7 @@ SPECTACULAR_SETTINGS = {
         "EvaluationTargetEnum": "products.ai_observability.backend.models.evaluations.EvaluationTarget",
         "IntegrationKindEnum": "posthog.models.integration.Integration.IntegrationKind",
         "TicketStatusEnum": "products.conversations.backend.models.constants.Status",
+        "EmailChannelKindEnum": "products.conversations.backend.models.team_conversations_email_config.EmailChannelKind",
         # Shared by Ticket.priority and TicketViewFilters.priority (same choice set).
         "TicketPriorityEnum": "products.conversations.backend.models.constants.Priority",
         "TicketChannelFilterEnum": "products.conversations.backend.api.ticket_filters.TICKET_CHANNEL_FILTER_CHOICES",
@@ -621,6 +622,8 @@ SPECTACULAR_SETTINGS = {
         # Shared by ConversionGoalSummary.kind and GoalExplanation.kind (same choice set).
         "ConversionGoalKindEnum": "products.marketing_analytics.backend.hogql_queries.constants.CONVERSION_GOAL_KIND_CHOICES",
         "MCPInstallationScopeEnum": ["personal", "shared"],
+        # Same field name as the installation scope above, different values.
+        "MCPAgentGrantScopeEnum": "products.mcp_store.backend.models.AGENT_GRANT_SCOPE_CHOICES",
         "MCPServiceAccountStatusEnum": "products.mcp_store.backend.models.SERVICE_ACCOUNT_STATUS_CHOICES",
         "MCPServerCategoryEnum": "products.mcp_store.backend.models.CATEGORY_CHOICES",
         "MCPToolApprovalStateEnum": "products.mcp_store.backend.models.APPROVAL_STATES",
@@ -773,6 +776,23 @@ SPECTACULAR_SETTINGS = {
             "7day",
             "30day",
         ],
+        # Same member set minus `never`, shared by the `materialize` body and by each cadence the
+        # saved-query sync frequency bounds offer. Both mean "a cadence to run at", so one name.
+        "MaterializeSyncFrequencyEnum": [
+            "15min",
+            "30min",
+            "1hour",
+            "6hour",
+            "12hour",
+            "24hour",
+            "7day",
+            "30day",
+        ],
+        # Two unrelated products now expose a `blocked_by` ChoiceField. Collision resolution keys off
+        # how many choice sets share the field name and ignores overrides, so pinning only one still
+        # component-prefixes the other. Both are pinned to keep either name stable as more appear.
+        "SyncFrequencyBlockedByEnum": ["source", "consumer"],
+        "BlockedByEnum": ["x_frame_options", "frame_ancestors"],
         # Signals now has two serializers (single SignalReportStateRequest + bulk
         # SignalReportBulkStateRequest) that both expose the same `state` ChoiceField. Pin the
         # shared enum to a stable name so it doesn't collide with the other `state` enums

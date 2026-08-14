@@ -14,6 +14,7 @@ from posthog.event_usage import (
     get_mcp_properties,
     is_wizard_self_driving_program,
     report_user_action,
+    report_user_signed_up,
     sanitize_header_value,
 )
 
@@ -424,6 +425,33 @@ class TestGetMcpProperties(BaseTest):
             "mcp_protocol_version": None,
             "mcp_oauth_client_name": None,
         }
+
+
+class TestSignupCrmExclusion(BaseTest):
+    @parameterized.expand(
+        [
+            ("staff_creating_new_organization", "hedgehog@posthog.com", True, True),
+            ("staff_joining_existing_organization", "hedgehog@posthog.com", False, False),
+            ("customer_creating_new_organization", "owner@example.com", True, False),
+        ]
+    )
+    @patch("posthog.event_usage.posthoganalytics.group_identify")
+    @patch("posthog.event_usage.posthoganalytics.capture")
+    def test_new_organizations_of_posthog_staff_are_excluded_from_crm(
+        self, _name, email, is_organization_first_user, expect_flagged, _mock_capture, mock_group_identify
+    ):
+        user = self._create_user(email)
+
+        report_user_signed_up(user, is_instance_first_user=False, is_organization_first_user=is_organization_first_user)
+
+        if expect_flagged:
+            mock_group_identify.assert_called_once_with(
+                "organization",
+                str(self.organization.id),
+                properties={"exclude_from_crm": True},
+            )
+        else:
+            mock_group_identify.assert_not_called()
 
 
 class TestSanitizeHeaderValue(BaseTest):

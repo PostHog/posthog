@@ -47,6 +47,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     tracing::info!("Flush buffer size: {}", config.flush_buffer_size);
     tracing::info!("Buffer capacity: {}", config.buffer_capacity);
     tracing::info!("Writer lanes: {}", config.writer_lanes);
+    tracing::info!("Upsert concurrency: {}", config.upsert_concurrency);
     tracing::info!("Metrics port: {}", config.metrics_port);
 
     let mut manager = Manager::builder("personhog-writer")
@@ -155,6 +156,20 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     )?);
     tracing::info!("Subscribed to Kafka topic: {}", config.kafka_topic);
 
+    // One statement-concurrency budget for the whole pod: every lane's
+    // chunk and per-row statements draw from it, so lanes can overlap
+    // writes without collectively oversubscribing the pool.
+    let upsert_concurrency = config.upsert_concurrency.max(1);
+    if upsert_concurrency > config.pg_max_connections as usize {
+        tracing::warn!(
+            upsert_concurrency,
+            pg_max_connections = config.pg_max_connections,
+            "UPSERT_CONCURRENCY exceeds PG_MAX_CONNECTIONS; excess statements \
+             will queue on pool acquire instead of the semaphore"
+        );
+    }
+    let upsert_permits = Arc::new(tokio::sync::Semaphore::new(upsert_concurrency));
+
     // Writer lanes: each lane gets its own channel, store, and task, and
     // commits offsets only for the partitions routed to it.
     let mut lane_txs = Vec::with_capacity(lanes);
@@ -166,6 +181,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 chunk_size: config.upsert_batch_size,
                 row_fallback_concurrency: config.row_fallback_concurrency,
             },
+            Arc::clone(&upsert_permits),
         );
         let writer_task =
             WriterTask::new(Arc::clone(&kafka_consumer), store, flush_rx, writer_handle);

@@ -112,6 +112,7 @@ vi.mock("phosphor-react-native", async () => {
     StopIcon: icon("StopIcon"),
     Terminal: icon("Terminal"),
     ThumbsDown: icon("ThumbsDown"),
+    ThumbsUp: icon("ThumbsUp"),
     Trash: icon("Trash"),
     Tray: icon("Tray"),
     UsersThree: icon("UsersThree"),
