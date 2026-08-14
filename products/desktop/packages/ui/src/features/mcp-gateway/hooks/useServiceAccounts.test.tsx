@@ -1,5 +1,6 @@
 import type {
   McpGatewayServer,
+  McpGatewayUser,
   McpServiceAccount,
 } from "@posthog/api-client/posthog-client";
 import { gatewayKeys } from "@posthog/ui/features/mcp-gateway/hooks/gatewayKeys";
@@ -59,18 +60,43 @@ const account = {
   updated_at: "2026-07-23T12:00:00Z",
 } satisfies McpServiceAccount;
 
+const you = {
+  id: 7,
+  uuid: "user-uuid-7",
+  distinct_id: "distinct-7",
+  first_name: "Ada",
+  last_name: "Lovelace",
+  email: "ada@posthog.com",
+  is_email_verified: true,
+  hedgehog_config: null,
+} as McpGatewayUser;
+
+const teammate = {
+  ...you,
+  id: 8,
+  uuid: "user-uuid-8",
+  distinct_id: "distinct-8",
+  first_name: "Grace",
+  last_name: "Hopper",
+  email: "grace@posthog.com",
+} as McpGatewayUser;
+
+function agentShare(user: McpGatewayUser, scope: "personal" | "team") {
+  return {
+    service_account_id: account.id,
+    user,
+    scope,
+    name: account.name,
+    handle: account.handle,
+    status: account.status,
+    last_active_at: account.last_active_at,
+    granted_by: user,
+  };
+}
+
 const server = {
   id: "server-1",
-  agents: [
-    {
-      service_account_id: account.id,
-      name: account.name,
-      handle: account.handle,
-      status: account.status,
-      last_active_at: account.last_active_at,
-      granted_by: null,
-    },
-  ],
+  agents: [agentShare(you, "personal")],
 } as McpGatewayServer;
 
 let queryClient: QueryClient;
@@ -120,11 +146,74 @@ describe("useServiceAccounts", () => {
     );
   });
 
-  it("stamps the current user as grantor on a fresh grant without a refetch", async () => {
+  // An omitted scope makes the server reset an existing team share back to
+  // personal, so the request must always carry it explicitly on enable.
+  it.each([
+    [undefined, "personal"],
+    ["team", "team"],
+  ] as const)(
+    "sends scope %s as %s and stamps the caller's share on a fresh grant",
+    async (scope, expectedScope) => {
+      queryClient.setQueryData(gatewayKeys.servers, [
+        { ...server, agents: [] } as McpGatewayServer,
+      ]);
+      mocks.setAccess.mockResolvedValue({
+        ...account,
+        server_ids: [server.id],
+      });
+      const { result } = renderHook(() => useServiceAccounts(), { wrapper });
+
+      await waitFor(() => expect(result.current.accounts).toEqual([account]));
+
+      act(() => {
+        result.current.setAccess({
+          accountId: account.id,
+          serverId: server.id,
+          enabled: true,
+          ...(scope ? { scope } : {}),
+        });
+      });
+
+      await waitFor(() =>
+        expect(
+          queryClient.getQueryData<McpGatewayServer[]>(gatewayKeys.servers)?.[0]
+            ?.agents,
+        ).toHaveLength(1),
+      );
+
+      expect(mocks.setAccess).toHaveBeenCalledWith(account.id, {
+        gateway_server_id: server.id,
+        enabled: true,
+        scope: expectedScope,
+      });
+      expect(
+        queryClient.getQueryData<McpGatewayServer[]>(gatewayKeys.servers)?.[0]
+          ?.agents[0],
+      ).toMatchObject({
+        service_account_id: account.id,
+        scope: expectedScope,
+        user: { id: mocks.currentUser.id },
+        granted_by: {
+          id: mocks.currentUser.id,
+          uuid: mocks.currentUser.uuid,
+          first_name: "Ada",
+          last_name: "Lovelace",
+          email: "ada@posthog.com",
+          hedgehog_config: null,
+        },
+      });
+      expect(mocks.getAccounts).toHaveBeenCalledTimes(1);
+    },
+  );
+
+  it("keeps a teammate's share of the same agent when revoking your own", async () => {
+    const teammateShare = agentShare(teammate, "team");
     queryClient.setQueryData(gatewayKeys.servers, [
-      { ...server, agents: [] } as McpGatewayServer,
+      {
+        ...server,
+        agents: [agentShare(you, "personal"), teammateShare],
+      } as McpGatewayServer,
     ]);
-    mocks.setAccess.mockResolvedValue({ ...account, server_ids: [server.id] });
     const { result } = renderHook(() => useServiceAccounts(), { wrapper });
 
     await waitFor(() => expect(result.current.accounts).toEqual([account]));
@@ -133,7 +222,7 @@ describe("useServiceAccounts", () => {
       result.current.setAccess({
         accountId: account.id,
         serverId: server.id,
-        enabled: true,
+        enabled: false,
       });
     });
 
@@ -141,23 +230,7 @@ describe("useServiceAccounts", () => {
       expect(
         queryClient.getQueryData<McpGatewayServer[]>(gatewayKeys.servers)?.[0]
           ?.agents,
-      ).toHaveLength(1),
+      ).toEqual([teammateShare]),
     );
-
-    expect(
-      queryClient.getQueryData<McpGatewayServer[]>(gatewayKeys.servers)?.[0]
-        ?.agents[0],
-    ).toMatchObject({
-      service_account_id: account.id,
-      granted_by: {
-        id: mocks.currentUser.id,
-        uuid: mocks.currentUser.uuid,
-        first_name: "Ada",
-        last_name: "Lovelace",
-        email: "ada@posthog.com",
-        hedgehog_config: null,
-      },
-    });
-    expect(mocks.getAccounts).toHaveBeenCalledTimes(1);
   });
 });
