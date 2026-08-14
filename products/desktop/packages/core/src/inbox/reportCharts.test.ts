@@ -196,6 +196,39 @@ describe("reportCharts", () => {
       { type: "number", value: 42 },
     ],
     [
+      "a date-keyed grid becomes a line chart",
+      [
+        ["2026-08-08", 4957305],
+        ["2026-08-09", 5103586],
+      ],
+      ["day", "active_users"],
+      { type: "series", render: "line", isTimeSeries: true },
+    ],
+    [
+      "a short category-keyed grid becomes a bar chart",
+      [
+        ["$pageview", 7848625],
+        ["$autocapture", 11150213],
+      ],
+      ["event", "events"],
+      { type: "series", render: "bar", isTimeSeries: false },
+    ],
+    [
+      "a date+breakdown grid pivots into a multi-series line",
+      [
+        ["2026-08-01", "Chrome", 5],
+        ["2026-08-02", "Chrome", 7],
+      ],
+      ["day", "browser", "count"],
+      { type: "series", render: "line", isTimeSeries: true },
+    ],
+    [
+      "a single data row stays a table",
+      [["granted", 12]],
+      ["scope", "count"],
+      { type: "table" },
+    ],
+    [
       "non-numeric grid falls back to a table",
       [["a", "b"]],
       ["x", "y"],
@@ -205,6 +238,16 @@ describe("reportCharts", () => {
     expect(
       shapeReportChartData({ columns, results }, runPlan(hogqlNode())),
     ).toMatchObject(expected);
+  });
+
+  it("auto display: too many categories for a readable bar stays a table", () => {
+    const results = Array.from({ length: 31 }, (_, i) => [`cat-${i}`, i]);
+    expect(
+      shapeReportChartData(
+        { columns: ["name", "count"], results },
+        runPlan(hogqlNode()),
+      ),
+    ).toMatchObject({ type: "table" });
   });
 
   it("returns empty for a response with no rows", () => {
@@ -291,12 +334,15 @@ describe("reportCharts", () => {
     expect(reportChartOpenTarget(query, OPEN_OPTS)).toBeNull();
   });
 
-  const headlineSeries = (points: number[][]): ReportChartData => ({
+  const headlineSeries = (
+    points: number[][],
+    isTimeSeries = true,
+  ): ReportChartData => ({
     type: "series",
     render: "line",
     labels: points[0].map((_, i) => `d${i}`),
     series: points.map((data, i) => ({ key: `${i}`, label: `s${i}`, data })),
-    isTimeSeries: false,
+    isTimeSeries,
     interval: "day",
   });
 
@@ -308,6 +354,10 @@ describe("reportCharts", () => {
   });
 
   it.each([
+    [
+      "a categorical chart has no latest value",
+      headlineSeries([[1, 2, 3]], false),
+    ],
     [
       "multiple series have no one honest headline",
       headlineSeries([

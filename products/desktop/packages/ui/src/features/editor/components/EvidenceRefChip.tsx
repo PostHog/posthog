@@ -48,50 +48,44 @@ export function EvidenceHoverCard({
   const meta = getObjectKind(target.kind);
   const KindIcon = meta.icon;
   return (
-    <div className="w-72">
-      <div className="flex items-center gap-2.5 px-3 pt-2.5 pb-2">
-        <span className="flex size-6 shrink-0 items-center justify-center rounded-md border border-(--gray-a4) bg-(--gray-a3)">
-          <KindIcon size={14} className="text-(--gray-11)" aria-hidden />
-        </span>
-        <span className="min-w-0 flex-1">
-          <span className="block truncate font-medium text-(--gray-12) text-[12.5px] leading-[1.4]">
-            {children}
-          </span>
-          <span className="block text-(--gray-10) text-[11px] leading-[1.4]">
-            {meta.kindLabel} · {meta.source}
-          </span>
+    <div className="w-72 p-3">
+      <div className="flex items-center gap-1.5 text-[10.5px] text-(--gray-9) uppercase tracking-[0.04em]">
+        <KindIcon size={12} aria-hidden />
+        <span className="truncate">{meta.kindLabel}</span>
+        <span className="ml-auto shrink-0 normal-case tracking-normal">
+          {meta.source}
         </span>
       </div>
-      {preview === undefined && (
+      {preview === undefined ? (
         <div
-          className="space-y-1.5 border-(--gray-a4) border-t px-3 py-2.5"
+          className="mt-2.5 space-y-1.5"
           data-testid="evidence-preview-loading"
         >
-          <div className="h-3 w-3/5 animate-pulse rounded bg-(--gray-a4)" />
+          <div className="h-3.5 w-3/5 animate-pulse rounded bg-(--gray-a4)" />
           <div className="h-2.5 w-2/5 animate-pulse rounded bg-(--gray-a3)" />
         </div>
-      )}
-      {preview && (
-        <div
-          className="border-(--gray-a4) border-t px-3 py-2"
-          data-testid="evidence-preview"
-        >
-          <span className="block truncate font-medium text-(--gray-12) text-[12.5px] leading-[1.4]">
+      ) : preview ? (
+        <div className="mt-2" data-testid="evidence-preview">
+          <span className="block font-semibold text-(--gray-12) text-[14px] leading-snug">
             {preview.title}
           </span>
           {preview.detail && (
-            <span className="mt-0.5 block text-(--gray-10) text-[11.5px] leading-snug">
+            <span className="mt-1 block text-(--gray-10) text-[11.5px] leading-snug">
               {preview.detail}
             </span>
           )}
         </div>
+      ) : (
+        <div className="mt-2">
+          <span className="block font-semibold text-(--gray-12) text-[14px] leading-snug">
+            {children}
+          </span>
+        </div>
       )}
-      <div className="flex items-center justify-between gap-3 rounded-b-[5px] border-(--gray-a4) border-t bg-(--gray-a2) px-3 py-[7px] text-[10.5px]">
-        <span className="truncate font-mono text-(--gray-9)">{target.id}</span>
-        {clickable ? (
-          <span className="shrink-0 text-(--gray-11)">Opens in PostHog ↗</span>
-        ) : (
-          <span className="shrink-0 text-(--gray-9)">{meta.source}</span>
+      <div className="mt-2.5 flex items-center justify-between gap-3 text-[10.5px]">
+        <span className="truncate font-mono text-(--gray-8)">{target.id}</span>
+        {clickable && (
+          <span className="shrink-0 text-(--gray-10)">Opens in PostHog ↗</span>
         )}
       </div>
     </div>

@@ -129,7 +129,15 @@ const MIN_DELTA_PCT = 0.5;
 export function chartHeadlineStat(
   data: ReportChartData,
 ): ChartHeadlineStat | null {
-  if (data.type !== "series" || data.series.length !== 1) return null;
+  // "Latest value and step change" only reads honestly on a single time
+  // series; categorical bars have no "latest" and no meaningful step.
+  if (
+    data.type !== "series" ||
+    !data.isTimeSeries ||
+    data.series.length !== 1
+  ) {
+    return null;
+  }
   const points = data.series[0].data;
   const last = points[points.length - 1];
   if (typeof last !== "number" || !Number.isFinite(last)) return null;
@@ -151,6 +159,8 @@ export function chartHeadlineStat(
 
 const MAX_SERIES = 15;
 const MAX_TABLE_ROWS = 100;
+// Past this many categories a bar chart is unreadable; a table serves better.
+const MAX_BAR_CATEGORIES = 30;
 
 const DATE_ONLY = /^\d{4}-\d{2}-\d{2}$/;
 const DATE_TIME = /^\d{4}-\d{2}-\d{2}[T ]\d{2}/;
@@ -297,18 +307,33 @@ function shapeHogQLResponse(
       : asTable(rows, columns);
   }
 
-  if (render === "line" || render === "bar") {
-    const firstColumnDates = rows.every((row) => isDateLike(row[0]));
-    const width = rows[0].length;
-    const numericTail = (row: unknown[]): boolean =>
-      row.slice(1).every((cell) => asFiniteNumber(cell) !== null);
+  const firstColumnDates = rows.every((row) => isDateLike(row[0]));
+  const width = rows[0].length;
+  const numericTail = (row: unknown[]): boolean =>
+    row.slice(1).every((cell) => asFiniteNumber(cell) !== null);
 
+  // Infer the chart for "auto" the way the SQL editor's visualization does:
+  // a date-keyed grid is a time series, a short category-keyed grid of
+  // numbers is a bar chart, anything else stays a table.
+  let effectiveRender = render;
+  if (render === "auto" && rows.length >= 2) {
+    const chartable =
+      rows.every(numericTail) ||
+      (width === 3 && firstColumnDates && !numericTail(rows[0]));
+    if (chartable && firstColumnDates) {
+      effectiveRender = "line";
+    } else if (chartable && width >= 2 && rows.length <= MAX_BAR_CATEGORIES) {
+      effectiveRender = "bar";
+    }
+  }
+
+  if (effectiveRender === "line" || effectiveRender === "bar") {
     if (width === 3 && firstColumnDates && !numericTail(rows[0])) {
       const pivoted = pivotBreakdownGrid(rows, columns);
       if (pivoted && rows.every((row) => asFiniteNumber(row[2]) !== null)) {
         return {
           type: "series",
-          render,
+          render: effectiveRender,
           labels: pivoted.labels,
           series: pivoted.series,
           isTimeSeries: true,
@@ -325,7 +350,7 @@ function shapeHogQLResponse(
       }));
       return {
         type: "series",
-        render,
+        render: effectiveRender,
         labels,
         series,
         isTimeSeries: firstColumnDates,
