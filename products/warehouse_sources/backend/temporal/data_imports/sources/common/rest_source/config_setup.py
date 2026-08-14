@@ -340,7 +340,7 @@ def _find_resolved_params(endpoint_config: Endpoint) -> list[ResolvedParam]:
 _UNPARSED = object()
 
 
-def _json_field_value(body: Any, path: str) -> Any:
+def _json_field_value(body: object, path: str) -> object:
     current = body
     for key in path.split("."):
         if not isinstance(current, dict):
@@ -352,7 +352,7 @@ def _json_field_value(body: Any, path: str) -> Any:
 def _handle_response_actions(response: Response, actions: list[ResponseAction]) -> Optional[ResponseAction]:
     content = response.text
     # Parsed at most once per response, and only when an action actually matches on the body.
-    parsed_body: Any = _UNPARSED
+    parsed_body: object = _UNPARSED
 
     for action in actions:
         if action.get("action") is None:
