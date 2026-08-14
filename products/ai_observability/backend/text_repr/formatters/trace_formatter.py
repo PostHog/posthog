@@ -14,6 +14,8 @@ from dateutil.parser import isoparse
 
 from posthog.schema import LLMTrace, LLMTraceEvent
 
+from posthog.dataclasses import frozen
+
 from .constants import DEFAULT_MAX_LENGTH, MAX_TREE_DEPTH, SEPARATOR
 from .event_formatter import format_event_text_repr
 from .message_formatter import (
@@ -27,6 +29,12 @@ from .message_formatter import (
 
 # Annotations the trace view attaches to other nodes rather than rendering as steps of its own.
 FEEDBACK_EVENT_TYPES = frozenset({"$ai_feedback", "$ai_metric"})
+
+
+@frozen(order=True)
+class _TraceEventSortKey:
+    operation_start_ms: float
+    negative_latency_ms: float
 
 
 def _first_set_property(properties: dict[str, Any], *keys: str) -> Any:
@@ -93,10 +101,12 @@ def _nest_events(llm_trace: LLMTrace) -> list[dict[str, Any]]:
         if parent_id is not None:
             child_ids.setdefault(parent_id, []).append(node_id)
 
-    def sort_key(node_id: str) -> tuple[float, float]:
+    def sort_key(node_id: str) -> _TraceEventSortKey:
         event = events_by_node_id[node_id]
         # Siblings that began together are ordered longest first, matching the timeline.
-        return (_operation_start_ms(event), -_latency_ms(event))
+        return _TraceEventSortKey(
+            operation_start_ms=_operation_start_ms(event), negative_latency_ms=-_latency_ms(event)
+        )
 
     emitted_node_ids: set[str] = set()
 
