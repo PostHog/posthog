@@ -17,7 +17,7 @@ import {
 } from "react";
 import { createCanvasHostMessageRouter } from "./canvasHostMessageRouter";
 import { translateCanvasTextSelection } from "./canvasSelection";
-import { buildSandboxDocument, type SandboxMode } from "./sandboxRuntime";
+import { buildSandboxDocument } from "./sandboxRuntime";
 
 const log = logger.scope("freeform-canvas");
 const EMPTY_COMMENT_HIGHLIGHTS: CanvasCommentHighlight[] = [];
@@ -25,12 +25,11 @@ const EMPTY_COMMENT_HIGHLIGHTS: CanvasCommentHighlight[] = [];
 export interface FreeformCanvasProps {
   /** The single-file React source to render. */
   code: string;
-  /** edit = in-app authoring (full data shim); view = published/shared. */
-  mode: SandboxMode;
   /**
    * Resolves a data-request from the canvas. The host owns the real token; this
-   * runs the authenticated call and returns only the result. In view mode the
-   * implementation must reject anything outside the frozen query allowlist.
+   * runs the authenticated call and returns only the result. Ungated by design —
+   * this sandbox only ever runs a canvas its own author is editing. A published
+   * canvas renders in BuiltCanvas, which checks its build's capabilities first.
    */
   onDataRequest: (method: string, payload: unknown) => Promise<unknown>;
   /** Called when the canvas reports a compile/runtime error (self-repair loop). */
@@ -85,8 +84,8 @@ export function FreeformCanvas({
   // never reloads the iframe — it re-renders in place.
   const analyticsHost = analytics?.apiHost;
   const srcDoc = useMemo(
-    () => buildSandboxDocument(mode, analyticsHost),
-    [mode, analyticsHost],
+    () => buildSandboxDocument(analyticsHost),
+    [analyticsHost],
   );
 
   // Latest props, read by the once-bound listener + the (stable) postInit.
@@ -124,7 +123,6 @@ export function FreeformCanvas({
         channel: "posthog-canvas",
         type: "init",
         code: p.code,
-        mode: p.mode,
         analytics: p.analytics,
         theme: p.theme,
         highlights: p.commentHighlights,

@@ -1027,8 +1027,6 @@ export interface DashboardActionProperties {
   surface: ChannelsSurface;
   channel_id?: string;
   dashboard_id?: string;
-  /** The canvas render kind. */
-  kind?: "json-render" | "freeform";
   /** Template chosen on create. */
   template_id?: string;
   /** edit_toggle: the state being entered. */

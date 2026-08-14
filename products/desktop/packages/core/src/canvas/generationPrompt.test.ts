@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { FREEFORM_TEMPLATE_ID } from "./freeformSchemas";
 import { buildCanvasGenerationPrompt } from "./generationPrompt";
 
 describe("buildCanvasGenerationPrompt", () => {
@@ -19,12 +20,15 @@ describe("buildCanvasGenerationPrompt", () => {
     expect(prompt).not.toContain("canvas-publish-create");
   });
 
-  it("includes a requested template pattern without adding authoring rules", () => {
-    const prompt = buildCanvasGenerationPrompt({
-      ...base,
-      templateId: "web-analytics",
-    });
-    expect(prompt).toContain('requested pattern: "web-analytics"');
+  // The pattern hint exists for the legacy template ids the skill defines shapes
+  // for. Every canvas created today is `freeform`, which names no shape — passing
+  // it through would put "requested pattern" on every generation task.
+  it.each([
+    ["web-analytics", true],
+    [FREEFORM_TEMPLATE_ID, false],
+  ])("templateId=%s hints a pattern: %s", (templateId, hinted) => {
+    const prompt = buildCanvasGenerationPrompt({ ...base, templateId });
+    expect(prompt.includes("requested pattern:")).toBe(hinted);
     expect(prompt).not.toContain("WebOverviewQuery");
   });
 });
