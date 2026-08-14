@@ -599,6 +599,14 @@ Icon-only trigger — only the chevron toggles, so the label can be its own butt
 </Popover>
 ```
 
+Pass `arrow` for a pointer connecting the popover to its trigger — use it when the popover is anchored to a small or ambiguous target, and leave it off for panels that read as attached already. `PopoverContent` widens its default `sideOffset` to 9 to make room for it, and `PopoverArrow` is exported for popovers that place the arrow themselves.
+
+```tsx
+<PopoverContent side="top" arrow>
+  {/* content */}
+</PopoverContent>
+```
+
 `PopoverContent` forwards `collisionAvoidance` to the positioner. Pass `fallbackAxisSide: 'none'` to keep a tall panel on its requested axis (e.g. below the trigger, flipping above only if it won't fit) instead of jumping beside the trigger when vertical space is tight: `collisionAvoidance={{ side: 'flip', align: 'shift', fallbackAxisSide: 'none' }}`.
 
 ### Tooltip

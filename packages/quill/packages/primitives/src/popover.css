@@ -22,6 +22,59 @@
         transform: scale(0.97);
     }
 
+    .quill-popover__arrow {
+        display: flex;
+        /* the arrow overlaps the popup by 1px so its fill hides the border segment it stands on */
+        --quill-popover-arrow-inset: -7px;
+        /* a 16x8 arrow rotated onto a side edge shifts by (16 - 8) / 2 */
+        --quill-popover-arrow-side-inset: -11px;
+    }
+
+    .quill-popover__arrow svg {
+        fill: var(--card);
+        stroke: var(--border);
+        stroke-width: 1px;
+        stroke-linejoin: round;
+    }
+
+    .quill-popover__arrow[data-side='top'] {
+        bottom: var(--quill-popover-arrow-inset);
+        rotate: 180deg;
+    }
+
+    .quill-popover__arrow[data-side='bottom'] {
+        top: var(--quill-popover-arrow-inset);
+    }
+
+    .quill-popover__arrow[data-side='left'] {
+        right: var(--quill-popover-arrow-side-inset);
+        rotate: 90deg;
+    }
+
+    .quill-popover__arrow[data-side='right'] {
+        left: var(--quill-popover-arrow-side-inset);
+        rotate: -90deg;
+    }
+
+    /* logical sides follow the writing direction, so the inset does too — the rotation can't, and flips below */
+    .quill-popover__arrow[data-side='inline-end'] {
+        inset-inline-start: var(--quill-popover-arrow-side-inset);
+        rotate: -90deg;
+    }
+
+    .quill-popover__arrow[data-side='inline-start'] {
+        inset-inline-end: var(--quill-popover-arrow-side-inset);
+        rotate: 90deg;
+    }
+
+    .quill-popover__arrow[data-side='inline-end']:dir(rtl) {
+        rotate: 90deg;
+    }
+
+    .quill-popover__arrow[data-side='inline-start']:dir(rtl) {
+        rotate: -90deg;
+    }
+
     .quill-popover__title {
         font-size: var(--text-sm, 0.875rem);
         font-weight: 500;
