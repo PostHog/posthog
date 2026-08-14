@@ -5,6 +5,23 @@ Connected servers are consumed by agent surfaces via the `backend/facade/` packa
 
 This is unrelated to `products/*/mcp/tools.yaml`, which exposes PostHog's own endpoints as MCP tools.
 
+## Keep the desktop UI in sync
+
+PostHog Desktop ships its own, independently written frontend for this product — same backend, same feature flags, no shared UI code:
+
+| This product (web app)                                | PostHog Desktop equivalent                                      |
+| ----------------------------------------------------- | --------------------------------------------------------------- |
+| `frontend/scene/` (marketplace)                       | `products/desktop/packages/ui/src/features/mcp-servers/`        |
+| `frontend/gateway/` + `frontend/settings/` (gateway)  | `products/desktop/packages/ui/src/features/mcp-gateway/`        |
+| `frontend/scene/AddCustomServerForm.tsx` (custom add) | `products/desktop/packages/ui/src/features/mcp-server-manager/` |
+
+The implementations are parallel, not shared: web uses Kea + LemonUI, desktop uses TanStack Query + quill.
+The desktop also hand-writes its gateway API types in `products/desktop/packages/api-client/src/mcp-gateway.ts` as mirrors of the serializers in `backend/presentation/gateway_views.py`.
+
+The MCP store feature set always changes for both apps together.
+When you change the frontend here — a new workflow, control, state, or flag gate — make the equivalent change in the desktop features above in the same PR, or open an explicitly linked follow-up.
+When you change a serializer the gateway UI consumes, update the desktop's hand-written mirrors too.
+
 ## Settings experience and rollout
 
 Two independent feature flags gate two surfaces — neither flag depends on the other:

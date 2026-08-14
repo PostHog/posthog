@@ -5,6 +5,7 @@ from uuid import UUID, uuid4
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
+from django.test import SimpleTestCase
 from django.utils import timezone
 
 from parameterized import parameterized
@@ -21,7 +22,7 @@ from posthog.temporal.oauth import ARRAY_APP_CLIENT_ID_DEV
 
 from products.annotations.backend.models.annotation import Annotation
 from products.canvas.backend import activity_visibility, build_service
-from products.canvas.backend.actions import CANVAS_ACTIONS
+from products.canvas.backend.actions import CANVAS_ACTIONS, TaskCreatePayloadSerializer
 from products.canvas.backend.models import Canvas, CanvasBuild, CanvasSourceVersion
 from products.canvas.backend.source import synthetic_source_project
 from products.tasks.backend.logic.services.compute_quota import ComputeQuotaDenialReason
@@ -1441,6 +1442,25 @@ class TestCanvasErrorReports(CanvasAPIBaseTest):
         assert response.json()["dispatch_outcome"] == "already_queued"
         assert TaskRun.objects.filter(task=task).count() == 1
 
+    def test_scoped_keys_need_task_write_to_request_a_fix(self):
+        # The dispatched fix run executes with the creator's credentials, so a
+        # canvas:write-only token must not be able to start or steer it.
+        canvas_id, build_id, _task = self._authored_canvas()
+        raw_key = generate_random_token_personal()
+        PersonalAPIKey.objects.create(
+            label="canvas-fix", user=self.user, secure_value=hash_key_value(raw_key), scopes=["canvas:write"]
+        )
+        self.client.logout()
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/canvases/{canvas_id}/request_fix/",
+            {"build_id": build_id},
+            format="json",
+            HTTP_AUTHORIZATION=f"Bearer {raw_key}",
+        )
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN, response.json()
+
     def test_request_fix_rejects_sandbox_callers(self):
         # An agent dispatching fixes to itself is a paid-run loop; the wake is
         # human-initiated only.
@@ -1564,6 +1584,9 @@ class TestCanvasActions(CanvasAPIBaseTest):
         assert annotation.created_by_id == self.user.id
         assert annotation.scope == Annotation.Scope.PROJECT
         assert annotation.content == "Marked from the canvas"
+        # An omitted date_marker must resolve to a timestamp; a null marker
+        # would leave the annotation off every chart and out of AI context.
+        assert annotation.date_marker is not None
 
     def test_undeclared_and_unknown_verbs_are_refused(self):
         canvas_id = self._actions_canvas(verbs=("tasks.create",))
@@ -1604,3 +1627,13 @@ class TestCanvasActions(CanvasAPIBaseTest):
         )
 
         assert response.status_code == status.HTTP_403_FORBIDDEN
+
+
+class TestTaskCreatePayloadSerializer(SimpleTestCase):
+    def test_title_over_the_task_store_limit_is_rejected(self):
+        # The task store caps title at 255; a longer value would reach Postgres
+        # and 500 rather than surface as a field error, so the cap belongs here.
+        serializer = TaskCreatePayloadSerializer(data={"title": "x" * 256, "description": ""})
+
+        assert not serializer.is_valid()
+        assert serializer.errors["title"][0].code == "max_length"

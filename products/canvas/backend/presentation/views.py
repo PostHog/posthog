@@ -960,7 +960,10 @@ class CanvasViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             429: OpenApiResponse(description="The team's compute quota is exhausted; retry later."),
         },
     )
-    @action(methods=["POST"], detail=True)
+    # task:write as well: the dispatched fix run executes with the creator's
+    # credentials, so canvas:write alone must not be able to start or steer it —
+    # consistent with the task-run endpoints themselves.
+    @action(methods=["POST"], detail=True, required_scopes=["canvas:write", "task:write"])
     def request_fix(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         """Wake the canvas's authoring agent to fix a failing build or runtime error.
 
@@ -1083,7 +1086,7 @@ class CanvasViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             {"verb": entry.verb, "summary": entry.summary, "destructive": entry.destructive, "usage": entry.usage}
             for entry in sorted(CANVAS_ACTIONS.values(), key=lambda entry: entry.verb)
         ]
-        return Response({"actions": rows})
+        return Response(CanvasActionsResponseSerializer(instance={"actions": rows}).data)
 
     @extend_schema(
         operation_id="canvases_actions_invoke",
@@ -1152,7 +1155,7 @@ class CanvasViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             ),
         )
         self._report_canvas_action("canvas action invoked", canvas, verb=verb)
-        return Response({"verb": verb, "result": result})
+        return Response(CanvasActionResultSerializer(instance={"verb": verb, "result": result}).data)
 
     @extend_schema(
         operation_id="canvases_state_retrieve",
@@ -1196,7 +1199,7 @@ class CanvasViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             if scope not in CanvasState.SCOPES:
                 return Response({"detail": "scope must be 'user' or 'shared'."}, status=status.HTTP_400_BAD_REQUEST)
             entries = entries.filter(scope=scope)
-        return Response({"entries": CanvasStateEntrySerializer(entries.order_by("scope", "key"), many=True).data})
+        return Response(CanvasStateResponseSerializer(instance={"entries": entries.order_by("scope", "key")}).data)
 
     @extend_schema(
         operation_id="canvases_state_set",
