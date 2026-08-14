@@ -59,7 +59,6 @@ export interface FreeformCanvasProps {
 // a JS object — only structured-clone messages cross the boundary.
 export function FreeformCanvas({
   code,
-  mode,
   onDataRequest,
   onError,
   onRendered,
@@ -79,8 +78,8 @@ export function FreeformCanvas({
   // shouldn't trigger re-renders.
   const readyRef = useRef(false);
 
-  // The document is keyed on mode + the analytics host (which the CSP must open
-  // for posthog-js), not on code: code is injected via `init`, so changing it
+  // The document is keyed on the analytics host (which the CSP must open for
+  // posthog-js), not on code: code is injected via `init`, so changing it
   // never reloads the iframe — it re-renders in place.
   const analyticsHost = analytics?.apiHost;
   const srcDoc = useMemo(
@@ -97,7 +96,6 @@ export function FreeformCanvas({
     onTextSelection,
     onCommentActivate,
     code,
-    mode,
     analytics,
     theme,
     commentHighlights,
@@ -110,7 +108,6 @@ export function FreeformCanvas({
     onTextSelection,
     onCommentActivate,
     code,
-    mode,
     analytics,
     theme,
     commentHighlights,
@@ -131,7 +128,7 @@ export function FreeformCanvas({
     );
   }, []);
 
-  // The iframe reloads only when srcDoc changes (mode / analytics host); on
+  // The iframe reloads only when srcDoc changes (the analytics host); on
   // reload it re-announces "ready", so mark it not-ready until then. Ref write
   // only — no state update, no extra render.
   // biome-ignore lint/correctness/useExhaustiveDependencies: srcDoc identity tracks a reload.
@@ -203,8 +200,8 @@ export function FreeformCanvas({
     return () => window.removeEventListener("message", onMessage);
   }, [postInit]);
 
-  // Re-send init when the code / mode / analytics change, if the iframe is ready.
-  // NB: reference code/mode/analytics DIRECTLY here (not via postInit, which
+  // Re-send init when the code / analytics change, if the iframe is ready.
+  // NB: reference code/analytics DIRECTLY here (not via postInit, which
   // reads them off a ref) — otherwise the exhaustive-deps lint strips them from
   // the array as "unused" and the effect goes stale, never re-posting on change.
   // Theme is NOT a dep: a re-init remounts the app (new Blob module = fresh
@@ -217,14 +214,13 @@ export function FreeformCanvas({
         channel: "posthog-canvas",
         type: "init",
         code,
-        mode,
         analytics,
         theme: latest.current.theme,
         highlights: latest.current.commentHighlights,
       },
       "*",
     );
-  }, [code, mode, analytics]);
+  }, [code, analytics]);
 
   useEffect(() => {
     if (!readyRef.current) return;
