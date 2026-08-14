@@ -51,10 +51,15 @@ from posthog.temporal.alerts.types import (
     SkipReason,
 )
 
+from products.alerts.backend.destinations import AlertDelivery
 from products.alerts.backend.evaluation.contract import AlertExtractionError
 from products.alerts.backend.evaluation.validation import THRESHOLD_BOUNDS_REQUIRED_MESSAGE
 from products.alerts.backend.models.alert import AlertCheck, AlertConfiguration, Threshold
 from products.product_analytics.backend.models.insight import Insight
+
+
+def _email_delivery(target: str, at: str = "2026-08-11T00:00:00+00:00") -> AlertDelivery:
+    return AlertDelivery(channel="email", target=target, at=at)
 
 
 def _valid_trends_query() -> dict:
@@ -439,7 +444,7 @@ class TestEvaluateAlert:
                 side_effect=AlertExtractionError("query returns 2 numeric columns — pick one"),
             ),
             patch("posthog.temporal.alerts.activities.capture_exception") as mock_capture,
-            patch("posthog.tasks.alerts.utils.send_notifications_for_disabled") as mock_notify,
+            patch("posthog.tasks.alerts.utils.send_notifications_for_disabled", return_value=[]) as mock_notify,
         ):
             env = ActivityEnvironment()
             result = await env.run(evaluate_alert, EvaluateAlertActivityInputs(alert_id=str(alert_with_user.id)))
@@ -555,6 +560,32 @@ class TestNotifyAlert:
         mock_breaches.assert_not_called()
         mock_errors.assert_not_called()
 
+    async def test_records_nothing_when_no_transport_accepts(self, alert_with_user) -> None:
+        # Zero accepted receipts must leave the check unstamped: stamping here would
+        # recreate the false "targets notified" rows the repair command exists to clear.
+        check = await _create_alert_check(alert_with_user, state=AlertState.FIRING)
+
+        with (
+            patch("posthog.slo.events.posthoganalytics"),
+            patch("products.alerts.backend.delivery_slo.get_instance_region", return_value="US"),
+            patch("posthog.tasks.alerts.utils.send_notifications_for_breaches", return_value=[]),
+            patch("posthog.tasks.alerts.utils.send_notifications_for_errors") as mock_errors,
+        ):
+            env = ActivityEnvironment()
+            await env.run(
+                notify_alert,
+                NotifyAlertActivityInputs(
+                    alert_id=str(alert_with_user.id),
+                    alert_check_id=str(check.id),
+                    breaches=["value above threshold"],
+                ),
+            )
+
+        mock_errors.assert_not_called()
+        refreshed = await sync_to_async(AlertCheck.objects.get)(pk=check.id)
+        assert refreshed.targets_notified == {}
+        assert refreshed.notification_sent_at is None
+
     async def test_sends_breach_notifications_when_firing(self, alert_with_user) -> None:
         check = await _create_alert_check(alert_with_user, state=AlertState.FIRING)
 
@@ -563,7 +594,7 @@ class TestNotifyAlert:
             patch("products.alerts.backend.delivery_slo.get_instance_region", return_value="US"),
             patch(
                 "posthog.tasks.alerts.utils.send_notifications_for_breaches",
-                return_value=["alice@posthog.com"],
+                return_value=[_email_delivery("alice@posthog.com")],
             ) as mock_breaches,
             patch("posthog.tasks.alerts.utils.send_notifications_for_errors") as mock_errors,
         ):
@@ -581,7 +612,8 @@ class TestNotifyAlert:
         mock_errors.assert_not_called()
 
         refreshed = await sync_to_async(AlertCheck.objects.get)(pk=check.id)
-        assert refreshed.targets_notified == {"users": ["alice@posthog.com"]}
+        assert refreshed.targets_notified == {"users": ["alice@posthog.com"], "destinations": []}
+        assert refreshed.notification_sent_at is not None
 
         refreshed_alert = await sync_to_async(AlertConfiguration.objects.get)(pk=alert_with_user.pk)
         assert refreshed_alert.last_notified_at is not None
@@ -605,7 +637,7 @@ class TestNotifyAlert:
 
         with patch(
             "posthog.tasks.alerts.utils.send_notifications_for_breaches",
-            return_value=["alice@posthog.com"],
+            return_value=[_email_delivery("alice@posthog.com")],
         ) as mock_breaches:
             env = ActivityEnvironment()
             await env.run(
@@ -637,7 +669,7 @@ class TestNotifyAlert:
             patch("posthog.tasks.alerts.utils.send_notifications_for_breaches") as mock_breaches,
             patch(
                 "posthog.tasks.alerts.utils.send_notifications_for_errors",
-                return_value=["alice@posthog.com"],
+                return_value=[_email_delivery("alice@posthog.com")],
             ) as mock_errors,
             patch("posthog.temporal.alerts.activities.create_notification") as mock_create_notification,
         ):
@@ -670,7 +702,7 @@ class TestNotifyAlert:
         assert "contact support" in notification.body
 
         refreshed = await sync_to_async(AlertCheck.objects.get)(pk=check.id)
-        assert refreshed.targets_notified == {"users": ["alice@posthog.com"]}
+        assert refreshed.targets_notified == {"users": ["alice@posthog.com"], "destinations": []}
 
     @pytest.mark.parametrize("message", [None, "", "   "])
     async def test_error_notification_uses_fallback_for_missing_reason(self, alert_with_user, message) -> None:
@@ -679,7 +711,7 @@ class TestNotifyAlert:
         with (
             patch(
                 "posthog.tasks.alerts.utils.send_notifications_for_errors",
-                return_value=["alice@posthog.com"],
+                return_value=[_email_delivery("alice@posthog.com")],
             ),
             patch("posthog.temporal.alerts.activities.create_notification") as mock_create_notification,
         ):
@@ -701,12 +733,12 @@ class TestNotifyAlert:
         alert_with_user.next_check_at = next_check_at
 
         with patch("posthog.tasks.alerts.utils.send_alert_email") as mock_send_alert_email:
-            recipients = await sync_to_async(send_notifications_for_errors)(
+            deliveries = await sync_to_async(send_notifications_for_errors)(
                 alert_with_user, {"message": "boom"}, "notification-key"
             )
 
         subscriber_email = await sync_to_async(lambda: alert_with_user.subscribed_users.get().email)()
-        assert recipients == [subscriber_email]
+        assert [(delivery.channel, delivery.target) for delivery in deliveries] == [("email", subscriber_email)]
         assert mock_send_alert_email.call_args.kwargs["template_context"]["next_check_at"] == next_check_at
 
     async def test_error_notification_does_not_include_an_unsubscribed_creator(self, alert, auser) -> None:
@@ -730,7 +762,7 @@ class TestNotifyAlert:
         with (
             patch(
                 "posthog.tasks.alerts.utils.send_notifications_for_errors",
-                return_value=["alice@posthog.com"],
+                return_value=[_email_delivery("alice@posthog.com")],
             ),
             patch("posthog.temporal.alerts.activities.create_notification", side_effect=RuntimeError("kafka down")),
         ):
@@ -741,7 +773,7 @@ class TestNotifyAlert:
             )
 
         refreshed = await sync_to_async(AlertCheck.objects.get)(pk=check.id)
-        assert refreshed.targets_notified == {"users": ["alice@posthog.com"]}
+        assert refreshed.targets_notified == {"users": ["alice@posthog.com"], "destinations": []}
 
     async def test_idempotent_when_already_notified(self, alert_with_user) -> None:
         # Simulate a previous successful notification by setting targets_notified.
@@ -825,7 +857,7 @@ class TestNotifyAlert:
         with (
             patch(
                 "posthog.tasks.alerts.utils.send_notifications_for_breaches",
-                return_value=["alice@posthog.com"],
+                return_value=[_email_delivery("alice@posthog.com")],
             ),
             patch("posthog.temporal.alerts.activities.create_notification") as mock_create_notification,
         ):
@@ -856,7 +888,7 @@ class TestNotifyAlert:
         with (
             patch(
                 "posthog.tasks.alerts.utils.send_notifications_for_breaches",
-                return_value=["alice@posthog.com"],
+                return_value=[_email_delivery("alice@posthog.com")],
             ) as mock_breaches,
             patch(
                 "posthog.temporal.alerts.activities.create_notification",
@@ -876,7 +908,7 @@ class TestNotifyAlert:
 
         mock_breaches.assert_called_once()
         refreshed = await sync_to_async(AlertCheck.objects.get)(pk=check.id)
-        assert refreshed.targets_notified == {"users": ["alice@posthog.com"]}
+        assert refreshed.targets_notified == {"users": ["alice@posthog.com"], "destinations": []}
 
 
 @pytest.mark.parametrize("calculation_interval", [None, AlertCalculationInterval.REAL_TIME])
