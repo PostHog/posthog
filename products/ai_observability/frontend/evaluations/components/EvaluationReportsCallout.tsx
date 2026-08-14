@@ -1,41 +1,38 @@
 import { useValues } from 'kea'
 
-import { LemonBanner } from '@posthog/lemon-ui'
+import { LemonButton } from '@posthog/lemon-ui'
 
 import { evaluationReportLogic } from '../evaluationReportLogic'
 
 interface EvaluationReportsCalloutProps {
     evaluationId: string
-    /** Opens the schedule form, which lives in the Configuration tab. */
-    onSetUpClick: () => void
+    onReportsClick: () => void
 }
 
 export function EvaluationReportsCallout({
     evaluationId,
-    onSetUpClick,
+    onReportsClick,
 }: EvaluationReportsCalloutProps): JSX.Element | null {
     const { activeReport, reportsLoading } = useValues(evaluationReportLogic({ evaluationId }))
 
-    // Hold the banner back until the schedule has resolved, so anyone who already has one never
-    // sees it flash.
-    if (reportsLoading || activeReport) {
+    // Hold the banner back until the schedule has resolved so anyone with enabled reports never sees it flash.
+    if (reportsLoading || activeReport?.enabled) {
         return null
     }
 
     return (
-        <LemonBanner
-            type="info"
-            className="mb-4"
-            // pinned: localStorage key - renaming it un-dismisses the banner for everyone
-            dismissKey="llma-evaluation-reports-callout"
-            action={{
-                children: 'Set up reports',
-                onClick: onSetUpClick,
-                'data-attr': 'llma-evaluation-reports-callout-cta',
-            }}
-        >
-            Scheduled reports analyze these runs for you and send the results to email or Slack, daily, weekly, or every
-            N evaluations.
-        </LemonBanner>
+        <div className="mt-2 flex flex-wrap items-center gap-x-2 gap-y-1 text-sm">
+            <span className="text-muted">
+                Evaluation reports analyze these runs and send results by email or Slack.
+            </span>
+            <LemonButton
+                type="secondary"
+                size="xsmall"
+                onClick={onReportsClick}
+                data-attr="llma-evaluation-reports-callout-cta"
+            >
+                Go to reports
+            </LemonButton>
+        </div>
     )
 }

@@ -387,12 +387,23 @@ export function AIObservabilityEvaluation(): JSX.Element {
                         content: (
                             <div className="max-w-6xl">
                                 <div className="flex justify-between items-center mb-4">
-                                    <p className="text-muted text-sm m-0">
-                                        History of when this evaluation has been executed.
-                                        {runsSummary && runsSummary.total > EVALUATION_RUNS_QUERY_LIMIT && (
-                                            <> The table below shows the latest {EVALUATION_RUNS_QUERY_LIMIT} runs.</>
+                                    <div className="min-w-0">
+                                        <p className="text-muted text-sm m-0">
+                                            History of when this evaluation has been executed.
+                                            {runsSummary && runsSummary.total > EVALUATION_RUNS_QUERY_LIMIT && (
+                                                <>
+                                                    {' '}
+                                                    The table below shows the latest {EVALUATION_RUNS_QUERY_LIMIT} runs.
+                                                </>
+                                            )}
+                                        </p>
+                                        {isReportableEvaluation && (
+                                            <EvaluationReportsCallout
+                                                evaluationId={evaluation.id}
+                                                onReportsClick={() => setActiveTab('reports')}
+                                            />
                                         )}
-                                    </p>
+                                    </div>
                                     {runsSummary && (
                                         <div className="flex flex-col items-end gap-1">
                                             <div className="flex gap-4 text-sm">
@@ -427,12 +438,6 @@ export function AIObservabilityEvaluation(): JSX.Element {
                                         </div>
                                     )}
                                 </div>
-                                {isReportableEvaluation && (
-                                    <EvaluationReportsCallout
-                                        evaluationId={evaluation.id}
-                                        onSetUpClick={() => setActiveTab('configuration')}
-                                    />
-                                )}
                                 <EvaluationRunsTable />
                             </div>
                         ),
