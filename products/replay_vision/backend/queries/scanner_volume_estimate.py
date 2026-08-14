@@ -184,9 +184,16 @@ def _plan_estimate_query(
     extra_having = eligibility_predicates()
     if (surfacing := surfacing_score_predicate(sampling_mode)) is not None:
         extra_having.append(surfacing)
+    # The estimate runs in userless contexts (schedule refresh, quota sums), where experiment_exposure's
+    # access check would raise. A cost forecast doesn't need person-scoped narrowing, so drop it and
+    # count the broader eligible set: an over-count is the safe direction for a budget estimate.
+    estimate_query = query
+    if query.experiment_exposure is not None:
+        estimate_query = query.model_copy(deep=True)
+        estimate_query.experiment_exposure = None
     list_query = SessionRecordingListFromQuery(
         team=team,
-        query=query,
+        query=estimate_query,
         extra_having_predicates=extra_having,
         events_sample_factor=sample_factor,
     )

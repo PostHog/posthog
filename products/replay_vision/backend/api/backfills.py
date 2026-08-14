@@ -222,6 +222,8 @@ class ReplayScannerBackfillViewSet(
         return WindowedCandidateQuery(
             team=self.team,
             query=scanner.recordings_query(),
+            # The preview count runs the exposure filter as the requesting user, matching the sweep.
+            user=cast(Any, self.request.user),
             window_start=window_start,
             window_end=window_end,
             query_type=BACKFILL_CANDIDATE_QUERY_TYPE,

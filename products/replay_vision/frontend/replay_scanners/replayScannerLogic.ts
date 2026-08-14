@@ -67,10 +67,10 @@ import {
 import { clampDurationFilter, durationFilterError } from './durationBounds'
 import {
     ExperimentScannerContext,
+    applyExperimentVariant,
     parseExperimentScannerParams,
     prefillScannerForExperiment,
-    reconcileVariantKeys,
-    replaceExperimentExposureFilter,
+    reconcileVariantKey,
 } from './experimentTargeting'
 import { consumeGoalDraftIntent } from './goalDraftIntent'
 import { clearScannerDraft, readScannerDraft, writeScannerDraft } from './scannerDraft'
@@ -543,8 +543,8 @@ export interface replayScannerLogicActions {
     setExperimentContext: (context: ExperimentScannerContext | null) => {
         context: ExperimentScannerContext | null
     }
-    setExperimentVariantKeys: (variantKeys: string[]) => {
-        variantKeys: string[]
+    setExperimentVariant: (variantKey: string | null) => {
+        variantKey: string | null
     }
     setGoalDraftInput: (goal: string) => {
         goal: string
@@ -713,7 +713,7 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
         // originalScanner, and submitIntent, and can refire the observation loads.
         scannerWatermarkRefreshed: (scanner: ReplayScanner) => ({ scanner }),
         setExperimentContext: (context: ExperimentScannerContext | null) => ({ context }),
-        setExperimentVariantKeys: (variantKeys: string[]) => ({ variantKeys }),
+        setExperimentVariant: (variantKey: string | null) => ({ variantKey }),
         detachExperimentContext: true,
         saveAffectedCohort: (tag?: string) => ({ tag }),
         setScannerType: (scannerType: ScannerType) => ({ scannerType }),
@@ -1007,7 +1007,7 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
             null as ExperimentScannerContext | null,
             {
                 setExperimentContext: (_, { context }) => context,
-                setExperimentVariantKeys: (state, { variantKeys }) => (state ? { ...state, variantKeys } : state),
+                setExperimentVariant: (state, { variantKey }) => (state ? { ...state, variantKey } : state),
                 detachExperimentContext: () => null,
             },
         ],
@@ -1536,8 +1536,7 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                             const experiment = await api.experiments.get(experimentParams.experimentId)
                             const context: ExperimentScannerContext = {
                                 experiment,
-                                variantKeys: reconcileVariantKeys(experiment, experimentParams.variantKeys),
-                                useExposureFallback: experimentParams.useExposureFallback,
+                                variantKey: reconcileVariantKey(experiment, experimentParams.variantKey),
                             }
                             const prefilled = prefillScannerForExperiment(newScanner(templateKey, teamName), context)
                             // Set the context only after the prefill is built, so a throw inside it
@@ -1605,17 +1604,14 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                 }
             },
 
-            // The reducer has already stored the new keys; recompile only the managed exposure
+            // The reducer has already stored the new key; recompile only the managed exposure
             // filter so filters the user added by hand survive a variant change.
-            setExperimentVariantKeys: () => {
+            setExperimentVariant: () => {
                 const context = values.experimentContext
                 if (!context) {
                     return
                 }
-                actions.setScannerValue(
-                    'query',
-                    replaceExperimentExposureFilter(values.scanner?.query ?? null, context)
-                )
+                actions.setScannerValue('query', applyExperimentVariant(values.scanner?.query ?? null, context))
             },
 
             // Changing type keeps the rest of the form: it spreads `current`, so an experiment
