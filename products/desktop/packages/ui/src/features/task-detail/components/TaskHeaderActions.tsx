@@ -13,6 +13,7 @@ import { useFeatureFlag } from "@posthog/ui/features/feature-flags/useFeatureFla
 import { BranchSelector } from "@posthog/ui/features/git-interaction/components/BranchSelector";
 import { CloudGitInteractionHeader } from "@posthog/ui/features/git-interaction/components/CloudGitInteractionHeader";
 import { TaskActionsMenu } from "@posthog/ui/features/git-interaction/components/TaskActionsMenu";
+import { useReviewInRightPanel } from "@posthog/ui/features/navigation/useReviewInRightPanel";
 import { HandoffConfirmDialog } from "@posthog/ui/features/sessions/components/HandoffConfirmDialog";
 import { StopCloudRunButton } from "@posthog/ui/features/sessions/components/StopCloudRunButton";
 import { useHandoffDialogStore } from "@posthog/ui/features/sessions/handoffDialogStore";
@@ -132,6 +133,9 @@ export function TaskHeaderActions({ task }: { task: Task }) {
   const workspace = useWorkspace(task.id);
   const workspaceLoaded = useWorkspaceLoaded();
   const isCloudTask = useIsCloudTask(task);
+  // The badge is this row's way into the review, so it comes off where the
+  // right panel's switcher already offers one.
+  const showDiffBadge = !useReviewInRightPanel();
 
   return (
     <Flex
@@ -154,7 +158,7 @@ export function TaskHeaderActions({ task }: { task: Task }) {
           />
         </div>
       )}
-      <TaskDiffStatsBadge task={task} />
+      {showDiffBadge && <TaskDiffStatsBadge task={task} />}
 
       {workspaceLoaded && (
         <>

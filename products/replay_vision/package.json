@@ -1,7 +1,7 @@
 {
     "name": "@posthog/products-replay-vision",
     "scripts": {
-        "backend:test": "pytest -c ../../pytest.ini --rootdir ../.. backend/tests -v --tb=short"
+        "backend:test": "pytest -c ../../pytest.ini --rootdir ../.. backend/tests evals/test/ -v --tb=short"
     },
     "dependencies": {
         "@posthog/quill-charts": "workspace:*",
