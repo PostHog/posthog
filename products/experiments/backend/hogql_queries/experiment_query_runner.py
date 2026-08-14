@@ -544,7 +544,15 @@ class ExperimentQueryRunner(QueryRunner):
 
         breakdowns = self._get_breakdowns_for_builder()
         breakdown_injector: MetricBreakdownInjector | None = None
-        if breakdowns and isinstance(self.metric, ExperimentFunnelMetric) and self._metric_event_breakdowns_enabled():
+        # Data warehouse funnels route through the legacy UNION ALL builder, which replaces the
+        # metric_events CTE and drops the injected breakdown columns, so gate them out until the
+        # injector supports that path.
+        if (
+            breakdowns
+            and isinstance(self.metric, ExperimentFunnelMetric)
+            and not self.is_data_warehouse_query
+            and self._metric_event_breakdowns_enabled()
+        ):
             breakdown_injector = MetricBreakdownInjector(breakdowns, self.metric)
 
         builder = ExperimentQueryBuilder(
