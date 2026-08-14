@@ -2054,9 +2054,10 @@ def test_deferred_event_removal_queues_flag_evaluations_and_blocks_promotion(clu
 
 @pytest.mark.django_db
 def test_get_property_removal_shards_refuses_when_flag_evaluations_holds_matching_rows(cluster: ClickhouseCluster):
-    # Property removal cannot rewrite flag_evaluations: its typed columns are MATERIALIZED, so
-    # ClickHouse rejects both an assignment to them and an update of properties itself. Completing
-    # the request anyway would report the property erased while a copy of it survived.
+    # Property removal cannot rewrite flag_evaluations: the rewrite machinery is scoped to the
+    # events tables, and flag_key sits in the sort key where no mutation can reset it, so even
+    # that machinery could not fully honor a request naming $feature_flag. Completing the
+    # request anyway would report the property erased while a copy of it survived.
     request = DataDeletionRequest.objects.create(
         team_id=PROP_TEAM_ID,
         request_type=RequestType.PROPERTY_REMOVAL,
