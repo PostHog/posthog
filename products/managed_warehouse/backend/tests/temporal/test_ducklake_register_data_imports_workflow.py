@@ -690,7 +690,7 @@ async def test_workflow_records_end_to_end_duration_after_gate(monkeypatch):
         for call in execute_activity.await_args_list
         if call.args[0] is copy_and_register_ducklake_data_imports_activity
     )
-    assert registration_call.kwargs["start_to_close_timeout"] == dt.timedelta(hours=1)
+    assert registration_call.kwargs["start_to_close_timeout"] == dt.timedelta(hours=4)
     assert registration_call.kwargs["retry_policy"].maximum_attempts == 1
     assert _recorded_source_job_statuses(execute_activity) == [
         registration_module.ManagedWarehouseSourceJobStatus.RUNNING,
