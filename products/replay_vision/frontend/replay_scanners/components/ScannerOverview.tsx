@@ -9,6 +9,7 @@ import { LemonProgress } from 'lib/lemon-ui/LemonProgress'
 
 import { creditsToUsd, formatCreditsRange } from '../../utils/credits'
 import { replayScannerLogic } from '../replayScannerLogic'
+import { ReplayScannerTab, replayScannerSceneLogic } from '../replayScannerSceneLogic'
 import { scannerOverviewLogic } from '../scannerOverviewLogic'
 import { ScannerType } from '../types'
 import { ScannerInsightsChart } from './ScannerInsightsChart'
@@ -434,10 +435,57 @@ function SummarizerOverview({ scannerId }: { scannerId: string }): JSX.Element |
     )
 }
 
+// The interstitial a just-created scanner shows instead of the filters + charts, whose "no matching
+// events" empty state would wrongly suggest the user's setup is broken while the first sweep runs.
+// It also hides the overview's reload buttons, so when the background checks keep failing it has to
+// surface that itself and offer a retry.
+function FirstScanPendingPanel({ scannerId }: { scannerId: string }): JSX.Element {
+    const { setActiveTab } = useActions(replayScannerSceneLogic)
+    const { firstScanCheckFailing, overviewStatsApiLoading } = useValues(scannerOverviewLogic({ scannerId }))
+    const { loadOverviewStats } = useActions(scannerOverviewLogic({ scannerId }))
+    return (
+        <div
+            className="border rounded bg-surface-primary p-6 flex flex-col items-center gap-2 text-center"
+            data-attr="vision-first-scan-pending"
+        >
+            {!firstScanCheckFailing && <Spinner className="text-2xl" />}
+            <div className="font-semibold">First scan in progress</div>
+            <div className="text-muted text-sm max-w-md">
+                {firstScanCheckFailing
+                    ? "We couldn't check for results. We'll keep retrying, or you can retry now."
+                    : 'This scanner picks up new recordings on a schedule. Results usually appear within 15 minutes.'}
+            </div>
+            {firstScanCheckFailing && (
+                <LemonButton
+                    type="secondary"
+                    size="small"
+                    loading={overviewStatsApiLoading}
+                    onClick={() => loadOverviewStats()}
+                    data-attr="vision-first-scan-pending-retry"
+                >
+                    Retry
+                </LemonButton>
+            )}
+            <LemonButton
+                type="secondary"
+                size="small"
+                onClick={() => setActiveTab(ReplayScannerTab.OnDemand)}
+                data-attr="vision-first-scan-pending-scan-now"
+            >
+                Scan a recording now
+            </LemonButton>
+        </div>
+    )
+}
+
 export function ScannerOverview({ scannerId }: { scannerId: string }): JSX.Element | null {
     const { scanner } = useValues(replayScannerLogic({ id: scannerId }))
+    const { firstScanPending } = useValues(scannerOverviewLogic({ scannerId }))
     if (!scanner) {
         return null
+    }
+    if (firstScanPending) {
+        return <FirstScanPendingPanel scannerId={scannerId} />
     }
     const scannerType: ScannerType = scanner.scanner_type
     const typeOverview =

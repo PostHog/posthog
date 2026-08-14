@@ -8977,6 +8977,8 @@ export const externalDataSources = [
     'RakutenAdvertising',
     'Zitadel',
     'DeelFlows',
+    'Hootsuite',
+    'WisprFlow',
 ] as const
 
 export type ExternalDataSourceType = (typeof externalDataSources)[number]
