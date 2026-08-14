@@ -29,7 +29,11 @@ from posthog.models.team.logs_retention import reset_revoked_logs_retention
 from posthog.models.user import User
 
 from ee.billing.billing_types import BillingProvider, BillingStatus
-from ee.billing.quota_limiting import set_org_usage_summary, update_org_billing_quotas
+from ee.billing.quota_limiting import (
+    invalidate_llm_gateway_quota_cache,
+    set_org_usage_summary,
+    update_org_billing_quotas,
+)
 from ee.models import License
 from ee.settings import BILLING_SERVICE_URL
 
@@ -40,7 +44,7 @@ BILLING_PROVIDER_WEBHOOK_TIMESTAMP_HEADER = "X-PostHog-Billing-Provider-Timestam
 BILLING_PROVIDER_WEBHOOK_SIGNATURE_VERSION = "sha256"
 
 # is_not_active_reason sentinel so the sync only undoes its own deactivations, never a manual admin disable.
-BILLING_DEACTIVATED_REASON = "Deactivated in billing"
+BILLING_DEACTIVATED_REASON = "Deactivated by billing sync (customer.deactivated)"
 
 
 class BillingAPIErrorCodes(Enum):
@@ -539,19 +543,32 @@ class BillingManager:
             org_modified = True
 
         # Missing key is a no-op: a partial billing response must not flip an org's active state.
+        # Compare-and-set updates, not the full-row save below, so a concurrent sync holding a
+        # stale snapshot cannot revert the flip.
         deactivated = cast(bool | None, data.get("deactivated"))
-        if deactivated is True and organization.is_active is not False:
-            organization.is_active = False
-            organization.is_not_active_reason = BILLING_DEACTIVATED_REASON
-            org_modified = True
-        elif (
-            deactivated is False
-            and organization.is_active is False
-            and organization.is_not_active_reason == BILLING_DEACTIVATED_REASON
-        ):
-            organization.is_active = True
-            organization.is_not_active_reason = None
-            org_modified = True
+        deactivation_flipped = False
+        if deactivated is True:
+            deactivation_flipped = (
+                Organization.objects.filter(id=organization.id)
+                .exclude(is_active=False)
+                .update(is_active=False, is_not_active_reason=BILLING_DEACTIVATED_REASON)
+                > 0
+            )
+            if deactivation_flipped:
+                organization.is_active = False
+                organization.is_not_active_reason = BILLING_DEACTIVATED_REASON
+        elif deactivated is False:
+            deactivation_flipped = (
+                Organization.objects.filter(
+                    id=organization.id, is_active=False, is_not_active_reason=BILLING_DEACTIVATED_REASON
+                ).update(is_active=True, is_not_active_reason=None)
+                > 0
+            )
+            if deactivation_flipped:
+                organization.is_active = True
+                organization.is_not_active_reason = None
+        if deactivation_flipped:
+            invalidate_llm_gateway_quota_cache(organization.teams.values_list("id", flat=True))
 
         customer_trust_scores = data.get("customer_trust_scores", {})
 

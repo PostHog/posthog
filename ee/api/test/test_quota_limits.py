@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from posthog.test.base import APIBaseTest
+from unittest.mock import patch
 
 from rest_framework import status
 
@@ -65,7 +66,11 @@ class TestQuotaLimitsAPI(APIBaseTest):
         self.organization.is_active = False
         self.organization.save()
 
-        response = self.client.get(self._url())
+        with patch(
+            "ee.api.quota_limits.get_fresh_team_limited_resources",
+            side_effect=Exception("redis unavailable"),
+        ):
+            response = self.client.get(self._url())
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         data = response.json()
@@ -74,6 +79,18 @@ class TestQuotaLimitsAPI(APIBaseTest):
         for field in INFORMATIONAL_USAGE_RESOURCES:
             self.assertIs(data["limited"][field]["limited"], False)
         self.assertIs(data["code_usage_billing_active"], False)
+
+    def test_null_active_org_is_not_treated_as_deactivated(self) -> None:
+        self.organization.is_active = None
+        self.organization.save()
+
+        response = self.client.get(self._url())
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(
+            response.json()["limited"]["ai_credits"],
+            {"limited": False, "usage": None, "limit": None},
+        )
 
     def test_reports_code_usage_billing_state(self) -> None:
         # The LLM gateway keys posthog_code per-user cap bypass and model gating

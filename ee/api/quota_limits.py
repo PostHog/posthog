@@ -106,12 +106,17 @@ class QuotaLimitsViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         org_deactivated = self.team.organization.is_active is False
         # Fresh read on purpose: the gateway re-caches this answer for minutes, so serving
         # the 30s per-worker memo here would re-poison a just-invalidated gateway entry.
-        limited_resources = get_fresh_team_limited_resources(self.team.api_token)
+        # Deactivated orgs skip it: their answer must not depend on Redis being reachable.
+        limited_resources = (
+            dict.fromkeys(QuotaResource, True)
+            if org_deactivated
+            else get_fresh_team_limited_resources(self.team.api_token)
+        )
         limited = {}
         for resource in QuotaResource:
             summary = org_usage.get(resource.value) or {}
             limited[resource.value] = {
-                "limited": org_deactivated or limited_resources[resource],
+                "limited": limited_resources[resource],
                 "usage": _resource_usage(summary),
                 "limit": summary.get("limit"),
             }
