@@ -44,18 +44,18 @@ export const LogsDisplayBar = ({
     const { facetRailCollapsed, viewMode } = useValues(logsViewerConfigLogic)
     const { setFacetRailCollapsed, setViewMode } = useActions(logsViewerConfigLogic)
     const showPatternsView = useFeatureFlag('LOGS_PATTERNS_VIEW')
-    const showGroupBy = useFeatureFlag('LOGS_GROUP_BY')
 
     const inPatternsMode = showPatternsView && viewMode === 'patterns'
     // Group is a third view like Patterns: the mode lives in the segmented bar; the key
-    // picker below is the mode's configuration. Double-gated so it's unreachable flag-off.
-    const inGroupByMode = showGroupBy && viewMode === 'group'
+    // picker below is the mode's configuration.
+    const inGroupByMode = viewMode === 'group'
 
-    // Each lens joins the bar behind its own flag; the bar renders once any non-Logs lens exists.
+    // Patterns joins the bar behind its flag; Group is always available. The bar renders once
+    // any non-Logs lens exists.
     const viewModeOptions = [
         { value: 'logs' as const, label: 'Logs' },
         ...(showPatternsView ? [{ value: 'patterns' as const, label: 'Patterns' }] : []),
-        ...(showGroupBy ? [{ value: 'group' as const, label: 'Group' }] : []),
+        { value: 'group' as const, label: 'Group' },
     ]
 
     return (
