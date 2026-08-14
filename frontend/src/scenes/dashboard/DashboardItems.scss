@@ -11,6 +11,10 @@
     }
 }
 
+.dashboard-section-reordering {
+    overflow-anchor: none;
+}
+
 .react-grid-layout {
     position: relative;
     transition: height 100ms ease;

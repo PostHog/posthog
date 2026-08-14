@@ -3,6 +3,8 @@ import type { DashboardGroupApi } from '@posthog/products-dashboards/frontend/ge
 import type { DashboardTile, QueryBasedInsightModel } from '~/types'
 
 import {
+    getDashboardSectionsPreview,
+    getFirstAvailableSectionRow,
     IMPLICIT_SECTION_KEY,
     ORPHAN_SECTION_KEY,
     partitionDashboardSections,
@@ -36,13 +38,14 @@ describe('partitionDashboardSections', () => {
         ])
     })
 
-    it('keeps named empty sections and drops empty anonymous ones', () => {
+    it('keeps empty named and anonymous sections', () => {
         const named = group({ id: 'named', name: 'Revenue', position: 0 })
         const anonymous = group({ id: 'anon', name: null, position: 1 })
         const sections = partitionDashboardSections([], [anonymous, named])
 
-        expect(sections.map((section) => section.key)).toEqual(['named'])
+        expect(sections.map((section) => section.key)).toEqual(['named', 'anon'])
         expect(sections[0].isNamed).toBe(true)
+        expect(sections[1].isNamed).toBe(false)
     })
 
     it('orders by position then created_at and buckets tiles by parent_group_id', () => {
@@ -68,5 +71,41 @@ describe('sectionDisplayName', () => {
         [null, 'Untitled section'],
     ])('name=%j → %s', (name, expected) => {
         expect(sectionDisplayName(group({ id: 'g', position: 0, name }))).toBe(expected)
+    })
+})
+
+describe('getFirstAvailableSectionRow', () => {
+    it('keeps a dropped tile at its size and moves it below collisions', () => {
+        expect(
+            getFirstAvailableSectionRow(
+                [
+                    { i: '1', x: 0, y: 0, w: 6, h: 3 },
+                    { i: '2', x: 6, y: 0, w: 6, h: 2 },
+                ],
+                0,
+                1,
+                6,
+                2
+            )
+        ).toBe(3)
+    })
+})
+
+describe('getDashboardSectionsPreview', () => {
+    it('moves the dragged section into the drop position without changing persisted positions', () => {
+        const sections = partitionDashboardSections(
+            [],
+            [
+                group({ id: 'first', position: 0 }),
+                group({ id: 'second', position: 1 }),
+                group({ id: 'third', position: 2 }),
+            ]
+        )
+
+        expect(getDashboardSectionsPreview(sections, 'first', 3).map((section) => section.key)).toEqual([
+            'second',
+            'third',
+            'first',
+        ])
     })
 })

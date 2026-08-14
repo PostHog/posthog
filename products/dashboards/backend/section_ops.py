@@ -49,16 +49,19 @@ def _shift_positions_from(dashboard: Dashboard, insert_at: int) -> None:
     dashboard.groups.filter(position__gte=insert_at).update(position=F("position") + 1)
 
 
-def wrap_ungrouped_tiles_as_anonymous_section(dashboard: Dashboard, user: User | None) -> DashboardGroup | None:
+def wrap_ungrouped_tiles_as_anonymous_section(
+    dashboard: Dashboard, user: User | None, position: int = 0
+) -> DashboardGroup | None:
     ungrouped = list(content_tiles_qs(dashboard).filter(parent_group__isnull=True))
     if not ungrouped:
         return None
-    _shift_positions_from(dashboard, 0)
+    insert_at = max(0, min(position, len(ordered_groups(dashboard))))
+    _shift_positions_from(dashboard, insert_at)
     group = DashboardGroup.all_teams.create(
         dashboard=dashboard,
         team=dashboard.team,
         name=None,
-        position=0,
+        position=insert_at,
         created_by=user,
         last_modified_by=user,
     )
@@ -97,13 +100,19 @@ def create_section(
 
 def move_section(dashboard: Dashboard, group: DashboardGroup, new_position: int) -> DashboardGroup:
     lock_dashboard(dashboard)
+    wrap_ungrouped_tiles_as_anonymous_section(
+        dashboard, group.last_modified_by, position=len(ordered_groups(dashboard))
+    )
     remaining = [item for item in ordered_groups(dashboard) if item.id != group.id]
     insert_at = max(0, min(new_position, len(remaining)))
     remaining.insert(insert_at, group)
+    groups_to_update: list[DashboardGroup] = []
     for index, item in enumerate(remaining):
         if item.position != index:
             item.position = index
-            item.save(update_fields=["position"])
+            groups_to_update.append(item)
+    if groups_to_update:
+        DashboardGroup.all_teams.bulk_update(groups_to_update, ["position"])
     group.refresh_from_db()
     return group
 

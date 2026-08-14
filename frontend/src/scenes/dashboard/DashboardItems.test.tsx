@@ -265,6 +265,60 @@ describe('DashboardItems', () => {
         expect(container.firstChild).toMatchSnapshot()
     })
 
+    it('shows tiles from an ungrouped section without waiting for a reload', () => {
+        const tile = {
+            id: 1,
+            parent_group_id: 'group-1',
+            insight: { id: 101, short_id: 'abc123', query: { kind: 'InsightVizNode' } },
+            layouts: { sm: [{ i: '1', x: 0, y: 0, w: 6, h: 5 }] },
+        }
+
+        mockedUseValues.mockImplementation((logic) => {
+            if (logic === dashboardLogic) {
+                return {
+                    dashboard: {
+                        id: 5,
+                        groups: [
+                            {
+                                id: 'group-1',
+                                name: null,
+                                position: 0,
+                                created_at: '2026-01-01T00:00:00Z',
+                            },
+                        ],
+                    },
+                    tiles: [tile],
+                    layouts: tile.layouts,
+                    dashboardMode: null,
+                    layoutEditMode: false,
+                    placement: DashboardPlacement.Dashboard,
+                    isRefreshingQueued: () => false,
+                    isRefreshing: () => false,
+                    highlightedInsightId: null,
+                    refreshStatus: {},
+                    itemsLoading: false,
+                    dashboardStreaming: false,
+                    effectiveEditBarFilters: {},
+                    effectiveDashboardVariableOverrides: {},
+                    temporaryBreakdownColors: [],
+                    dataColorThemeId: null,
+                    canEditDashboard: true,
+                    layoutZoom: 1,
+                    collapsedDashboardSectionIds: ['group-1'],
+                }
+            }
+
+            if (logic === dashboardsModel) {
+                return { nameSortedDashboards: [] }
+            }
+
+            return {}
+        })
+
+        const { container } = render(<DashboardItems />)
+        expect(container.querySelector('[data-attr="insight-card"]')).toBeInTheDocument()
+    })
+
     it('shows widget tiles on public dashboards', () => {
         const widgetTile = {
             id: 2,

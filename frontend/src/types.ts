@@ -81,11 +81,11 @@ import type {
 import { QueryContext } from '~/queries/types'
 
 import { AlertType } from 'products/alerts/frontend/types'
+import type { DashboardGroupApi } from 'products/dashboards/frontend/generated/api.schemas'
 import type {
     DataWarehouseSavedQueryApiSuspended,
     SyncFrequencyBoundsApi,
 } from 'products/data_warehouse/frontend/generated/api.schemas'
-import type { DashboardGroupApi } from 'products/dashboards/frontend/generated/api.schemas'
 import type { ExperimentFeatureFlagInputApi } from 'products/experiments/frontend/generated/api.schemas'
 import type { CommentSlackThreadRefApi } from 'products/platform_features/frontend/generated/api.schemas'
 import type { InsightFilterOverrideContextApi } from 'products/product_analytics/frontend/generated/api.schemas'

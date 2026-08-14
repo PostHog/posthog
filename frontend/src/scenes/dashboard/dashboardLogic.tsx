@@ -136,7 +136,13 @@ import {
     mergeBreakdownColorConfigs,
 } from './dashboardBreakdownColors'
 import { AUTO_REFRESH_INITIAL_INTERVAL_SECONDS } from './dashboardConstants'
-import { partitionDashboardSections, isPersistedSectionKey, type DashboardSection } from './dashboardSections'
+import {
+    buildDashboardSectionsLayout,
+    partitionDashboardSections,
+    isPersistedSectionKey,
+    type DashboardSection,
+    type DashboardSectionsLayout,
+} from './dashboardSections'
 import {
     BREAKPOINT_COLUMN_COUNTS,
     DASHBOARD_MIN_REFRESH_INTERVAL_MINUTES,
@@ -349,6 +355,7 @@ export interface dashboardLogicValues {
     refreshTilesTotal: number | null
     scrollToBottomSignal: number
     sectionLayouts: Record<string, Partial<Record<DashboardLayoutSize, Layout>>>
+    sectionedLayouts: DashboardSectionsLayout
     sections: DashboardSection[]
     shouldReportOnAPILoad: boolean
     shouldUseStreaming: boolean
@@ -1148,6 +1155,9 @@ export interface dashboardLogicMeta {
         sectionLayouts: (
             sections: DashboardSection<QueryBasedInsightModel<Node<Record<string, any>>>>[]
         ) => Record<string, Partial<Record<DashboardLayoutSize, Layout>>>
+        sectionedLayouts: (
+            sections: DashboardSection<QueryBasedInsightModel<Node<Record<string, any>>>>[]
+        ) => DashboardSectionsLayout
         layouts: (
             tiles: DashboardTile<QueryBasedInsightModel<Node<Record<string, any>>>>[]
         ) => Partial<Record<DashboardLayoutSize, Layout>>
@@ -3020,6 +3030,11 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 Object.fromEntries(sections.map((section) => [section.key, calculateLayouts(section.tiles)])),
             { resultEqualityCheck: objectsEqual },
         ],
+        sectionedLayouts: [
+            (s) => [s.sections],
+            (sections: DashboardSection[]): DashboardSectionsLayout => buildDashboardSectionsLayout(sections),
+            { resultEqualityCheck: objectsEqual },
+        ],
         layouts: [
             (s) => [s.tiles],
             (
@@ -3346,6 +3361,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     group_id: groupId,
                     position,
                 })
+                actions.loadDashboard({ action: DashboardLoadAction.Update })
             } catch {
                 actions.loadDashboard({ action: DashboardLoadAction.Update })
                 lemonToast.error("Couldn't move section. Try again.")
@@ -3547,13 +3563,10 @@ export const dashboardLogic = kea<dashboardLogicType>([
             })
             actions.updateLayouts({ ...values.layouts, sm: newSmLayout })
 
-            if (isPersistedSectionKey(slot.sectionKey) && newTile.parent_group_id !== slot.sectionKey) {
-                actions.moveDashboardTileToGroup({
-                    tileId: newTile.id,
-                    groupId: slot.sectionKey,
-                    layouts: newTileLayout,
-                })
-            }
+            const destinationGroupId =
+                isPersistedSectionKey(slot.sectionKey) && newTile.parent_group_id !== slot.sectionKey
+                    ? slot.sectionKey
+                    : null
 
             // The inline insert has now landed at the line — report it (outcome, vs the option-clicked intent).
             const insertedTileType = newTile.text
@@ -3583,6 +3596,13 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 const updated = getQueryBasedDashboard(response)
                 if (updated) {
                     dashboardsModel.actions.updateDashboardSuccess(updated)
+                }
+                if (destinationGroupId) {
+                    actions.moveDashboardTileToGroup({
+                        tileId: newTile.id,
+                        groupId: destinationGroupId,
+                        layouts: newTileLayout,
+                    })
                 }
             } catch (e) {
                 lemonToast.error('Could not position the new tile: ' + String(e))

@@ -13,7 +13,7 @@ import { ApiError } from 'lib/api'
 import { InsightCard } from 'lib/components/Cards/InsightCard'
 import { EditModeEdge, useResizeHandleScrollbarPassThrough } from 'lib/components/Cards/InsightCard/EditModeEdgeOverlay'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
-import { LemonMenuItem } from 'lib/lemon-ui/LemonMenu'
+import { LemonMenuItems } from 'lib/lemon-ui/LemonMenu'
 import { DashboardEventSource, eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { objectsEqual } from 'lib/utils/objects'
 import { addInsightToDashboardLogic } from 'scenes/dashboard/addInsightToDashboardModalLogic'
@@ -27,7 +27,7 @@ import {
 } from 'scenes/dashboard/dashboardUtils'
 import { continueDragGestureInEditMode, continueResizeGestureInEditMode } from 'scenes/dashboard/editLayoutGesture'
 import { InsertTileOverlay } from 'scenes/dashboard/InsertTileOverlay'
-import { DEFAULT_INSERTED_TILE_SIZE } from 'scenes/dashboard/tileLayouts'
+import { calculateLayouts, DEFAULT_INSERTED_TILE_SIZE } from 'scenes/dashboard/tileLayouts'
 import { useSurveyLinkedInsights } from 'scenes/surveys/hooks/useSurveyLinkedInsights'
 import { getBestSurveyOpportunityFunnel } from 'scenes/surveys/utils/opportunityDetection'
 import { urls } from 'scenes/urls'
@@ -37,12 +37,18 @@ import { insightsModel } from '~/models/insightsModel'
 import { DashboardLayoutSize, DashboardMode, DashboardPlacement, DashboardType } from '~/types'
 
 import { DashboardSection } from './DashboardSection'
-import { isPersistedSectionKey, sectionDisplayName } from './dashboardSections'
+import {
+    getDashboardSectionsPreview,
+    getFirstAvailableSectionRow,
+    isPersistedSectionKey,
+    partitionDashboardSections,
+    sectionDisplayName,
+} from './dashboardSections'
 import { DashboardButtonTileItem } from './items/DashboardButtonTileItem'
 import { DashboardErrorTileItem } from './items/DashboardErrorTileItem'
 import { DashboardTextItem } from './items/DashboardTextItem'
-import { MoveToSectionMenu } from './MoveToSectionMenu'
-import { useCrossSectionDrag, type DashboardDropTarget } from './useCrossSectionDrag'
+import { MoveToSectionMenu, type MoveToSectionDestination } from './MoveToSectionMenu'
+import { useCrossSectionDrag, type DashboardDropTarget, type DashboardTileDropLayout } from './useCrossSectionDrag'
 
 const DRAG_AUTO_SCROLL_THRESHOLD = 100
 const DRAG_AUTO_SCROLL_SPEED = 50
@@ -101,10 +107,14 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
         widgetResultsByTileId,
         widgetRefreshStatus,
         scrollToBottomSignal,
-        sections,
-        sectionLayouts,
+        sections: loadedSections,
+        sectionLayouts: loadedSectionLayouts,
         collapsedDashboardSectionIds,
     } = useValues(dashboardLogic)
+    const sections = loadedSections ?? partitionDashboardSections(tiles ?? [], dashboard?.groups)
+    const sectionLayouts =
+        loadedSectionLayouts ??
+        Object.fromEntries(sections.map((section) => [section.key, calculateLayouts(section.tiles)]))
     const { layoutZoom = 1 } = useValues(dashboardLogic)
     const {
         updateLayouts,
@@ -143,7 +153,6 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
     // Tile currently being resized. Its viz is unmounted for the duration of the gesture so the chart doesn't
     // redraw on every frame as the tile's dimensions change — the dominant cost that makes resizing feel laggy.
     const [resizingTileId, setResizingTileId] = useState<string | null>(null)
-    const [containerHeight, setContainerHeight] = useState<number | undefined>(undefined)
 
     // cannot click links when dragging and 250ms after
     const isDragging = useRef(false)
@@ -191,9 +200,7 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
             cancelAnimationFrame(secondFrame)
         }
     }, [scrollToBottomSignal])
-    const groupCount = dashboard?.groups?.length ?? 0
-
-    const classNameForSection = (isLastSection: boolean): string =>
+    const classNameForSection = (isLastSection: boolean, hasGroup: boolean): string =>
         clsx({
             'dashboard-view-mode mb-8': !layoutEditMode,
             // In edit mode, dragging is bounded to the grid's own clientHeight, which is exactly the
@@ -202,7 +209,8 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
             // since preflight defaults everything to border-box), opening up draggable space below the
             // last tile that scales with content. A margin wouldn't work — it sits outside clientHeight.
             'dashboard-edit-mode box-content': layoutEditMode,
-            'pb-[40vh]': layoutEditMode && isLastSection,
+            'pb-[40vh]': layoutEditMode && isLastSection && !hasGroup,
+            'pb-16': layoutEditMode && isLastSection && hasGroup,
         })
 
     const { width, containerRef, mounted } = useContainerWidth()
@@ -215,33 +223,6 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
         return () => clearTimeout(timer)
     }, [width])
 
-    useEffect(() => {
-        if (!mounted || !containerRef.current) {
-            return
-        }
-
-        const element = containerRef.current
-        const observer = new ResizeObserver((entries) => {
-            // Skip per-frame height commits during a gesture — they re-render every tile just for GridBackground,
-            // lagging the cursor. flushPendingLayouts remeasures on stop.
-            if (interactionInProgress.current) {
-                return
-            }
-            for (const entry of entries) {
-                if (entry.target === element) {
-                    setContainerHeight(entry.contentRect.height)
-                }
-            }
-        })
-
-        // Set initial height
-        setContainerHeight(element.clientHeight)
-        observer.observe(element)
-
-        return () => {
-            observer.disconnect()
-        }
-    }, [mounted, containerRef])
     const isMobileView = !!width && width <= BREAKPOINTS['sm']
     const isEditablePlacement = [
         DashboardPlacement.Dashboard,
@@ -249,8 +230,21 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
         DashboardPlacement.Builtin,
     ].includes(placement)
 
+    const isLayoutZoomToggled = layoutEditMode && layoutZoom !== 1
+
+    const effectiveZoom = layoutEditMode ? layoutZoom : 1
+    const rowHeight = BASE_ROW_HEIGHT * effectiveZoom
+    const spacingFactor = effectiveZoom < 1 ? 0.9 : 1
+    const margin = useMemo(() => BASE_MARGIN.map((m) => m * spacingFactor) as [number, number], [spacingFactor])
+
     const handleCrossSectionTileDrop = useCallback(
-        (tileId: number, target: Exclude<DashboardDropTarget, null>, event: MouseEvent): void => {
+        (
+            tileId: number,
+            target: Exclude<DashboardDropTarget, null>,
+            event: MouseEvent,
+            finalLayout: DashboardTileDropLayout | null,
+            targetRect: DOMRect | null
+        ): void => {
             const targetSection =
                 target.type === 'section' ? sections.find((section) => section.key === target.sectionKey) : null
             const targetLayouts = targetSection ? (sectionLayouts[targetSection.key]?.sm ?? []) : []
@@ -259,15 +253,15 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
                 .find((layout) => layout.i === String(tileId))
             const w = sourceLayout?.w ?? DEFAULT_INSERTED_TILE_SIZE.w
             const h = sourceLayout?.h ?? DEFAULT_INSERTED_TILE_SIZE.h
-            const sectionMaxY = Math.max(0, ...targetLayouts.map((layout) => layout.y + layout.h))
-            const x = Math.max(
-                0,
-                Math.min(
-                    BREAKPOINT_COLUMN_COUNTS.sm - w,
-                    Math.floor((event.clientX / Math.max(gridWidth, 1)) * BREAKPOINT_COLUMN_COUNTS.sm)
-                )
-            )
-            const layouts = { sm: { x, y: sectionMaxY, w, h } }
+            const gridRowHeight = rowHeight + margin[1]
+            // Group headers occupy 44px before the section-local grid coordinates begin.
+            const headerHeight = targetSection?.group ? 44 : 0
+            const requestedY = targetRect
+                ? Math.max(0, Math.floor((event.clientY - targetRect.top - headerHeight) / gridRowHeight))
+                : Math.max(0, ...targetLayouts.map((layout) => layout.y + layout.h))
+            const x = Math.max(0, Math.min(BREAKPOINT_COLUMN_COUNTS.sm - w, finalLayout?.x ?? sourceLayout?.x ?? 0))
+            const y = getFirstAvailableSectionRow(targetLayouts, x, requestedY, w, h)
+            const layouts = { sm: { x, y, w, h } }
             if (targetSection?.group && isPersistedSectionKey(targetSection.key)) {
                 moveDashboardTileToGroup({ tileId, groupId: targetSection.group.id, layouts })
                 return
@@ -278,7 +272,7 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
                     : Math.max(0, targetSection ? sections.indexOf(targetSection) : 0)
             moveDashboardTileToGroup({ tileId, createAtPosition: position, layouts })
         },
-        [dashboard?.groups?.length, gridWidth, moveDashboardTileToGroup, sectionLayouts, sections]
+        [dashboard?.groups?.length, margin, moveDashboardTileToGroup, rowHeight, sectionLayouts, sections]
     )
 
     const handleCrossSectionSectionDrop = useCallback(
@@ -289,8 +283,9 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
                 return
             }
             const targetSection = sections[renderedPosition]
+            const targetIsUngrouped = !targetSection?.group
             let to = targetSection?.group?.position ?? groups.length
-            if (from < to) {
+            if (!targetIsUngrouped && from < to) {
                 to -= 1
             }
             if (to !== from) {
@@ -302,23 +297,53 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
 
     const crossSectionDrag = useCrossSectionDrag({
         sections,
-        disabled: isMobileView || !layoutEditMode || !isEditablePlacement,
+        disabled: isMobileView || !isEditablePlacement,
         onTileDrop: handleCrossSectionTileDrop,
         onSectionDrop: handleCrossSectionSectionDrop,
     })
+    const sectionPreviewPosition = useMemo(() => {
+        if (crossSectionDrag.dropTarget?.type === 'gap') {
+            return crossSectionDrag.dropTarget.position
+        }
+        if (crossSectionDrag.dropTarget?.type === 'section') {
+            return crossSectionDrag.dropTarget.position + Number(crossSectionDrag.dropTarget.after)
+        }
+        return null
+    }, [crossSectionDrag.dropTarget])
+    const displayedSections = useMemo(
+        () => getDashboardSectionsPreview(sections, crossSectionDrag.draggedGroupId, sectionPreviewPosition),
+        [crossSectionDrag.draggedGroupId, sectionPreviewPosition, sections]
+    )
+    const collapsedSectionIds = useMemo(() => new Set(collapsedDashboardSectionIds), [collapsedDashboardSectionIds])
+    const sectionLayoutsByTileId = useMemo(
+        () =>
+            new Map(
+                Object.values(sectionLayouts)
+                    .flatMap((layouts) => layouts.sm ?? [])
+                    .map((layout) => [Number(layout.i), layout])
+            ),
+        [sectionLayouts]
+    )
+    const moveDestinationsBySection = useMemo(() => {
+        const namedSections = sections.filter((section) => section.group)
+        return new Map<string, MoveToSectionDestination[]>(
+            sections.map((section) => [
+                section.key,
+                namedSections
+                    .filter((candidate) => candidate.key !== section.key)
+                    .map((candidate) => ({
+                        groupId: candidate.group!.id,
+                        label: sectionDisplayName(candidate.group!),
+                    })),
+            ])
+        )
+    }, [sections])
 
     const canEnterEditModeFromEdge =
         !!dashboard && canEditDashboard && !layoutEditMode && !isMobileView && isEditablePlacement
 
-    const isLayoutZoomToggled = layoutEditMode && layoutZoom !== 1
-
-    const effectiveZoom = layoutEditMode ? layoutZoom : 1
-    const rowHeight = BASE_ROW_HEIGHT * effectiveZoom
-    const spacingFactor = effectiveZoom < 1 ? 0.9 : 1
-    const margin = useMemo(() => BASE_MARGIN.map((m) => m * spacingFactor) as [number, number], [spacingFactor])
-
     const getInsertMenuItems = useCallback(
-        (sectionKey: string, targetX: number, targetY: number, targetW?: number): LemonMenuItem[] =>
+        (sectionKey: string, targetX: number, targetY: number, targetW?: number): LemonMenuItems =>
             dashboard
                 ? getAddTileMenuItems({
                       dashboardId: dashboard.id,
@@ -339,6 +364,13 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
             setPendingInsertion,
         ]
     )
+    const getGroupAddMenuItems = useCallback(
+        (sectionKey: string, layouts: Partial<Record<DashboardLayoutSize, Layout>>): LemonMenuItems => {
+            const targetY = Math.max(0, ...(layouts.sm ?? []).map((layout) => layout.y + layout.h))
+            return getInsertMenuItems(sectionKey, 0, targetY)
+        },
+        [getInsertMenuItems]
+    )
 
     const showResizeHandles = layoutEditMode && !isMobileView && isEditablePlacement && !isLayoutZoomToggled
     const showEditingControls = isEditablePlacement || layoutEditMode
@@ -350,9 +382,9 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
     const dragConfig = useMemo(
         () => ({
             enabled: layoutEditMode && !isMobileView,
-            handle: '.CardMeta,.TextCard__body,.ButtonTileCard__body,.WidgetCard__header,.drag-handle',
-            cancel: 'a,table,button,input,.Popover',
-            bounded: true,
+            handle: '.CardMeta,.TextCard__body,.ButtonTileCard__body,.WidgetCard__header,.drag-handle,.dashboard-section-drag-handle',
+            cancel: 'a,table,button,input,textarea,select,[contenteditable="true"],.Popover',
+            bounded: false,
         }),
         [layoutEditMode, isMobileView]
     )
@@ -442,13 +474,6 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
             updateLayouts(pendingLayouts.current)
             pendingLayouts.current = null
         }
-        // Remeasure once the gesture settles, since height updates were suppressed during it.
-        requestAnimationFrame(() => {
-            if (containerRef.current) {
-                setContainerHeight(containerRef.current.clientHeight)
-            }
-        })
-        // oxlint-disable-next-line react-hooks/exhaustive-deps -- ref reads inside requestAnimationFrame aren't valid deps
     }, [updateLayouts])
 
     const handleWidthChange = useCallback(
@@ -543,9 +568,9 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
         (
             _layout: unknown,
             _oldItem: unknown,
-            _newItem: { i: string } | null,
+            newItem: ({ i: string } & DashboardTileDropLayout) | null,
             _placeholder: unknown,
-            event: MouseEvent
+            event: Event
         ) => {
             if (scrollAnimationRef.current) {
                 cancelAnimationFrame(scrollAnimationRef.current)
@@ -559,11 +584,10 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
             dragEndTimeout.current = window.setTimeout(() => {
                 isDragging.current = false
             }, 250)
-            const moved = crossSectionDrag.finishDrag(event)
+            const moved = crossSectionDrag.finishDrag(event as MouseEvent, newItem)
             if (!moved) {
                 flushPendingLayouts()
             } else {
-                // The source grid still owns the tile; flushing would persist it in the old section.
                 interactionInProgress.current = false
                 pendingLayouts.current = null
             }
@@ -575,7 +599,13 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
     )
 
     return (
-        <div className="dashboard-items-wrapper" ref={containerRef as RefObject<HTMLDivElement>}>
+        <div
+            className={clsx(
+                'dashboard-items-wrapper',
+                crossSectionDrag.draggedGroupId && 'dashboard-section-reordering'
+            )}
+            ref={containerRef as RefObject<HTMLDivElement>}
+        >
             {layoutEditMode && isMobileView && (
                 <LemonBanner type="warning" className="mb-4">
                     Layout editing is disabled on smaller screens. Please zoom out or use a larger screen to move or
@@ -584,53 +614,60 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
             )}
             {mounted && (
                 <div className="relative">
-                    {sections.map((section, sectionIndex) => {
+                    {displayedSections.map((section, sectionIndex) => {
                         const displayLayouts = sectionLayouts[section.key] ?? {}
+                        const sectionGridRows = Math.max(1, ...(displayLayouts.sm ?? []).map((item) => item.y + item.h))
                         const collapsed =
-                            !!section.group &&
                             placement !== DashboardPlacement.Export &&
-                            !layoutEditMode &&
-                            collapsedDashboardSectionIds.includes(section.group.id)
-                        const isLastSection = sectionIndex === sections.length - 1
-                        const draggableGroupId = layoutEditMode ? section.group?.id : undefined
+                            section.isNamed &&
+                            section.group !== null &&
+                            collapsedSectionIds.has(section.group.id)
+                        const isLastSection = sectionIndex === displayedSections.length - 1
                         return (
                             <Fragment key={section.key}>
-                                {crossSectionDrag.dropTarget?.type === 'gap' &&
+                                {!crossSectionDrag.draggedGroupId &&
+                                    crossSectionDrag.dropTarget?.type === 'gap' &&
                                     crossSectionDrag.dropTarget.position === sectionIndex && (
-                                        <div className="h-0.5 bg-accent my-3 rounded-full" />
+                                        <div className="h-1 border border-dashed border-accent bg-accent-highlight-secondary my-3 rounded-full" />
                                     )}
                                 <DashboardSection
                                     group={section.isNamed ? section.group : null}
                                     collapsed={collapsed}
                                     canEdit={canEditDashboard && isEditablePlacement}
-                                    groupCount={groupCount}
                                     tileCount={section.tiles.length}
+                                    dragPreview={
+                                        section.group?.id === crossSectionDrag.sectionDragPreview?.groupId
+                                            ? (crossSectionDrag.sectionDragPreview ?? undefined)
+                                            : undefined
+                                    }
+                                    showDropPreview={
+                                        section.group?.id === crossSectionDrag.draggedGroupId &&
+                                        crossSectionDrag.dropTarget !== null
+                                    }
+                                    addMenuItems={
+                                        section.isNamed ? getGroupAddMenuItems(section.key, displayLayouts) : undefined
+                                    }
                                     sectionRef={(element) => crossSectionDrag.registerSection(section.key, element)}
+                                    sectionDragPreviewRef={crossSectionDrag.registerSectionDragPreview}
                                     highlighted={
+                                        !crossSectionDrag.draggedGroupId &&
                                         crossSectionDrag.dropTarget?.type === 'section' &&
                                         crossSectionDrag.dropTarget.sectionKey === section.key
                                     }
-                                    onSectionPointerDown={
-                                        draggableGroupId
-                                            ? (event) => {
-                                                  if ((event.target as HTMLElement).closest('button, input, a')) {
-                                                      return
-                                                  }
-                                                  event.preventDefault()
-                                                  crossSectionDrag.startSectionDrag(draggableGroupId, event.nativeEvent)
-                                              }
-                                            : undefined
-                                    }
                                     onToggle={() => section.group && toggleDashboardSectionCollapsed(section.group.id)}
                                     onRename={(name) => section.group && renameDashboardGroup(section.group.id, name)}
-                                    onMove={(position) =>
-                                        section.group && updateDashboardGroupPosition(section.group.id, position)
-                                    }
                                     onDelete={(memberHandling) =>
                                         section.group && deleteDashboardGroup(section.group.id, memberHandling)
                                     }
+                                    onDragStart={(event) => {
+                                        if (!section.group) {
+                                            return
+                                        }
+                                        event.preventDefault()
+                                        crossSectionDrag.startSectionDrag(section.group.id, event.nativeEvent)
+                                    }}
                                     overlay={
-                                        isEditablePlacement && inlineTileInsertionEnabled ? (
+                                        isEditablePlacement && inlineTileInsertionEnabled && !section.isNamed ? (
                                             <InsertTileOverlay
                                                 layout={displayLayouts.sm}
                                                 gridWidth={gridWidth}
@@ -640,7 +677,9 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
                                                 marginY={margin[1]}
                                                 canEditDashboard={canEditDashboard}
                                                 isMobileView={isMobileView}
-                                                disabled={resizingTileId !== null}
+                                                disabled={
+                                                    resizingTileId !== null || crossSectionDrag.draggedGroupId !== null
+                                                }
                                                 getMenuItems={(x, y, w) => getInsertMenuItems(section.key, x, y, w)}
                                             />
                                         ) : null
@@ -653,15 +692,14 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
                                                   rowHeight,
                                                   margin,
                                                   containerPadding: CONTAINER_PADDING,
-                                                  rows: 'auto',
-                                                  height: containerHeight,
+                                                  rows: sectionGridRows,
                                                   color: 'var(--color-bg-surface-secondary)',
                                               }
                                             : null
                                     }
                                     gridProps={{
                                         width: gridWidth,
-                                        className: classNameForSection(isLastSection),
+                                        className: classNameForSection(isLastSection, !!section.group),
                                         dragConfig,
                                         resizeConfig,
                                         layouts: displayLayouts as Partial<Record<DashboardLayoutSize, Layout>>,
@@ -682,19 +720,10 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
                                 >
                                     {section.tiles.map((tile) => {
                                         const { insight, text, button_tile, widget } = tile
-                                        const smLayout = displayLayouts['sm']?.find((l) => {
-                                            return l.i == tile.id.toString()
-                                        })
+                                        const smLayout = sectionLayoutsByTileId.get(tile.id)
                                         const extraMoreOverlay = (
                                             <MoveToSectionMenu
-                                                destinations={sections
-                                                    .filter(
-                                                        (candidate) => candidate.group && candidate.key !== section.key
-                                                    )
-                                                    .map((candidate) => ({
-                                                        groupId: candidate.group!.id,
-                                                        label: sectionDisplayName(candidate.group!),
-                                                    }))}
+                                                destinations={moveDestinationsBySection.get(section.key) ?? []}
                                                 onMove={(groupId) =>
                                                     moveDashboardTileToGroup({ tileId: tile.id, groupId })
                                                 }
@@ -906,9 +935,10 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
                             </Fragment>
                         )
                     })}
-                    {crossSectionDrag.dropTarget?.type === 'gap' &&
-                        crossSectionDrag.dropTarget.position === sections.length && (
-                            <div className="h-0.5 bg-accent my-3 rounded-full" />
+                    {!crossSectionDrag.draggedGroupId &&
+                        crossSectionDrag.dropTarget?.type === 'gap' &&
+                        crossSectionDrag.dropTarget.position === displayedSections.length && (
+                            <div className="h-1 border border-dashed border-accent bg-accent-highlight-secondary my-3 rounded-full" />
                         )}
                 </div>
             )}

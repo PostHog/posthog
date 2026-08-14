@@ -14,6 +14,7 @@ const group = {
 }
 
 const gridProps = {
+    children: null,
     width: 640,
     rowHeight: 80,
     margin: [16, 16] as [number, number],
@@ -32,14 +33,12 @@ const meta: Meta<typeof DashboardSection> = {
         group,
         collapsed: false,
         canEdit: true,
-        groupCount: 2,
         tileCount: 1,
         overlay: null,
         gridBackgroundProps: null,
         gridProps,
         onToggle: () => {},
         onRename: () => {},
-        onMove: () => {},
         onDelete: () => {},
         children: (
             <div key="1" className="bg-surface-primary border border-primary rounded p-2">
@@ -60,6 +59,14 @@ export const Anonymous: Story = {
 
 export const Collapsed: Story = {
     args: { collapsed: true },
+}
+
+export const Empty: Story = {
+    args: {
+        tileCount: 0,
+        children: null,
+        gridProps: { ...gridProps, layouts: { sm: [] } },
+    },
 }
 
 export const Highlighted: Story = {

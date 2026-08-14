@@ -2149,7 +2149,8 @@ class DashboardSerializer(DashboardMetadataSerializer):
     def _new_tile_parent_group(instance: Dashboard, tile_data: dict, user: User) -> dict[str, Any]:
         if tile_data.get("id") is not None:
             return {}
-        parent_group = _resolve_parent_group_for_new_tile(instance, user, None)
+        with transaction.atomic():
+            parent_group = _resolve_parent_group_for_new_tile(instance, user, None)
         return {"parent_group": parent_group} if parent_group is not None else {}
 
     @staticmethod

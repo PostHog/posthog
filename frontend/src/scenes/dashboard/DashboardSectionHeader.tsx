@@ -1,16 +1,16 @@
-import clsx from 'clsx'
-import { useState, type PointerEvent } from 'react'
+import { type PointerEvent as ReactPointerEvent, useState } from 'react'
 
-import { IconChevronRight, IconEllipsis } from '@posthog/icons'
+import { IconChevronRight, IconEllipsis, IconPlusSmall } from '@posthog/icons'
 import type {
     DashboardGroupApi,
     MemberHandlingEnumApi,
 } from '@posthog/products-dashboards/frontend/generated/api.schemas'
 
+import { IconDragHandle } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { LemonInput } from 'lib/lemon-ui/LemonInput'
-import { LemonMenu } from 'lib/lemon-ui/LemonMenu'
+import { LemonMenu, LemonMenuItems } from 'lib/lemon-ui/LemonMenu'
 import { pluralize } from 'lib/utils/strings'
 
 import { sectionDisplayName } from './dashboardSections'
@@ -19,26 +19,24 @@ export interface DashboardSectionHeaderProps {
     group: DashboardGroupApi
     collapsed: boolean
     canEdit: boolean
-    groupCount: number
     tileCount: number
+    addMenuItems?: LemonMenuItems
     onToggle: () => void
     onRename: (name: string) => void
-    onMove: (position: number) => void
     onDelete: (memberHandling: MemberHandlingEnumApi) => void
-    onSectionPointerDown?: (event: PointerEvent<HTMLDivElement>) => void
+    onDragStart?: (event: ReactPointerEvent<HTMLSpanElement>) => void
 }
 
 export function DashboardSectionHeader({
     group,
     collapsed,
     canEdit,
-    groupCount,
     tileCount,
+    addMenuItems,
     onToggle,
     onRename,
-    onMove,
     onDelete,
-    onSectionPointerDown,
+    onDragStart,
 }: DashboardSectionHeaderProps): JSX.Element {
     const [editing, setEditing] = useState(false)
     const [name, setName] = useState(group.name ?? '')
@@ -54,10 +52,16 @@ export function DashboardSectionHeader({
     }
 
     return (
-        <div
-            className={clsx('flex items-center gap-2 px-3 py-2', onSectionPointerDown && 'cursor-grab touch-none')}
-            onPointerDown={onSectionPointerDown}
-        >
+        <div className="flex items-center gap-2 rounded-t bg-surface-primary px-3 py-2">
+            {canEdit && (
+                <span
+                    className="dashboard-section-drag-handle cursor-grab touch-none text-muted"
+                    data-attr="dashboard-section-drag-handle"
+                    onPointerDown={onDragStart}
+                >
+                    <IconDragHandle />
+                </span>
+            )}
             <LemonButton
                 icon={<IconChevronRight className={collapsed ? '' : 'rotate-90'} />}
                 size="small"
@@ -83,28 +87,45 @@ export function DashboardSectionHeader({
                     data-attr="dashboard-section-rename-input"
                 />
             ) : (
-                <h4 className="font-semibold mb-0">{sectionDisplayName(group)}</h4>
+                <h4 className="mb-0">
+                    <button
+                        type="button"
+                        className="font-semibold text-left"
+                        data-attr="dashboard-section-name"
+                        disabled={!canEdit}
+                        onClick={() => {
+                            setName(group.name ?? '')
+                            setEditing(true)
+                        }}
+                    >
+                        {sectionDisplayName(group)}
+                    </button>
+                </h4>
             )}
             <span className="text-muted text-sm">{pluralize(tileCount, 'tile')}</span>
             {canEdit && (
-                <div className="ml-auto">
+                <div className="ml-auto flex items-center gap-1">
+                    {addMenuItems && (
+                        <LemonMenu items={addMenuItems}>
+                            <LemonButton
+                                type="tertiary"
+                                size="small"
+                                icon={<IconPlusSmall />}
+                                tooltip="Add"
+                                data-attr="dashboard-section-add-tile"
+                            />
+                        </LemonMenu>
+                    )}
                     <LemonMenu
                         items={[
-                            { label: 'Rename', onClick: () => setEditing(true) },
-                            {
-                                label: 'Move up',
-                                disabledReason: group.position === 0 ? 'This section is first' : undefined,
-                                onClick: () => onMove(group.position - 1),
-                            },
-                            {
-                                label: 'Move down',
-                                disabledReason: group.position === groupCount - 1 ? 'This section is last' : undefined,
-                                onClick: () => onMove(group.position + 1),
-                            },
                             {
                                 label: 'Delete',
                                 status: 'danger',
-                                onClick: () =>
+                                onClick: () => {
+                                    if (tileCount === 0) {
+                                        onDelete('delete_tiles')
+                                        return
+                                    }
                                     LemonDialog.open({
                                         title: 'Delete section?',
                                         description:
@@ -119,7 +140,8 @@ export function DashboardSectionHeader({
                                             onClick: () => onDelete('ungroup'),
                                         },
                                         tertiaryButton: { children: 'Cancel' },
-                                    }),
+                                    })
+                                },
                             },
                         ]}
                     >

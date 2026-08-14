@@ -153,7 +153,7 @@ function DashboardScene({
 
             {dashboardFailedToLoad ? (
                 <InsightErrorState title="There was an error loading this dashboard" supportOnly />
-            ) : !tiles || tiles.length === 0 ? (
+            ) : !tiles || (tiles.length === 0 && !dashboard?.groups?.length) ? (
                 <EmptyDashboardComponent loading={itemsLoading || !dashboard} canEdit={canEditDashboard} />
             ) : (
                 <div

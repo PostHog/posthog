@@ -90,6 +90,24 @@ class TestDashboardGroups(APIBaseTest):
             [(second["id"], 0), (first["id"], 1)],
         )
 
+    def test_group_reorder_places_a_section_after_ungrouped_tiles(self) -> None:
+        group = self._create_group("First")
+        _, dashboard = self.dashboard_api.create_text_tile(self.dashboard_id, text="Ungrouped")
+        tile = DashboardTile.objects.get(id=dashboard["tiles"][0]["id"])
+        tile.parent_group = None
+        tile.save(update_fields=["parent_group"])
+        DashboardGroup.all_teams.filter(dashboard_id=self.dashboard_id, name__isnull=True).delete()
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/dashboards/{self.dashboard_id}/groups/update/",
+            {"group_id": group["id"], "position": 1},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        groups = list(DashboardGroup.all_teams.filter(dashboard_id=self.dashboard_id).order_by("position"))
+        self.assertEqual([(item.name, item.position) for item in groups], [(None, 0), ("First", 1)])
+        self.assertEqual(DashboardTile.objects.get(id=tile.id).parent_group_id, groups[0].id)
+
     def test_ungroup_keeps_tiles_and_converts_section_to_anonymous(self) -> None:
         group = self._create_group("Acquisition")
         _, dashboard = self.dashboard_api.create_text_tile(self.dashboard_id, text="Signups")

@@ -8,7 +8,7 @@ import { Shortcut } from 'lib/components/Shortcuts/Shortcut'
 import { keyBinds } from 'lib/components/Shortcuts/shortcuts'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
-import { LemonMenu, LemonMenuItem } from 'lib/lemon-ui/LemonMenu'
+import { LemonMenu, LemonMenuItem, LemonMenuItems } from 'lib/lemon-ui/LemonMenu'
 import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
 import { DashboardEventSource } from 'lib/utils/eventUsageLogic'
 import { MaxTool } from 'scenes/max/MaxTool'
@@ -25,6 +25,9 @@ export function getAddTileMenuItems({
     dashboardId,
     dashboardWidgetsEnabled,
     onAddInsight,
+    includeInsight = true,
+    onAddSection,
+    addSectionDisabledReason,
     push,
     setAddWidgetModalOpen,
     onBeforeSelect,
@@ -32,10 +35,13 @@ export function getAddTileMenuItems({
     dashboardId: number
     dashboardWidgetsEnabled: boolean
     onAddInsight: () => void
+    includeInsight?: boolean
+    onAddSection?: () => void
+    addSectionDisabledReason?: string
     push: (url: string) => void
     setAddWidgetModalOpen: (open: boolean) => void
     onBeforeSelect?: () => void
-}): LemonMenuItem[] {
+}): LemonMenuItems {
     const withBeforeSelect =
         (onClick: () => void): (() => void) =>
         () => {
@@ -43,14 +49,18 @@ export function getAddTileMenuItems({
             onClick()
         }
 
-    return [
+    const contentItems: LemonMenuItem[] = [
+        ...(includeInsight
+            ? [
+                  {
+                      label: 'Charts',
+                      onClick: withBeforeSelect(onAddInsight),
+                      'data-attr': 'dashboard-add-insight',
+                  },
+              ]
+            : []),
         {
-            label: 'Insight',
-            onClick: withBeforeSelect(onAddInsight),
-            'data-attr': 'dashboard-add-insight',
-        },
-        {
-            label: 'Text card',
+            label: 'Add text',
             onClick: withBeforeSelect(() => push(urls.dashboardTextTile(dashboardId, 'new'))),
             'data-attr': 'dashboard-add-text-tile',
         },
@@ -74,11 +84,28 @@ export function getAddTileMenuItems({
                   'data-attr': 'dashboard-add-widget-preview',
               },
     ]
+
+    const layoutItems: LemonMenuItem[] = onAddSection
+        ? [
+              {
+                  label: 'Section',
+                  tag: 'new',
+                  onClick: withBeforeSelect(onAddSection),
+                  disabledReason: addSectionDisabledReason,
+                  'data-attr': 'dashboard-add-section',
+              },
+          ]
+        : []
+
+    return [
+        { title: 'Content', items: contentItems },
+        ...(layoutItems.length > 0 ? [{ title: 'Layout', items: layoutItems }] : []),
+    ]
 }
 
 export function DashboardAddTileButton(): JSX.Element | null {
-    const { dashboard, dashboardWidgetsEnabled } = useValues(dashboardLogic)
-    const { loadDashboard, setAddWidgetModalOpen, setPendingInsertion, openAddInsightModal } =
+    const { dashboard, dashboardWidgetsEnabled, createDashboardGroupLoading } = useValues(dashboardLogic)
+    const { loadDashboard, setAddWidgetModalOpen, setPendingInsertion, openAddInsightModal, createDashboardGroup } =
         useActions(dashboardLogic)
     const { push } = useActions(router)
 
@@ -116,6 +143,8 @@ export function DashboardAddTileButton(): JSX.Element | null {
                         dashboardId: dashboard.id,
                         dashboardWidgetsEnabled,
                         onAddInsight: openAddInsightModal,
+                        onAddSection: () => createDashboardGroup('New section'),
+                        addSectionDisabledReason: createDashboardGroupLoading ? 'Adding section' : undefined,
                         push,
                         setAddWidgetModalOpen,
                         // Adding from the header appends at the bottom; drop any stale inline-insertion target.
@@ -128,28 +157,6 @@ export function DashboardAddTileButton(): JSX.Element | null {
                 </LemonMenu>
             </AccessControlAction>
         </MaxTool>
-    )
-}
-
-export function DashboardAddSectionButton(): JSX.Element | null {
-    const { dashboard, canEditDashboard, createDashboardGroupLoading } = useValues(dashboardLogic)
-    const { createDashboardGroup } = useActions(dashboardLogic)
-
-    if (!dashboard || !canEditDashboard) {
-        return null
-    }
-
-    return (
-        <LemonButton
-            type="secondary"
-            size="small"
-            data-attr="dashboard-add-section"
-            loading={createDashboardGroupLoading}
-            disabledReason={createDashboardGroupLoading ? 'Adding section' : undefined}
-            onClick={() => createDashboardGroup('New section')}
-        >
-            Add section
-        </LemonButton>
     )
 }
 
@@ -239,7 +246,6 @@ export function EditModeActions(): JSX.Element {
         <>
             <DashboardSubscribeButton />
             {layoutEditMode && <DashboardEditSaveCancelButtons />}
-            <DashboardAddSectionButton />
             <DashboardAddTileButton />
         </>
     )
@@ -315,7 +321,6 @@ export function ViewModeActions(): JSX.Element {
                     </LemonButton>
                 </Shortcut>
             )}
-            <DashboardAddSectionButton />
             <DashboardAddTileButton />
         </>
     )

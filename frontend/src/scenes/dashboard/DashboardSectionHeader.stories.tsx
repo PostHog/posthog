@@ -23,11 +23,9 @@ const meta: Meta<typeof DashboardSectionHeader> = {
         group: group(),
         collapsed: false,
         canEdit: true,
-        groupCount: 3,
         tileCount: 2,
         onToggle: () => {},
         onRename: () => {},
-        onMove: () => {},
         onDelete: () => {},
     },
 }
@@ -38,7 +36,7 @@ type Story = StoryObj<typeof DashboardSectionHeader>
 export const Default: Story = {}
 
 export const Draggable: Story = {
-    args: { onSectionPointerDown: () => {} },
+    args: {},
 }
 
 export const Collapsed: Story = {
