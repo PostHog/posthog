@@ -2,6 +2,7 @@ import json
 import uuid
 from collections.abc import Callable, Sequence
 from datetime import UTC, timedelta
+from functools import partial
 from typing import Any, cast
 
 from django.conf import settings
@@ -113,6 +114,7 @@ from products.signals.backend.report_generation.resolve_reviewers import (
     normalized_github_logins_from_suggested_reviewer_artefacts,
     resolve_org_github_login_to_users,
 )
+from products.signals.backend.report_generation.reviewer_telemetry import capture_suggested_reviewers_resolved
 from products.signals.backend.serializers import (
     CommitDiffResponseSerializer,
     PullRequestChecksResponseSerializer,
@@ -3072,6 +3074,16 @@ def append_suggested_reviewers(
             content=SuggestedReviewers.model_validate(new_content),
             attribution=attribution,
         )
+        # on_commit so a rolled-back edit emits nothing, matching every other reviewer write path.
+        transaction.on_commit(
+            partial(
+                capture_suggested_reviewers_resolved,
+                team_id=team.id,
+                report_id=str(report_id),
+                github_logins=[entry["github_login"] for entry in new_content],
+                source="user_edit",
+            )
+        )
 
         # Human reviewer corrections are a routing signal (scouts query them via the
         # activity log to learn who owns an area), so log them — but only genuine
@@ -3404,6 +3416,17 @@ class SignalReportArtefactViewSet(
             content=parsed_content,
             attribution=attribution,
         )
+        if isinstance(parsed_content, SuggestedReviewers):
+            # on_commit so a rolled-back write emits nothing, matching every other reviewer write path.
+            transaction.on_commit(
+                partial(
+                    capture_suggested_reviewers_resolved,
+                    team_id=self.team.id,
+                    report_id=report_id,
+                    github_logins=[entry.github_login for entry in parsed_content.root],
+                    source="api",
+                )
+            )
         return Response(self._write_response_data(artefact), status=status.HTTP_201_CREATED)
 
     @validated_request(

@@ -29,6 +29,7 @@ import logging
 from collections.abc import Sequence
 from dataclasses import dataclass, field
 from datetime import datetime
+from functools import partial
 
 from django.db import transaction
 from django.utils import timezone
@@ -228,6 +229,17 @@ def create_scout_report(
                 attribution=attribution,
                 reevaluate_autostart=False,
             )
+            # on_commit, not inline: telemetry must not fire for a rolled-back report, and it must
+            # still fire when the post-commit signal emits below fail (they propagate).
+            transaction.on_commit(
+                partial(
+                    capture_suggested_reviewers_resolved,
+                    team_id=team_id,
+                    report_id=report_id,
+                    github_logins=[entry.github_login for entry in suggested_reviewers.root],
+                    source="scout",
+                )
+            )
 
     # Committed: now emit the backing signals (unless suppressed-unsafe — see `emit_signals`).
     # Sequential (not on_commit) so the call is observable and so a Kafka failure surfaces to the
@@ -249,14 +261,6 @@ def create_scout_report(
         "signals_scout.emit_report: created",
         extra={"team_id": team_id, "report_id": report_id, "signal_count": len(signals)},
     )
-    # After commit and the signal emits, so best-effort telemetry can't interfere with either.
-    if suggested_reviewers is not None and len(suggested_reviewers.root) > 0:
-        capture_suggested_reviewers_resolved(
-            team_id=team_id,
-            report_id=report_id,
-            github_logins=[entry.github_login for entry in suggested_reviewers.root],
-            source="scout",
-        )
     return PersistedScoutReport(
         report_id=report_id,
         signal_count=len(signals),
@@ -529,17 +533,22 @@ def set_scout_report_reviewers(
             content=NoteArtefact(note=f"Set suggested reviewers: {', '.join(logins)}", author=author),
             attribution=attribution,
         )
+        # on_commit, not inline: `_do_edit_report` wraps this call in an outer transaction, so an
+        # inline capture would fire for an edit that later rolls back — and a DB error inside the
+        # capture, though swallowed, would poison that outer transaction. The merged content is the
+        # live reviewer set (latest-wins), so telemetry reflects what routing will actually see.
+        transaction.on_commit(
+            partial(
+                capture_suggested_reviewers_resolved,
+                team_id=team_id,
+                report_id=report_id,
+                github_logins=[entry.github_login for entry in merged.root],
+                source="scout_edit",
+            )
+        )
     logger.info(
         "signals_scout.edit_report: reviewers set",
         extra={"team_id": team_id, "report_id": report_id, "reviewer_count": len(logins)},
-    )
-    # After commit, so best-effort telemetry can't roll back the edit. The merged content is the
-    # live reviewer set (latest-wins), so telemetry reflects what routing will actually see.
-    capture_suggested_reviewers_resolved(
-        team_id=team_id,
-        report_id=report_id,
-        github_logins=[entry.github_login for entry in merged.root],
-        source="scout_edit",
     )
     return True
 

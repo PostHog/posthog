@@ -145,7 +145,10 @@ class TestScoutReportPersistence(BaseTest):
     def test_create_with_reviewers_fires_linkability_telemetry(self) -> None:
         # Scout-authored reports persist reviewers here, not through the custom-agent path; without
         # this call the scout bucket silently disappears from the reviewer-linkability metric.
-        with patch(f"{PERSISTENCE_MODULE}.capture_suggested_reviewers_resolved") as mock_capture:
+        with (
+            patch(f"{PERSISTENCE_MODULE}.capture_suggested_reviewers_resolved") as mock_capture,
+            self.captureOnCommitCallbacks(execute=True),
+        ):
             create_scout_report(
                 team_id=self.team.id,
                 title="Checkout API p99 latency regressed",
@@ -169,7 +172,10 @@ class TestScoutReportPersistence(BaseTest):
             attribution=ArtefactAttribution.system(),
         )
 
-        with patch(f"{PERSISTENCE_MODULE}.capture_suggested_reviewers_resolved") as mock_capture:
+        with (
+            patch(f"{PERSISTENCE_MODULE}.capture_suggested_reviewers_resolved") as mock_capture,
+            self.captureOnCommitCallbacks(execute=True),
+        ):
             set_scout_report_reviewers(
                 team_id=self.team.id,
                 report_id=result.report_id,
