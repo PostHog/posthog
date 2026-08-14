@@ -35,6 +35,8 @@ class TestEmailAccountMatching(BaseTest):
         return_value={"person@group.example": "group-account"},
     )
     def test_matches_multiple_accounts_with_explicit_precedence(self, _mock_group_keys: MagicMock) -> None:
+        self.team.customer_analytics_config.account_group_type_index = 0
+        self.team.customer_analytics_config.save(update_fields=["account_group_type_index"])
         known = self._create_account(
             name="Known",
             external_id="known-account",
@@ -121,6 +123,10 @@ class TestEmailAccountMatching(BaseTest):
         mock_schedule.reset_mock()
 
         with self.captureOnCommitCallbacks(execute=True):
-            api.update_account(account, properties={"email_domains": ["example.com"]})
+            api.update_account(
+                account,
+                properties={"email_domains": ["example.com"]},
+                allow_matching_updates=True,
+            )
 
         mock_schedule.assert_called_once_with(self.team.id)
