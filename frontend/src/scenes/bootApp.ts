@@ -21,7 +21,7 @@ export function bootApp(): void {
     }
     appBooted = true
 
-    loadPostHogJS()
+    loadPostHogJS({ adoptCrossSurfaceSessionId: true })
     // Kea must initialize before any component mounts
     initKea()
     // Link resolves its drag-to-notebook behavior through a seam so bundles without
