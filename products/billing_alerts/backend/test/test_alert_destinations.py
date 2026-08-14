@@ -19,6 +19,10 @@ class TestBillingAlertDestinations(APIBaseTest):
         self.url = f"/api/organizations/{self.organization.id}/billing/alerts/"
         self.organization_membership.level = OrganizationMembership.Level.ADMIN
         self.organization_membership.save()
+        # The API is gated behind the `billing-alerts` flag; enable it for the default test org.
+        ff_patcher = patch("posthoganalytics.feature_enabled", return_value=True)
+        ff_patcher.start()
+        self.addCleanup(ff_patcher.stop)
 
     def _alert(self, name: str = "Period spend cap") -> BillingAlertConfiguration:
         return BillingAlertConfiguration.objects.create(
