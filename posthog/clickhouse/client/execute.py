@@ -38,6 +38,7 @@ from posthog.clickhouse.query_tagging import (
     get_query_tags,
     is_api_key_access_method,
 )
+from posthog.dataclasses import frozen
 from posthog.errors import clickhouse_error_type, wrap_clickhouse_query_error
 from posthog.settings import CLICKHOUSE_PER_TEAM_QUERY_SETTINGS, DEBUG, TEST
 from posthog.utils import generate_short_id, patchable
@@ -132,10 +133,10 @@ def get_team_kill_switch_level(team_id: int) -> KillSwitchLevel:
     else OFF. This is independent of the global `CLICKHOUSE_KILL_SWITCH` — callers
     that want the combined effect should take the more severe of the two levels.
     """
-    full_teams, light_teams = _get_kill_switch_team_sets(round(time.time() / 60))
-    if team_id in full_teams:
+    team_sets = _get_kill_switch_team_sets(round(time.time() / 60))
+    if team_id in team_sets.full_teams:
         return KillSwitchLevel.FULL
-    if team_id in light_teams:
+    if team_id in team_sets.light_teams:
         return KillSwitchLevel.LIGHT
     return KillSwitchLevel.OFF
 
@@ -166,8 +167,14 @@ def _get_kill_switch_level(_ttl: int) -> KillSwitchLevel:
         return KillSwitchLevel.OFF
 
 
+@frozen
+class KillSwitchTeamSets:
+    full_teams: frozenset[int]
+    light_teams: frozenset[int]
+
+
 @lru_cache(maxsize=1)
-def _get_kill_switch_team_sets(_ttl: int) -> tuple[frozenset[int], frozenset[int]]:
+def _get_kill_switch_team_sets(_ttl: int) -> KillSwitchTeamSets:
     from posthog.models.instance_setting import get_instance_setting
 
     try:
@@ -184,7 +191,7 @@ def _get_kill_switch_team_sets(_ttl: int) -> tuple[frozenset[int], frozenset[int
     except Exception:
         logger.exception("Failed to read CLICKHOUSE_KILL_SWITCH_LIGHT_TEAMS; per-team kill switch disabled for light")
         light_teams = frozenset()
-    return full_teams, light_teams
+    return KillSwitchTeamSets(full_teams=full_teams, light_teams=light_teams)
 
 
 def resolve_kill_switch_level(team_id: Optional[int]) -> KillSwitchLevel:
