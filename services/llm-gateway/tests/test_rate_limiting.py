@@ -259,6 +259,48 @@ class TestRateLimitResponseHeaders:
             }
 
 
+class TestBackoffOnlyRetryAfter:
+    def test_429_message_omits_retry_promise_when_retry_wont_reset_limit(self, mock_db_pool: MagicMock) -> None:
+        class CreditsExhaustedThrottle(Throttle):
+            scope = "billable_credits"
+
+            async def allow_request(self, context: ThrottleContext) -> ThrottleResult:
+                return ThrottleResult.deny(
+                    detail="Your team has used its monthly PostHog AI credits.",
+                    scope=self.scope,
+                    retry_after=60,
+                    retry_after_resets_limit=False,
+                )
+
+        conn = AsyncMock()
+        conn.fetchrow = AsyncMock(
+            return_value={
+                "id": "key_id",
+                "user_id": 1,
+                "scopes": ["llm_gateway:read"],
+                "current_team_id": 1,
+                "distinct_id": "test-distinct-id",
+                "is_staff": False,
+            }
+        )
+        mock_db_pool.acquire = AsyncMock(return_value=conn)
+
+        app = create_test_app(mock_db_pool, throttles=[CreditsExhaustedThrottle()])
+
+        with TestClient(app) as client:
+            body = {"model": "gpt-4", "messages": [{"role": "user", "content": "Hi"}]}
+            headers = {"Authorization": "Bearer phx_test_key"}
+            response = client.post("/v1/chat/completions", json=body, headers=headers)
+
+            assert response.status_code == 429
+            # The back-off hint still reaches machines via header and body,
+            # but the message must not promise that retrying will succeed.
+            assert response.headers["retry-after"] == "60"
+            error = response.json()["error"]
+            assert error["retry_after"] == 60
+            assert "Try again" not in error["message"]
+
+
 class TestFormatRetryDelay:
     @pytest.mark.parametrize(
         "seconds,expected",

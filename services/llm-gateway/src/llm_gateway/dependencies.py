@@ -325,8 +325,10 @@ async def enforce_throttles(
             f"Rate limit exceeded: {reason}" if reason and reason != "Rate limit exceeded" else "Rate limit exceeded"
         )
         # Surfaces like the Slack agent relay only error.message, so the retry
-        # time must live in the text, not just the Retry-After header.
-        if result.retry_after is not None and result.retry_after > 0:
+        # time must live in the text, not just the Retry-After header. Skipped
+        # when retry_after is only a back-off hint (exhausted credits) — those
+        # details already carry their own next step.
+        if result.retry_after is not None and result.retry_after > 0 and result.retry_after_resets_limit:
             message += f". Try again in about {_format_retry_delay(result.retry_after)}."
         detail = {
             "error": {
