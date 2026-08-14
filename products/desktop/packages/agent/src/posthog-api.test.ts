@@ -46,6 +46,25 @@ describe("PostHogAPIClient", () => {
     expect(mockFetch).toHaveBeenCalledTimes(2);
   });
 
+  it("bounds the task run logs request with an abort deadline", async () => {
+    const client = new PostHogAPIClient({
+      apiUrl: "https://app.posthog.com",
+      getApiKey: vi.fn().mockResolvedValue("token"),
+      projectId: 1,
+    });
+
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      text: vi.fn().mockResolvedValue(""),
+    });
+
+    await client.fetchTaskRunLogs({ id: "run-1", task: "task-1" } as never);
+
+    const signal = mockFetch.mock.calls[0][1].signal;
+    expect(signal).toBeInstanceOf(AbortSignal);
+    expect(signal.aborted).toBe(false);
+  });
+
   it("loads policies for managed MCP servers and keeps unmanaged servers", async () => {
     const client = new PostHogAPIClient({
       apiUrl: "https://app.posthog.com",

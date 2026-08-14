@@ -20,6 +20,9 @@ export { getGatewayUsageUrl, getLlmGatewayUrl };
 
 const DEFAULT_USER_AGENT = `posthog/agent.hog.dev; version: ${packageJson.version}`;
 
+// Resume runs before the session exists, inside the backend's bounded health wait.
+const TASK_RUN_LOGS_TIMEOUT_MS = 20_000;
+
 export interface TaskArtifactUploadPayload {
   name: string;
   type: ArtifactType;
@@ -570,7 +573,9 @@ export class PostHogAPIClient {
     const endpoint = `/api/projects/${teamId}/tasks/${taskRun.task}/runs/${taskRun.id}/logs`;
 
     try {
-      const response = await this.performRequestWithRetry(endpoint);
+      const response = await this.performRequestWithRetry(endpoint, {
+        signal: AbortSignal.timeout(TASK_RUN_LOGS_TIMEOUT_MS),
+      });
 
       if (!response.ok) {
         if (response.status === 404) {
