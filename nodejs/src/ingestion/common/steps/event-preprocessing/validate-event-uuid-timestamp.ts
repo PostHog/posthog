@@ -34,9 +34,8 @@ export function createValidateEventUuidTimestampStep<T extends { event: Pipeline
             return Promise.resolve(ok(input))
         }
 
-        // A missing or empty timestamp ends up as ingestion time, which `now` approximates
-        // (parseEventTimestamp treats '' as missing too).
-        const timestamp = parseDate(event.timestamp || event.now)
+        // Capture always stamps a normalized timestamp; the empty fallback only satisfies the optional type.
+        const timestamp = parseDate(event.timestamp ?? '')
         if (!timestamp.isValid) {
             return Promise.resolve(ok(input))
         }

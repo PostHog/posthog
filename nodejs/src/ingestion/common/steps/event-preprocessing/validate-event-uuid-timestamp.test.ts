@@ -70,15 +70,11 @@ describe('createValidateEventUuidTimestampStep', () => {
     it.each([
         ['missing', {}],
         ['empty', { timestamp: '' }],
-    ])('compares against `now` when the timestamp is %s', async (_name, timestampOverride) => {
-        // The helper's `now` (2021-01-01) is years from the uuid's embedded time.
+    ])('does not warn when the timestamp is %s', async (_name, timestampOverride) => {
+        // Capture guarantees a timestamp, so an absent one skips the check rather than guessing.
         const input = {
             event: createTestPipelineEvent({ uuid: uuidEmbedding(EVENT_TIMESTAMP_MS), ...timestampOverride }),
         }
-        const result = await step(input)
-        expect(result.type).toBe(PipelineResultType.OK)
-        if (result.type === PipelineResultType.OK) {
-            expect(result.warnings).toHaveLength(1)
-        }
+        expect(await step(input)).toEqual(ok(input))
     })
 })
