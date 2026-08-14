@@ -18,6 +18,8 @@ from typing import Any
 from posthog.hogql import ast
 from posthog.hogql.parser import parse_select
 
+from products.autoresearch.backend.dataset.labeling import strip_sql_comments
+
 # Classes the inference scorer is allowed to instantiate via importlib. Keep this in
 # sync with the fallback/resolution logic in inference.py — never widen it to accept
 # arbitrary import paths from agent input.
@@ -59,7 +61,9 @@ def validate_feature_sql(feature_sql: str) -> None:
     # The framework substitutes {anchors} with the per-user (person_id, cutoff_ts) table via a
     # plain string replace, which is a silent no-op when the placeholder is absent — the SQL
     # would then run with no per-user T0 cutoff and read the outcome window (target leakage).
-    if "{anchors}" not in feature_sql:
+    # Substitution strips comments first, so a placeholder that only appears inside a comment
+    # does not count: check the same text the substitution will see.
+    if "{anchors}" not in strip_sql_comments(feature_sql):
         raise RecipeValidationError(
             "feature_sql must read FROM the {anchors} placeholder table (columns person_id, "
             "cutoff_ts) so features are cut off at each user's T0 and cannot leak the outcome window."
@@ -89,9 +93,13 @@ def validate_unique_distinct_ids(rows: Iterable[Mapping[str, Any]], *, source: s
     """
     seen: set[str] = set()
     duplicates: set[str] = set()
+    missing = 0
     for row in rows:
         distinct_id = row.get("distinct_id")
-        if distinct_id is None:
+        if distinct_id is None or not str(distinct_id).strip():
+            # A row with no person cannot be joined to a label or a fold; materializing it
+            # would serialize a synthetic empty identifier into the training data.
+            missing += 1
             continue
         key = str(distinct_id)
         if key in seen:
@@ -103,6 +111,11 @@ def validate_unique_distinct_ids(rows: Iterable[Mapping[str, Any]], *, source: s
             f"{source} returned multiple rows for the same person ({len(duplicates)} duplicated "
             f"distinct_ids, e.g. {sample}). Each person must aggregate to exactly one row — "
             "check the GROUP BY."
+        )
+    if missing:
+        raise RecipeValidationError(
+            f"{source} returned {missing} row(s) with a missing or blank person identifier. "
+            "Every row must key exactly one person — check the SELECT and the joins."
         )
 
 

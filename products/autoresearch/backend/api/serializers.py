@@ -954,12 +954,16 @@ class RecordIterationSerializer(serializers.Serializer):
     train_score = serializers.FloatField(
         required=False,
         allow_null=True,
-        help_text="Training-set AUC for this iteration.",
+        min_value=0,
+        max_value=1,
+        help_text="Training-set AUC for this iteration (0-1).",
     )
     holdout_score = serializers.FloatField(
         required=False,
         allow_null=True,
-        help_text="Held-out AUC for this iteration. Used to pick the champion at completion.",
+        min_value=0,
+        max_value=1,
+        help_text="Held-out AUC for this iteration (0-1). Used to pick the champion at completion.",
     )
     agent_description = serializers.CharField(
         required=False,

@@ -1,3 +1,6 @@
+from datetime import date, timedelta
+from uuid import uuid4
+
 from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, patch
 
@@ -243,6 +246,95 @@ class TestBuildPopulationConditions(BaseTest):
             ]
         )
         assert len(parts) == 2
+
+
+class TestQueryFailuresFailTheRun(BaseTest):
+    def _pipeline_and_model(self) -> tuple[AutoresearchPipeline, AutoresearchModel]:
+        pipeline = AutoresearchPipeline.objects.create(
+            team=self.team,
+            created_by=self.user,
+            name="Failing",
+            target_event="$pageview",
+            horizon_days=7,
+        )
+        model = AutoresearchModel.objects.create(
+            pipeline=pipeline,
+            role=AutoresearchModel.Role.CHAMPION,
+            model_recipe={"feature_sql": "SELECT person_id AS distinct_id FROM events", "stub": True},
+            recipe_hash="abc123",
+        )
+        return pipeline, model
+
+    @patch("products.autoresearch.backend.inference.scoring.HogQLQueryRunner")
+    def test_feature_query_failure_fails_the_run(self, mock_runner_cls: MagicMock):
+        # Returning no rows on a transient failure completed the run as an empty population
+        # and advanced the cadence, so the day's scoring was skipped with nothing retried.
+        mock_runner_cls.return_value.run.side_effect = Exception("clickhouse timeout")
+        pipeline, model = self._pipeline_and_model()
+
+        with self.assertRaises(InferenceRunError):
+            run_inference_for_pipeline(pipeline=pipeline, model=model)
+
+        run = AutoresearchRun.objects.filter(pipeline=pipeline).latest("created_at")
+        assert run.status == AutoresearchRun.Status.FAILED
+        pipeline.refresh_from_db()
+        assert pipeline.last_scored_at is None
+
+
+class TestBackfillDoesNotAdvanceCadence(BaseTest):
+    @patch("products.autoresearch.backend.inference.scoring.capture_internal")
+    @patch("products.autoresearch.backend.inference.scoring._score_via_anchors")
+    def test_backfilling_a_past_date_leaves_last_scored_at_alone(self, mock_score: MagicMock, mock_capture: MagicMock):
+        # Advancing the watermark on a backfill makes the coordinator treat the pipeline as
+        # freshly scored, suppressing today's live run for a whole cadence.
+        mock_score.return_value = [{"distinct_id": str(uuid4()), "p_y": 0.4}]
+        pipeline = AutoresearchPipeline.objects.create(
+            team=self.team,
+            created_by=self.user,
+            name="Backfill",
+            target_event="$pageview",
+            horizon_days=7,
+        )
+        model = AutoresearchModel.objects.create(
+            pipeline=pipeline,
+            role=AutoresearchModel.Role.CHAMPION,
+            model_recipe={"feature_sql": "SELECT person_id AS distinct_id FROM {anchors}", "stub": True},
+            recipe_hash="abc123",
+        )
+
+        run = run_inference_for_pipeline(
+            pipeline=pipeline, model=model, prediction_date=date.today() - timedelta(days=30)
+        )
+
+        assert run.status == AutoresearchRun.Status.COMPLETED
+        pipeline.refresh_from_db()
+        assert pipeline.last_scored_at is None
+
+    @patch("products.autoresearch.backend.inference.scoring.capture_internal")
+    @patch("products.autoresearch.backend.inference.scoring._fetch_feature_rows")
+    def test_backfilling_a_recipe_without_anchors_is_refused(self, mock_fetch: MagicMock, mock_capture: MagicMock):
+        # The legacy path evaluates features and labels at now(), so backfilling it would
+        # stamp today's data on a past date and validate it against that date's outcome.
+        mock_fetch.return_value = [{"distinct_id": str(uuid4()), "events_total_30d": 5, "days_since_last_seen": 1}]
+        pipeline = AutoresearchPipeline.objects.create(
+            team=self.team,
+            created_by=self.user,
+            name="Legacy",
+            target_event="$pageview",
+            horizon_days=7,
+        )
+        model = AutoresearchModel.objects.create(
+            pipeline=pipeline,
+            role=AutoresearchModel.Role.CHAMPION,
+            model_recipe={"feature_sql": "SELECT person_id AS distinct_id FROM events", "stub": True},
+            recipe_hash="abc123",
+        )
+
+        with self.assertRaises(InferenceRunError):
+            run_inference_for_pipeline(
+                pipeline=pipeline, model=model, prediction_date=date.today() - timedelta(days=30)
+            )
+        mock_capture.assert_not_called()
 
 
 class TestFetchFeatureRowsPopulationFilter(BaseTest):

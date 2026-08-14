@@ -67,11 +67,11 @@ class TestCompleteTrainingRun(BaseTest):
             # A null-score kept iteration must not outrank a scored one (Postgres puts
             # NULLs first on a bare DESC).
             ("kept_null_vs_scored", [("kept", None), ("kept", 0.6)], 0.6),
-            # Fallback selection (no kept iterations) must also prefer scored rows.
-            ("fallback_null_vs_scored", [("discarded", None), ("discarded", 0.4)], 0.4),
+            # A discarded iteration never wins, however it scored.
+            ("discarded_never_outranks_kept", [("discarded", 0.9), ("kept", 0.4)], 0.4),
         ]
     )
-    def test_scored_iterations_outrank_null_scores(self, _name, iterations, expected_score):
+    def test_champion_selection_ranks_kept_scored_iterations(self, _name, iterations, expected_score):
         run = self._run()
         for number, (status, holdout) in enumerate(iterations):
             self._iteration(run, number=number, status=status, holdout=holdout)
@@ -81,15 +81,26 @@ class TestCompleteTrainingRun(BaseTest):
         assert result["best_holdout_score"] == expected_score
         assert self._champion().holdout_score == expected_score
 
-    def test_nominated_eligible_iteration_is_honored(self):
+    def test_completion_without_a_kept_scored_iteration_is_refused(self):
+        # A run whose iterations all crashed or went unscored is a failed experiment, not a
+        # champion at score 0.
+        run = self._run()
+        self._iteration(run, number=0, status=AutoresearchIteration.Status.CRASHED, holdout=None)
+        self._iteration(run, number=1, status=AutoresearchIteration.Status.DISCARDED, holdout=0.9)
+
+        with self.assertRaises(PromotionError):
+            complete_training_run(run)
+        assert not AutoresearchModel.objects.filter(pipeline=self.pipeline).exists()
+
+    def test_nomination_cannot_beat_the_server_ranking(self):
         run = self._run()
         self._iteration(run, number=0, holdout=0.9)
         nominated = self._iteration(run, number=1, holdout=0.7)
 
         result = complete_training_run(run, best_iteration_id=nominated.id)
 
-        # A scored, kept nomination is accepted even when a higher-scoring iteration exists.
-        assert result["best_holdout_score"] == 0.7
+        # The nomination comes from the sandbox agent, so a lower-scoring pick never wins.
+        assert result["best_holdout_score"] == 0.9
 
     @parameterized.expand(
         [

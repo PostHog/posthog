@@ -13,6 +13,7 @@ from posthog.models.team.team import Team
 from products.autoresearch.backend.dataset.labeling import (
     IDENTIFIED_USERS_ONLY,
     _build_population_conditions,
+    _build_population_kind_conditions,
     _identified_users_and_clause,
     build_eligible_count_sql,
     build_random_t0_labeler_sql,
@@ -160,8 +161,14 @@ def _run_validation(
     # If no inference filter is provided we fall back to the training count.
     inference_properties = (inference_population or {}).get("properties", []) if inference_population else []
     identified_clause = _identified_users_and_clause()
-    if inference_properties or identified_clause:
+    # Template populations carry a `kind` rather than raw properties, so compile it through
+    # the same helper scoring uses — counting every identified user would preview a
+    # population the pipeline will never score.
+    compiled_inference_kind = _build_population_kind_conditions(inference_population)
+    if inference_properties or compiled_inference_kind.where_parts or identified_clause:
         inf_parts, inf_values = _build_population_conditions(inference_properties)
+        inf_parts.extend(compiled_inference_kind.where_parts)
+        inf_values.update(compiled_inference_kind.values)
         inference_clause = f" AND ({' AND '.join(inf_parts)})" if inf_parts else ""
         inference_query = HogQLQuery(
             query=f"""

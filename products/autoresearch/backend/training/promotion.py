@@ -41,28 +41,31 @@ def _select_best_iteration(
     training_run: AutoresearchTrainingRun, best_iteration_id: UUID | None
 ) -> AutoresearchIteration:
     iterations = AutoresearchIteration.objects.filter(training_run=training_run)
-    if best_iteration_id is not None:
-        chosen = iterations.filter(id=best_iteration_id).first()
-        if chosen is None:
-            raise PromotionError(f"Iteration {best_iteration_id} not found in this training run.")
-        # A nominated champion must clear the same bar as server-side selection — an
-        # unscored or non-kept iteration cannot be promoted just because the agent named it.
-        if chosen.status == AutoresearchIteration.Status.KEPT and chosen.holdout_score is not None:
-            return chosen
-        logger.warning(
-            "autoresearch_nominated_iteration_ineligible",
-            training_run_id=str(training_run.id),
-            iteration_id=str(best_iteration_id),
-            iteration_status=chosen.status,
-            holdout_score=chosen.holdout_score,
-        )
+    if best_iteration_id is not None and not iterations.filter(id=best_iteration_id).exists():
+        raise PromotionError(f"Iteration {best_iteration_id} not found in this training run.")
+
     # Postgres puts NULLs first on a bare DESC, which would rank an unscored iteration
     # above every scored one.
     ranked_by_score = F("holdout_score").desc(nulls_last=True)
-    kept = iterations.filter(status=AutoresearchIteration.Status.KEPT).order_by(ranked_by_score).first()
-    best = kept or iterations.order_by(ranked_by_score).first()
+    best = (
+        iterations.filter(status=AutoresearchIteration.Status.KEPT, holdout_score__isnull=False)
+        .order_by(ranked_by_score)
+        .first()
+    )
     if best is None:
-        raise PromotionError("Training run has no recorded iterations to select a champion from.")
+        # A run whose iterations all crashed, were discarded, or went unscored is a failed
+        # experiment. Promoting one of them would install it as a live champion at score 0.
+        raise PromotionError("Training run has no kept, scored iteration to select a champion from.")
+
+    if best_iteration_id is not None and best_iteration_id != best.id:
+        # The nomination comes from the untrusted sandbox agent, so it can only confirm the
+        # server-side ranking, never override it.
+        logger.warning(
+            "autoresearch_nominated_iteration_not_best",
+            training_run_id=str(training_run.id),
+            nominated_iteration_id=str(best_iteration_id),
+            selected_iteration_id=str(best.id),
+        )
     return best
 
 

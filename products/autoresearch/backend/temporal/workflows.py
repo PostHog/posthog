@@ -17,6 +17,7 @@ from typing import Optional
 import structlog
 from temporalio import activity, workflow
 from temporalio.common import RetryPolicy
+from temporalio.exceptions import ApplicationError
 
 with workflow.unsafe.imports_passed_through():
     import asyncio as _asyncio
@@ -27,7 +28,12 @@ with workflow.unsafe.imports_passed_through():
 
     from products.autoresearch.backend.evaluation.online_validation import run_online_validation_for_pipeline
     from products.autoresearch.backend.inference.scoring import run_inference_for_pipeline
-    from products.autoresearch.backend.models import AutoresearchModel, AutoresearchPipeline, AutoresearchTrainingRun
+    from products.autoresearch.backend.models import (
+        AutoresearchModel,
+        AutoresearchPipeline,
+        AutoresearchRun,
+        AutoresearchTrainingRun,
+    )
     from products.autoresearch.backend.training.runner import run_training
 
 from posthog.temporal.common.base import PostHogWorkflow
@@ -215,21 +221,22 @@ _VALIDATION_RETRY = RetryPolicy(maximum_attempts=2, initial_interval=timedelta(s
 def activity_run_validation(inp: RunValidationInput) -> RunValidationResult:
     """Find all matured unvalidated prediction dates and validate each one."""
     pipeline = AutoresearchPipeline.objects.select_related("team").get(pk=inp.pipeline_id)
-    try:
-        runs = run_online_validation_for_pipeline(pipeline)
-        total_rows = sum(r.rows_scored or 0 for r in runs)
-        return RunValidationResult(
-            dates_validated=len(runs),
-            total_rows=total_rows,
-            status="completed",
+    runs = run_online_validation_for_pipeline(pipeline)
+    # A per-date failure is recorded on its own run rather than raised, so inspect the
+    # statuses here. Reporting completed regardless would leave the retry policy unused
+    # even when every matured date failed; the coordinator isolates the failure per
+    # pipeline (it gathers with return_exceptions=True).
+    failed = [r for r in runs if r.status == AutoresearchRun.Status.FAILED]
+    if failed:
+        raise ApplicationError(
+            f"{len(failed)} of {len(runs)} validation dates failed: "
+            + "; ".join(str(r.error or "unknown")[:200] for r in failed[:3])
         )
-    except Exception as exc:
-        return RunValidationResult(
-            dates_validated=0,
-            total_rows=0,
-            status="failed",
-            error=str(exc),
-        )
+    return RunValidationResult(
+        dates_validated=len(runs),
+        total_rows=sum(r.rows_scored or 0 for r in runs),
+        status="completed",
+    )
 
 
 # ── Validation workflow ───────────────────────────────────────────────────────

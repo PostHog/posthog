@@ -56,7 +56,7 @@ const STATUS_DESCRIPTION: Record<AutoresearchPipelineStatusEnumApi, string> = {
 }
 
 export function AutoresearchScene(): JSX.Element {
-    const { pipelines, pipelinesLoading } = useValues(autoresearchLogic)
+    const { pipelines, pipelinesLoading, mutatingPipelineIds } = useValues(autoresearchLogic)
     const { deletePipeline, pausePipeline, resumePipeline } = useActions(autoresearchLogic)
     const isEmpty = pipelines.length === 0 && !pipelinesLoading
 
@@ -121,6 +121,7 @@ export function AutoresearchScene(): JSX.Element {
             render: (_: unknown, record: AutoresearchPipelineApi) => {
                 const canPause = record.status === 'running' || record.status === 'bootstrapping'
                 const canResume = record.status === 'paused'
+                const mutating = !!mutatingPipelineIds[record.id]
                 return (
                     <div className="flex items-center gap-1">
                         {canPause && (
@@ -128,6 +129,8 @@ export function AutoresearchScene(): JSX.Element {
                                 size="small"
                                 icon={<IconPause />}
                                 tooltip="Pause — put daily scoring on hold"
+                                loading={mutating}
+                                disabledReason={mutating ? 'Another change is still saving' : undefined}
                                 onClick={(e) => {
                                     e.stopPropagation()
                                     pausePipeline(record)
@@ -139,6 +142,8 @@ export function AutoresearchScene(): JSX.Element {
                                 size="small"
                                 icon={<IconPlay />}
                                 tooltip="Resume daily scoring"
+                                loading={mutating}
+                                disabledReason={mutating ? 'Another change is still saving' : undefined}
                                 onClick={(e) => {
                                     e.stopPropagation()
                                     resumePipeline(record)
@@ -150,6 +155,8 @@ export function AutoresearchScene(): JSX.Element {
                             icon={<IconTrash />}
                             status="danger"
                             tooltip="Delete pipeline"
+                            loading={mutating}
+                            disabledReason={mutating ? 'Another change is still saving' : undefined}
                             onClick={(e) => {
                                 e.stopPropagation()
                                 LemonDialog.open({

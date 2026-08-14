@@ -68264,12 +68264,16 @@ export namespace Schemas {
        * * `crashed` - crashed */
       status: RecordIterationStatusEnum;
       /**
-         * Training-set AUC for this iteration.
+         * Training-set AUC for this iteration (0-1).
+         * @minimum 0
+         * @maximum 1
          * @nullable
          */
       train_score?: number | null;
       /**
-         * Held-out AUC for this iteration. Used to pick the champion at completion.
+         * Held-out AUC for this iteration (0-1). Used to pick the champion at completion.
+         * @minimum 0
+         * @maximum 1
          * @nullable
          */
       holdout_score?: number | null;

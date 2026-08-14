@@ -1,4 +1,4 @@
-import { MakeLogicType, connect, kea, path } from 'kea'
+import { MakeLogicType, actions, connect, kea, path, reducers } from 'kea'
 import { forms } from 'kea-forms'
 import type { DeepPartial, DeepPartialMap, FieldName, ValidationErrorType } from 'kea-forms'
 import { loaders } from 'kea-loaders'
@@ -89,6 +89,9 @@ export interface autoresearchNewLogicActions {
     resetNewPipeline: (values?: NewPipelineFormValues) => {
         values?: NewPipelineFormValues
     }
+    clearValidation: () => {
+        value: boolean
+    }
     runValidate: (_payload: any) => any
     runValidateFailure: (
         error: string,
@@ -145,6 +148,9 @@ export const autoresearchNewLogic = kea<autoresearchNewLogicType>([
     connect({
         values: [teamLogic, ['currentTeamId']],
     }),
+    actions({
+        clearValidation: () => ({ value: true }),
+    }),
     loaders(({ values }) => ({
         validation: [
             null as ValidatePipelineResponseApi | null,
@@ -174,6 +180,14 @@ export const autoresearchNewLogic = kea<autoresearchNewLogicType>([
             },
         ],
     })),
+    reducers({
+        validation: [
+            null as ValidatePipelineResponseApi | null,
+            {
+                clearValidation: () => null,
+            },
+        ],
+    }),
     forms(({ actions, values }) => ({
         newPipeline: {
             defaults: DEFAULTS,
@@ -203,7 +217,13 @@ export const autoresearchNewLogic = kea<autoresearchNewLogicType>([
                     lemonToast.error('No active team — cannot create pipeline')
                     return
                 }
-                if (values.validation && !values.validation.can_proceed) {
+                if (values.validationLoading || !values.validation) {
+                    // The form clears its validation on every change and re-runs it debounced, so a
+                    // null or in-flight result means these values have never been checked.
+                    lemonToast.error('Validation is still running. Wait for it to finish, then create.')
+                    return
+                }
+                if (!values.validation.can_proceed) {
                     lemonToast.error('Validation flagged blocking errors — fix them before creating.')
                     return
                 }
@@ -263,6 +283,7 @@ export const autoresearchNewLogic = kea<autoresearchNewLogicType>([
                 trainingChanged ||
                 inferenceChanged
             ) {
+                actions.clearValidation()
                 actions.runValidate(null)
             }
         },

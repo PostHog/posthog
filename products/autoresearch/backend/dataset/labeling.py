@@ -342,7 +342,14 @@ def _build_labeled_users_cte(
     all_parts = train_parts + compiled_kind.where_parts
     training_clause = f" AND ({' AND '.join(all_parts)})" if all_parts else ""
     identified_clause = _identified_users_and_clause()
-    limit_clause = f"\n              LIMIT {int(sample_limit)}" if sample_limit is not None else ""
+    # A bare LIMIT would hand back whatever ClickHouse reads first, which correlates with
+    # storage order; the sampled base rate is extrapolated to the whole population, so order
+    # by a uniform hash of the person to make the sample representative and reproducible.
+    limit_clause = (
+        f"\n              ORDER BY cityHash64(toString(person_id))\n              LIMIT {int(sample_limit)}"
+        if sample_limit is not None
+        else ""
+    )
     target_cond, target_values = build_target_condition(
         target_event=target_event, target_definition=target_definition, team=team
     )

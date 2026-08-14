@@ -268,6 +268,12 @@ export const AutoresearchTrainingRunsCompleteCreateBody = /* @__PURE__ */ zod
  */
 export const autoresearchTrainingRunsIterationsCreateBodyIterationNumberMin = 0
 
+export const autoresearchTrainingRunsIterationsCreateBodyTrainScoreMin = 0
+export const autoresearchTrainingRunsIterationsCreateBodyTrainScoreMax = 1
+
+export const autoresearchTrainingRunsIterationsCreateBodyHoldoutScoreMin = 0
+export const autoresearchTrainingRunsIterationsCreateBodyHoldoutScoreMax = 1
+
 export const autoresearchTrainingRunsIterationsCreateBodyAgentDescriptionDefault = ``
 export const autoresearchTrainingRunsIterationsCreateBodyAgentConfidenceMin = 0
 export const autoresearchTrainingRunsIterationsCreateBodyAgentConfidenceMax = 1
@@ -294,11 +300,18 @@ export const AutoresearchTrainingRunsIterationsCreateBody = /* @__PURE__ */ zod
             .describe(
                 "'kept' if this iteration improved on the best score, 'discarded' otherwise, 'crashed' on failure.\n\n\* `kept` - kept\n\* `discarded` - discarded\n\* `crashed` - crashed"
             ),
-        train_score: zod.number().nullish().describe('Training-set AUC for this iteration.'),
+        train_score: zod
+            .number()
+            .min(autoresearchTrainingRunsIterationsCreateBodyTrainScoreMin)
+            .max(autoresearchTrainingRunsIterationsCreateBodyTrainScoreMax)
+            .nullish()
+            .describe('Training-set AUC for this iteration (0-1).'),
         holdout_score: zod
             .number()
+            .min(autoresearchTrainingRunsIterationsCreateBodyHoldoutScoreMin)
+            .max(autoresearchTrainingRunsIterationsCreateBodyHoldoutScoreMax)
             .nullish()
-            .describe('Held-out AUC for this iteration. Used to pick the champion at completion.'),
+            .describe('Held-out AUC for this iteration (0-1). Used to pick the champion at completion.'),
         agent_description: zod
             .string()
             .default(autoresearchTrainingRunsIterationsCreateBodyAgentDescriptionDefault)

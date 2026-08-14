@@ -228,12 +228,13 @@ def _fetch_predictions_by_model(
     """
     # argMax picks the latest emission per (model, person), so a manual re-score of an
     # already-scored date is validated deterministically instead of in ClickHouse
-    # return order.
+    # return order. Backfills stamp every event of a date at the same instant, so the
+    # event UUID breaks those ties rather than leaving them to merge order.
     sql = (
         "SELECT"
         " coalesce(nullIf(properties['$autoresearch_person_id'], ''), distinct_id) AS person_id,"
         " properties['$autoresearch_model_id'] AS model_id,"
-        " argMax(toFloat(properties['$autoresearch_p_y']), timestamp) AS p_y"
+        " argMax(toFloat(properties['$autoresearch_p_y']), (timestamp, uuid)) AS p_y"
         " FROM events"
         " WHERE event = {event_name}"
         " AND properties['$autoresearch_pipeline_id'] = {pipeline_id}"
@@ -260,7 +261,9 @@ def _fetch_predictions_by_model(
             pipeline_id=str(pipeline.pk),
             prediction_date=prediction_date.isoformat(),
         )
-        return {}
+        # A swallowed failure would complete the run as no_predictions_found, and the
+        # maturity selector would then never revisit the date. Fail so it retries.
+        raise
 
     if len(result.results) >= VALIDATION_QUERY_LIMIT:
         raise ValidationDataTruncatedError(
@@ -401,7 +404,9 @@ def _lift_at_k(y_true: np.ndarray, y_score: np.ndarray, k: float) -> float:
     cutoff = max(1, math.ceil(n * k))
     top_k_idx = np.argsort(y_score)[::-1][:cutoff]
     positives_captured = int(y_true[top_k_idx].sum())
-    random_expected = k * n_pos_total
+    # Normalize by the fraction actually selected, not the requested k — rounding up to
+    # a whole user would otherwise overstate lift on small validation sets.
+    random_expected = (cutoff / n) * n_pos_total
     return positives_captured / random_expected
 
 

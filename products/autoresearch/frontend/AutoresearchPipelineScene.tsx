@@ -688,9 +688,9 @@ function PredictionsTab(): JSX.Element {
                                             )
                                             SELECT
                                                 concat(
-                                                    toString(floor(toFloat(properties.$autoresearch_p_y) * 10) / 10),
+                                                    toString(least(floor(toFloat(properties.$autoresearch_p_y) * 10), 9) / 10),
                                                     '–',
-                                                    toString(floor(toFloat(properties.$autoresearch_p_y) * 10) / 10 + 0.1)
+                                                    toString(least(floor(toFloat(properties.$autoresearch_p_y) * 10), 9) / 10 + 0.1)
                                                 ) AS probability_bucket,
                                                 count() AS users,
                                                 repeat('▇', toInt(round(40 * count() / max(count()) OVER ()))) AS distribution

@@ -24,6 +24,7 @@ Event shape:
 
 import json
 import math
+import uuid
 import hashlib
 import importlib
 from dataclasses import dataclass
@@ -77,6 +78,23 @@ _HOLDOUT_FOLD = 0
 
 class InferenceRunError(Exception):
     """Raised when an inference run must fail (and be retried) rather than complete with wrong output."""
+
+
+# Namespace for deterministic prediction event UUIDs, so a retried scoring activity
+# re-emits the same UUID per (pipeline, model, date, person) instead of a duplicate.
+_PREDICTION_UUID_NAMESPACE = uuid.UUID("6f9a4a24-0e5c-4a5a-9d0e-2f6a0f0b1c3d")
+
+
+def _is_uuid(value: str) -> bool:
+    try:
+        uuid.UUID(str(value))
+    except (ValueError, AttributeError, TypeError):
+        return False
+    return True
+
+
+def _prediction_event_uuid(*, pipeline_id: str, model_id: str, prediction_date: str, person_id: str) -> str:
+    return str(uuid.uuid5(_PREDICTION_UUID_NAMESPACE, f"{pipeline_id}:{model_id}:{prediction_date}:{person_id}"))
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -137,8 +155,11 @@ def run_inference_for_pipeline(
         run.completed_at = django_timezone.now()
         run.save(update_fields=["status", "rows_scored", "metrics", "completed_at"])
 
-        pipeline.last_scored_at = run.completed_at
-        pipeline.save(update_fields=["last_scored_at", "updated_at"])
+        # Only a live run moves the cadence watermark. Backfilling a past date must not
+        # make the coordinator think today's scoring already happened.
+        if prediction_date >= date.today():
+            pipeline.last_scored_at = run.completed_at
+            pipeline.save(update_fields=["last_scored_at", "updated_at"])
 
         logger.info(
             "autoresearch_inference_complete",
@@ -195,6 +216,14 @@ def _score_and_emit(
         if _ANCHORS_PLACEHOLDER in feature_sql:
             scored = _score_via_anchors(team=team, pipeline=pipeline, recipe=recipe, cutoff_ts=cutoff_ts)
         else:
+            if is_backfill:
+                # The legacy path has no cutoff to apply: features and labels both evaluate
+                # at now(), so a past prediction_date would stamp today's data on that date
+                # and hand online validation a lookahead-contaminated score.
+                raise InferenceRunError(
+                    "This champion's recipe predates the {anchors} cutoff contract, so it cannot be "
+                    "backfilled to a past date. Retrain the pipeline before backfilling."
+                )
             feature_rows = _fetch_feature_rows(team=team, pipeline=pipeline, model=model)
             if not feature_rows:
                 logger.warning(
@@ -272,6 +301,12 @@ def _score_and_emit(
                 timestamp=emit_timestamp,
                 properties=props,
                 process_person_profile=attach_to_person,
+                event_uuid=_prediction_event_uuid(
+                    pipeline_id=str(pipeline.pk),
+                    model_id=str(model.pk),
+                    prediction_date=prediction_date_str,
+                    person_id=person_id,
+                ),
             )
             response.raise_for_status()
             emitted += 1
@@ -350,13 +385,15 @@ def _fetch_feature_rows(
             if r.get("distinct_id") is not None:
                 r["distinct_id"] = str(r["distinct_id"])
 
-    except Exception:
+    except Exception as exc:
         logger.exception(
             "autoresearch_feature_query_failed",
             pipeline_id=str(pipeline.pk),
             model_id=str(model.pk),
         )
-        return []
+        raise InferenceRunError(
+            "Feature query failed; failing the run rather than completing it as an empty population"
+        ) from exc
 
     # Apply inference population filter — restrict to users matching the pipeline's
     # defined scoring population (e.g. signed up in last 30 days) and, under the v1
@@ -462,9 +499,11 @@ def _fetch_label_distinct_ids(
         if not result.results:
             return frozenset()
         return frozenset(str(row[0]) for row in result.results if row[0])
-    except Exception:
+    except Exception as exc:
         logger.exception("autoresearch_label_query_failed", pipeline_id=str(pipeline.pk))
-        return frozenset()
+        raise InferenceRunError(
+            "Target label query failed; failing the run rather than fitting on an empty positive set"
+        ) from exc
 
 
 def _resolve_distinct_ids(team: Team, pipeline: AutoresearchPipeline, person_ids: list[str]) -> dict[str, str]:
@@ -476,7 +515,16 @@ def _resolve_distinct_ids(team: Team, pipeline: AutoresearchPipeline, person_ids
     person we emit with one of their real distinct_ids, not the person UUID. Persons with
     no resolvable distinct_id are omitted (caller falls back to person-less emission).
     """
-    if not person_ids:
+    # events.person_id is a UUID column, so a row keyed on anything else cannot resolve —
+    # and passing it to the query would fail the whole batch on a parse error.
+    resolvable = [p for p in person_ids if _is_uuid(p)]
+    if len(resolvable) != len(person_ids):
+        logger.warning(
+            "autoresearch_unresolvable_person_ids",
+            pipeline_id=str(pipeline.pk),
+            skipped=len(person_ids) - len(resolvable),
+        )
+    if not resolvable:
         return {}
     sql = (
         "SELECT person_id, argMax(distinct_id, timestamp) AS did"
@@ -486,12 +534,14 @@ def _resolve_distinct_ids(team: Team, pipeline: AutoresearchPipeline, person_ids
     )
     try:
         tag_queries(product=Product.AUTORESEARCH, feature=Feature.QUERY)
-        runner = HogQLQueryRunner(query=HogQLQuery(query=sql, values={"person_ids": person_ids}), team=team)
+        runner = HogQLQueryRunner(query=HogQLQuery(query=sql, values={"person_ids": resolvable}), team=team)
         result = runner.run(execution_mode=ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE)
         return {str(row[0]): str(row[1]) for row in (result.results or []) if row[0] and row[1]}
-    except Exception:
+    except Exception as exc:
         logger.exception("autoresearch_distinct_id_resolution_failed", pipeline_id=str(pipeline.pk))
-        return {}
+        raise InferenceRunError(
+            "Identity resolution query failed; failing the run rather than emitting person-less predictions"
+        ) from exc
 
 
 def _score_via_anchors(
@@ -641,12 +691,14 @@ def _fetch_inference_rows(
         for r in rows:
             if r.get("distinct_id") is not None:
                 r["distinct_id"] = str(r["distinct_id"])
-    except Exception:
+    except Exception as exc:
         logger.exception(
             "autoresearch_inference_features_query_failed",
             pipeline_id=str(pipeline.pk),
         )
-        return []
+        raise InferenceRunError(
+            "Inference feature query failed; failing the run rather than completing it as an empty population"
+        ) from exc
     _raise_if_truncated(rows, "inference features")
     return rows
 

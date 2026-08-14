@@ -112,6 +112,14 @@ class TestLiftAtK(BaseTest):
         y_score = np.array([0.9, 0.5, 0.1])
         assert _lift_at_k(y_true, y_score, k=0.5) == 0.0
 
+    def test_lift_normalizes_by_the_rows_actually_selected(self):
+        # 11 users at k=0.1 selects 2 rows (ceil), so the random baseline is 2/11 of the
+        # positives, not 1.1 — normalizing by the requested k overstates lift.
+        y_true = np.array([1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0])
+        y_score = np.array([0.99, 0.98, 0.5, 0.4, 0.3, 0.2, 0.1, 0.09, 0.08, 0.07, 0.06])
+        lift = _lift_at_k(y_true, y_score, k=0.1)
+        assert abs(lift - 5.5) < 1e-6
+
     def test_random_ranking_lift_near_one(self):
         rng = np.random.default_rng(42)
         n = 1000
