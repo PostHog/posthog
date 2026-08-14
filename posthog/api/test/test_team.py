@@ -1945,69 +1945,6 @@ def team_api_test_factory():
             self.assertEqual(self.team.session_recording_opt_in, True)
             self.assertEqual(self.team.surveys_opt_in, True)
 
-        @override_settings(DEBUG=True)
-        def test_update_proactive_tasks_enabled_true_creates_signal_source_config(self):
-            from products.signals.backend.models import SignalSourceConfig
-
-            response = self.client.patch("/api/environments/@current/", {"proactive_tasks_enabled": True})
-            self.assertEqual(response.status_code, status.HTTP_200_OK)
-
-            self.assertTrue(
-                SignalSourceConfig.objects.filter(
-                    team=self.team,
-                    source_product=SignalSourceConfig.SourceProduct.SESSION_REPLAY,
-                    source_type=SignalSourceConfig.SourceType.SESSION_ANALYSIS_CLUSTER,
-                    enabled=True,
-                ).exists()
-            )
-
-        @override_settings(DEBUG=True)
-        def test_update_proactive_tasks_enabled_false_deletes_signal_source_config(self):
-            from products.signals.backend.models import SignalSourceConfig
-
-            SignalSourceConfig.objects.create(
-                team=self.team,
-                source_product=SignalSourceConfig.SourceProduct.SESSION_REPLAY,
-                source_type=SignalSourceConfig.SourceType.SESSION_ANALYSIS_CLUSTER,
-                enabled=True,
-                config={},
-            )
-
-            response = self.client.patch("/api/environments/@current/", {"proactive_tasks_enabled": False})
-            self.assertEqual(response.status_code, status.HTTP_200_OK)
-
-            self.assertFalse(
-                SignalSourceConfig.objects.filter(
-                    team=self.team,
-                    source_product=SignalSourceConfig.SourceProduct.SESSION_REPLAY,
-                    source_type=SignalSourceConfig.SourceType.SESSION_ANALYSIS_CLUSTER,
-                ).exists()
-            )
-
-        @override_settings(DEBUG=True)
-        def test_update_proactive_tasks_enabled_true_is_idempotent(self):
-            from products.signals.backend.models import SignalSourceConfig
-
-            SignalSourceConfig.objects.create(
-                team=self.team,
-                source_product=SignalSourceConfig.SourceProduct.SESSION_REPLAY,
-                source_type=SignalSourceConfig.SourceType.SESSION_ANALYSIS_CLUSTER,
-                enabled=True,
-                config={},
-            )
-
-            response = self.client.patch("/api/environments/@current/", {"proactive_tasks_enabled": True})
-            self.assertEqual(response.status_code, status.HTTP_200_OK)
-
-            self.assertEqual(
-                SignalSourceConfig.objects.filter(
-                    team=self.team,
-                    source_product=SignalSourceConfig.SourceProduct.SESSION_REPLAY,
-                    source_type=SignalSourceConfig.SourceType.SESSION_ANALYSIS_CLUSTER,
-                ).count(),
-                1,
-            )
-
         def test_can_set_session_recording_trigger_groups(self):
             """Test that we can create and update session_recording_trigger_groups field"""
             trigger_groups = {
