@@ -59,7 +59,7 @@ export interface accountEmailThreadsLogicActions {
         detail: PaginatedAccountEmailThreadMessageListApi
         threadId: string
     }
-    loadThreads: () => any
+    loadThreads: (_?: any) => any
     loadThreadsFailure: (
         error: string,
         errorObject?: any
