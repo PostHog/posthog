@@ -174,7 +174,7 @@ function LogsAlertEditModalContent({
                 <SnoozeButton
                     onChange={(snoozeUntil) => snoozeAlertUntil(alert.id, snoozeUntil)}
                     onClear={alert.snooze_until ? () => unsnoozeAlert(alert.id) : undefined}
-                    value={alert.snooze_until}
+                    value={alert.snooze_until ?? undefined}
                     disabledReason={snoozingAlertIds.has(alert.id) ? 'Updating snooze' : undefined}
                 />
             ) : null}
