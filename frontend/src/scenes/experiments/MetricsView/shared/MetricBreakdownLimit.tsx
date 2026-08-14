@@ -6,7 +6,8 @@ import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { ExperimentMetric } from '~/queries/schema/schema-general'
 
 const DEFAULT_BREAKDOWN_LIMIT = 25
-// "Show all" has no true unlimited on the backend; the max clamp (1000) is effectively all.
+// The backend has no unlimited option, so "Show all" is just a large top-N that covers any
+// realistic breakdown cardinality.
 const SHOW_ALL_BREAKDOWN_LIMIT = 1000
 
 const BREAKDOWN_LIMIT_OPTIONS = [
@@ -40,8 +41,8 @@ export function MetricBreakdownLimit({
                 title={
                     <>
                         Keeps only the top breakdown values by frequency. The remaining values are grouped together
-                        under "Other". This caps how many breakdown rows the results show. "Show all" raises the cap to
-                        the maximum.
+                        under "Other". This caps how many breakdown rows the results show. "Show all" raises the cap
+                        high enough to cover any realistic number of values.
                     </>
                 }
             >
