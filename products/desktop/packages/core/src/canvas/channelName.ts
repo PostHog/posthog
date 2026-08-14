@@ -13,7 +13,6 @@ export const PERSONAL_CHANNEL_NAME = "me";
  * list — an activity row and a mention both carry one of their own.
  */
 export const PERSONAL_CHANNEL_LABEL = "personal";
-const LEGACY_PERSONAL_CHANNEL_LABEL = "personal space";
 
 /** A channel's name as a reader should see it. */
 export function channelDisplayName(name: string): string;
@@ -28,9 +27,7 @@ function isPersonalChannelLabel(
 ): boolean {
   return channelType !== undefined
     ? channelType === "personal"
-    : name === PERSONAL_CHANNEL_NAME ||
-        name === PERSONAL_CHANNEL_LABEL ||
-        name === LEGACY_PERSONAL_CHANNEL_LABEL;
+    : name === PERSONAL_CHANNEL_NAME || name === PERSONAL_CHANNEL_LABEL;
 }
 
 export function channelDisplayLabel(

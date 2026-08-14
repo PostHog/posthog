@@ -32,7 +32,6 @@ describe("channelDisplayLabel", () => {
   it.each([
     ["me", undefined, "personal"],
     ["personal", undefined, "personal"],
-    ["personal space", undefined, "personal"],
     ["personal", "personal" as const, "personal"],
     ["personal", "public" as const, "#personal"],
     ["engineering", "public" as const, "#engineering"],
