@@ -152,6 +152,19 @@ describe('exportNudgeLogic', () => {
         expect(await considerNudge()).toBe(true)
     })
 
+    it('offers nothing it cannot check when the insight cannot be resolved', async () => {
+        // A deleted insight, or an export racing its creation: the short id resolves to nothing, so
+        // there is no subscription to check against.
+        useMocks({ get: { '/api/environments/:team_id/insights': () => [200, { results: [] }] } })
+
+        expect(await considerNudge(INSIGHT)).toBe(true)
+        // The lookup answers "no subscription", which is what an unresolvable insight means here.
+        expect(mockSubscriptionsList).not.toHaveBeenCalledWith(
+            expect.anything(),
+            expect.objectContaining({ insight: expect.anything() })
+        )
+    })
+
     describe('answering without a request', () => {
         // The scene mounts subscriptionsLogic to render the subscribe button's count badge, so most
         // exports can put the offer in their toast from the first frame instead of fetching again.

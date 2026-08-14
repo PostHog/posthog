@@ -204,8 +204,16 @@ export async function resolveExportNudgeEligibility(subject: ExportNudgeSubject)
     if (!values.hasAvailableFeature(AvailableFeature.SUBSCRIPTIONS) && values.freeTierSubscriptionCount === null) {
         await asyncActions.loadFreeTierSubscriptionCount()
     }
-    if (subscriptionLimitStatus() !== 'within') {
-        return null // an unknown count fails closed: don't offer what we can't confirm they can do
+    const limitStatus = subscriptionLimitStatus()
+    if (limitStatus === 'unknown') {
+        // Reachable without a failed request: a second export dispatches the same loader and
+        // breakpoints this one, whose await then returns with the count still unresolved. Reported
+        // because every other way the offer disappears reports a step, and this one fails closed.
+        captureExportNudgeCheckFailed('limit', exportNudgeEventProperties(subject))
+        return null
+    }
+    if (limitStatus !== 'within') {
+        return null
     }
 
     const hasExistingSubscription = await fetchHasExistingSubscription(subject)

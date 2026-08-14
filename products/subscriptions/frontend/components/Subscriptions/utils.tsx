@@ -48,12 +48,6 @@ export const urlForSubscriptions = ({ dashboardId, insightShortId }: Subscriptio
     return urls.subscriptions()
 }
 
-/**
- * Deep-link params the subscribe-nudge uses to open the new-subscription form prefilled.
- * Single source of truth shared by the producer (dashboard toast) and the consumer (this
- * logic's urlToAction). The backend notification's source_url must mirror these — see the
- * comment on source_url in products/dashboards/backend/api/dashboard.py.
- */
 export const urlForSubscription = (
     id: number | 'new',
     { dashboardId, insightShortId }: SubscriptionBaseProps

@@ -3576,8 +3576,8 @@ class DashboardsViewSet(
                     resource_type="dashboard",
                     resource_id=str(dashboard.pk),
                     # Query params mirror SUBSCRIPTION_PREFILL_PARAMS in
-                    # products/subscriptions/frontend/components/Subscriptions/utils.tsx, which
-                    # consumes them to prefill the new-subscription form.
+                    # products/subscriptions/frontend/components/Subscriptions/subscriptionNudge.ts,
+                    # which consumes them to prefill the new-subscription form.
                     source_url=f"/dashboard/{dashboard.pk}/subscriptions/new?prefill=nudge&via=notification",
                 )
             )

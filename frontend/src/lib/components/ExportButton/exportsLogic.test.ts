@@ -523,6 +523,57 @@ describe('exportsLogic', () => {
             }
         })
 
+        it('hands a delayed download over even when the spinner was dismissed', async () => {
+            // A pending promise toast never auto-closes, so the only way it is gone is the user
+            // closing it. Updating a dismissed id does nothing, which would lose the file.
+            const original = Object.getOwnPropertyDescriptor(navigator, 'userActivation')
+            Object.defineProperty(navigator, 'userActivation', { value: { isActive: false }, configurable: true })
+            jest.mocked(lemonToast.isActive).mockReturnValue(false)
+            try {
+                const response = asset({ id: 61, export_format: ExporterFormat.CSV, has_content: true })
+                jest.spyOn(api.exports, 'create').mockResolvedValue(response)
+
+                logic.actions.createExport({ exportData: { export_format: ExporterFormat.CSV } })
+                await flush()
+
+                expect(jest.mocked(lemonToast.success).mock.calls).toHaveLength(1)
+                expect(jest.mocked(lemonToast.success).mock.calls[0][1]?.button?.label).toEqual('Download')
+            } finally {
+                if (original) {
+                    Object.defineProperty(navigator, 'userActivation', original)
+                } else {
+                    delete (navigator as any).userActivation
+                }
+            }
+        })
+
+        it('does not announce a delayed download twice when the list is polled again', async () => {
+            // The asset waits in freshUndownloadedExports until it is clicked, so any later poll
+            // sees it complete. Announcing it again would raise a second toast and, for an eligible
+            // export, report a second exposure for one export.
+            const original = Object.getOwnPropertyDescriptor(navigator, 'userActivation')
+            Object.defineProperty(navigator, 'userActivation', { value: { isActive: false }, configurable: true })
+            try {
+                const response = asset({ id: 62, export_format: ExporterFormat.CSV, has_content: true })
+                jest.spyOn(api.exports, 'create').mockResolvedValue(response)
+
+                logic.actions.createExport({ exportData: { export_format: ExporterFormat.CSV } })
+                await flush()
+                const toastsAfterExport = jest.mocked(lemonToast.success).mock.calls.length
+
+                logic.actions.loadExportsSuccess([response])
+                await flush()
+
+                expect(jest.mocked(lemonToast.success).mock.calls).toHaveLength(toastsAfterExport)
+            } finally {
+                if (original) {
+                    Object.defineProperty(navigator, 'userActivation', original)
+                } else {
+                    delete (navigator as any).userActivation
+                }
+            }
+        })
+
         it('notifies once with a Download button that routes through downloadExport', async () => {
             const pending = asset({ id: 21, export_format: ExporterFormat.MP4, has_content: false })
             const finished = asset({ id: 21, export_format: ExporterFormat.MP4, has_content: true })
