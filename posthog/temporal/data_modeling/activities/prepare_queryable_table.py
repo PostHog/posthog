@@ -23,6 +23,9 @@ class PrepareQueryableTableInputs:
     table_uri: str
     file_uris: list[str]
     row_count: int
+    # An incremental run's row_count covers only the window it upserted, so it must not be written
+    # to the table as a total. Defaulted so old workflow histories decode without it.
+    incremental: bool = False
 
 
 @database_sync_to_async_pool
@@ -43,8 +46,11 @@ def _update_saved_query_with_table(
     saved_query.table_id = saved_query_table.id
     saved_query.save()
 
-    saved_query_table.row_count = inputs.row_count
-    saved_query_table.save()
+    if not inputs.incremental:
+        # `create_table_from_saved_query` already counted the published files, which is the whole
+        # table. Keep that for an incremental run rather than overwriting it with the window.
+        saved_query_table.row_count = inputs.row_count
+        saved_query_table.save()
 
     # The table is what makes the query a matview, so this is the one place that always knows the
     # node type is stale — every other materialization entry point can leave it behind.
