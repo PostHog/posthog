@@ -60,6 +60,10 @@ class TestRepairAlertCheckDeliveryRecords(APIBaseTest):
         with self.assertRaises(Exception):
             call_command("repair_alert_check_delivery_records", "--before", "2026-08-11T00:00:00")
 
+    def test_before_must_be_parseable(self) -> None:
+        with self.assertRaises(Exception):
+            call_command("repair_alert_check_delivery_records", "--before", "not-a-date")
+
     def test_dry_run_reports_without_writing(self) -> None:
         call_command("repair_alert_check_delivery_records", "--before", self.cutoff)
 

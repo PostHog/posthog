@@ -398,6 +398,12 @@ def record_alert_delivery(alert: AlertConfiguration, alert_check: AlertCheck, de
     Caller must wrap in transaction.atomic() if atomic semantics are required.
     """
     if not deliveries:
+        logger.warning(
+            "record_alert_delivery.no_transport_accepted",
+            alert_id=str(alert.id),
+            alert_check_id=str(alert_check.id),
+            alert_check_state=alert_check.state,
+        )
         return False
     recorded_at = datetime.now(UTC)
     alert_check.targets_notified = {

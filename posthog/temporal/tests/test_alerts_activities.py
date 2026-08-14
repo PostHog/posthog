@@ -560,6 +560,33 @@ class TestNotifyAlert:
         mock_breaches.assert_not_called()
         mock_errors.assert_not_called()
 
+    async def test_records_nothing_when_no_transport_accepts(self, alert_with_user) -> None:
+        # Zero accepted receipts must leave the check unstamped: stamping here would
+        # recreate the false "targets notified" rows the repair command exists to clear.
+        check = await _create_alert_check(alert_with_user, state=AlertState.FIRING)
+
+        with (
+            patch("posthog.slo.events.posthoganalytics"),
+            patch("products.alerts.backend.delivery_slo.get_instance_region", return_value="US"),
+            patch("posthog.tasks.alerts.utils.send_notifications_for_breaches", return_value=[]),
+            patch("posthog.tasks.alerts.utils.send_notifications_for_errors") as mock_errors,
+        ):
+            env = ActivityEnvironment()
+            await env.run(
+                notify_alert,
+                NotifyAlertActivityInputs(
+                    alert_id=str(alert_with_user.id),
+                    alert_check_id=str(check.id),
+                    breaches=["value above threshold"],
+                ),
+            )
+
+        mock_errors.assert_not_called()
+        refreshed = await sync_to_async(AlertCheck.objects.get)(pk=check.id)
+        assert refreshed.targets_notified == {}
+        assert refreshed.deliveries is None
+        assert refreshed.notification_sent_at is None
+
     async def test_sends_breach_notifications_when_firing(self, alert_with_user) -> None:
         check = await _create_alert_check(alert_with_user, state=AlertState.FIRING)
 
@@ -717,12 +744,12 @@ class TestNotifyAlert:
         alert_with_user.next_check_at = next_check_at
 
         with patch("posthog.tasks.alerts.utils.send_alert_email") as mock_send_alert_email:
-            recipients = await sync_to_async(send_notifications_for_errors)(
+            deliveries = await sync_to_async(send_notifications_for_errors)(
                 alert_with_user, {"message": "boom"}, "notification-key"
             )
 
         subscriber_email = await sync_to_async(lambda: alert_with_user.subscribed_users.get().email)()
-        assert recipients == [subscriber_email]
+        assert [(delivery.channel, delivery.target) for delivery in deliveries] == [("email", subscriber_email)]
         assert mock_send_alert_email.call_args.kwargs["template_context"]["next_check_at"] == next_check_at
 
     async def test_error_notification_does_not_include_an_unsubscribed_creator(self, alert, auser) -> None:

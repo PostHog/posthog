@@ -35,14 +35,10 @@ from posthog.temporal.alerts.schedule import create_schedule_due_alert_checks_sc
 from posthog.temporal.alerts.types import AlertInfo, CheckAlertWorkflowInputs, SkipReason
 from posthog.temporal.alerts.workflows import CheckAlertWorkflow, ScheduleDueAlertChecksWorkflow
 from posthog.temporal.common.slo_interceptor import SloInterceptor
+from posthog.temporal.tests.test_alerts_activities import _email_delivery
 
-from products.alerts.backend.destinations import AlertDelivery
 from products.alerts.backend.models.alert import AlertCheck, AlertConfiguration, Threshold
 from products.product_analytics.backend.models.insight import Insight
-
-def _email_delivery(target: str, at: str = "2026-08-11T00:00:00+00:00") -> AlertDelivery:
-    return AlertDelivery(channel="email", target=target, at=at)
-
 
 CHECK_ALERT_ACTIVITIES: list[Callable[..., Any]] = [
     prepare_alert,

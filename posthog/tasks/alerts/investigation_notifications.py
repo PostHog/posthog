@@ -99,12 +99,12 @@ def run_investigation_notification_safety_net() -> int:
                     continue
                 breaches = _fallback_breach_descriptions(locked)
                 deliveries = dispatch_alert_notification(alert, locked, breaches)
-                if deliveries is not None:
-                    record_alert_delivery(alert, locked, deliveries)
-                # Set notification_sent_at in lock-step with record_alert_delivery so
-                # gating/idempotency reads that still use this marker stay consistent.
-                locked.notification_sent_at = timezone.now()
-                locked.save(update_fields=["notification_sent_at"])
+                recorded = record_alert_delivery(alert, locked, deliveries) if deliveries is not None else False
+                if not recorded:
+                    # Even with nothing accepted, the stamp is this sweep's idempotency
+                    # marker — without it an undeliverable check is re-dispatched forever.
+                    locked.notification_sent_at = timezone.now()
+                    locked.save(update_fields=["notification_sent_at"])
         except Exception:
             logger.exception(
                 "alert.investigation_safety_net_failed",

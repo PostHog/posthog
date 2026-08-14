@@ -533,6 +533,31 @@ class TestAlert(APIBaseTest, QueryMatchingTest):
                 True,
             ),
             (
+                "hog_function_only_delivery_keeps_truthful_yes",
+                {"users": []},
+                [
+                    {
+                        "channel": "hog_function",
+                        "target": "Eng alerts",
+                        "target_id": "hf-1",
+                        "template": "slack",
+                        "status": "accepted",
+                        "at": "2026-08-11T00:00:00+00:00",
+                    }
+                ],
+                [
+                    {
+                        "channel": "hog_function",
+                        "target": "Eng alerts",
+                        "target_id": "hf-1",
+                        "template": "slack",
+                        "status": "accepted",
+                        "at": "2026-08-11T00:00:00+00:00",
+                    }
+                ],
+                True,
+            ),
+            (
                 "nothing_recorded_is_null",
                 {},
                 None,

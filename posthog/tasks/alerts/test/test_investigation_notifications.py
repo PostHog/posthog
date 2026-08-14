@@ -132,7 +132,10 @@ class TestInvestigationNotificationSafetyNet(APIBaseTest):
         mock_record: object,
         mock_dispatch: object,
     ) -> None:
-        mock_dispatch.return_value = ["test@posthog.com"]  # type: ignore[attr-defined]
+        # Attempted dispatch with nothing accepted: the safety net itself must stamp
+        # notification_sent_at so the check is not re-dispatched every sweep.
+        mock_dispatch.return_value = []  # type: ignore[attr-defined]
+        mock_record.return_value = False  # type: ignore[attr-defined]
 
         check = self._make_check(age_minutes=age_minutes, investigation_status=investigation_status)
         notified = run_investigation_notification_safety_net()

@@ -280,7 +280,7 @@ class AlertCheckSerializer(serializers.ModelSerializer):
         return notebook.short_id if notebook is not None else None
 
     @extend_schema_field(AlertDeliverySerializer(many=True))
-    def get_deliveries(self, instance: AlertCheck) -> list[dict] | None:
+    def get_deliveries(self, instance: AlertCheck) -> list[dict[str, Any]] | None:
         if instance.deliveries:
             return instance.deliveries
         legacy_users = (instance.targets_notified or {}).get("users") or []

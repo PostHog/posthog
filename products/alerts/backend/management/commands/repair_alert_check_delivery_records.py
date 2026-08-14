@@ -12,10 +12,12 @@ from products.alerts.backend.models.alert import AlertCheck
 class Command(BaseCommand):
     help = (
         "Clear delivery records on ERRORED alert checks stamped while the error-email path was "
-        "disabled. Only notify_alert stamps notification_sent_at, and its ERRORED branch sent "
-        "nothing before the error email was restored — so ERRORED + stamped + pre-cutoff rows "
+        "disabled. On ERRORED checks, only notify_alert's errored branch stamps notification_sent_at "
+        "(the safety-net and investigation-gated stampers touch FIRING checks only), and that branch "
+        "sent nothing before the error email was restored — so ERRORED + stamped + pre-cutoff rows "
         "are exactly the false 'targets notified' population, excluding rows with delivery receipts. "
-        "Dry-run by default."
+        "Dry-run by default. AlertConfiguration.last_notified_at is not repaired: it self-corrects on "
+        "the next real delivery."
     )
 
     def add_arguments(self, parser: Any) -> None:
@@ -27,7 +29,10 @@ class Command(BaseCommand):
         parser.add_argument("--execute", action="store_true", help="Apply the repair (default: dry-run)")
 
     def handle(self, *args: Any, **options: Any) -> None:
-        cutoff = datetime.fromisoformat(options["before"])
+        try:
+            cutoff = datetime.fromisoformat(options["before"])
+        except ValueError:
+            raise CommandError(f"--before is not an ISO-8601 datetime: {options['before']!r}")
         if cutoff.tzinfo is None:
             raise CommandError("--before must be timezone-aware, e.g. 2026-08-12T00:00:00+00:00")
 
