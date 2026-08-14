@@ -18,6 +18,7 @@ from ee.hogai.tool_errors import MaxToolRetryableError
 from ee.hogai.tools.execute_sql.mcp_tool import (
     ExecuteSQLMCPTool,
     ExecuteSQLMCPToolArgs,
+    _only_reads_information_schema,
     _prepend_canonical_metrics,
     _prepend_taxonomy_warnings,
     _sanitize_warning_line,
@@ -295,6 +296,32 @@ class TestExecuteSQLMCPTool(ClickhouseTestMixin, NonAtomicBaseTest):
 
         self.assertIn("test_event", content)
         self.assertNotIn("canonical_metrics", content)
+
+
+class TestOnlyReadsInformationSchema(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("catalog_table", "SELECT table_name FROM system.information_schema.tables", True),
+            (
+                "two_catalog_tables",
+                "SELECT * FROM system.information_schema.metrics AS m "
+                "JOIN system.information_schema.columns AS c ON true",
+                True,
+            ),
+            ("plain_events", "SELECT count() FROM events", False),
+            # A warehouse table whose name merely contains the word is an ordinary table, so the
+            # block must still fire; a bare-substring match wrongly suppressed it here.
+            ("name_contains_substring", "SELECT count() FROM warehouse.information_schema_backup", False),
+            ("alias_named_after_it", "SELECT count() AS information_schema_rows FROM events", False),
+            (
+                "catalog_joined_to_events",
+                "SELECT * FROM system.information_schema.metrics AS m JOIN events ON true",
+                False,
+            ),
+        ]
+    )
+    def test_only_reads_information_schema(self, _name, query, expected):
+        self.assertEqual(_only_reads_information_schema(query), expected)
 
 
 class TestCanonicalMetricsBlock(SimpleTestCase):

@@ -202,7 +202,12 @@ def _sanitize_warning_line(message: str) -> str:
     return cleaned[:_MAX_WARNING_CHARS] + "…" if len(cleaned) > _MAX_WARNING_CHARS else cleaned
 
 
-_CATALOG_LOOKUP_TABLE = "information_schema"
+# The catalog tables live under this namespace only (registered as a child of the `system` node),
+# so a validated query reaching this guard names them as `system.information_schema.<table>`. Match
+# the namespace prefix, not the bare substring: a user-named warehouse table like
+# `warehouse.information_schema_backup` contains the word but is an ordinary table the block should
+# still fire for.
+_CATALOG_LOOKUP_NAMESPACE = "system.information_schema."
 _MAX_LISTING_CHARS = 1200
 
 
@@ -210,15 +215,15 @@ def _only_reads_information_schema(query: str) -> bool:
     """Whether every table this query reads is an information_schema table.
 
     Decided on the parsed query, not its text: a query that computes a number still needs the
-    listing when it merely mentions `information_schema` in a comment, a string literal, or an
-    alias. A query that fails to parse here gets the listing too — the query itself already
-    validated, so this is the safe direction for a hint.
+    listing when it merely mentions `information_schema` in a comment, a string literal, an alias,
+    or a warehouse table whose name happens to contain it. A query that fails to parse here gets the
+    listing too — the query itself already validated, so this is the safe direction for a hint.
     """
     try:
         tables = get_table_names(parse_select(query, placeholders={}))
     except Exception:
         return False
-    return bool(tables) and all(_CATALOG_LOOKUP_TABLE in table.lower() for table in tables)
+    return bool(tables) and all(table.lower().startswith(_CATALOG_LOOKUP_NAMESPACE) for table in tables)
 
 
 # Same predicate as approved_metric_names_for_team (status='approved' AND NOT drifted): the count
