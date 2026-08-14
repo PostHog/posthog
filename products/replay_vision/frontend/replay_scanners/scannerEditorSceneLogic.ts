@@ -29,6 +29,9 @@ export interface ScannerFieldErrors {
     duration?: unknown
 }
 
+/** Steps that mount no validated field, so leaving them must not run whole-form validation. */
+export const UNVALIDATED_SCANNER_STEPS: readonly ScannerEditorStep[] = ['template', 'details']
+
 /** Which step mounts each validated field. The stepper badges and the post-submit jump both read this. */
 export function scannerStepErrors(errors: ScannerFieldErrors): Record<ScannerEditorStep, boolean> {
     return {

@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
-import { router } from 'kea-router'
+import { combineUrl, router } from 'kea-router'
 
 import * as construction2Png from '@posthog/brand/hoggies/png/construction-2'
 import * as imTheDriverPng from '@posthog/brand/hoggies/png/im-the-driver'
@@ -47,6 +47,7 @@ import {
     SCANNER_EDITOR_STEPS,
     SCANNER_EDITOR_STEP_ORDER,
     ScannerEditorStep,
+    UNVALIDATED_SCANNER_STEPS,
     scannerStepErrors,
     scannerEditorSceneLogic,
     scannerStepUrl,
@@ -96,6 +97,7 @@ const STEP_HEADERS: Record<
 
 export function ScannerEditorSceneComponent(): JSX.Element {
     const { scannerId, step, isNew } = useValues(scannerEditorSceneLogic)
+    const { searchParams } = useValues(router)
 
     const scannerLogic = replayScannerLogic({ id: scannerId })
     useAttachedLogic(scannerLogic, scannerEditorSceneLogic)
@@ -124,8 +126,16 @@ export function ScannerEditorSceneComponent(): JSX.Element {
         ? scannerStepErrors({ ...scannerValidationErrors, duration: durationValidationError })
         : undefined
 
-    // Validate the current step and move on: submit routes to the next step on success.
+    // Validate the current step and move on: submit routes to the next step on success. A step with
+    // nothing to validate navigates straight on, so it can't fail on fields the user hasn't reached.
     const advance = (): void => {
+        if (UNVALIDATED_SCANNER_STEPS.includes(step)) {
+            const next = SCANNER_EDITOR_STEPS[SCANNER_EDITOR_STEPS.indexOf(step) + 1]
+            if (next) {
+                router.actions.push(combineUrl(scannerStepUrl(next, scannerId), searchParams).url)
+                return
+            }
+        }
         submitScanner()
     }
 

@@ -16,6 +16,7 @@ import { forms } from 'kea-forms'
 import type { DeepPartial, DeepPartialMap, FieldName, ValidationErrorType } from 'kea-forms'
 import { loaders } from 'kea-loaders'
 import { actionToUrl, beforeUnload, router, urlToAction } from 'kea-router'
+import { combineUrl } from 'kea-router'
 import { CombinedLocation } from 'kea-router/lib/utils'
 
 import api from 'lib/api'
@@ -834,7 +835,7 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                 const currentStep = scannerEditorSceneLogic.findMounted()?.values.step ?? 'configure'
                 const nextStep = SCANNER_EDITOR_STEPS[SCANNER_EDITOR_STEPS.indexOf(currentStep) + 1]
                 if (nextStep) {
-                    router.actions.push(scannerStepUrl(nextStep, props.id))
+                    router.actions.push(combineUrl(scannerStepUrl(nextStep, props.id), router.values.searchParams).url)
                     return
                 }
                 const teamId = teamLogic.values.currentTeamId
@@ -871,12 +872,11 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                         router.actions.push(urls.replayVision(props.id))
                     }
                 } catch (error: any) {
-                    const nameError = error.data?.name ?? error.name
-                    if (typeof nameError === 'string' || Array.isArray(nameError)) {
-                        const message = Array.isArray(nameError) ? nameError[0] : nameError
-                        actions.setScannerManualErrors({ name: message })
+                    // A duplicate name is the one field error the details step can fix, so route back to it.
+                    if (error.attr === 'name' && error.detail) {
+                        actions.setScannerManualErrors({ name: error.detail })
                         router.actions.push(urls.replayVisionScannerDetails(props.id))
-                        lemonToast.error(message)
+                        lemonToast.error(error.detail)
                         throw error
                     }
                     lemonToast.error(`Failed to save scanner${error.detail ? `: ${error.detail}` : ''}`)

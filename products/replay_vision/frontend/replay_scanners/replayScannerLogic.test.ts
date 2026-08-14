@@ -332,6 +332,14 @@ describe('replayScannerLogic', () => {
             expect(router.values.location.pathname).toContain('/replay-vision/new/triggers')
         })
 
+        it('keeps the ?template param when advancing, so the type stays fixed to the template', async () => {
+            router.actions.push(`${urls.replayVisionScannerConfigure('new')}?template=dead_end`)
+            logic.actions.setScannerValues({ name: 'Test scanner', scanner_config: { prompt: 'Q?' } })
+            await expectLogic(logic, () => logic.actions.submitScanner()).toFinishAllListeners()
+            expect(router.values.location.pathname).toContain('/replay-vision/new/triggers')
+            expect(router.values.searchParams.template).toEqual('dead_end')
+        })
+
         it('advances from the step the editor scene reports, even when the URL matches no step', async () => {
             router.actions.push('/replay-vision/new/not-a-step')
             scannerEditorSceneLogic.actions.setStep('configure')
