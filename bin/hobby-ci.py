@@ -212,6 +212,7 @@ runcmd:
             self._get_node_image_fallback_script(),
             *self._get_installer_commands(),
             *tls_commands,
+            "export POSTHOG_FEATURE_FLAGS_FORCE_ENABLED=metrics",
             'echo "$LOG_PREFIX Starting hobby installer (CI mode)"',
             f"./hobby-installer --ci --domain {safe_hostname} --version $CURRENT_COMMIT",
             "DEPLOY_EXIT=$?",
@@ -821,7 +822,11 @@ runcmd:
                         timeout=10,
                     )
                     if metric_query_resp.status_code == 200:
-                        metric_found = bool(metric_query_resp.json().get("results", []))
+                        metric_found = any(
+                            point.get("value") == 1.0
+                            for series in metric_query_resp.json().get("results", [])
+                            for point in series.get("points", [])
+                        )
                     else:
                         print(f"   Poll {attempt}: metric HTTP {metric_query_resp.status_code}", flush=True)
 

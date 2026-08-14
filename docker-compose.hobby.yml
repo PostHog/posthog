@@ -169,6 +169,7 @@ services:
             DEPLOYMENT: 'hobby'
             PERSONHOG_ADDR: 'personhog-router:50052'
             PERSONHOG_ENABLED: 'true'
+            POSTHOG_FEATURE_FLAGS_FORCE_ENABLED: ${POSTHOG_FEATURE_FLAGS_FORCE_ENABLED:-}
             # Point Django at the Rust feature-flags container; the setting
             # otherwise defaults to localhost:3001.
             FEATURE_FLAGS_SERVICE_URL: 'http://feature-flags:3001'
@@ -307,6 +308,19 @@ services:
         logging: *default-logging
         environment:
             LOGS_REDIS_TLS: 'false'
+        depends_on:
+            - db
+            - redis7
+            - kafka
+
+    ingestion-metrics:
+        extends:
+            file: docker-compose.base.yml
+            service: ingestion-metrics
+        image: ${REGISTRY_URL}-node:${POSTHOG_NODE_TAG:-latest}
+        logging: *default-logging
+        environment:
+            METRICS_REDIS_HOST: redis7
         depends_on:
             - db
             - redis7
