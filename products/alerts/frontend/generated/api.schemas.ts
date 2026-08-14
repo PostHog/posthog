@@ -657,7 +657,7 @@ export interface AlertApi {
      * @nullable
      */
     readonly last_value: number | null
-    /** When enabled, an investigation agent runs on each firing check and writes findings to a Notebook linked from that check. Alerts on a sub-hourly calculation interval are investigated at most once an hour. Only effective for detector-based (anomaly) alerts. */
+    /** When enabled, an investigation agent runs on each firing check. For anomaly detection alerts it writes findings to a Notebook linked from that check. For metrics threshold alerts it saves an investigation summary on the check. Alerts on a sub-hourly calculation interval are investigated at most once an hour. No other alert types are supported. */
     investigation_agent_enabled?: boolean
     /** When enabled (and investigation_agent_enabled is on), notification dispatch is held until the investigation agent produces a verdict. Notifications are suppressed when the verdict is false_positive (and optionally when inconclusive). A safety-net task force-fires after a few minutes if the investigation stalls. */
     investigation_gates_notifications?: boolean
@@ -746,7 +746,7 @@ export interface PatchedAlertApi {
      * @nullable
      */
     readonly last_value?: number | null
-    /** When enabled, an investigation agent runs on each firing check and writes findings to a Notebook linked from that check. Alerts on a sub-hourly calculation interval are investigated at most once an hour. Only effective for detector-based (anomaly) alerts. */
+    /** When enabled, an investigation agent runs on each firing check. For anomaly detection alerts it writes findings to a Notebook linked from that check. For metrics threshold alerts it saves an investigation summary on the check. Alerts on a sub-hourly calculation interval are investigated at most once an hour. No other alert types are supported. */
     investigation_agent_enabled?: boolean
     /** When enabled (and investigation_agent_enabled is on), notification dispatch is held until the investigation agent produces a verdict. Notifications are suppressed when the verdict is false_positive (and optionally when inconclusive). A safety-net task force-fires after a few minutes if the investigation stalls. */
     investigation_gates_notifications?: boolean
