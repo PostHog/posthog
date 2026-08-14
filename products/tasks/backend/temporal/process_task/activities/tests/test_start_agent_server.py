@@ -1,17 +1,122 @@
 import pytest
 from freezegun import freeze_time
 
-from products.tasks.backend.exceptions import SandboxMissingRepositoryError
+from products.tasks.backend.exceptions import SandboxExecutionError, SandboxMissingRepositoryError
 from products.tasks.backend.logic.services.sandbox import ExecutionResult, sandbox_repo_path
 from products.tasks.backend.temporal.process_task.activities.get_task_processing_context import TaskProcessingContext
 from products.tasks.backend.temporal.process_task.activities.start_agent_server import (
+    ActivateAgentServerCredentialsInput,
     StartAgentServerInput,
     _ensure_repository_on_disk,
     _include_personal_mcp_for_task,
+    _LaunchParams,
     _record_boot_total,
     _resolve_protected_base_branch,
+    activate_agent_server_credentials,
+    launch_agent_server,
     start_agent_server,
 )
+
+
+async def test_credential_activation_stops_when_file_write_fails(mocker) -> None:
+    sandbox = mocker.Mock(id="sandbox-id")
+    sandbox.write_file.return_value = ExecutionResult(stdout="", stderr="disk full", exit_code=1)
+    mocker.patch(
+        "products.tasks.backend.temporal.process_task.activities.start_agent_server.Sandbox.get_by_id",
+        return_value=sandbox,
+    )
+    mocker.patch(
+        "products.tasks.backend.temporal.process_task.activities.start_agent_server._prepare_launch",
+        return_value=_LaunchParams(
+            mcp_configs=[],
+            relayed_mcp_servers=[],
+            actor_user_id=None,
+            agentsh_domains=None,
+            protected_base_branch=None,
+            event_ingest_token="event-secret",
+            task_run_session_token="session-secret",
+            event_ingest_url=None,
+            event_ingest_keep_stream_open=False,
+        ),
+    )
+
+    with pytest.raises(SandboxExecutionError, match="Failed to write deferred agent credentials"):
+        await activate_agent_server_credentials(
+            ActivateAgentServerCredentialsInput(
+                context=_context(),
+                sandbox_id="sandbox-id",
+            )
+        )
+
+    sandbox.execute.assert_not_called()
+
+
+async def test_deferred_launch_keeps_credentials_out_of_agent_process(mocker) -> None:
+    sandbox = mocker.Mock()
+    sandbox.agent_server_supports_deferred_credentials.return_value = True
+    mocker.patch(
+        "products.tasks.backend.temporal.process_task.activities.start_agent_server.Sandbox.get_by_id",
+        return_value=sandbox,
+    )
+    mocker.patch("products.tasks.backend.temporal.process_task.activities.start_agent_server.emit_agent_log")
+    mocker.patch(
+        "products.tasks.backend.temporal.process_task.activities.start_agent_server._prepare_launch",
+        return_value=_LaunchParams(
+            mcp_configs=[mocker.Mock()],
+            relayed_mcp_servers=[],
+            actor_user_id=None,
+            agentsh_domains=None,
+            protected_base_branch=None,
+            event_ingest_token="event-secret",
+            task_run_session_token="session-secret",
+            event_ingest_url=None,
+            event_ingest_keep_stream_open=False,
+        ),
+    )
+
+    output = await launch_agent_server(
+        StartAgentServerInput(
+            context=_context(),
+            sandbox_id="sandbox-id",
+            sandbox_url="https://sandbox.example",
+            defer_for_clone=True,
+            defer_credentials=True,
+        )
+    )
+
+    assert output.process_launched is True
+    assert output.credentials_deferred is True
+    kwargs = sandbox.start_agent_server.call_args.kwargs
+    assert kwargs["mcp_configs"] is None
+    assert kwargs["event_ingest_token"] is None
+    assert kwargs["task_run_session_token"] is None
+    assert kwargs["deferred_credentials_file"]
+
+
+async def test_deferred_launch_falls_back_safely_for_old_agent_image(mocker) -> None:
+    sandbox = mocker.Mock()
+    sandbox.agent_server_supports_deferred_credentials.return_value = False
+    mocker.patch(
+        "products.tasks.backend.temporal.process_task.activities.start_agent_server.Sandbox.get_by_id",
+        return_value=sandbox,
+    )
+    prepare_launch = mocker.patch(
+        "products.tasks.backend.temporal.process_task.activities.start_agent_server._prepare_launch"
+    )
+    mocker.patch("products.tasks.backend.temporal.process_task.activities.start_agent_server.emit_agent_log")
+
+    output = await launch_agent_server(
+        StartAgentServerInput(
+            context=_context(),
+            sandbox_id="sandbox-id",
+            sandbox_url="https://sandbox.example",
+            defer_credentials=True,
+        )
+    )
+
+    assert output.process_launched is False
+    prepare_launch.assert_not_called()
+    sandbox.start_agent_server.assert_not_called()
 
 
 @freeze_time("2026-08-06T12:01:30Z")

@@ -1218,6 +1218,7 @@ class ModalSandbox(SandboxBase):
         event_ingest_url: str | None = None,
         event_ingest_keep_stream_open: bool = False,
         repo_ready_file: str | None = None,
+        deferred_credentials_file: str | None = None,
         rtk_enabled: bool = True,
         posthog_exec_permission_regex: str | None = None,
     ) -> str:
@@ -1246,6 +1247,9 @@ class ModalSandbox(SandboxBase):
         branch_flag = f" --baseBranch {shlex.quote(branch)}" if branch else ""
         domains_flag = f" --allowedDomains {shlex.quote(','.join(allowed_domains))}" if allowed_domains else ""
         repo_ready_flag = f" --repoReadyFile {shlex.quote(repo_ready_file)}" if repo_ready_file else ""
+        deferred_credentials_flag = (
+            f" --deferredCredentialsFile {shlex.quote(deferred_credentials_file)}" if deferred_credentials_file else ""
+        )
         exec_permission_flag = (
             f" --posthogExecPermissionRegex {shlex.quote(posthog_exec_permission_regex)}"
             if posthog_exec_permission_regex
@@ -1261,10 +1265,10 @@ class ModalSandbox(SandboxBase):
             f"{env_prefix}./node_modules/.bin/agent-server --port {AGENT_SERVER_PORT}{repo_flag} "
             f"--taskId {shlex.quote(task_id)} --runId {shlex.quote(run_id)} --mode {shlex.quote(mode)}"
             f"{create_pr_flag}{auto_publish_flag}{branch_flag}{mcp_servers_arg}{relay_mcp_servers_arg}"
-            f"{domains_flag}{repo_ready_flag}{exec_permission_flag}"
+            f"{domains_flag}{repo_ready_flag}{deferred_credentials_flag}{exec_permission_flag}"
         )
 
-        if repo_ready_file:
+        if repo_ready_file and not deferred_credentials_file:
             # Keep the adapter process from inheriting a repository cwd that does not
             # exist yet, even if an overlaid agent-server mishandles its readiness flag.
             wait_for_repo = f"while [ ! -f {shlex.quote(repo_ready_file)} ]; do sleep 0.1; done; exec {server_cmd}"
@@ -1351,6 +1355,7 @@ class ModalSandbox(SandboxBase):
         event_ingest_url: str | None = None,
         event_ingest_keep_stream_open: bool = False,
         repo_ready_file: str | None = None,
+        deferred_credentials_file: str | None = None,
         wait_for_health: bool = True,
         rtk_enabled: bool = True,
     ) -> None:
@@ -1432,6 +1437,7 @@ class ModalSandbox(SandboxBase):
             event_ingest_url=event_ingest_url,
             event_ingest_keep_stream_open=event_ingest_keep_stream_open,
             repo_ready_file=repo_ready_file,
+            deferred_credentials_file=deferred_credentials_file,
             rtk_enabled=rtk_enabled,
             posthog_exec_permission_regex=exec_permission_regex,
         )

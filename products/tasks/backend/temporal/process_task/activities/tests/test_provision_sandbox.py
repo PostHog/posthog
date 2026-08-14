@@ -14,12 +14,14 @@ from products.tasks.backend.logic.services.sandbox import ExecutionResult, Sandb
 from products.tasks.backend.temporal.process_task.activities import provision_sandbox as provision_sandbox_module
 from products.tasks.backend.temporal.process_task.activities.get_task_processing_context import TaskProcessingContext
 from products.tasks.backend.temporal.process_task.activities.provision_sandbox import (
+    AwaitDesktopWorkspacePreparationInput,
     CloneRepositoryInSandboxInput,
     CreateSandboxForRepositoryInput,
     CreateSandboxForRepositoryOutput,
     PrepareSandboxForRepositoryOutput,
     _prepare_posthog_desktop_cloud_task,
     _sandbox_image_kind,
+    await_desktop_workspace_preparation,
     clone_repository_in_sandbox,
     create_sandbox_for_repository,
 )
@@ -45,16 +47,42 @@ def test_prepares_desktop_workspace_for_posthog_dev_stack_task(mocker):
     sandbox.config.image_fallback = None
     sandbox.execute.return_value = ExecutionResult(stdout="", stderr="", exit_code=0)
 
-    _prepare_posthog_desktop_cloud_task(
+    started = _prepare_posthog_desktop_cloud_task(
         _context_for_desktop_bootstrap(),
         sandbox,
         "PostHog/posthog",
     )
 
-    sandbox.execute.assert_called_once_with(
-        "cd /tmp/workspace/repos/posthog/posthog/products/desktop && pnpm bootstrap:cloud-task",
-        timeout_seconds=10 * 60,
+    assert started is True
+    sandbox.execute.assert_called_once()
+    command = sandbox.execute.call_args.args[0]
+    assert command.startswith("touch /tmp/workspace/.agent-credentials /tmp/workspace/.agent-credentials.tmp && ")
+    assert "nohup /bin/sh -c" in command
+    assert "/usr/bin/unshare --mount --pid --net --fork" in command
+    assert "/usr/bin/setpriv --bounding-set=-all" in command
+    assert "/usr/bin/env -i" in command
+    assert "/usr/bin/mount --make-rprivate /" in command
+    assert "/usr/bin/mount -t tmpfs tmpfs /mnt" in command
+    assert (
+        "mount --bind /tmp/workspace/repos/posthog/posthog/products/desktop /mnt/posthog-desktop-workspace" in command
     )
+    assert "/usr/bin/mount -t tmpfs tmpfs /tmp" in command
+    assert (
+        "mount --bind /mnt/posthog-desktop-workspace /tmp/workspace/repos/posthog/posthog/products/desktop" in command
+    )
+    assert "/usr/bin/findmnt -rn -o TARGET" in command
+    assert '/usr/bin/mount -o remount,bind,ro "$target"' in command
+    assert 'case "$target" in /tmp|/tmp/*|/mnt|/mnt/*)' in command
+    assert "/tmp/desktop-workspace-bootstrap/scratch" in command
+    assert "mount --bind /dev/null /tmp/workspace/.agent-credentials" not in command
+    assert "/run/systemd/private /run/dbus/system_bus_socket /var/run/docker.sock" in command
+    assert "mkdir /tmp/desktop-workspace-bootstrap" in command
+    assert "pnpm fetch" not in command
+    assert "PNPM_CONFIG_OFFLINE=true" in command
+    assert "pnpm bootstrap:cloud-task" in command
+    assert "/tmp/desktop-workspace-bootstrap/status" in command
+    assert command.index("/usr/bin/unshare") < command.index("printf")
+    assert sandbox.execute.call_args.kwargs == {"timeout_seconds": 30}
 
 
 @pytest.mark.parametrize(
@@ -72,16 +100,17 @@ def test_skips_desktop_workspace_preparation_for_other_images_repositories_and_f
     sandbox = mocker.Mock()
     sandbox.config.image_fallback = image_fallback
 
-    _prepare_posthog_desktop_cloud_task(
+    started = _prepare_posthog_desktop_cloud_task(
         _context_for_desktop_bootstrap(image_name=image_name),
         sandbox,
         repository,
     )
 
+    assert started is False
     sandbox.execute.assert_not_called()
 
 
-def test_desktop_workspace_preparation_failure_is_non_retryable(mocker):
+def test_desktop_workspace_preparation_launch_failure_is_non_retryable(mocker):
     from temporalio.exceptions import ApplicationError
 
     sandbox = mocker.Mock()
@@ -93,6 +122,57 @@ def test_desktop_workspace_preparation_failure_is_non_retryable(mocker):
             _context_for_desktop_bootstrap(),
             sandbox,
             "posthog/posthog",
+        )
+
+    assert error.value.non_retryable is True
+    assert "build failed" in str(error.value)
+
+
+def test_awaits_desktop_workspace_preparation(mocker, activity_environment):
+    sandbox = mocker.Mock()
+    sandbox.execute.side_effect = [
+        ExecutionResult(stdout="pending\n", stderr="", exit_code=0),
+        ExecutionResult(stdout="0\n", stderr="", exit_code=0),
+    ]
+    mocker.patch.object(Sandbox, "get_by_id", return_value=sandbox)
+    mocker.patch.object(provision_sandbox_module, "emit_agent_log")
+    heartbeat = mocker.patch.object(provision_sandbox_module.activity, "heartbeat")
+    sleep = mocker.patch.object(provision_sandbox_module.time, "sleep")
+
+    async_to_sync(activity_environment.run)(
+        await_desktop_workspace_preparation,
+        AwaitDesktopWorkspacePreparationInput(
+            context=_context_for_desktop_bootstrap(),
+            sandbox_id="sandbox-id",
+        ),
+    )
+
+    command = sandbox.execute.call_args_list[0].args[0]
+    assert "if [ -f /tmp/desktop-workspace-bootstrap/status ]" in command
+    assert "echo pending" in command
+    assert sandbox.execute.call_args_list[0].kwargs == {"timeout_seconds": 5}
+    heartbeat.assert_called_once_with()
+    sleep.assert_called_once_with(provision_sandbox_module._DESKTOP_BOOTSTRAP_POLL_INTERVAL_SECONDS)
+
+
+def test_desktop_workspace_preparation_failure_includes_background_log(mocker, activity_environment):
+    from temporalio.exceptions import ApplicationError
+
+    sandbox = mocker.Mock()
+    sandbox.execute.side_effect = [
+        ExecutionResult(stdout="", stderr="bootstrap failed", exit_code=1),
+        ExecutionResult(stdout="build failed", stderr="", exit_code=0),
+    ]
+    mocker.patch.object(Sandbox, "get_by_id", return_value=sandbox)
+    mocker.patch.object(provision_sandbox_module, "emit_agent_log")
+
+    with pytest.raises(ApplicationError) as error:
+        async_to_sync(activity_environment.run)(
+            await_desktop_workspace_preparation,
+            AwaitDesktopWorkspacePreparationInput(
+                context=_context_for_desktop_bootstrap(),
+                sandbox_id="sandbox-id",
+            ),
         )
 
     assert error.value.non_retryable is True

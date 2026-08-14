@@ -15,6 +15,8 @@ export interface AgentServerConfig {
   agentStateDir?: string;
   repositoryPath?: string;
   repoReadyFile?: string;
+  /** One-shot root-owned JSON file populated after untrusted repository setup completes. */
+  deferredCredentialsFile?: string;
   apiUrl: string;
   apiKey: string;
   projectId: number;

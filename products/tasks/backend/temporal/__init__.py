@@ -14,7 +14,9 @@ from .create_snapshot.activities import (
 from .create_snapshot.workflow import CreateSnapshotForRepositoryWorkflow
 from .loops import RunLoopWorkflow, run_loop_trigger_activity
 from .process_task.activities import (
+    activate_agent_server_credentials,
     await_agent_server_ready,
+    await_desktop_workspace_preparation,
     checkout_branch_in_sandbox,
     cleanup_sandbox,
     clone_repository_in_sandbox,
@@ -91,9 +93,11 @@ ACTIVITIES = [
     send_permission_denial_guidance,
     send_permission_response_to_sandbox,
     send_followup_to_sandbox,
+    activate_agent_server_credentials,
     start_agent_server,
     launch_agent_server,
     await_agent_server_ready,
+    await_desktop_workspace_preparation,
     mark_repo_ready,
     read_sandbox_logs,
     cleanup_sandbox,

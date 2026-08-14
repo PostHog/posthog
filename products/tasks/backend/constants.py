@@ -149,6 +149,7 @@ TASK_SESSION_UPLOAD_FORM_OVERHEAD_BYTES = 64 * 1024
 MODAL_DIRECTORY_RESUME_SNAPSHOTS_FEATURE_FLAG = "tasks-modal-directory-resume-snapshots"
 STREAM_VIA_PROXY_FEATURE_FLAG = "tasks-stream-via-proxy"
 OVERLAP_CLONE_BOOT_FEATURE_FLAG = "tasks-overlap-clone-boot"
+PARALLEL_DESKTOP_PREP_JOB_VM_FEATURE_FLAG = "task-parallel-desktop-prep-job-vm"
 # Kill switch: rtk command-output compression is on by default in cloud sandboxes;
 # enabling this flag disables it fleet-wide — over any per-run override — without
 # an image rebuild.

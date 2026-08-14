@@ -31,6 +31,7 @@ import { PiRuntime } from "../pi/runtime";
 import { PostHogAPIClient } from "../posthog-api";
 import { resolveLlmGatewayUrl } from "../utils/gateway";
 import { Logger } from "../utils/logger";
+import { consumeDeferredCredentials } from "./deferred-credentials";
 import { TaskRunEventStreamSender } from "./event-stream-sender";
 import { type JwtPayload, JwtValidationError, validateJwt } from "./jwt";
 import { jsonRpcRequestSchema } from "./schemas";
@@ -112,7 +113,7 @@ export class PiAgentServer {
     prefix: "[PiAgentServer]",
   });
   private readonly posthogAPI: PostHogAPIClient;
-  private readonly eventStreamSender: TaskRunEventStreamSender | null;
+  private eventStreamSender: TaskRunEventStreamSender | null = null;
   private server: ServerType | null = null;
   private session: PiCloudSession | null = null;
   private initializationPromise: Promise<void> | null = null;
@@ -141,20 +142,25 @@ export class PiAgentServer {
       getApiKey: () => config.apiKey,
       userAgent: `posthog/pi-cloud`,
     });
-    this.eventStreamSender = config.eventIngestToken
-      ? new TaskRunEventStreamSender({
-          apiUrl: config.apiUrl,
-          eventIngestBaseUrl: config.eventIngestBaseUrl,
-          keepProxyStreamOpen: config.eventIngestKeepStreamOpen,
-          projectId: config.projectId,
-          taskId: config.taskId,
-          runId: config.runId,
-          token: config.eventIngestToken,
-          logger: this.logger.child("EventIngest"),
-          streamWindowMs: config.eventIngestStreamWindowMs,
-        })
-      : null;
+    this.configureEventStreamSender();
     this.app = this.createApp();
+  }
+
+  private configureEventStreamSender(): void {
+    const config = this.config;
+    if (config.eventIngestToken && !this.eventStreamSender) {
+      this.eventStreamSender = new TaskRunEventStreamSender({
+        apiUrl: config.apiUrl,
+        eventIngestBaseUrl: config.eventIngestBaseUrl,
+        keepProxyStreamOpen: config.eventIngestKeepStreamOpen,
+        projectId: config.projectId,
+        taskId: config.taskId,
+        runId: config.runId,
+        token: config.eventIngestToken,
+        logger: this.logger.child("EventIngest"),
+        streamWindowMs: config.eventIngestStreamWindowMs,
+      });
+    }
   }
 
   private createRunTelemetry(
@@ -1034,15 +1040,37 @@ export class PiAgentServer {
     if (!path) {
       return;
     }
-    const deadline = Date.now() + 10 * 60_000;
+    // Match AgentServer.waitForRepoReady. The Desktop bootstrap barrier can stay closed for the
+    // full 12-minute activity budget plus credential activation and mark-repo-ready, so a 10-minute
+    // deadline here expired before a slow preparation finished and the deferred credentials loaded.
+    const REPO_READY_TIMEOUT_MS = 15 * 60_000;
+    const deadline = Date.now() + REPO_READY_TIMEOUT_MS;
     while (Date.now() < deadline) {
+      let repoReady = false;
       try {
         await access(path);
-        return;
+        repoReady = true;
       } catch {
-        await new Promise((resolve) => setTimeout(resolve, 250));
+        // The repository barrier is not ready yet.
       }
+      if (repoReady) {
+        // Do not misclassify missing or invalid credentials as a repository timeout.
+        await this.loadDeferredCredentials();
+        return;
+      }
+      await new Promise((resolve) => setTimeout(resolve, 250));
     }
     throw new Error(`Repository readiness file was not created: ${path}`);
+  }
+
+  private async loadDeferredCredentials(): Promise<void> {
+    const credentials = await consumeDeferredCredentials(
+      this.config.deferredCredentialsFile,
+    );
+    if (!credentials) return;
+    this.config.mcpServers = credentials.mcpServers;
+    this.config.eventIngestToken = credentials.eventIngestToken;
+    this.config.taskRunSessionToken = credentials.taskRunSessionToken;
+    this.configureEventStreamSender();
   }
 }

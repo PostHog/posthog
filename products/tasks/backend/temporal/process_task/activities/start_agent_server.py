@@ -1,3 +1,4 @@
+import json
 import shlex
 import threading
 from dataclasses import dataclass
@@ -17,7 +18,13 @@ from posthog.temporal.oauth import PosthogMcpScopes
 
 from products.tasks.backend.exceptions import OAuthTokenError, SandboxExecutionError, SandboxMissingRepositoryError
 from products.tasks.backend.logic.services.connection_token import create_sandbox_event_ingest_token
-from products.tasks.backend.logic.services.sandbox import REPO_READY_FILE, Sandbox, SandboxBase, sandbox_repo_path
+from products.tasks.backend.logic.services.sandbox import (
+    DEFERRED_AGENT_CREDENTIALS_FILE,
+    REPO_READY_FILE,
+    Sandbox,
+    SandboxBase,
+    sandbox_repo_path,
+)
 from products.tasks.backend.models import Task, TaskRun
 from products.tasks.backend.temporal.metrics import (
     StepTimer,
@@ -144,6 +151,7 @@ class StartAgentServerInput:
     sandbox_connect_token: str | None = None
     posthog_mcp_scopes: PosthogMcpScopes = "read_only"
     defer_for_clone: bool = False
+    defer_credentials: bool = False
     # Which boot architecture produced this run ("classic" serial launch vs "overlap"
     # launch-before-clone); labels the latency metrics so cohorts stay comparable.
     boot_path: str = "classic"
@@ -172,6 +180,15 @@ class StartAgentServerOutput:
     ready_wait_ms: int | None = None
     session_init_ms: int | None = None
     boot_total_ms: int | None = None
+    process_launched: bool = True
+    credentials_deferred: bool = False
+
+
+@dataclass(frozen=True)
+class ActivateAgentServerCredentialsInput:
+    context: TaskProcessingContext
+    sandbox_id: str
+    posthog_mcp_scopes: PosthogMcpScopes = "read_only"
 
 
 @dataclass
@@ -341,6 +358,7 @@ def _invoke_start_agent_server(
     *,
     repo_ready_file: str | None,
     wait_for_health: bool,
+    deferred_credentials_file: str | None = None,
 ) -> None:
     try:
         sandbox.start_agent_server(
@@ -360,14 +378,15 @@ def _invoke_start_agent_server(
             context_window=ctx.context_window,
             fast_mode=ctx.fast_mode,
             initial_permission_mode=ctx.initial_permission_mode,
-            mcp_configs=params.mcp_configs or None,
+            mcp_configs=None if deferred_credentials_file else (params.mcp_configs or None),
             relayed_mcp_servers=params.relayed_mcp_servers or None,
             allowed_domains=params.agentsh_domains,
-            event_ingest_token=params.event_ingest_token,
-            task_run_session_token=params.task_run_session_token,
+            event_ingest_token=None if deferred_credentials_file else params.event_ingest_token,
+            task_run_session_token=None if deferred_credentials_file else params.task_run_session_token,
             event_ingest_url=params.event_ingest_url,
             event_ingest_keep_stream_open=params.event_ingest_keep_stream_open,
             repo_ready_file=repo_ready_file,
+            deferred_credentials_file=deferred_credentials_file,
             wait_for_health=wait_for_health,
             rtk_enabled=ctx.rtk_enabled,
         )
@@ -510,6 +529,13 @@ def launch_agent_server(input: StartAgentServerInput) -> StartAgentServerOutput:
         emit_agent_log(ctx.run_id, "debug", "Launching agent server (deferred readiness)")
 
         sandbox = Sandbox.get_by_id(input.sandbox_id)
+        if input.defer_credentials and not sandbox.agent_server_supports_deferred_credentials():
+            emit_agent_log(ctx.run_id, "debug", "Agent image lacks deferred credentials; using safe serial launch")
+            return StartAgentServerOutput(
+                sandbox_url=input.sandbox_url,
+                connect_token=input.sandbox_connect_token,
+                process_launched=False,
+            )
         params = _prepare_launch(ctx, input.posthog_mcp_scopes, input.sandbox_id)
 
         repo_ready_file = REPO_READY_FILE if input.defer_for_clone else None
@@ -517,13 +543,57 @@ def launch_agent_server(input: StartAgentServerInput) -> StartAgentServerOutput:
         with StepTimer(
             "agent_server_launch", boot_path=input.boot_path, origin_product=ctx.origin_product, runtime=runtime
         ) as launch_timer:
-            _invoke_start_agent_server(sandbox, ctx, params, repo_ready_file=repo_ready_file, wait_for_health=False)
+            _invoke_start_agent_server(
+                sandbox,
+                ctx,
+                params,
+                repo_ready_file=repo_ready_file,
+                wait_for_health=False,
+                deferred_credentials_file=DEFERRED_AGENT_CREDENTIALS_FILE if input.defer_credentials else None,
+            )
 
         activity.logger.info(f"Agent server process launched for task {ctx.task_id}")
         return StartAgentServerOutput(
             sandbox_url=input.sandbox_url,
             connect_token=input.sandbox_connect_token,
             launch_ms=launch_timer.elapsed_ms,
+            credentials_deferred=input.defer_credentials,
+        )
+
+
+@activity.defn
+@asyncify
+def activate_agent_server_credentials(input: ActivateAgentServerCredentialsInput) -> None:
+    """Publish credentials only after untrusted repository setup has stopped."""
+    ctx = input.context
+    sandbox = Sandbox.get_by_id(input.sandbox_id)
+    params = _prepare_launch(ctx, input.posthog_mcp_scopes, input.sandbox_id)
+    credential_payload: dict[str, object] = {
+        "mcpServers": [config.to_dict() for config in params.mcp_configs],
+    }
+    if params.event_ingest_token:
+        credential_payload["eventIngestToken"] = params.event_ingest_token
+    if params.task_run_session_token:
+        credential_payload["taskRunSessionToken"] = params.task_run_session_token
+    payload = json.dumps(credential_payload, separators=(",", ":")).encode()
+    temporary_path = f"{DEFERRED_AGENT_CREDENTIALS_FILE}.tmp"
+    write_result = sandbox.write_file(temporary_path, payload)
+    if write_result.exit_code != 0:
+        raise SandboxExecutionError(
+            "Failed to write deferred agent credentials",
+            {"task_id": ctx.task_id, "sandbox_id": sandbox.id, "error": write_result.stderr},
+            cause=RuntimeError(write_result.stderr or "credential file write failed"),
+        )
+    result = sandbox.execute(
+        f"chmod 600 {shlex.quote(temporary_path)} && mv {shlex.quote(temporary_path)} "
+        f"{shlex.quote(DEFERRED_AGENT_CREDENTIALS_FILE)}",
+        timeout_seconds=10,
+    )
+    if result.exit_code != 0:
+        raise SandboxExecutionError(
+            "Failed to activate deferred agent credentials",
+            {"task_id": ctx.task_id, "sandbox_id": sandbox.id, "error": result.stderr},
+            cause=RuntimeError(result.stderr or "credential activation command failed"),
         )
 
 

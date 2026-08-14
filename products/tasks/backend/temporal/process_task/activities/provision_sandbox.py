@@ -1,3 +1,4 @@
+import time
 import shlex
 import asyncio
 import logging
@@ -34,6 +35,7 @@ from products.tasks.backend.logic.services.connection_token import (
     get_sandbox_jwt_public_key,
 )
 from products.tasks.backend.logic.services.sandbox import (
+    DEFERRED_AGENT_CREDENTIALS_FILE,
     ExecutionResult,
     Sandbox,
     SandboxBase,
@@ -82,6 +84,10 @@ NETWORK_RESTRICTED_AGENT_ENV = {
     "DISABLE_TELEMETRY": "1",
     "DISABLE_ERROR_REPORTING": "1",
 }
+DESKTOP_BOOTSTRAP_STATE_DIR = "/tmp/desktop-workspace-bootstrap"
+# Poll the detached bootstrap this often. Kept well below the activity's 30s heartbeat timeout so a
+# heartbeat still lands every pass, while avoiding a fresh sandbox exec every single second.
+_DESKTOP_BOOTSTRAP_POLL_INTERVAL_SECONDS = 5
 
 
 @dataclass
@@ -128,11 +134,13 @@ class CreateSandboxForRepositoryOutput:
 @dataclass
 class CloneRepositoryInSandboxOutput:
     clone_ms: int | None = None
+    desktop_preparation_started: bool = False
 
 
 @dataclass
 class CheckoutBranchInSandboxOutput:
     checkout_ms: int | None = None
+    desktop_preparation_started: bool = False
 
 
 @dataclass
@@ -142,6 +150,7 @@ class CloneRepositoryInSandboxInput:
     repository: str
     github_token: str
     shallow_clone: bool
+    background_desktop_preparation: bool = False
 
 
 @dataclass
@@ -153,35 +162,134 @@ class CheckoutBranchInSandboxInput:
     github_token: str
     shallow_clone: bool
     used_snapshot: bool
+    background_desktop_preparation: bool = False
 
 
-def _prepare_posthog_desktop_cloud_task(ctx: TaskProcessingContext, sandbox: SandboxBase, repository: str) -> None:
-    """Build Desktop workspace exports from the task's checked-out source.
+@dataclass(frozen=True)
+class AwaitDesktopWorkspacePreparationInput:
+    context: TaskProcessingContext
+    sandbox_id: str
+
+
+def _prepare_posthog_desktop_cloud_task(
+    ctx: TaskProcessingContext, sandbox: SandboxBase, repository: str, *, background: bool = True
+) -> bool:
+    """Start building Desktop workspace exports from the task's checked-out source.
 
     The dev-stack image warms pnpm's content-addressed store but deliberately does
     not retain checkout-specific node_modules or dist directories. Prepare only the
     internal PostHog checkout that uses that image, after its final branch is in place.
+    The detached process lets the remaining sandbox setup continue while pnpm links
+    and builds the Desktop workspace dependencies.
     """
     if (
         ctx.custom_image_name != DEV_STACK_IMAGE_NAME
         or repository.casefold() != "posthog/posthog"
         or sandbox.config.image_fallback
     ):
-        return
+        return False
 
     repo_path = f"{sandbox_repo_path(repository)}/products/desktop"
-    emit_agent_log(ctx.run_id, "debug", "Preparing Desktop workspace dependencies")
+    if not background:
+        emit_agent_log(ctx.run_id, "debug", "Preparing Desktop workspace dependencies")
+        result = sandbox.execute(
+            f"cd {shlex.quote(repo_path)} && pnpm bootstrap:cloud-task",
+            timeout_seconds=10 * 60,
+        )
+        if result.exit_code != 0:
+            output = (result.stderr or result.stdout)[-2_000:]
+            raise ApplicationError(
+                f"Failed to prepare Desktop workspace: {output}",
+                type="DesktopCloudTaskBootstrapError",
+                non_retryable=True,
+            )
+        return False
+
+    emit_agent_log(ctx.run_id, "debug", "Preparing Desktop workspace dependencies in the background")
+    credentials_tmp = f"{DEFERRED_AGENT_CREDENTIALS_FILE}.tmp"
+    scratch_dir = f"{DESKTOP_BOOTSTRAP_STATE_DIR}/scratch"
+    private_workspace = "/mnt/posthog-desktop-workspace"
+    isolated_bootstrap = (
+        "/usr/bin/mount --make-rprivate / && "
+        "/usr/bin/mount -t tmpfs tmpfs /mnt && "
+        f"mkdir -p {shlex.quote(private_workspace)} && "
+        f"/usr/bin/mount --bind {shlex.quote(repo_path)} {shlex.quote(private_workspace)} && "
+        "/usr/bin/mount -t tmpfs tmpfs /tmp && "
+        f"mkdir -p {shlex.quote(repo_path)} {shlex.quote(scratch_dir)} && "
+        f"/usr/bin/mount --bind {shlex.quote(private_workspace)} {shlex.quote(repo_path)} && "
+        "for target in $(/usr/bin/findmnt -rn -o TARGET | /usr/bin/sort -r); do "
+        'case "$target" in /tmp|/tmp/*|/mnt|/mnt/*) ;; '
+        '*) /usr/bin/mount -o remount,bind,ro "$target" || exit 1 ;; esac; done && '
+        "/usr/bin/mount -t proc proc /proc && "
+        "for socket in /run/systemd/private /run/dbus/system_bus_socket /var/run/docker.sock; do "
+        'if [ -e "$socket" ]; then /usr/bin/mount --bind /dev/null "$socket" || exit 1; fi; '
+        "done && "
+        f"cd {shlex.quote(repo_path)} && "
+        "/usr/bin/setpriv --bounding-set=-all --inh-caps=-all --ambient-caps=-all --no-new-privs "
+        f"/usr/bin/env -i HOME=/root TMPDIR={shlex.quote(scratch_dir)} "
+        "XDG_CACHE_HOME="
+        f"{shlex.quote(scratch_dir)} PATH=/usr/local/bin:/usr/bin:/bin PNPM_CONFIG_OFFLINE=true "
+        "pnpm bootstrap:cloud-task"
+    )
+    bootstrap = (
+        f"/usr/bin/unshare --mount --pid --net --fork /bin/sh -c {shlex.quote(isolated_bootstrap)} "
+        f"> {DESKTOP_BOOTSTRAP_STATE_DIR}/log 2>&1; "
+        f"printf '%s\\n' $? > {DESKTOP_BOOTSTRAP_STATE_DIR}/status"
+    )
     result = sandbox.execute(
-        f"cd {shlex.quote(repo_path)} && pnpm bootstrap:cloud-task",
-        timeout_seconds=10 * 60,
+        f"touch {shlex.quote(DEFERRED_AGENT_CREDENTIALS_FILE)} {shlex.quote(credentials_tmp)} && "
+        f"chmod 000 {shlex.quote(DEFERRED_AGENT_CREDENTIALS_FILE)} {shlex.quote(credentials_tmp)} && "
+        f"cd {shlex.quote(repo_path)} && "
+        f"if mkdir {DESKTOP_BOOTSTRAP_STATE_DIR} 2>/dev/null; then "
+        f"nohup /bin/sh -c {shlex.quote(bootstrap)} "
+        "</dev/null >/dev/null 2>&1 & "
+        f"echo $! > {DESKTOP_BOOTSTRAP_STATE_DIR}/pid; "
+        "fi",
+        timeout_seconds=30,
     )
     if result.exit_code != 0:
         output = (result.stderr or result.stdout)[-2_000:]
+        raise ApplicationError(
+            f"Failed to start Desktop workspace preparation: {output}",
+            type="DesktopCloudTaskBootstrapError",
+            non_retryable=True,
+        )
+    return True
+
+
+@activity.defn
+@asyncify
+def await_desktop_workspace_preparation(input: AwaitDesktopWorkspacePreparationInput) -> None:
+    """Wait for the detached Desktop bootstrap before releasing the agent session."""
+    ctx = input.context
+    sandbox = Sandbox.get_by_id(input.sandbox_id)
+    emit_agent_log(ctx.run_id, "debug", "Waiting for Desktop workspace dependencies to finish")
+    while True:
+        result = sandbox.execute(
+            f"if [ -f {DESKTOP_BOOTSTRAP_STATE_DIR}/status ]; then "
+            f"cat {DESKTOP_BOOTSTRAP_STATE_DIR}/status; "
+            f"elif [ -f {DESKTOP_BOOTSTRAP_STATE_DIR}/pid ] && "
+            f'kill -0 "$(cat {DESKTOP_BOOTSTRAP_STATE_DIR}/pid)" 2>/dev/null; then '
+            "echo pending; "
+            "else echo missing; fi",
+            timeout_seconds=5,
+        )
+        status = result.stdout.strip()
+        if result.exit_code != 0 or status != "pending":
+            break
+        activity.heartbeat()
+        time.sleep(_DESKTOP_BOOTSTRAP_POLL_INTERVAL_SECONDS)
+    if result.exit_code != 0 or status != "0":
+        log_result = sandbox.execute(
+            f"tail -c 2000 {DESKTOP_BOOTSTRAP_STATE_DIR}/log 2>/dev/null || true", timeout_seconds=5
+        )
+        output = (log_result.stdout or result.stderr or result.stdout)[-2_000:]
         raise ApplicationError(
             f"Failed to prepare Desktop workspace: {output}",
             type="DesktopCloudTaskBootstrapError",
             non_retryable=True,
         )
+    emit_agent_log(ctx.run_id, "debug", "Desktop workspace dependencies are ready")
 
 
 @dataclass
@@ -861,10 +969,16 @@ def clone_repository_in_sandbox(input: CloneRepositoryInSandboxInput) -> CloneRe
         # activity. Resumes clone that branch directly, and multi-repo runs do not run
         # the checkout activity, so prepare them here once their final source exists.
         will_checkout_later = len(ctx.repositories) == 1 and bool(ctx.branch) and not is_resume
+        desktop_preparation_started = False
         if not will_checkout_later:
-            _prepare_posthog_desktop_cloud_task(ctx, sandbox, input.repository)
+            desktop_preparation_started = _prepare_posthog_desktop_cloud_task(
+                ctx, sandbox, input.repository, background=input.background_desktop_preparation
+            )
 
-        return CloneRepositoryInSandboxOutput(clone_ms=clone_timer.elapsed_ms)
+        return CloneRepositoryInSandboxOutput(
+            clone_ms=clone_timer.elapsed_ms,
+            desktop_preparation_started=desktop_preparation_started,
+        )
 
 
 def _is_missing_remote_branch_clone_error(result: ExecutionResult) -> bool:
@@ -949,9 +1063,14 @@ def checkout_branch_in_sandbox(input: CheckoutBranchInSandboxInput) -> CheckoutB
             logger.warning("Branch checkout failed", extra={"branch": input.branch, "stderr": result.stderr})
             raise RuntimeError(f"Failed to checkout branch {input.branch}")
 
-        _prepare_posthog_desktop_cloud_task(ctx, sandbox, input.repository)
+        desktop_preparation_started = _prepare_posthog_desktop_cloud_task(
+            ctx, sandbox, input.repository, background=input.background_desktop_preparation
+        )
 
-        return CheckoutBranchInSandboxOutput(checkout_ms=checkout_timer.elapsed_ms)
+        return CheckoutBranchInSandboxOutput(
+            checkout_ms=checkout_timer.elapsed_ms,
+            desktop_preparation_started=desktop_preparation_started,
+        )
 
 
 @activity.defn

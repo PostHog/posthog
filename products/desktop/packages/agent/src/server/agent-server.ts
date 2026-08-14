@@ -106,6 +106,7 @@ import {
   normalizeCloudPromptContent,
   promptBlocksToText,
 } from "./cloud-prompt";
+import { consumeDeferredCredentials } from "./deferred-credentials";
 import { TaskRunEventStreamSender } from "./event-stream-sender";
 import { type JwtPayload, JwtValidationError, validateJwt } from "./jwt";
 import { type McpRelayResponse, McpRelayServer } from "./mcp-relay-server";
@@ -561,7 +562,13 @@ export class AgentServer {
       getApiKey: () => config.apiKey,
       userAgent: `posthog/cloud.hog.dev; version: ${config.version ?? packageJson.version}`,
     });
-    if (config.eventIngestToken) {
+    this.configureEventStreamSender();
+    this.app = this.createApp();
+  }
+
+  private configureEventStreamSender(): void {
+    const config = this.config;
+    if (config.eventIngestToken && !this.eventStreamSender) {
       this.eventStreamSender = new TaskRunEventStreamSender({
         apiUrl: config.apiUrl,
         eventIngestBaseUrl: config.eventIngestBaseUrl,
@@ -574,7 +581,6 @@ export class AgentServer {
         streamWindowMs: config.eventIngestStreamWindowMs,
       });
     }
-    this.app = this.createApp();
   }
 
   private getRuntimeAdapter(): Adapter {
@@ -3340,24 +3346,25 @@ export class AgentServer {
   private async waitForRepoReady(): Promise<void> {
     const readyFile = this.config.repoReadyFile;
     if (!readyFile) {
+      if (this.config.deferredCredentialsFile) {
+        throw new Error(
+          "Deferred credentials require a repository-ready barrier",
+        );
+      }
       this.barrierReleasedAtMs = Date.now();
       return;
     }
 
-    const REPO_READY_TIMEOUT_MS = 5 * 60_000;
+    const REPO_READY_TIMEOUT_MS = 15 * 60_000;
     const POLL_MS = 100;
     const startedAt = Date.now();
     let loggedUnexpectedError = false;
 
     for (;;) {
+      let repoReady = false;
       try {
         await access(readyFile);
-        this.barrierReleasedAtMs = Date.now();
-        this.logger.debug("Repo-ready barrier released", {
-          readyFile,
-          waitedMs: Date.now() - startedAt,
-        });
-        return;
+        repoReady = true;
       } catch (err) {
         const code = (err as NodeJS.ErrnoException)?.code;
         if (code !== "ENOENT" && !loggedUnexpectedError) {
@@ -3369,7 +3376,23 @@ export class AgentServer {
           });
         }
       }
+      if (repoReady) {
+        // Credential errors are not repository-readiness errors. Fail session
+        // initialization immediately instead of silently starting without auth.
+        await this.loadDeferredCredentials();
+        this.barrierReleasedAtMs = Date.now();
+        this.logger.debug("Repo-ready barrier released", {
+          readyFile,
+          waitedMs: Date.now() - startedAt,
+        });
+        return;
+      }
       if (Date.now() - startedAt > REPO_READY_TIMEOUT_MS) {
+        if (this.config.deferredCredentialsFile) {
+          throw new Error(
+            "Repository-ready barrier timed out before deferred credentials were activated",
+          );
+        }
         this.barrierReleasedAtMs = Date.now();
         this.logger.warn("Repo-ready barrier timed out; proceeding", {
           readyFile,
@@ -3379,6 +3402,17 @@ export class AgentServer {
       }
       await new Promise((resolve) => setTimeout(resolve, POLL_MS));
     }
+  }
+
+  private async loadDeferredCredentials(): Promise<void> {
+    const credentials = await consumeDeferredCredentials(
+      this.config.deferredCredentialsFile,
+    );
+    if (!credentials) return;
+    this.config.mcpServers = credentials.mcpServers;
+    this.config.eventIngestToken = credentials.eventIngestToken;
+    this.config.taskRunSessionToken = credentials.taskRunSessionToken;
+    this.configureEventStreamSender();
   }
 
   private async autoInitializeSession(): Promise<void> {

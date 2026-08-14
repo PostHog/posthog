@@ -12,6 +12,7 @@ from .get_sandbox_for_repository import (
 from .get_task_processing_context import TaskProcessingContext, get_task_processing_context
 from .post_slack_update import PostSlackUpdateInput, post_slack_update
 from .provision_sandbox import (
+    AwaitDesktopWorkspacePreparationInput,
     CheckoutBranchInSandboxInput,
     CheckoutBranchInSandboxOutput,
     CloneRepositoryInSandboxInput,
@@ -22,6 +23,7 @@ from .provision_sandbox import (
     InvalidateResumeSnapshotInput,
     PrepareSandboxForRepositoryInput,
     PrepareSandboxForRepositoryOutput,
+    await_desktop_workspace_preparation,
     checkout_branch_in_sandbox,
     clone_repository_in_sandbox,
     create_sandbox_for_repository,
@@ -52,9 +54,11 @@ from .send_permission_response_to_sandbox import (
 )
 from .slack_agent_design_signals import RelayAgentDesignSignalsInput, relay_agent_design_signals
 from .start_agent_server import (
+    ActivateAgentServerCredentialsInput,
     MarkRepoReadyInput,
     StartAgentServerInput,
     StartAgentServerOutput,
+    activate_agent_server_credentials,
     await_agent_server_ready,
     launch_agent_server,
     mark_repo_ready,
@@ -64,7 +68,9 @@ from .track_workflow_event import TrackWorkflowEventInput, track_workflow_event
 from .update_task_run_status import UpdateTaskRunStatusInput, update_task_run_status
 
 __all__ = [
+    "ActivateAgentServerCredentialsInput",
     "CleanupSandboxInput",
+    "AwaitDesktopWorkspacePreparationInput",
     "CompleteRunStreamInput",
     "CreateResumeSnapshotInput",
     "CreateResumeSnapshotOutput",
@@ -129,6 +135,8 @@ __all__ = [
     "start_agent_server",
     "launch_agent_server",
     "await_agent_server_ready",
+    "activate_agent_server_credentials",
+    "await_desktop_workspace_preparation",
     "mark_repo_ready",
     "track_workflow_event",
     "update_task_run_status",

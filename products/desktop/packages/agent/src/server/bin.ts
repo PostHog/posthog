@@ -140,6 +140,10 @@ program
     "--repoReadyFile <path>",
     "Sentinel file; session creation blocks until it exists (set while cloning concurrently)",
   )
+  .option(
+    "--deferredCredentialsFile <path>",
+    "One-shot credential file loaded after the repository readiness barrier",
+  )
   .requiredOption("--taskId <id>", "Task ID")
   .requiredOption("--runId <id>", "Task run ID")
   .option(
@@ -256,6 +260,7 @@ program
       otelTracesUrl: env.POSTHOG_AGENT_OTEL_TRACES_URL,
       repositoryPath: options.repositoryPath,
       repoReadyFile: options.repoReadyFile,
+      deferredCredentialsFile: options.deferredCredentialsFile,
       apiUrl: env.POSTHOG_API_URL,
       apiKey: env.POSTHOG_PERSONAL_API_KEY,
       projectId: env.POSTHOG_PROJECT_ID,

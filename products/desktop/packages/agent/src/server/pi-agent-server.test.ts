@@ -778,4 +778,26 @@ describe("PiAgentServer", () => {
       }),
     );
   });
+
+  it("holds the repository barrier past ten minutes until the ready file appears", async () => {
+    const repositoryPath = await mkdtemp(join(tmpdir(), "pi-agent-barrier-"));
+    const repoReadyFile = join(repositoryPath, "repo-ready");
+    const server = new PiAgentServer(
+      config({ repositoryPath, repoReadyFile }),
+    ) as unknown as { waitForRepoReady(): Promise<void> };
+
+    vi.useFakeTimers();
+    try {
+      const pending = server.waitForRepoReady();
+      // Slow Desktop preparation: still no ready file well past the previous 10-minute deadline.
+      await vi.advanceTimersByTimeAsync(11 * 60_000);
+      await writeFile(repoReadyFile, "");
+      await vi.advanceTimersByTimeAsync(250);
+      // A 10-minute deadline would already have rejected before the file appeared.
+      await expect(pending).resolves.toBeUndefined();
+    } finally {
+      vi.useRealTimers();
+      await rm(repositoryPath, { recursive: true, force: true });
+    }
+  });
 });

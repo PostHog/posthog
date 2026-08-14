@@ -55,6 +55,7 @@ from .activities.get_task_processing_context import (
 )
 from .activities.post_slack_update import PostSlackUpdateInput, post_slack_update
 from .activities.provision_sandbox import (
+    AwaitDesktopWorkspacePreparationInput,
     CheckoutBranchInSandboxInput,
     CloneRepositoryInSandboxInput,
     CloneRepositoryInSandboxOutput,
@@ -64,6 +65,7 @@ from .activities.provision_sandbox import (
     InvalidateResumeSnapshotInput,
     PrepareSandboxForRepositoryInput,
     PrepareSandboxForRepositoryOutput,
+    await_desktop_workspace_preparation,
     checkout_branch_in_sandbox,
     clone_repository_in_sandbox,
     create_sandbox_for_repository,
@@ -95,9 +97,11 @@ from .activities.send_permission_response_to_sandbox import (
 )
 from .activities.slack_agent_design_signals import RelayAgentDesignSignalsInput, relay_agent_design_signals
 from .activities.start_agent_server import (
+    ActivateAgentServerCredentialsInput,
     MarkRepoReadyInput,
     StartAgentServerInput,
     StartAgentServerOutput,
+    activate_agent_server_credentials,
     await_agent_server_ready,
     launch_agent_server,
     mark_repo_ready,
@@ -117,6 +121,7 @@ DEAD_SANDBOX_ERROR_TYPES = ("SandboxNotRunningError", "SandboxNotFoundError")
 MAX_ACCEPTED_MESSAGE_IDS = 500
 _PATCH_ID_CANCEL_SANDBOX_CREATION_ON_COMPLETION = "tasks-cancel-sandbox-creation-on-completion"
 _PATCH_ID_CONTINUE_AFTER_REPOSITORY_CLONE_FAILURE = "tasks-continue-after-repository-clone-failure"
+_PATCH_ID_BACKGROUND_DESKTOP_PREPARATION = "tasks-background-desktop-preparation"
 
 
 class _TaskCompletedDuringSandboxCreation(Exception):
@@ -271,9 +276,9 @@ _PATCH_ID_EXCLUDE_WIZARD_FROM_BOOT_TOTAL = "tasks-exclude-wizard-from-boot-total
 # Preserve that command order on replay while new runs can release it after the primary clone.
 _PATCH_ID_AGENT_READY_AFTER_PRIMARY_CLONE = "tasks-agent-ready-after-primary-clone"
 
-# Desktop preparation links a large workspace and writes compiled package outputs. Give
-# that non-idempotent work one attempt with a budget larger than its inner 10-minute cap.
-_DESKTOP_BOOTSTRAP_ACTIVITY_TIMEOUT = timedelta(minutes=20)
+# Desktop preparation used to have a ten-minute command timeout. Keep a small margin
+# for polling and retries without allowing multiple attempts to multiply that bound.
+_DESKTOP_BOOTSTRAP_ACTIVITY_TIMEOUT = timedelta(minutes=12)
 
 # #60923 dropped the redundant slack post that ran immediately after sandbox
 # provisioning — between `_get_sandbox_for_repository` and the agent-start
@@ -1492,20 +1497,39 @@ class ProcessTaskWorkflow(PostHogWorkflow):
             return self.context.custom_image_name == DEV_STACK_IMAGE_NAME and repository.casefold() == "posthog/posthog"
 
         overlap = bool(self.context.overlap_clone_boot_enabled and will_clone)
+        background_desktop_preparation = workflow.patched(_PATCH_ID_BACKGROUND_DESKTOP_PREPARATION) and (
+            self.context.parallel_desktop_prep_job_vm_enabled is not False
+        )
+        defer_agent_credentials = bool(
+            background_desktop_preparation and any(prepares_desktop(repo) for repo in repositories_to_clone)
+        )
         boot_path = "overlap" if overlap else "classic"
         launch_ms: int | None = None
+        agent_server_launched = False
+        agent_credentials_deferred = False
         if overlap:
             await self._emit_progress("agent", "in_progress", "Starting agent", "setup")
-            launch_output = await self._launch_agent_server(created, defer_for_clone=True, used_snapshot=used_snapshot)
+            launch_output = await self._launch_agent_server(
+                created,
+                defer_for_clone=True,
+                defer_credentials=defer_agent_credentials,
+                used_snapshot=used_snapshot,
+                boot_path=boot_path,
+            )
             launch_ms = launch_output.launch_ms if launch_output else None
+            agent_server_launched = bool(launch_output and launch_output.process_launched)
+            agent_credentials_deferred = bool(launch_output and launch_output.credentials_deferred)
 
         clone_ms: int | None = None
+        desktop_preparation_started_by_clone = False
         failed_repositories: set[str] = set()
         materialized_failed_repositories: set[str] = set()
         repo_ready_released = False
         release_after_primary_clone = bool(
             overlap and len(repositories_to_clone) > 1 and workflow.patched(_PATCH_ID_AGENT_READY_AFTER_PRIMARY_CLONE)
         )
+        if background_desktop_preparation and any(prepares_desktop(repo) for repo in repositories_to_clone):
+            release_after_primary_clone = False
         if will_clone:
             await self._emit_progress("clone", "in_progress", "Cloning repository", "setup")
             continue_after_clone_failure = workflow.patched(_PATCH_ID_CONTINUE_AFTER_REPOSITORY_CLONE_FAILURE)
@@ -1523,6 +1547,7 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                             repository=repository,
                             github_token=prepared.github_token,
                             shallow_clone=prepared.shallow_clone,
+                            background_desktop_preparation=background_desktop_preparation,
                         ),
                         start_to_close_timeout=(
                             _DESKTOP_BOOTSTRAP_ACTIVITY_TIMEOUT if prepares_repository_desktop else timedelta(minutes=5)
@@ -1547,7 +1572,11 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                     clone_failed = False
 
                 is_primary_repository = repository == repositories_to_clone[0]
-                should_release_after_clone = release_after_primary_clone and is_primary_repository
+                should_release_after_clone = (
+                    release_after_primary_clone
+                    and is_primary_repository
+                    and not (background_desktop_preparation and prepares_repository_desktop)
+                )
                 should_materialize_failure = release_after_primary_clone and clone_failed
                 if should_release_after_clone or should_materialize_failure:
                     await self._mark_repo_ready(
@@ -1571,11 +1600,19 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                 repo_ready_released = repo_ready_released or released_after_clone
                 if (duration := getattr(clone_output, "clone_ms", None)) is not None:
                     clone_durations.append(duration)
+                desktop_preparation_started_by_clone = desktop_preparation_started_by_clone or getattr(
+                    clone_output, "desktop_preparation_started", False
+                )
             clone_ms = sum(clone_durations) if clone_durations else None
             if failed_repositories:
                 failed_list = ", ".join(sorted(failed_repositories))
                 remaining_failed_repositories = sorted(failed_repositories - materialized_failed_repositories)
-                should_release_barrier = overlap and not repo_ready_released
+                should_release_barrier = (
+                    overlap
+                    and not repo_ready_released
+                    and not desktop_preparation_started_by_clone
+                    and not agent_credentials_deferred
+                )
                 if remaining_failed_repositories or should_release_barrier:
                     await self._mark_repo_ready(
                         created.sandbox_id,
@@ -1597,6 +1634,7 @@ class ProcessTaskWorkflow(PostHogWorkflow):
         state = self.context.state or {}
         is_resume = bool(state.get("resume_from_run_id") or state.get("handoff_resumed"))
         checkout_ms: int | None = None
+        desktop_preparation_started = False
         if will_checkout and checkout_repository not in failed_repositories and not is_resume:
             assert checkout_repository is not None
             assert prepared.branch is not None
@@ -1614,6 +1652,7 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                     github_token=prepared.github_token,
                     shallow_clone=prepared.shallow_clone,
                     used_snapshot=used_snapshot,
+                    background_desktop_preparation=background_desktop_preparation,
                 ),
                 start_to_close_timeout=(
                     _DESKTOP_BOOTSTRAP_ACTIVITY_TIMEOUT if prepares_repository_desktop else timedelta(minutes=5)
@@ -1622,9 +1661,52 @@ class ProcessTaskWorkflow(PostHogWorkflow):
             )
             # Pre-rollout histories (and mocked tests) recorded a null result here.
             checkout_ms = getattr(checkout_output, "checkout_ms", None)
+            desktop_preparation_started = getattr(checkout_output, "desktop_preparation_started", False)
             await self._emit_progress("checkout", "completed", branch_label_done, "setup")
 
-        if overlap and not repo_ready_released:
+        if will_clone:
+            desktop_preparation_started = desktop_preparation_started or desktop_preparation_started_by_clone
+        if (
+            background_desktop_preparation
+            and desktop_preparation_started
+            and not agent_server_launched
+            and self.context.wizard_config is None
+        ):
+            await self._emit_progress("agent", "in_progress", "Starting agent", "setup")
+            boot_path = "desktop_overlap"
+            launch_output = await self._launch_agent_server(
+                created,
+                defer_for_clone=True,
+                defer_credentials=True,
+                used_snapshot=used_snapshot,
+                boot_path=boot_path,
+            )
+            launch_ms = launch_output.launch_ms if launch_output else None
+            agent_server_launched = bool(launch_output and launch_output.process_launched)
+            agent_credentials_deferred = bool(launch_output and launch_output.credentials_deferred)
+        if background_desktop_preparation and desktop_preparation_started:
+            await workflow.execute_activity(
+                await_desktop_workspace_preparation,
+                AwaitDesktopWorkspacePreparationInput(context=self.context, sandbox_id=created.sandbox_id),
+                start_to_close_timeout=_DESKTOP_BOOTSTRAP_ACTIVITY_TIMEOUT,
+                schedule_to_close_timeout=_DESKTOP_BOOTSTRAP_ACTIVITY_TIMEOUT,
+                heartbeat_timeout=timedelta(seconds=30),
+                retry_policy=RetryPolicy(maximum_attempts=3),
+            )
+
+        if agent_credentials_deferred:
+            await workflow.execute_activity(
+                activate_agent_server_credentials,
+                ActivateAgentServerCredentialsInput(
+                    context=self.context,
+                    sandbox_id=created.sandbox_id,
+                    posthog_mcp_scopes=self._posthog_mcp_scopes,
+                ),
+                start_to_close_timeout=timedelta(minutes=2),
+                retry_policy=RetryPolicy(maximum_attempts=3),
+            )
+
+        if agent_server_launched and not repo_ready_released:
             await self._mark_repo_ready(created.sandbox_id)
 
         return GetSandboxForRepositoryOutput(
@@ -1633,7 +1715,7 @@ class ProcessTaskWorkflow(PostHogWorkflow):
             connect_token=created.connect_token,
             used_snapshot=used_snapshot,
             should_create_snapshot=not used_snapshot,
-            agent_server_launched=overlap,
+            agent_server_launched=agent_server_launched,
             boot_path=boot_path,
             image_source=prepared.image_source,
             create_ms=created.create_ms,
@@ -1782,7 +1864,13 @@ class ProcessTaskWorkflow(PostHogWorkflow):
         )
 
     async def _launch_agent_server(
-        self, created: CreateSandboxForRepositoryOutput, *, defer_for_clone: bool, used_snapshot: bool | None = None
+        self,
+        created: CreateSandboxForRepositoryOutput,
+        *,
+        defer_for_clone: bool,
+        defer_credentials: bool = False,
+        used_snapshot: bool | None = None,
+        boot_path: str,
     ) -> StartAgentServerOutput:
         return await workflow.execute_activity(
             launch_agent_server,
@@ -1793,7 +1881,8 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                 sandbox_connect_token=created.connect_token,
                 posthog_mcp_scopes=self._posthog_mcp_scopes,
                 defer_for_clone=defer_for_clone,
-                boot_path="overlap",
+                defer_credentials=defer_credentials,
+                boot_path=boot_path,
                 used_snapshot=used_snapshot,
             ),
             start_to_close_timeout=timedelta(minutes=5),

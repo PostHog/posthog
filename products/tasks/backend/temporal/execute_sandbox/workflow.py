@@ -64,11 +64,13 @@ from products.tasks.backend.temporal.process_task.activities.get_task_processing
     get_task_processing_context,
 )
 from products.tasks.backend.temporal.process_task.activities.provision_sandbox import (
+    AwaitDesktopWorkspacePreparationInput,
     CheckoutBranchInSandboxInput,
     CloneRepositoryInSandboxInput,
     CreateSandboxForRepositoryInput,
     InjectFreshTokensOnResumeInput,
     PrepareSandboxForRepositoryInput,
+    await_desktop_workspace_preparation,
     checkout_branch_in_sandbox,
     clone_repository_in_sandbox,
     create_sandbox_for_repository,
@@ -90,8 +92,14 @@ from products.tasks.backend.temporal.process_task.activities.send_followup_to_sa
     send_followup_to_sandbox,
 )
 from products.tasks.backend.temporal.process_task.activities.start_agent_server import (
+    ActivateAgentServerCredentialsInput,
+    MarkRepoReadyInput,
     StartAgentServerInput,
     StartAgentServerOutput,
+    activate_agent_server_credentials,
+    await_agent_server_ready,
+    launch_agent_server,
+    mark_repo_ready,
     start_agent_server,
 )
 from products.tasks.backend.temporal.process_task.activities.track_workflow_event import (
@@ -108,6 +116,8 @@ from products.tasks.backend.temporal.process_task.credential_refresh import (
     run_credential_refresh_loop,
 )
 from products.tasks.backend.temporal.utils import log_on_fail
+
+_PATCH_ID_BACKGROUND_DESKTOP_PREPARATION = "tasks-background-desktop-preparation"
 
 # Names of signals this workflow sends back to the TaskManagement parent. Kept
 # as constants so a rename can be done in one place — and so tests can import
@@ -142,7 +152,7 @@ SHUTDOWN_REJECTION_DETAIL = "child_shutting_down"
 FOLLOWUP_SOURCE_USER = "user"
 FOLLOWUP_SOURCE_CI = "ci"
 
-_DESKTOP_BOOTSTRAP_ACTIVITY_TIMEOUT = timedelta(minutes=20)
+_DESKTOP_BOOTSTRAP_ACTIVITY_TIMEOUT = timedelta(minutes=12)
 
 
 @dataclass
@@ -484,8 +494,11 @@ class ExecuteSandboxWorkflow(PostHogWorkflow):
             # to the gap between Modal-accepted-create and this activity.
             await self._persist_sandbox_id(run_id, sandbox_id)
 
-            await self._emit_progress("agent", "in_progress", "Starting agent", "setup")
-            agent_server_output = await self._start_agent_server(sandbox_output)
+            if sandbox_output.agent_server_launched:
+                agent_server_output = await self._await_agent_server_ready(sandbox_output)
+            else:
+                await self._emit_progress("agent", "in_progress", "Starting agent", "setup")
+                agent_server_output = await self._start_agent_server(sandbox_output)
             await self._emit_progress("agent", "completed", "Started agent", "setup")
 
             await self._track_workflow_event(
@@ -1107,9 +1120,14 @@ class ExecuteSandboxWorkflow(PostHogWorkflow):
         def prepares_desktop(repository: str) -> bool:
             return self.context.custom_image_name == DEV_STACK_IMAGE_NAME and repository.casefold() == "posthog/posthog"
 
+        background_desktop_preparation = workflow.patched(_PATCH_ID_BACKGROUND_DESKTOP_PREPARATION) and (
+            self.context.parallel_desktop_prep_job_vm_enabled is not False
+        )
+        clone_outputs = []
+
         if will_clone:
             await self._emit_progress("clone", "in_progress", "Cloning repository", "setup")
-            await asyncio.gather(
+            clone_outputs = await asyncio.gather(
                 *(
                     workflow.execute_activity(
                         clone_repository_in_sandbox,
@@ -1119,6 +1137,7 @@ class ExecuteSandboxWorkflow(PostHogWorkflow):
                             repository=repository,
                             github_token=prepared.github_token,
                             shallow_clone=prepared.shallow_clone,
+                            background_desktop_preparation=background_desktop_preparation,
                         ),
                         start_to_close_timeout=(
                             _DESKTOP_BOOTSTRAP_ACTIVITY_TIMEOUT
@@ -1135,6 +1154,9 @@ class ExecuteSandboxWorkflow(PostHogWorkflow):
 
         state = self.context.state or {}
         is_resume = bool(state.get("resume_from_run_id") or state.get("handoff_resumed"))
+        desktop_preparation_started = any(
+            getattr(output, "desktop_preparation_started", False) for output in clone_outputs
+        )
         if will_checkout and not is_resume:
             assert checkout_repository is not None
             assert prepared.branch is not None
@@ -1142,7 +1164,7 @@ class ExecuteSandboxWorkflow(PostHogWorkflow):
             branch_label_active = f"Checking out branch {prepared.branch}"
             branch_label_done = f"Checked out branch {prepared.branch}"
             await self._emit_progress("checkout", "in_progress", branch_label_active, "setup")
-            await workflow.execute_activity(
+            checkout_output = await workflow.execute_activity(
                 checkout_branch_in_sandbox,
                 CheckoutBranchInSandboxInput(
                     context=self.context,
@@ -1152,13 +1174,66 @@ class ExecuteSandboxWorkflow(PostHogWorkflow):
                     github_token=prepared.github_token,
                     shallow_clone=prepared.shallow_clone,
                     used_snapshot=used_snapshot,
+                    background_desktop_preparation=background_desktop_preparation,
                 ),
                 start_to_close_timeout=(
                     _DESKTOP_BOOTSTRAP_ACTIVITY_TIMEOUT if prepares_repository_desktop else timedelta(minutes=5)
                 ),
                 retry_policy=RetryPolicy(maximum_attempts=3),
             )
+            desktop_preparation_started = desktop_preparation_started or getattr(
+                checkout_output, "desktop_preparation_started", False
+            )
             await self._emit_progress("checkout", "completed", branch_label_done, "setup")
+
+        if background_desktop_preparation and desktop_preparation_started:
+            await self._emit_progress("agent", "in_progress", "Starting agent", "setup")
+            launch_output = await workflow.execute_activity(
+                launch_agent_server,
+                StartAgentServerInput(
+                    context=self.context,
+                    sandbox_id=created.sandbox_id,
+                    sandbox_url=created.sandbox_url,
+                    sandbox_connect_token=created.connect_token,
+                    posthog_mcp_scopes=self._posthog_mcp_scopes,
+                    defer_for_clone=True,
+                    defer_credentials=True,
+                    boot_path="desktop_overlap",
+                    used_snapshot=used_snapshot,
+                ),
+                start_to_close_timeout=timedelta(minutes=5),
+                retry_policy=RetryPolicy(maximum_attempts=3),
+            )
+            agent_server_launched = bool(launch_output and launch_output.process_launched)
+            agent_credentials_deferred = bool(launch_output and launch_output.credentials_deferred)
+            await workflow.execute_activity(
+                await_desktop_workspace_preparation,
+                AwaitDesktopWorkspacePreparationInput(context=self.context, sandbox_id=created.sandbox_id),
+                start_to_close_timeout=_DESKTOP_BOOTSTRAP_ACTIVITY_TIMEOUT,
+                schedule_to_close_timeout=_DESKTOP_BOOTSTRAP_ACTIVITY_TIMEOUT,
+                heartbeat_timeout=timedelta(seconds=30),
+                retry_policy=RetryPolicy(maximum_attempts=3),
+            )
+            if agent_credentials_deferred:
+                await workflow.execute_activity(
+                    activate_agent_server_credentials,
+                    ActivateAgentServerCredentialsInput(
+                        context=self.context,
+                        sandbox_id=created.sandbox_id,
+                        posthog_mcp_scopes=self._posthog_mcp_scopes,
+                    ),
+                    start_to_close_timeout=timedelta(minutes=2),
+                    retry_policy=RetryPolicy(maximum_attempts=3),
+                )
+            if agent_server_launched:
+                await workflow.execute_activity(
+                    mark_repo_ready,
+                    MarkRepoReadyInput(sandbox_id=created.sandbox_id, run_id=self.context.run_id),
+                    start_to_close_timeout=timedelta(seconds=30),
+                    retry_policy=RetryPolicy(maximum_attempts=3),
+                )
+        else:
+            agent_server_launched = False
 
         return GetSandboxForRepositoryOutput(
             sandbox_id=created.sandbox_id,
@@ -1166,6 +1241,8 @@ class ExecuteSandboxWorkflow(PostHogWorkflow):
             connect_token=created.connect_token,
             used_snapshot=used_snapshot,
             should_create_snapshot=not used_snapshot,
+            agent_server_launched=agent_server_launched,
+            boot_path="desktop_overlap" if desktop_preparation_started else "classic",
         )
 
     async def _cleanup_sandbox(self, sandbox_id: str) -> None:
@@ -1243,6 +1320,22 @@ class ExecuteSandboxWorkflow(PostHogWorkflow):
                 sandbox_url=sandbox_output.sandbox_url,
                 sandbox_connect_token=sandbox_output.connect_token,
                 posthog_mcp_scopes=self._posthog_mcp_scopes,
+            ),
+            start_to_close_timeout=timedelta(minutes=5),
+            retry_policy=RetryPolicy(maximum_attempts=3),
+        )
+
+    async def _await_agent_server_ready(self, sandbox_output: GetSandboxForRepositoryOutput) -> StartAgentServerOutput:
+        return await workflow.execute_activity(
+            await_agent_server_ready,
+            StartAgentServerInput(
+                context=self.context,
+                sandbox_id=sandbox_output.sandbox_id,
+                sandbox_url=sandbox_output.sandbox_url,
+                sandbox_connect_token=sandbox_output.connect_token,
+                posthog_mcp_scopes=self._posthog_mcp_scopes,
+                boot_path=sandbox_output.boot_path,
+                used_snapshot=sandbox_output.used_snapshot,
             ),
             start_to_close_timeout=timedelta(minutes=5),
             retry_policy=RetryPolicy(maximum_attempts=3),

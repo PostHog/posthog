@@ -17,6 +17,7 @@ from products.tasks.backend.constants import (
     MODAL_DIRECTORY_RESUME_SNAPSHOTS_FEATURE_FLAG,
     MODAL_NETWORK_ALLOWLIST_FEATURE_FLAG,
     OVERLAP_CLONE_BOOT_FEATURE_FLAG,
+    PARALLEL_DESKTOP_PREP_JOB_VM_FEATURE_FLAG,
     RTK_DISABLED_FEATURE_FLAG,
     SANDBOX_EVENT_INGEST_FEATURE_FLAG,
     get_vm_sandbox_flag_payload,
@@ -98,6 +99,9 @@ class TaskProcessingContext:
     # (request == limit). Captured at workflow start so it's stable across activity retries.
     burstable_sandbox_resources_enabled: bool = True
     overlap_clone_boot_enabled: bool = False
+    # None preserves the parallel path for workflows started before this rollout
+    # stamp existed. New runs always capture a boolean feature-flag decision.
+    parallel_desktop_prep_job_vm_enabled: bool | None = None
     # Captured at workflow start so the agent-proxy stream lifetime stays deterministic across retries.
     agent_proxy_keep_stream_open: bool = False
     # Set only when the run resolved to the VM runtime — custom images layer on the VM base.
@@ -601,6 +605,35 @@ def _is_overlap_clone_boot_enabled(
     return enabled
 
 
+def _is_parallel_desktop_prep_job_vm_enabled(
+    *,
+    distinct_id: str,
+    organization_id: str,
+    run_id: str,
+) -> bool:
+    try:
+        enabled = bool(
+            posthoganalytics.feature_enabled(
+                PARALLEL_DESKTOP_PREP_JOB_VM_FEATURE_FLAG,
+                distinct_id=distinct_id,
+                groups={"organization": organization_id},
+                group_properties={"organization": {"id": organization_id}},
+                only_evaluate_locally=False,
+                send_feature_flag_events=False,
+            )
+        )
+    except Exception as e:
+        log_with_activity_context("parallel_desktop_prep_job_vm_flag_check_failed", run_id=run_id, error=str(e))
+        return False
+
+    log_with_activity_context(
+        "parallel_desktop_prep_job_vm_flag_checked",
+        run_id=run_id,
+        parallel_desktop_prep_job_vm_enabled=enabled,
+    )
+    return enabled
+
+
 def _is_modal_network_allowlist_enabled(
     *,
     distinct_id: str,
@@ -945,6 +978,16 @@ def get_task_processing_context(input: GetTaskProcessingContextInput) -> TaskPro
         "debug",
         f"overlap_clone_boot_enabled: {overlap_clone_boot_enabled} for this task run",
     )
+    parallel_desktop_prep_job_vm_enabled = _is_parallel_desktop_prep_job_vm_enabled(
+        distinct_id=distinct_id,
+        organization_id=organization_id,
+        run_id=run_id,
+    )
+    emit_agent_log(
+        run_id,
+        "debug",
+        f"parallel_desktop_prep_job_vm_enabled: {parallel_desktop_prep_job_vm_enabled} for this task run",
+    )
     use_modal_directory_resume_snapshots = _is_modal_directory_resume_snapshots_enabled(
         distinct_id=distinct_id,
         organization_id=organization_id,
@@ -1020,6 +1063,7 @@ def get_task_processing_context(input: GetTaskProcessingContextInput) -> TaskPro
         use_modal_network_allowlist=use_modal_network_allowlist,
         burstable_sandbox_resources_enabled=burstable_sandbox_resources_enabled,
         overlap_clone_boot_enabled=overlap_clone_boot_enabled,
+        parallel_desktop_prep_job_vm_enabled=parallel_desktop_prep_job_vm_enabled,
         agent_proxy_keep_stream_open=agent_proxy_keep_stream_open,
         custom_image_name=custom_image_name,
         rtk_enabled=rtk_enabled,

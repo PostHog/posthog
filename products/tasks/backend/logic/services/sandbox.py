@@ -210,6 +210,7 @@ class SandboxConfig(BaseModel):
 WORKING_DIR = DEFAULT_SANDBOX_WORKING_DIR
 
 REPO_READY_FILE = f"{WORKING_DIR}/.repo-ready"
+DEFERRED_AGENT_CREDENTIALS_FILE = f"{WORKING_DIR}/.agent-credentials"
 
 PUBLIC_SANDBOX_REPOS: frozenset[str] = frozenset({"posthog/hedgebox", "posthog/.github"})
 """Repos the sandbox is allowed to clone unauthenticated, even when the team has no GitHub integration"""
@@ -427,6 +428,13 @@ class SandboxBase(ABC):
         )
         return result.exit_code == 0
 
+    def agent_server_supports_deferred_credentials(self) -> bool:
+        result = self.execute(
+            "grep -q deferredCredentialsFile /scripts/node_modules/.bin/agent-server",
+            timeout_seconds=10,
+        )
+        return result.exit_code == 0
+
     def clone_repository(
         self,
         repository: str,
@@ -513,6 +521,7 @@ class SandboxBase(ABC):
         event_ingest_url: str | None = None,
         event_ingest_keep_stream_open: bool = False,
         repo_ready_file: str | None = None,
+        deferred_credentials_file: str | None = None,
         wait_for_health: bool = True,
         rtk_enabled: bool = True,
     ) -> None:
