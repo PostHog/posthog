@@ -189,7 +189,7 @@ export function useCrossSectionDrag({ sections, disabled, onTileDrop, onSectionD
                 sectionDragStartY.current !== null &&
                 event.clientY < sectionDragStartY.current
             const edgeForSection = (rect: DOMRect): number =>
-                draggedGroupId ? SECTION_EDGE_PX : Math.min(SECTION_TILE_DROP_EDGE_PX, rect.height / 3)
+                draggedGroupId ? SECTION_EDGE_PX : Math.min(SECTION_TILE_DROP_EDGE_PX, rect.height / 4)
 
             for (const { section, position, rect } of orderedRects) {
                 const sectionDrag = draggedGroupId !== null

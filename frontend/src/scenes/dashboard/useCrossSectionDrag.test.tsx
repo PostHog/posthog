@@ -121,4 +121,38 @@ describe('useCrossSectionDrag', () => {
 
         expect(onTileDrop).toHaveBeenCalledWith(1, { type: 'gap', position: 1 }, expect.any(MouseEvent), null, null)
     })
+
+    it('uses most of an empty section as a tile drop zone', () => {
+        const onTileDrop = jest.fn()
+        const { result } = renderHook(() =>
+            useCrossSectionDrag({
+                sections: [
+                    { key: 'first', group: null, isNamed: false, tiles: [] },
+                    { key: 'second', group: null, isNamed: false, tiles: [] },
+                ],
+                disabled: false,
+                onTileDrop,
+                onSectionDrop: jest.fn(),
+            })
+        )
+        const first = document.createElement('section')
+        const second = document.createElement('section')
+        first.getBoundingClientRect = () => ({ top: 0, bottom: 100, height: 100 }) as DOMRect
+        second.getBoundingClientRect = () => ({ top: 120, bottom: 220, height: 100 }) as DOMRect
+
+        act(() => {
+            result.current.registerSection('first', first)
+            result.current.registerSection('second', second)
+            result.current.startTileDrag(1, 'first')
+            result.current.finishDrag(new MouseEvent('mouseup', { clientY: 190 }))
+        })
+
+        expect(onTileDrop).toHaveBeenCalledWith(
+            1,
+            { type: 'section', sectionKey: 'second', position: 1, after: true },
+            expect.any(MouseEvent),
+            null,
+            expect.any(Object)
+        )
+    })
 })
