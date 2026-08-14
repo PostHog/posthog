@@ -15,6 +15,16 @@ export function isApprovalRequiredError(error: { status?: number; data?: any } |
     return error?.status === 409 && Boolean(error?.data?.change_request_id)
 }
 
+/**
+ * A transient server-side failure (5xx), typically a gateway timeout rather than anything the
+ * caller did wrong. These often arrive with an empty body (so `detail` is null) and usually
+ * succeed on retry, so a listener that has already shown a toast should stop here instead of
+ * rethrowing into unhandled-rejection tracking.
+ */
+export function isTransientServerError(error: unknown): boolean {
+    return error instanceof ApiError && typeof error.status === 'number' && error.status >= 500 && error.status < 600
+}
+
 export class ApiError extends Error {
     /** Django REST Framework `detail` - used in downstream error handling. */
     detail: string | null
