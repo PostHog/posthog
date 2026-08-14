@@ -65,6 +65,15 @@ def validate_saved_query_name(value):
         )
 
 
+class V1SchedulingPathReached(Exception):
+    """Reported, never raised. Marks a caller that still mints a v1 per-query schedule.
+
+    v1 scheduling is being retired and the fleet no longer runs it, so this exists to find any
+    remaining path into it before the workflow type is deregistered — a schedule pointing at a
+    deregistered type does not fail loudly, it fires forever with failing workflow tasks.
+    """
+
+
 class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, UpdatedMetaFields, DeletedMetaFields):
     class Status(models.TextChoices):
         """Possible states of this SavedQuery."""
@@ -291,6 +300,18 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, UpdatedMetaFields, 
                     # runs inside an atomic block); immediate under autocommit.
                     transaction.on_commit(self._start_immediate_materialization)
                 return
+
+            # Both regions hold zero `data-modeling-run` schedules, so nothing should reach here.
+            # Report each arrival with the caller's context, but still schedule: a customer's
+            # materialization must not be what proves this path is dead.
+            capture_exception(
+                V1SchedulingPathReached(f"Saved query {self.id} scheduled through the v1 per-query path"),
+                {
+                    "saved_query_id": str(self.id),
+                    "team_id": self.team_id,
+                    "dag_id": str(node.dag_id) if node is not None else None,
+                },
+            )
 
             self.setup_model_paths()
 
