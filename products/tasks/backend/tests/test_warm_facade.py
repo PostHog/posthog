@@ -486,7 +486,10 @@ class TestCreateTaskWarmReuse(APIBaseTest):
     def test_create_endpoint_returns_structured_compute_quota_denial_before_warm_activation(self):
         warm_task, run = self._warm_run()
 
-        with patch("products.tasks.backend.logic.services.compute_quota.is_compute_quota_exhausted", return_value=True):
+        with patch(
+            "products.tasks.backend.logic.services.compute_quota.get_compute_quota_denial_reason",
+            return_value="posthog_code_billing_limit_exceeded",
+        ):
             response = self.client.post(
                 "/api/projects/@current/tasks/",
                 {"description": "fix the bug", "repository": "posthog/posthog", "branch": "main"},

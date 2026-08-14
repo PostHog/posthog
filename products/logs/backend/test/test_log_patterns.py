@@ -16,12 +16,73 @@ from products.logs.backend.log_patterns import (
     _HOST_SUFFIXES,
     _MASKING_INSTRUCTIONS,
     _PLACEHOLDER_PATTERNS,
+    _WHITESPACE_RE,
     LogSample,
+    _prepare_body,
     compile_match_regex,
     extract_match_literal,
     mine_patterns,
     pattern_fingerprint,
 )
+
+_BODY_TRUNCATE = 512
+
+# Printable, non-whitespace characters: Drain splits on whitespace, so these are the
+# characters a single token can hold. The range covers regex metacharacters and the angle
+# brackets the placeholders use, which is where escaping and placeholder round-tripping break.
+_token_st = st.text(st.characters(min_codepoint=33, max_codepoint=126), min_size=1, max_size=20)
+_gap_st = st.sampled_from([" ", "  ", "\t", "\n", "\r\n", " \n  "])
+
+
+@st.composite
+def _log_body_st(draw: st.DrawFn) -> str:
+    tokens = draw(st.lists(_token_st, min_size=1, max_size=150))
+    body = tokens[0]
+    for token in tokens[1:]:
+        body += draw(_gap_st) + token
+    return body
+
+
+_log_word_st = st.sampled_from(
+    ["request", "failed", "retrying", "user", "team", "cache", "hit", "GET", "POST", "attempt", "closed"]
+)
+_key_st = st.sampled_from(["team_id=", "attempt=", "status=", "peer=", "ts=", "job="])
+# Values that masking is meant to consume. Drawing these rather than random characters is
+# what makes the placeholder round-trip reachable: a mask that never fires proves nothing.
+_maskable_st = st.one_of(
+    st.integers(min_value=0, max_value=10**12).map(str),
+    st.tuples(*[st.integers(min_value=0, max_value=255)] * 4).map(lambda octets: ".".join(map(str, octets))),
+    st.uuids().map(str),
+    st.datetimes(min_value=dt.datetime(2020, 1, 1), max_value=dt.datetime(2030, 1, 1)).map(dt.datetime.isoformat),
+    st.text("0123456789abcdef", min_size=16, max_size=40),
+    st.integers(min_value=0, max_value=999).map(lambda n: f"0x{n:x}"),
+    st.tuples(st.integers(min_value=0, max_value=99), st.integers(min_value=0, max_value=99)).map(
+        lambda parts: f"{parts[0]}.{parts[1]}"
+    ),
+)
+
+
+@st.composite
+def _log_line_st(draw: st.DrawFn) -> str:
+    parts = draw(
+        st.lists(
+            st.one_of(_log_word_st, _maskable_st, st.tuples(_key_st, _maskable_st).map("".join)),
+            min_size=1,
+            max_size=14,
+        )
+    )
+    return " ".join(parts)
+
+
+# Always crosses the truncation cap. Hypothesis biases toward small inputs, so a general body
+# strategy almost never reaches the cap and leaves the prefix handling untested.
+@st.composite
+def _long_log_body_st(draw: st.DrawFn) -> str:
+    prefix = draw(st.lists(_token_st, min_size=1, max_size=8))
+    filler = draw(st.text(st.characters(min_codepoint=33, max_codepoint=126), min_size=3, max_size=14))
+    gap = draw(_gap_st)
+    repeats = _BODY_TRUNCATE // (len(filler) + len(gap)) + draw(st.integers(min_value=2, max_value=20))
+    return gap.join([*prefix, *[filler] * repeats])
 
 
 def _sample(
@@ -29,12 +90,14 @@ def _sample(
     severity: str = "info",
     service: str = "api",
     ts: dt.datetime | None = None,
+    truncated: bool = False,
 ) -> LogSample:
     return LogSample(
         body=body,
         severity_text=severity,
         service_name=service,
         timestamp=ts or dt.datetime(2026, 6, 23, 12, 0, 0, tzinfo=dt.UTC),
+        truncated=truncated,
     )
 
 
@@ -263,9 +326,49 @@ class TestMinePatterns(TestCase):
         assert patterns[0].examples[0].severity_text == "info"
 
     def test_long_bodies_are_truncated_before_mining(self) -> None:
+        # one token with no space inside the cap: there is no boundary to cut back to
         patterns = mine_patterns([_sample("x" * 1000)])
 
         assert len(patterns[0].examples[0].body) == 512
+
+    def test_truncation_cuts_back_to_a_word_boundary(self) -> None:
+        # A hard character cut leaves a partial token, which Drain treats as a literal. Bodies
+        # that differ only past the cap then fragment into one cluster per cut point instead
+        # of merging, and the partial word shows up in the template a person reads.
+        body = "prefix " + " ".join(["Macintosh"] * 200)
+
+        patterns = mine_patterns([_sample(body)])
+
+        example = patterns[0].examples[0]
+        assert len(example.body) <= 512
+        assert set(example.body.split(" ")) == {"prefix", "Macintosh"}
+
+    def test_regex_matches_a_long_body_whose_truncated_example_was_dropped(self) -> None:
+        # Truncation is a property of the cluster, not of the examples that survive into it.
+        # The dedup check compares text only, so a long body that prepares to the same text
+        # as a short one leaves no truncated example behind. Deriving the end anchor from the
+        # retained examples then builds a filter that excludes the long line it was mined
+        # from. The example cap drops a truncated example the same way.
+        short = " ".join(f"tok{i}" for i in range(80))
+        long_body = f"{short} {'X' * 60}"
+        assert len(short) < 512 < len(long_body)
+
+        patterns = mine_patterns([_sample(short), _sample(long_body)])
+
+        assert len(patterns) == 1
+        assert patterns[0].match_regex is not None
+        assert re.search(patterns[0].match_regex, long_body)
+
+    def test_word_boundary_truncation_still_drops_the_end_anchor(self) -> None:
+        # Cutting back to a boundary puts the prepared body under the cap, so a length check
+        # can no longer tell truncation apart from a short line. Getting that wrong anchors
+        # the predicate at the end, and it matches none of the real, longer lines.
+        body = "prefix " + " ".join(["Macintosh"] * 200)
+
+        patterns = mine_patterns([_sample(body)])
+
+        assert patterns[0].match_regex is not None
+        assert re.search(patterns[0].match_regex, body)
 
     def test_first_and_last_seen_span_the_cluster(self) -> None:
         earliest = dt.datetime(2026, 6, 23, 12, 0, 0, tzinfo=dt.UTC)
@@ -359,7 +462,7 @@ class TestCompileMatchRegex(TestCase):
         ]
     )
     def test_compiled_regex_matches_raw_bodies(self, template: str, raw_body: str) -> None:
-        regex = compile_match_regex(template, [_sample(raw_body.strip())], truncate=512)
+        regex = compile_match_regex(template, [_sample(raw_body.strip())])
 
         assert regex is not None
         assert re.search(regex, raw_body)
@@ -372,7 +475,7 @@ class TestCompileMatchRegex(TestCase):
         ]
     )
     def test_compiled_regex_is_anchored(self, template: str, non_matching_body: str) -> None:
-        regex = compile_match_regex(template, [_sample("User dave not found")], truncate=512)
+        regex = compile_match_regex(template, [_sample("User dave not found")])
 
         assert regex is not None
         assert not re.search(regex, non_matching_body)
@@ -381,7 +484,7 @@ class TestCompileMatchRegex(TestCase):
         # A body that hit the mining truncation cap means the template only covers a prefix
         # of the raw line — the predicate must still match the full-length original.
         truncated_body = "prefix " + "x" * 505
-        regex = compile_match_regex("prefix <*>", [_sample(truncated_body)], truncate=512)
+        regex = compile_match_regex("prefix <*>", [_sample(truncated_body, truncated=True)])
 
         assert regex is not None
         assert re.search(regex, truncated_body + " continues beyond the cap")
@@ -393,7 +496,7 @@ class TestCompileMatchRegex(TestCase):
         ]
     )
     def test_templates_without_literal_content_get_no_regex(self, _name: str, template: str) -> None:
-        assert compile_match_regex(template, [_sample("anything at all")], truncate=512) is None
+        assert compile_match_regex(template, [_sample("anything at all")]) is None
 
     def test_diverged_example_fails_validation(self) -> None:
         # Drain refines templates as rows merge, so a stored example can stop matching the
@@ -401,10 +504,10 @@ class TestCompileMatchRegex(TestCase):
         # withheld instead.
         examples = [_sample("User dave not found"), _sample("something entirely different")]
 
-        assert compile_match_regex("User <*> not found", examples, truncate=512) is None
+        assert compile_match_regex("User <*> not found", examples) is None
 
     def test_no_examples_means_no_regex(self) -> None:
-        assert compile_match_regex("User <*> not found", [], truncate=512) is None
+        assert compile_match_regex("User <*> not found", []) is None
 
     @parameterized.expand(
         [
@@ -799,3 +902,50 @@ class TestKlogTimestampProperties(TestCase):
 
         assert patterns[0].match_regex is not None
         assert re.search(patterns[0].match_regex, line.format(headers[1]))
+
+
+class TestTruncationProperties(TestCase):
+    """The cases above pin specific cut points; these hold the invariants over all bodies.
+
+    Truncation is where a body stops being the line a person wrote and becomes a prefix the
+    miner invented, so both properties are about that prefix staying honest.
+    """
+
+    @given(body=st.one_of(_log_body_st(), _long_log_body_st()), cap=st.integers(min_value=8, max_value=600))
+    @settings(max_examples=400, deadline=None)
+    def test_prepared_body_holds_only_whole_tokens(self, body: str, cap: int) -> None:
+        collapsed = _WHITESPACE_RE.sub(" ", body).strip()
+
+        prepared = _prepare_body(body, cap)
+
+        assert len(prepared.text) <= cap
+        # the flag has to mean "text is a prefix, not the whole line" for every input, since
+        # compile_match_regex decides the end anchor from it alone
+        assert prepared.truncated == (prepared.text != collapsed)
+        if " " in collapsed[:cap]:
+            # a cut back to a boundary can only drop whole tokens, never split one
+            assert set(prepared.text.split(" ")) <= set(collapsed.split(" "))
+
+    @given(body=st.one_of(_log_body_st(), _long_log_body_st(), _log_line_st()))
+    @settings(max_examples=300, deadline=None)
+    def test_mined_regex_matches_the_raw_body_it_came_from(self, body: str) -> None:
+        # The pivot from a pattern to its logs runs match_regex against raw bodies in
+        # ClickHouse, while mining sees a collapsed and truncated copy. Any disagreement
+        # between the two produces a filter that returns nothing for a pattern the person is
+        # looking at. A None regex is the honest outcome and is allowed.
+        patterns = mine_patterns([_sample(body)])
+
+        assert len(patterns) == 1
+        if patterns[0].match_regex is not None:
+            assert re.search(patterns[0].match_regex, body)
+
+    @given(body=st.one_of(_log_body_st(), _long_log_body_st(), _log_line_st()))
+    @settings(max_examples=300, deadline=None)
+    def test_mined_literal_is_present_in_the_body(self, body: str) -> None:
+        # match_literal is the icontains fallback when no regex compiles, so it has to be
+        # text that really occurs in the line, not a fragment masking invented.
+        patterns = mine_patterns([_sample(body)])
+
+        literal = patterns[0].match_literal
+        if literal is not None:
+            assert literal in _WHITESPACE_RE.sub(" ", body)

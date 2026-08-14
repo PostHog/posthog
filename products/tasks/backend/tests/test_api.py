@@ -11159,6 +11159,24 @@ class TestCloudUsageGate(BaseTaskAPITest):
         mock_workflow.assert_called_once()
 
     @patch("products.tasks.backend.logic.services.code_usage_gate.get_posthog_code_usage")
+    def test_run_for_any_deactivated_org_returns_429_without_gateway_check(self, mock_gate):
+        self.organization.is_active = False
+        self.organization.is_not_active_reason = "Past due invoice"
+        self.organization.save()
+        task = self.create_task()
+
+        response = self.client.post(
+            f"/api/projects/@current/tasks/{task.id}/run/",
+            {"mode": "background"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_429_TOO_MANY_REQUESTS)
+        self.assertEqual(response.json()["code"], "organization_deactivated")
+        self.assertFalse(TaskRun.objects.filter(task=task).exists())
+        mock_gate.assert_not_called()
+
+    @patch("products.tasks.backend.logic.services.code_usage_gate.get_posthog_code_usage")
     def test_run_over_limit_returns_429_and_creates_no_run(self, mock_gate):
         mock_gate.return_value = self.OVER_LIMIT
         task = self.create_task()
@@ -11374,7 +11392,7 @@ class TestGetPosthogCodeUsage(TestCase):
         mock_token.assert_not_called()
 
 
-class TestUsageLimitResponse(SimpleTestCase):
+class TestUsageLimitResponse(TestCase):
     @patch("products.tasks.backend.logic.services.code_usage_gate.get_posthog_code_usage")
     def test_over_limit_response_is_structured(self, mock_usage):
         mock_usage.return_value = CodeUsageStatus(
