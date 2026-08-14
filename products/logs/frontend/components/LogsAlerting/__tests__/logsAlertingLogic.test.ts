@@ -174,7 +174,7 @@ describe('logsAlertingLogic', () => {
 
     describe('resetAlert', () => {
         it('calls the reset endpoint, reloads the list, and surfaces a success toast', async () => {
-            mockReset.mockResolvedValue(undefined)
+            mockReset.mockResolvedValue(MOCK_ALERT)
 
             const logic = logsAlertingLogic()
             logic.mount()
@@ -187,7 +187,6 @@ describe('logsAlertingLogic', () => {
 
             expect(mockReset).toHaveBeenCalledWith(expect.any(String), 'alert-1')
             expect(lemonToast.success).toHaveBeenCalledWith(expect.stringContaining('Alert reset'))
-            // loadAlerts runs on mount + after the successful reset.
             expect(mockList).toHaveBeenCalledTimes(1)
 
             logic.unmount()
