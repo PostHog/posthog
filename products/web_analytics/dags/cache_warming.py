@@ -934,7 +934,10 @@ def _warm_queries(context: dagster.OpExecutionContext, mode: str, queries: list[
                 WARMING_QUERIES_COUNTER.labels(outcome="skipped_already_warmed").inc()
                 return "skipped_already_warmed"
 
-            cached_data = entry.as_full_response() if entry else None
+            # Only last_refresh is needed, and it lives in the header (for legacy entries the
+            # header is the full response), so skip as_full_response(): that would parse the
+            # whole results payload just to read one timestamp.
+            cached_data = entry.header if entry else None
 
             if cached_data is not None:
                 last_refresh = parse_datetime(cached_data["last_refresh"])
