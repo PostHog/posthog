@@ -7,7 +7,9 @@ import { BarChart } from '@posthog/quill-charts'
 import { useChartConfig, useChartTheme } from 'lib/charts/hooks'
 import { LemonProgress } from 'lib/lemon-ui/LemonProgress'
 
+import { creditsToUsd, formatCreditsRange } from '../../utils/credits'
 import { replayScannerLogic } from '../replayScannerLogic'
+import { ReplayScannerTab, replayScannerSceneLogic } from '../replayScannerSceneLogic'
 import { scannerOverviewLogic } from '../scannerOverviewLogic'
 import { ScannerType } from '../types'
 import { ScannerInsightsChart } from './ScannerInsightsChart'
@@ -263,6 +265,7 @@ function ClassifierOverview({ scannerId }: { scannerId: string }): JSX.Element |
 
     const cohortAction = (tag: string): JSX.Element => (
         <LemonButton
+            type="secondary"
             size="xsmall"
             icon={<IconPeople />}
             tooltip={`Save users tagged "${tag}" in the last 30 days as a cohort`}
@@ -272,7 +275,9 @@ function ClassifierOverview({ scannerId }: { scannerId: string }): JSX.Element |
                 affectedCohortLoading && savingCohortTag !== tag ? 'Another cohort is being created' : undefined
             }
             data-attr="vision-save-tag-cohort"
-        />
+        >
+            Save as cohort
+        </LemonButton>
     )
 
     return (
@@ -308,6 +313,38 @@ function ClassifierOverview({ scannerId }: { scannerId: string }): JSX.Element |
                     </div>
                 )}
             </OverviewPanel>
+        </div>
+    )
+}
+
+function CreditLimitOverview({ scannerId }: { scannerId: string }): JSX.Element | null {
+    const { creditLimitStats } = useValues(scannerOverviewLogic({ scannerId }))
+    if (!creditLimitStats) {
+        return null
+    }
+    const { used, limit, usedPct, limitReached } = creditLimitStats
+    return (
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+            <div className="min-w-0">
+                <OverviewPanel
+                    title="Spend against limit"
+                    subtitle={limitReached ? <LemonTag type="danger">Limit reached</LemonTag> : `${usedPct}%`}
+                    fill
+                >
+                    <LemonProgress percent={usedPct} strokeColor={limitReached ? 'var(--danger)' : undefined} />
+                    <div className="text-sm tabular-nums">
+                        {formatCreditsRange(used, limit)} (≈ {creditsToUsd(limit)} per period)
+                    </div>
+                    {limitReached && (
+                        // The tag can appear below 100%: a scanner stops as soon as what's left can't cover a whole
+                        // scan, so the copy has to explain that rather than claim the budget is fully spent.
+                        <div className="text-xs text-muted">
+                            What's left won't cover another scan, so this scanner has stopped until its limit resets at
+                            the start of the next billing period. Sessions skipped while capped are not scanned later.
+                        </div>
+                    )}
+                </OverviewPanel>
+            </div>
         </div>
     )
 }
@@ -398,10 +435,57 @@ function SummarizerOverview({ scannerId }: { scannerId: string }): JSX.Element |
     )
 }
 
+// The interstitial a just-created scanner shows instead of the filters + charts, whose "no matching
+// events" empty state would wrongly suggest the user's setup is broken while the first sweep runs.
+// It also hides the overview's reload buttons, so when the background checks keep failing it has to
+// surface that itself and offer a retry.
+function FirstScanPendingPanel({ scannerId }: { scannerId: string }): JSX.Element {
+    const { setActiveTab } = useActions(replayScannerSceneLogic)
+    const { firstScanCheckFailing, overviewStatsApiLoading } = useValues(scannerOverviewLogic({ scannerId }))
+    const { loadOverviewStats } = useActions(scannerOverviewLogic({ scannerId }))
+    return (
+        <div
+            className="border rounded bg-surface-primary p-6 flex flex-col items-center gap-2 text-center"
+            data-attr="vision-first-scan-pending"
+        >
+            {!firstScanCheckFailing && <Spinner className="text-2xl" />}
+            <div className="font-semibold">First scan in progress</div>
+            <div className="text-muted text-sm max-w-md">
+                {firstScanCheckFailing
+                    ? "We couldn't check for results. We'll keep retrying, or you can retry now."
+                    : 'This scanner picks up new recordings on a schedule. Results usually appear within 15 minutes.'}
+            </div>
+            {firstScanCheckFailing && (
+                <LemonButton
+                    type="secondary"
+                    size="small"
+                    loading={overviewStatsApiLoading}
+                    onClick={() => loadOverviewStats()}
+                    data-attr="vision-first-scan-pending-retry"
+                >
+                    Retry
+                </LemonButton>
+            )}
+            <LemonButton
+                type="secondary"
+                size="small"
+                onClick={() => setActiveTab(ReplayScannerTab.OnDemand)}
+                data-attr="vision-first-scan-pending-scan-now"
+            >
+                Scan a recording now
+            </LemonButton>
+        </div>
+    )
+}
+
 export function ScannerOverview({ scannerId }: { scannerId: string }): JSX.Element | null {
     const { scanner } = useValues(replayScannerLogic({ id: scannerId }))
+    const { firstScanPending } = useValues(scannerOverviewLogic({ scannerId }))
     if (!scanner) {
         return null
+    }
+    if (firstScanPending) {
+        return <FirstScanPendingPanel scannerId={scannerId} />
     }
     const scannerType: ScannerType = scanner.scanner_type
     const typeOverview =
@@ -454,6 +538,7 @@ export function ScannerOverview({ scannerId }: { scannerId: string }): JSX.Eleme
         <div className="flex flex-col gap-4">
             <ScannerOverviewFilters scannerId={scannerId} />
             {body}
+            <CreditLimitOverview scannerId={scannerId} />
         </div>
     )
 }

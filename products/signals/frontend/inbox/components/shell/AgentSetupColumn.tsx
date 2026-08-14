@@ -1,24 +1,19 @@
 import { useActions, useMountedLogic, useValues } from 'kea'
 import { combineUrl, router } from 'kea-router'
 
-import { IconBolt, IconCheckCircle, IconChevronRight, IconCompass, IconGithub, IconServer } from '@posthog/icons'
+import { IconBolt, IconCheckCircle, IconChevronRight, IconCompass, IconGithub } from '@posthog/icons'
 import { LemonModal, LemonSkeleton, LemonTag, Link } from '@posthog/lemon-ui'
-import { ServerIcon } from '@posthog/products-mcp-store/frontend/scene/icons'
 
-import { FEATURE_FLAGS } from 'lib/constants'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 import { slackChannelDisplayName } from 'lib/integrations/slackChannel'
 import { IconSlack } from 'lib/lemon-ui/icons'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { cn } from 'lib/utils/css-classes'
 import { GithubIntegration } from 'scenes/integrations/components/GithubIntegration'
 
 import { scoutFleetLogic } from '../../logics/scoutFleetLogic'
-import { scoutMcpServersLogic } from '../../logics/scoutMcpServersLogic'
 import { signalTeamConfigLogic } from '../../logics/signalTeamConfigLogic'
 import { userAutonomyLogic } from '../../logics/userAutonomyLogic'
 import { signalSourcesLogic } from '../../signalSourcesLogic'
-import { McpServersSection } from '../config/McpServersSection'
 import { ScoutsFleetSection } from '../config/scouts/ScoutsFleetSection'
 import { SelfDrivingSection } from '../config/SelfDrivingSection'
 import { SignalSourcesPanel } from '../config/SignalSourcesPanel'
@@ -179,7 +174,7 @@ function SignalSourcesWidget(): JSX.Element {
             tone={hasAny ? 'done' : 'todo'}
             loading={sourceConfigs === null}
             status={hasAny ? `${enabledSourcesCount} watching` : 'None active yet'}
-            description="Each source watches a product and spins up work when something matters."
+            description="Each source watches for signals, and spins up an agent to look into them."
             onClick={() => openSetupModal('signal-sources')}
         />
     )
@@ -221,51 +216,6 @@ function CodeAccessWidget(): JSX.Element {
     )
 }
 
-function McpServersWidget(): JSX.Element {
-    useMountedLogic(scoutMcpServersLogic)
-    const { availableScoutServers, scoutAccount, scoutServers, scoutServersLoading, scoutServersNeedingSetup } =
-        useValues(scoutMcpServersLogic)
-    const { openSetupModal } = useActions(agentSetupModalLogic)
-    const availableCount = availableScoutServers.length
-    const needsSetupCount = scoutServersNeedingSetup.length
-    let status = 'Share external tools'
-    let tone: WidgetTone = 'neutral'
-    if (scoutAccount?.status === 'paused') {
-        status = 'MCP access paused'
-    } else if (availableCount > 0 && needsSetupCount > 0) {
-        status = `${availableCount} available · ${needsSetupCount} need setup`
-        tone = 'done'
-    } else if (availableCount > 0) {
-        status = `${availableCount} available to Scout`
-        tone = 'done'
-    } else if (needsSetupCount > 0) {
-        status = `${needsSetupCount} need setup`
-        tone = 'todo'
-    }
-    return (
-        <SetupWidgetCard
-            icon={<IconServer />}
-            title="MCP servers"
-            size="md"
-            tone={tone}
-            loading={scoutServersLoading && scoutServers.length === 0}
-            status={status}
-            onClick={() => openSetupModal('mcp-servers')}
-        >
-            {scoutServers.length > 0 && (
-                <div className="flex items-center gap-1 pt-1">
-                    {scoutServers.slice(0, 6).map((server) => (
-                        <ServerIcon key={server.id} iconDomain={server.icon_domain} size={16} />
-                    ))}
-                    {scoutServers.length > 6 && (
-                        <span className="text-[11px] text-muted">+{scoutServers.length - 6}</span>
-                    )}
-                </div>
-            )}
-        </SetupWidgetCard>
-    )
-}
-
 function NotificationsWidget(): JSX.Element {
     useMountedLogic(userAutonomyLogic)
     const { slackIntegrations, integrationsLoading } = useValues(integrationsLogic)
@@ -302,7 +252,12 @@ function NotificationsWidget(): JSX.Element {
  */
 function GithubSetupBody(): JSX.Element {
     const { location, searchParams } = useValues(router)
-    return <GithubIntegration next={combineUrl(location.pathname, { ...searchParams, setup: 'github' }).url} />
+    return (
+        <GithubIntegration
+            next={combineUrl(location.pathname, { ...searchParams, setup: 'github' }).url}
+            connectSurface="signals_agent_setup"
+        />
+    )
 }
 
 const SETUP_MODALS: Record<
@@ -311,7 +266,7 @@ const SETUP_MODALS: Record<
 > = {
     'signal-sources': {
         title: 'Signal sources',
-        description: 'Each source watches for signals and spins up work when something matters.',
+        description: 'Each source watches for signals, and spins up an agent to look into them.',
         width: 760,
         body: <SignalSourcesPanel />,
     },
@@ -332,12 +287,6 @@ const SETUP_MODALS: Record<
         description: 'Connect GitHub so agents can read repositories and open pull requests.',
         width: 760,
         body: <GithubSetupBody />,
-    },
-    'mcp-servers': {
-        title: 'MCP servers',
-        description: 'Shared external tools available to scheduled Scouts.',
-        width: 560,
-        body: <McpServersSection />,
     },
 }
 
@@ -369,7 +318,6 @@ function SetupModal(): JSX.Element {
 export function AgentSetupColumn({ layout }: { layout: 'rail' | 'stacked' }): JSX.Element {
     useMountedLogic(integrationsLogic)
     useMountedLogic(signalSourcesLogic)
-    const { featureFlags } = useValues(featureFlagLogic)
 
     return (
         <div
@@ -387,7 +335,6 @@ export function AgentSetupColumn({ layout }: { layout: 'rail' | 'stacked' }): JS
             <SetupSection title="Connections">
                 <CodeAccessWidget />
                 <NotificationsWidget />
-                {featureFlags[FEATURE_FLAGS.MCP_SERVERS] && <McpServersWidget />}
             </SetupSection>
             <SetupSection title="Usage">
                 <InboxUsageWidget />

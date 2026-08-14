@@ -834,15 +834,12 @@ describe('Tool Filtering - Feature Flags', () => {
                 'logs-anomalies',
                 'logs-patterns-view',
                 'llm-analytics-datasets',
-                'replay-video-based-summarization',
                 'tracing',
                 'visual-review',
                 'user-interviews',
                 'customer-analytics-csp',
                 'notebooks-collaboration',
                 'revamped-py-notebooks',
-                'replay-vision',
-                'replay-vision-actions',
                 'tasks',
                 'dashboard-widgets',
                 'heatmaps-mcp',
@@ -861,10 +858,11 @@ describe('Tool Filtering - Feature Flags', () => {
                 'warehouse-person-properties',
                 'streamlit-apps',
                 'posthog-connect',
+                'experiment-behavior-comparison',
                 'autoresearch',
             ])
         )
-        expect(flags).toHaveLength(32)
+        expect(flags).toHaveLength(30)
     })
 
     it('every loops tool is gated on the loops flag', () => {

@@ -35,23 +35,17 @@ const artifactComments = vi.hoisted(() => ({
 }));
 const createComment = vi.hoisted(() => vi.fn());
 const useQuery = vi.hoisted(() => vi.fn());
-const commentsFlag = vi.hoisted(() => ({ enabled: true }));
 const taskRuns = vi.hoisted(() => ({
   data: [] as unknown[],
   isLoading: false,
   refreshRuns: vi.fn(),
 }));
-const orgMembersOptions = vi.hoisted(() => vi.fn());
 const artifactMocks = vi.hoisted(() => ({
   getCloudRunArtifacts: vi.fn(),
   getCloudAttachmentPreviewUrl: vi.fn(),
   uploadCloudRunArtifactVersion: vi.fn(),
   invalidateQueries: vi.fn(),
   openArtifactTab: vi.fn(),
-}));
-
-vi.mock("@posthog/ui/features/sessions/useCommentsEnabled", () => ({
-  useCommentsEnabled: () => commentsFlag.enabled,
 }));
 
 vi.mock("@posthog/core/sessions/sessionService", () => ({
@@ -89,10 +83,7 @@ vi.mock("@posthog/ui/features/canvas/hooks/useTaskRuns", () => ({
 }));
 
 vi.mock("@posthog/ui/features/canvas/hooks/useOrgMembers", () => ({
-  useOrgMembers: (options: { enabled?: boolean }) => {
-    orgMembersOptions(options);
-    return { members: [] };
-  },
+  useOrgMembers: () => ({ members: [] }),
 }));
 
 vi.mock("@posthog/ui/features/canvas/components/MentionComposer", () => ({
@@ -219,7 +210,6 @@ function textComment(): ResourceComment {
 
 describe("ArtifactPreview", () => {
   beforeEach(() => {
-    commentsFlag.enabled = true;
     auth.identity = "auth-1";
     useCommentNavigationStore.setState({
       focusByTask: {},
@@ -250,7 +240,7 @@ describe("ArtifactPreview", () => {
     vi.spyOn(URL, "revokeObjectURL").mockImplementation(() => undefined);
   });
 
-  it("scopes cached previews to the authenticated identity", () => {
+  it("scopes cached previews to the identity and artifact name", () => {
     render(
       <ArtifactPreview
         taskId="task-1"
@@ -266,6 +256,7 @@ describe("ArtifactPreview", () => {
           "artifactPreview",
           "auth-1",
           "task-1",
+          "report.html",
           "run-1",
           "artifact-1",
         ],
@@ -273,6 +264,24 @@ describe("ArtifactPreview", () => {
         meta: { authScoped: true },
       }),
     );
+    const queryOptions = useQuery.mock.calls[0]?.[0] as {
+      placeholderData: (
+        previousData: unknown,
+        previousQuery: { queryKey: unknown[] },
+      ) => unknown;
+    };
+    expect(
+      queryOptions.placeholderData("previous preview", {
+        queryKey: [
+          "artifactPreview",
+          "auth-1",
+          "task-1",
+          "other.html",
+          "run-1",
+          "artifact-0",
+        ],
+      }),
+    ).toBeUndefined();
   });
 
   it("starts the manifest and preview URL requests together", async () => {
@@ -366,33 +375,6 @@ describe("ArtifactPreview", () => {
     expect(frame).toHaveAttribute("src", "blob:preview");
     expect(frame).toHaveAttribute("sandbox", "allow-scripts");
     expect(frame).toHaveAttribute("referrerpolicy", "no-referrer");
-  });
-
-  it("keeps comment controls and the HTML bridge out while comments are disabled", async () => {
-    commentsFlag.enabled = false;
-    useQuery.mockReturnValue({
-      data: { kind: "html", html: "<h1>Artifact content</h1>" },
-      isLoading: false,
-      isError: false,
-    });
-
-    render(
-      <ArtifactPreview
-        taskId="task-1"
-        runId="run-1"
-        artifactId="artifact-1"
-        name="report.html"
-      />,
-    );
-
-    expect(orgMembersOptions).toHaveBeenLastCalledWith({ enabled: false });
-
-    expect(screen.queryByText("Comment…")).toBeNull();
-    const documentBlob = vi.mocked(URL.createObjectURL).mock.calls[0]?.[0];
-    expect(documentBlob).toBeInstanceOf(Blob);
-    await expect(
-      new Response(documentBlob as Blob).text(),
-    ).resolves.not.toContain("__POSTHOG_ARTIFACT_COMMENT_BRIDGE__");
   });
 
   // Same zoom-and-annotate surface as a raster image: an <img> renders SVG in a
@@ -631,6 +613,12 @@ describe("ArtifactPreview", () => {
       },
       mentions: [],
     });
+    expect(
+      useCommentNavigationStore.getState().focusByTask["task-1"],
+    ).toMatchObject({
+      threadId: "created-comment",
+      intent: "focus-only",
+    });
   });
 
   it("dismisses the Markdown comment action when clicking away", async () => {
@@ -841,7 +829,9 @@ describe("ArtifactPreview", () => {
         threadId: "comment-1",
         nonce: expect.any(Number),
         openCommentsTab: true,
+        intent: "reveal-thread",
       });
+      expect(scrollIntoView).not.toHaveBeenCalled();
     });
 
     it("scrolls to the anchor the list asks for", async () => {
@@ -1024,13 +1014,50 @@ describe("ArtifactPreview", () => {
         ],
       },
     ];
-    useQuery.mockReturnValue({
-      data: editablePreview(),
-      isLoading: false,
-      isError: false,
+    const currentPreview = editablePreview({
+      storage_path: "runs/1/report-v2.md",
     });
+    const olderPreview = editablePreview({
+      id: "artifact-0",
+      storage_path: "runs/1/report-v1.md",
+      uploaded_at: "2026-08-06T10:00:00Z",
+    });
+    let olderVersionLoaded = false;
+    useQuery.mockImplementation(
+      (options: {
+        queryKey: unknown[];
+        placeholderData?: (
+          previousData: unknown,
+          previousQuery: { queryKey: unknown[] },
+        ) => unknown;
+      }) => {
+        const isOlderVersion = options.queryKey.includes("artifact-0");
+        const data =
+          isOlderVersion && !olderVersionLoaded
+            ? options.placeholderData?.(currentPreview, {
+                queryKey: [
+                  "artifactPreview",
+                  "auth-1",
+                  "task-1",
+                  "report.md",
+                  "run-1",
+                  "artifact-1",
+                ],
+              })
+            : isOlderVersion
+              ? olderPreview
+              : currentPreview;
+        return {
+          data,
+          isLoading: data === undefined,
+          isError: false,
+          isPlaceholderData:
+            isOlderVersion && !olderVersionLoaded && data !== undefined,
+        };
+      },
+    );
 
-    render(
+    const { rerender } = render(
       <ArtifactPreview
         taskId="task-1"
         runId="run-1"
@@ -1040,16 +1067,40 @@ describe("ArtifactPreview", () => {
     );
 
     expect(screen.getByText("v2/2")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Edit" })).toBeInTheDocument();
     expect(
       screen.getByRole("button", { name: "Newer version" }),
     ).toHaveAttribute("aria-disabled", "true");
 
     fireEvent.click(screen.getByRole("button", { name: "Older version" }));
 
-    expect(screen.getByText("v1/2")).toBeInTheDocument();
+    expect(screen.getByText("v2/2")).toBeInTheDocument();
+    expect(screen.getByText("Report")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Edit" })).toBeNull();
     expect(
       screen.getByRole("button", { name: "Older version" }),
     ).toHaveAttribute("aria-disabled", "true");
+    expect(
+      screen.getByRole("button", { name: "Newer version" }),
+    ).toHaveAttribute("aria-disabled", "true");
+    expect(
+      screen.getByRole("button", { name: "Comment…" }),
+    ).toBeInTheDocument();
+
+    olderVersionLoaded = true;
+    rerender(
+      <ArtifactPreview
+        taskId="task-1"
+        runId="run-1"
+        artifactId="artifact-1"
+        name="report.md"
+      />,
+    );
+
+    expect(screen.getByText("v1/2")).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "Newer version" }),
+    ).not.toHaveAttribute("aria-disabled", "true");
     let lastCall = useQuery.mock.calls.at(-1)?.[0] as {
       queryKey: unknown[];
     };
@@ -1205,13 +1256,12 @@ describe("ArtifactPreview", () => {
     expect(document).toContain("posthog-artifact-comment-active");
     expect(document).not.toContain("ph-artifact-comment-outline");
     expect(document).toContain("<span>Comment</span>");
-    expect(document).toContain('var CHANNEL="test-channel"');
-    expect(document).toContain('d.type==="locate"');
-    expect(document).toContain('send("open-external",{href:link.href})');
-    expect(document).toContain('target.closest("a[href]")');
-    expect(document).toContain("scrollIntoView");
+    expect(document).toContain('channel: "test-channel"');
     expect(document).toContain("new MutationObserver");
+    expect(document).toContain("scrollIntoView");
     expect(document).toContain("state.renderTimer");
+    expect(document).toContain('send("selection-position"');
+    expect(document).not.toMatch(/__spreadValues|cov_\w+/);
     expect(document).toMatch(/script-src &#39;nonce-[^&]+&#39;/);
     expect(document).not.toContain(
       "script-src &#39;self&#39; &#39;unsafe-inline&#39;",

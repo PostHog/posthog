@@ -57,6 +57,8 @@ CapturePhEvent = Callable[..., object]
 # Limits per the CIMD specification
 CIMD_MAX_DOCUMENT_SIZE = 5 * 1024  # 5KB
 CIMD_FETCH_TIMEOUT_SECONDS = 5
+# Sized past the refresh task's 30s time_limit, so the sentinel outlives any task it gates.
+CIMD_REFRESH_PENDING_TTL_SECONDS = 60
 
 # Cache TTL bounds (seconds)
 CIMD_CACHE_DEFAULT_TTL = 3600  # 1 hour
@@ -915,8 +917,14 @@ def enqueue_cimd_refresh_if_stale(url: str) -> None:
     provisioning auth path) so document changes are picked up on the same TTL, instead
     of freezing the app's scopes and config at first registration.
     """
-    if not cache.get(_cache_key(url)):
-        refresh_cimd_metadata_task.delay(url)
+    if cache.get(_cache_key(url)):
+        return
+    # One pending refresh per URL: staleness is checked before any client authentication,
+    # so without this an unauthenticated burst against a public client_id would enqueue a
+    # task per request, each repeating the outbound fetch and database upsert.
+    if not cache.add(f"{_cache_key(url)}:refresh-pending", True, timeout=CIMD_REFRESH_PENDING_TTL_SECONDS):
+        return
+    refresh_cimd_metadata_task.delay(url)
 
 
 def get_application_by_client_id(client_id: str) -> OAuthApplication:

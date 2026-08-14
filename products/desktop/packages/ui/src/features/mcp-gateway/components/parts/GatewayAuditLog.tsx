@@ -6,10 +6,10 @@ import {
   AUDIT_DECISION_LABELS,
   formatAuditTime,
 } from "@posthog/core/mcp-gateway/gatewayServers";
+import { UserAvatar } from "@posthog/ui/features/auth/UserAvatar";
 import {
   gatewayUserName,
   RobotAvatar,
-  UserAvatar,
 } from "@posthog/ui/features/mcp-gateway/components/parts/avatars";
 import {
   AUDIT_PAGE_SIZE,
@@ -256,7 +256,7 @@ function AuditRow({ event }: { event: McpAuditEvent }) {
         {agent ? (
           <RobotAvatar size="sm" />
         ) : user ? (
-          <UserAvatar user={user} size="sm" />
+          <UserAvatar user={user} size="xs" />
         ) : null}
         <Text truncate className="text-xs">
           {agent

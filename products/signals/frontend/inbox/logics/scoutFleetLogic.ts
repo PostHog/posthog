@@ -4,20 +4,20 @@ import { router } from 'kea-router'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
-import api from 'lib/api'
 import { dayjs } from 'lib/dayjs'
 import { aiConsentLogic } from 'scenes/settings/organization/aiConsentLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
-import { OriginProduct } from 'products/posthog_ai/frontend/types/taskTypes'
 import {
+    signalsScoutChatTasksCreate,
     signalsScoutConfigDestroy,
     signalsScoutConfigList,
     signalsScoutConfigUpdate,
     signalsScoutMetadataGet,
     signalsScoutRunsFindingsSummary,
     signalsScoutRunsList,
+    signalsScoutRunsRecentPerScout,
 } from 'products/signals/frontend/generated/api'
 import type {
     FleetFindingsSummaryApi,
@@ -26,7 +26,6 @@ import type {
     SignalScoutConfigApi,
 } from 'products/signals/frontend/generated/api.schemas'
 import { llmSkillsNameArchiveCreate } from 'products/skills/frontend/generated/api'
-import { RunSourceEnumApi, TaskExecutionModeEnumApi } from 'products/tasks/frontend/generated/api.schemas'
 
 import {
     captureScoutAction,
@@ -43,9 +42,7 @@ import {
     isSettledRun,
     prettifyScoutSkillName,
     reconcileById,
-    SCOUT_AUTHOR_PROMPT,
-    SCOUT_FLEET_OVERVIEW_PROMPT,
-    SCOUT_RECENT_SIGNALS_PROMPT,
+    SCOUT_RUNS_PER_SCOUT,
     SCOUT_RUNS_WINDOW_HOURS,
     ScoutRollup,
     sortConfigsForDisplay,
@@ -55,13 +52,6 @@ import type { ScoutTagOption } from '../utils/scoutTags'
 
 type SignalScoutConfig = SignalScoutConfigApi
 type SignalScoutConfigUpdate = PatchedSignalScoutConfigUpdateApi
-
-// Which CTA a chat task came from, keyed off the templated prompt so the callers stay untouched.
-const SCOUT_CHAT_TYPES: Record<string, ScoutChatType> = {
-    [SCOUT_AUTHOR_PROMPT]: 'author_scout',
-    [SCOUT_FLEET_OVERVIEW_PROMPT]: 'fleet_overview',
-    [SCOUT_RECENT_SIGNALS_PROMPT]: 'recent_signals',
-}
 
 /**
  * One `Scout config changed` per field the request carried. A schedule switch patches both
@@ -88,10 +78,11 @@ function captureScoutConfigUpdates(
 // Fleet runs are refetched on a slow cadence so "running now" / recent emissions
 // stay live without hammering the capped runs endpoint (desktop: 60s).
 const RUNS_REFETCH_INTERVAL_MS = 60_000
-// The runs endpoint caps each page at 100 rows newest-first. To cover the whole
-// window we walk back page-by-page via a `date_to` cursor (the oldest run's
-// `started_at`, as the backend documents). MAX_RUNS_PAGES bounds the walk so a
-// pathologically busy fleet can't spin forever — hitting it flags the window truncated.
+// The findings feed's fixed lookback: the runs endpoint caps each page at 100 rows newest-first, so
+// covering the whole window means walking back page-by-page via a `date_to` cursor (the oldest run's
+// `started_at`, as the backend documents). MAX_RUNS_PAGES bounds the walk so a pathologically busy
+// fleet can't spin forever — hitting it flags the window truncated. Per-scout stats don't pay this:
+// `loadScoutRuns` gets each scout's last N runs from one ranked query.
 const RUNS_PAGE_LIMIT = 100
 const MAX_RUNS_PAGES = 15
 
@@ -119,12 +110,11 @@ export interface scoutFleetLogicValues {
     hideDisabled: boolean
     lastRunAt: string | null
     rollups: Map<string, ScoutRollup>
-    runningChatPrompt: string | null
+    runningChatType: ScoutChatType | null
     runsWindow: {
         complete: boolean
         runs: SignalScoutRunSummary[]
     }
-    runsWindowComplete: boolean
     runsWindowLoadedOnce: boolean
     runsWindowLoading: boolean
     scoutBannerMessage: string | null
@@ -132,6 +122,9 @@ export interface scoutFleetLogicValues {
     scoutConfigsLoading: boolean
     scoutMetadata: ScoutMetadataApi | null
     scoutMetadataLoading: boolean
+    scoutRuns: SignalScoutRunSummary[]
+    scoutRunsLoadedOnce: boolean
+    scoutRunsLoading: boolean
     scoutTagOptions: ScoutTagOption[]
     selectedScoutTags: string[]
     updatingScoutIds: string[]
@@ -212,12 +205,27 @@ export interface scoutFleetLogicActions {
         scoutMetadata: ScoutMetadataApi | null
         payload?: any
     }
+    loadScoutRuns: () => any
+    loadScoutRunsFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    loadScoutRunsSuccess: (
+        scoutRuns: SignalScoutRunSummary[],
+        payload?: any
+    ) => {
+        scoutRuns: SignalScoutRunSummary[]
+        payload?: any
+    }
     patchScoutConfigLocally: (
         configId: string,
-        updates: SignalScoutConfigUpdate
+        updates: Partial<SignalScoutConfig> | SignalScoutConfigUpdate
     ) => {
         configId: string
-        updates: PatchedSignalScoutConfigUpdateApi
+        updates: Partial<SignalScoutConfigApi> | PatchedSignalScoutConfigUpdateApi
     }
     removeScoutConfigLocally: (configId: string) => {
         configId: string
@@ -235,12 +243,10 @@ export interface scoutFleetLogicActions {
         value: true
     }
     startScoutChatTask: (
-        prompt: string,
-        taskLabel: string,
-        fallbackTitle: string
+        chatType: ScoutChatType,
+        taskLabel: string
     ) => {
-        fallbackTitle: string
-        prompt: string
+        chatType: ScoutChatType
         taskLabel: string
     }
     startScoutChatTaskFailure: () => {
@@ -272,7 +278,7 @@ export interface scoutFleetLogicMeta {
             dataProcessingApprovalDisabledReason: string | null
         ) => string | null
         scoutBannerMessage: (scoutMetadata: ScoutMetadataApi | null) => string | null
-        rollups: (runsWindow: { complete: boolean; runs: SignalScoutRunSummary[] }) => Map<string, ScoutRollup>
+        rollups: (scoutRuns: SignalScoutRunSummary[]) => Map<string, ScoutRollup>
         fleetSummary: (
             scoutConfigs: SignalScoutConfigApi[] | null,
             rollups: Map<string, ScoutRollup>
@@ -286,7 +292,6 @@ export interface scoutFleetLogicMeta {
             hideDisabled: boolean,
             activeScoutTags: string[]
         ) => SignalScoutConfig[]
-        runsWindowComplete: (runsWindow: { complete: boolean; runs: SignalScoutRunSummary[] }) => boolean
         emittedFindingsSummary: (fleetFindingsSummary: FleetFindingsSummaryApi | null) => {
             authoredReportCount: number
             count: number
@@ -323,7 +328,11 @@ export const scoutFleetLogic = kea<scoutFleetLogicType>([
     actions({
         updateScoutConfig: (configId: string, updates: SignalScoutConfigUpdate) => ({ configId, updates }),
         updateScoutConfigFinished: (configId: string) => ({ configId }),
-        patchScoutConfigLocally: (configId: string, updates: SignalScoutConfigUpdate) => ({ configId, updates }),
+        // A full server config doubles as a local patch when reconciling optimistic edits.
+        patchScoutConfigLocally: (configId: string, updates: SignalScoutConfigUpdate | Partial<SignalScoutConfig>) => ({
+            configId,
+            updates,
+        }),
         deleteScout: (configId: string) => ({ configId }),
         deleteScoutFinished: (configId: string) => ({ configId }),
         removeScoutConfigLocally: (configId: string) => ({ configId }),
@@ -334,10 +343,9 @@ export const scoutFleetLogic = kea<scoutFleetLogicType>([
         // (which only reads configs) doesn't trigger the paginated runs-window polling.
         startRunsPolling: true,
         stopRunsPolling: true,
-        startScoutChatTask: (prompt: string, taskLabel: string, fallbackTitle: string) => ({
-            prompt,
+        startScoutChatTask: (chatType: ScoutChatType, taskLabel: string) => ({
+            chatType,
             taskLabel,
-            fallbackTitle,
         }),
         startScoutChatTaskSuccess: true,
         startScoutChatTaskFailure: true,
@@ -384,6 +392,28 @@ export const scoutFleetLogic = kea<scoutFleetLogicType>([
                         return null
                     }
                     return await signalsScoutRunsFindingsSummary(String(teamId))
+                },
+            },
+        ],
+        // Each scout's most recent runs — what every per-scout stat (rollups, run history, fleet
+        // success/emit rate) is computed over. One ranked query, so no page walk and no truncation:
+        // the response is bounded by the fleet size, not by how often the fleet runs.
+        scoutRuns: [
+            [] as SignalScoutRunSummary[],
+            {
+                loadScoutRuns: async () => {
+                    const teamId = teamLogic.values.currentTeamId
+                    if (!teamId) {
+                        return values.scoutRuns
+                    }
+                    const runs = await signalsScoutRunsRecentPerScout(String(teamId), {
+                        per_scout_limit: SCOUT_RUNS_PER_SCOUT,
+                    })
+                    // Reuse prior references for unchanged runs so the 60s poll doesn't churn every
+                    // run's identity and needlessly re-render the memoized run/emission rows. Live
+                    // (running/queued) runs are never reused: their rows show a wall-clock duration
+                    // that must keep advancing with each poll.
+                    return reconcileById(values.scoutRuns, runs, (run) => run.run_id, isSettledRun)
                 },
             },
         ],
@@ -450,12 +480,12 @@ export const scoutFleetLogic = kea<scoutFleetLogicType>([
     })),
 
     reducers({
-        // Tracks which CTA's chat-task kickoff is mid-flight, keyed by its prompt, so only the
+        // Tracks which CTA's chat-task kickoff is mid-flight, keyed by its chat type, so only the
         // pressed chip spins (the others merely disable). A shared boolean spun all three at once.
-        runningChatPrompt: [
-            null as string | null,
+        runningChatType: [
+            null as ScoutChatType | null,
             {
-                startScoutChatTask: (_, { prompt }) => prompt,
+                startScoutChatTask: (_, { chatType }) => chatType,
                 startScoutChatTaskSuccess: () => null,
                 startScoutChatTaskFailure: () => null,
             },
@@ -518,6 +548,15 @@ export const scoutFleetLogic = kea<scoutFleetLogicType>([
                 loadRunsWindowSuccess: () => true,
             },
         ],
+        // Same "loaded once, never on failure" contract as `runsWindowLoadedOnce`, for the per-scout
+        // surfaces: it's what lets the scout detail sections tell "not loaded yet" from "loaded,
+        // genuinely empty" without flashing a skeleton on every poll.
+        scoutRunsLoadedOnce: [
+            false,
+            {
+                loadScoutRunsSuccess: () => true,
+            },
+        ],
         // Flips true once the cheap findings summary lands, so the callout can tell "not loaded yet"
         // from "loaded, genuinely zero" without the full runs window. Like `runsWindowLoadedOnce`,
         // deliberately NOT set on failure: a failed load keeps the callout hidden, not falsely empty.
@@ -541,9 +580,8 @@ export const scoutFleetLogic = kea<scoutFleetLogicType>([
             (scoutMetadata: ScoutMetadataApi | null): string | null => scoutMetadata?.banner_message ?? null,
         ],
         rollups: [
-            (s) => [s.runsWindow],
-            (runsWindow: { complete: boolean; runs: SignalScoutRunSummary[] }): Map<string, ScoutRollup> =>
-                computeScoutRollups(runsWindow.runs),
+            (s) => [s.scoutRuns],
+            (scoutRuns: SignalScoutRunSummary[]): Map<string, ScoutRollup> => computeScoutRollups(scoutRuns),
         ],
         fleetSummary: [
             (s) => [s.scoutConfigs, s.rollups],
@@ -589,10 +627,6 @@ export const scoutFleetLogic = kea<scoutFleetLogicType>([
                 }
                 return sorted.filter((config) => configMatchesScoutTags(config, activeScoutTags))
             },
-        ],
-        runsWindowComplete: [
-            (s) => [s.runsWindow],
-            (runsWindow: { complete: boolean; runs: SignalScoutRunSummary[] }): boolean => runsWindow.complete,
         ],
         // Fleet-wide output tally for the "Scout findings" callout, read from the cheap backend
         // summary rather than the paginated runs window. Covers both emit channels — legacy findings
@@ -777,50 +811,29 @@ export const scoutFleetLogic = kea<scoutFleetLogicType>([
                 actions.deleteScoutFinished(configId)
             }
         },
-        startScoutChatTask: async ({ prompt, fallbackTitle, taskLabel }) => {
-            // Task-kickoff, mirroring inboxTaskKickoffLogic: create an auto-mode cloud
-            // task from a templated prompt, then navigate to it. Not a live chat.
+        startScoutChatTask: async ({ chatType, taskLabel }) => {
+            // Task-kickoff, mirroring inboxTaskKickoffLogic: start a cloud task from a fixed
+            // template, then navigate to it. Not a live chat.
             // The CTAs carry this as a `disabledReason`; this backstops the paths that don't go
-            // through a button press, since the run endpoint enforces no consent of its own.
+            // through a button press, since the endpoint enforces no consent of its own.
             if (values.aiConsentDisabledReason) {
                 lemonToast.error(values.aiConsentDisabledReason)
                 actions.startScoutChatTaskFailure()
                 return
             }
-            const chatType = SCOUT_CHAT_TYPES[prompt]
-            if (chatType) {
-                captureScoutChatStarted({ chatType, surface: 'fleet_list' })
+            captureScoutChatStarted({ chatType, surface: 'fleet_list' })
+            const teamId = teamLogic.values.currentTeamId
+            if (!teamId) {
+                actions.startScoutChatTaskFailure()
+                return
             }
             try {
-                // Deliberately repo-less: these prompts read PostHog data over MCP and never touch
-                // code, while `tasks/repositories/` would hand back whichever repo sorts first across
-                // the team's visible tasks. A SIGNAL_REPORT task clones with full history (for git
-                // blame), so pinning an arbitrary repo would clone it in full for nothing.
-                const task = await api.tasks.create({
-                    title: fallbackTitle,
-                    description: prompt,
-                    origin_product: OriginProduct.SIGNAL_REPORT,
-                })
-                // Creating the task alone lands the user on a "This task hasn't been run yet" screen,
-                // so kick off the run too (same as inboxTaskKickoffLogic). Interactive, not background:
-                // the agent-server only relays approval prompts to the client on non-background runs.
-                try {
-                    await api.tasks.run(task.id, {
-                        run_source: RunSourceEnumApi.Manual,
-                        mode: TaskExecutionModeEnumApi.Interactive,
-                        // The agent-server self-delivers `pending_user_message` from run state on boot,
-                        // and interactive runs skip the workflow's forwarding path. Nothing falls back to
-                        // the task description on the ACP runtime, so without this the sandbox boots with
-                        // no first turn and the run just idles.
-                        pending_user_message: prompt,
-                    })
-                } catch (error: any) {
-                    // The task exists and its page has a Run button, so strand nobody — say what
-                    // failed and still navigate there.
-                    lemonToast.error(error?.detail || error?.message || `Failed to run ${taskLabel}`)
-                }
+                // The server owns the prompt template, creates the task repo-less with the
+                // reserved signals_chat origin (which exempts it from the Desktop access gate
+                // on the task run endpoints) and starts its interactive run in one call.
+                const task = await signalsScoutChatTasksCreate(String(teamId), { chat_type: chatType })
                 actions.startScoutChatTaskSuccess()
-                router.actions.push(urls.taskDetail(task.id))
+                router.actions.push(urls.taskDetail(task.task_id))
             } catch (error: any) {
                 lemonToast.error(error?.detail || error?.message || `Failed to start ${taskLabel}`)
                 actions.startScoutChatTaskFailure()
@@ -830,13 +843,14 @@ export const scoutFleetLogic = kea<scoutFleetLogicType>([
             // Fetch once immediately, then a slow poll keeps "running now" + recent emissions
             // fresh. The keyed disposable replaces any prior poll and is torn down on
             // stopRunsPolling / unmount / tab hide. The cheap findings summary rides the same
-            // cadence so the "Scout findings" callout fills in on its own fast query rather than
-            // waiting on the paginated runs-window walk.
-            actions.loadRunsWindow()
+            // cadence so the "Scout findings" callout fills in on its own fast query. The fleet
+            // list needs only the per-scout runs; the paginated window is the findings page's own
+            // source and is polled there.
+            actions.loadScoutRuns()
             actions.loadFleetFindingsSummary()
             cache.disposables.add(() => {
                 const interval = setInterval(() => {
-                    actions.loadRunsWindow()
+                    actions.loadScoutRuns()
                     actions.loadFleetFindingsSummary()
                 }, RUNS_REFETCH_INTERVAL_MS)
                 return () => clearInterval(interval)

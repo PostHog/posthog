@@ -2,6 +2,11 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.can
     CanonicalDescriptions,
     CanonicalEndpoint,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.google_search_console.settings import (
+    NON_WEB_SEARCH_TYPES,
+    SEARCH_ANALYTICS_SCHEMAS,
+    qualified_schema_name,
+)
 
 _SEARCH_ANALYTICS_DOCS_URL = "https://developers.google.com/webmaster-tools/v1/searchanalytics/query"
 _SITES_DOCS_URL = "https://developers.google.com/webmaster-tools/v1/sites/list"
@@ -19,12 +24,19 @@ _DATE_COLUMN = {
     "date": "The day the metrics were recorded, in Pacific time (UTC-7:00/8:00).",
 }
 
+_SEARCH_TYPE_COLUMN = {
+    "search_type": (
+        "The search result type these rows come from: web, image, video, or news. "
+        "Constant within a table, and null for rows imported before this column existed."
+    ),
+}
+
 
 def _search_analytics(description: str, **dimensions: str) -> CanonicalEndpoint:
     return {
         "description": description,
         "docs_url": _SEARCH_ANALYTICS_DOCS_URL,
-        "columns": {**_DATE_COLUMN, **dimensions, **_METRIC_COLUMNS},
+        "columns": {**_DATE_COLUMN, **dimensions, **_METRIC_COLUMNS, **_SEARCH_TYPE_COLUMN},
     }
 
 
@@ -33,7 +45,7 @@ _PAGE_COLUMN = "The canonical URL of the result page the user saw."
 _COUNTRY_COLUMN = "Country the search was made from, as a three-letter ISO 3166-1 alpha-3 code."
 _DEVICE_COLUMN = "Device the search was made on: DESKTOP, MOBILE, or TABLET."
 
-CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
+_BASE_DESCRIPTIONS: CanonicalDescriptions = {
     "search_analytics_by_date": _search_analytics("Daily search performance totals for the property."),
     "search_analytics_by_query": _search_analytics(
         "Daily search performance for the property, grouped by search query.",
@@ -55,6 +67,26 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
         "Daily search performance for the property, grouped by country and device together.",
         country=_COUNTRY_COLUMN,
         device=_DEVICE_COLUMN,
+    ),
+    "search_analytics_by_page_device": _search_analytics(
+        "Daily search performance for the property, grouped by landing page and device together.",
+        page=_PAGE_COLUMN,
+        device=_DEVICE_COLUMN,
+    ),
+    "search_analytics_by_page_country": _search_analytics(
+        "Daily search performance for the property, grouped by landing page and the searcher's country.",
+        page=_PAGE_COLUMN,
+        country=_COUNTRY_COLUMN,
+    ),
+    "search_analytics_by_query_device": _search_analytics(
+        "Daily search performance for the property, grouped by search query and device together.",
+        query=_QUERY_COLUMN,
+        device=_DEVICE_COLUMN,
+    ),
+    "search_analytics_by_query_country": _search_analytics(
+        "Daily search performance for the property, grouped by search query and the searcher's country.",
+        query=_QUERY_COLUMN,
+        country=_COUNTRY_COLUMN,
     ),
     "search_analytics_by_query_page": _search_analytics(
         "Daily search performance for the property, grouped by search query and landing page.",
@@ -99,5 +131,20 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "type": "The content type, for example WEB, IMAGE, VIDEO, or NEWS.",
             "submitted": "Number of URLs of this content type in the sitemap.",
         },
+    },
+}
+
+# Non-web search types reuse their base table's documentation, so a new dimension combo only
+# has to be described once above.
+CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
+    **_BASE_DESCRIPTIONS,
+    **{
+        qualified_schema_name(base_name, search_type): {
+            **endpoint,
+            "description": f"{endpoint['description']} Restricted to {search_type} search results.",
+        }
+        for search_type in NON_WEB_SEARCH_TYPES
+        for base_name, endpoint in _BASE_DESCRIPTIONS.items()
+        if base_name in SEARCH_ANALYTICS_SCHEMAS and not SEARCH_ANALYTICS_SCHEMAS[base_name].get("web_only")
     },
 }

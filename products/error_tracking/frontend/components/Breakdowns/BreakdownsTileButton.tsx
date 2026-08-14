@@ -1,8 +1,9 @@
 import { useActions, useValues } from 'kea'
 import posthog from 'posthog-js'
 
-import { LemonSkeleton, Tooltip } from '@posthog/lemon-ui'
+import { Tooltip } from '@posthog/lemon-ui'
 
+import { Skeleton } from 'lib/ui/quill'
 import { cn } from 'lib/utils/css-classes'
 import { BREAKDOWN_NULL_STRING_LABEL } from 'scenes/insights/utils'
 
@@ -68,7 +69,9 @@ function BreakdownPreview({ title, property }: { title: string; property: string
                     </Tooltip>
                 ) : responseLoading ? (
                     <div className="h-4 flex items-center justify-center">
-                        <LemonSkeleton />
+                        <Skeleton className="h-4 w-full">
+                            <span>Loading…</span>
+                        </Skeleton>
                     </div>
                 ) : properties.length === 0 || hasOnlyNullBreakdown ? (
                     <div className="text-muted text-xs h-4 flex items-center justify-center">No data</div>

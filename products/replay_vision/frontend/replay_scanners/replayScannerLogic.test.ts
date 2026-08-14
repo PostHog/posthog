@@ -8,7 +8,7 @@ import { urls } from 'scenes/urls'
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
-import { parseCsvParam, parseSortParam } from '../utils/urlParams'
+import { parseCsvParam, parseNumericParam, parseSortParam } from '../utils/urlParams'
 import {
     buildObservationListParams,
     ObservationStatusValue,
@@ -33,12 +33,14 @@ describe('replayScannerLogic', () => {
     let retrySpy: jest.Mock
     let suggestSpy: jest.Mock
     let createSpy: jest.Mock
+    let draftSpy: jest.Mock
 
     beforeEach(() => {
         observeSpy = jest.fn(() => [202, { workflow_id: 'wf-test' }])
         retrySpy = jest.fn(() => [202, { workflow_id: 'wf-retry' }])
         suggestSpy = jest.fn(() => [200, { suggestions: [] }])
         createSpy = jest.fn(() => [201, { id: 'created-scanner' }])
+        draftSpy = jest.fn(() => [200, {}])
         useMocks({
             get: {
                 '/api/projects/:team/vision/scanners/:id/': () => [404, {}],
@@ -54,6 +56,7 @@ describe('replayScannerLogic', () => {
                 '/api/projects/:team/vision/scanners/:id/observe/': observeSpy,
                 '/api/projects/:team/vision/observations/:id/retry/': retrySpy,
                 '/api/projects/:team/vision/scanners/suggest_tags/': suggestSpy,
+                '/api/projects/:team/vision/scanners/draft/': draftSpy,
             },
         })
         // The draft layer persists form edits to localStorage; without a reset, one test's edits
@@ -94,6 +97,82 @@ describe('replayScannerLogic', () => {
                     scanner_config: template.scanner_config,
                 }),
             })
+        })
+    })
+
+    describe('draftScannerFromGoal', () => {
+        // The box renders on the editor's template step and on the zero-scanner empty state.
+        it.each([
+            ['the template step', urls.replayVisionScannerTemplate('new')],
+            ['the empty scanner list', urls.replayVision()],
+        ])('seeds the form from the AI draft and routes to the configure step from %s', async (_origin, path) => {
+            const draft = {
+                name: 'User intent',
+                description: 'Tags each session by intent.',
+                scanner_type: 'classifier',
+                scanner_config: { prompt: 'Classify the session by intent.', tags: ['browsing'], multi_label: false },
+                rationale: 'A classifier fits because you want the mix of visit intents.',
+                query: {
+                    kind: 'RecordingsQuery',
+                    events: [{ type: 'events', id: 'signed_up', name: 'signed_up', order: 0 }],
+                },
+            }
+            draftSpy.mockReturnValue([200, draft])
+            router.actions.push(path)
+            logic.actions.setGoalDraftInput('understand what users come here to do')
+
+            await expectLogic(logic, () =>
+                logic.actions.draftScannerFromGoal('understand what users come here to do')
+            ).toFinishAllListeners()
+
+            expect(draftSpy).toHaveBeenCalled()
+            expect(logic.values.goalDraftInput).toEqual('')
+            expect(logic.values.scanner).toMatchObject({
+                name: draft.name,
+                description: draft.description,
+                scanner_type: draft.scanner_type,
+                scanner_config: draft.scanner_config,
+                query: draft.query,
+            })
+            // The test router prefixes paths with /project/:id, so match on the suffix.
+            expect(router.values.location.pathname).toContain(urls.replayVisionScannerConfigure('new'))
+
+            // The rationale stays available for the configure step, until a template pick replaces the draft.
+            expect(logic.values.goalDraft?.rationale).toEqual(draft.rationale)
+            logic.actions.startFromTemplate(null)
+            expect(logic.values.goalDraft).toBeNull()
+        })
+
+        it('drops a stale draft when the user has left the template step mid-request', async () => {
+            draftSpy.mockReturnValue([
+                200,
+                { name: 'Stale', description: '', scanner_type: 'classifier', scanner_config: { prompt: 'x' } },
+            ])
+            router.actions.push(urls.replayVisionScannerTemplate('new'))
+            // Simulate picking a template while the model call is still in flight.
+            logic.actions.setScannerValue('name', 'My template pick')
+            router.actions.push(urls.replayVisionScannerConfigure('new'))
+            const pathBefore = router.values.location.pathname
+
+            await expectLogic(logic, () =>
+                logic.actions.draftScannerFromGoal('understand what users come here to do')
+            ).toFinishAllListeners()
+
+            expect(logic.values.scanner).toMatchObject({ name: 'My template pick', scanner_type: 'monitor' })
+            expect(router.values.location.pathname).toEqual(pathBefore)
+        })
+
+        it('keeps the form untouched when drafting fails', async () => {
+            draftSpy.mockReturnValue([503, { detail: 'model down' }])
+            const pathBefore = router.values.location.pathname
+
+            await expectLogic(logic, () => logic.actions.draftScannerFromGoal('find rage clicks'))
+                .toDispatchActions(['draftScannerFromGoalFailure'])
+                .toFinishAllListeners()
+
+            expect(logic.values.goalDraft).toBeNull()
+            expect(logic.values.scanner).toMatchObject({ name: '', scanner_type: 'monitor' })
+            expect(router.values.location.pathname).toEqual(pathBefore)
         })
     })
 
@@ -279,6 +358,21 @@ describe('replayScannerLogic', () => {
             expect(createSpy).not.toHaveBeenCalled()
             expect(router.values.location.pathname).toContain('/replay-vision/new/configure')
         })
+
+        it('submitting the final step creates the scanner, lands on it, and announces the first scan', async () => {
+            const success = jest.spyOn(lemonToast, 'success')
+            router.actions.push('/replay-vision/new/self-driving')
+            scannerEditorSceneLogic.actions.setStep('self_driving')
+            logic.actions.setScannerValues({ name: 'Test scanner', scanner_config: { prompt: 'Q?' } })
+            await expectLogic(logic, () => logic.actions.submitScanner()).toFinishAllListeners()
+            expect(createSpy).toHaveBeenCalledTimes(1)
+            expect(router.values.location.pathname).toContain('/replay-vision/created-scanner')
+            // The toast must tell the same story as the Overview's first-scan pending panel.
+            expect(success).toHaveBeenCalledWith(
+                'Scanner created. First scan in progress.',
+                expect.objectContaining({ button: expect.objectContaining({ label: 'Scan a recording now' }) })
+            )
+        })
     })
 
     describe('new scanner draft', () => {
@@ -294,6 +388,18 @@ describe('replayScannerLogic', () => {
             await expectLogic(logic).toFinishAllListeners()
             expect(logic.values.scanner?.name).toBe('Half done')
             expect(logic.values.hasUnsavedChanges).toBe(true)
+        })
+
+        it('restores an on-but-empty credit limit across a remount, so the save stays blocked', async () => {
+            logic.actions.setScannerValues({ credit_limit_enabled: true, credit_limit: null })
+            logic.unmount()
+            logic = replayScannerLogic({ id: 'new' })
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+            expect(logic.values.creditLimitState).toMatchObject({ limit: null, isOn: true })
+            expect(logic.values.scannerValidationErrors).toMatchObject({
+                credit_limit: 'Enter a credit limit, or turn the limit off',
+            })
         })
 
         it.each([
@@ -319,6 +425,27 @@ describe('replayScannerLogic', () => {
             const teamId = teamLogic.values.currentTeamId!
             logic.actions.setScannerValues({ name: 'Drafted' })
             logic.actions.resetScanner()
+            expect(readScannerDraft(teamId)?.scanner.name).toBe('Drafted')
+        })
+
+        it('preserves an existing draft when the wizard is entered from an experiment deep link', async () => {
+            // A deep link prefills a fresh scanner but must not wipe the draft the user already has;
+            // the prefill runs under restoringDraft so persistDraft can't clear it.
+            useMocks({
+                get: {
+                    '/api/projects/:team/experiments/:id/': () => [200, { id: 7, name: 'Checkout redesign' }],
+                },
+            })
+            const teamId = teamLogic.values.currentTeamId!
+            logic.actions.setScannerValues({ name: 'Drafted' })
+            expect(readScannerDraft(teamId)?.scanner.name).toBe('Drafted')
+            logic.unmount()
+
+            router.actions.push(urls.replayVisionScannerConfigure('new'), { experiment: '7' })
+            logic = replayScannerLogic({ id: 'new' })
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+
             expect(readScannerDraft(teamId)?.scanner.name).toBe('Drafted')
         })
 
@@ -400,6 +527,26 @@ describe('replayScannerLogic', () => {
                 name: 'flags sampling rate outside (0, 1]',
                 setup: () => logic.actions.setScannerValues({ sampling_rate: 0 }),
                 expectedErrors: { sampling_rate: expect.any(String) },
+            },
+            {
+                name: 'flags a zero credit limit, which would silently stop the scanner forever',
+                setup: () => logic.actions.setScannerValues({ credit_limit: 0 }),
+                expectedErrors: { credit_limit: expect.any(String) },
+            },
+            {
+                name: 'flags a negative credit limit',
+                setup: () => logic.actions.setScannerValues({ credit_limit: -10 }),
+                expectedErrors: { credit_limit: expect.any(String) },
+            },
+            {
+                name: 'flags a credit limit above the API int4 bound, which the server would reject',
+                setup: () => logic.actions.setScannerValues({ credit_limit: 2147483648 }),
+                expectedErrors: { credit_limit: expect.any(String) },
+            },
+            {
+                name: 'flags the limit toggled on but left empty, so it cannot silently save as unlimited',
+                setup: () => logic.actions.setScannerValues({ credit_limit_enabled: true, credit_limit: null }),
+                expectedErrors: { credit_limit: expect.any(String) },
             },
             {
                 name: 'flags scorer scale when min >= max',
@@ -501,6 +648,141 @@ describe('replayScannerLogic', () => {
                 isScannerValid: true,
             })
         })
+
+        // 2147483647 is the API's int4 bound, the highest value the server accepts.
+        it.each([null, 1, 500, 2147483647])(
+            'accepts a credit limit of %p, including the unlimited default',
+            async (limit) => {
+                logic.actions.setScannerValues({ credit_limit: limit })
+                await expectLogic(logic).toMatchValues({
+                    scannerValidationErrors: expect.objectContaining({ credit_limit: undefined }),
+                })
+            }
+        )
+    })
+
+    describe('creditLimitState', () => {
+        const estimate = (perMonth: number | null, perObservation = 15): void => {
+            logic.actions.loadScannerEstimateSuccess({
+                estimated_credits_per_month: perMonth,
+                credits_per_observation: perObservation,
+            } as any)
+        }
+
+        it('decodes null as limit off', async () => {
+            logic.actions.setScannerValues({ credit_limit: null })
+            await expectLogic(logic).toMatchValues({
+                creditLimitState: expect.objectContaining({ limit: null, isOn: false }),
+            })
+        })
+
+        it('keeps the toggle on while the amount is still empty, which blocks the save', async () => {
+            logic.actions.setScannerValues({ credit_limit_enabled: true, credit_limit: null })
+            await expectLogic(logic).toMatchValues({
+                creditLimitState: expect.objectContaining({ limit: null, isOn: true }),
+            })
+        })
+
+        it('derives the toggle for scanners that never carried the form-only field', async () => {
+            // API-loaded scanners have no credit_limit_enabled; a set limit must still present as on.
+            logic.actions.setScannerValues({ credit_limit_enabled: undefined, credit_limit: 250 })
+            await expectLogic(logic).toMatchValues({
+                creditLimitState: expect.objectContaining({ limit: 250, isOn: true }),
+            })
+        })
+
+        it('seeds the field with double the forecast when one exists', async () => {
+            estimate(100)
+            await expectLogic(logic).toMatchValues({
+                creditLimitState: expect.objectContaining({ seedValue: 200 }),
+            })
+        })
+
+        it('seeds at least one credit for a tiny but non-zero forecast', async () => {
+            estimate(0.3)
+            await expectLogic(logic).toMatchValues({
+                creditLimitState: expect.objectContaining({ seedValue: 1 }),
+            })
+        })
+
+        it.each([
+            ['no estimate', null],
+            ['a zero estimate, which must not seed a 1-credit cap', 0],
+        ])('leaves the field empty with %s', async (_name, perMonth) => {
+            estimate(perMonth as number | null)
+            await expectLogic(logic).toMatchValues({
+                creditLimitState: expect.objectContaining({ seedValue: null }),
+            })
+        })
+
+        it('flags a limit below the forecast and one below a single scan', async () => {
+            estimate(100, 15)
+            logic.actions.setScannerValues({ credit_limit_enabled: true, credit_limit: 10 })
+            await expectLogic(logic).toMatchValues({
+                creditLimitState: expect.objectContaining({
+                    limit: 10,
+                    isOn: true,
+                    isBelowEstimate: true,
+                    cannotAffordOneScan: true,
+                }),
+            })
+        })
+    })
+
+    describe('credit limit on a loaded scanner', () => {
+        // API scanners never carry the form-only credit_limit_enabled field.
+        const loadedScanner = {
+            id: 'limited-1',
+            name: 'Limited scanner',
+            enabled: true,
+            scanner_type: 'monitor',
+            scanner_config: { prompt: 'Anything odd?' },
+            sampling_rate: 1,
+            credit_limit: 500,
+        }
+        let editLogic: ReturnType<typeof replayScannerLogic.build>
+
+        beforeEach(() => {
+            useMocks({
+                get: { '/api/projects/:team/vision/scanners/:id/': () => [200, loadedScanner] },
+            })
+            editLogic = replayScannerLogic({ id: 'limited-1' })
+            editLogic.mount()
+        })
+
+        afterEach(() => {
+            editLogic?.unmount()
+        })
+
+        it('blocks the save when the amount is cleared, instead of silently saving as unlimited', async () => {
+            await expectLogic(editLogic, () => editLogic.actions.loadScanner()).toFinishAllListeners()
+            expect(editLogic.values.scanner.credit_limit_enabled).toBe(true)
+            // A bare amount clear, without the toggle write the editor card sends alongside it.
+            editLogic.actions.setScannerValues({ credit_limit: null })
+            await expectLogic(editLogic).toMatchValues({
+                creditLimitState: expect.objectContaining({ limit: null, isOn: true }),
+                scannerValidationErrors: expect.objectContaining({
+                    credit_limit: 'Enter a credit limit, or turn the limit off',
+                }),
+            })
+        })
+
+        it('strips the form-only toggle from the update payload', async () => {
+            let patchedBody: any
+            useMocks({
+                patch: {
+                    '/api/projects/:team/vision/scanners/:id/': async ({ request }: { request: Request }) => {
+                        patchedBody = await request.json()
+                        return [200, loadedScanner]
+                    },
+                },
+            })
+            await expectLogic(editLogic, () => editLogic.actions.loadScanner()).toFinishAllListeners()
+            editLogic.actions.setScannerValues({ credit_limit_enabled: true, credit_limit: 100 })
+            await expectLogic(editLogic, () => editLogic.actions.submitScanner()).toDispatchActions(['scannerSaved'])
+            expect(patchedBody.credit_limit).toBe(100)
+            expect(patchedBody).not.toHaveProperty('credit_limit_enabled')
+        })
     })
 
     describe('buildObservationListParams', () => {
@@ -512,15 +794,24 @@ describe('replayScannerLogic', () => {
             observationTriggeredByFilter: [] as ObservationTriggeredByValue[],
             observationVerdictFilter: [] as ObservationVerdictValue[],
             observationTagFilter: [] as string[],
+            observationMinScoreFilter: null as number | null,
+            observationMaxScoreFilter: null as number | null,
             observationSubjectFilter: '',
             observationDateFrom: null as string | null,
             observationDateTo: null as string | null,
+            observationBackfillFilter: null as string | null,
             observationsSort: null,
             scanner: null,
         }
 
         it('returns empty params when no filters, sort, or pagination', () => {
             expect(buildObservationListParams({ ...emptyValues })).toEqual({})
+        })
+
+        it('passes the backfill filter as backfill_id', () => {
+            expect(buildObservationListParams({ ...emptyValues, observationBackfillFilter: 'bf-1' })).toEqual({
+                backfill_id: 'bf-1',
+            })
         })
 
         it('passes limit and offset only when offset is positive', () => {
@@ -540,6 +831,19 @@ describe('replayScannerLogic', () => {
             expect(params.triggered_by).toBe('on_demand')
             expect(params.verdict).toBe('yes,inconclusive')
             expect(params.tags).toBe('onboarding,support')
+        })
+
+        it('passes score bounds only when set, including a zero bound', () => {
+            expect(buildObservationListParams({ ...emptyValues, observationMinScoreFilter: 7 })).toEqual({
+                min_score: 7,
+            })
+            expect(
+                buildObservationListParams({
+                    ...emptyValues,
+                    observationMinScoreFilter: 0,
+                    observationMaxScoreFilter: 3.5,
+                })
+            ).toEqual({ min_score: 0, max_score: 3.5 })
         })
 
         it('passes date range only when set', () => {
@@ -637,6 +941,21 @@ describe('replayScannerLogic', () => {
         })
     })
 
+    describe('parseNumericParam', () => {
+        it.each([
+            [undefined, null],
+            // Number('') is 0, so an absent bound must be rejected before the cast.
+            ['', null],
+            ['   ', null],
+            ['abc', null],
+            ['0', 0],
+            ['3.5', 3.5],
+            [7, 7],
+        ])('parses %p as %p', (input, expected) => {
+            expect(parseNumericParam(input)).toBe(expected)
+        })
+    })
+
     describe('observationsPage / sort URL sync', () => {
         let scannedLogic: ReturnType<typeof replayScannerLogic.build>
 
@@ -704,6 +1023,19 @@ describe('replayScannerLogic', () => {
             expect(String(router.values.searchParams.page)).toBe('3')
         })
 
+        it('round-trips score bounds through the URL without swapping min and max', async () => {
+            await expectLogic(scannedLogic, () => {
+                scannedLogic.actions.setObservationScoreRange(3, 8)
+            }).toFinishAllListeners()
+            expect(String(router.values.searchParams.min_score)).toBe('3')
+            expect(String(router.values.searchParams.max_score)).toBe('8')
+
+            router.actions.push(urls.replayVision('sid'), { min_score: 7, max_score: 9 })
+            await expectLogic(scannedLogic).toFinishAllListeners()
+            expect(scannedLogic.values.observationMinScoreFilter).toBe(7)
+            expect(scannedLogic.values.observationMaxScoreFilter).toBe(9)
+        })
+
         it('drops default state from the URL', async () => {
             await expectLogic(scannedLogic, () => {
                 scannedLogic.actions.setObservationsPage(1)
@@ -737,6 +1069,23 @@ describe('replayScannerLogic', () => {
             await expectLogic(logic, () => logic.actions.setScannerValues({ name: 'Edited' })).toMatchValues({
                 hasUnsavedChanges: true,
             })
+        })
+    })
+
+    describe('scannerWatermarkRefreshed', () => {
+        // Guards the background watermark refresh against regressing to the full loadScannerSuccess
+        // path, which resets the form from the server and refires the observation loads.
+        it('advances the sweep watermark without resetting form edits or reloading observations', async () => {
+            logic.actions.loadScannerSuccess({ ...logic.values.scanner!, id: 'abc', name: 'Loaded' })
+            logic.actions.setScannerValues({ name: 'Edited' })
+
+            const refreshed = { ...logic.values.scanner!, name: 'Loaded', last_swept_at: '2026-08-13T10:00:00Z' }
+            // toDispatchActions moves the history pointer past the setup's own setScannerValues first.
+            await expectLogic(logic, () => logic.actions.scannerWatermarkRefreshed(refreshed))
+                .toDispatchActions(['scannerWatermarkRefreshed'])
+                .toNotHaveDispatchedActions(['setScannerValues', 'loadObservations', 'loadObservationStats'])
+            expect(logic.values.scanner?.name).toBe('Edited')
+            expect(logic.values.scanner?.last_swept_at).toBe('2026-08-13T10:00:00Z')
         })
     })
 
