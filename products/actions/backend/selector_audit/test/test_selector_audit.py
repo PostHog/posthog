@@ -61,6 +61,11 @@ def _noop_log(_message: str) -> None:
     pass
 
 
+def _steps(action: Action) -> list[dict[str, Any]]:
+    assert action.steps_json is not None
+    return action.steps_json
+
+
 def make_row(**overrides: Any) -> dict[str, Any]:
     row: dict[str, Any] = {
         "team_id": 1,
@@ -342,7 +347,7 @@ class TestApplyRewrites(BaseTest):
 
         assert summary == {"applied": 0, "skipped": 0, "planned": 1}
         action.refresh_from_db()
-        assert action.steps_json[0]["selector"] == '[id="root"] > span'
+        assert _steps(action)[0]["selector"] == '[id="root"] > span'
         assert ActivityLog.objects.filter(scope="Action", item_id=str(action.pk)).count() == logs_before
 
     def test_live_run_rewrites_and_logs_activity(self) -> None:
@@ -353,8 +358,8 @@ class TestApplyRewrites(BaseTest):
 
         assert summary == {"applied": 1, "skipped": 0, "planned": 0}
         action.refresh_from_db()
-        assert action.steps_json[0]["selector"] == '[id="root"] span'
-        assert action.steps_json[1] == {"event": "$pageview"}
+        assert _steps(action)[0]["selector"] == '[id="root"] span'
+        assert _steps(action)[1] == {"event": "$pageview"}
         assert row["applied_at"] is not None
         assert ActivityLog.objects.filter(scope="Action", item_id=str(action.pk), activity="updated").exists()
 
@@ -364,14 +369,14 @@ class TestApplyRewrites(BaseTest):
     def test_drifted_selector_is_skipped(self) -> None:
         action = self._make_action()
         row = self._safe_row(action)
-        action.steps_json[0]["selector"] = ".changed-by-user"
+        _steps(action)[0]["selector"] = ".changed-by-user"
         action.save()
 
         summary = apply_rewrites([row], frozenset({BUCKET_SAFE_REWRITE}), live_run=True, log=_noop_log)
 
         assert summary == {"applied": 0, "skipped": 1, "planned": 0}
         action.refresh_from_db()
-        assert action.steps_json[0]["selector"] == ".changed-by-user"
+        assert _steps(action)[0]["selector"] == ".changed-by-user"
 
     def test_other_buckets_are_never_touched(self) -> None:
         action = self._make_action()
@@ -382,7 +387,7 @@ class TestApplyRewrites(BaseTest):
 
         assert summary == {"applied": 0, "skipped": 0, "planned": 0}
         action.refresh_from_db()
-        assert action.steps_json[0]["selector"] == '[id="root"] > span'
+        assert _steps(action)[0]["selector"] == '[id="root"] > span'
 
 
 class TestCommandSmoke(BaseTest):

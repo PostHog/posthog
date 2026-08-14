@@ -48,10 +48,12 @@ def rewrite_direct_descendants(selector: str) -> str:
     return " ".join(token for token in tokens if token != ">")
 
 
+# Both compilers split combinator tokens identically; either vendored copy works.
+_SPLITTER = _new_compiler.Selector("")
+
+
 def _split_selector(selector: str) -> list[str]:
-    # Both compilers split combinator tokens identically; either vendored copy works.
-    parser = _new_compiler.Selector.__new__(_new_compiler.Selector)
-    return list(parser._split(selector.strip()))
+    return list(_SPLITTER._split(selector.strip()))
 
 
 @frozen
