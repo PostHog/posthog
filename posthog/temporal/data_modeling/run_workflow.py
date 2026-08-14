@@ -663,9 +663,7 @@ async def materialize_model(
             await logger.ainfo("Query exceeded timeout limit for model %s", model_label)
             await mark_job_as_failed(job, error_message, logger)
 
-            should_pause, count = await database_sync_to_async(should_pause_schedule_for_timeout)(
-                saved_query.id, job.id
-            )
+            should_pause, count = await database_sync_to_async(should_pause_schedule_for_timeout)(saved_query.id, job)
             if should_pause:
                 saved_query.sync_frequency_interval = None
                 await database_sync_to_async(saved_query.save)()

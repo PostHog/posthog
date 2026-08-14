@@ -1662,6 +1662,8 @@ export interface DraftScannerResponseApi {
     scanner_config: unknown
     /** Why the draft picked this scanner type and configuration, addressed to the user. */
     rationale: string
+    /** Drafted `RecordingsQuery` narrowing which sessions get scanned, holding one event filter picked from the team's real events; null when no event clearly matched the goal. */
+    query: unknown
 }
 
 /**
