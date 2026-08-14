@@ -148,6 +148,11 @@ PROM_PUSHGATEWAY_ADDRESS: str | None = os.getenv("PROM_PUSHGATEWAY_ADDRESS", Non
 
 HOGQL_INCREASED_MAX_EXECUTION_TIME: int = get_from_env("HOGQL_INCREASED_MAX_EXECUTION_TIME", 600, type_cast=int)
 
+# How long a synchronous export create request waits for the render before returning the pending
+# asset for the frontend to poll. Keep it well under the gateway idle timeout so a slow render
+# never turns the request into a 504.
+EXPORT_SYNC_MAX_WAIT_SECONDS: int = get_from_env("EXPORT_SYNC_MAX_WAIT_SECONDS", 25, type_cast=int)
+
 QUERY_COALESCING_MAX_WAIT_SECONDS: int = get_from_env("QUERY_COALESCING_MAX_WAIT_SECONDS", 300, type_cast=int)
 
 # Extend and override these settings with EE's ones

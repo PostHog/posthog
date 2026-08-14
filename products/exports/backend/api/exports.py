@@ -1,3 +1,4 @@
+import asyncio
 from datetime import timedelta
 from typing import Any, Literal
 
@@ -444,20 +445,32 @@ class ExportedAssetSerializer(UserAccessControlSerializerMixin, serializers.Mode
             ),
         )
 
-        async def _run():
+        async def _run() -> str:
             client = await async_connect()
-            method = client.start_workflow if force_async else client.execute_workflow
-            await method(
+            # Always start the workflow rather than block on it. This keeps the render alive
+            # server-side even when the request stops waiting for it.
+            handle = await client.start_workflow(
                 ExportAssetWorkflow.run,
                 workflow_inputs,
                 id=f"export-asset-{instance.id}",
                 task_queue=settings.ANALYTICS_PLATFORM_TASK_QUEUE,
                 id_reuse_policy=WorkflowIDReusePolicy.TERMINATE_IF_RUNNING,
-                execution_timeout=timedelta(minutes=35),
+                execution_timeout=EXPORT_WORKFLOW_TIMEOUT,
             )
+            if force_async:
+                return "dispatched"
+
+            try:
+                # Wait for the render, but only up to the in-request budget. A slower render
+                # keeps running server-side past this; returning the pending asset stops the
+                # request from outliving the gateway idle timeout and becoming a 504.
+                await asyncio.wait_for(handle.result(), timeout=settings.EXPORT_SYNC_MAX_WAIT_SECONDS)
+            except TimeoutError:
+                return "still_rendering"
+            return "completed"
 
         try:
-            async_to_sync(_run)()
+            outcome = async_to_sync(_run)()
         except Exception as e:
             # Swallow workflow failures so the API always returns a 201 with the
             # ExportedAsset record. export_asset_direct populates the exception
@@ -471,7 +484,7 @@ class ExportedAssetSerializer(UserAccessControlSerializerMixin, serializers.Mode
             return
 
         logger.info(
-            "export_workflow_dispatched" if force_async else "export_workflow_completed",
+            f"export_workflow_{outcome}",
             asset_id=instance.id,
         )
 
