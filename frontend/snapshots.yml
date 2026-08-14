@@ -6101,7 +6101,7 @@ snapshots:
     scenes-app-experiments--experiment-stopped-with-conclusion--light:
         hash: v1.k794b7964.793a4b6109b2c0ab65b07d9eaefd1c8862f12bfc7f33b2f452ad20044396b2a7.6B0Meq7yO75vBEoBmuP2dNl2oKTugzzr_IKTcJHhEi0
     scenes-app-experiments--experiment-with-funnel-metric--dark:
-        hash: v1.k794b7964.fd0d0ad7569f50079a322a8901513f854823ce694796a2a24a1e6714ac9c5902.fBtAQkm1LZ7xYp6DTXoQSDqDFjsUkxMCP-aNAZJ1Fmc
+        hash: v1.k794b7964.bd425da753ec6f788f968fb15c6a7783af3c8479103849bf3ab4fad4f4276287.KPZegtTwokdMxA6_KV2bsmFYxTZO1AYRlPZp4tZ6y7E
     scenes-app-experiments--experiment-with-funnel-metric--light:
         hash: v1.k794b7964.a608f24a82fc56569fb7029e98bab3121baa3fd6c5c63492fe9952aa6a43afc5.ZgTLiUZPjDNcaChht0ijSp2F7HoqRkdn__-6JKI7p4A
     scenes-app-experiments--experiment-with-legacy-funnels-query--dark:
