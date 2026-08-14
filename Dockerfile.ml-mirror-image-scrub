@@ -15,12 +15,11 @@
 # build is reproducible instead of drifting with the floating major tag; renovate bumps it. -bookworm-slim
 # so glibc matches sharp's prebuilt binaries.
 #
-# Low-churn image: a master push only rebuilds it when the sidecar dir, this Dockerfile, or its CI
-# workflow change (see .github/workflows/ci-ml-mirror-image-scrub-container.yml), while prod pins an
-# exact digest in PostHog/charts state/. The published image therefore has to outlive the gap between
-# builds — in Aug 2026 the Jul 30 digest aged out of ECR's retention window and pinned pods could no
-# longer pull it. workflow_dispatch on master republishes to the prod repo without deploying, so
-# recovering a pinned-but-expired digest also needs a charts state bump.
+# ECR retention on posthog-ml-mirror-image-scrub has to outlive the gap between builds, because prod
+# pins an exact digest (PostHog/charts state/) and a master push only rebuilds this image when the
+# paths filtered in .github/workflows/ci-ml-mirror-image-scrub-container.yml change. Once a pinned
+# digest expires, running pods keep serving from their cached copy, so the loss only surfaces as new
+# nodes failing to pull.
 FROM node:24.13.0-bookworm-slim
 WORKDIR /code/app
 SHELL ["/bin/bash", "-e", "-o", "pipefail", "-c"]
