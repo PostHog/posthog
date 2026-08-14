@@ -91,7 +91,9 @@ class ExportAwaitingDownload extends Error {
 const isUserActivationLive = (): boolean => navigator.userActivation?.isActive ?? true
 
 // A subscription delivers a rendered image, so only an export of one is worth answering with an
-// offer of one. Someone taking a CSV wants the rows, and would be promised something else.
+// offer of one. Someone taking a CSV wants the rows, and would be promised something else. The
+// backend side of that fact is the PNG in products/exports/backend/temporal/subscriptions/
+// activities.py's export asset — if a subscription ever delivers another format, this follows.
 const SUBSCRIBABLE_EXPORT_FORMATS: ExporterFormat[] = [ExporterFormat.PNG]
 
 // Only a dashboard or a saved insight can be subscribed to, so every other export — a recording, a

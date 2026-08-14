@@ -114,6 +114,9 @@ function withIncidentNote(message: string | JSX.Element): string | JSX.Element {
     )
 }
 
+// Three toast paths settle into success, and the holiday swap has to look the same on each.
+const successIcon = (): JSX.Element => (isChristmas() ? <IconGift className="text-green-600" /> : <IconCheckCircle />)
+
 interface ToastError {
     message: string
 }
@@ -160,7 +163,7 @@ export const lemonToast = {
                 return
             }
             toast.success(<ToastContent type="success" message={message} button={button} id={id} />, {
-                icon: isChristmas() ? <IconGift className="text-green-600" /> : <IconCheckCircle />,
+                icon: successIcon(),
                 ...options,
             })
         })
@@ -246,7 +249,7 @@ export const lemonToast = {
                             typeof messages.success === 'function' ? messages.success(data) : data || messages.success
                         return <ToastContent type="success" message={success} button={button} id={id} />
                     },
-                    icon: isChristmas() ? <IconGift className="text-green-600" /> : <IconCheckCircle />,
+                    icon: successIcon(),
                 },
                 error: {
                     render: ({ data }) => {
@@ -274,7 +277,7 @@ export const lemonToast = {
         toast.update(id, {
             render: <ToastContent type="success" message={message} button={button} id={id} />,
             type: 'success',
-            icon: isChristmas() ? <IconGift className="text-green-600" /> : <IconCheckCircle />,
+            icon: successIcon(),
             // react-toastify drops null props so the container's defaults apply again. This is the
             // same reset its own promise() resolver does when leaving the loading state.
             isLoading: null,

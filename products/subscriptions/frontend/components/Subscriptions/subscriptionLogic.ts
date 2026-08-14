@@ -10,6 +10,7 @@ import { dayjs } from 'lib/dayjs'
 import { recordRecentSlackChannel, slackChannelId } from 'lib/integrations/slackChannel'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { getCurrentTeamId } from 'lib/utils/getAppContext'
+import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
 import { objectsEqual } from 'lib/utils/objects'
 import { isEmail } from 'lib/utils/url'
 import { getInsightId } from 'scenes/insights/utils'
@@ -849,11 +850,10 @@ export const subscriptionLogic = kea<subscriptionLogicType>([
             // fresh session days later — the prefill is built here from URL + context, not kea state.
             const nudgeSubject = props.dashboardId ? 'dashboard' : props.insightShortId ? 'insight' : null
             // The route pattern matches any subject's page, so without this a logic keyed to another
-            // insight or dashboard prefills and reports the click for someone else's nudge. Matched
-            // on the tail because the live pathname carries a project prefix the helper leaves out.
-            const isOwnSubject = router.values.location.pathname.endsWith(
+            // insight or dashboard prefills and reports the click for someone else's nudge.
+            const isOwnSubject =
+                removeProjectIdIfPresent(router.values.location.pathname) ===
                 urlForSubscription('new', { dashboardId: props.dashboardId, insightShortId: props.insightShortId })
-            )
             if (
                 searchParams[SUBSCRIPTION_PREFILL_PARAMS.param] === SUBSCRIPTION_PREFILL_PARAMS.nudge &&
                 nudgeSubject &&
