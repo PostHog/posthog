@@ -19,21 +19,31 @@ logger = structlog.get_logger(__name__)
 
 _MATCH_SOURCE_PRIORITY = {"known_email": 0, "person_group": 1, "email_domain": 2}
 _RECALCULATION_TASK = "customer_analytics.recalculate_email_thread_account_links"
-_RECALCULATION_DEBOUNCE_SECONDS = 60
+_RECALCULATION_LOCK_SECONDS = 15 * 60
 
 
 def _recalculation_cache_key(team_id: int) -> str:
     return f"customer_analytics:email_thread_link_recalculation:{team_id}"
 
 
-def clear_email_thread_link_recalculation_schedule(team_id: int) -> None:
+def _recalculation_dirty_cache_key(team_id: int) -> str:
+    return f"customer_analytics:email_thread_link_recalculation_dirty:{team_id}"
+
+
+def finish_email_thread_link_recalculation(team_id: int) -> None:
     cache.delete(_recalculation_cache_key(team_id))
+    if cache.delete(_recalculation_dirty_cache_key(team_id)):
+        schedule_email_thread_link_recalculation(team_id)
 
 
 def schedule_email_thread_link_recalculation(team_id: int) -> None:
     def enqueue() -> None:
         cache_key = _recalculation_cache_key(team_id)
-        if not cache.add(cache_key, "1", timeout=_RECALCULATION_DEBOUNCE_SECONDS):
+        if not cache.add(cache_key, "1", timeout=_RECALCULATION_LOCK_SECONDS):
+            dirty_cache_key = _recalculation_dirty_cache_key(team_id)
+            cache.set(dirty_cache_key, "1", timeout=_RECALCULATION_LOCK_SECONDS)
+            if not cache.get(cache_key) and cache.delete(dirty_cache_key):
+                schedule_email_thread_link_recalculation(team_id)
             return
         try:
             current_app.send_task(_RECALCULATION_TASK, args=[team_id])

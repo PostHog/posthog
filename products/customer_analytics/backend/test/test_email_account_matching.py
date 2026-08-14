@@ -1,11 +1,15 @@
 from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, patch
 
+from parameterized import parameterized
+
 from products.conversations.backend.facade.types import EmailThreadForAccountMatching
 from products.customer_analytics.backend.facade import api
 from products.customer_analytics.backend.facade.email_matching import (
+    finish_email_thread_link_recalculation,
     match_email_accounts,
     recalculate_email_thread_links,
+    schedule_email_thread_link_recalculation,
 )
 from products.customer_analytics.backend.logic.email_account_matching import MatchedAccount
 from products.customer_analytics.backend.models import Account
@@ -139,5 +143,45 @@ class TestEmailAccountMatching(BaseTest):
                 properties={"email_domains": ["example.com"]},
                 allow_matching_updates=True,
             )
+
+        mock_schedule.assert_called_once_with(self.team.id)
+
+    @parameterized.expand(
+        [
+            ("active_run", True, False),
+            ("run_finished_during_schedule", False, True),
+        ]
+    )
+    @patch("products.customer_analytics.backend.facade.email_matching.current_app.send_task")
+    @patch("products.customer_analytics.backend.facade.email_matching.cache")
+    def test_recalculation_requested_during_a_run_is_not_lost(
+        self,
+        _name: str,
+        lock_still_active: bool,
+        expected_enqueue: bool,
+        mock_cache: MagicMock,
+        mock_send_task: MagicMock,
+    ) -> None:
+        mock_cache.add.side_effect = [False, True]
+        mock_cache.get.return_value = lock_still_active
+        mock_cache.delete.return_value = True
+
+        with self.captureOnCommitCallbacks(execute=True):
+            schedule_email_thread_link_recalculation(self.team.id)
+
+        mock_cache.set.assert_called_once()
+        if expected_enqueue:
+            mock_send_task.assert_called_once()
+        else:
+            mock_send_task.assert_not_called()
+
+    @patch("products.customer_analytics.backend.facade.email_matching.schedule_email_thread_link_recalculation")
+    @patch("products.customer_analytics.backend.facade.email_matching.cache")
+    def test_finished_recalculation_schedules_dirty_follow_up(
+        self, mock_cache: MagicMock, mock_schedule: MagicMock
+    ) -> None:
+        mock_cache.delete.side_effect = [True, True]
+
+        finish_email_thread_link_recalculation(self.team.id)
 
         mock_schedule.assert_called_once_with(self.team.id)
