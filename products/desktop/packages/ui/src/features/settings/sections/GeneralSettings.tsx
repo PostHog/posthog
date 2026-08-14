@@ -36,6 +36,11 @@ import {
   type SendMessagesWith,
   useSettingsStore,
 } from "@posthog/ui/features/settings/settingsStore";
+import {
+  resetTeachingTips,
+  useRetiredTipCount,
+} from "@posthog/ui/primitives/TeachingTip";
+import { toast } from "@posthog/ui/primitives/toast";
 import { track } from "@posthog/ui/shell/analytics";
 import type { ThemePreference } from "@posthog/ui/shell/themeStore";
 import { useThemeStore } from "@posthog/ui/shell/themeStore";
@@ -455,7 +460,43 @@ export function GeneralSettings() {
         </SettingsCard>
       </SettingsSection>
 
+      <TipsSection />
+
       {localWorkspaces && <UpdatesSection />}
     </div>
+  );
+}
+
+/**
+ * Puts back the tips someone turned off. Without this, "Don't show again" is
+ * the only control a tip has and it cannot be undone.
+ */
+export function TipsSection() {
+  const retiredCount = useRetiredTipCount();
+  return (
+    <SettingsSection label="Tips">
+      <SettingsCard>
+        <SettingsCardRow
+          label="Tips you've turned off"
+          description={
+            retiredCount === 0
+              ? "Tips point out a part of the app the first time it matters. You haven't turned any off."
+              : `${retiredCount === 1 ? "1 tip" : `${retiredCount} tips`} won't be shown again.`
+          }
+        >
+          <Button
+            size="sm"
+            variant="outline"
+            disabled={retiredCount === 0}
+            onClick={() => {
+              resetTeachingTips();
+              toast.success("Tips are back on");
+            }}
+          >
+            Show tips again
+          </Button>
+        </SettingsCardRow>
+      </SettingsCard>
+    </SettingsSection>
   );
 }
