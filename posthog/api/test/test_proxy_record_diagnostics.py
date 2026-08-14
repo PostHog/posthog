@@ -11,6 +11,7 @@ from parameterized import parameterized
 from posthog.api import proxy_record_diagnostics as diagnostics
 from posthog.models.proxy_record import is_valid_proxy_domain
 from posthog.security.pinned_requests import SSRFBlockedError
+from posthog.security.url_validation import PinnedUrlVerdict
 from posthog.temporal.proxy_service.cloudflare import (
     CloudflareAPIError,
     CustomHostname,
@@ -280,7 +281,7 @@ PUBLIC_IP = ipaddress.ip_address("203.0.113.10")
 
 @patch(
     "posthog.api.proxy_record_diagnostics.validate_url_and_pin_ips",
-    return_value=(True, None, {PUBLIC_IP}),
+    return_value=PinnedUrlVerdict(allowed=True, reason=None, pinned_ips={PUBLIC_IP}),
 )
 class TestCheckCertExpiry(TestCase):
     @parameterized.expand(
@@ -325,7 +326,9 @@ class TestCheckCertExpiry(TestCase):
 
     @patch("posthog.api.proxy_record_diagnostics.socket.create_connection")
     def test_warns_without_connecting_when_the_host_is_not_public(self, create_conn_mock, validate_mock):
-        validate_mock.return_value = (False, "Private IP address not allowed", set())
+        validate_mock.return_value = PinnedUrlVerdict(
+            allowed=False, reason="Private IP address not allowed", pinned_ips=set()
+        )
 
         result = diagnostics._check_cert_expiry(_record(), is_cloudflare=True)
 
