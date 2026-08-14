@@ -15,6 +15,7 @@ import {
   X,
 } from "@phosphor-icons/react";
 import type {
+  McpAgentGrantScope,
   McpApprovalState,
   McpGatewayServer,
 } from "@posthog/api-client/posthog-client";
@@ -24,6 +25,7 @@ import {
   gatewayConnectNeedsCredentials,
 } from "@posthog/core/mcp-gateway/gatewayConnect";
 import {
+  agentShareMessage,
   countPoliciesByState,
   formatAgo,
   getGatewayServerRemovalAction,
@@ -32,6 +34,7 @@ import { usableInstallationId } from "@posthog/core/mcp-gateway/gatewayToolDisco
 import { useOptionalAuthenticatedClient } from "@posthog/ui/features/auth/authClient";
 import { UserAvatar } from "@posthog/ui/features/auth/UserAvatar";
 import { useCurrentUser } from "@posthog/ui/features/auth/useCurrentUser";
+import { AgentScopeToggle } from "@posthog/ui/features/mcp-gateway/components/parts/AgentScopeToggle";
 import {
   gatewayUserName,
   RobotAvatar,
@@ -143,7 +146,12 @@ export function GatewayServerDetail({
       list.push(initialScope);
     }
     if (canManageAgentAccess) {
+      // One chip per agent: an agent shared by several members carries one
+      // access row per sharer, but its tool policy is a single agent scope.
+      const seenAgentIds = new Set<string>();
       for (const agent of server.agents) {
+        if (seenAgentIds.has(agent.service_account_id)) continue;
+        seenAgentIds.add(agent.service_account_id);
         list.push({
           scopeType: "agent",
           scopeServiceAccountId: agent.service_account_id,
@@ -401,6 +409,8 @@ export function GatewayServerDetail({
           server={server}
           gateway={gateway}
           isAdmin={isAdmin}
+          currentUserId={currentUser?.id ?? null}
+          accessPending={serviceAccounts.setAccessPending}
           onShareWithAgent={() => setGiveAccessOpen(true)}
           onSetMemberAccess={(userId, name, enabled) =>
             members.setMemberAccess({
@@ -412,12 +422,21 @@ export function GatewayServerDetail({
                 : `${name} can no longer use ${server.name}`,
             })
           }
+          onSetAgentScope={(accountId, name, scope) =>
+            serviceAccounts.setAccess({
+              accountId,
+              serverId: server.id,
+              enabled: true,
+              scope,
+              successMessage: agentShareMessage(server.name, name, scope),
+            })
+          }
           onRevokeAgent={(accountId, name) =>
             serviceAccounts.setAccess({
               accountId,
               serverId: server.id,
               enabled: false,
-              successMessage: `${name} no longer has access to ${server.name}`,
+              successMessage: `${name} no longer has access to your ${server.name} connection`,
             })
           }
         />
@@ -615,10 +634,11 @@ export function GatewayServerDetail({
         open={giveAccessOpen}
         server={server}
         accounts={serviceAccounts.accounts}
+        currentUserId={currentUser?.id ?? null}
         toolPolicies={teamTools.policies}
         pending={serviceAccounts.setAccessPending}
         onClose={() => setGiveAccessOpen(false)}
-        onGrant={(accountId, policies) => {
+        onGrant={(accountId, policies, scope) => {
           const account = serviceAccounts.accounts.find(
             (entry) => entry.id === accountId,
           );
@@ -627,8 +647,13 @@ export function GatewayServerDetail({
               accountId,
               serverId: server.id,
               enabled: true,
+              scope,
               policies,
-              successMessage: `${account?.name ?? "Agent"} can now use ${server.name}`,
+              successMessage: agentShareMessage(
+                server.name,
+                account?.name ?? "agent",
+                scope,
+              ),
             },
             { onSuccess: () => setGiveAccessOpen(false) },
           );
@@ -785,11 +810,19 @@ interface AccessSectionProps {
   server: McpGatewayServer;
   gateway: ReturnType<typeof useGatewayServers>;
   isAdmin: boolean;
+  currentUserId: number | null;
+  /** True while any agent-access mutation is in flight. */
+  accessPending: boolean;
   onShareWithAgent: () => void;
   onSetMemberAccess: (
     userId: number,
     firstName: string,
     enabled: boolean,
+  ) => void;
+  onSetAgentScope: (
+    accountId: string,
+    name: string,
+    scope: McpAgentGrantScope,
   ) => void;
   onRevokeAgent: (accountId: string, name: string) => void;
 }
@@ -798,8 +831,11 @@ function AccessSection({
   server,
   gateway,
   isAdmin,
+  currentUserId,
+  accessPending,
   onShareWithAgent,
   onSetMemberAccess,
+  onSetAgentScope,
   onRevokeAgent,
 }: AccessSectionProps) {
   const yourInstallationId = server.your_connection?.installation_id;
@@ -981,54 +1017,75 @@ function AccessSection({
         </Text>
       ) : (
         <div className="rounded-md border border-gray-5 bg-gray-2">
-          {server.agents.map((agent) => (
-            <Flex
-              key={agent.service_account_id}
-              align="center"
-              gap="3"
-              className="group border-gray-5 border-b px-3 py-2 last:border-b-0"
-            >
-              <RobotAvatar />
-              <Flex direction="column" className="min-w-0 flex-1">
-                <Text truncate className="font-medium text-sm">
-                  {agent.name}
-                </Text>
-                <Text color="gray" truncate className="text-xs">
-                  <span className="font-mono">{agent.handle}</span>
-                  {agent.granted_by
-                    ? ` · shared by ${gatewayUserName(agent.granted_by)}`
-                    : " · shared with this agent"}
-                </Text>
-              </Flex>
-              <Button
-                variant="ghost"
-                color="red"
-                size="1"
-                className="opacity-0 transition-opacity focus-visible:opacity-100 group-hover:opacity-100"
-                onClick={() =>
-                  onRevokeAgent(agent.service_account_id, agent.name)
-                }
+          {server.agents.map((agent) => {
+            const isYourShare = agent.user.id === currentUserId;
+            const teamShared = agent.scope === "team";
+            return (
+              <Flex
+                key={`${agent.service_account_id}:${agent.user.id}`}
+                align="center"
+                gap="3"
+                className="group border-gray-5 border-b px-3 py-2 last:border-b-0"
               >
-                <X size={11} /> Revoke
-              </Button>
-              <Flex align="center" gap="2" className="shrink-0">
-                <span
-                  className={`h-[6px] w-[6px] rounded-full ${
-                    agent.status === "active" ? "bg-(--green-9)" : "bg-gray-8"
-                  }`}
-                />
-                <Text color="gray" className="text-xs">
-                  {agent.status === "active"
-                    ? `Active${
-                        formatAgo(agent.last_active_at)
-                          ? ` ${formatAgo(agent.last_active_at)}`
-                          : ""
-                      }`
-                    : "Paused"}
-                </Text>
+                <RobotAvatar />
+                <Flex direction="column" className="min-w-0 flex-1">
+                  <Text truncate className="font-medium text-sm">
+                    {agent.name}
+                  </Text>
+                  <Text color="gray" truncate className="text-xs">
+                    <span className="font-mono">{agent.handle}</span>
+                    {` · shared ${teamShared ? "to the team " : ""}by ${
+                      isYourShare ? "you" : gatewayUserName(agent.user)
+                    }`}
+                  </Text>
+                </Flex>
+                {isYourShare && (
+                  <AgentScopeToggle
+                    value={agent.scope}
+                    disabled={accessPending}
+                    onChange={(scope) =>
+                      onSetAgentScope(
+                        agent.service_account_id,
+                        agent.name,
+                        scope,
+                      )
+                    }
+                  />
+                )}
+                {/* Revoking removes only the caller's own share, so it is
+                    offered only on rows backed by the caller's connection. */}
+                {isYourShare && (
+                  <Button
+                    variant="ghost"
+                    color="red"
+                    size="1"
+                    className="opacity-0 transition-opacity focus-visible:opacity-100 group-hover:opacity-100"
+                    onClick={() =>
+                      onRevokeAgent(agent.service_account_id, agent.name)
+                    }
+                  >
+                    <X size={11} /> Revoke
+                  </Button>
+                )}
+                <Flex align="center" gap="2" className="shrink-0">
+                  <span
+                    className={`h-[6px] w-[6px] rounded-full ${
+                      agent.status === "active" ? "bg-(--green-9)" : "bg-gray-8"
+                    }`}
+                  />
+                  <Text color="gray" className="text-xs">
+                    {agent.status === "active"
+                      ? `Active${
+                          formatAgo(agent.last_active_at)
+                            ? ` ${formatAgo(agent.last_active_at)}`
+                            : ""
+                        }`
+                      : "Paused"}
+                  </Text>
+                </Flex>
               </Flex>
-            </Flex>
-          ))}
+            );
+          })}
         </div>
       )}
     </Flex>
