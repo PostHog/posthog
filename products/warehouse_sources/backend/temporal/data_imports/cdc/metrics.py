@@ -49,6 +49,18 @@ def get_shadow_buffer_files_written_metric(team_id: int, source_id: str) -> Metr
     )
 
 
+def get_extract_retry_metric(team_id: int, source_id: str) -> MetricCounter:
+    """Extraction runs that are not the first attempt.
+
+    Exposure proxy for the zombie-attempt collision: a superseded attempt that is still alive can
+    overwrite a live attempt's buffer file over the same position range with fewer rows, and that
+    loss has no detector of its own. It takes a retry to reach, so a quiet counter bounds the risk.
+    """
+    return _source_meter(team_id, source_id).create_counter(
+        "cdc_extract_retried_attempts_total", "Extraction runs starting at attempt > 1"
+    )
+
+
 def get_shadow_buffer_write_errors_metric(team_id: int, source_id: str) -> MetricCounter:
     return _source_meter(team_id, source_id).create_counter(
         "cdc_shadow_buffer_write_errors_total", "Total swallowed shadow buffer write failures"

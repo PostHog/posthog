@@ -70,6 +70,7 @@ from products.warehouse_sources.backend.temporal.data_imports.cdc.errors import 
 )
 from products.warehouse_sources.backend.temporal.data_imports.cdc.load_resolution import has_engine_seq
 from products.warehouse_sources.backend.temporal.data_imports.cdc.naming import cdc_qualified_table_name
+from products.warehouse_sources.backend.temporal.data_imports.cdc.source_manager import serves_buffered_lane
 from products.warehouse_sources.backend.temporal.data_imports.cdc.types import ChangeEvent
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.helpers import resolve_table_and_folder_names
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.messages import SyncTypeLiteral
@@ -234,17 +235,21 @@ class CDCExtractActivity:
         self.all_table_names: set[str] = set()
         # Wall-clock start, set in run(); drives cdc_extraction_duration_seconds.
         self._run_started_at: float | None = None
-        # Shadow buffered-ingress state (dwh-cdc-buffer-shadow flag). Writer is lazy so
-        # runs with shadow off never touch S3 setup; the per-schema file index keeps
-        # same-position-range batches (a split transaction) from overwriting each other.
-        self._shadow_buffer_writer: CDCBufferWriter | None = None
-        self._shadow_file_index: dict[str, int] = {}
-        self._shadow_cleaned_schemas: set[str] = set()
+        # Buffer state, shared by the shadow lane and buffered ingress. Writer is lazy so runs that
+        # buffer nothing never touch S3 setup; the per-schema file index keeps same-position-range
+        # batches (a split transaction) from overwriting each other.
+        self._buffer_writer: CDCBufferWriter | None = None
+        self._buffer_file_index: dict[str, int] = {}
+        self._buffer_cleaned_schemas: set[str] = set()
+        # Shadow-only: the lane is validation, so it disables itself rather than failing a run.
         self._shadow_write_failures: int = 0
         self._shadow_disabled_for_run: bool = False
         # Resolved once in _setup (the dwh-cdc-buffer-shadow flag) so neither the
         # flush path nor the batcher re-evaluates a flag per micro-batch.
         self._shadow_enabled: bool = False
+        # Table names whose changes this run delivers by buffer alone — no transforms, no
+        # sourcebatch dispatch. Resolved once in _setup.
+        self._buffered_table_names: set[str] = set()
 
     # ------------------------------------------------------------------
     # Logger helpers
@@ -619,6 +624,52 @@ class CDCExtractActivity:
     # micro-batch, stalling the WAL drain loop. The next run retries fresh.
     _SHADOW_MAX_CONSECUTIVE_FAILURES = 3
 
+    def _write_buffer_file(self, schema: ExternalDataSchema, table_name: str, table: pa.Table) -> None:
+        """Write one micro-batch to the S3 change buffer. Raises on failure — the caller owns the
+        policy, which differs by lane: shadow swallows, buffered ingress must not.
+        """
+        file_index = self._buffer_file_index.get(table_name, 0)
+        try:
+            if self._buffer_writer is None:
+                self._buffer_writer = CDCBufferWriter(self.log)
+
+            schema_id = str(schema.id)
+            if schema_id not in self._buffer_cleaned_schemas:
+                # First write this run: remove files a superseded attempt left at or
+                # past where this run restarted (batch boundaries are not stable
+                # across attempts — see buffer.py). The batch's min seq IS the
+                # restart floor for this schema.
+                restart_seq = pc.min(table.column(CDC_SEQ_COLUMN)).as_py()
+                self._buffer_writer.cleanup_superseded_files(
+                    team_id=schema.team_id, schema_id=schema_id, restart_seq=restart_seq
+                )
+                self._buffer_cleaned_schemas.add(schema_id)
+
+            result = self._buffer_writer.write_batch(
+                team_id=schema.team_id,
+                schema_id=schema_id,
+                table=table,
+                file_index=file_index,
+            )
+
+            metrics.get_shadow_buffer_files_written_metric(self.inputs.team_id, str(self.inputs.source_id)).add(1)
+            metrics.get_shadow_buffer_write_duration_metric(self.inputs.team_id, str(self.inputs.source_id)).record(
+                result.write_duration_seconds
+            )
+            self._schema_log(schema).debug(
+                "cdc_buffer_written",
+                table=table_name,
+                s3_path=result.s3_path,
+                rows=result.row_count,
+                start_seq=result.start_seq,
+                end_seq=result.end_seq,
+            )
+        finally:
+            # Advance even on failure so ordinals stay aligned with batch position:
+            # a lost chunk becomes an honest index gap instead of a later chunk
+            # silently claiming its slot.
+            self._buffer_file_index[table_name] = file_index + 1
+
     def _maybe_shadow_write_buffer(self, schema: ExternalDataSchema, table_name: str, table: pa.Table) -> None:
         """Shadow-write one micro-batch to the S3 change buffer (dwh-cdc-buffer-shadow flag).
 
@@ -632,43 +683,9 @@ class CDCExtractActivity:
         if table.num_rows == 0 or not has_engine_seq(table):
             return
 
-        file_index = self._shadow_file_index.get(table_name, 0)
         try:
-            if self._shadow_buffer_writer is None:
-                self._shadow_buffer_writer = CDCBufferWriter(self.log)
-
-            schema_id = str(schema.id)
-            if schema_id not in self._shadow_cleaned_schemas:
-                # First write this run: remove files a superseded attempt left at or
-                # past where this run restarted (batch boundaries are not stable
-                # across attempts — see buffer.py). The batch's min seq IS the
-                # restart floor for this schema.
-                restart_seq = pc.min(table.column(CDC_SEQ_COLUMN)).as_py()
-                self._shadow_buffer_writer.cleanup_superseded_files(
-                    team_id=schema.team_id, schema_id=schema_id, restart_seq=restart_seq
-                )
-                self._shadow_cleaned_schemas.add(schema_id)
-
-            result = self._shadow_buffer_writer.write_batch(
-                team_id=schema.team_id,
-                schema_id=schema_id,
-                table=table,
-                file_index=file_index,
-            )
-
+            self._write_buffer_file(schema, table_name, table)
             self._shadow_write_failures = 0
-            metrics.get_shadow_buffer_files_written_metric(self.inputs.team_id, str(self.inputs.source_id)).add(1)
-            metrics.get_shadow_buffer_write_duration_metric(self.inputs.team_id, str(self.inputs.source_id)).record(
-                result.write_duration_seconds
-            )
-            self._schema_log(schema).debug(
-                "cdc_shadow_buffer_written",
-                table=table_name,
-                s3_path=result.s3_path,
-                rows=result.row_count,
-                start_seq=result.start_seq,
-                end_seq=result.end_seq,
-            )
         except Exception:
             self._shadow_write_failures += 1
             metrics.get_shadow_buffer_write_errors_metric(self.inputs.team_id, str(self.inputs.source_id)).add(1)
@@ -676,11 +693,6 @@ class CDCExtractActivity:
             if self._shadow_write_failures >= self._SHADOW_MAX_CONSECUTIVE_FAILURES:
                 self._shadow_disabled_for_run = True
                 self.log.warning("cdc_shadow_buffer_disabled_for_run", consecutive_failures=self._shadow_write_failures)
-        finally:
-            # Advance even on failure so ordinals stay aligned with batch position:
-            # a lost chunk becomes an honest index gap instead of a later chunk
-            # silently claiming its slot.
-            self._shadow_file_index[table_name] = file_index + 1
 
     # ------------------------------------------------------------------
     # Per-flush processing
@@ -717,6 +729,14 @@ class CDCExtractActivity:
             # nulls standing in for omitted columns.
             enriched_table = enrich_toast_omitted_rows(raw_table, key_columns)
             enriched_table = enrich_delete_rows(enriched_table, key_columns)
+
+            if table_name in self._buffered_table_names:
+                # The buffer IS the delivery for this schema — the scheduled sync consumes it.
+                # A swallowed failure here would lose changes the slot is about to advance past,
+                # so this write must fail the run.
+                if enriched_table.num_rows:
+                    self._write_buffer_file(schema, table_name, enriched_table)
+                continue
 
             # Buffer the raw (pre-dedup/SCD2) stream, then strip the seq column so the legacy write
             # path stays byte-identical. Only ours — a source column of the same name stays.
@@ -912,6 +932,20 @@ class CDCExtractActivity:
         self.adapter = get_cdc_adapter(self.source)
         self.reader = self.adapter.create_reader(self.source)
         self._shadow_enabled = is_shadow_write_enabled(self.inputs.team_id, self.log)
+
+        if self.adapter.parse_cdc_config(self.source).ingest_mode == "buffered":
+            self._buffered_table_names = {s.name for s in self.cdc_schemas if serves_buffered_lane(s)}
+            if self._buffered_table_names:
+                self.log.info(
+                    "cdc_buffered_ingress_active",
+                    buffered=sorted(self._buffered_table_names),
+                    legacy=sorted(s.name for s in self.cdc_schemas if s.name not in self._buffered_table_names),
+                )
+
+        attempt = activity.info().attempt
+        if attempt > 1:
+            metrics.get_extract_retry_metric(self.inputs.team_id, str(self.inputs.source_id)).add(1)
+            self.log.info("cdc_extract_retry_attempt", attempt=attempt)
         return True
 
     def _delete_own_schedule(self) -> None:
@@ -943,7 +977,14 @@ class CDCExtractActivity:
         which triggers the existing full re-sync recovery. Fail-open on probe errors — the
         producer writes to the same DB, so a run that can't be probed can't enqueue either.
         """
-        schema_ids = [str(s.id) for s in self.cdc_schemas]
+        # Buffered schemas enqueue nothing and their loads can't reorder — the scheduled sync runs
+        # one job per schema at a time and the position guard backstops it. The guard only remains
+        # while some schema still dispatches through sourcebatch.
+        legacy_schemas = [s for s in self.cdc_schemas if s.name not in self._buffered_table_names]
+        if not legacy_schemas:
+            return False
+
+        schema_ids = [str(s.id) for s in legacy_schemas]
         try:
             conn = psycopg.Connection.connect(WAREHOUSE_SOURCES_DATABASE_URL, autocommit=True)
         except Exception:
@@ -1163,11 +1204,12 @@ class CDCExtractActivity:
         assert self._run_started_at is not None
         assert self.adapter is not None
         event_name_to_schema_name = self._build_event_name_map()
-        # Converter only when shadow is on: with the flag off, the legacy lane
-        # must not gain the seq column's per-event cost or its parse/overflow
-        # crash surface.
+        # Converter only when a lane consumes positions: an all-legacy run must not gain the seq
+        # column's per-event cost or its parse/overflow crash surface.
         self.batcher = ChangeEventBatcher(
-            position_to_seq=self.adapter.position_to_seq if self._shadow_enabled else None
+            position_to_seq=self.adapter.position_to_seq
+            if (self._shadow_enabled or self._buffered_table_names)
+            else None
         )
         on_row = self._make_read_heartbeat()
 

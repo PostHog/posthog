@@ -1,0 +1,212 @@
+"""Flip one CDC source between legacy extraction and buffered ingress.
+
+In place: the slot, the tables, and `initial_sync_complete` are all preserved, so there is no
+re-snapshot and no WAL gap. Only consolidated schemas move — see `cdc/source_manager.py`.
+"""
+
+from __future__ import annotations
+
+import time
+from typing import Any
+
+from django.core.management.base import BaseCommand, CommandError
+
+import psycopg
+import structlog
+
+from posthog.settings import WAREHOUSE_SOURCES_DATABASE_URL
+
+from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
+from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
+from products.warehouse_sources.backend.temporal.data_imports.cdc.buffer import purge_buffer_prefix
+from products.warehouse_sources.backend.temporal.data_imports.cdc.load_resolution import (
+    WRITE_RESOLUTION_FLAG,
+    is_cdc_write_resolution_enabled,
+)
+from products.warehouse_sources.backend.temporal.data_imports.cdc.source_manager import serves_buffered_lane
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.jobs_db import (
+    BatchQueue,
+)
+
+logger = structlog.get_logger(__name__)
+
+# How long to wait for in-flight sourcebatch batches to reach a terminal state before giving up.
+# Past this the operator should investigate rather than flip on top of a stuck load.
+DRAIN_TIMEOUT_SECONDS = 15 * 60
+DRAIN_POLL_SECONDS = 10
+
+
+class Command(BaseCommand):
+    help = "Move a CDC source onto buffered ingress (or back). Consolidated schemas only."
+
+    def add_arguments(self, parser: Any) -> None:
+        parser.add_argument("--source-id", required=True, help="ExternalDataSource UUID")
+        parser.add_argument("--rollback", action="store_true", help="Return the source to legacy extraction")
+        parser.add_argument("--dry-run", action="store_true", help="Report what would change and exit")
+        parser.add_argument(
+            "--drain-timeout",
+            type=int,
+            default=DRAIN_TIMEOUT_SECONDS,
+            help=f"Seconds to wait for sourcebatch to drain (default {DRAIN_TIMEOUT_SECONDS})",
+        )
+
+    def handle(self, *args: Any, **options: Any) -> None:
+        source_id = options["source_id"]
+        rollback = options["rollback"]
+        dry_run = options["dry_run"]
+        target_mode = "legacy" if rollback else "buffered"
+
+        try:
+            source = ExternalDataSource.objects.get(id=source_id)
+        except ExternalDataSource.DoesNotExist:
+            raise CommandError(f"No source {source_id}")
+
+        schemas = list(ExternalDataSchema.objects.filter(source_id=source.id, deleted=False))
+        cdc_schemas = [s for s in schemas if s.is_cdc]
+        if not cdc_schemas:
+            raise CommandError(f"Source {source_id} has no CDC schemas")
+
+        eligible = [s for s in cdc_schemas if serves_buffered_lane(s)]
+        ineligible = [s for s in cdc_schemas if s not in eligible]
+        current_mode = (source.job_inputs or {}).get("cdc_ingest_mode", "legacy")
+
+        self._report(source, current_mode, target_mode, eligible, ineligible)
+
+        if not eligible and not rollback:
+            raise CommandError(
+                "No schema on this source serves the buffered lane — nothing to flip. "
+                "Buffered ingress covers consolidated streaming schemas whose initial sync is done."
+            )
+        if current_mode == target_mode:
+            self.stdout.write(self.style.WARNING(f"Already {target_mode}; nothing to do."))
+            return
+        if not rollback:
+            self._require_write_resolution(source, eligible)
+        if dry_run:
+            self.stdout.write(self.style.WARNING("Dry run — no changes made."))
+            return
+
+        self._flip(source, target_mode, eligible, options["drain_timeout"])
+
+    def _require_write_resolution(self, source: ExternalDataSource, eligible: list[ExternalDataSchema]) -> None:
+        """Refuse to flip a team whose write resolution is off.
+
+        Without the flag the loader never records a load position, so the consumer never has grounds
+        to delete a consumed file. Files then accumulate until the 14-day TTL expires them — and the
+        slot advanced long ago, so that expiry is unrecoverable data loss rather than a stall.
+        """
+        if is_cdc_write_resolution_enabled(source.team_id, str(eligible[0].id), f"preflight-{source.id}"):
+            return
+        raise CommandError(
+            f"{WRITE_RESOLUTION_FLAG} is off for team {source.team_id}. Buffered ingress needs it: "
+            "without it no load position is recorded, consumed files are never deleted, and they "
+            "expire at the S3 TTL with the slot already advanced past them."
+        )
+
+    def _report(
+        self,
+        source: ExternalDataSource,
+        current_mode: str,
+        target_mode: str,
+        eligible: list[ExternalDataSchema],
+        ineligible: list[ExternalDataSchema],
+    ) -> None:
+        self.stdout.write(f"Source {source.id} (team {source.team_id}): {current_mode} → {target_mode}")
+        self.stdout.write(f"  buffered lane ({len(eligible)}): {', '.join(s.name for s in eligible) or '—'}")
+        if ineligible:
+            detail = ", ".join(f"{s.name} [{s.cdc_table_mode}]" for s in ineligible)
+            self.stdout.write(self.style.WARNING(f"  staying on legacy ({len(ineligible)}): {detail}"))
+            self.stdout.write(
+                self.style.WARNING(
+                    "  → hybrid source: capture keeps its transforms and the backpressure guard for those schemas"
+                )
+            )
+
+    def _flip(
+        self,
+        source: ExternalDataSource,
+        target_mode: str,
+        eligible: list[ExternalDataSchema],
+        drain_timeout: int,
+    ) -> None:
+        from products.data_warehouse.backend.facade.api import (
+            pause_cdc_extraction_schedule,
+            unpause_cdc_extraction_schedule,
+        )
+
+        source_id = str(source.id)
+
+        self.stdout.write("1/5 pausing extraction schedule")
+        pause_cdc_extraction_schedule(source_id)
+
+        self.stdout.write("2/5 draining sourcebatch")
+        self._wait_for_drain(source.team_id, [str(s.id) for s in eligible], drain_timeout)
+
+        # Only when moving TO buffered: pre-flip files were already delivered by the legacy lane, and
+        # replaying them would re-apply rows against a position the guard has no watermark for yet.
+        # Rolling back leaves files in place — the position guard makes a stale replay a no-op, and
+        # the S3 TTL clears them.
+        if target_mode == "buffered":
+            self.stdout.write("3/5 purging pre-flip buffer files")
+            for schema in eligible:
+                purge_buffer_prefix(source.team_id, str(schema.id), logger)
+        else:
+            self.stdout.write("3/5 leaving buffer files in place (the position guard no-ops them)")
+
+        self.stdout.write(f"4/5 setting cdc_ingest_mode={target_mode}")
+        source.job_inputs = {**(source.job_inputs or {}), "cdc_ingest_mode": target_mode}
+        source.save(update_fields=["job_inputs"])
+
+        self.stdout.write("5/5 unpausing schedules")
+        unpause_cdc_extraction_schedule(source_id)
+        self._set_schema_schedules(eligible, paused=target_mode != "buffered")
+
+        self.stdout.write(self.style.SUCCESS(f"Source {source_id} is now {target_mode}."))
+        self.stdout.write(
+            "Verify: capture writes buffer files and advances the slot; the next sync merges and "
+            'advances sync_type_config["cdc_load_position"]; consumed files disappear on the run after.'
+        )
+
+    def _wait_for_drain(self, team_id: int, schema_ids: list[str], timeout: int) -> None:
+        """Block until no sourcebatch batch for these schemas is still working.
+
+        Flipping while a batch is mid-flight would leave it to land after the source stopped
+        producing them, against a table the buffered lane has started writing.
+        """
+        if not schema_ids:
+            return
+
+        deadline = time.monotonic() + timeout
+        conn = psycopg.Connection.connect(WAREHOUSE_SOURCES_DATABASE_URL, autocommit=True)
+        try:
+            while True:
+                age = BatchQueue.get_oldest_non_terminal_batch_age_seconds(conn, team_id=team_id, schema_ids=schema_ids)
+                if age is None:
+                    return
+                if time.monotonic() >= deadline:
+                    raise CommandError(
+                        f"sourcebatch still has a batch {age:.0f}s old after {timeout}s. "
+                        "The source is left paused — investigate the stuck load before flipping."
+                    )
+                self.stdout.write(f"    waiting, oldest batch {age:.0f}s old")
+                time.sleep(DRAIN_POLL_SECONDS)
+        finally:
+            conn.close()
+
+    def _set_schema_schedules(self, schemas: list[ExternalDataSchema], *, paused: bool) -> None:
+        from products.data_warehouse.backend.facade.api import (
+            pause_external_data_schedule,
+            unpause_external_data_schedule,
+        )
+
+        for schema in schemas:
+            try:
+                if paused:
+                    pause_external_data_schedule(str(schema.id))
+                else:
+                    unpause_external_data_schedule(str(schema.id))
+            except Exception:
+                # The mode is already persisted, so a failed schedule call is recoverable by hand;
+                # aborting here would leave the source half-flipped instead.
+                self.stdout.write(self.style.WARNING(f"    could not set schedule for {schema.name} — do it manually"))
+                logger.warning("cdc_flip_schedule_failed", schema_id=str(schema.id), exc_info=True)
