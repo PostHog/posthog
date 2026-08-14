@@ -21,6 +21,8 @@ import { IconOpenInNew } from 'lib/lemon-ui/icons'
 import { formatDate } from 'lib/utils/datetime'
 import { humanFriendlyNumber } from 'lib/utils/numbers'
 
+import { AlertState } from '~/queries/schema/schema-general'
+
 import { AlertStateIndicator } from 'products/alerts/frontend/components/AlertDefinition'
 import { AlertHistoryChart } from 'products/alerts/frontend/views/AlertHistoryChart'
 
@@ -215,6 +217,13 @@ export function AlertHistorySection({
             render: (_value, check) => {
                 const summary = summarizeDeliveries(check.deliveries, check.targets_notified)
                 if (summary.kind === 'none') {
+                    if (check.state === AlertState.FIRING) {
+                        return (
+                            <Tooltip title="No email or destination accepted this notification. Check the alert's notification settings.">
+                                <span>No</span>
+                            </Tooltip>
+                        )
+                    }
                     return 'No'
                 }
                 return (

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from collections.abc import Collection, Sequence
 from dataclasses import asdict, dataclass
 from datetime import datetime
@@ -34,19 +35,13 @@ ALERT_INTERNAL_EVENT_DELIVERY_FAILURES = Counter(
     labelnames=["event_name"],
 )
 
-ALERT_NO_TRANSPORT_ACCEPTED = Counter(
-    "posthog_alert_delivery_no_transport_accepted_total",
-    "Alert checks whose notification dispatch ended with zero accepted deliveries",
-    labelnames=["alert_state"],
-)
-
 
 @dataclass(frozen=True, kw_only=True)
 class AlertDelivery:
     """Receipt for one destination that accepted a send. `status` is an open set
     ("accepted" now, "unknown" synthesized for legacy rows in the API)."""
 
-    channel: str  # "email" | "hog_function" (open set — "in_app" may join later)
+    channel: str  # "email" | "hog_function"
     target: str  # email address or destination name
     target_id: str | None = None  # hog function id
     template: str | None = None  # "slack" | "discord" | "webhook" | "teams"
@@ -163,6 +158,16 @@ def count_active_alert_destinations(*, team_id: int, alert_id: str, allowed_even
     ).count()
 
 
+# Webhook-style destination names embed the full webhook URL, whose path is a channel
+# credential (Slack/Discord/Teams webhook secret). Receipts flow into the API and the
+# History tooltip, so keep only the host.
+_URL_IN_NAME_RE = re.compile(r"https?://([^/\s]+)\S*")
+
+
+def _receipt_safe_name(name: str) -> str:
+    return _URL_IN_NAME_RE.sub(r"\1", name)
+
+
 def list_active_alert_destinations(
     *, team_id: int, alert_id: str, allowed_event_ids: Collection[str]
 ) -> list[ActiveAlertDestination]:
@@ -172,7 +177,7 @@ def list_active_alert_destinations(
     return [
         ActiveAlertDestination(
             id=str(hog_function_id),
-            name=name or "Destination",
+            name=_receipt_safe_name(name) if name else "Destination",
             destination_type=_TEMPLATE_ID_TO_DESTINATION_TYPE.get(template_id) if template_id else None,
         )
         for hog_function_id, name, template_id in rows

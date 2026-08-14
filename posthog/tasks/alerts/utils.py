@@ -11,6 +11,7 @@ import structlog
 
 from posthog.schema import AlertCalculationInterval, AlertState, ChartDisplayType, NodeKind, TrendsQuery
 
+from posthog.ph_client import ph_background_capture
 from posthog.rbac.user_access_control import UserAccessControl
 from posthog.slo.context import get_current_slo
 from posthog.slo.types import SloOperation
@@ -18,7 +19,6 @@ from posthog.tasks.alerts.schedule_restriction import snap_candidate_utc_to_sche
 
 from products.alerts.backend.delivery_slo import alert_delivery_slo
 from products.alerts.backend.destinations import (
-    ALERT_NO_TRANSPORT_ACCEPTED,
     ALERT_NOTIFICATION_FLUSH_TIMEOUT_SECONDS,
     AlertDelivery,
     alert_internal_event_delivered,
@@ -144,19 +144,12 @@ def next_check_at_after_schedule_restriction_change(alert: AlertConfiguration) -
 
 
 def trigger_alert_hog_functions(alert: AlertConfiguration, properties: dict) -> list[AlertDelivery]:
-    """Produce the internal event for the alert's destinations and return one receipt
-    per active destination iff the transport accepted the event."""
+    """Trigger all HogFunctions linked to the alert as notification destinations by producing an internal event."""
 
     logger.info(
         "Triggering internal event for alert destinations/hog functions",
         alert_id=alert.id,
         properties=properties,
-    )
-
-    destinations = list_active_alert_destinations(
-        team_id=alert.team_id,
-        alert_id=str(alert.id),
-        allowed_event_ids=(INSIGHT_ALERT_FIRING_EVENT,),
     )
 
     props = {
@@ -171,10 +164,12 @@ def trigger_alert_hog_functions(alert: AlertConfiguration, properties: dict) -> 
         **properties,
     }
 
-    produce_result = produce_alert_internal_event(
+    # Enumerated before the produce so a lookup failure retries cleanly, without a
+    # second produce sending destinations duplicate messages.
+    destinations = list_active_alert_destinations(
         team_id=alert.team_id,
-        event_name=INSIGHT_ALERT_FIRING_EVENT,
-        properties=props,
+        alert_id=str(alert.id),
+        allowed_event_ids=(INSIGHT_ALERT_FIRING_EVENT,),
     )
     accepted_at = datetime.now(UTC).isoformat()
     receipts = [
@@ -187,6 +182,12 @@ def trigger_alert_hog_functions(alert: AlertConfiguration, properties: dict) -> 
         )
         for destination in destinations
     ]
+
+    produce_result = produce_alert_internal_event(
+        team_id=alert.team_id,
+        event_name=INSIGHT_ALERT_FIRING_EVENT,
+        properties=props,
+    )
 
     slo = get_current_slo()
     if slo is None or slo.operation != SloOperation.ALERT_DELIVERY:
@@ -389,28 +390,45 @@ def dispatch_alert_notification(
                 raise AssertionError(f"dispatch_alert_notification: unhandled alert state: {alert_check.state}")
 
 
-def record_alert_delivery(alert: AlertConfiguration, alert_check: AlertCheck, deliveries: list[AlertDelivery]) -> bool:
+def record_alert_delivery(
+    alert: AlertConfiguration,
+    alert_check: AlertCheck,
+    deliveries: list[AlertDelivery] | None,
+    *,
+    stamp_on_empty: bool = False,
+) -> bool:
     """Persist the side-effects of accepted notification deliveries.
 
-    No-ops (returns False) when nothing was accepted, so a check can never claim
-    delivery that didn't happen. Writes the legacy targets_notified map (emails only),
-    the destination receipts, and both notification timestamps together.
+    Returns False without recording anything when nothing was accepted, so a check
+    can never claim delivery that didn't happen. `stamp_on_empty` is for the
+    investigation-gated dispatchers: a zero-accept attempt must still stamp
+    notification_sent_at (their sweep-idempotency marker), or the safety net would
+    re-dispatch an undeliverable check forever.
 
     Caller must wrap in transaction.atomic() if atomic semantics are required.
     """
     if not deliveries:
-        ALERT_NO_TRANSPORT_ACCEPTED.labels(alert_state=alert_check.state).inc()
         logger.warning(
             "record_alert_delivery.no_transport_accepted",
             alert_id=str(alert.id),
             alert_check_id=str(alert_check.id),
             alert_check_state=alert_check.state,
         )
+        ph_background_capture()(
+            distinct_id=str(alert.id),
+            event="alert notification not delivered",
+            properties={
+                "team_id": alert.team_id,
+                "alert_id": str(alert.id),
+                "alert_check_id": str(alert_check.id),
+                "alert_state": alert_check.state,
+            },
+        )
+        if stamp_on_empty:
+            alert_check.notification_sent_at = datetime.now(UTC)
+            alert_check.save(update_fields=["notification_sent_at"])
         return False
     recorded_at = datetime.now(UTC)
-    # "users" keeps its historical email-only shape; "destinations" carries the other
-    # channels' receipts, and writing the key (even empty) marks the row as recorded
-    # under accepted-delivery semantics — legacy rows lack it.
     alert_check.targets_notified = {
         "users": [delivery.target for delivery in deliveries if delivery.channel == "email"],
         "destinations": serialize_deliveries([d for d in deliveries if d.channel != "email"]),
@@ -420,20 +438,6 @@ def record_alert_delivery(alert: AlertConfiguration, alert_check: AlertCheck, de
     alert.last_notified_at = recorded_at
     alert.save(update_fields=["last_notified_at"])
     return True
-
-
-def record_delivery_or_stamp(
-    alert: AlertConfiguration, alert_check: AlertCheck, deliveries: list[AlertDelivery] | None
-) -> None:
-    """Record accepted deliveries, else stamp notification_sent_at as the gating marker.
-
-    Shared by the investigation-gated dispatchers: a zero-accept attempt must still
-    stamp, or the safety-net sweep would re-dispatch an undeliverable check forever.
-    """
-    recorded = record_alert_delivery(alert, alert_check, deliveries) if deliveries is not None else False
-    if not recorded:
-        alert_check.notification_sent_at = datetime.now(UTC)
-        alert_check.save(update_fields=["notification_sent_at"])
 
 
 def add_alert_check(

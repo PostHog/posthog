@@ -58,6 +58,7 @@ from posthog.tasks.alerts.utils import (
 from posthog.utils import relative_date_parse
 
 from products.alerts.backend.api.alert_schedule_restriction import AlertScheduleRestriction
+from products.alerts.backend.destination_configs import DestinationType
 from products.alerts.backend.destinations import count_active_alert_destinations
 from products.alerts.backend.evaluation.contract import AlertExtractionError
 from products.alerts.backend.evaluation.detector import simulate_detector_on_insight
@@ -217,6 +218,15 @@ class ThresholdSerializer(serializers.ModelSerializer):
         return data
 
 
+def _delivery_label(delivery: dict[str, Any]) -> str:
+    template = delivery.get("template")
+    try:
+        channel_label = str(DestinationType(template).label) if template else "Destination"
+    except ValueError:
+        channel_label = "Destination"
+    return f"{channel_label}: {delivery.get('target', '')}"
+
+
 class AlertDeliverySerializer(serializers.Serializer):
     channel = serializers.CharField(help_text="Delivery channel: 'email' or 'hog_function' (destinations).")
     target = serializers.CharField(help_text="Email address, or destination name, that received the notification.")
@@ -234,6 +244,9 @@ class AlertDeliverySerializer(serializers.Serializer):
     )
     at = serializers.DateTimeField(
         required=False, help_text="When the delivery was recorded. Absent on legacy synthesized entries."
+    )
+    display_label = serializers.CharField(
+        help_text="Ready-to-display description of the delivery, e.g. 'Email: a@example.com' or 'Slack: Eng alerts'."
     )
 
 
@@ -283,14 +296,28 @@ class AlertCheckSerializer(serializers.ModelSerializer):
     def get_deliveries(self, instance: AlertCheck) -> list[dict[str, Any]] | None:
         notified = instance.targets_notified or {}
         users = notified.get("users") or []
-        # The "destinations" key marks rows recorded under accepted-delivery semantics;
-        # legacy rows only carry the configured recipient list.
-        if "destinations" in notified:
+        if instance.has_delivery_receipts:
             accepted_at = instance.notification_sent_at.isoformat() if instance.notification_sent_at else None
-            emails = [{"channel": "email", "target": email, "status": "accepted", "at": accepted_at} for email in users]
-            return emails + list(notified.get("destinations") or [])
+            emails = [
+                {
+                    "channel": "email",
+                    "target": email,
+                    "status": "accepted",
+                    "at": accepted_at,
+                    "display_label": f"Email: {email}",
+                }
+                for email in users
+            ]
+            destinations = [
+                {**delivery, "display_label": _delivery_label(delivery)}
+                for delivery in notified.get("destinations") or []
+            ]
+            return emails + destinations
         if users:
-            return [{"channel": "email", "target": email, "status": "unknown"} for email in users]
+            return [
+                {"channel": "email", "target": email, "status": "unknown", "display_label": f"Email: {email}"}
+                for email in users
+            ]
         return None
 
 
@@ -1251,19 +1278,14 @@ class AlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                     additional_properties={"alert_id": str(alert.id), "feature": "alerts", "channel": "email"},
                 )
                 failed_delivery_channels.append("email")
-        destination_receipts = (
-            trigger_alert_hog_functions(
-                alert,
-                {
-                    "breaches": "Test alert from PostHog. No action is needed.",
-                    "is_test": True,
-                    "alert_name": f"[TEST] {alert.name}",
-                },
-            )
-            if destination_count
-            else []
-        )
-        if destination_receipts:
+        if destination_count and trigger_alert_hog_functions(
+            alert,
+            {
+                "breaches": "Test alert from PostHog. No action is needed.",
+                "is_test": True,
+                "alert_name": f"[TEST] {alert.name}",
+            },
+        ):
             successful_destination_count = destination_count
         elif destination_count:
             failed_delivery_channels.append("destination")

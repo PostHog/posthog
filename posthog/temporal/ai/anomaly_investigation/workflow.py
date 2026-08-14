@@ -22,7 +22,7 @@ from temporalio import activity, workflow
 from temporalio.common import RetryPolicy
 
 from posthog.models import Team, User
-from posthog.tasks.alerts.utils import dispatch_alert_notification, record_delivery_or_stamp
+from posthog.tasks.alerts.utils import dispatch_alert_notification, record_alert_delivery
 from posthog.temporal.ai.anomaly_investigation.charts import png_to_b64, render_series_chart
 from posthog.temporal.ai.anomaly_investigation.metric_definition import describe_metric_definition
 from posthog.temporal.ai.anomaly_investigation.notebook import NotebookRenderContext, build_investigation_notebook
@@ -414,7 +414,7 @@ def _dispatch_gated_notification(
         )
         try:
             deliveries = dispatch_alert_notification(alert, check, breaches, extra_properties=extra_properties)
-            record_delivery_or_stamp(alert, check, deliveries)
+            record_alert_delivery(alert, check, deliveries, stamp_on_empty=True)
         except Exception:
             logger.exception(
                 "anomaly_investigation.gated_notification_failed",

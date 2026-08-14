@@ -52,24 +52,6 @@ export function getAlertsTabs({
     return tabs
 }
 
-const DELIVERY_TEMPLATE_LABELS: Record<string, string> = {
-    slack: 'Slack',
-    discord: 'Discord',
-    webhook: 'Webhook',
-    teams: 'Microsoft Teams',
-}
-
-export function describeDelivery(delivery: AlertCheckDelivery): string {
-    if (delivery.channel === 'email') {
-        return `Email: ${delivery.target}`
-    }
-    if (delivery.channel === 'hog_function') {
-        const label = (delivery.template && DELIVERY_TEMPLATE_LABELS[delivery.template]) || 'Destination'
-        return `${label}: ${delivery.target}`
-    }
-    return `${delivery.channel}: ${delivery.target}`
-}
-
 export type DeliverySummary =
     | { kind: 'delivered'; label: string; lines: string[] }
     | { kind: 'legacy'; label: string; lines: string[] }
@@ -82,10 +64,10 @@ export function summarizeDeliveries(
     const all = deliveries ?? []
     const accepted = all.filter((delivery) => delivery.status === 'accepted')
     if (accepted.length > 0) {
-        return { kind: 'delivered', label: `Yes · ${accepted.length}`, lines: accepted.map(describeDelivery) }
+        return { kind: 'delivered', label: `Yes · ${accepted.length}`, lines: accepted.map((d) => d.display_label) }
     }
     if (all.length > 0 || targetsNotified) {
-        return { kind: 'legacy', label: 'Yes', lines: all.map(describeDelivery) }
+        return { kind: 'legacy', label: 'Yes', lines: all.map((d) => d.display_label) }
     }
     return { kind: 'none' }
 }

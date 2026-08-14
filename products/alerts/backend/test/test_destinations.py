@@ -202,6 +202,21 @@ class TestListActiveAlertDestinations(APIBaseTest):
         assert all(isinstance(d.id, str) for d in destinations)
         assert len(destinations) == 2
 
+    def test_list_active_alert_destinations_strips_webhook_urls_to_host(self) -> None:
+        # Webhook names embed the full URL, whose path is the channel credential —
+        # receipts surface in the API and tooltip, so only the host may survive.
+        self._make_hog_function(
+            template_id="template-webhook",
+            alert_id="alert-1",
+            name="Webhook https://discord.com/api/webhooks/123/secret-token",
+        )
+
+        destinations = list_active_alert_destinations(
+            team_id=self.team.id, alert_id="alert-1", allowed_event_ids=("$logs_alert_firing",)
+        )
+
+        assert [d.name for d in destinations] == ["Webhook discord.com"]
+
 
 class TestSerializeDeliveries(APIBaseTest):
     def test_serialize_deliveries_roundtrips_dataclass_fields(self) -> None:

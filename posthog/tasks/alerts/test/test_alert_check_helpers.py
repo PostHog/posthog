@@ -94,6 +94,24 @@ class TestRunAlertCheck(APIBaseTest):
         assert check.targets_notified == {}
         assert check.notification_sent_at is None
 
+    def test_record_alert_delivery_splits_mixed_channels(self) -> None:
+        alert = AlertConfiguration.objects.get(id=self.alert_id)
+        check = AlertCheck.objects.create(alert_configuration=alert, targets_notified={}, state=AlertState.FIRING)
+        email = AlertDelivery(channel="email", target="a@example.com", at="2026-08-11T00:00:00+00:00")
+        hog = AlertDelivery(
+            channel="hog_function",
+            target="Slack #eng",
+            target_id="hf-1",
+            template="slack",
+            at="2026-08-11T00:00:00+00:00",
+        )
+
+        assert record_alert_delivery(alert, check, [email, hog]) is True
+
+        check.refresh_from_db()
+        assert check.targets_notified["users"] == ["a@example.com"]
+        assert [d["target"] for d in check.targets_notified["destinations"]] == ["Slack #eng"]
+
     def test_record_alert_delivery_writes_legacy_map_and_receipts(self) -> None:
         alert = AlertConfiguration.objects.get(id=self.alert_id)
         check = AlertCheck.objects.create(alert_configuration=alert, targets_notified={}, state=AlertState.FIRING)

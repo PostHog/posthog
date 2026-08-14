@@ -16,7 +16,6 @@ import { QueryBasedInsightModel, UserBasicType } from '~/types'
 
 import type { AlertDeliveryApi } from './generated/api.schemas'
 
-/** Shape matches the generated `AlertDeliveryApi` exactly, so we alias it rather than duplicate it. */
 export type AlertCheckDelivery = AlertDeliveryApi
 
 export type AlertConfig = TrendsAlertConfig | HogQLAlertConfig | FunnelsAlertConfig | MetricsAlertConfig

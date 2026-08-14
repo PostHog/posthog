@@ -514,6 +514,7 @@ class TestAlert(APIBaseTest, QueryMatchingTest):
                         "target": "a@example.com",
                         "status": "accepted",
                         "at": "2026-08-11T00:00:00+00:00",
+                        "display_label": "Email: a@example.com",
                     }
                 ],
                 True,
@@ -521,7 +522,14 @@ class TestAlert(APIBaseTest, QueryMatchingTest):
             (
                 "legacy_users_map_synthesized_as_unknown",
                 {"users": ["a@example.com"]},
-                [{"channel": "email", "target": "a@example.com", "status": "unknown"}],
+                [
+                    {
+                        "channel": "email",
+                        "target": "a@example.com",
+                        "status": "unknown",
+                        "display_label": "Email: a@example.com",
+                    }
+                ],
                 True,
             ),
             (
@@ -547,7 +555,43 @@ class TestAlert(APIBaseTest, QueryMatchingTest):
                         "template": "slack",
                         "status": "accepted",
                         "at": "2026-08-11T00:00:00+00:00",
+                        "display_label": "Slack: Eng alerts",
                     }
+                ],
+                True,
+            ),
+            (
+                "combined_email_and_destination_row",
+                {
+                    "users": ["a@example.com"],
+                    "destinations": [
+                        {
+                            "channel": "hog_function",
+                            "target": "Eng alerts",
+                            "target_id": "hf-1",
+                            "template": "slack",
+                            "status": "accepted",
+                            "at": "2026-08-11T00:00:00+00:00",
+                        }
+                    ],
+                },
+                [
+                    {
+                        "channel": "email",
+                        "target": "a@example.com",
+                        "status": "accepted",
+                        "at": "2026-08-11T00:00:00+00:00",
+                        "display_label": "Email: a@example.com",
+                    },
+                    {
+                        "channel": "hog_function",
+                        "target": "Eng alerts",
+                        "target_id": "hf-1",
+                        "template": "slack",
+                        "status": "accepted",
+                        "at": "2026-08-11T00:00:00+00:00",
+                        "display_label": "Slack: Eng alerts",
+                    },
                 ],
                 True,
             ),

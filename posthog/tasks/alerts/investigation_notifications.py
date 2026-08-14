@@ -26,7 +26,7 @@ import structlog
 
 from posthog.schema import AlertState
 
-from posthog.tasks.alerts.utils import dispatch_alert_notification, record_delivery_or_stamp
+from posthog.tasks.alerts.utils import dispatch_alert_notification, record_alert_delivery
 
 from products.alerts.backend.models.alert import AlertCheck, InvestigationStatus
 
@@ -98,13 +98,17 @@ def run_investigation_notification_safety_net() -> int:
                     continue
                 breaches = _fallback_breach_descriptions(locked)
                 deliveries = dispatch_alert_notification(alert, locked, breaches)
-                record_delivery_or_stamp(alert, locked, deliveries)
+                record_alert_delivery(alert, locked, deliveries, stamp_on_empty=True)
         except Exception:
             logger.exception(
                 "alert.investigation_safety_net_failed",
                 alert_id=str(alert.id),
                 alert_check_id=str(check.id),
             )
+            continue
+
+        if not deliveries:
+            # Stamped but undeliverable — nobody was notified, so it doesn't count.
             continue
 
         logger.warning(

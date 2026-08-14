@@ -1,5 +1,5 @@
 import type { AlertCheckDelivery } from './types'
-import { AlertsTab, describeDelivery, getActiveAlertsTab, summarizeDeliveries } from './utils'
+import { AlertsTab, getActiveAlertsTab, summarizeDeliveries } from './utils'
 
 describe('alerts utils', () => {
     describe('getActiveAlertsTab', () => {
@@ -41,33 +41,20 @@ describe('alerts utils', () => {
         })
     })
 
-    describe('describeDelivery', () => {
-        it.each([
-            [{ channel: 'email', target: 'a@example.com', status: 'accepted' }, 'Email: a@example.com'],
-            [
-                { channel: 'hog_function', target: 'Eng alerts', template: 'slack', status: 'accepted' },
-                'Slack: Eng alerts',
-            ],
-            [
-                { channel: 'hog_function', target: 'My endpoint', template: 'webhook', status: 'accepted' },
-                'Webhook: My endpoint',
-            ],
-            [
-                { channel: 'hog_function', target: 'Mystery', template: null, status: 'accepted' },
-                'Destination: Mystery',
-            ],
-            [{ channel: 'in_app', target: 'user:1', status: 'accepted' }, 'in_app: user:1'],
-        ])('formats %j', (delivery, expected) => {
-            expect(describeDelivery(delivery as AlertCheckDelivery)).toBe(expected)
-        })
-    })
-
     describe('summarizeDeliveries', () => {
         const accepted: AlertCheckDelivery[] = [
-            { channel: 'email', target: 'a@example.com', status: 'accepted' },
-            { channel: 'hog_function', target: 'Eng alerts', template: 'slack', status: 'accepted' },
+            { channel: 'email', target: 'a@example.com', status: 'accepted', display_label: 'Email: a@example.com' },
+            {
+                channel: 'hog_function',
+                target: 'Eng alerts',
+                template: 'slack',
+                status: 'accepted',
+                display_label: 'Slack: Eng alerts',
+            },
         ]
-        const legacy: AlertCheckDelivery[] = [{ channel: 'email', target: 'a@example.com', status: 'unknown' }]
+        const legacy: AlertCheckDelivery[] = [
+            { channel: 'email', target: 'a@example.com', status: 'unknown', display_label: 'Email: a@example.com' },
+        ]
 
         it('labels accepted receipts with their count and lines', () => {
             expect(summarizeDeliveries(accepted, true)).toEqual({
