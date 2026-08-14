@@ -96,7 +96,7 @@ trendsAlert.checks![trendsAlert.checks!.length - 1].deliveries = [
         target: '#eng-alerts',
         template: 'slack',
         status: 'accepted',
-        display_label: 'Slack: #eng-alerts',
+        display_label: 'Slack #eng-alerts',
     },
 ]
 // A check recorded before delivery receipts existed: "Yes" with the legacy note, no receipt list.

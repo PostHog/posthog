@@ -58,7 +58,6 @@ from posthog.tasks.alerts.utils import (
 from posthog.utils import relative_date_parse
 
 from products.alerts.backend.api.alert_schedule_restriction import AlertScheduleRestriction
-from products.alerts.backend.destination_configs import DestinationType
 from products.alerts.backend.destinations import count_active_alert_destinations
 from products.alerts.backend.evaluation.contract import AlertExtractionError
 from products.alerts.backend.evaluation.detector import simulate_detector_on_insight
@@ -218,15 +217,6 @@ class ThresholdSerializer(serializers.ModelSerializer):
         return data
 
 
-def _delivery_label(delivery: dict[str, Any]) -> str:
-    template = delivery.get("template")
-    try:
-        channel_label = str(DestinationType(template).label) if template else "Destination"
-    except ValueError:
-        channel_label = "Destination"
-    return f"{channel_label}: {delivery.get('target', '')}"
-
-
 class AlertDeliverySerializer(serializers.Serializer):
     channel = serializers.CharField(help_text="Delivery channel: 'email' or 'hog_function' (destinations).")
     target = serializers.CharField(help_text="Email address, or destination name, that received the notification.")
@@ -246,7 +236,7 @@ class AlertDeliverySerializer(serializers.Serializer):
         required=False, help_text="When the delivery was recorded. Absent on legacy synthesized entries."
     )
     display_label = serializers.CharField(
-        help_text="Ready-to-display description of the delivery, e.g. 'Email: a@example.com' or 'Slack: Eng alerts'."
+        help_text="Ready-to-display description of the delivery, e.g. 'Email: a@example.com' or 'Slack #eng-alerts'."
     )
 
 
@@ -309,7 +299,7 @@ class AlertCheckSerializer(serializers.ModelSerializer):
                 for email in users
             ]
             destinations = [
-                {**delivery, "display_label": _delivery_label(delivery)}
+                {**delivery, "display_label": delivery.get("target") or "Destination"}
                 for delivery in notified.get("destinations") or []
             ]
             return emails + destinations

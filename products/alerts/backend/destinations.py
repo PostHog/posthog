@@ -21,11 +21,7 @@ from posthog.exceptions_capture import capture_exception
 from posthog.kafka_client.client import ProduceResult
 from posthog.plugins.plugin_server_api import reload_hog_functions_on_workers
 
-from products.alerts.backend.destination_configs import (
-    DESTINATION_TEMPLATE_IDS,
-    AlertDestinationConfig,
-    DestinationType,
-)
+from products.alerts.backend.destination_configs import DESTINATION_TEMPLATE_IDS, AlertDestinationConfig
 from products.cdp.backend.api.hog_function import HogFunctionSerializer
 from products.cdp.backend.models.hog_functions.hog_function import HogFunction
 
@@ -167,21 +163,18 @@ def count_active_alert_destinations(*, team_id: int, alert_id: str, allowed_even
 # History tooltip, so keep only the host.
 _URL_IN_NAME_RE = re.compile(r"https?://([^/\s]+)\S*")
 
-_SLACK_CHANNEL_IN_NAME_RE = re.compile(r"#\S+")
+_DESTINATION_NAME_SEPARATOR = " → "
 
 
 def _receipt_safe_name(name: str) -> str:
     return _URL_IN_NAME_RE.sub(r"\1", name)
 
 
-def _destination_display_name(name: str, destination_type: str | None) -> str:
-    # Slack destination names embed the channel ("... → Slack #eng-alerts"); the
-    # channel alone is what a reader wants in the receipt.
-    if destination_type == DestinationType.SLACK.value:
-        match = _SLACK_CHANNEL_IN_NAME_RE.search(name)
-        if match:
-            return match.group(0)
-    return _receipt_safe_name(name)
+def _destination_display_name(name: str) -> str:
+    # Names read "<product> — <alert> (<kind>) → <destination>"; keep the trailing
+    # segment. rpartition, since an alert name may contain the separator too.
+    _, _, destination = name.rpartition(_DESTINATION_NAME_SEPARATOR)
+    return _receipt_safe_name(destination or name)
 
 
 def list_active_alert_destinations(
@@ -196,7 +189,7 @@ def list_active_alert_destinations(
         destinations.append(
             ActiveAlertDestination(
                 id=str(hog_function_id),
-                name=_destination_display_name(name, destination_type) if name else "Destination",
+                name=_destination_display_name(name) if name else "Destination",
                 destination_type=destination_type,
             )
         )

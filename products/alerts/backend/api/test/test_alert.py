@@ -539,7 +539,7 @@ class TestAlert(APIBaseTest, QueryMatchingTest):
                     "destinations": [
                         {
                             "channel": "hog_function",
-                            "target": "#eng-alerts",
+                            "target": "Slack #eng-alerts",
                             "target_id": "hf-1",
                             "template": "slack",
                             "status": "accepted",
@@ -550,12 +550,12 @@ class TestAlert(APIBaseTest, QueryMatchingTest):
                 [
                     {
                         "channel": "hog_function",
-                        "target": "#eng-alerts",
+                        "target": "Slack #eng-alerts",
                         "target_id": "hf-1",
                         "template": "slack",
                         "status": "accepted",
                         "at": "2026-08-11T00:00:00+00:00",
-                        "display_label": "Slack: #eng-alerts",
+                        "display_label": "Slack #eng-alerts",
                     }
                 ],
                 True,
@@ -567,7 +567,7 @@ class TestAlert(APIBaseTest, QueryMatchingTest):
                     "destinations": [
                         {
                             "channel": "hog_function",
-                            "target": "#eng-alerts",
+                            "target": "Slack #eng-alerts",
                             "target_id": "hf-1",
                             "template": "slack",
                             "status": "accepted",
@@ -585,12 +585,12 @@ class TestAlert(APIBaseTest, QueryMatchingTest):
                     },
                     {
                         "channel": "hog_function",
-                        "target": "#eng-alerts",
+                        "target": "Slack #eng-alerts",
                         "target_id": "hf-1",
                         "template": "slack",
                         "status": "accepted",
                         "at": "2026-08-11T00:00:00+00:00",
-                        "display_label": "Slack: #eng-alerts",
+                        "display_label": "Slack #eng-alerts",
                     },
                 ],
                 True,

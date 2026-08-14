@@ -1,6 +1,7 @@
 from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, patch
 
+from parameterized import parameterized
 from rest_framework.exceptions import ValidationError
 
 from products.alerts.backend.destinations import (
@@ -182,8 +183,12 @@ class TestListActiveAlertDestinations(APIBaseTest):
         )
 
     def test_list_active_alert_destinations_returns_name_and_type(self) -> None:
-        self._make_hog_function(template_id="template-slack", alert_id="alert-1", name="Slack #eng-alerts")
-        self._make_hog_function(template_id="template-slack", alert_id="alert-1", name="Other #alerts")
+        self._make_hog_function(
+            template_id="template-slack", alert_id="alert-1", name="Alerts — Signups (firing) → Slack #eng-alerts"
+        )
+        self._make_hog_function(
+            template_id="template-slack", alert_id="alert-1", name="Alerts — Signups (firing) → Slack #alerts"
+        )
         self._make_hog_function(template_id="template-webhook", alert_id="alert-2")
         disabled = self._make_hog_function(template_id="template-slack", alert_id="alert-1", name="Disabled")
         disabled.enabled = False
@@ -197,19 +202,28 @@ class TestListActiveAlertDestinations(APIBaseTest):
         )
         names_and_types = [(d.name, d.destination_type) for d in destinations]
 
-        assert ("#eng-alerts", "slack") in names_and_types
-        assert ("#alerts", "slack") in names_and_types
+        assert ("Slack #eng-alerts", "slack") in names_and_types
+        assert ("Slack #alerts", "slack") in names_and_types
         assert all(isinstance(d.id, str) for d in destinations)
         assert len(destinations) == 2
 
-    def test_slack_destination_without_channel_token_falls_back_to_name(self) -> None:
-        self._make_hog_function(template_id="template-slack", alert_id="alert-1", name="My renamed destination")
+    @parameterized.expand(
+        [
+            ("alert_name_contains_separator", "Alerts — A → B (firing) → Slack #eng-alerts", "Slack #eng-alerts"),
+            ("renamed_destination_has_no_separator", "My renamed destination", "My renamed destination"),
+            ("name_clipped_before_separator", "Alerts — a very long alert name…", "Alerts — a very long alert name…"),
+        ]
+    )
+    def test_destination_name_reduces_to_its_trailing_segment(
+        self, _name: str, hog_function_name: str, expected: str
+    ) -> None:
+        self._make_hog_function(template_id="template-slack", alert_id="alert-1", name=hog_function_name)
 
         destinations = list_active_alert_destinations(
             team_id=self.team.id, alert_id="alert-1", allowed_event_ids=("$logs_alert_firing",)
         )
 
-        assert [d.name for d in destinations] == ["My renamed destination"]
+        assert [d.name for d in destinations] == [expected]
 
     def test_list_active_alert_destinations_strips_webhook_urls_to_host(self) -> None:
         # Webhook names embed the full URL, whose path is the channel credential —
@@ -217,7 +231,7 @@ class TestListActiveAlertDestinations(APIBaseTest):
         self._make_hog_function(
             template_id="template-webhook",
             alert_id="alert-1",
-            name="Webhook https://discord.com/api/webhooks/123/secret-token",
+            name="Alerts — Signups (firing) → Webhook https://discord.com/api/webhooks/123/secret-token",
         )
 
         destinations = list_active_alert_destinations(

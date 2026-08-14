@@ -8912,7 +8912,7 @@ export namespace Schemas {
       status: string;
       /** When the delivery was recorded. Absent on legacy synthesized entries. */
       at?: string;
-      /** Ready-to-display description of the delivery, e.g. 'Email: a@example.com' or 'Slack: Eng alerts'. */
+      /** Ready-to-display description of the delivery, e.g. 'Email: a@example.com' or 'Slack #eng-alerts'. */
       display_label: string;
     }
 
