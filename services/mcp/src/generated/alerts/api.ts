@@ -1291,7 +1291,7 @@ export const AlertsCreateBody = /* @__PURE__ */ zod.object({
         .boolean()
         .optional()
         .describe(
-            'When enabled, an investigation agent runs on the state transition to firing and writes findings to a Notebook linked from the alert check. Only effective for detector-based (anomaly) alerts.'
+            'When enabled, an investigation agent runs on each firing check and writes findings to a Notebook linked from that check. Alerts on a sub-hourly calculation interval are investigated at most once an hour. Only effective for detector-based (anomaly) alerts.'
         ),
     investigation_gates_notifications: zod
         .boolean()
@@ -2620,7 +2620,7 @@ export const AlertsPartialUpdateBody = /* @__PURE__ */ zod.object({
         .boolean()
         .optional()
         .describe(
-            'When enabled, an investigation agent runs on the state transition to firing and writes findings to a Notebook linked from the alert check. Only effective for detector-based (anomaly) alerts.'
+            'When enabled, an investigation agent runs on each firing check and writes findings to a Notebook linked from that check. Alerts on a sub-hourly calculation interval are investigated at most once an hour. Only effective for detector-based (anomaly) alerts.'
         ),
     investigation_gates_notifications: zod
         .boolean()
