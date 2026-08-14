@@ -41,6 +41,7 @@ const scanner = (overrides: Partial<ReplayScannerApi> = {}): ReplayScannerApi =>
         id: '00000000-0000-0000-0000-00000000000a',
         name: 'Scanner',
         description: '',
+        tags: [],
         scanner_type: 'monitor',
         scanner_config: { prompt: 'Did the user struggle?' },
         query: null,
@@ -72,6 +73,7 @@ const scanners = {
             credits_this_month: 1250,
             observations_this_month: 1250,
             description: 'Flags sessions where the user hesitated at payment.',
+            tags: ['checkout', 'core flows'],
             scanner_type: 'monitor',
             sampling_rate: 1,
             created_by: alice,
@@ -451,6 +453,7 @@ const meta: Meta = {
     decorators: [
         mswDecorator({
             get: {
+                '/api/projects/:team_id/tags/': ['checkout', 'core flows'],
                 '/api/projects/:team_id/vision/scanners/': scanners,
                 '/api/projects/:team_id/vision/scanners/stats/': scannerStats,
                 '/api/projects/:team_id/vision/scanners/creators/': { creators: [alice, bob] },
@@ -487,6 +490,27 @@ const meta: Meta = {
 export default meta
 
 export const ScannersList: StoryObj = {}
+
+// Zero scanners: snapshot-covers the table empty state and its docs link, which no other story renders.
+export const ScannersListEmpty: StoryObj = {
+    decorators: [
+        mswDecorator({
+            get: {
+                '/api/projects/:team_id/vision/scanners/': { count: 0, next: null, previous: null, results: [] },
+                '/api/projects/:team_id/vision/scanners/stats/': {
+                    total: 0,
+                    enabled: 0,
+                    by_type: {
+                        monitor: { enabled: 0, total: 0 },
+                        classifier: { enabled: 0, total: 0 },
+                        scorer: { enabled: 0, total: 0 },
+                        summarizer: { enabled: 0, total: 0 },
+                    },
+                } satisfies ScannerStatsResponseApi,
+            },
+        }),
+    ],
+}
 
 export const UsageTab: StoryObj = {
     parameters: { pageUrl: `${urls.replayVision()}?tab=usage` },
@@ -542,6 +566,14 @@ export const ScannerTemplates: StoryObj = {
     parameters: { pageUrl: urls.replayVisionTemplates() },
 }
 
+// The flag-gated "tell PostHog AI what you want to accomplish" box below the template grid.
+export const ScannerTemplatesWithGoalDraft: StoryObj = {
+    parameters: {
+        pageUrl: urls.replayVisionTemplates(),
+        featureFlags: [FEATURE_FLAGS.REPLAY_VISION_GOAL_DRAFT],
+    },
+}
+
 export const ScannerEditorConfigure: StoryObj = {
     parameters: { pageUrl: urls.replayVisionScannerConfigure(summarizerScanner.id) },
 }
@@ -594,6 +626,7 @@ export const StartupProgramCap: StoryObj = {
     decorators: [
         mswDecorator({
             get: {
+                '/api/projects/:team_id/tags/': ['checkout', 'core flows'],
                 '/api/projects/:team_id/vision/scanners/': scanners,
                 '/api/projects/:team_id/vision/scanners/stats/': scannerStats,
                 '/api/projects/:team_id/vision/quota/': { ...quota, credit_limit: null, remaining: null },

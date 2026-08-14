@@ -327,6 +327,8 @@ class RunEvaluationWorkflow(PostHogWorkflow):
                 schedule_to_close_timeout=timedelta(seconds=30),
             )
 
+        # Legacy per-result signal path. The frontend no longer exposes its enablement;
+        # evaluation reports are the supported AI observability signal source.
         if evaluation_type == "llm_judge" and result.get("verdict") is True and result.get("reasoning"):
             event_uuid = inputs.event_data.get("uuid", "")
             properties = inputs.event_data.get("properties", {})

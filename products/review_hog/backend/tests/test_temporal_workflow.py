@@ -115,6 +115,7 @@ async def _run_full_review_pr_workflow(
     review_calls: list[tuple[int, int, bool, str, tuple[str, ...]]] = []
     validate_calls: list[int] = []
     publish_calls: list[int] = []
+    finalize_will_publish: list[bool] = []
     # Each code_review receipt appended to the signals report, as (outcome, review_url).
     receipt_calls: list[tuple[str, str | None]] = []
     # The outcome edit of the PR status comment, as (urgency_threshold, resolved_from, review_url) —
@@ -234,6 +235,7 @@ async def _run_full_review_pr_workflow(
     @activity.defn(name="build_body_activity")
     async def build_body(input: BuildBodyInput) -> None:
         threshold_calls.append(("body", input.urgency_threshold))
+        finalize_will_publish.append(input.will_publish)
         return None
 
     @activity.defn(name="publish_review_activity")
@@ -347,6 +349,7 @@ async def _run_full_review_pr_workflow(
         "review": review_calls,
         "validate": validate_calls,
         "publish": publish_calls,
+        "finalize_will_publish": finalize_will_publish,
         "receipts": receipt_calls,
         "load_user_ids": load_user_ids,
         "thresholds": threshold_calls,
@@ -374,6 +377,9 @@ async def test_review_pr_workflow_runs_all_stages_and_fans_out():
     assert {c[4] for c in wave} == {()}  # the wave itself gets no cross-perspective context
     assert sorted(recorded["validate"]) == [1, 2]  # one session per chunk-with-issues
     assert recorded["publish"] == []  # publish=False → never posts to GitHub
+    # No publish stage means finalize keeps the idle write; deferring it here would strand the
+    # report ACTIVE forever (nothing downstream ever restores rest on a no-publish run).
+    assert recorded["finalize_will_publish"] == [False]
     # The RESOLVED acting user (3 from the resolve stub), not the None workflow input, threads into
     # the perspective, blind-spots, and validation loads — the per-user selection seam for each.
     assert recorded["load_user_ids"] == [3, 3, 3]
@@ -426,6 +432,9 @@ async def test_review_pr_workflow_falls_back_to_dense_when_selection_fails():
 async def test_review_pr_workflow_publishes_only_when_publish_true():
     recorded = await _run_full_review_pr_workflow(publish=True)
     assert recorded["publish"] == [7]  # publish=True → posts the review back to the PR
+    # Publishing runs defer the idle write to the publish stage; dropping the flag re-opens the
+    # window where a poll sees the run at rest with "Not published" still true and freezes on it.
+    assert recorded["finalize_will_publish"] == [True]
     # The acting user's threshold snapshot (not the dataclass default) reaches both consumers, so
     # body counts and posted comments gate on the same set.
     assert recorded["thresholds"] == [("body", "must_fix"), ("publish", "must_fix")]

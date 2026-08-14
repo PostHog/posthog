@@ -62,7 +62,7 @@ def notifications_allowed(*, team_id: int, task_id: str | UUID) -> bool:
     return _notification_tasks(team_id).filter(id=parsed_task_id).exists()
 
 
-def _task_id(comment: Comment) -> UUID | None:
+def comment_task_id(comment: Comment) -> UUID | None:
     if comment.scope not in COMMENT_ACTIVITY_SCOPES:
         return None
     raw_task_id = comment.item_id if comment.scope == "task" else (comment.item_context or {}).get("taskId")
@@ -86,7 +86,7 @@ def project_comment_activity(
     comment = Comment.objects.filter(team_id=team_id, id=comment_id).first()
     if comment is None or comment.created_by_id is None:
         return
-    task_id = _task_id(comment)
+    task_id = comment_task_id(comment)
     if task_id is None:
         return
     task = _notification_tasks(team_id).filter(id=task_id).only("created_by_id").first()
