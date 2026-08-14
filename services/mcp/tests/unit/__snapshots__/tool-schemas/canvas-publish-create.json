@@ -86,6 +86,10 @@
                         },
                         "posthog": {
                             "properties": {
+                                "agentRequests": {
+                                    "default": false,
+                                    "type": "boolean"
+                                },
                                 "captureEvents": {
                                     "items": {
                                         "maxLength": 200,
