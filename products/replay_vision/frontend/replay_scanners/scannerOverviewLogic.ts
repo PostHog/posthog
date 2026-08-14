@@ -456,9 +456,11 @@ export const scannerOverviewLogic = kea<scannerOverviewLogicType>([
         // The single owner of the poll timer and the pending latch, run after every action that can
         // move firstScanPending: arms once per pending spell (the tick re-arms itself), stops the
         // timer the moment pending clears, and latches the first true to false flip for this mount.
+        // Filters also flip pending false, so only a flip with no filters active means results arrived;
+        // latching on a filtered flip would keep the panel from returning once the filter is cleared.
         const syncFirstScanPoll = (): void => {
             const pending = values.firstScanPending
-            if (cache.firstScanWasPending && !pending && !values.firstScanSettled) {
+            if (cache.firstScanWasPending && !pending && !values.hasActiveOverviewFilters && !values.firstScanSettled) {
                 actions.markFirstScanSettled()
             }
             cache.firstScanWasPending = cache.firstScanWasPending || pending

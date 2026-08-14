@@ -240,6 +240,10 @@ describe('scannerOverviewLogic', () => {
                 freshLogic.actions.setOverviewVerdictFilter(['no'])
             ).toFinishAllListeners()
             expect(freshLogic.values.firstScanPending).toBe(false)
+
+            // A filtered flip must not latch as settled: clearing the filter brings the panel back.
+            await expectLogic(freshLogic, () => freshLogic.actions.clearOverviewFilters()).toFinishAllListeners()
+            expect(freshLogic.values.firstScanPending).toBe(true)
         })
 
         it('polls stats in the background while pending and stops once observations settle', async () => {
