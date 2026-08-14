@@ -47,6 +47,7 @@ class ParsedInboundEmail:
     dkim_signing_domains: tuple[str, ...]
     capture_address: str
     attachments: tuple[UploadedFile, ...]
+    forwarding_challenge_tokens: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True, kw_only=True)
