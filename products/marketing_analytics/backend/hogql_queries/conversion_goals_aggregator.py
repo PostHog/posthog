@@ -11,6 +11,7 @@ from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.settings import TEST
 
 from products.marketing_analytics.backend.hogql_queries.constants import (
+    CAC_COLUMN_SUFFIX,
     ROAS_COLUMN,
     UNIFIED_CONVERSION_GOALS_CTE_ALIAS,
     UNKNOWN_CHANNEL,
@@ -400,13 +401,18 @@ class ConversionGoalsAggregator:
                 )
                 columns[f"{self.config.cost_per_prefix} {goal_name}"] = cost_per_goal_alias
 
-        # Needs campaign_costs joined, since spend is the denominator. A flagged goal only
-        # contributes if its column holds money — a counting one would render 200 signups against
-        # $100 of spend as "ROAS 2.0".
+        # Both need campaign_costs joined, since spend is the denominator. And a flagged goal has
+        # to hold the right kind of number: a counting goal in the ROAS numerator reads 200 signups
+        # against $100 as "ROAS 2.0", a summing one in the CAC denominator divides spend by revenue.
         if include_cost_per:
             revenue_processors = [p for p in self.processors if p.goal.counts_as_revenue and p.sums_a_property()]
             if revenue_processors:
                 columns[ROAS_COLUMN] = self._build_roas_column(revenue_processors)
+
+            customer_processors = [p for p in self.processors if p.goal.counts_as_customer and not p.sums_a_property()]
+            if customer_processors:
+                cac_alias = f"{self.config.cost_per_prefix} {CAC_COLUMN_SUFFIX}"
+                columns[cac_alias] = self._build_cac_column(customer_processors, cac_alias)
 
         return columns
 
@@ -422,6 +428,26 @@ class ConversionGoalsAggregator:
                         left=total_revenue,
                         op=ast.ArithmeticOperationOp.Div,
                         right=ast.Call(name="nullif", args=[total_cost, ast.Constant(value=0)]),
+                    ),
+                    ast.Constant(value=2),
+                ],
+            ),
+        )
+
+    def _build_cac_column(self, customer_processors: list[ConversionGoalProcessor], alias: str) -> ast.Alias:
+        # Each customer goal contributes its conversion count, which is right only for a
+        # once-per-person moment: a repeatable event overcounts, and `dau` is the closest fit.
+        total_customers = self._sum_conversion_values(customer_processors)
+        total_cost = ast.Field(chain=self.config.get_campaign_cost_field_chain(self.config.total_cost_field))
+        return ast.Alias(
+            alias=alias,
+            expr=ast.Call(
+                name="round",
+                args=[
+                    ast.ArithmeticOperation(
+                        left=total_cost,
+                        op=ast.ArithmeticOperationOp.Div,
+                        right=ast.Call(name="nullif", args=[total_customers, ast.Constant(value=0)]),
                     ),
                     ast.Constant(value=2),
                 ],

@@ -40,6 +40,7 @@ from products.analytics_platform.backend.lazy_computation.lazy_computation_execu
 )
 from products.analytics_platform.backend.lazy_computation.stale_policy import is_background_warming_request
 from products.marketing_analytics.backend.hogql_queries.constants import (
+    CAC_COLUMN_SUFFIX,
     CHANNEL_SESSIONS_CTE_NAME,
     DRILL_DOWN_LEVEL_CONFIG,
     ROAS_COLUMN,
@@ -855,15 +856,20 @@ class MarketingAnalyticsBaseQueryRunner(AnalyticsQueryRunner[ResponseType], ABC,
     ) -> list:
         """Create conversion goal processors for reuse across different methods"""
         processors = []
-        # Needed even when the goals' own columns are hidden, or the ratio changes value as
+        # Needed even when the goals' own columns are hidden, or the ratios change value as
         # columns are added or removed.
         roas_selected = self.query.select is not None and ROAS_COLUMN in self.query.select
+        cac_selected = (
+            self.query.select is not None
+            and f"{MarketingAnalyticsConstants.COST_PER} {CAC_COLUMN_SUFFIX}" in self.query.select
+        )
         for index, conversion_goal in enumerate(conversion_goals):
             # Create processor if select is None (all columns) or if conversion goal columns are explicitly selected
             should_create = self.query.select is None or (
                 conversion_goal.conversion_goal_name in self.query.select
                 or f"{MarketingAnalyticsConstants.COST_PER} {conversion_goal.conversion_goal_name}" in self.query.select
                 or (roas_selected and conversion_goal.counts_as_revenue)
+                or (cac_selected and conversion_goal.counts_as_customer)
             )
             if should_create:
                 processor = ConversionGoalProcessor(

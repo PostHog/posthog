@@ -157,17 +157,24 @@ export const marketingAnalyticsTableLogic = kea<marketingAnalyticsTableLogicType
                           )
                           .flat()
 
-                // ROAS divides revenue-goal value by spend, so it needs both a revenue goal and a
+                // ROAS and CAC both divide against spend, so each needs a goal flagged for it and a
                 // Cost column at this drill-down level.
-                const roasColumn =
-                    featureFlags[FEATURE_FLAGS.MARKETING_ANALYTICS_RETURN_METRICS] &&
+                const returnMetricsAvailable =
+                    !!featureFlags[FEATURE_FLAGS.MARKETING_ANALYTICS_RETURN_METRICS] &&
                     costAvailable &&
-                    !config.excludesConversionGoals &&
-                    conversionGoals.some((goal) => goal.counts_as_revenue)
+                    !config.excludesConversionGoals
+                const roasColumn =
+                    returnMetricsAvailable && conversionGoals.some((goal) => goal.counts_as_revenue)
                         ? [MarketingAnalyticsConstants.Roas]
                         : []
+                const cacColumn =
+                    returnMetricsAvailable && conversionGoals.some((goal) => goal.counts_as_customer)
+                        ? [`${MarketingAnalyticsConstants.CostPer} ${MarketingAnalyticsConstants.Customer}`]
+                        : []
 
-                const selectColumns = [...baseColumns, ...conversionGoalColumns, ...roasColumn].filter(isNotNil)
+                const selectColumns = [...baseColumns, ...conversionGoalColumns, ...roasColumn, ...cacColumn].filter(
+                    isNotNil
+                )
                 return selectColumns
             },
         ],
