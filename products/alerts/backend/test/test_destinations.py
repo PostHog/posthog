@@ -185,7 +185,6 @@ class TestListActiveAlertDestinations(APIBaseTest):
         self._make_hog_function(template_id="template-slack", alert_id="alert-1", name="Slack #eng-alerts")
         self._make_hog_function(template_id="template-slack", alert_id="alert-1", name="Other #alerts")
         self._make_hog_function(template_id="template-webhook", alert_id="alert-2")
-        self._make_hog_function(template_id="template-slack", alert_id="alert-1", name="Disabled", enabled=True)
         disabled = self._make_hog_function(template_id="template-slack", alert_id="alert-1", name="Disabled")
         disabled.enabled = False
         disabled.save()
