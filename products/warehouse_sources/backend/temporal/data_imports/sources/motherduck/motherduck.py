@@ -97,14 +97,13 @@ DEFAULT_MOTHERDUCK_FETCH_SIZE = 5_000
 _DUCKDB_HOME = os.path.join(tempfile.gettempdir(), "posthog-duckdb-home")
 
 # DuckDB otherwise sizes itself against the whole host, the wrong budget for a library sharing this
-# worker. The extension and secret stores need their own overrides: `home_directory` doesn't move
-# them, so extension autoload would try to create the unwritable `~/.duckdb` in the worker.
+# worker. `extension_directory` needs its own override: `home_directory` doesn't move it, so
+# extension autoload would try to create the unwritable `~/.duckdb` in the worker.
 DUCKDB_LOCAL_CONFIG: dict[str, Any] = {
     "memory_limit": "2GB",
     "threads": 2,
     "home_directory": _DUCKDB_HOME,
     "extension_directory": os.path.join(_DUCKDB_HOME, "extensions"),
-    "secret_directory": os.path.join(_DUCKDB_HOME, "stored_secrets"),
 }
 
 # The database name is interpolated into the `md:` connection string, so anything outside this
