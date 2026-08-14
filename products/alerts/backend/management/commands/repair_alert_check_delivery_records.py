@@ -14,7 +14,8 @@ class Command(BaseCommand):
         "Clear delivery records on ERRORED alert checks stamped while the error-email path was "
         "disabled. Only notify_alert stamps notification_sent_at, and its ERRORED branch sent "
         "nothing before the error email was restored — so ERRORED + stamped + pre-cutoff rows "
-        "are exactly the false 'targets notified' population. Dry-run by default."
+        "are exactly the false 'targets notified' population, excluding rows with delivery receipts. "
+        "Dry-run by default."
     )
 
     def add_arguments(self, parser: Any) -> None:
@@ -34,6 +35,7 @@ class Command(BaseCommand):
             state=AlertState.ERRORED,
             notification_sent_at__isnull=False,
             created_at__lt=cutoff,
+            deliveries__isnull=True,
         )
         per_team = matches.values("alert_configuration__team_id").annotate(rows=Count("id")).order_by("-rows")
         total = matches.count()
