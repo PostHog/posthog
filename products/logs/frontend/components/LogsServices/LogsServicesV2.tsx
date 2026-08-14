@@ -101,7 +101,9 @@ export function LogsServicesV2(): JSX.Element {
                             onBackward: () => setPage(page - 1),
                             useUrl: false,
                         }}
-                        emptyState={searchTerm ? 'No services match your search' : 'No services found in time range'}
+                        emptyState={
+                            searchTerm ? 'No services match your search' : 'No services found in this time range'
+                        }
                         rowKey="service_name"
                         size="small"
                     />
