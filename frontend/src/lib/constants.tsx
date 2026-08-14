@@ -359,7 +359,6 @@ export const FEATURE_FLAGS = {
     LOGS: 'logs', // owner: #team-logs
     LOGS_ALERTING: 'logs-alerting', // owner: #team-logs
     LOGS_ANOMALIES: 'logs-anomalies', // owner: @jonmcwest #team-logs
-    LOGS_COLUMN_CONFIGURATION: 'logs-column-configuration', // owner: #team-logs
     LOGS_GROUP_BY: 'logs-group-by', // owner: #team-logs
     LOGS_IN_ERROR_TRACKING: 'logs-in-error-tracking', // owner: @jonmcwest #team-logs
     LOGS_METRIC_RULES: 'logs-metric-rules', // owner: #team-logs
