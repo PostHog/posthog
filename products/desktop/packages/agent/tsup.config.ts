@@ -48,9 +48,25 @@ function copyAssets() {
   const distDir = resolve(import.meta.dirname, "dist");
   const templatesDir = resolve(distDir, "templates");
   const claudeCliDir = resolve(distDir, "claude-cli");
+  const productEngineerResourcesSource = resolve(
+    import.meta.dirname,
+    "../harness/dist/extensions/product-engineer",
+  );
+  const productEngineerResourcesTarget = resolve(
+    distDir,
+    "pi/product-engineer",
+  );
 
   mkdirSync(templatesDir, { recursive: true });
   mkdirSync(claudeCliDir, { recursive: true });
+  if (!existsSync(productEngineerResourcesSource)) {
+    throw new Error(
+      `Missing product engineer resources at ${productEngineerResourcesSource}`,
+    );
+  }
+  cpSync(productEngineerResourcesSource, productEngineerResourcesTarget, {
+    recursive: true,
+  });
 
   const srcTemplatesDir = resolve(import.meta.dirname, "src/templates");
   if (existsSync(srcTemplatesDir)) {
