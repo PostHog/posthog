@@ -13,16 +13,8 @@ import { teamLogic } from 'scenes/teamLogic'
 
 import { productEnablementCreate } from '~/generated/core/api'
 import { ExternalDataSourceType } from '~/queries/schema/schema-general'
-import {
-    ExternalDataSource,
-    ExternalDataSourceSchema,
-    RecordingUniversalFilters,
-    TeamPublicType,
-    TeamType,
-} from '~/types'
+import { ExternalDataSource, ExternalDataSourceSchema, TeamPublicType, TeamType } from '~/types'
 
-import { evaluationsList } from 'products/ai_observability/frontend/generated/api'
-import type { EvaluationApi } from 'products/ai_observability/frontend/generated/api.schemas'
 import { sourcesDataLogic } from 'products/data_warehouse/frontend/shared/logics/sourcesDataLogic'
 import {
     engineeringAnalyticsCiSignalsConfigRetrieve,
@@ -37,7 +29,7 @@ import { SignalSourceProduct, SignalSourceType } from 'products/signals/frontend
 import type { SignalSourceTypeApi } from '../generated/api.schemas'
 import type { AgentRosterSource } from './components/config/agentRosterMeta'
 import { captureSignalSourceConnected, captureSignalSourceDisabled } from './inboxAnalytics'
-import { SignalSourceConfig, SignalSourceConfigStatus, ToggleSignalSourceParams } from './types'
+import { SignalSourceConfig, ToggleSignalSourceParams } from './types'
 
 /** product_enablement recipe names for tools that back a signal source. */
 export type SourceToolEnablement = 'session_replay' | 'error_tracking' | 'conversations'
@@ -56,7 +48,7 @@ const TOOL_USAGE_EVENTS = ['$exception', '$ai_generation', '$ai_trace', '$pagevi
 
 /**
  * Cap on the per-source entity lists the roster inlines. Well past the tail: the busiest projects
- * run a few dozen scanners or evaluations, and the median runs one.
+ * run a few dozen scanners, and the median runs one.
  */
 const ENTITY_PAGE_SIZE = 100
 
@@ -226,8 +218,6 @@ export interface signalSourcesLogicValues {
         sourceType: SignalSourceType
     }[]
     evalReportsConfig: SignalSourceConfig | null
-    evaluations: EvaluationApi[] | null
-    evaluationsLoading: boolean
     githubIssuesConfig: SignalSourceConfig | null
     hasEmittingScanner: boolean | null
     hasNoSources: boolean
@@ -241,14 +231,9 @@ export interface signalSourcesLogicValues {
     isHealthChecksToggling: boolean
     isLinearIssuesToggling: boolean
     isPgAnalyzeIssuesToggling: boolean
-    isSessionAnalysisRunning: boolean
-    isSessionAnalysisToggling: boolean
     isZendeskTicketsToggling: boolean
     linearIssuesConfig: SignalSourceConfig | null
     pgAnalyzeIssuesConfig: SignalSourceConfig | null
-    sessionAnalysisConfig: SignalSourceConfig | null
-    sessionAnalysisSetupOpen: boolean
-    signalEmittingEvaluationIds: string[]
     sourceConfigs: SignalSourceConfig[] | null
     sourceConfigsLoading: boolean
     sourcesModalOpen: boolean
@@ -267,13 +252,7 @@ export interface signalSourcesLogicActions {
     loadSources: () => {
         value: true
     } // sourcesDataLogic
-    clearSessionAnalysisFilters: () => {
-        value: true
-    }
     closeDataSourceSetup: () => {
-        value: true
-    }
-    closeSessionAnalysisSetup: () => {
         value: true
     }
     closeSourcesModal: () => {
@@ -304,21 +283,6 @@ export interface signalSourcesLogicActions {
         payload?: any
     ) => {
         ciSignalsConfig: CISignalsConfigApi
-        payload?: any
-    }
-    loadEvaluations: () => any
-    loadEvaluationsFailure: (
-        error: string,
-        errorObject?: any
-    ) => {
-        error: string
-        errorObject?: any
-    }
-    loadEvaluationsSuccess: (
-        evaluations: EvaluationApi[],
-        payload?: any
-    ) => {
-        evaluations: EvaluationApi[]
         payload?: any
     }
     loadSourceConfigs: () => any
@@ -372,14 +336,8 @@ export interface signalSourcesLogicActions {
     openDataSourceSetup: (source: WarehouseBackedSource) => {
         source: WarehouseBackedSource
     }
-    openSessionAnalysisSetup: () => {
-        value: true
-    }
     openSourcesModal: () => {
         value: true
-    }
-    saveSessionAnalysisFilters: (filters: RecordingUniversalFilters) => {
-        filters: RecordingUniversalFilters
     }
     setAllScannerSignals: (enabled: boolean) => {
         enabled: boolean
@@ -409,9 +367,6 @@ export interface signalSourcesLogicActions {
         enabled: boolean
         source: WarehouseBackedSource
     }
-    setEvaluationSignals: (evaluationIds: string[]) => {
-        evaluationIds: string[]
-    }
     startDataWarehouseSourceToggle: (source: WarehouseBackedSource) => {
         source: WarehouseBackedSource
     }
@@ -439,9 +394,6 @@ export interface signalSourcesLogicActions {
     toggleEvalReports: () => {
         value: true
     }
-    toggleEvaluationSignals: (evaluationId: string) => {
-        evaluationId: string
-    }
     toggleHealthChecks: () => {
         value: true
     }
@@ -459,9 +411,6 @@ export interface signalSourcesLogicActions {
     ) => {
         visionScanners: ReplayScannerApi[]
         payload?: any
-    }
-    toggleSessionAnalysis: () => {
-        value: true
     }
     toggleSignalSource: (params: ToggleSignalSourceParams) => {
         params: ToggleSignalSourceParams
@@ -481,13 +430,11 @@ export interface signalSourcesLogicActions {
 // Generated by kea-typegen. Update if you're an agent, ignore if you're human.
 export interface signalSourcesLogicMeta {
     __keaTypeGenInternalSelectorTypes: {
-        sessionAnalysisConfig: (sourceConfigs: SignalSourceConfig[] | null) => SignalSourceConfig | null
         githubIssuesConfig: (sourceConfigs: SignalSourceConfig[] | null) => SignalSourceConfig | null
         linearIssuesConfig: (sourceConfigs: SignalSourceConfig[] | null) => SignalSourceConfig | null
         zendeskTicketsConfig: (sourceConfigs: SignalSourceConfig[] | null) => SignalSourceConfig | null
         pgAnalyzeIssuesConfig: (sourceConfigs: SignalSourceConfig[] | null) => SignalSourceConfig | null
         conversationsConfig: (sourceConfigs: SignalSourceConfig[] | null) => SignalSourceConfig | null
-        isSessionAnalysisToggling: (togglingSourceKeys: Set<string>) => boolean
         isConversationsToggling: (togglingSourceKeys: Set<string>) => boolean
         isGithubIssuesToggling: (togglingSourceKeys: Set<string>) => boolean
         isLinearIssuesToggling: (togglingSourceKeys: Set<string>) => boolean
@@ -509,13 +456,11 @@ export interface signalSourcesLogicMeta {
         errorTrackingIsFullyEnabled: (sourceConfigs: SignalSourceConfig[] | null) => boolean
         ciSignalsIsFullyEnabled: (ciSignalsConfig: CISignalsConfigApi | null) => boolean
         isCiSignalsToggling: (togglingSourceKeys: Set<string>) => boolean
-        isSessionAnalysisRunning: (sessionAnalysisConfig: SignalSourceConfig | null) => boolean
         hasEmittingScanner: (visionScanners: ReplayScannerApi[] | null) => boolean | null
         errorTrackingTypeStates: (sourceConfigs: SignalSourceConfig[] | null) => {
             enabled: boolean
             sourceType: SignalSourceType
         }[]
-        signalEmittingEvaluationIds: (sourceConfigs: SignalSourceConfig[] | null) => string[]
         enabledSourcesCount: (sourceConfigs: SignalSourceConfig[] | null, hasEmittingScanner: boolean | null) => number
         hasNoSources: (sourceConfigs: SignalSourceConfig[] | null, enabledSourcesCount: number) => boolean
     }
@@ -546,9 +491,6 @@ export const signalSourcesLogic = kea<signalSourcesLogicType>([
     actions({
         openSourcesModal: true,
         closeSourcesModal: true,
-        openSessionAnalysisSetup: true,
-        closeSessionAnalysisSetup: true,
-        toggleSessionAnalysis: true,
         initiateDataWarehouseSourceToggle: (source: WarehouseBackedSource) => ({ source }),
         startDataWarehouseSourceToggle: (source: WarehouseBackedSource) => ({ source }),
         completeDataWarehouseSourceToggle: (source: WarehouseBackedSource) => ({ source }),
@@ -562,8 +504,6 @@ export const signalSourcesLogic = kea<signalSourcesLogicType>([
         toggleErrorTracking: true,
         toggleErrorTrackingComplete: true,
         toggleErrorTrackingType: (sourceType: SignalSourceType) => ({ sourceType }),
-        toggleEvaluationSignals: (evaluationId: string) => ({ evaluationId }),
-        setEvaluationSignals: (evaluationIds: string[]) => ({ evaluationIds }),
         setAllScannerSignals: (enabled: boolean) => ({ enabled }),
         toggleCiSignals: (viaSetupWizard?: boolean) => ({ viaSetupWizard: viaSetupWizard ?? false }),
         toggleCiSignalsComplete: true,
@@ -573,8 +513,6 @@ export const signalSourcesLogic = kea<signalSourcesLogicType>([
         toggleAnomalyInvestigation: true,
         enableSourceTool: (enablement: SourceToolEnablement) => ({ enablement }),
         enableSourceToolComplete: true,
-        saveSessionAnalysisFilters: (filters: RecordingUniversalFilters) => ({ filters }),
-        clearSessionAnalysisFilters: true,
     }),
 
     loaders(({ values }) => ({
@@ -665,21 +603,6 @@ export const signalSourcesLogic = kea<signalSourcesLogicType>([
                 },
             },
         ],
-        evaluations: [
-            null as EvaluationApi[] | null,
-            {
-                loadEvaluations: async (): Promise<EvaluationApi[]> => {
-                    try {
-                        const response = await evaluationsList(String(ApiConfig.getCurrentProjectId()), {
-                            limit: ENTITY_PAGE_SIZE,
-                        })
-                        return response.results
-                    } catch {
-                        return []
-                    }
-                },
-            },
-        ],
     })),
 
     reducers({
@@ -688,14 +611,6 @@ export const signalSourcesLogic = kea<signalSourcesLogicType>([
             {
                 openSourcesModal: () => true,
                 closeSourcesModal: () => false,
-            },
-        ],
-        sessionAnalysisSetupOpen: [
-            false,
-            {
-                openSourcesModal: () => false,
-                openSessionAnalysisSetup: () => true,
-                closeSessionAnalysisSetup: () => false,
             },
         ],
         dataSourceSetupSource: [
@@ -722,19 +637,6 @@ export const signalSourcesLogic = kea<signalSourcesLogicType>([
             },
         ],
         sourceConfigs: {
-            toggleSessionAnalysis: (state: SignalSourceConfig[] | null) =>
-                toggleSourceConfigState(
-                    state,
-                    SignalSourceProduct.SessionReplay,
-                    SignalSourceType.SessionAnalysisCluster
-                ),
-            setDataWarehouseSourceEnabled: (state: SignalSourceConfig[] | null, { source, enabled }) => {
-                const { completion } = WAREHOUSE_SOURCE_SETUP[source]
-                if (completion.kind !== 'source_config') {
-                    return state
-                }
-                return setSourceConfigState(state, completion.sourceProduct, completion.sourceType, enabled)
-            },
             toggleHealthChecks: (state: SignalSourceConfig[] | null) =>
                 toggleSourceConfigState(state, SignalSourceProduct.HealthChecks, SignalSourceType.HealthIssue),
             toggleEvalReports: (state: SignalSourceConfig[] | null) =>
@@ -805,15 +707,6 @@ export const signalSourcesLogic = kea<signalSourcesLogicType>([
     }),
 
     selectors({
-        sessionAnalysisConfig: [
-            (s) => [s.sourceConfigs],
-            (sourceConfigs: SignalSourceConfig[] | null): SignalSourceConfig | null =>
-                sourceConfigs?.find(
-                    (c) =>
-                        c.source_product === SignalSourceProduct.SessionReplay &&
-                        c.source_type === SignalSourceType.SessionAnalysisCluster
-                ) ?? null,
-        ],
         githubIssuesConfig: [
             (s) => [s.sourceConfigs],
             (sourceConfigs: SignalSourceConfig[] | null): SignalSourceConfig | null =>
@@ -851,11 +744,6 @@ export const signalSourcesLogic = kea<signalSourcesLogicType>([
                         c.source_product === SignalSourceProduct.Conversations &&
                         c.source_type === SignalSourceType.Ticket
                 ) ?? null,
-        ],
-        isSessionAnalysisToggling: [
-            (s) => [s.togglingSourceKeys],
-            (keys: Set<string>): boolean =>
-                keys.has(`${SignalSourceProduct.SessionReplay}_${SignalSourceType.SessionAnalysisCluster}`),
         ],
         isConversationsToggling: [
             (s) => [s.togglingSourceKeys],
@@ -966,7 +854,6 @@ export const signalSourcesLogic = kea<signalSourcesLogicType>([
                         dataStatus: errorTrackingDataStatus,
                     },
                     replay_vision: sessionReplayTool,
-                    session_replay: sessionReplayTool,
                     conversations: {
                         toolName: 'Support',
                         enabled: team ? !!team.conversations_enabled : null,
@@ -1011,10 +898,6 @@ export const signalSourcesLogic = kea<signalSourcesLogicType>([
             (s) => [s.togglingSourceKeys],
             (keys: Set<string>): boolean => keys.has('engineering_analytics'),
         ],
-        isSessionAnalysisRunning: [
-            (s) => [s.sessionAnalysisConfig],
-            (config: SignalSourceConfig | null): boolean => config?.status === SignalSourceConfigStatus.RUNNING,
-        ],
         // `null` until the scanners load, so callers can tell "no scanner emits" from "not asked yet".
         hasEmittingScanner: [
             (s) => [s.visionScanners],
@@ -1035,29 +918,14 @@ export const signalSourcesLogic = kea<signalSourcesLogicType>([
                         )?.enabled === true,
                 })),
         ],
-        // Per-evaluation emission is an allowlist on the `evaluation` row's config, not a flag on the
-        // evaluation itself, so an evaluation can keep running while its findings stay out of the inbox.
-        signalEmittingEvaluationIds: [
-            (s) => [s.sourceConfigs],
-            (sourceConfigs: SignalSourceConfig[] | null): string[] => {
-                const row = sourceConfigs?.find(
-                    (c) =>
-                        c.source_product === SignalSourceProduct.LlmAnalytics &&
-                        c.source_type === SignalSourceType.Evaluation
-                )
-                if (!row?.enabled) {
-                    return []
-                }
-                const ids = (row.config as { evaluation_ids?: unknown })?.evaluation_ids
-                return Array.isArray(ids) ? ids.filter((id): id is string => typeof id === 'string') : []
-            },
-        ],
         enabledSourcesCount: [
             (s) => [s.sourceConfigs, s.hasEmittingScanner],
             // The scout gate is a meta-toggle surfaced in the Scout troop section, not a generic
             // signal source — exclude it so a scout-only project doesn't show the "Signal sources"
             // setup card as done with a phantom "1 watching". Replay Vision has no config row at
             // all, so it is counted separately, once, however many of its scanners emit.
+            // Evaluation configs can survive from the retired per-result path, but eval reports are
+            // the only AI observability source that emits signals.
             (sourceConfigs: SignalSourceConfig[] | null, hasEmittingScanner: boolean | null): number => {
                 const configured =
                     sourceConfigs?.filter(
@@ -1066,6 +934,16 @@ export const signalSourcesLogic = kea<signalSourcesLogicType>([
                             !(
                                 c.source_product === SignalSourceProduct.SignalsScout &&
                                 c.source_type === SignalSourceType.CrossSourceIssue
+                            ) &&
+                            !(
+                                c.source_product === SignalSourceProduct.LlmAnalytics &&
+                                c.source_type === SignalSourceType.Evaluation
+                            ) &&
+                            // Retired: rows survive until the cleanup migration runs, and counting
+                            // them shows a watcher that cannot produce anything.
+                            !(
+                                c.source_product === SignalSourceProduct.SessionReplay &&
+                                c.source_type === SignalSourceType.SessionAnalysisCluster
                             )
                     ).length ?? 0
                 return configured + (hasEmittingScanner ? 1 : 0)
@@ -1300,42 +1178,6 @@ export const signalSourcesLogic = kea<signalSourcesLogicType>([
                 }
                 actions.loadSourceConfigs()
             },
-            toggleEvaluationSignals: async ({ evaluationId }) => {
-                const current = values.signalEmittingEvaluationIds
-                actions.setEvaluationSignals(
-                    current.includes(evaluationId)
-                        ? current.filter((id) => id !== evaluationId)
-                        : [...current, evaluationId]
-                )
-            },
-            setEvaluationSignals: async ({ evaluationIds: nextIds }, breakpoint) => {
-                const existing = (values.sourceConfigs ?? []).find(
-                    (c) =>
-                        c.source_product === SignalSourceProduct.LlmAnalytics &&
-                        c.source_type === SignalSourceType.Evaluation
-                )
-                try {
-                    if (existing && !existing.id.startsWith('new_')) {
-                        await api.signalSourceConfigs.update(existing.id, {
-                            // The row gates the whole allowlist, so an empty list means nothing to send.
-                            enabled: nextIds.length > 0,
-                            config: { ...existing.config, evaluation_ids: nextIds },
-                        })
-                    } else {
-                        await api.signalSourceConfigs.create({
-                            source_product: SignalSourceProduct.LlmAnalytics,
-                            source_type: SignalSourceType.Evaluation,
-                            enabled: nextIds.length > 0,
-                            config: { evaluation_ids: nextIds },
-                        })
-                    }
-                    breakpoint()
-                } catch (error: any) {
-                    breakpoint()
-                    lemonToast.error(error?.detail || error?.message || 'Failed to toggle this evaluation')
-                }
-                actions.loadSourceConfigs()
-            },
             toggleCiSignals: async ({ viaSetupWizard }, breakpoint) => {
                 const desiredEnabled = !values.ciSignalsIsFullyEnabled
                 const wasConnected = values.ciSignalsConfig?.configured ?? false
@@ -1390,15 +1232,6 @@ export const signalSourcesLogic = kea<signalSourcesLogicType>([
                     actions.loadCiSignalsConfig()
                     actions.loadSourceConfigs()
                 }
-            },
-            toggleSessionAnalysis: () => {
-                const config = values.sessionAnalysisConfig
-                const desiredEnabled = config?.enabled ?? true
-                actions.toggleSignalSource({
-                    sourceProduct: SignalSourceProduct.SessionReplay,
-                    sourceType: SignalSourceType.SessionAnalysisCluster,
-                    enabled: desiredEnabled,
-                })
             },
             toggleHealthChecks: () => {
                 // The optimistic reducer flips the config before this listener runs,
@@ -1468,47 +1301,6 @@ export const signalSourcesLogic = kea<signalSourcesLogicType>([
                     enabled,
                 })
             },
-            saveSessionAnalysisFilters: async ({ filters }) => {
-                try {
-                    const existing = values.sessionAnalysisConfig
-                    if (existing) {
-                        await api.signalSourceConfigs.update(existing.id, {
-                            config: { recording_filters: filters },
-                            enabled: true,
-                        })
-                    } else {
-                        await api.signalSourceConfigs.create({
-                            source_product: SignalSourceProduct.SessionReplay,
-                            source_type: SignalSourceType.SessionAnalysisCluster,
-                            config: { recording_filters: filters },
-                            enabled: true,
-                        })
-                    }
-                    lemonToast.success('Session analysis filters saved')
-                    actions.loadSourceConfigs()
-                    actions.closeSessionAnalysisSetup()
-                } catch (error: any) {
-                    const errorMessage = error?.detail || error?.message || 'Failed to save filters'
-                    lemonToast.error(errorMessage)
-                }
-            },
-            clearSessionAnalysisFilters: async () => {
-                try {
-                    const existing = values.sessionAnalysisConfig
-                    if (
-                        existing &&
-                        existing.id !==
-                            `new_${SignalSourceProduct.SessionReplay}_${SignalSourceType.SessionAnalysisCluster}`
-                    ) {
-                        await api.signalSourceConfigs.update(existing.id, { config: {}, enabled: true })
-                        lemonToast.success('Session analysis filters cleared')
-                    }
-                    actions.loadSourceConfigs()
-                } catch (error: any) {
-                    const errorMessage = error?.detail || error?.message || 'Failed to clear filters'
-                    lemonToast.error(errorMessage)
-                }
-            },
         }
     }),
 
@@ -1519,7 +1311,6 @@ export const signalSourcesLogic = kea<signalSourcesLogicType>([
                 // without needlessly loading the source configs
                 actions.loadSourceConfigs()
                 actions.loadVisionScanners()
-                actions.loadEvaluations()
                 if (values.featureFlags[FEATURE_FLAGS.ENGINEERING_ANALYTICS]) {
                     actions.loadCiSignalsConfig()
                 }

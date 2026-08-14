@@ -65,7 +65,7 @@ class TestVisionActionDelivery(APIBaseTest):
             name="my-scanner",
             scanner_type=ScannerType.MONITOR,
             scanner_config={"prompt": "did the user check out?"},
-            model=ScannerModel.GEMINI_3_6_FLASH,
+            model=ScannerModel.GEMINI_3_7_FLASH,
         )
 
     def _create_slack_integration(self) -> Integration:

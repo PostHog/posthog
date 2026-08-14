@@ -288,6 +288,14 @@ class MySQLSource(SQLSource[MySQLSourceConfig], SSHTunnelMixin, ValidateDatabase
             # egress / SSH-tunnel host) — retrying connects from the same host fails identically.
             # Match the stable tail phrase, not the volatile host in the message prefix.
             "is not allowed to connect to this MySQL server": "Your MySQL/MariaDB server isn't allowing connections from PostHog's host (error 1130). Ask your database admin to grant access for the connecting host (or allow our IP / SSH-tunnel host), then retry the sync.",
+            # MySQL/MariaDB error 1226 (ER_USER_LIMIT_REACHED): the connecting user account has a
+            # `MAX_CONNECTIONS_PER_HOUR` resource limit set (via `CREATE USER`/`GRANT ... WITH
+            # MAX_CONNECTIONS_PER_HOUR`), and this hour's quota is used up. The counter only resets
+            # at the top of the next clock hour, so retrying immediately keeps failing identically
+            # and just spends more of the next hour's quota re-attempting — only a DB admin raising
+            # or removing the limit fixes it. Match the locale-independent error code (the username
+            # and current-value count are volatile).
+            "(1226,": "Your MySQL/MariaDB user account has a 'max_connections_per_hour' resource limit configured, and PostHog has used it up for this hour (error 1226). The limit resets at the top of the next hour, but retrying now only spends more of that quota. Ask your database admin to raise or remove the limit on the connecting user, then resync.",
             # MySQL/MariaDB error 1142 (ER_TABLEACCESS_DENIED_ERROR): the connecting user authenticated
             # fine but lacks the SELECT privilege on a table the sync reads — distinct from the 1045
             # login failure already handled above. Only a DB admin can GRANT it, and the streaming query

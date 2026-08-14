@@ -15,6 +15,7 @@ import { CyclotronJobInputType, HogFunctionMappingType } from '~/types'
 
 import { workflowLogic } from '../../../workflowLogic'
 import { HogFlowFunctionMappings } from './HogFlowFunctionMappings'
+import { WorkflowAutoSaveIndicator } from './WorkflowAutoSaveIndicator'
 
 // Builds the sample globals the input editor uses for autocomplete and unknown-global warnings.
 // The available globals depend on the trigger type: batch runs have no external triggering event,
@@ -159,6 +160,10 @@ export function HogFlowFunctionConfiguration({
             errors={errors}
             warnings={warnings}
             emailFieldErrors={emailFieldErrors}
+            // Email edits propagate live into the workflow form, where auto-save persists them
+            // (into the staged draft on active workflows), so the editor needs no save step.
+            emailLiveChanges
+            emailSaveIndicator={<WorkflowAutoSaveIndicator />}
             configuration={{ inputs: inputs as Record<string, CyclotronJobInputType>, inputs_schema: schema }}
             showSource={false}
             sampleGlobalsWithInputs={sampleGlobals}
