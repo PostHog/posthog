@@ -163,12 +163,33 @@ export const canvasStateListInput = z.object({
   scope: canvasStateScopeSchema.optional(),
 });
 
+// State values cross to the backend as JSON, where a null value means "delete
+// this key". JSON.stringify turns non-finite numbers (NaN, Infinity) into
+// null, so without this guard a canvas storing one (e.g. total / count with a
+// zero count) would silently delete the key and still get a success response.
+// An explicit null stays the delete sentinel.
+function isStorableStateValue(value: unknown): boolean {
+  try {
+    JSON.stringify(value, (_key, entry) => {
+      if (typeof entry === "number" && !Number.isFinite(entry)) {
+        throw new Error("non-finite number");
+      }
+      return entry;
+    });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 // A null value deletes the key.
 export const canvasStateSetInput = z.object({
   id: z.string().min(1),
   scope: canvasStateScopeSchema,
   key: z.string().min(1).max(200),
-  value: z.unknown(),
+  value: z.unknown().refine(isStorableStateValue, {
+    message: "value must not contain non-finite numbers (NaN or Infinity)",
+  }),
 });
 
 // One registered action verb, as the host renders it before invoking.
