@@ -1,6 +1,7 @@
 import { BindLogic, useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 
+import { IconBell, IconGraph, IconList, IconPulse, IconTarget } from '@posthog/icons'
 import { LemonButton, LemonDialog, LemonModal, LemonSwitch } from '@posthog/lemon-ui'
 
 import { urls } from 'scenes/urls'
@@ -8,7 +9,7 @@ import { urls } from 'scenes/urls'
 import { AlertEditor, AlertEditorFormDetails } from 'products/alerts/frontend/components/AlertEditor'
 import { AlertSummaryParts } from 'products/alerts/frontend/components/alertSummary'
 import { SnoozeButton } from 'products/alerts/frontend/components/SnoozeButton'
-import { EditAlertTabs } from 'products/alerts/frontend/views/EditAlertModal/EditAlertTabs'
+import { EditAlertTab, EditAlertTabs } from 'products/alerts/frontend/views/EditAlertModal/EditAlertTabs'
 import { LogsAlertConfigurationApi } from 'products/logs/frontend/generated/api.schemas'
 
 import { LogsAlertEventHistoryContent } from './LogsAlertEventHistory'
@@ -70,6 +71,81 @@ function LogsAlertEditModalContent({
             : '',
         filters: filterParts.join(' '),
     }
+    const tabs: EditAlertTab[] = [
+        {
+            key: 'monitor',
+            summarySection: 'monitor',
+            label: (
+                <>
+                    <IconPulse className="size-4" />
+                    Monitor
+                </>
+            ),
+            content: (
+                <div className="space-y-3 pt-3">
+                    <AlertEditorFormDetails nameError={nameError} />
+                    <div className="max-w-2xl space-y-6">
+                        <LogsAlertFilters />
+                    </div>
+                </div>
+            ),
+        },
+        {
+            key: 'trigger',
+            summarySection: 'monitor',
+            label: (
+                <>
+                    <IconTarget className="size-4" />
+                    Trigger
+                </>
+            ),
+            content: (
+                <div className="max-w-2xl space-y-6 pt-3">
+                    <LogsAlertTrigger />
+                    <LogsAlertSimulation embedded />
+                </div>
+            ),
+        },
+        {
+            key: 'notify',
+            summarySection: 'notify',
+            label: (
+                <>
+                    <IconBell className="size-4" />
+                    Notify
+                </>
+            ),
+            content: (
+                <div className="pt-3">
+                    <LogsAlertNotifications alertId={alert.id} />
+                </div>
+            ),
+        },
+        {
+            key: 'history',
+            label: (
+                <>
+                    <IconGraph className="size-4" />
+                    History
+                </>
+            ),
+            content: (
+                <div className="pt-3">
+                    <LogsAlertEventHistoryContent alert={alert} />
+                </div>
+            ),
+        },
+        {
+            key: 'observed-logs',
+            label: (
+                <>
+                    <IconList className="size-4" />
+                    Observed logs
+                </>
+            ),
+            link: urls.logsAlertDetail(alert.id, 'logs'),
+        },
+    ]
 
     const leadingActions = (
         <div className="flex flex-wrap items-center gap-2">
@@ -154,22 +230,7 @@ function LogsAlertEditModalContent({
                                     showAxis
                                 />
                             }
-                            nameNode={<AlertEditorFormDetails nameError={nameError} />}
-                            previewNode={null}
-                            definitionNode={
-                                <div className="max-w-2xl space-y-6">
-                                    <LogsAlertFilters />
-                                </div>
-                            }
-                            triggerNode={
-                                <div className="max-w-2xl space-y-6">
-                                    <LogsAlertTrigger />
-                                    <LogsAlertSimulation embedded />
-                                </div>
-                            }
-                            notifyNode={<LogsAlertNotifications alertId={alert.id} />}
-                            historyNode={<LogsAlertEventHistoryContent alert={alert} />}
-                            observedLogsUrl={urls.logsAlertDetail(alert.id, 'logs')}
+                            tabs={tabs}
                             showCadence={false}
                         />
                     </AlertEditor>
