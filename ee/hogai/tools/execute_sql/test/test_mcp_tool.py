@@ -244,6 +244,19 @@ class TestExecuteSQLMCPTool(ClickhouseTestMixin, NonAtomicBaseTest):
 
         self.assertNotIn("canonical_metrics", content)
 
+    async def test_query_that_only_mentions_information_schema_still_gets_the_block(self):
+        # The suppression is for introspection, decided on the tables the query reads. A query that
+        # computes a number and happens to carry the string still needs the listing.
+        await self._approve_mrr_metric()
+        _create_event(team=self.team, distinct_id="user1", event="test_event")
+
+        with patch("ee.hogai.tools.execute_sql.mcp_tool.is_data_catalog_enabled", return_value=True):
+            content = await self.tool.execute(
+                ExecuteSQLMCPToolArgs(query="SELECT count() AS information_schema_rows FROM events")
+            )
+
+        self.assertIn("canonical_metrics", content)
+
     async def test_catalog_read_failure_leaves_the_query_result_intact(self):
         _create_event(team=self.team, distinct_id="user1", event="test_event")
 

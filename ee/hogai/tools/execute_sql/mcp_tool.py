@@ -117,7 +117,7 @@ class ExecuteSQLMCPTool(HogQLOutputParserMixin, MCPTool[ExecuteSQLMCPToolArgs]):
         results, taxonomy_warnings, canonical_metrics = await asyncio.gather(
             execution,
             self._get_taxonomy_warnings(query.query),
-            self._canonical_metrics(args.query),
+            self._canonical_metrics(query.query),
         )
         return _prepend_canonical_metrics(_prepend_taxonomy_warnings(results, taxonomy_warnings), canonical_metrics)
 
@@ -126,23 +126,21 @@ class ExecuteSQLMCPTool(HogQLOutputParserMixin, MCPTool[ExecuteSQLMCPToolArgs]):
 
         Which of them (if any) answers the question is the agent's call, not ours: a query is not
         reliably classifiable as a metric derivation, and a listing that only appears when a guess
-        fires is a listing the agent cannot rely on. An `information_schema` query is the one clear
-        exception — it computes nothing, and the catalog lookup itself lives there.
+        fires is a listing the agent cannot rely on. Introspection is the one clear exception — it
+        computes nothing, and the catalog lookup itself lives there.
 
         Fails open: this is a nudge attached to a read-only tool, so a catalog read that errors must
         cost the agent nothing.
         """
-        if _CATALOG_LOOKUP_TABLE in query.lower():
-            return []
         try:
-            return await self._approved_metric_names()
+            return await self._approved_metric_names(query)
         except Exception as error:
             capture_exception(error)
             return []
 
     @database_sync_to_async(thread_sensitive=False)
-    def _approved_metric_names(self) -> list[str]:
-        if not is_data_catalog_enabled(self._team):
+    def _approved_metric_names(self, query: str) -> list[str]:
+        if _only_reads_information_schema(query) or not is_data_catalog_enabled(self._team):
             return []
         return approved_metric_names_for_team(self._team, self._user)
 
@@ -203,6 +201,22 @@ def _sanitize_warning_line(message: str) -> str:
 
 _CATALOG_LOOKUP_TABLE = "information_schema"
 _MAX_LISTING_CHARS = 1200
+
+
+def _only_reads_information_schema(query: str) -> bool:
+    """Whether every table this query reads is an information_schema table.
+
+    Decided on the parsed query, not its text: a query that computes a number still needs the
+    listing when it merely mentions `information_schema` in a comment, a string literal, or an
+    alias. A query that fails to parse here gets the listing too — the query itself already
+    validated, so this is the safe direction for a hint.
+    """
+    try:
+        tables = get_table_names(parse_select(query, placeholders={}))
+    except Exception:
+        return False
+    return bool(tables) and all(_CATALOG_LOOKUP_TABLE in table.lower() for table in tables)
+
 
 _METRIC_SEARCH_SQL = (
     "SELECT name, description FROM system.information_schema.metrics "
