@@ -576,6 +576,7 @@ def get_user_mcp_server_configs(
     task_agent_key: str | None = None,
     credential_owner_id: int | None = None,
     allowed_gateway_server_ids: list[str] | None = None,
+    store_mounts_disabled: bool = False,
 ) -> list[McpServerConfig]:
     """Fetch MCP Store installations for sandbox use and return configs.
 
@@ -608,8 +609,14 @@ def get_user_mcp_server_configs(
     (without it, calls to `exec` fail with "Tool exec not found"); non-PostHog
     upstreams ignore the header.
 
+    ``store_mounts_disabled`` (``Task.mcp_store_mounts_disabled``) mounts nothing at all,
+    in every lane: runs whose output can auto-send to an untrusted audience must not get
+    an external tool surface the PostHog token scopes don't constrain.
+
     Returns an empty list on errors (non-fatal).
     """
+    if store_mounts_disabled:
+        return []
     installations = get_installations_for_sandbox(
         team_id,
         user_id=user_id,

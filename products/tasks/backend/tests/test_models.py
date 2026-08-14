@@ -86,6 +86,36 @@ class TestTask(TestCase):
         self.assertEqual(task_run.status, TaskRun.Status.QUEUED)
 
     @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
+    def test_create_and_run_threads_mcp_store_mounts_disabled_into_state(self, mock_execute_workflow):
+        # Sandbox provisioning reads this off the task row; if the stamp is lost at creation,
+        # runs whose replies auto-send to an untrusted audience silently regain external
+        # MCP servers.
+        user = User.objects.create(email="mounts-disabled@test.com")
+        Integration.objects.create(team=self.team, kind="github", config={})
+
+        with self.captureOnCommitCallbacks(execute=True):
+            disabled_task = Task.create_and_run(
+                team=self.team,
+                title="No store mounts",
+                description="Test",
+                origin_product=Task.OriginProduct.USER_CREATED,
+                user_id=user.id,
+                repository="posthog/posthog",
+                mcp_store_mounts_disabled=True,
+            )
+            default_task = Task.create_and_run(
+                team=self.team,
+                title="Default mounts",
+                description="Test",
+                origin_product=Task.OriginProduct.USER_CREATED,
+                user_id=user.id,
+                repository="posthog/posthog",
+            )
+
+        self.assertTrue(disabled_task.mcp_store_mounts_disabled)
+        self.assertFalse(default_task.mcp_store_mounts_disabled)
+
+    @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
     def test_create_and_run_threads_github_read_access_into_state(self, mock_execute_workflow):
         from products.tasks.backend.temporal.process_task.activities.get_task_processing_context import (  # noqa: PLC0415 — activities import the workflow stack; keep it off this module's import path
             TaskProcessingContext,

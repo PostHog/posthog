@@ -55,6 +55,7 @@ MCPBuiltInAgentKey = Literal["support", "scout"]
 MCP_BUILT_IN_AGENT_STATE_KEY = "mcp_builtin_agent_key"
 MCP_CREDENTIAL_OWNER_STATE_KEY = "mcp_credential_owner_id"
 MCP_GATEWAY_SERVER_ALLOWLIST_STATE_KEY = "mcp_gateway_server_ids"
+MCP_STORE_MOUNTS_DISABLED_STATE_KEY = "mcp_store_mounts_disabled"
 MCP_BUILT_IN_AGENT_KEY_BY_ORIGIN: dict[str, MCPBuiltInAgentKey] = {
     "support_reply": "support",
     "signals_scout": "scout",
@@ -404,6 +405,18 @@ class Task(DeletedMetaFields, models.Model):
             return None
         return [str(i) for i in ids] if isinstance(ids, list) else []
 
+    @property
+    def mcp_store_mounts_disabled(self) -> bool:
+        """Whether this task's runs must not mount any MCP Store installations.
+
+        Set server-side at creation for runs whose output can reach an untrusted
+        audience with no human review (auto-publishable support replies): external
+        MCP servers expose a tool surface the PostHog token scopes don't constrain,
+        so those runs get none. The flag only ever narrows capability, so it needs
+        no trust marker to read.
+        """
+        return bool((self.state or {}).get(MCP_STORE_MOUNTS_DISABLED_STATE_KEY))
+
     def capture_event(
         self, event: str, properties: dict | None = None, capture_fn: Callable[..., None] | None = None
     ) -> None:
@@ -635,6 +648,7 @@ class Task(DeletedMetaFields, models.Model):
         client_provenance: TaskClientProvenance | None = None,
         mcp_credential_owner_id: int | None = None,
         mcp_gateway_server_ids: list[str] | None = None,
+        mcp_store_mounts_disabled: bool = False,
     ) -> tuple["Task", dict[str, Any]]:
         """Create the Task row and assemble the initial run's `extra_state`.
 
@@ -724,6 +738,8 @@ class Task(DeletedMetaFields, models.Model):
                 initial_state[MCP_CREDENTIAL_OWNER_STATE_KEY] = mcp_credential_owner_id
             if mcp_gateway_server_ids is not None:
                 initial_state[MCP_GATEWAY_SERVER_ALLOWLIST_STATE_KEY] = [str(i) for i in mcp_gateway_server_ids]
+        if mcp_store_mounts_disabled:
+            initial_state[MCP_STORE_MOUNTS_DISABLED_STATE_KEY] = True
 
         task = Task.objects.create(
             team=team,
@@ -948,6 +964,7 @@ class Task(DeletedMetaFields, models.Model):
         mcp_builtin_agent_key: MCPBuiltInAgentKey | None = None,
         mcp_credential_owner_id: int | None = None,
         mcp_gateway_server_ids: list[str] | None = None,
+        mcp_store_mounts_disabled: bool = False,
     ) -> "Task":
         from products.tasks.backend.temporal.client import _normalize_slack_context, execute_task_processing_workflow
 
@@ -984,6 +1001,7 @@ class Task(DeletedMetaFields, models.Model):
             mcp_builtin_agent_key=mcp_builtin_agent_key,
             mcp_credential_owner_id=mcp_credential_owner_id,
             mcp_gateway_server_ids=mcp_gateway_server_ids,
+            mcp_store_mounts_disabled=mcp_store_mounts_disabled,
         )
 
         run_extra_state = dict(extra_state or {})

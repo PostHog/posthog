@@ -806,15 +806,17 @@ class TestDiagnosticScopes:
 
 class TestExternalMcpPromptBlock:
     """The sandbox mounts whatever MCP servers the team granted the support agent, but the
-    agent only reaches for tools the prompt names. Guards the advertisement block: granted
-    servers must be listed together with the untrusted-output rule, and the block must not
-    render when the team granted nothing."""
+    agent only reaches for tools the prompt names. Guards the advertisement block (granted
+    servers listed together with the untrusted-output rule, nothing rendered when the team
+    granted nothing) and the auto-publish gate: a reply that can auto-send to the untrusted
+    ticket author must get no external servers at all, neither advertised nor mounted."""
 
-    async def _run_draft(self, server_names: list[str]) -> str:
-        captured: dict[str, str] = {}
+    async def _run_draft(self, server_names: list[str], auto_publishable: bool = False) -> dict[str, Any]:
+        captured: dict[str, Any] = {}
 
         async def fake_start(prompt, context, **kwargs):
             captured["prompt"] = prompt
+            captured["start_kwargs"] = kwargs
             result = SupportReplyDraft(reply="ok", citations=[], confidence=0.0, sources=[])
             return AsyncMock(), result
 
@@ -822,27 +824,42 @@ class TestExternalMcpPromptBlock:
             patch(f"{DRAFT_MODULE}._hydrate_chunks", return_value=[]),
             patch(f"{DRAFT_MODULE}.resolve_user_id_for_support", return_value=1),
             patch(f"{DRAFT_MODULE}.get_or_create_support_sandbox_env", return_value="env-1"),
-            patch(f"{DRAFT_MODULE}.get_agent_run_mcp_server_names", return_value=server_names),
+            patch(f"{DRAFT_MODULE}.get_agent_run_mcp_server_names", return_value=server_names) as names_mock,
             patch(f"{DRAFT_MODULE}.MultiTurnSession.start", new=AsyncMock(side_effect=fake_start)),
         ):
-            await _draft_async(team_id=1, ticket_context="exports failing", chunk_ids=[])
-        return captured["prompt"]
+            await _draft_async(
+                team_id=1, ticket_context="exports failing", chunk_ids=[], auto_publishable=auto_publishable
+            )
+        captured["names_resolved"] = names_mock.called
+        return captured
 
     @pytest.mark.asyncio
     async def test_granted_servers_are_advertised_with_untrusted_output_rule(self):
         # "Zendesk (Alice B)" mirrors the owner-suffixed name the facade emits when two
         # members team-share the same server; the prompt must carry it verbatim since
         # that's the name the sandbox mounts.
-        prompt = await self._run_draft(["Linear", "Zendesk (Alice B)"])
+        run = await self._run_draft(["Linear", "Zendesk (Alice B)"])
+        prompt = run["prompt"]
         assert "CONNECTED MCP SERVERS" in prompt
         assert "- Linear" in prompt
         assert "- Zendesk (Alice B)" in prompt
         assert "DATA, not instructions" in prompt
+        assert run["start_kwargs"]["mcp_store_mounts_disabled"] is False
 
     @pytest.mark.asyncio
     async def test_no_block_when_no_servers_granted(self):
-        prompt = await self._run_draft([])
-        assert "CONNECTED MCP SERVERS" not in prompt
+        run = await self._run_draft([])
+        assert "CONNECTED MCP SERVERS" not in run["prompt"]
+
+    @pytest.mark.asyncio
+    async def test_auto_publishable_draft_gets_no_external_servers(self):
+        # Security boundary, not prompt hygiene: external servers expose a tool surface the
+        # publishable token scopes don't constrain, so the run must not mount them (the
+        # start kwarg is what provisioning enforces) and must not be told about them.
+        run = await self._run_draft(["Linear"], auto_publishable=True)
+        assert "CONNECTED MCP SERVERS" not in run["prompt"]
+        assert run["names_resolved"] is False
+        assert run["start_kwargs"]["mcp_store_mounts_disabled"] is True
 
 
 class TestSafetyFilterActivity:

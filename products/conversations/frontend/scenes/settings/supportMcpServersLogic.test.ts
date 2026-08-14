@@ -193,5 +193,43 @@ describe('supportMcpServersLogic', () => {
         expect(logic.values.supportServerRows).toHaveLength(1)
         expect(logic.values.supportServerRows[0].sharedWithTeamByYou).toBe(false)
         expect(logic.values.supportServerRows[0].yourGrantState).toBeNull()
+        expect(logic.values.supportServerRows[0].shareDisabledReason).toBe(
+            'The support agent is not available in this project yet'
+        )
+    })
+
+    it('blocks sharing unhealthy connections but keeps existing shares removable', async () => {
+        // A grant only mounts while its credential is healthy, so unhealthy connections must
+        // not be shareable; a share that already exists must stay removable regardless.
+        const healthy = gatewayServer('healthy-id', 'Healthy', { yourConnection: YOUR_CONNECTION })
+        const midOauth = gatewayServer('oauth-id', 'MidOauth', {
+            yourConnection: { ...YOUR_CONNECTION, pending_oauth: true },
+        })
+        const expired = gatewayServer('expired-id', 'Expired', {
+            yourConnection: { ...YOUR_CONNECTION, needs_reauth: true },
+        })
+        const off = gatewayServer('off-id', 'TurnedOff', {
+            yourConnection: { ...YOUR_CONNECTION, is_enabled: false },
+        })
+        const sharedButBroken = gatewayServer('shared-id', 'SharedButBroken', {
+            yourConnection: { ...YOUR_CONNECTION, needs_reauth: true },
+        })
+        const supportAccount = account('support', [grant('shared-id', 'SharedButBroken', YOU, 'team')])
+        mockGateway([healthy, midOauth, expired, off, sharedButBroken], [supportAccount])
+
+        logic = supportMcpServersLogic()
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+
+        const reasonByName = Object.fromEntries(
+            logic.values.supportServerRows.map(({ server, shareDisabledReason }) => [server.name, shareDisabledReason])
+        )
+        expect(reasonByName).toEqual({
+            Healthy: null,
+            MidOauth: 'Finish connecting this server before sharing it with the support agent',
+            Expired: 'Reconnect this server before sharing it with the support agent',
+            TurnedOff: 'Your connection is turned off. Turn it on before sharing it with the support agent',
+            SharedButBroken: null,
+        })
     })
 })

@@ -407,6 +407,17 @@ class TestFetchUserMcpServerConfigs(TestCase):
 
         assert get_user_mcp_server_configs(self.TOKEN, self.TEAM_ID, self.USER_ID, allowed_installation_ids=[]) == []
 
+    @patch(MOCK_API_URL)
+    @patch(MOCK_FACADE)
+    def test_store_mounts_disabled_mounts_nothing(self, mock_facade, mock_api_url) -> None:
+        # Runs whose output can auto-send to an untrusted audience must not get an external
+        # tool surface at all, regardless of what the facade would resolve.
+        mock_api_url.return_value = self.API_BASE
+        mock_facade.return_value = [self._make_installation()]
+
+        assert get_user_mcp_server_configs(self.TOKEN, self.TEAM_ID, self.USER_ID, store_mounts_disabled=True) == []
+        mock_facade.assert_not_called()
+
     @parameterized.expand(
         [
             ("no_state", None, None),

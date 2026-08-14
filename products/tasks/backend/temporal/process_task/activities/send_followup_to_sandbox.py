@@ -388,6 +388,7 @@ def _refresh_sandbox_mcp(
         task_agent_key=task_run.task.mcp_builtin_agent_key,
         credential_owner_id=task_run.task.mcp_credential_owner_id,
         allowed_gateway_server_ids=task_run.task.mcp_gateway_server_allowlist,
+        store_mounts_disabled=task_run.task.mcp_store_mounts_disabled,
     )
     if user_mcp_configs:
         mcp_configs = mcp_configs + user_mcp_configs

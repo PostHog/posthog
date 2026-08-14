@@ -92,15 +92,20 @@ async def _draft_async(
     chunks = await database_sync_to_async(_hydrate_chunks, thread_sensitive=False)(team_id, chunk_ids)
     user_id = await database_sync_to_async(resolve_user_id_for_support, thread_sensitive=False)(team_id)
     env_id = await database_sync_to_async(get_or_create_support_sandbox_env, thread_sensitive=False)(team_id)
-    # Same resolution the sandbox launch performs, so the prompt advertises exactly the
-    # external MCP servers the run will actually have mounted (support runs are personless,
-    # so these are the team-scoped grants members shared with the support agent).
-    mcp_server_names = await database_sync_to_async(get_agent_run_mcp_server_names, thread_sensitive=False)(
-        team_id,
-        origin_product=tasks_facade.TaskOriginProduct.SUPPORT_REPLY,
-        agent_key="support",
-        user_id=user_id,
-    )
+    # External MCP servers expose a tool surface the PostHog token scopes don't constrain,
+    # so a reply that may auto-send to the (untrusted) ticket author gets none: not mounted
+    # at provisioning (mcp_store_mounts_disabled below) and not advertised in the prompt.
+    # Human-reviewed drafts get the same resolution the sandbox launch performs, so the
+    # prompt advertises exactly the servers the run will have mounted (support runs are
+    # personless, so these are the team-scoped grants members shared with the support agent).
+    mcp_server_names: list[str] = []
+    if not auto_publishable:
+        mcp_server_names = await database_sync_to_async(get_agent_run_mcp_server_names, thread_sensitive=False)(
+            team_id,
+            origin_product=tasks_facade.TaskOriginProduct.SUPPORT_REPLY,
+            agent_key="support",
+            user_id=user_id,
+        )
 
     # Scope tiers, keyed off the actual publish decision (not the classifier's needs_diagnostics,
     # which is LLM-controlled, nor the ticket type alone):
@@ -259,6 +264,7 @@ Return your response as a JSON object with keys: reply, citations, confidence, s
             step_name="support_reply",
             origin_product=tasks_facade.TaskOriginProduct.SUPPORT_REPLY,
             mcp_builtin_agent_key="support",
+            mcp_store_mounts_disabled=auto_publishable,
             internal=True,
             max_poll_seconds=DRAFT_POLL_SECONDS,
         )

@@ -36,7 +36,8 @@ export function SupportMcpServersSection(): JSX.Element | null {
 }
 
 function SupportMcpServersSectionContent(): JSX.Element {
-    const { showAllServers, supportAccount, supportMcpLoading, supportServerRows } = useValues(supportMcpServersLogic)
+    const { showAllServers, supportAccount, supportMcpInitialized, supportServerRows } =
+        useValues(supportMcpServersLogic)
     const { setShowAllServers } = useActions(supportMcpServersLogic)
 
     const hiddenCount = supportServerRows.length - VISIBLE_SERVER_COUNT
@@ -50,7 +51,7 @@ function SupportMcpServersSectionContent(): JSX.Element {
             description="Give the support agent access to MCP servers you've connected. A server you share here is used through your connection for every support agent reply in this project, including replies generated automatically."
         >
             <LemonCard hoverEffect={false} className="max-w-[800px] p-0 overflow-hidden">
-                {supportMcpLoading && supportServerRows.length === 0 ? (
+                {!supportMcpInitialized ? (
                     <div className="flex items-center gap-2 px-4 py-3 text-sm text-muted-alt">
                         <Spinner /> Loading MCP servers...
                     </div>
@@ -105,11 +106,10 @@ function SupportMcpServersSectionContent(): JSX.Element {
 }
 
 function ServerRow({ row }: { row: SupportMcpServerRow }): JSX.Element {
-    const { agentServerAccessLoadingKeys, canManageAgentAccess, supportAccount } = useValues(supportMcpServersLogic)
+    const { agentServerAccessLoadingKeys, supportAccount } = useValues(supportMcpServersLogic)
     const { setAgentServerAccess } = useActions(supportMcpServersLogic)
 
-    const { server, share, sharedWithTeamByYou, yourGrantState } = row
-    const needsConnection = !share.sharedByYou && server.your_connection === null
+    const { server, share, sharedWithTeamByYou, yourGrantState, shareDisabledReason } = row
     const stateTag = yourGrantState && yourGrantState !== 'ready' ? GRANT_STATE_TAGS[yourGrantState] : undefined
 
     let secondary: string
@@ -124,14 +124,6 @@ function ServerRow({ row }: { row: SupportMcpServerRow }): JSX.Element {
     } else {
         secondary = 'Not shared'
     }
-
-    const disabledReason = !supportAccount
-        ? 'The support agent is not available in this project yet'
-        : !canManageAgentAccess
-          ? 'A project admin has turned off agent access management for members'
-          : needsConnection
-            ? 'Connect this server before sharing it with the support agent'
-            : undefined
 
     return (
         <div className="flex items-center gap-3 px-4 py-2.5">
@@ -152,7 +144,7 @@ function ServerRow({ row }: { row: SupportMcpServerRow }): JSX.Element {
                         ? agentServerAccessLoadingKeys.has(agentServerAccessKey(supportAccount.id, server.id))
                         : false
                 }
-                disabledReason={disabledReason}
+                disabledReason={shareDisabledReason ?? undefined}
                 aria-label={`${sharedWithTeamByYou ? 'Stop sharing' : 'Share'} your ${server.name} connection with the support agent`}
                 onChange={(checked) => {
                     if (supportAccount) {
