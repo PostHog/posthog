@@ -28,7 +28,7 @@ export function FeatureRequestDetail({ request }: { request: FeatureRequestApi }
     )
 
     return (
-        <div className="@container w-full max-w-6xl mx-auto px-6 py-5 text-sm">
+        <div className="@container w-full max-w-[calc(160ch+5rem)] mx-auto px-6 py-5 text-sm">
             <header className="flex flex-col gap-3 mb-6 pb-5 border-b border-primary">
                 <div className="flex flex-wrap items-center justify-between gap-2">
                     <LemonButton
@@ -91,8 +91,8 @@ export function FeatureRequestDetail({ request }: { request: FeatureRequestApi }
                 </LemonBanner>
             )}
 
-            <div className="grid grid-cols-1 @5xl:grid-cols-3 gap-6">
-                <div className="min-w-0 @5xl:col-span-2">
+            <div className="grid grid-cols-1 @5xl:grid-cols-[minmax(0,80ch)_minmax(22rem,1fr)] gap-5">
+                <div className="min-w-0">
                     <FeatureRequestDetailSection icon={<IconDocument />} title="Description">
                         <LemonMarkdown
                             disableImages
@@ -103,7 +103,7 @@ export function FeatureRequestDetail({ request }: { request: FeatureRequestApi }
                     </FeatureRequestDetailSection>
                 </div>
 
-                <aside className="flex flex-col min-w-0 gap-6">
+                <aside className="flex flex-col min-w-0 gap-5">
                     <FeatureRequestDetailSection icon={<IconBuilding />} title="Account">
                         <Link
                             to={urls.customerAnalyticsAccount(request.account.id)}

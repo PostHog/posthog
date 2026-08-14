@@ -1,8 +1,8 @@
 import { useActions, useValues } from 'kea'
 
 import { IconClock } from '@posthog/icons'
-import { LemonCollapse } from '@posthog/lemon-ui'
 
+import { FeatureRequestDetailSection } from './FeatureRequestDetailSection'
 import { FeatureRequestHistory } from './FeatureRequestHistory'
 import { featureRequestsLogic } from './featureRequestsLogic'
 
@@ -10,40 +10,29 @@ export function FeatureRequestHistorySection({ requestId }: { requestId: string 
     const { requestHistory, requestHistoryLoading, requestHistoryError, requestHistoryShowingAll } =
         useValues(featureRequestsLogic)
     const { loadRequestHistory, setRequestHistoryShowingAll } = useActions(featureRequestsLogic)
-    const title = requestHistoryLoading ? 'History' : `History (${requestHistory.length})`
 
     return (
-        <LemonCollapse
-            embedded
-            size="small"
-            defaultActiveKey="history"
-            panels={[
-                {
-                    key: 'history',
-                    dataAttr: 'feature-request-history-collapse',
-                    header: {
-                        type: 'tertiary',
-                        className: '!px-0',
-                        children: (
-                            <span className="flex items-center gap-2 font-semibold">
-                                <IconClock className="size-4 text-secondary" />
-                                {title}
-                            </span>
-                        ),
-                    },
-                    className: '!px-0 !pb-0 !pt-3',
-                    content: (
-                        <FeatureRequestHistory
-                            history={requestHistory}
-                            loading={requestHistoryLoading}
-                            error={requestHistoryError}
-                            showingAll={requestHistoryShowingAll}
-                            onRetry={() => loadRequestHistory(requestId)}
-                            onSetShowingAll={setRequestHistoryShowingAll}
-                        />
-                    ),
-                },
-            ]}
-        />
+        <FeatureRequestDetailSection
+            icon={<IconClock />}
+            title="History"
+            collapsible
+            dataAttr="feature-request-history-collapse"
+            meta={
+                requestHistoryLoading ? null : (
+                    <span className="text-xs text-tertiary tabular-nums">
+                        {requestHistory.length} {requestHistory.length === 1 ? 'entry' : 'entries'}
+                    </span>
+                )
+            }
+        >
+            <FeatureRequestHistory
+                history={requestHistory}
+                loading={requestHistoryLoading}
+                error={requestHistoryError}
+                showingAll={requestHistoryShowingAll}
+                onRetry={() => loadRequestHistory(requestId)}
+                onSetShowingAll={setRequestHistoryShowingAll}
+            />
+        </FeatureRequestDetailSection>
     )
 }

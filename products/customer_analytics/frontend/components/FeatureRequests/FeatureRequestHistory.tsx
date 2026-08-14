@@ -1,4 +1,7 @@
-import { LemonBanner, LemonButton, LemonSkeleton } from '@posthog/lemon-ui'
+import type { ComponentType } from 'react'
+
+import { IconArrowCircleRight, IconBuilding, IconDocument, IconFlag, IconFolder, IconPencil } from '@posthog/icons'
+import { LemonBanner, LemonButton, LemonCard, LemonSkeleton } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
 
@@ -65,6 +68,27 @@ function scalarChange(label: string, before: string, after: string, isInitial: b
             )}
         </div>
     )
+}
+
+function historyMarker(entry: FeatureRequestHistoryApi): ComponentType<{ className?: string }> {
+    if (entry.is_initial) {
+        return IconDocument
+    }
+    if (entry.changes.length !== 1) {
+        return IconPencil
+    }
+    switch (entry.changes[0].field) {
+        case 'status':
+            return IconArrowCircleRight
+        case 'priority':
+            return IconFlag
+        case 'account':
+            return IconBuilding
+        case 'product_areas':
+            return IconFolder
+        default:
+            return IconPencil
+    }
 }
 
 function describeChange(change: FeatureRequestHistoryChangeApi, isInitial: boolean): JSX.Element | null {
@@ -158,23 +182,36 @@ export function FeatureRequestHistory({
 
     return (
         <div className="flex flex-col gap-3">
-            <div className="flex flex-col divide-y divide-border">
-                {visibleHistory.map((entry) => (
-                    <div key={entry.id} className="flex flex-col gap-1.5 py-3 first:pt-0 last:pb-0">
-                        <div className="font-medium">
-                            {entry.actor_name ?? 'Unknown user'}{' '}
-                            {entry.is_initial ? 'created this request' : 'updated this request'}
+            <div className="relative">
+                <span className="absolute bottom-2.5 left-2.5 top-2.5 w-px bg-border" aria-hidden />
+                {visibleHistory.map((entry) => {
+                    const MarkerIcon = historyMarker(entry)
+                    return (
+                        <div key={entry.id} className="relative flex gap-3 pb-4 last:pb-0">
+                            <span className="z-10 flex size-5 shrink-0 items-center justify-center rounded-full border bg-surface-primary text-secondary">
+                                <MarkerIcon className="size-3" />
+                            </span>
+                            <div className="min-w-0 flex-1">
+                                <div className="mb-1 flex min-w-0 flex-wrap items-center gap-x-1.5 gap-y-0.5">
+                                    <span className="font-medium text-sm text-default">
+                                        {entry.actor_name ?? 'Unknown user'}{' '}
+                                        {entry.is_initial ? 'created this request' : 'updated this request'}
+                                    </span>
+                                    <span className="text-xs text-tertiary">
+                                        <TZLabel time={entry.changed_at} />
+                                    </span>
+                                </div>
+                                <LemonCard hoverEffect={false} className="w-full p-2 shadow-none">
+                                    <div className="flex flex-col gap-1 text-secondary">
+                                        {entry.changes.map((change) => (
+                                            <div key={change.field}>{describeChange(change, entry.is_initial)}</div>
+                                        ))}
+                                    </div>
+                                </LemonCard>
+                            </div>
                         </div>
-                        <div className="flex flex-col gap-1 text-secondary">
-                            {entry.changes.map((change, index) => (
-                                <div key={`${change.field}-${index}`}>{describeChange(change, entry.is_initial)}</div>
-                            ))}
-                        </div>
-                        <div className="text-xs text-tertiary">
-                            <TZLabel time={entry.changed_at} />
-                        </div>
-                    </div>
-                ))}
+                    )
+                })}
             </div>
             {history.length > FEATURE_REQUEST_HISTORY_PREVIEW_SIZE && (
                 <LemonButton
@@ -182,7 +219,7 @@ export function FeatureRequestHistory({
                     size="small"
                     onClick={() => onSetShowingAll(!showingAll)}
                     data-attr="feature-request-history-show-all"
-                    className="self-start"
+                    className="ml-8 self-start"
                 >
                     {showingAll
                         ? `Show latest ${FEATURE_REQUEST_HISTORY_PREVIEW_SIZE} entries`
