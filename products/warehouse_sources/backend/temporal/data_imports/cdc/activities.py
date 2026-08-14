@@ -629,10 +629,7 @@ class CDCExtractActivity:
         """
         if not self._shadow_enabled or self._shadow_disabled_for_run:
             return
-        # The engine seq column is always LAST when the batcher appended it; a
-        # same-named source column (collision → append skipped) is never last.
-        # Checking by name would let the user's column masquerade as positions.
-        if table.num_rows == 0 or table.schema.field(table.num_columns - 1).name != CDC_SEQ_COLUMN:
+        if table.num_rows == 0 or not has_engine_seq(table):
             return
 
         file_index = self._shadow_file_index.get(table_name, 0)
@@ -646,7 +643,7 @@ class CDCExtractActivity:
                 # past where this run restarted (batch boundaries are not stable
                 # across attempts — see buffer.py). The batch's min seq IS the
                 # restart floor for this schema.
-                restart_seq = pc.min(table.column(table.num_columns - 1)).as_py()
+                restart_seq = pc.min(table.column(CDC_SEQ_COLUMN)).as_py()
                 self._shadow_buffer_writer.cleanup_superseded_files(
                     team_id=schema.team_id, schema_id=schema_id, restart_seq=restart_seq
                 )
