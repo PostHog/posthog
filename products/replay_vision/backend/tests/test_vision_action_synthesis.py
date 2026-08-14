@@ -637,6 +637,28 @@ class TestVisionActionSynthesis(BaseTest):
         run.refresh_from_db()
         self.assertIn("1 recording from Jun 1, 2026 at 9:00 AM UTC to ", run.synthesized_markdown)
 
+    def test_header_states_the_full_period_for_start_only_explicit_runs(self) -> None:
+        # A start-only period run is still fetched with a bounded end (its trigger time), so the
+        # header must state that end too; "since X" would claim coverage past what was fetched.
+        obs = self._observation("in the period")
+        ReplayObservation.objects.filter(pk=obs.pk).update(created_at=datetime(2026, 6, 15, tzinfo=UTC))
+        action = self._action()
+        run = VisionActionRun(
+            vision_action=action,
+            team=self.team,
+            idempotency_key="period",
+            scheduled_at=datetime(2026, 7, 1, 12, 0, tzinfo=UTC),
+            window_start=datetime(2026, 6, 1, 9, 0, tzinfo=UTC),
+        )
+        run.save()
+
+        self._synthesize(action, run)
+        run.refresh_from_db()
+        self.assertIn(
+            "1 recording from Jun 1, 2026 at 9:00 AM UTC to Jul 1, 2026 at 12:00 PM UTC",
+            run.synthesized_markdown,
+        )
+
     def test_prompt_guide_passed_to_llm(self) -> None:
         self._observation("something")
         action = self._action(synthesis_config={"prompt_guide": "focus on rage clicks"})

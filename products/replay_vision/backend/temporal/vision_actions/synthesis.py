@@ -464,7 +464,8 @@ def _fetch_observations(team: Team, action: VisionAction, run: VisionActionRun) 
     # BEFORE the count/cap/sampling below, so the header's totals and the sampled batch reflect only
     # the observations the action targets and its creator can read.
     window_start = _window_start(team, action, run)
-    observations_qs = window_observations(team, action, window_start=window_start, window_end=_window_end(run))
+    window_end = _window_end(run)
+    observations_qs = window_observations(team, action, window_start=window_start, window_end=window_end)
 
     # Count the whole window so the header can say when the summary is only a sample of it (see cap below).
     window_total = observations_qs.count()
@@ -526,7 +527,10 @@ def _fetch_observations(team: Team, action: VisionAction, run: VisionActionRun) 
         lines=lines,
         observation_ids=observation_ids,
         window_start=window_start,
-        window_end=run.window_end,
+        # An explicit period states the end the fetch was actually capped at (a start-only request is
+        # capped at its trigger time), so the header never claims coverage past what was fetched.
+        # Cadence runs keep the open-ended "since X" header.
+        window_end=window_end if run.window_start is not None else None,
         window_total=window_total,
         facts_by_index=facts_by_index,
     )
