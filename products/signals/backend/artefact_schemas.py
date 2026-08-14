@@ -91,6 +91,15 @@ class SignalFinding(BaseModel):
             "and what the results showed. If no relevant queries could be run, explain why."
         ),
     )
+    evidence: str | None = Field(
+        default=None,
+        description=(
+            "The concrete query result that backs any figure this finding quotes: the actual "
+            "numbers, rows, or values returned, pasted inline so a reader can check the claim "
+            "without rerunning the query. Where `data_queried` says what you ran, this carries "
+            "what came back. Omit when no query produced a quotable result."
+        ),
+    )
     verified: bool = Field(
         description=(
             "Whether you could confirm the signal's claim by finding supporting evidence "
