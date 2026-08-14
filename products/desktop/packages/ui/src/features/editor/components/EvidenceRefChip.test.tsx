@@ -15,37 +15,27 @@ function renderInTheme(node: React.ReactNode) {
 }
 
 describe("EvidenceRefChip", () => {
-  it("renders the citation label inline", () => {
+  it("renders a plain reference as text, not an interactive element", () => {
     renderInTheme(
       <EvidenceRefChip target={{ kind: "insight", id: "9pQx3" }}>
         Checkout funnel
       </EvidenceRefChip>,
     );
-    expect(
-      screen.getByRole("button", { name: "Checkout funnel" }),
-    ).toBeDefined();
+    expect(screen.getByText("Checkout funnel")).toBeDefined();
+    expect(screen.queryByRole("link")).toBeNull();
+    expect(screen.queryByRole("button")).toBeNull();
   });
 
-  it("opens the PostHog url on click when the link carries one", () => {
+  it("opens the PostHog url in the external browser when clicked", () => {
     const url = "https://us.posthog.com/project/2/insights/9pQx3";
     renderInTheme(
       <EvidenceRefChip target={{ kind: "insight", id: "9pQx3", url }}>
         Checkout funnel
       </EvidenceRefChip>,
     );
-    fireEvent.click(screen.getByRole("button", { name: "Checkout funnel" }));
+    const link = screen.getByRole("link", { name: "Checkout funnel" });
+    fireEvent.click(link);
     expect(openExternalUrl).toHaveBeenCalledWith(url);
-  });
-
-  it("does nothing on click without a url", () => {
-    vi.mocked(openExternalUrl).mockClear();
-    renderInTheme(
-      <EvidenceRefChip target={{ kind: "error", id: "018f" }}>
-        TypeError spike
-      </EvidenceRefChip>,
-    );
-    fireEvent.click(screen.getByRole("button", { name: "TypeError spike" }));
-    expect(openExternalUrl).not.toHaveBeenCalled();
   });
 
   it("renders from an evidence: markdown link in agent output", () => {
@@ -54,7 +44,9 @@ describe("EvidenceRefChip", () => {
     renderInTheme(
       <MarkdownRenderer content="The [coupon funnel](evidence:insight/9pQx3) dropped." />,
     );
-    expect(screen.getByRole("button", { name: "coupon funnel" })).toBeDefined();
-    expect(screen.queryByRole("link", { name: /coupon funnel/ })).toBeNull();
+    expect(screen.getByText("coupon funnel")).toBeDefined();
+    // Without a url parameter the reference is not a link at all — a plain
+    // external-link fallback would render one.
+    expect(screen.queryByRole("link")).toBeNull();
   });
 });

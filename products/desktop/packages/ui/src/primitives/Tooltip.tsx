@@ -5,6 +5,8 @@ import { KeyHint } from "./KeyHint";
 interface TooltipProps {
   children: React.ReactNode;
   content: React.ReactNode;
+  /** Replaces the default inner layout (row flex + padding) for card-style content. The surface (background, border, radius) stays. */
+  contentClassName?: string;
   shortcut?: string;
   side?: "top" | "right" | "bottom" | "left";
   align?: "start" | "center" | "end";
@@ -18,6 +20,7 @@ interface TooltipProps {
 export function Tooltip({
   children,
   content,
+  contentClassName,
   shortcut,
   side = "top",
   align = "center",
@@ -43,7 +46,7 @@ export function Tooltip({
             side={side}
             align={align}
             sideOffset={sideOffset}
-            className="dark flex items-center gap-[8px] rounded-[6px] border border-(--gray-4) bg-(--gray-2) px-[10px] py-[6px] text-(--gray-12) text-xs leading-[1.4]"
+            className={`dark rounded-[6px] border border-(--gray-4) bg-(--gray-2) text-(--gray-12) ${contentClassName ?? "flex items-center gap-[8px] px-[10px] py-[6px] text-xs leading-[1.4]"}`}
             style={{
               whiteSpace: isSimpleContent ? "nowrap" : "normal",
               boxShadow: "0 4px 12px rgba(0, 0, 0, 0.25)",

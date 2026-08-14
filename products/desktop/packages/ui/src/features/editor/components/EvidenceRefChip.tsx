@@ -12,21 +12,21 @@ import {
   ShieldCheckIcon,
   SparkleIcon,
 } from "@phosphor-icons/react";
-import { Tooltip, TooltipContent, TooltipTrigger } from "@posthog/quill";
-import type { ReactNode } from "react";
+import type { MouseEvent, ReactNode } from "react";
+import { Tooltip } from "../../../primitives/Tooltip";
 import { openExternalUrl } from "../../../shell/openExternal";
 import type { EvidenceLinkTarget } from "../../../utils/evidenceLinks";
 
 /**
  * Inline evidence reference inside an agent message.
  *
- * Renders as a quiet dotted-underline span with a small kind icon, so it reads
- * as part of the sentence rather than a UI element. Hovering shows a preview
- * popover with what the reference points at; clicking opens the underlying
- * object in PostHog when the link carries a `url`.
+ * Renders as a dotted-underline span with a small kind icon, so it reads as
+ * part of the sentence and wraps like text. Hovering shows a preview card
+ * with what the reference points at; clicking opens the underlying object in
+ * PostHog when the link carries a `url`.
  *
- * UI layer only: the popover shows the metadata the link itself carries. A
- * live data preview can slot into `preview` once evidence fetching exists.
+ * UI layer only: the card shows the metadata the link itself carries. A live
+ * data preview can slot into `preview` once evidence fetching exists.
  */
 
 interface EvidenceKindMeta {
@@ -91,55 +91,64 @@ export function EvidenceRefChip({
 }: {
   target: EvidenceLinkTarget;
   children: ReactNode;
-  /** Slot for a live data preview inside the popover, once fetching exists. */
+  /** Slot for a live data preview inside the card, once fetching exists. */
   preview?: ReactNode;
 }) {
   const meta = getEvidenceKindMeta(target.kind);
   const KindIcon = meta.icon;
   const clickable = !!target.url;
 
-  const refElement = (
-    <button
-      type="button"
-      onClick={
-        clickable && target.url
-          ? () => openExternalUrl(target.url as string)
-          : undefined
-      }
-      className={`m-0 inline border-(--gray-8) border-0 border-b border-dotted bg-transparent p-0 pb-px text-left align-baseline font-inherit text-(--gray-12) text-[length:inherit] leading-inherit hover:border-(--accent-9) hover:border-solid ${clickable ? "cursor-pointer" : "cursor-default"}`}
-    >
-      <KindIcon
-        size={11}
-        className="mr-1 inline-block align-[-1px] text-(--gray-10)"
-        aria-hidden
-      />
+  const open = (event: MouseEvent<HTMLAnchorElement>) => {
+    event.preventDefault();
+    if (target.url) openExternalUrl(target.url);
+  };
+
+  const card = (
+    <div className="w-60">
+      <div className="flex items-center gap-2 px-2.5 py-2">
+        <span className="flex size-5 shrink-0 items-center justify-center rounded-[5px] bg-(--gray-4)">
+          <KindIcon size={12} className="text-(--gray-11)" aria-hidden />
+        </span>
+        <span className="min-w-0 flex-1">
+          <span className="block truncate font-medium text-(--gray-12) text-xs leading-[1.35]">
+            {children}
+          </span>
+          <span className="block text-(--gray-10) text-[11px] leading-[1.35]">
+            {meta.kindLabel} · {meta.source}
+          </span>
+        </span>
+      </div>
+      {preview && <div className="px-2.5 pb-2">{preview}</div>}
+      <div className="flex items-center justify-between gap-3 border-(--gray-4) border-t px-2.5 py-1.5 text-(--gray-9) text-[10.5px]">
+        <span className="truncate font-mono">{target.id}</span>
+        {clickable && (
+          <span className="shrink-0 text-(--gray-10)">Opens in PostHog ↗</span>
+        )}
+      </div>
+    </div>
+  );
+
+  const refClass =
+    "text-(--gray-12) underline decoration-(--gray-8) decoration-dotted underline-offset-[3px] hover:decoration-(--gray-11) hover:decoration-solid";
+  const inner = (
+    <>
+      {/* inline-block escapes the ancestor underline, keeping it off the icon */}
+      <span className="mr-[3px] inline-block align-[-1px]">
+        <KindIcon size={11} className="text-(--gray-10)" aria-hidden />
+      </span>
       {children}
-    </button>
+    </>
   );
 
   return (
-    <Tooltip>
-      <TooltipTrigger render={refElement} />
-      <TooltipContent side="top" sideOffset={6} className="w-64 p-0">
-        <div className="flex items-center gap-2 px-3 pt-2.5 pb-1.5">
-          <span className="flex size-6 shrink-0 items-center justify-center rounded-md bg-(--gray-4)">
-            <KindIcon size={13} className="text-(--gray-11)" aria-hidden />
-          </span>
-          <span className="min-w-0">
-            <span className="block truncate font-medium text-(--gray-12) text-xs">
-              {children}
-            </span>
-            <span className="block text-(--gray-10) text-[11px]">
-              {meta.kindLabel} · {meta.source}
-            </span>
-          </span>
-        </div>
-        {preview && <div className="px-3 pb-1.5">{preview}</div>}
-        <div className="flex items-center justify-between border-(--gray-4) border-t px-3 py-1.5 text-(--gray-10) text-[11px]">
-          <span className="truncate font-mono">{target.id}</span>
-          {clickable && <span className="shrink-0">Opens in PostHog ↗</span>}
-        </div>
-      </TooltipContent>
+    <Tooltip content={card} contentClassName="block p-0" sideOffset={8}>
+      {clickable ? (
+        <a href={target.url} onClick={open} className={refClass}>
+          {inner}
+        </a>
+      ) : (
+        <span className={refClass}>{inner}</span>
+      )}
     </Tooltip>
   );
 }
