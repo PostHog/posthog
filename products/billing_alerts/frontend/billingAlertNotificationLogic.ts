@@ -256,7 +256,8 @@ export const billingAlertNotificationLogic = kea<billingAlertNotificationLogicTy
             actions.addPendingDestination(pending)
         },
         deleteDestination: async ({ destination }) => {
-            if (!values.currentOrganization?.id || !props.alert) {
+            const organizationId = values.currentOrganization?.id
+            if (!organizationId || !props.alert) {
                 return
             }
             const key = destinationKey(destination)
@@ -265,9 +266,14 @@ export const billingAlertNotificationLogic = kea<billingAlertNotificationLogicTy
             }
             actions.setDestinationDeleting(key, true)
             try {
-                await billingAlertsDestinationsDeleteCreate(values.currentOrganization.id, props.alert.id, {
+                await billingAlertsDestinationsDeleteCreate(organizationId, props.alert.id, {
                     hog_function_ids: [...destination.hog_function_ids],
                 })
+                // The org may have switched while the request was in flight; don't leak the
+                // success toast or a refetch into the new tenant's view.
+                if (values.currentOrganization?.id !== organizationId) {
+                    return
+                }
                 lemonToast.success('Destination removed.')
                 const destinations = props.alert.destinations.filter((candidate) => destinationKey(candidate) !== key)
                 actions.alertUpdated({
@@ -276,7 +282,9 @@ export const billingAlertNotificationLogic = kea<billingAlertNotificationLogicTy
                 })
                 actions.loadAlerts()
             } catch (error) {
-                lemonToast.error(billingAlertRequestError(error))
+                if (values.currentOrganization?.id === organizationId) {
+                    lemonToast.error(billingAlertRequestError(error))
+                }
             } finally {
                 actions.setDestinationDeleting(key, false)
             }

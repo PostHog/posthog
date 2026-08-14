@@ -25,7 +25,8 @@ export interface BillingAlertFormValues {
     description: string
     enabled: boolean
     metric: BillingAlertMetricEnumApi
-    thresholdValue: number
+    /** null while the input is cleared, so an empty threshold fails validation instead of saving as 0. */
+    thresholdValue: number | null
     minimumValue: number
     evaluationDelayHours: number
     cooldownHours: number
@@ -119,7 +120,8 @@ export function billingAlertWritePayload(
         enabled: form.enabled,
         metric: form.metric,
         threshold_type: 'absolute_value',
-        threshold_value: String(form.thresholdValue),
+        // Validation rejects a null threshold before submit, so fall back to 0 only for typing.
+        threshold_value: String(form.thresholdValue ?? 0),
         minimum_value: String(form.minimumValue),
         evaluation_delay_hours: form.evaluationDelayHours,
         cooldown_hours: form.cooldownHours,
@@ -226,7 +228,12 @@ export const billingAlertFormLogic = kea<billingAlertFormLogicType>([
             defaults: formDefaults(props.alert),
             errors: (form) => ({
                 name: form.name.trim() ? undefined : 'Name is required.',
-                thresholdValue: form.thresholdValue < 0 ? 'Enter a value of 0 or more.' : undefined,
+                thresholdValue:
+                    form.thresholdValue === null
+                        ? 'Enter a threshold.'
+                        : form.thresholdValue < 0
+                          ? 'Enter a value of 0 or more.'
+                          : undefined,
                 minimumValue: form.minimumValue < 0 ? 'Enter a value of 0 or more.' : undefined,
                 evaluationDelayHours:
                     form.evaluationDelayHours < 0 || form.evaluationDelayHours > 72
@@ -259,6 +266,11 @@ export const billingAlertFormLogic = kea<billingAlertFormLogicType>([
                             organizationId,
                             formPayload as Parameters<typeof billingAlertsCreate>[1]
                         )
+                    }
+                    // The org may have switched while the write was in flight; skip the success
+                    // toast, refetch, and editor close so they don't fire against the new tenant.
+                    if (values.currentOrganization?.id !== organizationId) {
+                        return form
                     }
                     actions.clearCreatedDestinations(pendingKeys)
 

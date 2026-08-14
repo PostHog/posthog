@@ -118,8 +118,8 @@ function BillingAlertEditorContent(props: BillingAlertFormLogicProps): JSX.Eleme
                                     <LemonInput
                                         type="number"
                                         min={0}
-                                        value={alertForm.thresholdValue}
-                                        onChange={(value) => setAlertFormValue('thresholdValue', value ?? 0)}
+                                        value={alertForm.thresholdValue ?? undefined}
+                                        onChange={(value) => setAlertFormValue('thresholdValue', value ?? null)}
                                         prefix={<span>$</span>}
                                         className="w-32"
                                         size="small"

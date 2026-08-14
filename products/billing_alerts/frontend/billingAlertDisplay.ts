@@ -75,11 +75,16 @@ export interface BillingAlertThresholdView {
 export function thresholdView(alert: BillingAlertConfigurationApi): BillingAlertThresholdView {
     const isRelative = alert.threshold_type === 'relative_increase'
     const rawThreshold = Number(isRelative ? alert.threshold_percentage : alert.threshold_value)
+    // Label off the guarded value so an unparsable threshold reads as "–" rather than "NaN".
+    const thresholdValue = Number.isFinite(rawThreshold) ? rawThreshold : null
     return {
-        thresholdValue: Number.isFinite(rawThreshold) ? rawThreshold : null,
-        thresholdLabel: isRelative
-            ? `${rawThreshold}% increase`
-            : formatBillingValue(rawThreshold, alert.metric, alert.currency),
+        thresholdValue,
+        thresholdLabel:
+            thresholdValue === null
+                ? '–'
+                : isRelative
+                  ? `${thresholdValue}% increase`
+                  : formatBillingValue(thresholdValue, alert.metric, alert.currency),
         valueLabel: isRelative
             ? 'Increase'
             : alert.threshold_type === 'absolute_increase'
