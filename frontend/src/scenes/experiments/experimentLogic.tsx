@@ -3652,13 +3652,17 @@ export const experimentLogic = kea<experimentLogicType>([
             }
         },
         updateMetricBreakdown: async ({ uuid, breakdown }) => {
-            const isPrimary = values.experiment.metrics.some((m) => m.uuid === uuid)
-
-            actions.reportExperimentMetricBreakdownAdded(values.experiment, uuid, breakdown, isPrimary)
-
             const savedMetrics: ExperimentSavedMetric[] = [...(values.experiment.saved_metrics || [])]
             // Check if this is a shared metric by looking in saved_metrics
-            const isSharedMetric = savedMetrics.some(({ query: { uuid: savedMetricUuid } }) => savedMetricUuid === uuid)
+            const sharedMetric = savedMetrics.find(({ query: { uuid: savedMetricUuid } }) => savedMetricUuid === uuid)
+            const isSharedMetric = sharedMetric !== undefined
+            // Shared metrics live in saved_metrics, not experiment.metrics, so read primary/secondary
+            // from their metadata; inline metrics are looked up positionally.
+            const isPrimary = sharedMetric
+                ? sharedMetric.metadata.type === 'primary'
+                : values.experiment.metrics.some((m) => m.uuid === uuid)
+
+            actions.reportExperimentMetricBreakdownAdded(values.experiment, uuid, breakdown, isPrimary)
 
             const updatePayload: Partial<Experiment> & { update_feature_flag_params?: boolean } = {
                 metrics: values.experiment.metrics,
@@ -3687,13 +3691,17 @@ export const experimentLogic = kea<experimentLogicType>([
             }
         },
         removeMetricBreakdown: async ({ uuid, index, breakdown }) => {
-            const isPrimary = values.experiment.metrics.some((m) => m.uuid === uuid)
-
-            actions.reportExperimentMetricBreakdownRemoved(values.experiment, uuid, breakdown, index, isPrimary)
-
             const savedMetrics: ExperimentSavedMetric[] = [...(values.experiment.saved_metrics || [])]
             // Check if this is a shared metric by looking in saved_metrics
-            const isSharedMetric = savedMetrics.some(({ query: { uuid: savedMetricUuid } }) => savedMetricUuid === uuid)
+            const sharedMetric = savedMetrics.find(({ query: { uuid: savedMetricUuid } }) => savedMetricUuid === uuid)
+            const isSharedMetric = sharedMetric !== undefined
+            // Shared metrics live in saved_metrics, not experiment.metrics, so read primary/secondary
+            // from their metadata; inline metrics are looked up positionally.
+            const isPrimary = sharedMetric
+                ? sharedMetric.metadata.type === 'primary'
+                : values.experiment.metrics.some((m) => m.uuid === uuid)
+
+            actions.reportExperimentMetricBreakdownRemoved(values.experiment, uuid, breakdown, index, isPrimary)
 
             const updatePayload: Partial<Experiment> & { update_feature_flag_params?: boolean } = {
                 metrics: values.experiment.metrics,
