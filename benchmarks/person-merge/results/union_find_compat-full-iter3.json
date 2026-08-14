@@ -1,0 +1,348 @@
+{
+    "strategy": "union_find_compat",
+    "supports_current_contract": true,
+    "git_sha": "95450d17",
+    "pg_version": "16.13 (Ubuntu 16.13-0ubuntu0.24.04.1)",
+    "args": {
+        "strategy": "union_find_compat",
+        "cases": "neither,one,both",
+        "sizes": "1,10,100,1000,10000",
+        "reps": 20,
+        "concurrency": 1,
+        "contention": "none",
+        "chain_depth": 16,
+        "preload": 50000,
+        "out": "results/union_find_compat-full-iter3.json"
+    },
+    "phases": [
+        {
+            "case": "neither",
+            "size": 0,
+            "reps": 20,
+            "concurrency": 1,
+            "contention": "none",
+            "latency_ms": {
+                "p50": 1.526,
+                "p95": 7.648,
+                "max": 7.894,
+                "raw": [
+                    7.894, 2.975, 2.858, 2.221, 2.286, 2.087, 1.402, 1.44, 1.51, 1.402, 1.397, 1.449, 2.591, 1.533,
+                    1.314, 1.621, 1.768, 1.519, 1.242, 1.117
+                ]
+            },
+            "read_latency_ms": {
+                "p50": 0.1877,
+                "p95": 1.2567
+            },
+            "read_latency_detail_ms": {
+                "target": {
+                    "p50": 0.555,
+                    "p95": 2.5243,
+                    "p99": 3.636,
+                    "n": 20
+                },
+                "merged": {
+                    "p50": 0.1688,
+                    "p95": 0.2485,
+                    "p99": 0.2563,
+                    "n": 20
+                },
+                "control": {
+                    "p50": 0.187,
+                    "p95": 0.2597,
+                    "p99": 0.3072,
+                    "n": 200
+                }
+            },
+            "wal_bytes_per_op": 9264,
+            "emissions_per_op": {
+                "current_contract": 3.0,
+                "new_contract": 0.0
+            },
+            "retries_total": 0,
+            "oracle_checks": 220
+        },
+        {
+            "case": "one",
+            "size": 0,
+            "reps": 20,
+            "concurrency": 1,
+            "contention": "none",
+            "latency_ms": {
+                "p50": 1.391,
+                "p95": 6.249,
+                "max": 6.424,
+                "raw": [
+                    6.424, 2.927, 2.644, 1.95, 1.859, 2.217, 1.419, 1.331, 1.425, 1.431, 1.403, 1.379, 1.291, 1.311,
+                    1.342, 1.327, 1.33, 1.177, 1.036, 1.077
+                ]
+            },
+            "read_latency_ms": {
+                "p50": 0.2263,
+                "p95": 1.2109
+            },
+            "read_latency_detail_ms": {
+                "target": {
+                    "p50": 0.539,
+                    "p95": 2.6484,
+                    "p99": 3.9077,
+                    "n": 20
+                },
+                "merged": {
+                    "p50": 0.2122,
+                    "p95": 0.268,
+                    "p99": 0.2799,
+                    "n": 20
+                },
+                "control": {
+                    "p50": 0.2144,
+                    "p95": 0.2819,
+                    "p99": 0.3008,
+                    "n": 200
+                }
+            },
+            "wal_bytes_per_op": 1966,
+            "emissions_per_op": {
+                "current_contract": 2.0,
+                "new_contract": 0.0
+            },
+            "retries_total": 0,
+            "oracle_checks": 200
+        },
+        {
+            "case": "both",
+            "size": 1,
+            "reps": 20,
+            "concurrency": 1,
+            "contention": "none",
+            "latency_ms": {
+                "p50": 2.805,
+                "p95": 8.718,
+                "max": 8.917,
+                "raw": [
+                    8.917, 4.942, 4.272, 4.168, 3.869, 4.021, 2.919, 2.78, 2.709, 2.829, 3.016, 2.78, 2.397, 2.238,
+                    2.676, 2.456, 2.23, 2.244, 3.332, 2.114
+                ]
+            },
+            "read_latency_ms": {
+                "p50": 0.2087,
+                "p95": 0.9448
+            },
+            "read_latency_detail_ms": {
+                "target": {
+                    "p50": 0.5213,
+                    "p95": 2.0973,
+                    "p99": 3.1079,
+                    "n": 20
+                },
+                "merged": {
+                    "p50": 0.2001,
+                    "p95": 0.2481,
+                    "p99": 0.2591,
+                    "n": 20
+                },
+                "control": {
+                    "p50": 0.1843,
+                    "p95": 0.2415,
+                    "p99": 0.2732,
+                    "n": 200
+                }
+            },
+            "wal_bytes_per_op": 10801,
+            "emissions_per_op": {
+                "current_contract": 3.0,
+                "new_contract": 0.0
+            },
+            "retries_total": 0,
+            "oracle_checks": 340
+        },
+        {
+            "case": "both",
+            "size": 10,
+            "reps": 20,
+            "concurrency": 1,
+            "contention": "none",
+            "latency_ms": {
+                "p50": 3.325,
+                "p95": 10.285,
+                "max": 10.548,
+                "raw": [
+                    10.548, 5.285, 5.215, 4.728, 4.581, 5.037, 3.833, 3.869, 3.578, 3.578, 3.073, 2.595, 2.273, 2.478,
+                    2.202, 2.121, 2.156, 2.186, 2.192, 2.186
+                ]
+            },
+            "read_latency_ms": {
+                "p50": 0.195,
+                "p95": 0.5897
+            },
+            "read_latency_detail_ms": {
+                "target": {
+                    "p50": 0.6031,
+                    "p95": 2.1838,
+                    "p99": 3.1804,
+                    "n": 20
+                },
+                "merged": {
+                    "p50": 0.1936,
+                    "p95": 0.2615,
+                    "p99": 0.3286,
+                    "n": 200
+                },
+                "control": {
+                    "p50": 0.1894,
+                    "p95": 0.2896,
+                    "p99": 0.4417,
+                    "n": 200
+                }
+            },
+            "wal_bytes_per_op": 11055,
+            "emissions_per_op": {
+                "current_contract": 12.0,
+                "new_contract": 0.0
+            },
+            "retries_total": 0,
+            "oracle_checks": 1240
+        },
+        {
+            "case": "both",
+            "size": 100,
+            "reps": 20,
+            "concurrency": 1,
+            "contention": "none",
+            "latency_ms": {
+                "p50": 3.088,
+                "p95": 8.07,
+                "max": 8.207,
+                "raw": [
+                    8.207, 5.365, 5.464, 4.339, 3.978, 3.993, 2.997, 2.869, 3.065, 3.111, 3.502, 3.245, 2.656, 2.901,
+                    2.674, 2.565, 2.581, 2.76, 2.482, 3.687
+                ]
+            },
+            "read_latency_ms": {
+                "p50": 0.1994,
+                "p95": 0.2943
+            },
+            "read_latency_detail_ms": {
+                "target": {
+                    "p50": 0.6346,
+                    "p95": 2.4193,
+                    "p99": 3.671,
+                    "n": 20
+                },
+                "merged": {
+                    "p50": 0.1975,
+                    "p95": 0.2744,
+                    "p99": 0.3332,
+                    "n": 500
+                },
+                "control": {
+                    "p50": 0.1861,
+                    "p95": 0.2406,
+                    "p99": 0.2512,
+                    "n": 200
+                }
+            },
+            "wal_bytes_per_op": 11665,
+            "emissions_per_op": {
+                "current_contract": 102.0,
+                "new_contract": 0.0
+            },
+            "retries_total": 0,
+            "oracle_checks": 10240
+        },
+        {
+            "case": "both",
+            "size": 1000,
+            "reps": 20,
+            "concurrency": 1,
+            "contention": "none",
+            "latency_ms": {
+                "p50": 6.231,
+                "p95": 22.153,
+                "max": 22.75,
+                "raw": [
+                    10.819, 6.821, 6.475, 7.443, 5.908, 6.327, 5.094, 6.286, 5.685, 5.628, 6.047, 22.75, 7.108, 6.266,
+                    5.875, 6.196, 5.804, 5.515, 4.984, 6.447
+                ]
+            },
+            "read_latency_ms": {
+                "p50": 0.2085,
+                "p95": 0.3211
+            },
+            "read_latency_detail_ms": {
+                "target": {
+                    "p50": 0.5898,
+                    "p95": 2.2826,
+                    "p99": 3.4508,
+                    "n": 20
+                },
+                "merged": {
+                    "p50": 0.2051,
+                    "p95": 0.2911,
+                    "p99": 0.3478,
+                    "n": 500
+                },
+                "control": {
+                    "p50": 0.1934,
+                    "p95": 0.2623,
+                    "p99": 0.3686,
+                    "n": 200
+                }
+            },
+            "wal_bytes_per_op": 12108,
+            "emissions_per_op": {
+                "current_contract": 1002.0,
+                "new_contract": 0.0
+            },
+            "retries_total": 0,
+            "oracle_checks": 100240
+        },
+        {
+            "case": "both",
+            "size": 10000,
+            "reps": 20,
+            "concurrency": 1,
+            "contention": "none",
+            "latency_ms": {
+                "p50": 27.065,
+                "p95": 96.317,
+                "max": 96.955,
+                "raw": [
+                    32.502, 23.378, 51.65, 26.955, 26.844, 65.182, 41.692, 26.464, 27.106, 76.38, 26.148, 27.373,
+                    84.208, 27.59, 27.025, 26.906, 96.955, 25.457, 26.009, 26.485
+                ]
+            },
+            "read_latency_ms": {
+                "p50": 0.2205,
+                "p95": 0.313
+            },
+            "read_latency_detail_ms": {
+                "target": {
+                    "p50": 0.6226,
+                    "p95": 2.3101,
+                    "p99": 3.5075,
+                    "n": 20
+                },
+                "merged": {
+                    "p50": 0.2176,
+                    "p95": 0.3004,
+                    "p99": 0.3418,
+                    "n": 500
+                },
+                "control": {
+                    "p50": 0.2036,
+                    "p95": 0.2854,
+                    "p99": 0.3125,
+                    "n": 200
+                }
+            },
+            "wal_bytes_per_op": 31868,
+            "emissions_per_op": {
+                "current_contract": 10002.0,
+                "new_contract": 0.0
+            },
+            "retries_total": 0,
+            "oracle_checks": 1000240
+        }
+    ]
+}
