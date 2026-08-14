@@ -30,6 +30,7 @@ import {
 import { useCanvasDeepLink } from "@posthog/ui/features/canvas/hooks/useCanvasDeepLink";
 import { useChannelDeepLink } from "@posthog/ui/features/canvas/hooks/useChannelDeepLink";
 import { useChannelsLayout } from "@posthog/ui/features/canvas/hooks/useChannelsLayout";
+import { useShareLinkInterceptor } from "@posthog/ui/features/canvas/hooks/useShareLinkInterceptor";
 import { usePostHogWebFeedbackStore } from "@posthog/ui/features/canvas/stores/posthogWebFeedbackStore";
 import { CommandMenu } from "@posthog/ui/features/command/CommandMenu";
 import { CommandSearchBar } from "@posthog/ui/features/command/CommandSearchBar";
@@ -236,6 +237,7 @@ function RootLayout() {
   useCanvasDeepLink();
   useChannelDeepLink();
   useLoopDeepLink();
+  useShareLinkInterceptor();
   const approvalDeepLink = useApprovalDeepLink();
   useSetupDiscovery();
   useNewTaskDeepLink();
