@@ -237,6 +237,19 @@ The tool is registered for the page regardless of agent mode. The Customer analy
 - `products/customer_analytics/backend/max_tools/` — `OpenAccountTool` and other account Max tools.
 - `ee/hogai/core/agent_modes/presets/customer_analytics.py` — the Customer analytics agent mode (gated by the `customer-analytics-csp` flag).
 
+## Devbox setup for account tabs
+
+Use a full devbox stack when checking account tabs against real product routing and permissions.
+
+1. Check out the feature branch on the devbox and wait for the app stack.
+2. Run `python manage.py sync_feature_flags`. This creates local flags from `frontend/src/lib/constants.tsx`, including `customer-analytics-roadmap`; `sync_feature_flags_from_api` alone does not create that local-only gate.
+3. Configure group analytics at index 0 before seeding. The standard demo workspace already maps `project` to index 0; verify with `get_group_types_for_project` when using another workspace.
+4. Run `python manage.py seed_customer_analytics_accounts --team-id <team_id>`. It creates accounts from index-0 groups, configures Customer Analytics for that group type, and adds sample relationships and notes.
+5. Restart the backend after syncing flags so local flag evaluation reloads them.
+6. Open `/project/<team_id>/customer_analytics/accounts` and confirm the seeded group appears as an account.
+
+The seed command does not create communication data. For the Email threads tab, capture a message through the Mailgun flow or add an invented local thread linked to one seeded account.
+
 ## Conventions
 
 - **kea, not hooks** — business logic lives in the logics above; components are thin views. The one DOM concession is the `data-account-id` anchor for scroll. Resources needing cleanup (the scroll poll) go through `cache.disposables`, never a bare `setTimeout` + `beforeUnmount`.
