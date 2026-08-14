@@ -1411,6 +1411,7 @@ wrappers:
         exclude_properties:
             - response
             - modifiers
+        url_prefix: /ai-observability/traces
     query-llm-trace:
         schema_ref: AssistantTraceQuery
         enabled: true
@@ -1426,3 +1427,4 @@ wrappers:
         exclude_properties:
             - response
             - modifiers
+        url_prefix: /ai-observability/traces/{traceId}
