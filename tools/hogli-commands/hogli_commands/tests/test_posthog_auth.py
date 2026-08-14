@@ -176,7 +176,24 @@ def test_hosts_are_cached_separately() -> None:
     assert eu is not None and eu.access_token == "pha_eu"
 
 
-@pytest.mark.parametrize("content", ["not json at all", '{"host": "x"}'])
+def test_hosts_differing_only_by_scheme_are_cached_separately() -> None:
+    # http and https on one netloc are different origins (a local stack vs a tunnel in front of
+    # it), so a slug built from the netloc alone would let one login overwrite and serve the other.
+    posthog_auth.save(_credential(host="https://localhost:8000", access_token="pha_tls"))
+    posthog_auth.save(_credential(host="http://localhost:8000", access_token="pha_plain"))
+    secure, plain = posthog_auth.load("https://localhost:8000"), posthog_auth.load("http://localhost:8000")
+    assert secure is not None and secure.access_token == "pha_tls"
+    assert plain is not None and plain.access_token == "pha_plain"
+
+
+def test_a_cache_file_recorded_for_another_host_reads_as_absent() -> None:
+    # Hosts differing only by URL path slug to one filename. A miss costs a login; serving the
+    # file anyway would send one host's token to the other.
+    posthog_auth.save(_credential(host="https://proxy.example.com/us"))
+    assert posthog_auth.load("https://proxy.example.com/eu") is None
+
+
+@pytest.mark.parametrize("content", ["not json at all", '["not", "an", "object"]', f'{{"host": "{_HOST}"}}'])
 def test_an_unreadable_cache_reads_as_absent(content: str) -> None:
     # The cache is derived state, so a corrupt or older-shaped file must send you to a login rather
     # than crash the command that asked for a token.
@@ -245,7 +262,30 @@ def test_a_non_object_error_body_reports_the_status_instead_of_crashing(payload:
     with patch.object(posthog_auth.requests, "post", _Poster(token=(502, payload))):
         with pytest.raises(posthog_auth.AuthError) as caught:
             posthog_auth.token(scopes=[_SCOPE], host=_HOST, interactive=False)
-    assert caught.value.exit_code == posthog_auth.EXIT_NOT_CONFIGURED
+    assert "502" in caught.value.message
+
+
+def _unreachable_post(*args: Any, **kwargs: Any) -> Any:
+    raise requests.ConnectionError("connection refused")
+
+
+@pytest.mark.parametrize(
+    "post, expected",
+    [
+        (_unreachable_post, "could not reach"),
+        (_Poster(token=(503, {"detail": "unavailable"})), "503"),
+    ],
+)
+def test_a_transient_refresh_failure_is_not_reported_as_signed_out(post: Any, expected: str) -> None:
+    # A timeout or a proxy 5xx says nothing about the grant. Treating it as spent reports "not
+    # signed in" and starts a needless re-login while the credential is still good.
+    posthog_auth.save(_credential(expires_at=time.time() - 10))
+    with patch.object(posthog_auth.requests, "post", post):
+        with pytest.raises(posthog_auth.AuthError) as caught:
+            posthog_auth.token(scopes=[_SCOPE], host=_HOST, interactive=False)
+    assert expected in caught.value.message
+    assert caught.value.exit_code == 1
+    assert "not signed in" not in caught.value.message
 
 
 # --- scopes: the reason this is general rather than one command's helper -------------------------

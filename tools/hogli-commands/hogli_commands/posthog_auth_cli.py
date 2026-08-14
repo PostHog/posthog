@@ -76,11 +76,11 @@ def posthog_login(host: str, scopes: tuple[str, ...], no_browser: bool) -> None:
         _fail(exc)
     click.secho(f"Signed in to {credential.host}.", fg="green")
     click.echo(f"  scopes  {' '.join(credential.granted) or '(none reported)'}")
-    if key := posthog_auth.key_from_env():
+    if found := posthog_auth.key_in_env():
         # Otherwise the login appears to have done nothing: every command reads the env var first.
         click.secho(
-            f"\nNote: {key[:8]}... is set in your environment, and env wins over this credential.\n"
-            "Unset it to use the browser login.",
+            f"\nNote: {found[0]} is set in your environment, and it wins over this credential.\n"
+            f"Unset {found[0]} to use the browser login.",
             fg="yellow",
         )
 

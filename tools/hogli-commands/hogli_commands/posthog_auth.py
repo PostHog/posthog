@@ -136,21 +136,31 @@ def _cache_path(host: str) -> Path:
     """One file per host, so us, eu and a local stack can hold credentials at once.
 
     Only unreserved characters survive into the name, since the host has to be a valid filename.
+    The scheme is part of the name because http://host and https://host are different origins
+    holding different grants, and a name built from the netloc alone would hand one's token to
+    the other.
     """
-    slug = "".join(char if char.isalnum() else "-" for char in urlparse(host).netloc or host)
+    parsed = urlparse(host)
+    origin = f"{parsed.scheme}-{parsed.netloc}" if parsed.netloc else host
+    slug = "".join(char if char.isalnum() else "-" for char in origin)
     return _CACHE_ROOT / f"{slug}.json"
 
 
 def load(host: str = DEFAULT_HOST) -> Credential | None:
-    """The cached credential for a host, or None when absent or unreadable.
+    """The cached credential for a host, or None when absent, unreadable, or for another host.
 
     An unparseable file, or one missing a field because an older hogli wrote a narrower shape, is
     treated as absent rather than fatal: it is derived state, and re-authorizing is always there.
     """
-    path = _cache_path(_normalize_host(host))
+    host = _normalize_host(host)
     try:
-        raw = json.loads(path.read_text())
+        raw = json.loads(_cache_path(host).read_text())
     except (OSError, ValueError):
+        return None
+    if not isinstance(raw, dict) or raw.get("host") != host:
+        # Hosts differing only by URL path share a filename, which the slug cannot carry. A miss
+        # sends the caller to a login; serving the other host's token would send its credential
+        # to the wrong server.
         return None
     try:
         return Credential(
@@ -404,7 +414,8 @@ def _refresh(credential: Credential) -> Credential | None:
 
     None rather than raising: an expired or revoked grant is an ordinary end of life, and the
     caller's next step (log in again, or fail with the not-configured code) is the same as if
-    nothing had been cached.
+    nothing had been cached. A transient failure raises instead, because the grant may still be
+    good and "not signed in" would be false.
     """
     if not credential.refresh_token:
         return None
@@ -418,7 +429,12 @@ def _refresh(credential: Credential) -> Credential | None:
             },
             action="Refreshing the access token",
         )
-    except AuthError:
+    except AuthError as exc:
+        # Only a definitive OAuth refusal (a 4xx such as invalid_grant) proves the grant spent.
+        # A network failure or a 5xx says nothing about it, so the error surfaces as itself
+        # rather than sending the caller through a needless re-login.
+        if exc.exit_code != EXIT_NOT_CONFIGURED:
+            raise
         return None
     return _credential_from(
         body,
@@ -482,7 +498,10 @@ def _post(
     if response.status_code >= 400:
         # OAuth errors are `error` / `error_description`; DRF's are `detail`.
         detail = body.get("error_description") or body.get("error") or body.get("detail") or response.text[:200]
-        raise AuthError(f"{action} failed ({response.status_code}): {detail}")
+        # A 5xx means the server or a proxy in front of it is unhealthy, not that anything here
+        # is set up wrong, so it carries the plain failure code rather than EX_CONFIG.
+        code = 1 if response.status_code >= 500 else EXIT_NOT_CONFIGURED
+        raise AuthError(f"{action} failed ({response.status_code}): {detail}", exit_code=code)
     if not body:
         raise AuthError(f"{action} returned no object.")
     return body
