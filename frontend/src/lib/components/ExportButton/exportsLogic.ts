@@ -76,15 +76,6 @@ export const pickPollDelayMs = (pendingAssets: ExportedAssetType[]): number => {
 const isLocalExport = (context: ExportContext | undefined): context is LocalExportContext =>
     !!(context && 'localData' in context)
 
-// Thrown when a synchronous export finished but the create request outlived the click's user
-// activation, so the download must wait for a fresh gesture (a Download button) rather than
-// auto-download — Safari silently drops programmatic downloads once activation has expired.
-class ExportAwaitingDownload extends Error {
-    constructor(public readonly asset: ExportedAssetType) {
-        super('Export awaiting user download')
-    }
-}
-
 // The user gesture that started the export is still live, so an auto-download will fire. Falls back
 // to true where navigator.userActivation is unavailable (older Firefox), which tolerates a delayed
 // click anyway.
@@ -158,8 +149,13 @@ const resolveLateNudge = async (subject: ExportNudgeSubject): Promise<ExportNudg
 const holdOpenFor = (message: ExportNudgeMessage | null, secondaryAction?: ToastButton): { autoClose?: false } =>
     message && secondaryAction ? { autoClose: false } : {}
 
-const withNudge = (message: ExportNudgeMessage | null, headline: string): string | JSX.Element =>
-    message ? message(headline) : headline
+const withNudge = (message: ExportNudgeMessage | null, headline: string, action?: ToastButton): string | JSX.Element =>
+    message ? message(headline, action) : headline
+
+// An offer lays the toast's action out beside its own CTA, so the toast's button slot stays empty
+// and the action is not rendered twice.
+const slotButton = (message: ExportNudgeMessage | null, action?: ToastButton): ToastButton | undefined =>
+    message ? undefined : action
 
 /**
  * Folds a late offer into the toast the export has already settled into. Claiming happens here
@@ -186,8 +182,7 @@ const foldNudgeIntoSettledToast = async (
     if (!message) {
         return
     }
-    lemonToast.updateToSuccess(toastId, message(headline), {
-        button: secondaryAction,
+    lemonToast.updateToSuccess(toastId, message(headline, secondaryAction), {
         ...holdOpenFor(message, secondaryAction),
     })
 }
@@ -196,9 +191,9 @@ const foldNudgeIntoSettledToast = async (
 // export this is the only completion signal there is.
 const raiseCompletionToast = async (nudge: ExportNudge, toastId: string, onDownload: () => void): Promise<void> => {
     const downloadButton = { label: 'Download', action: onDownload }
-    lemonToast.success(withNudge(nudge.message, EXPORT_COMPLETE_MESSAGE), {
+    lemonToast.success(withNudge(nudge.message, EXPORT_COMPLETE_MESSAGE, downloadButton), {
         toastId,
-        button: downloadButton,
+        button: slotButton(nudge.message, downloadButton),
         ...holdOpenFor(nudge.message, downloadButton),
     })
     await foldNudgeIntoSettledToast(nudge, toastId, EXPORT_COMPLETE_MESSAGE, downloadButton)
@@ -611,6 +606,10 @@ export const exportsLogic = kea<exportsLogicType>([
                         ? { label: 'View exports', action: () => actions.openSidePanel(SidePanelTab.Exports) }
                         : undefined
                     const nudge = startExportNudge(exportNudgeSubject(exportData))
+                    // Set when a synchronous export finished but the create request outlived the
+                    // click's user activation, so the download waits for a Download button — Safari
+                    // silently drops a programmatic download once activation has expired.
+                    let awaitingDownload: ExportedAssetType | null = null
 
                     // Non-video exports (CSV/XLSX/PNG) run synchronously on the backend, so this
                     // request can block for a while. lemonToast.promise shows a spinner immediately
@@ -649,7 +648,11 @@ export const exportsLogic = kea<exportsLogicType>([
                                 return EXPORT_COMPLETE_MESSAGE
                             }
                             actions.addFresh(response)
-                            throw new ExportAwaitingDownload(response)
+                            // Not a failure, so not a rejection: the export succeeded and the file
+                            // is ready, it just needs a fresh click. Rejecting here would settle the
+                            // toast into its error frame on the way past.
+                            awaitingDownload = response
+                            return EXPORT_COMPLETE_MESSAGE
                         }
                         if (response.exception) {
                             throw new Error('Export failed: ' + response.exception)
@@ -672,27 +675,39 @@ export const exportsLogic = kea<exportsLogicType>([
                             const settledMessage: string = await lemonToast.promise(
                                 runExport(),
                                 {
-                                    pending: withNudge(nudge.message, EXPORT_PENDING_MESSAGE),
-                                    success: (data) => withNudge(nudge.message, data || EXPORT_COMPLETE_MESSAGE),
+                                    pending: withNudge(nudge.message, EXPORT_PENDING_MESSAGE, viewExportsButton),
+                                    success: (data) =>
+                                        withNudge(nudge.message, data || EXPORT_COMPLETE_MESSAGE, viewExportsButton),
                                     error: 'Export failed',
                                 },
-                                { toastId: exportToastId, button: viewExportsButton }
+                                { toastId: exportToastId, button: slotButton(nudge.message, viewExportsButton) }
                             )
-                            await foldNudgeIntoSettledToast(nudge, exportToastId, settledMessage, viewExportsButton)
-                        } catch (error) {
-                            if (error instanceof ExportAwaitingDownload) {
-                                // Content is ready but the auto-download would have been dropped, so
-                                // hand the file over on a Download button. A fresh toast rather than
-                                // a rewrite of this one: the rejection arrives before react-toastify
-                                // renders the frame it settled into, so a rewrite loses to that
-                                // render and leaves the export showing this error's own message. The
-                                // nudge carries over as it is, so it is not claimed twice.
-                                lemonToast.dismiss(exportToastId)
-                                await raiseCompletionToast(nudge, completionToastId(), () =>
-                                    actions.downloadExport(error.asset)
+                            if (awaitingDownload) {
+                                // The toast already settled on success, so this only adds the button
+                                // the file has to be claimed from.
+                                const asset = awaitingDownload
+                                const downloadButton = {
+                                    label: 'Download',
+                                    action: () => actions.downloadExport(asset),
+                                }
+                                lemonToast.updateToSuccess(
+                                    exportToastId,
+                                    withNudge(nudge.message, EXPORT_COMPLETE_MESSAGE, downloadButton),
+                                    {
+                                        button: slotButton(nudge.message, downloadButton),
+                                        ...holdOpenFor(nudge.message, downloadButton),
+                                    }
+                                )
+                                await foldNudgeIntoSettledToast(
+                                    nudge,
+                                    exportToastId,
+                                    EXPORT_COMPLETE_MESSAGE,
+                                    downloadButton
                                 )
                                 return
                             }
+                            await foldNudgeIntoSettledToast(nudge, exportToastId, settledMessage, viewExportsButton)
+                        } catch (error) {
                             const apiError = error as { data?: APIErrorType }
                             // Show a survey when the user reaches the export limit, replacing the
                             // generic failure toast with the upsell.

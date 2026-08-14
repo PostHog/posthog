@@ -47,7 +47,7 @@ jest.mock('products/subscriptions/frontend/components/Subscriptions/exportNudge/
 
 // The nudge body stands in as an opaque element that echoes the headline it was rendered under,
 // which is what distinguishes the toast's states.
-const NUDGE_MESSAGE: ExportNudgeMessage = (headline) => `nudge:${headline}`
+const NUDGE_MESSAGE: ExportNudgeMessage = (headline, action) => `nudge:${headline}${action ? ` +${action.label}` : ''}`
 
 const DASHBOARD_SUBJECT = { kind: 'dashboard' as const, dashboardId: 7 }
 const INSIGHT_SHORT_ID = '11' as InsightShortId
@@ -316,8 +316,7 @@ describe('exportsLogic', () => {
             // The nudge then folds into that same toast, and the Download hand-off stays in the
             // standard button slot. An undelivered file plus an unanswered offer holds it open.
             const toastId = jest.mocked(lemonToast.success).mock.calls.at(-1)![1]!.toastId
-            expect(lemonToast.updateToSuccess).toHaveBeenCalledWith(toastId, 'nudge:Export complete!', {
-                button: expect.objectContaining({ label: 'Download' }),
+            expect(lemonToast.updateToSuccess).toHaveBeenCalledWith(toastId, 'nudge:Export complete! +Download', {
                 autoClose: false,
             })
         })
@@ -383,7 +382,7 @@ describe('exportsLogic', () => {
             expect(lemonToast.updateToSuccess).toHaveBeenCalledWith(
                 jest.mocked(lemonToast.promise).mock.calls[0][2]?.toastId,
                 'nudge:Export complete!',
-                { button: undefined }
+                {}
             )
         })
 
@@ -422,7 +421,7 @@ describe('exportsLogic', () => {
             expect(claimExportNudgeMessage).toHaveBeenCalledTimes(1)
             // The offer follows the export to the toast it finishes on, for anyone who did not
             // answer it while the render was running.
-            expect(jest.mocked(lemonToast.success).mock.calls[0][0]).toEqual('nudge:Export complete!')
+            expect(jest.mocked(lemonToast.success).mock.calls[0][0]).toEqual('nudge:Export complete! +Download')
         })
 
         it('does not claim the nudge for an export that failed', async () => {
@@ -478,15 +477,16 @@ describe('exportsLogic', () => {
 
                 expect(jest.mocked(downloadExportedAsset)).not.toHaveBeenCalled()
                 expect(logic.values.freshUndownloadedExports.map((a) => a.id)).toEqual([15])
-                // The spinner is dismissed and the file handed over on a fresh toast: rewriting
-                // this one would race react-toastify's own render of the frame it settled into.
-                expect(lemonToast.dismiss).toHaveBeenCalledWith(expect.any(String))
-                expect(lemonToast.success).toHaveBeenCalledWith(
+                // A ready file is a success, so the toast settles on one and only gains the button
+                // the file is claimed from. It is never dismissed, and never shows a failure.
+                expect(lemonToast.dismiss).not.toHaveBeenCalled()
+                expect(lemonToast.success).not.toHaveBeenCalled()
+                expect(lemonToast.updateToSuccess).toHaveBeenCalledWith(
+                    expect.any(String),
                     'Export complete!',
                     expect.objectContaining({ button: expect.objectContaining({ label: 'Download' }) })
                 )
-                expect(lemonToast.updateToSuccess).not.toHaveBeenCalled()
-                jest.mocked(lemonToast.success).mock.calls.at(-1)![1]!.button!.action()
+                jest.mocked(lemonToast.updateToSuccess).mock.calls.at(-1)![2]!.button!.action()
                 expect(downloadExportSpy).toHaveBeenCalledWith(response)
             } finally {
                 if (original) {

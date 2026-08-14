@@ -31,7 +31,7 @@ jest.mock('products/subscriptions/frontend/components/Subscriptions/exportNudge/
     claimExportNudgeMessage: jest.fn(),
 }))
 
-const NUDGE_CTA = 'Set up recurring updates'
+const NUDGE_CTA = 'Subscribe'
 const DASHBOARD_CANDIDATE: ExportNudgeCandidate = {
     subject: { kind: 'dashboard', dashboardId: 7 },
     name: 'Weekly',
@@ -52,17 +52,17 @@ describe('export completion toast', () => {
         jest.clearAllMocks()
         // Stands in for the real offer: the headline it was rendered under, plus a CTA that retires
         // the offer from later frames the way following it does.
+        // Stands in for the real offer: the headline, a CTA that retires the offer the way following
+        // it does, and the export's own action, which this message owns the layout of either way.
         jest.mocked(claimExportNudgeMessage).mockImplementation(() => {
             let accepted = false
-            return (headline) =>
-                accepted ? (
-                    headline
-                ) : (
-                    <span>
-                        <span>{headline}</span>
-                        <button onClick={() => (accepted = true)}>{NUDGE_CTA}</button>
-                    </span>
-                )
+            return (headline, action) => (
+                <span>
+                    <span>{headline}</span>
+                    {!accepted && <button onClick={() => (accepted = true)}>{NUDGE_CTA}</button>}
+                    {action && <button onClick={() => void action.action()}>{action.label}</button>}
+                </span>
+            )
         })
         jest.mocked(lookUpExportNudge).mockReturnValue({ status: 'unknown' })
         jest.useFakeTimers()
@@ -204,6 +204,36 @@ describe('export completion toast', () => {
         expect(screen.getByText('Export complete!')).toBeTruthy()
         expect(screen.getAllByText(NUDGE_CTA)).toHaveLength(1)
         expect(document.querySelectorAll('.Toastify__toast')).toHaveLength(1)
+    })
+
+    it('never shows a failure while handing over a finished file', async () => {
+        // The file is ready; it just needs a fresh click to download. Routing that through a
+        // rejection paints the toast red with the internal reason on the way past.
+        Object.defineProperty(window.navigator, 'userActivation', { value: { isActive: false }, configurable: true })
+        jest.mocked(api.exports.create).mockResolvedValue({
+            id: 51,
+            export_format: ExporterFormat.PNG,
+            has_content: true,
+            filename: 'insight.png',
+            created_at: '2026-05-11T19:00:00Z',
+        } as ExportedAssetType)
+
+        render(<ToastContainer />)
+        logic.actions.createExport({ exportData: { export_format: ExporterFormat.PNG } })
+
+        // Sampled across the settle, not just at the end: the red frame is transient.
+        const seen: string[] = []
+        for (let tick = 0; tick < 12; tick++) {
+            await act(async () => {
+                await jest.advanceTimersByTimeAsync(50)
+            })
+            seen.push(document.body.innerHTML)
+        }
+
+        expect(seen.some((html) => html.includes('Toastify__toast--error'))).toBe(false)
+        expect(seen.some((html) => html.includes('Export awaiting user download'))).toBe(false)
+        expect(screen.getByText('Export complete!')).toBeTruthy()
+        expect(screen.getByText('Download')).toBeTruthy()
     })
 
     it('leaves the finished download reachable when the offer is followed mid-export', async () => {

@@ -59,24 +59,38 @@ export interface ToastContentProps {
     id?: number | string
 }
 
+/**
+ * A toast's action. Exported so a message that lays its own actions out — an offer that wants its
+ * CTA on the same row — renders the same button, with the same dismiss-on-click, as the slot below.
+ */
+export function ToastActionButton({
+    button,
+    toastId,
+}: {
+    button: ToastButton
+    toastId?: number | string
+}): JSX.Element {
+    return (
+        <LemonButton
+            onClick={() => {
+                void button.action()
+                toast.dismiss(toastId)
+            }}
+            type="secondary"
+            size="small"
+            data-attr={button.dataAttr}
+            className={button.className}
+        >
+            {button.label}
+        </LemonButton>
+    )
+}
+
 export function ToastContent({ type, message, button, id }: ToastContentProps): JSX.Element {
     return (
         <div className="flex items-center" data-attr={`${type}-toast`}>
             <span className="grow overflow-hidden text-ellipsis">{message}</span>
-            {button && (
-                <LemonButton
-                    onClick={() => {
-                        void button.action()
-                        toast.dismiss(id)
-                    }}
-                    type="secondary"
-                    size="small"
-                    data-attr={button.dataAttr}
-                    className={button.className}
-                >
-                    {button.label}
-                </LemonButton>
-            )}
+            {button && <ToastActionButton button={button} toastId={id} />}
         </div>
     )
 }
