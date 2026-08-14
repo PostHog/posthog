@@ -700,10 +700,10 @@ describe('mcpGatewayLogic', () => {
     })
 
     // The endpoint defaults an omitted scope back to personal, so a share sent without
-    // one silently demotes a team share.
+    // one silently demotes a team share. The action fills in 'team', the product default.
     it.each([
-        ['team' as const, 'team'],
-        [undefined, 'personal'],
+        ['personal' as const, 'personal'],
+        [undefined, 'team'],
     ])('sends scope %s as %s when sharing a server with an agent', async (requested, expected) => {
         mockServiceAccountAccess.mockResolvedValue(serviceAccountWithShare(expected as MCPAgentGrantScopeEnumApi))
 
