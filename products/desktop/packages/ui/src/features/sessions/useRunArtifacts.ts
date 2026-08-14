@@ -10,7 +10,11 @@ import {
 } from "@posthog/ui/features/auth/store";
 import { useCompletedArtifactUploads } from "@posthog/ui/features/sessions/components/countArtifactUploads";
 import { useSessionSelector } from "@posthog/ui/features/sessions/sessionStore";
-import { type UseQueryResult, useQuery } from "@tanstack/react-query";
+import {
+  keepPreviousData,
+  type UseQueryResult,
+  useQuery,
+} from "@tanstack/react-query";
 
 /**
  * A run's artifact manifest. The query key is shared across every caller, so a
@@ -55,5 +59,9 @@ export function useRunArtifacts(
     retry: false,
     staleTime: options?.staleTime ?? Infinity,
     refetchInterval: options?.refetchInterval ?? false,
+    // The upload count in the key means a finished upload lands every caller on
+    // an empty cache entry. Carry the last manifest over it, or every artifact
+    // already drawn blinks back to unresolved each time another one arrives.
+    placeholderData: keepPreviousData,
   });
 }
