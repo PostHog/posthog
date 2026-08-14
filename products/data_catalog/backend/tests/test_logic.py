@@ -1,7 +1,8 @@
 from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, patch
 
-from django.db import IntegrityError
+from django.db import IntegrityError, connection
+from django.test.utils import CaptureQueriesContext
 
 from parameterized import parameterized
 from rest_framework.exceptions import ValidationError
@@ -533,6 +534,29 @@ class TestApprovedMetricSummaries(BaseTest):
         Insight.objects.filter(pk=insight.pk).update(query=_HOGQL_B)
 
         assert approved_metric_names_for_team(self.team, self.user) == ["mrr"]
+
+    def test_listing_does_not_get_more_expensive_as_the_catalog_grows(self) -> None:
+        # The listing runs on every execute_sql call, and it needs names. Reading whole rows, or
+        # touching a column outside the projection, turns a large catalog into per-row fetches.
+        def approve(count: int, prefix: str) -> None:
+            for index in range(count):
+                approve_metric(
+                    upsert_metric(
+                        team=self.team, user=self.user, name=f"{prefix}{index}", description="d", definition=_HOGQL_A
+                    ),
+                    self.user,
+                )
+
+        approve(2, "small")
+        with CaptureQueriesContext(connection) as small:
+            approved_metric_names_for_team(self.team, self.user, denied_tables={"stripe.charges"})
+
+        approve(30, "large")
+        with CaptureQueriesContext(connection) as large:
+            names = approved_metric_names_for_team(self.team, self.user, denied_tables={"stripe.charges"})
+
+        assert len(names) == 32
+        assert len(large.captured_queries) == len(small.captured_queries)
 
     @parameterized.expand(
         [
