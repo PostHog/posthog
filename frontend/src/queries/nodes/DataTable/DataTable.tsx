@@ -182,6 +182,7 @@ export function DataTable({
         responseLoading,
         responseError,
         responseErrorObject,
+        queryId,
         queryCancelled,
         nextDataLoading,
         newDataLoading,
@@ -1043,7 +1044,10 @@ export function DataTable({
                                         sourceFeatures.has(QueryFeature.displayResponseError) ? (
                                             <InsightErrorState
                                                 query={query}
-                                                queryId={responseErrorObject?.queryId}
+                                                queryId={responseErrorObject?.queryId ?? queryId}
+                                                titleStatus={responseErrorObject?.status}
+                                                // A cancel is the user's own action: no apology or bug-report guidance
+                                                excludeDetail={queryCancelled}
                                                 onRetry={() => loadData('force_blocking')}
                                                 title={
                                                     queryCancelled
