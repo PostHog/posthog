@@ -6,62 +6,6 @@ from django.db import migrations, models
 import posthog.uuidt
 
 
-def backfill_initial_history(apps, schema_editor):
-    FeatureRequest = apps.get_model("customer_analytics", "FeatureRequest")
-    FeatureRequestAccountLink = apps.get_model("customer_analytics", "FeatureRequestAccountLink")
-    FeatureRequestHistory = apps.get_model("customer_analytics", "FeatureRequestHistory")
-    FeatureRequestProductAreaLink = apps.get_model("customer_analytics", "FeatureRequestProductAreaLink")
-
-    history_batch = []
-    for request in FeatureRequest._base_manager.all().iterator(chunk_size=1000):
-        account = (
-            FeatureRequestAccountLink._base_manager.filter(feature_request_id=request.id)
-            .values("account_id", "account__name")
-            .first()
-        )
-        product_areas = list(
-            FeatureRequestProductAreaLink._base_manager.filter(feature_request_id=request.id)
-            .order_by("product_area__display_order", "product_area__name", "product_area_id")
-            .values("product_area_id", "product_area__name")
-        )
-        history_batch.append(
-            FeatureRequestHistory(
-                team_id=request.team_id,
-                feature_request_id=request.id,
-                changes=[
-                    {"field": "status", "before": None, "after": request.status},
-                    {"field": "priority", "before": None, "after": request.priority},
-                    {
-                        "field": "account",
-                        "before": None,
-                        "after": (
-                            {"id": str(account["account_id"]), "name": account["account__name"]}
-                            if account is not None
-                            else None
-                        ),
-                    },
-                    {
-                        "field": "product_areas",
-                        "before": [],
-                        "after": [
-                            {"id": str(area["product_area_id"]), "name": area["product_area__name"]}
-                            for area in product_areas
-                        ],
-                    },
-                ],
-                is_initial=True,
-                source="manual",
-                actor_id=request.created_by_id,
-                changed_at=request.created_at,
-            )
-        )
-        if len(history_batch) == 1000:
-            FeatureRequestHistory._base_manager.bulk_create(history_batch, batch_size=1000)
-            history_batch = []
-    if history_batch:
-        FeatureRequestHistory._base_manager.bulk_create(history_batch, batch_size=1000)
-
-
 class Migration(migrations.Migration):
     dependencies = [
         (
@@ -160,5 +104,4 @@ class Migration(migrations.Migration):
                 ],
             },
         ),
-        migrations.RunPython(backfill_initial_history, migrations.RunPython.noop),
     ]
