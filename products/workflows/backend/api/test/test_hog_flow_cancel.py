@@ -66,6 +66,9 @@ class TestHogFlowCancelInvocations(APIBaseTest):
         [
             ("no_selector", {}),
             ("both_selectors", {"invocation_ids": [str(uuid.uuid4())], "all": True}),
+            # An empty list is not a valid selector: it must 400 at Django, not fall
+            # through to the CDP proxy and surface the Node 400 as a 500.
+            ("empty_ids", {"invocation_ids": []}),
         ]
     )
     def test_cancel_rejects_ambiguous_selectors(self, _name, data):

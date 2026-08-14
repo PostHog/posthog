@@ -2123,6 +2123,7 @@ export const HogFlowsInvocationsCancelCreateBody = /* @__PURE__ */ zod
     .object({
         invocation_ids: zod
             .array(zod.uuid())
+            .min(1)
             .max(hogFlowsInvocationsCancelCreateBodyInvocationIdsMax)
             .optional()
             .describe(

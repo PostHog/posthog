@@ -19,6 +19,7 @@ class HogInvocationCancelRequestSerializer(serializers.Serializer):
     invocation_ids = serializers.ListField(
         child=serializers.UUIDField(),
         required=False,
+        min_length=1,
         max_length=HOG_INVOCATION_RERUN_MAX_COUNT,
         help_text=(
             "Cancel these specific invocations. "
