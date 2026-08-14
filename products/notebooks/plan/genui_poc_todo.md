@@ -474,6 +474,7 @@ Read the repository's test-writing skill before adding or changing tests.
 - [x] Undeclared frame requests rejected by the host.
 - [x] Runtime error and expired artifact URL handling.
 - [x] Last-good artifact remains visible during regeneration.
+- [x] A bounded live agent activity preview remains visible during generation.
 
 ### Reviewer acceptance scenarios
 

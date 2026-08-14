@@ -13,6 +13,7 @@ import { NotebookNodeProps, NotebookNodeType } from '../../types'
 import { notebookNodeLogic } from '../notebookNodeLogic'
 import { GenUICapabilities } from './genUIArtifactBridge'
 import { GenUIArtifactFrame } from './GenUIArtifactFrame'
+import { GenUIGenerationActivity } from './GenUIGenerationActivity'
 import { validateGenUIInputs } from './genUIInputs'
 import { getGenUIName } from './genUIName'
 import { loadGenUIFrame, notebookNodeGenUILogic } from './notebookNodeGenUILogic'
@@ -92,7 +93,7 @@ function Component({ attributes }: NotebookNodeProps<NotebookNodeGenUIAttributes
         : undefined
     const generationStatus =
         isRefreshingInputs || isGenerating ? (
-            <div className="flex min-w-0 flex-1 items-start gap-2" role="status" aria-live="polite">
+            <div className="flex w-full min-w-0 flex-1 items-start gap-2" role="status" aria-live="polite">
                 <Spinner className="mt-0.5 shrink-0 text-sm" />
                 <div className="min-w-0 flex-1">
                     <div className="font-semibold text-primary">
@@ -108,6 +109,9 @@ function Component({ attributes }: NotebookNodeProps<NotebookNodeGenUIAttributes
                                 ? 'The visualization will continue automatically when the cells finish.'
                                 : 'This can take a few minutes.')}
                     </div>
+                    {!isRefreshingInputs && status?.task_id ? (
+                        <GenUIGenerationActivity taskId={status.task_id} />
+                    ) : null}
                 </div>
                 {!isRefreshingInputs && status?.task_id ? (
                     <LemonButton size="xsmall" to={urls.taskDetail(status.task_id)}>
