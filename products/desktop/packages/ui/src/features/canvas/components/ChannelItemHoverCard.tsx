@@ -133,9 +133,14 @@ export function ChannelItemPreviewCardProvider({
         {({ payload }) =>
           payload ? (
             <PreviewCard.Portal>
+              {/* Centered on the row rather than starting at its top edge: a
+                  card several times a row's height hung off it downwards, so it
+                  read as belonging to the rows below the one being pointed at.
+                  Base UI shifts it back into view near the top and bottom of
+                  the list on its own. */}
               <PreviewCard.Positioner
                 side="right"
-                align="start"
+                align="center"
                 sideOffset={10}
                 className="z-50"
               >
