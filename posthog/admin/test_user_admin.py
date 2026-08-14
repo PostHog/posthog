@@ -11,7 +11,7 @@ from django.contrib.messages.storage.fallback import FallbackStorage
 from django.test import RequestFactory
 from django.urls import reverse
 
-from posthog.admin.admins.user_admin import UserAdmin
+from posthog.admin.admins.user_admin import UserAdmin, UserChangeForm
 from posthog.models import User
 from posthog.session.models import Session
 
@@ -85,3 +85,28 @@ class TestUserAdminPasswordReset(BaseTest):
         # A usable reset token must be forwarded — an empty/None token would email a dead link.
         self.assertIsInstance(token, str)
         self.assertTrue(token)
+
+
+class TestUserChangeFormPasswordField(BaseTest):
+    def test_password_field_omits_salt_and_hash(self):
+        # Guards against the partial (masked) hash material Django's default widget shows reappearing.
+        user = User.objects.create(email=f"test-{uuid.uuid4()}@example.com", distinct_id=str(uuid.uuid4()))
+        # nosemgrep: python.django.security.audit.unvalidated-password.unvalidated-password (test fixture, not a user-facing password-set path)
+        user.set_password("a-strong-password-123")
+        user.save()
+
+        rendered = str(UserChangeForm(instance=user)["password"])
+
+        self.assertIn("algorithm", rendered)
+        self.assertNotIn("salt", rendered)
+        self.assertNotIn("hash", rendered)
+
+    def test_password_field_help_text_omits_reset_link(self):
+        # A raw reset link/token in the help text would let a staff member reset the user's
+        # password themselves; the "Reset password" button emails it to the user instead.
+        user = User.objects.create(email=f"test-{uuid.uuid4()}@example.com", distinct_id=str(uuid.uuid4()))
+
+        help_text = UserChangeForm(instance=user).fields["password"].help_text
+
+        self.assertNotIn("/reset/", help_text)
+        self.assertNotIn("href", help_text)

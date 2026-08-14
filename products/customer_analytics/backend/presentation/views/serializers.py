@@ -308,6 +308,11 @@ class AccountSerializer(DataclassSerializer):
             "(daily, weekly, or monthly). Null means summaries are off."
         ),
     )
+    churned_at = serializers.DateTimeField(
+        required=False,
+        allow_null=True,
+        help_text="When the account churned. Null means the account has not churned.",
+    )
     created_at = serializers.DateTimeField(read_only=True)
     created_by = serializers.IntegerField(read_only=True, allow_null=True)
     updated_at = serializers.DateTimeField(read_only=True, allow_null=True)
@@ -323,6 +328,7 @@ class AccountSerializer(DataclassSerializer):
             "tags",
             "notebooks",
             "slack_summary_cadence",
+            "churned_at",
             "created_at",
             "created_by",
             "updated_at",
