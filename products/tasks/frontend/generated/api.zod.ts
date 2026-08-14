@@ -768,6 +768,8 @@ export const sandboxCreateBodyNameMax = 255
 export const sandboxCreateBodyNetworkAccessLevelDefault = `full`
 export const sandboxCreateBodyAllowedDomainsItemMax = 255
 
+export const sandboxCreateBodyAllowedDomainsMax = 100
+
 export const sandboxCreateBodyIncludeDefaultDomainsDefault = false
 export const sandboxCreateBodyRepositoriesItemMax = 255
 
@@ -785,6 +787,7 @@ export const SandboxCreateBody = /* @__PURE__ */ zod
             ),
         allowed_domains: zod
             .array(zod.string().max(sandboxCreateBodyAllowedDomainsItemMax))
+            .max(sandboxCreateBodyAllowedDomainsMax)
             .optional()
             .describe('Allowed domains for custom network access.'),
         include_default_domains: zod
@@ -820,6 +823,8 @@ export const sandboxPartialUpdateBodyNameMax = 255
 export const sandboxPartialUpdateBodyNetworkAccessLevelDefault = `full`
 export const sandboxPartialUpdateBodyAllowedDomainsItemMax = 255
 
+export const sandboxPartialUpdateBodyAllowedDomainsMax = 100
+
 export const sandboxPartialUpdateBodyIncludeDefaultDomainsDefault = false
 export const sandboxPartialUpdateBodyRepositoriesItemMax = 255
 
@@ -841,6 +846,7 @@ export const SandboxPartialUpdateBody = /* @__PURE__ */ zod
             ),
         allowed_domains: zod
             .array(zod.string().max(sandboxPartialUpdateBodyAllowedDomainsItemMax))
+            .max(sandboxPartialUpdateBodyAllowedDomainsMax)
             .optional()
             .describe('Allowed domains for custom network access.'),
         include_default_domains: zod
