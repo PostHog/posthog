@@ -19,6 +19,7 @@ import { logsAlertNotificationLogic } from './logsAlertNotificationLogic'
 import { LogsAlertNotifications } from './LogsAlertNotifications'
 import { LogsAlertSimulation } from './LogsAlertSimulation'
 import { LogsAlertStateIndicator } from './LogsAlertStateIndicator'
+import { LogsAlertStateTimeline } from './LogsAlertStateTimeline'
 
 interface LogsAlertEditModalProps {
     alert: LogsAlertConfigurationApi | null
@@ -146,6 +147,13 @@ function LogsAlertEditModalContent({
                                         snoozeUntil={alert.snooze_until}
                                     />
                                 </div>
+                            }
+                            statusNode={
+                                <LogsAlertStateTimeline
+                                    timeline={alert.state_timeline}
+                                    className="h-8 w-full"
+                                    showAxis
+                                />
                             }
                             nameNode={<AlertEditorFormDetails nameError={nameError} />}
                             previewNode={null}

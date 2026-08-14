@@ -11,6 +11,7 @@ import { AlertSummaryBanner, AlertSummarySection } from 'products/alerts/fronten
 interface EditAlertTabsProps {
     summary: { fires: string; cadence: string; notifies: string }
     summaryHeader?: React.ReactNode
+    statusNode?: React.ReactNode
     nameNode: React.ReactNode
     previewNode: React.ReactNode
     definitionNode: React.ReactNode
@@ -26,6 +27,7 @@ interface EditAlertTabsProps {
 export function EditAlertTabs({
     summary,
     summaryHeader,
+    statusNode,
     nameNode,
     previewNode,
     definitionNode,
@@ -138,6 +140,7 @@ export function EditAlertTabs({
                 activeSection={activeSummarySection}
                 showCadence={showCadence}
             />
+            {statusNode}
             <LemonTabs tabs={tabs} activeKey={activeKey} onChange={setActiveKey} className="flex-1 min-h-0" />
         </div>
     )
