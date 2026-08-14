@@ -3,6 +3,7 @@ from unittest import mock
 
 from posthog.schema import ReleaseStatus, SourceFieldInputConfig
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import error_message_matches
 from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.source import (
     _HOST_UNREACHABLE_ERROR,
     PostgresSource,
@@ -144,3 +145,32 @@ def test_non_direct_host_failure_uses_postgres_error(host):
 
     assert success is False
     assert error == "postgres error"
+
+
+def _resolve_friendly_error(source: SupabaseSource, raw_error: str) -> str | None:
+    # Mirrors external_data_job.update_external_data_job_model: first matching key wins.
+    for pattern, friendly in source.get_non_retryable_errors().items():
+        if error_message_matches(raw_error, [pattern]):
+            return friendly
+    return None
+
+
+@pytest.mark.parametrize(
+    "raw_error,expect_message",
+    [
+        # Retention dropped the dated realtime.messages partition — actionable message, not the
+        # inherited generic "does not exist" (which resolves to None / the raw driver string).
+        ('relation "realtime.messages_2020_01_01" does not exist', True),
+        # A regular missing table must still fall through to the generic (None) mapping, so the
+        # realtime key stays specific and doesn't swallow every "does not exist".
+        ('relation "public.orders" does not exist', False),
+    ],
+)
+def test_expired_realtime_partition_gets_actionable_message(raw_error, expect_message):
+    friendly = _resolve_friendly_error(SupabaseSource(), raw_error)
+
+    if expect_message:
+        assert friendly is not None
+        assert "realtime.messages" in friendly
+    else:
+        assert friendly is None
