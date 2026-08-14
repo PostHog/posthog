@@ -423,9 +423,15 @@ export const signupLogic = kea<signupLogicType>([
                       ? 'Please use a valid email address'
                       : undefined,
             }),
+            // kea-forms counts manual errors as validation errors and refuses to submit while any
+            // are set, and it only clears them when the field is touched or the form is reset. So
+            // the "account already exists" error from a previous attempt would block every later
+            // submit, leaving the user stuck on the email panel with a different email typed in.
+            preSubmit: () => {
+                actions.setSignupPanelEmailManualErrors({})
+            },
             submit: async ({ email }, breakpoint) => {
                 breakpoint()
-                actions.setSignupPanelEmailManualErrors({})
                 actions.setPasskeyError(null)
                 actions.setError(null)
                 let precheckResponse: SignupEmailPrecheckResponse
@@ -497,6 +503,11 @@ export const signupLogic = kea<signupLogicType>([
                 name: !name?.trim() ? 'Please enter your name' : undefined,
                 role_at_organization: !role_at_organization ? 'Please select your role in the organization' : undefined,
             }),
+            // Same reason as the email panel: without this, the generic or name error left behind by
+            // a failed signup would make every retry of this form a no-op.
+            preSubmit: () => {
+                actions.setSignupPanelOnboardingManualErrors({})
+            },
             submit: async (payload, breakpoint) => {
                 breakpoint()
                 try {
