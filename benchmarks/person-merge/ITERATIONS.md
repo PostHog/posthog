@@ -114,3 +114,27 @@ Root reads (ids owned by the survivor) stay 0.2–0.9 ms for every strategy at e
 - The chain shape is adversarial for eager-fixup strategies and the status quo alike; only lazy indirection survives it — at a bounded, linear read tax.
 
 **Decision**: neither always-eager nor never-compress wins alone. The production shape is lazy/amortized: keep the O(1) pointer merge, bound depth with compaction that is either piggybacked on merge walks (re-point the walked path) or a background sweep of nodes deeper than a threshold. Reads on replicas cannot compress, so the bound must come from the write side. Next: `union_find_lazy` with walk-path compression + depth-triggered background compaction, measured on both the chain and star workloads.
+
+## Iteration 5 — lazy union-find: both hot paths flat to depth 10 000
+
+`union_find_lazy` = O(1) pointer merge + walk-path compression (merge re-points only the nodes its root walk traversed) + background pointer halving every 500 merges (off the ingest path).
+Two harness-found fixes along the way, both committed separately: phase-long snapshots in the harness were pinning dead tuples against vacuum (plus an `idle_in_transaction_session_timeout` guard in the sandbox), and the merge was collecting the source's whole union to re-home cohort/FF rows that provably always sit on the current root — the pure pointer merge is truly O(1) only after that fix; the union walk survives solely in the compat variant's per-mapping emissions, the current CH contract's floor.
+Results: `results/union_find_lazy-chain10k-iter5.json`, `results/union_find_lazy-star-iter5.json`, `results/current-star-iter5.json`.
+
+| depth  | merge p50 | deep read p50 | mid read p50 (never-walked) | root read p50 | maintenance in window |
+| ------ | --------- | ------------- | --------------------------- | ------------- | --------------------- |
+| 100    | 2.35 ms   | 0.21 ms       | 0.34 ms                     | 0.27 ms       | –                     |
+| 1 000  | 2.57 ms   | 0.25 ms       | 0.23 ms                     | 0.21 ms       | 0.46 s                |
+| 5 000  | 2.43 ms   | 0.28 ms       | 0.38 ms                     | 0.34 ms       | 10.0 s                |
+| 10 000 | 2.42 ms   | 0.21 ms       | 0.24 ms                     | 0.21 ms       | 35.4 s                |
+
+Star (300 sources into one target, 4 threads): lazy 6.9 ms p50 / 6.3 KB WAL vs current 8.3 ms p50 / 2.8 KB WAL; oracle green on both.
+
+**Observations**
+
+- Both hot paths are flat at any depth: merges ~2.4 ms, every read class 0.2–0.5 ms to depth 10 000. The chain workload that made `current` and eager compression quadratic and made uncompressed reads linear is fully absorbed.
+- The residual tax lives in the background job, and naive pointer halving grows with union size: each run rewrites every union member log2(depth-since-flatten) times — 3.5 s per run at ~20k members (35 s across the last checkpoint window), 73 KB WAL amortized per merge. Identified improvement: re-point only internal nodes (demoted roots) at the final root — O(merges since last run) per run instead of O(union), bounding depth at 2. That is the next iteration if this graduates to a proposal.
+- Production hazard surfaced by the stall: pointer-churn maintenance is unusually sensitive to long-running transactions on the persons DB — an idle snapshot blocks vacuum, maintenance churn bloats, and resolve degrades. Any real deployment needs the same idle-transaction guard rails the sandbox now has.
+- Star topology needs no maintenance at all (children of a star point directly at the root by construction), so the common real-world merge shape pays only the O(1) merge.
+
+**Decision**: `union_find_lazy` is the incumbent. The write tax of deep unions is gone from both hot paths; what remains is a tunable background cost with a known O(interval) improvement, and the small-merge WAL gap (~2x vs `current` at size 1) as the last open regression.
