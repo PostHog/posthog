@@ -3,11 +3,11 @@ from unittest.mock import MagicMock, patch
 
 from products.conversations.backend.facade.types import EmailThreadForAccountMatching
 from products.customer_analytics.backend.facade import api
-from products.customer_analytics.backend.facade.contracts import EmailAccountMatch
 from products.customer_analytics.backend.facade.email_matching import (
     match_email_accounts,
     recalculate_email_thread_links,
 )
+from products.customer_analytics.backend.logic.email_account_matching import MatchedAccount
 from products.customer_analytics.backend.models import Account
 
 
@@ -86,28 +86,39 @@ class TestEmailAccountMatching(BaseTest):
     @patch(
         "products.customer_analytics.backend.facade.email_matching.conversations.list_email_threads_for_account_matching"
     )
-    @patch("products.customer_analytics.backend.facade.email_matching._match_email_accounts")
-    def test_recalculation_replaces_links_for_each_thread(
+    @patch("products.customer_analytics.backend.facade.email_matching.match_accounts_for_emails")
+    def test_recalculation_matches_once_per_page_and_maps_links_per_thread(
         self,
         mock_match: MagicMock,
         mock_list_threads: MagicMock,
         mock_replace: MagicMock,
     ) -> None:
+        first = self._create_account(name="First", external_id="first-account")
+        second = self._create_account(name="Second", external_id="second-account")
         mock_list_threads.side_effect = [
-            [EmailThreadForAccountMatching(id="thread-1", participant_emails=["person@example.com"])],
+            [
+                EmailThreadForAccountMatching(id="thread-1", participant_emails=["First.Person@Example.com"]),
+                EmailThreadForAccountMatching(id="thread-2", participant_emails=["contact@other.example"]),
+            ],
             [],
         ]
-        mock_match.return_value = [
-            EmailAccountMatch(account_id="account-1", account_external_id="group-1", match_source="person_group")
+        mock_match.return_value = {
+            "first.person@example.com": MatchedAccount(account=first, source="person_group"),
+            "contact@other.example": MatchedAccount(account=second, source="email_domain"),
+        }
+
+        processed = recalculate_email_thread_links(self.team.id, batch_size=100)
+
+        assert processed == 2
+        # The whole page is matched in a single pass, not once per thread.
+        mock_match.assert_called_once()
+        links_by_thread = {call.args[1]: call.args[2] for call in mock_replace.call_args_list}
+        assert [
+            (link.account_id, link.account_external_id, link.match_source) for link in links_by_thread["thread-1"]
+        ] == [(str(first.id), "first-account", "person_group")]
+        assert [(link.account_id, link.match_source) for link in links_by_thread["thread-2"]] == [
+            (str(second.id), "email_domain")
         ]
-
-        processed = recalculate_email_thread_links(self.team.id, batch_size=1)
-
-        assert processed == 1
-        link = mock_replace.call_args.args[2][0]
-        assert link.account_id == "account-1"
-        assert link.account_external_id == "group-1"
-        assert link.match_source == "person_group"
 
     @patch("products.customer_analytics.backend.facade.api.schedule_email_thread_link_recalculation")
     def test_account_matching_changes_schedule_recalculation(self, mock_schedule: MagicMock) -> None:
