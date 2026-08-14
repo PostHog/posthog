@@ -1284,7 +1284,9 @@ def create_channel_task(team_id: int, user_id: int, channel_id: str | UUID, *, t
     (canvas actions) that file work into their own channel. No initial run:
     the channel's feed shows it and the user drives it from there.
     """
-    channel = Channel.objects.filter(id=channel_id, team_id=team_id, deleted=False).first()
+    channel = (
+        Channel.objects.for_team(team_id).filter(Channel.visible_to_q(user_id), id=channel_id, deleted=False).first()
+    )
     if channel is None:
         raise ValueError("Channel not found in this team.")
     return create_task_without_run(
