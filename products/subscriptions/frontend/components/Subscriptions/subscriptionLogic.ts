@@ -32,6 +32,12 @@ import { SUBSCRIPTION_PREFILL_PARAMS } from './subscriptionNudge'
 import { subscriptionsLogic } from './subscriptionsLogic'
 import { ALL_DAYS, AI_PROMPT_MAX_LENGTH, SubscriptionBaseProps, urlForSubscription } from './utils'
 
+// Spelled out rather than interpolated, so the event a metric is configured against is greppable.
+const EXPORT_NUDGE_CLICKED_EVENTS = {
+    dashboard: 'dashboard export nudge clicked',
+    insight: 'insight export nudge clicked',
+} as const
+
 // Surfaces that deep-link into the prefilled form, so the readout can compare them.
 const PREFILL_VIA_VALUES: readonly string[] = [
     SUBSCRIPTION_PREFILL_PARAMS.viaToast,
@@ -881,9 +887,10 @@ export const subscriptionLogic = kea<subscriptionLogicType>([
                 const via = searchParams[SUBSCRIPTION_PREFILL_PARAMS.viaParam]
                 posthog.capture(
                     via === SUBSCRIPTION_PREFILL_PARAMS.viaExport
-                        ? `${nudgeSubject} export nudge clicked`
+                        ? EXPORT_NUDGE_CLICKED_EVENTS[nudgeSubject]
                         : 'dashboard subscribe nudge clicked',
                     {
+                        kind: nudgeSubject,
                         ...(nudgeSubject === 'dashboard'
                             ? { dashboard_id: props.dashboardId }
                             : { insight_short_id: props.insightShortId }),

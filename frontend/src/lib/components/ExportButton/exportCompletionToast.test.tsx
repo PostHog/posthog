@@ -8,6 +8,7 @@ import { ExportedAssetType, ExporterFormat, InsightShortId } from '~/types'
 
 import {
     ExportNudgeCandidate,
+    captureExportNudgeCheckFailed,
     lookUpExportNudge,
     resolveExportNudgeEligibility,
 } from 'products/subscriptions/frontend/components/Subscriptions/exportNudge/exportNudgeLogic'
@@ -136,6 +137,14 @@ describe('export completion toast', () => {
 
         expect(screen.getByText('Export complete!')).toBeTruthy()
         expect(screen.queryByText('Preparing export…')).toBeNull()
+
+        await act(async () => {
+            await jest.advanceTimersByTimeAsync(SETTLE_MS)
+        })
+
+        // A stall reports its own step, otherwise the readout cannot tell it from an exporter who
+        // was simply ineligible.
+        expect(captureExportNudgeCheckFailed).toHaveBeenCalledWith('timeout', expect.anything())
     })
 
     it.each([

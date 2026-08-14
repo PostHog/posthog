@@ -235,8 +235,6 @@ describe('exportNudgeLogic', () => {
     })
 
     describe('nudge toast message', () => {
-        const TOAST_ID = 'export-toast'
-
         afterEach(() => {
             cleanup()
         })
@@ -244,14 +242,14 @@ describe('exportNudgeLogic', () => {
         it('renders nothing for an exporter outside the test variant', () => {
             featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.DASHBOARD_EXPORT_NUDGE]: 'control' })
 
-            expect(claimExportNudgeMessage({ subject: DASHBOARD, name: 'Weekly numbers' }, TOAST_ID)).toBeNull()
+            expect(claimExportNudgeMessage({ subject: DASHBOARD, name: 'Weekly numbers' })).toBeNull()
         })
 
         it.each([
             [DASHBOARD, 'Weekly numbers', `/dashboard/${DASHBOARD_ID}/subscriptions/new`],
             [INSIGHT, null, `/insights/${INSIGHT_SHORT_ID}/subscriptions/new`],
         ])('the CTA routes to the prefilled new-subscription form', (subject, name, path) => {
-            const message = claimExportNudgeMessage({ subject, name }, TOAST_ID)
+            const message = claimExportNudgeMessage({ subject, name })
             render(<>{message!('Export complete!')}</>)
 
             fireEvent.click(screen.getByText('Set up recurring updates'))
@@ -261,7 +259,7 @@ describe('exportNudgeLogic', () => {
         })
 
         it('drops the offer from later frames once it has been followed', () => {
-            const message = claimExportNudgeMessage({ subject: DASHBOARD, name: 'Weekly numbers' }, TOAST_ID)
+            const message = claimExportNudgeMessage({ subject: DASHBOARD, name: 'Weekly numbers' })
             render(<>{message!('Preparing export…')}</>)
             fireEvent.click(screen.getByText('Set up recurring updates'))
             cleanup()

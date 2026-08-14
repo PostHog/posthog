@@ -143,9 +143,6 @@ describe('exportsLogic', () => {
 
         // Let the fire-and-forget IIFE in the createExport loader run to settlement.
         const flush = (): Promise<void> => new Promise((resolve) => setTimeout(resolve, 0))
-        // The awaiting-download rewrite deliberately waits for react-toastify to render the frame
-        // the promise settled into, so that path needs more than a microtask.
-        const flushPastToastSettle = (): Promise<void> => new Promise((resolve) => setTimeout(resolve, 250))
 
         // A macrotask sentinel always loses to an already-settled promise, so a regression that
         // leaves the export toast pending reports UNSETTLED instead of timing the test out.
@@ -423,19 +420,19 @@ describe('exportsLogic', () => {
                 const downloadExportSpy = jest.spyOn(logic.actions, 'downloadExport')
 
                 logic.actions.createExport({ exportData: { export_format: ExporterFormat.CSV } })
-                await flushPastToastSettle()
+                await flush()
 
                 expect(jest.mocked(downloadExportedAsset)).not.toHaveBeenCalled()
                 expect(logic.values.freshUndownloadedExports.map((a) => a.id)).toEqual([15])
-                // The export toast is rewritten in place, so the user is not left with a stale
-                // spinner next to a fresh completion toast.
-                expect(lemonToast.updateToSuccess).toHaveBeenCalledWith(
-                    expect.any(String),
+                // The spinner is dismissed and the file handed over on a fresh toast: rewriting
+                // this one would race react-toastify's own render of the frame it settled into.
+                expect(lemonToast.dismiss).toHaveBeenCalledWith(expect.any(String))
+                expect(lemonToast.success).toHaveBeenCalledWith(
                     'Export complete!',
                     expect.objectContaining({ button: expect.objectContaining({ label: 'Download' }) })
                 )
-                expect(lemonToast.dismiss).not.toHaveBeenCalled()
-                jest.mocked(lemonToast.updateToSuccess).mock.calls.at(-1)![2]!.button!.action()
+                expect(lemonToast.updateToSuccess).not.toHaveBeenCalled()
+                jest.mocked(lemonToast.success).mock.calls.at(-1)![1]!.button!.action()
                 expect(downloadExportSpy).toHaveBeenCalledWith(response)
             } finally {
                 if (original) {

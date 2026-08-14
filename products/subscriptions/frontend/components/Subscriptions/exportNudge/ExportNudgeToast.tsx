@@ -1,11 +1,9 @@
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 
-import { InsightShortId } from '~/types'
-
 import {
     ExportNudgeCandidate,
-    ExportNudgeSubject,
     claimExportNudge,
+    subscriptionTargetFor,
 } from 'products/subscriptions/frontend/components/Subscriptions/exportNudge/exportNudgeLogic'
 import {
     SUBSCRIPTION_PREFILL_PARAMS,
@@ -22,13 +20,7 @@ function subjectLabel(candidate: ExportNudgeCandidate): JSX.Element | string {
     return candidate.subject.kind === 'dashboard' ? 'this dashboard' : 'this insight'
 }
 
-function subscriptionTarget(subject: ExportNudgeSubject): { dashboardId?: number; insightShortId?: InsightShortId } {
-    return subject.kind === 'dashboard'
-        ? { dashboardId: subject.dashboardId }
-        : { insightShortId: subject.insightShortId }
-}
-
-export function claimExportNudgeMessage(candidate: ExportNudgeCandidate, toastId: string): ExportNudgeMessage | null {
+export function claimExportNudgeMessage(candidate: ExportNudgeCandidate): ExportNudgeMessage | null {
     if (!claimExportNudge(candidate.subject)) {
         return null
     }
@@ -50,13 +42,8 @@ export function claimExportNudgeMessage(candidate: ExportNudgeCandidate, toastId
                     data-attr="export-nudge-toast-cta"
                     onClick={() => {
                         accepted = true
-                        // The toast is the export's own, and while the render is still running its
-                        // download button has not appeared yet. Closing it here would leave the
-                        // finished file with nowhere to be claimed from.
-                        openSubscriptionFromNudge(subscriptionTarget(candidate.subject), {
-                            toastId,
+                        openSubscriptionFromNudge(subscriptionTargetFor(candidate.subject), {
                             via: SUBSCRIPTION_PREFILL_PARAMS.viaExport,
-                            keepToast: true,
                         })
                     }}
                 >

@@ -287,6 +287,53 @@ describe('subscriptionLogic', () => {
         expect(promptLogic.values.subscription[field as 'frequency' | 'prompt']).toBe(expected)
     })
 
+    it('prefills an insight nudge with its own title and event', async () => {
+        const insightLogic = subscriptionLogic({ insightShortId: '123' as InsightShortId, id: 'new' })
+        insightLogic.mount()
+
+        router.actions.push('/insights/123/subscriptions/new?prefill=nudge&via=export')
+        await expectLogic(insightLogic).toFinishListeners()
+
+        // An insight reaches this route without a name in hand, so its subscription is named for
+        // the schedule rather than for the insight.
+        expect(insightLogic.values.subscription).toMatchObject({
+            title: 'Weekly digest',
+            target_value: MOCK_DEFAULT_USER.email,
+        })
+        expect((posthog.capture as jest.Mock).mock.calls.filter(([name]) => name.endsWith('nudge clicked'))).toEqual([
+            [
+                'insight export nudge clicked',
+                { kind: 'insight', insight_short_id: '123', prefilled: true, via: 'export' },
+            ],
+        ])
+
+        insightLogic.unmount()
+    })
+
+    it('leaves a nudge for another subject to the form that owns it', async () => {
+        // The route pattern matches any subject's page, so every mounted form sees this navigation.
+        // One prefilling for someone else's nudge would discard what its own user had typed.
+        const dashboardForm = subscriptionLogic({ dashboardId: 9, dashboardName: 'Key metrics', id: 'new' })
+        const insightForm = subscriptionLogic({ insightShortId: '123' as InsightShortId, id: 'new' })
+        dashboardForm.mount()
+        insightForm.mount()
+
+        router.actions.push('/dashboard/9/subscriptions/new?prefill=nudge&via=export')
+        await expectLogic(dashboardForm).toFinishListeners()
+        await expectLogic(insightForm).toFinishListeners()
+
+        expect(dashboardForm.values.subscription).toMatchObject({ title: 'Key metrics weekly digest' })
+        expect(insightForm.values.subscription.title).toBeUndefined()
+        expect(insightForm.values.subscriptionChanged).toBe(false)
+        // One click, reported once, against the dashboard.
+        expect((posthog.capture as jest.Mock).mock.calls.filter(([name]) => name.endsWith('nudge clicked'))).toEqual([
+            ['dashboard export nudge clicked', { kind: 'dashboard', dashboard_id: 9, prefilled: true, via: 'export' }],
+        ])
+
+        dashboardForm.unmount()
+        insightForm.unmount()
+    })
+
     it.each<[string, string, string, string]>([
         // The notification's source_url carries via=notification; the transient toast via=toast.
         // Absent via defaults to notification for safety. The export nudge is its own experiment,
@@ -321,7 +368,9 @@ describe('subscriptionLogic', () => {
             // than silently moving a conversion between the two experiments.
             const clickedCaptures = (): any[][] =>
                 (posthog.capture as jest.Mock).mock.calls.filter(([name]) => name.endsWith('nudge clicked'))
-            expect(clickedCaptures()).toEqual([[expectedEvent, { dashboard_id: 9, prefilled: true, via: expectedVia }]])
+            expect(clickedCaptures()).toEqual([
+                [expectedEvent, { kind: 'dashboard', dashboard_id: 9, prefilled: true, via: expectedVia }],
+            ])
 
             // The params are consumed on apply, so refreshing the resulting URL neither re-captures
             // the click nor re-applies a stale prefill.
