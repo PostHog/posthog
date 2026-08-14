@@ -179,7 +179,7 @@ function BehaviorCardContent({ scanner }: { scanner: ReplayScanner }): JSX.Eleme
             )}
             {scanner.scanner_type === 'classifier' && (
                 <>
-                    <LabeledRow label="Tag vocabulary">
+                    <LabeledRow label="Categories">
                         {scanner.scanner_config.tags.length ? (
                             <div className="flex flex-wrap gap-1">
                                 {scanner.scanner_config.tags.map((tag) => (
@@ -192,10 +192,10 @@ function BehaviorCardContent({ scanner }: { scanner: ReplayScanner }): JSX.Eleme
                             <span className="text-muted">—</span>
                         )}
                     </LabeledRow>
-                    <LabeledRow label="Multiple tags per session">
+                    <LabeledRow label="Multiple categories per session">
                         <BooleanTag value={!!scanner.scanner_config.multi_label} />
                     </LabeledRow>
-                    <LabeledRow label="Freeform tags">
+                    <LabeledRow label="Freeform categories">
                         <BooleanTag value={!!scanner.scanner_config.allow_freeform_tags} />
                     </LabeledRow>
                 </>

@@ -10,7 +10,7 @@ import { IconSparkles } from '@posthog/icons'
 import { LemonButton, LemonInput, LemonSelect, LemonSwitch, LemonTag, LemonTextArea, Link } from '@posthog/lemon-ui'
 
 import { pngHoggie } from 'lib/brand/hoggies'
-import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
+import { SceneTags } from 'lib/components/Scenes/SceneTags'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { LemonField } from 'lib/lemon-ui/LemonField'
@@ -21,7 +21,7 @@ import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
-import { tagsModel } from '~/models/tagsModel'
+import { ScenePanel, ScenePanelInfoSection } from '~/layout/scenes/SceneLayout'
 import { ProductKey } from '~/queries/schema/schema-general'
 
 import { ReplayVisionFeedbackButton } from '../components/ReplayVisionFeedbackButton'
@@ -30,6 +30,7 @@ import { ScannerGoalDraft } from './components/ScannerGoalDraft'
 import { ScannerTemplatePicker } from './components/ScannerTemplatePicker'
 import { ScannerTriggers } from './components/ScannerTriggers'
 import { ScannerTypeConfigEditor } from './components/ScannerTypeConfigEditor'
+import { SCANNER_RESOURCE_TYPE } from './constants'
 import { replayScannerLogic } from './replayScannerLogic'
 import {
     SCANNER_EDITOR_STEP_ORDER,
@@ -38,6 +39,7 @@ import {
     scannerStepUrl,
 } from './scannerEditorSceneLogic'
 import { ScannerEditorStepper, STEP_LABELS } from './ScannerEditorStepper'
+import { ScannerSceneMenuBar } from './ScannerSceneMenuBar'
 import { SCANNER_TYPE_OPTIONS, getModelOptions, modelNamingVariant } from './types'
 
 const HedgehogConstruction2 = pngHoggie(construction2Png)
@@ -135,6 +137,17 @@ export function ScannerEditorSceneComponent(): JSX.Element {
         <SceneContent>
             <div className="flex flex-col items-center pt-16 pb-8">
                 <div className="w-full max-w-5xl px-4 flex flex-col gap-6">
+                    {/* Form-bound rather than autosaving, so tags on a scanner that doesn't exist yet save with it. */}
+                    {step === 'configure' && (
+                        <>
+                            <ScannerSceneMenuBar scannerId={scannerId} />
+                            <ScenePanel>
+                                <ScenePanelInfoSection>
+                                    <ScannerSceneTags scannerId={scannerId} />
+                                </ScenePanelInfoSection>
+                            </ScenePanel>
+                        </>
+                    )}
                     <SceneTitleSection
                         name={title}
                         resourceType={{ type: 'replay_vision' }}
@@ -205,13 +218,27 @@ export function ScannerEditorSceneComponent(): JSX.Element {
     )
 }
 
+function ScannerSceneTags({ scannerId }: { scannerId: string }): JSX.Element {
+    const { scanner, availableObjectTags } = useValues(replayScannerLogic({ id: scannerId }))
+    const { setScannerValue } = useActions(replayScannerLogic({ id: scannerId }))
+
+    return (
+        <SceneTags
+            onSave={(tags) => setScannerValue('tags', tags)}
+            tags={scanner?.tags ?? []}
+            tagsAvailable={availableObjectTags}
+            canEdit={!getReplayVisionEditDisabledReason(scanner?.user_access_level)}
+            dataAttrKey={SCANNER_RESOURCE_TYPE}
+        />
+    )
+}
+
 function ConfigureStep(): JSX.Element {
     const { scannerId } = useValues(scannerEditorSceneLogic)
     const { scanner, isNew, goalDraft } = useValues(replayScannerLogic({ id: scannerId }))
     const { setScannerType } = useActions(replayScannerLogic({ id: scannerId }))
     const { searchParams } = useValues(router)
     const { featureFlags } = useValues(featureFlagLogic)
-    const { tags: allTags } = useValues(tagsModel)
     const namingVariant = modelNamingVariant(featureFlags[FEATURE_FLAGS.REPLAY_VISION_MODEL_TIER_NAMING_EXPERIMENT])
     const isTypeSelectable = isNew && !searchParams.template
 
@@ -240,23 +267,6 @@ function ConfigureStep(): JSX.Element {
                 help="The scanning agent doesn't see this field. It's for you and your team to keep scanners organized."
             >
                 <LemonTextArea placeholder="What this scanner looks for and why." minRows={2} />
-            </LemonField>
-
-            <LemonField
-                name="tags"
-                label="Tags (optional)"
-                help="For organizing and filtering the scanner list. The scanning agent doesn't see them."
-            >
-                {({ value, onChange }) => (
-                    <ObjectTags
-                        tags={value ?? []}
-                        onChange={onChange}
-                        saving={false}
-                        // Tags from other products can contain commas; the scanner API rejects those, so don't offer them.
-                        tagsAvailable={allTags.filter((tag) => !tag.includes(',') && !value?.includes(tag))}
-                        data-attr="vision-editor-tags"
-                    />
-                )}
             </LemonField>
 
             {isTypeSelectable ? (

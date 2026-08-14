@@ -567,7 +567,7 @@ describe('replayScannerLogic', () => {
                     })
                 },
                 expectedErrors: {
-                    scanner_config: expect.objectContaining({ tags: expect.stringContaining('at least one tag') }),
+                    scanner_config: expect.objectContaining({ tags: expect.stringContaining('at least one category') }),
                 },
             },
             {
@@ -583,7 +583,7 @@ describe('replayScannerLogic', () => {
                     })
                 },
                 expectedErrors: {
-                    scanner_config: expect.objectContaining({ tags: 'Tags must be unique' }),
+                    scanner_config: expect.objectContaining({ tags: 'Categories must be unique' }),
                 },
             },
             {
@@ -599,7 +599,7 @@ describe('replayScannerLogic', () => {
                     })
                 },
                 expectedErrors: {
-                    scanner_config: expect.objectContaining({ tags: "Tags can't be blank" }),
+                    scanner_config: expect.objectContaining({ tags: "Categories can't be blank" }),
                 },
             },
         ])('$name', async ({ setup, expectedErrors }) => {

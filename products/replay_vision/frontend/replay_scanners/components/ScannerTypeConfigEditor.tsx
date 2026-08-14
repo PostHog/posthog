@@ -124,7 +124,7 @@ function ClassifierTagSuggestions({ scannerId }: { scannerId: string }): JSX.Ele
     return (
         <LemonCard className="space-y-2">
             <div className="flex items-center justify-between">
-                <span className="text-sm font-medium">Suggested tags</span>
+                <span className="text-sm font-medium">Suggested categories</span>
                 <div className="flex items-center gap-1">
                     <LemonButton size="xsmall" type="secondary" onClick={() => acceptAllTagSuggestions()}>
                         Add all
@@ -146,7 +146,7 @@ function ClassifierTagSuggestions({ scannerId }: { scannerId: string }): JSX.Ele
                                 size="xsmall"
                                 type="secondary"
                                 icon={<IconPlus />}
-                                tooltip="Add to vocabulary"
+                                tooltip="Add to categories"
                                 onClick={() => acceptTagSuggestion(suggestion.tag)}
                             />
                             <div className="flex-1 min-w-0">
@@ -181,7 +181,7 @@ function ClassifierTagsField({ scannerId }: { scannerId: string }): JSX.Element 
                 name="scanner_config.tags"
                 label={
                     <span className="flex w-full flex-wrap items-center justify-between gap-2">
-                        Tag vocabulary
+                        Categories
                         <LemonButton
                             size="xsmall"
                             type="secondary"
@@ -191,7 +191,7 @@ function ClassifierTagsField({ scannerId }: { scannerId: string }): JSX.Element 
                             onClick={() => loadTagSuggestions()}
                             data-attr="replay-vision-suggest-tags-with-ai"
                         >
-                            Suggest tags with PostHog AI
+                            Suggest categories with PostHog AI
                         </LemonButton>
                     </span>
                 }
@@ -200,7 +200,7 @@ function ClassifierTagsField({ scannerId }: { scannerId: string }): JSX.Element 
                     <LemonInputSelect
                         mode="multiple"
                         allowCustomValues
-                        placeholder="Type a tag and press enter..."
+                        placeholder="Type a category and press enter..."
                         value={(value as string[]) ?? []}
                         onChange={onChange}
                         options={((value as string[]) ?? []).map((t) => ({ key: t, label: t }))}
@@ -266,8 +266,8 @@ export function ScannerTypeConfigEditor({ scannerId }: { scannerId: string }): J
             <div className="space-y-4">
                 <ScannerPromptField
                     scannerId={scannerId}
-                    placeholder="Categorize this session by what the user came to do: first-time setup, regular work, exploring features, or troubleshooting a problem. If they did several, tag the one they spent the most time on."
-                    caption="Your prompt tells the agent how to decide which of your tags fit each session. Include anything the agent should know about your product or this flow."
+                    placeholder="Categorize this session by what the user came to do: first-time setup, regular work, exploring features, or troubleshooting a problem. If they did several, pick the one they spent the most time on."
+                    caption="Your prompt tells the agent how to decide which of your categories fit each session. Include anything the agent should know about your product or this flow."
                 />
                 <ClassifierTagsField scannerId={scannerId} />
                 <LemonField name="scanner_config.multi_label">
@@ -275,9 +275,9 @@ export function ScannerTypeConfigEditor({ scannerId }: { scannerId: string }): J
                         <div className="flex items-center gap-2">
                             <LemonSwitch checked={!!value} onChange={onChange} />
                             <div>
-                                <div className="text-sm font-medium">Allow multiple tags per session</div>
+                                <div className="text-sm font-medium">Allow multiple categories per session</div>
                                 <div className="text-xs text-muted">
-                                    Otherwise the model picks exactly one tag from your vocabulary.
+                                    Otherwise the model picks exactly one of your categories.
                                 </div>
                             </div>
                         </div>
@@ -288,9 +288,9 @@ export function ScannerTypeConfigEditor({ scannerId }: { scannerId: string }): J
                         <div className="flex items-center gap-2">
                             <LemonSwitch checked={!!value} onChange={onChange} />
                             <div>
-                                <div className="text-sm font-medium">Allow freeform tags</div>
+                                <div className="text-sm font-medium">Allow freeform categories</div>
                                 <div className="text-xs text-muted">
-                                    Lets the model emit tags outside your tag vocabulary.
+                                    Lets the model use categories outside the ones you defined.
                                 </div>
                             </div>
                         </div>

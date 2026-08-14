@@ -307,7 +307,7 @@ export function scannerTypeLabel(scannerType: ScannerType | null | undefined): s
 // know the type names. Kept short so it reads as a chip subtitle / tooltip.
 const SCANNER_TYPE_OUTPUT_HINT: Record<ScannerType, string> = {
     monitor: 'yes or no',
-    classifier: 'a tag from a set you define',
+    classifier: 'a category from a set you define',
     scorer: 'a number score',
     summarizer: 'a text summary',
 }
@@ -338,7 +338,7 @@ export const SCANNER_TYPE_OPTIONS: { value: ScannerType; label: string; descript
     {
         value: 'classifier',
         label: 'Classifier',
-        description: 'Tags the session with one or more categories from a fixed vocabulary.',
+        description: 'Sorts the session into one or more categories you define.',
     },
     {
         value: 'scorer',
