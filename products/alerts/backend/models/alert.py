@@ -163,8 +163,9 @@ class AlertConfiguration(ModelActivityMixin, CreatedMetaFields, UUIDTModel):
 
     schedule_restriction = models.JSONField(null=True, blank=True, default=None)
 
-    # When enabled, an investigation agent runs on every FIRING check and writes its
-    # findings to a linked Notebook. Only effective for detector-based (anomaly) alerts.
+    # When enabled, an investigation runs on every FIRING check: detector-based (anomaly)
+    # alerts get the agent workflow, which writes a linked Notebook; metrics threshold
+    # alerts get a synchronous facade investigation that only writes investigation_summary.
     # See posthog/temporal/alerts/investigation.py for the trigger logic and cooldown.
     investigation_agent_enabled = models.BooleanField(default=False)
 

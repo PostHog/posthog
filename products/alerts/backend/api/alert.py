@@ -757,7 +757,7 @@ class AlertSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerialize
                 raise ValidationError(
                     {
                         "investigation_agent_enabled": [
-                            "Investigation agent is only supported for anomaly detection alerts."
+                            "Investigation agent is only supported for anomaly detection alerts and metrics threshold alerts."
                         ]
                     }
                 )

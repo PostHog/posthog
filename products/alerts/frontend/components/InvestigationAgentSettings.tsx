@@ -53,7 +53,7 @@ export function InvestigationAgentSettings({
                         <span className="flex items-center gap-1">
                             Wait for the verdict before notifying
                             <Tooltip
-                                title="Notifications are delayed ~30–90s while the agent investigates. False-positive verdicts are suppressed. A safety-net task force-fires after a few minutes if the investigation stalls, so real fires can't be silently missed."
+                                title="Notifications wait about 2 to 4 minutes while the agent investigates, and false-positive verdicts are suppressed. A safety-net task force-fires if an investigation stalls, so real fires can't be silently missed. On alerts that check more often than hourly, only one fire an hour gets a verdict and the rest notify straight away."
                                 placement="right"
                                 delayMs={0}
                             >
