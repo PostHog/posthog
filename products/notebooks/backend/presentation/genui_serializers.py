@@ -145,7 +145,9 @@ class GenUIErrorSerializer(serializers.Serializer):
 
 class GenUISourceSerializer(serializers.Serializer):
     version_id = serializers.UUIDField(help_text="Source version shown in the response.")
-    source = serializers.CharField(help_text="Generated React component source.")
+    source = serializers.CharField(  # type: ignore[assignment]  # API field name shadows DRF's typed Field.source attribute
+        help_text="Generated React component source.",
+    )
 
 
 class GenUIVersionSerializer(serializers.Serializer):
