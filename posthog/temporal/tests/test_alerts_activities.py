@@ -444,7 +444,7 @@ class TestEvaluateAlert:
                 side_effect=AlertExtractionError("query returns 2 numeric columns — pick one"),
             ),
             patch("posthog.temporal.alerts.activities.capture_exception") as mock_capture,
-            patch("posthog.tasks.alerts.utils.send_notifications_for_disabled") as mock_notify,
+            patch("posthog.tasks.alerts.utils.send_notifications_for_disabled", return_value=[]) as mock_notify,
         ):
             env = ActivityEnvironment()
             result = await env.run(evaluate_alert, EvaluateAlertActivityInputs(alert_id=str(alert_with_user.id)))

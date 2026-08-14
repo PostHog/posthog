@@ -53,11 +53,7 @@ def run_alert_check(alert_id: str) -> None:
 
     breaches = result.breaches if result else None
     deliveries = alert_utils.dispatch_alert_notification(alert, alert_check, breaches)
-    # Callers that @patch send_notifications_* without an explicit return_value get a bare
-    # MagicMock back, not None: it's truthy and iterates empty, so without this isinstance
-    # check record_alert_delivery would treat it as a real (empty) delivery and stamp
-    # notification_sent_at even though no test configured any notification to happen.
-    if not isinstance(deliveries, list):
+    if deliveries is None:
         return
 
     with transaction.atomic():

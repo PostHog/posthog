@@ -1,5 +1,5 @@
 import type { AlertCheckDelivery } from './types'
-import { AlertsTab, describeDelivery, getActiveAlertsTab } from './utils'
+import { AlertsTab, describeDelivery, getActiveAlertsTab, summarizeDeliveries } from './utils'
 
 describe('alerts utils', () => {
     describe('getActiveAlertsTab', () => {
@@ -59,6 +59,39 @@ describe('alerts utils', () => {
             [{ channel: 'in_app', target: 'user:1', status: 'accepted' }, 'in_app: user:1'],
         ])('formats %j', (delivery, expected) => {
             expect(describeDelivery(delivery as AlertCheckDelivery)).toBe(expected)
+        })
+    })
+
+    describe('summarizeDeliveries', () => {
+        const accepted: AlertCheckDelivery[] = [
+            { channel: 'email', target: 'a@example.com', status: 'accepted' },
+            { channel: 'hog_function', target: 'Eng alerts', template: 'slack', status: 'accepted' },
+        ]
+        const legacy: AlertCheckDelivery[] = [{ channel: 'email', target: 'a@example.com', status: 'unknown' }]
+
+        it('labels accepted receipts with their count and lines', () => {
+            expect(summarizeDeliveries(accepted, true)).toEqual({
+                kind: 'delivered',
+                label: 'Yes · 2',
+                lines: ['Email: a@example.com', 'Slack: Eng alerts'],
+            })
+        })
+
+        it('marks unknown-only receipts as legacy with their targets', () => {
+            expect(summarizeDeliveries(legacy, true)).toEqual({
+                kind: 'legacy',
+                label: 'Yes',
+                lines: ['Email: a@example.com'],
+            })
+        })
+
+        it('marks legacy rows without receipts from the boolean alone', () => {
+            expect(summarizeDeliveries(null, true)).toEqual({ kind: 'legacy', label: 'Yes', lines: [] })
+        })
+
+        it('returns none when nothing was recorded', () => {
+            expect(summarizeDeliveries(null, false)).toEqual({ kind: 'none' })
+            expect(summarizeDeliveries([], false)).toEqual({ kind: 'none' })
         })
     })
 })

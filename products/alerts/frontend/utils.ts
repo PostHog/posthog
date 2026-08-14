@@ -69,3 +69,23 @@ export function describeDelivery(delivery: AlertCheckDelivery): string {
     }
     return `${delivery.channel}: ${delivery.target}`
 }
+
+export type DeliverySummary =
+    | { kind: 'delivered'; label: string; lines: string[] }
+    | { kind: 'legacy'; label: string; lines: string[] }
+    | { kind: 'none' }
+
+export function summarizeDeliveries(
+    deliveries: AlertCheckDelivery[] | null | undefined,
+    targetsNotified: boolean
+): DeliverySummary {
+    const all = deliveries ?? []
+    const accepted = all.filter((delivery) => delivery.status === 'accepted')
+    if (accepted.length > 0) {
+        return { kind: 'delivered', label: `Yes · ${accepted.length}`, lines: accepted.map(describeDelivery) }
+    }
+    if (all.length > 0 || targetsNotified) {
+        return { kind: 'legacy', label: 'Yes', lines: all.map(describeDelivery) }
+    }
+    return { kind: 'none' }
+}

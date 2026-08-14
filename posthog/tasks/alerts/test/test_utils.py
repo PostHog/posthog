@@ -287,7 +287,7 @@ class TestDisableInvalidAlert(APIBaseTest):
         )
         self.alert.subscribed_users.add(self.user)
 
-    @patch("posthog.tasks.alerts.utils.send_notifications_for_disabled", side_effect=RuntimeError("smtp down"))
+    @patch("posthog.tasks.alerts.utils.send_alert_email", side_effect=RuntimeError("smtp down"))
     def test_disable_invalid_alert_records_nothing_when_send_fails(self, _mock_send: MagicMock) -> None:
         with pytest.raises(RuntimeError):
             disable_invalid_alert(self.alert, reason="bad config")
@@ -296,7 +296,7 @@ class TestDisableInvalidAlert(APIBaseTest):
         assert check.targets_notified == {}
         assert check.notification_sent_at is None
 
-    @patch("posthog.tasks.alerts.utils.send_notifications_for_disabled")
+    @patch("posthog.tasks.alerts.utils.send_alert_email")
     def test_disable_invalid_alert_records_receipts_after_send(self, mock_send: MagicMock) -> None:
         check = disable_invalid_alert(self.alert, reason="bad config")
 

@@ -399,13 +399,14 @@ def record_alert_delivery(alert: AlertConfiguration, alert_check: AlertCheck, de
     """
     if not deliveries:
         return False
+    recorded_at = datetime.now(UTC)
     alert_check.targets_notified = {
         "users": [delivery.target for delivery in deliveries if delivery.channel == "email"]
     }
     alert_check.deliveries = serialize_deliveries(deliveries)
-    alert_check.notification_sent_at = datetime.now(UTC)
+    alert_check.notification_sent_at = recorded_at
     alert_check.save(update_fields=["targets_notified", "deliveries", "notification_sent_at"])
-    alert.last_notified_at = datetime.now(UTC)
+    alert.last_notified_at = recorded_at
     alert.save(update_fields=["last_notified_at"])
     return True
 
@@ -481,17 +482,12 @@ def disable_invalid_alert(alert: AlertConfiguration, reason: str) -> AlertCheck:
         error={"message": reason},
     )
     if targets_to_notify:
-        send_notifications_for_disabled(alert, reason, targets_to_notify)
-        accepted_at = datetime.now(UTC).isoformat()
-        record_alert_delivery(
-            alert,
-            alert_check,
-            [AlertDelivery(channel="email", target=target, at=accepted_at) for target in targets_to_notify],
-        )
+        deliveries = send_notifications_for_disabled(alert, reason, targets_to_notify)
+        record_alert_delivery(alert, alert_check, deliveries)
     return alert_check
 
 
-def send_notifications_for_disabled(alert: AlertConfiguration, reason: str, targets: list[str]) -> None:
+def send_notifications_for_disabled(alert: AlertConfiguration, reason: str, targets: list[str]) -> list[AlertDelivery]:
     logger.info("Sending alert disabled notification", alert_id=alert.id, reason=reason)
 
     subject = f"PostHog alert {alert.name} for {alert.team.name} has been disabled"
@@ -512,3 +508,5 @@ def send_notifications_for_disabled(alert: AlertConfiguration, reason: str, targ
             "project_name": alert.team.name,
         },
     )
+    accepted_at = datetime.now(UTC).isoformat()
+    return [AlertDelivery(channel="email", target=target, at=accepted_at) for target in targets]
