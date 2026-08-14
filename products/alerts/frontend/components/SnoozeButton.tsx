@@ -23,25 +23,25 @@ export function SnoozeButton({ onChange, onClear, value, disabledReason }: Snooz
         )
     }
 
-    let footerComponent: ((onClose: () => void) => JSX.Element) | undefined
-    if (onClear && value) {
-        footerComponent = (onClose) => (
-            <>
-                <LemonDivider />
-                <LemonButton
-                    onClick={() => {
-                        onClear()
-                        onClose()
-                    }}
-                    size="medium"
-                    status="danger"
-                    fullWidth
-                >
-                    Clear snooze
-                </LemonButton>
-            </>
-        )
-    }
+    const footerComponent =
+        onClear && value
+            ? (onClose: () => void): JSX.Element => (
+                  <>
+                      <LemonDivider />
+                      <LemonButton
+                          onClick={() => {
+                              onClear()
+                              onClose()
+                          }}
+                          size="medium"
+                          status="danger"
+                          fullWidth
+                      >
+                          Clear snooze
+                      </LemonButton>
+                  </>
+              )
+            : undefined
 
     return (
         <div className="flex items-center gap-2">
