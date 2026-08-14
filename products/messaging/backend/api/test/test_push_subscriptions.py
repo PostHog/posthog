@@ -11,6 +11,7 @@ from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import ec
 from parameterized import parameterized
 from rest_framework import status
+from structlog.testing import capture_logs
 
 from posthog.models.integration import Integration
 from posthog.models.team.team import Team
@@ -331,6 +332,19 @@ class TestPushSubscriptionsAPI(BaseTest):
                 }
             )
             assert response.status_code == status.HTTP_200_OK
+
+    def test_unconfigured_app_is_logged_once_per_window(self):
+        # The log names the project behind a flood, so it has to survive. It also has to stay bounded:
+        # a line per rejection would put one line per device launch into Loki, which is the noise this
+        # endpoint already generates.
+        with capture_logs() as logs:
+            for _ in range(push_subscriptions._UNCONFIGURED_THROTTLE_LIMIT + 5):
+                self._post({**self.UNCONFIGURED_PAYLOAD})
+
+        unconfigured_logs = [log for log in logs if log["event"] == "push_subscription_unconfigured"]
+        assert len(unconfigured_logs) == 1
+        assert unconfigured_logs[0]["team_id"] == self.team.id
+        assert unconfigured_logs[0]["app_id"] == "nonexistent-project"
 
     @patch("products.messaging.backend.api.push_subscriptions.cache")
     def test_throttle_fails_open_when_the_cache_is_unavailable(self, mock_cache: MagicMock):
