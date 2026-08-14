@@ -66948,7 +66948,7 @@ export namespace Schemas {
     }
 
     export interface QuotaResourceLimit {
-      /** True when the team is currently over its quota for this resource and limits are in effect. */
+      /** True when the team is currently over its quota for this resource and limits are in effect. A deactivated organization additionally reads as limited on the two credit buckets `ai_credits` and `posthog_code_credits`, regardless of usage. */
       limited: boolean;
       /**
          * Units of this resource the organization has used so far this billing period, in the resource's native unit (credits for credit buckets). Null when billing hasn't synced usage for the resource.
@@ -66970,7 +66970,7 @@ export namespace Schemas {
     export interface QuotaLimitsResponse {
       /** Per-resource limit state for every `QuotaResource` value, e.g. `ai_credits`, `posthog_code_credits`. Also carries the informational Desktop component resources (`posthog_code_token_credits`, `sandbox_compute_credits`, `sandbox_compute_cpu_millicore_seconds`, `sandbox_compute_memory_mib_seconds`) with usage in their native units, a null limit, and `limited` always false — they are never quota-enforced; only the combined `posthog_code_credits` is. */
       limited: QuotaLimitsResponseLimited;
-      /** Whether the team's organization pays for PostHog Desktop usage: billing grants the `posthog_code_usage` product feature only on the Desktop usage product's paid plan, synced into the organization's available features. Consumers gate paid-tier Desktop behavior on this; an org unknown to billing reads as not paying. */
+      /** Whether the team's organization pays for PostHog Desktop usage: billing grants the `posthog_code_usage` product feature only on the Desktop usage product's paid plan, synced into the organization's available features. Consumers gate paid-tier Desktop behavior on this; an org unknown to billing reads as not paying. Always false for deactivated organizations. */
       code_usage_billing_active: boolean;
     }
 
