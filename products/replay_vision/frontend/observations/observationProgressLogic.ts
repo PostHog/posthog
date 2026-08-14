@@ -125,8 +125,8 @@ export interface observationProgressLogicActions {
         message: string,
         code: string
     ) => {
-        message: string
         code: string
+        message: string
     }
     startStream: () => {
         value: true
