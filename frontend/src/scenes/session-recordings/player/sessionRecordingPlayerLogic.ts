@@ -1628,10 +1628,12 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                         return SessionPlayerState.READY
                     case isSkippingToMatchingEvent && playingState !== SessionPlayerState.PAUSE:
                         return SessionPlayerState.SKIP_TO_MATCHING_EVENT
-                    case isSkippingInactivity && playingState !== SessionPlayerState.PAUSE:
-                        return SessionPlayerState.SKIP
+                    // Buffering outranks inactivity skip because while skipping we may hold no frame to
+                    // draw, and "Skipping inactivity" over an empty frame reads as a lost recording.
                     case isBuffering:
                         return SessionPlayerState.BUFFER
+                    case isSkippingInactivity && playingState !== SessionPlayerState.PAUSE:
+                        return SessionPlayerState.SKIP
                     default:
                         return playingState
                 }
@@ -2361,7 +2363,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             if (timestamp == null) {
                 return
             }
-            // Gates on the raw isBuffering reducer rather than currentPlayerState === BUFFER — other states (e.g. SKIP while skipping inactivity) outrank BUFFER in that selector and would otherwise mask the exit forever.
+            // Gates on the raw isBuffering reducer rather than currentPlayerState === BUFFER, because other states (e.g. SKIP_TO_MATCHING_EVENT) outrank BUFFER in that selector and would otherwise mask the exit forever.
             if (!reposition && !values.isBuffering) {
                 return
             }

@@ -165,8 +165,10 @@ export function PurePlayer({ noMeta = false, noBorder = false }: PurePlayerProps
                 })
             }
         },
+        // leadingUnplayableMs refines as snapshots load, so depend on it to log the span we actually show
+        // rather than the first optimistic value captured when hasLateFullSnapshot flipped.
         // eslint-disable-next-line react-hooks/exhaustive-deps
-        [hasLateFullSnapshot]
+        [hasLateFullSnapshot, leadingUnplayableMs]
     )
 
     // Track if the recording has ended to be able to reliably get it from the BE and stop the recording

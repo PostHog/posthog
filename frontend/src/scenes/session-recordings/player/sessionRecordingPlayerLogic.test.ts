@@ -15,7 +15,7 @@ import { makeLogger } from 'scenes/session-recordings/player/utils/player-loggin
 import { urls } from 'scenes/urls'
 
 import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
-import { ExporterFormat, RecordingSegment, RecordingSnapshot } from '~/types'
+import { ExporterFormat, RecordingSegment, RecordingSnapshot, SessionPlayerState } from '~/types'
 
 import { deletedRecordingsLogic } from '../deletedRecordingsLogic'
 import { sessionRecordingEventUsageLogic } from '../sessionRecordingEventUsageLogic'
@@ -862,6 +862,30 @@ describe('sessionRecordingPlayerLogic', () => {
                 expect(logic.values.hasLateFullSnapshot).toBe(expectedHasLate)
             }
         )
+
+        describe('currentPlayerState precedence while skipping inactivity', () => {
+            // While the player fast-forwards leading inactivity, buffering must outrank SKIP: a
+            // buffering skip has no frame to draw, so "Skipping inactivity" over an empty frame reads
+            // as a lost recording. A full snapshot at the start keeps playback in PLAY, so the skip
+            // case is eligible and the precedence is what is actually under test.
+            beforeEach(() => {
+                seedRecording([fs(START), inc(START + 1000)], [inc(LATE_FS_TS)])
+                logic.actions.setPlay()
+                logic.actions.setSkippingInactivity(true)
+            })
+
+            it('reports BUFFER over an eligible SKIP when there is no frame to draw', () => {
+                logic.actions.startBuffer()
+
+                expect(logic.values.currentPlayerState).toBe(SessionPlayerState.BUFFER)
+            })
+
+            it('reports SKIP when a frame is drawn', () => {
+                logic.actions.endBuffer()
+
+                expect(logic.values.currentPlayerState).toBe(SessionPlayerState.SKIP)
+            })
+        })
     })
 
     describe('delete session recording', () => {
