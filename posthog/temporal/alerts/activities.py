@@ -432,7 +432,9 @@ async def record_failed_evaluation(inputs: RecordFailedEvaluationActivityInputs)
         return await _record()
 
 
-def dispatch_alert_firing_realtime_notification(alert: AlertConfiguration, breaches: list[str]) -> None:
+def dispatch_alert_firing_realtime_notification(
+    alert: AlertConfiguration, alert_check: AlertCheck, breaches: list[str]
+) -> None:
     """Fan out one realtime in-app notification per subscribed user when an alert fires.
 
     Exceptions are caught and logged internally so a realtime delivery failure does not
@@ -459,6 +461,9 @@ def dispatch_alert_firing_realtime_notification(alert: AlertConfiguration, breac
                     source_url=source_url,
                     source_type=SourceType.INSIGHT,
                     source_id=str(alert.insight.short_id),
+                    # A dispatch that accepted nothing leaves targets_notified empty, so a
+                    # retried activity reaches this again; dedupe here rather than on that.
+                    idempotency_key=f"alert-firing:{alert_check.id}:{user_id}",
                 )
             )
     except Exception:
@@ -548,10 +553,10 @@ async def notify_alert(inputs: NotifyAlertActivityInputs) -> None:
             # need to dispatch, and the gating path relies on it for idempotency.
             record_alert_delivery(alert, alert_check, deliveries)
 
-        # Realtime in-app dispatch sits AFTER record_alert_delivery so a Temporal retry
-        # past this point sees `targets_notified` populated and skips the whole _notify.
+        # Both in-app paths dedupe on their own idempotency key, so neither depends on
+        # record_alert_delivery having written the sentinel.
         if alert_check.state == AlertState.FIRING.value and inputs.breaches:
-            dispatch_alert_firing_realtime_notification(alert, inputs.breaches)
+            dispatch_alert_firing_realtime_notification(alert, alert_check, inputs.breaches)
         elif alert_check.state == AlertState.ERRORED.value:
             dispatch_alert_error_in_app_notifications(alert, alert_check)
 
