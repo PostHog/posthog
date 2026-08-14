@@ -118,7 +118,7 @@ const SERVERS: MCPGatewayServerApi[] = [
 
 function gatewayMocks(servers: MCPGatewayServerApi[], accounts: MCPServiceAccountApi[]): Record<string, any> {
     return {
-        '/api/projects/:team_id/mcp_gateway/config/': {},
+        '/api/projects/:team_id/mcp_gateway/config/': { allow_member_agent_access: true },
         '/api/projects/:team_id/mcp_gateway/servers/': {
             count: servers.length,
             next: null,

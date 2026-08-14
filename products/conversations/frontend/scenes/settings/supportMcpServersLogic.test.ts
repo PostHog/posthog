@@ -111,7 +111,7 @@ function account(
 function mockGateway(servers: MCPGatewayServerApi[], accounts: MCPServiceAccountApi[]): void {
     useMocks({
         get: {
-            '/api/projects/:team_id/mcp_gateway/config/': () => [200, {}],
+            '/api/projects/:team_id/mcp_gateway/config/': () => [200, { allow_member_agent_access: true }],
             '/api/projects/:team_id/mcp_gateway/servers/': () => [
                 200,
                 { count: servers.length, next: null, previous: null, results: servers },
