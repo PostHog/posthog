@@ -225,6 +225,25 @@ class TestListActiveAlertDestinations(APIBaseTest):
 
         assert [d.name for d in destinations] == [expected]
 
+    @parameterized.expand(
+        [
+            ("userinfo_credentials_are_dropped", "https://user:s3cret@hooks.example.com/hook", "hooks.example.com"),
+            ("uppercase_scheme_is_matched", "HTTPS://hooks.example.com/services/secret", "hooks.example.com"),
+            ("non_http_scheme_is_matched", "ftp://hooks.example.com/secret", "hooks.example.com"),
+            ("port_is_dropped", "https://hooks.example.com:8443/secret", "hooks.example.com"),
+        ]
+    )
+    def test_receipt_names_keep_only_the_url_host(self, _name: str, url: str, expected_host: str) -> None:
+        self._make_hog_function(
+            template_id="template-webhook", alert_id="alert-1", name=f"Alerts — X (firing) → Webhook {url}"
+        )
+
+        destinations = list_active_alert_destinations(
+            team_id=self.team.id, alert_id="alert-1", allowed_event_ids=("$logs_alert_firing",)
+        )
+
+        assert [d.name for d in destinations] == [f"Webhook {expected_host}"]
+
     def test_list_active_alert_destinations_strips_webhook_urls_to_host(self) -> None:
         # Webhook names embed the full URL, whose path is the channel credential —
         # receipts surface in the API and tooltip, so only the host may survive.

@@ -7,6 +7,7 @@ from collections.abc import Collection, Sequence
 from dataclasses import asdict, dataclass
 from datetime import datetime
 from typing import Any
+from urllib.parse import urlsplit
 from uuid import UUID
 
 from django.db import transaction
@@ -161,13 +162,21 @@ def count_active_alert_destinations(*, team_id: int, alert_id: str, allowed_even
 # Webhook-style destination names embed the full webhook URL, whose path is a channel
 # credential (Slack/Discord/Teams webhook secret). Receipts flow into the API and the
 # History tooltip, so keep only the host.
-_URL_IN_NAME_RE = re.compile(r"https?://([^/\s]+)\S*")
+_URL_IN_NAME_RE = re.compile(r"\b[a-z][a-z0-9+.-]*://\S+", re.IGNORECASE)
 
 _DESTINATION_NAME_SEPARATOR = " → "
 
 
+def _url_host(match: re.Match[str]) -> str:
+    # hostname, not the raw authority: it drops any user:password@ prefix.
+    try:
+        return urlsplit(match.group(0)).hostname or "destination"
+    except ValueError:
+        return "destination"
+
+
 def _receipt_safe_name(name: str) -> str:
-    return _URL_IN_NAME_RE.sub(r"\1", name)
+    return _URL_IN_NAME_RE.sub(_url_host, name)
 
 
 def _destination_display_name(name: str) -> str:
