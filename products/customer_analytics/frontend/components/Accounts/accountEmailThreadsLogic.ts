@@ -124,7 +124,7 @@ export const accountEmailThreadsLogic = kea<accountEmailThreadsLogicType>([
         threadsResult: [
             NOT_LOADED,
             {
-                loadThreads: async (_, breakpoint): Promise<AccountEmailThreadsResult> => {
+                loadThreads: async (_ = null, breakpoint): Promise<AccountEmailThreadsResult> => {
                     let response: Awaited<ReturnType<typeof accountsEmailThreadsList>>
                     try {
                         response = await accountsEmailThreadsList(String(values.currentTeamId), props.accountId, {
