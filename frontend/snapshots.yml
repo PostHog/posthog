@@ -6099,7 +6099,7 @@ snapshots:
     scenes-app-experiments--experiment-with-multi-step-funnel-metric--dark:
         hash: v1.k794b7964.6c73e20e6bcfbd467e8e9dea7f6cbcd9d05ba8f99b99879a366d5fc14ae1d296.6QHCgNYcXclmThjruFfmFpJsfM5oode4JC1elbpZ-rE
     scenes-app-experiments--experiment-with-multi-step-funnel-metric--light:
-        hash: v1.k794b7964.97d7402f9b51d0c2d446c61c0022bb257b60230ee9ef045fb98f9a6f6881021a.u-DOTSJ-2l7aMIVwI4CBomzduA0B_q6-6kfVwbLKl5M
+        hash: v1.k794b7964.0f81873b7b3e44139ef64b33d35aaa9c9857943789e7f88fe0dd8eb9d84b6125.0yFYuT8reEOckBG0v7K4CTlrcHgCWGlaDbiVhp7Euck
     scenes-app-experiments--experiment-with-multiple-metrics--dark:
         hash: v1.k794b7964.935a9474cbc0ab0c65ece0051d8ebc3a88c8f40de3bb8a7a7621dbe1766a4105.2TXN7Cqx8Qd7XzXBjoaslAsm-r4qbXmG0Vlch8j6ph0
     scenes-app-experiments--experiment-with-multiple-metrics--light:
@@ -6433,9 +6433,9 @@ snapshots:
     scenes-app-inbox-scene--empty-with-many-scouts--light:
         hash: v1.k794b7964.4757fdc3e6603cc7752cffdf45421aa24d8551754e9b5cca04569ed5c9577a26.k0mDZb6DY2eTMFjNrG2mi_0Dbhcrho9A4MhjjH5KlCM
     scenes-app-inbox-scene--inbox--dark:
-        hash: v1.k794b7964.7ade0c95519de555691da00b03aaa9aeea1ba0c32762354222d23676099ea0da.OmzLebXW_1EJ-lRFDeh7flQ6cl3OqskJfVarjDu4FQc
+        hash: v1.k794b7964.6938f54b10a00b66cd90158043512d6b056ac3bf97e291fa5961529af56ba084.noXScllvtHLNl8e7c7bKckMTjf-O9lC0OuvKdUKVT7o
     scenes-app-inbox-scene--inbox--light:
-        hash: v1.k794b7964.cd4a9d438b8342df350fcc8de14e27707c460e73d08772f90fec51dcb346858d.pXZHp6MatJwXk0M_5UL2njnpvO02KcZWmTtPqoeaj6E
+        hash: v1.k794b7964.21ae4235f9bc3c8f39fc33259edc39f53e06baaeb37f679f3badd771b986b86a.AoPLxHhT6028ylYpVRlXQUVgqm6ckEBiLWWwCovU7DQ
     scenes-app-inbox-scene--installing-self-driving--dark:
         hash: v1.k794b7964.d2c648fd6ea8079c6746f4b5e979cac53dbd928dd06990c3bac2031eeaba12be.rCs94UBn0krUWBSp28BM_f7Jo4Smc85JTXR_iWzDjoY
     scenes-app-inbox-scene--installing-self-driving--light:
