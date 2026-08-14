@@ -67,6 +67,26 @@ struct InFlightBatch {
     handle: JoinHandle<anyhow::Result<ProcessedBatch>>,
 }
 
+/// RAII guard for the `ingestion_consumer_in_flight_batches` gauge, held by a
+/// batch's processing task for exactly as long as the batch is processed. The
+/// consumer loop joins finished tasks lazily (only at the concurrency cap or
+/// after an empty collect), so deque length would keep counting batches that
+/// already finished and pin the gauge near the cap under any sustained load.
+struct BatchProcessingGuard;
+
+impl BatchProcessingGuard {
+    fn new() -> Self {
+        gauge!("ingestion_consumer_in_flight_batches").increment(1.0);
+        Self
+    }
+}
+
+impl Drop for BatchProcessingGuard {
+    fn drop(&mut self) {
+        gauge!("ingestion_consumer_in_flight_batches").decrement(1.0);
+    }
+}
+
 /// Options for constructing an [`IngestionConsumer`] from pre-built parts.
 /// Used in integration tests where the Kafka consumer is created externally.
 pub struct IngestionConsumerOptions {
@@ -246,10 +266,6 @@ impl IngestionConsumer {
         let mut accepting_new_batches = true;
 
         while accepting_new_batches || !in_flight_batches.is_empty() {
-            // Consumer-level concurrency: how many Kafka batches are being
-            // processed in parallel, bounded by `max_in_flight_batches`.
-            gauge!("ingestion_consumer_in_flight_batches").set(in_flight_batches.len() as f64);
-
             if accepting_new_batches && in_flight_batches.len() < self.max_in_flight_batches {
                 tokio::select! {
                     _ = self.handle.shutdown_recv() => {
@@ -312,7 +328,9 @@ impl IngestionConsumer {
         let group_id = self.group_id.clone();
         let max_batch_size = self.batch_size;
 
+        let guard = BatchProcessingGuard::new();
         let handle = tokio::spawn(async move {
+            let _guard = guard;
             Self::process_collected_batch(
                 collected,
                 task_batch_id,
