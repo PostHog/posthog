@@ -2919,3 +2919,29 @@ class TestSQLV2RunWithNotebookVariables(APIBaseTest):
         self.assertEqual(response.status_code, 200)
         run = NotebookNodeRun.objects.for_team(self.team.id).get(id=response.json()["run_id"])
         self.assertEqual(run.code, "select 1")
+
+    @patch("products.notebooks.backend.presentation.views.notebook.get_direct_connection_source")
+    @patch("products.notebooks.backend.presentation.views.notebook.start_sql_v2_run_workflow")
+    @patch("products.notebooks.backend.presentation.views.notebook.enqueue_direct_run")
+    @patch("products.notebooks.backend.presentation.views.notebook.is_sql_v2_enabled", return_value=True)
+    def test_a_raw_connection_query_refuses_variables(
+        self, _mock_enabled, mock_enqueue, mock_start, mock_source
+    ) -> None:
+        # Quote doubling is not a safe escape on every engine a connection can point at, so the
+        # dispatch is refused rather than run with a hand-rolled literal.
+        mock_source.return_value = object()
+        response = self.client.post(
+            self.run_url,
+            data={
+                "node_id": "n1",
+                "code": "select * from t where c = {country}",
+                "connection_id": "018e0e7a-9999-8888-7777-666666666666",
+                "send_raw_query": True,
+                "variables": [{"name": "country", "type": "string", "value": "US"}],
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, 400, response.json())
+        self.assertIn("raw query", response.json()["detail"])
+        mock_enqueue.assert_not_called()
+        mock_start.assert_not_called()

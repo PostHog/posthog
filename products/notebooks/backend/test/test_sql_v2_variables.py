@@ -13,6 +13,7 @@ from products.notebooks.backend.sql_v2_variables import (
     NotebookVariableError,
     build_notebook_variables,
     python_variable_bindings,
+    reject_variables_in_raw_query,
     substitute_hogql_variables,
     substitute_text_variables,
 )
@@ -202,3 +203,26 @@ class TestResolveSqlNodeRunWithVariables(SimpleTestCase):
         self.assertEqual(node_type, "hogql")
         self.assertIn("30", run_code)
         self.assertIn("df1 AS (", run_code)
+
+
+class TestRejectVariablesInRawQuery(SimpleTestCase):
+    def test_a_raw_query_reading_a_variable_is_refused(self):
+        # Escaping differs by engine and by server setting — MySQL treats a backslash as an
+        # escape, so quote doubling alone would let `\' OR 1=1 -- ` close the literal and run
+        # as SQL. Refusing is what keeps a hand-rolled escape out of the raw lane.
+        with self.assertRaises(NotebookVariableError) as error:
+            reject_variables_in_raw_query("select * from t where c = {country}", [COUNTRY])
+        self.assertIn("raw query", str(error.exception))
+        self.assertIn("country", str(error.exception))
+
+    @parameterized.expand(
+        [
+            # Raw SQL may use braces for its own purposes, so an unknown name is not ours to reject.
+            ("an undeclared name", "select {not_a_variable}"),
+            ("a name inside a string literal", "select '{country}' as label"),
+            ("a name inside a comment", "-- {country}\nselect 1"),
+            ("no braces at all", "select * from t"),
+        ]
+    )
+    def test_leaves_a_query_alone(self, _name: str, code: str) -> None:
+        reject_variables_in_raw_query(code, [COUNTRY])

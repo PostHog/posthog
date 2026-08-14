@@ -97,7 +97,7 @@ from products.notebooks.backend.sql_v2_variables import (
     NotebookVariableError,
     build_notebook_variables,
     python_variable_bindings,
-    substitute_text_variables,
+    reject_variables_in_raw_query,
 )
 from products.notebooks.backend.temporal.client import start_sql_v2_run_workflow
 from products.notebooks.backend.temporal.sql_v2 import SQLV2RunInput
@@ -1261,9 +1261,10 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
                 run_code, inputs = code, resolve_python_node_inputs(code, refs)
             elif send_raw_query:
                 # Raw SQL is the connection's own dialect, so the HogQL parser can't read it and
-                # there is nothing to inline: variable values go in as escaped literals, and the
-                # rest reaches the engine exactly as written.
-                run_code, inputs = substitute_text_variables(code, variables), []
+                # there is nothing to inline: it reaches the engine exactly as written. Variables
+                # are refused here rather than escaped by hand — see reject_variables_in_raw_query.
+                reject_variables_in_raw_query(code, variables)
+                run_code, inputs = code, []
             else:
                 # A SQL node pushes to ClickHouse — unless it references a local frame, which
                 # reroutes it to the sandbox's DuckDB (Journey 5).

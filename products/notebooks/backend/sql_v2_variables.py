@@ -124,11 +124,12 @@ def substitute_hogql_variables(code: str, variables: list[NotebookVariable]) -> 
 
 
 def _sql_literal(value: NotebookVariableValue) -> str:
-    """Render a value as a SQL literal for an engine whose dialect we cannot parse.
+    """Render a value as a DuckDB literal.
 
-    Single-quote doubling is the SQL-standard string escape and is accepted by every engine
-    behind a direct connection, as well as by DuckDB. Numbers and booleans need no quoting;
-    dates go as quoted strings, which every engine casts on comparison.
+    DuckDB follows the SQL standard for string literals: a backslash is an ordinary character
+    and `''` is the only escape, so doubling quotes is sufficient. Do not reuse this for an
+    arbitrary engine — MySQL enables backslash escapes by default, where `\\'` would consume
+    the first of a doubled pair and let the second close the literal.
     """
     if value is None:
         return "NULL"
@@ -148,11 +149,36 @@ def _quoted(text: str) -> str:
     return "'" + text.replace("'", "''") + "'"
 
 
-def substitute_text_variables(code: str, variables: list[NotebookVariable]) -> str:
-    """Bind notebook variables into non-HogQL SQL (DuckDB, or a raw connection query).
+def reject_variables_in_raw_query(code: str, variables: list[NotebookVariable]) -> None:
+    """Raise if a raw-connection query reads a notebook variable.
 
-    There is no AST for these dialects, so each `{name}` becomes an escaped literal. Names
-    inside string literals and comments are left alone, matching the reference scan.
+    A raw query is the target engine's own dialect, and escaping rules differ by engine and by
+    server setting — MySQL treats a backslash as an escape unless NO_BACKSLASH_ESCAPES is set,
+    so a shared quote-doubling helper is not safe there. Binding these values needs the driver's
+    own parameter binding, which the direct-query path does not carry yet, so the run is refused
+    rather than run with a hand-rolled escape.
+
+    Only declared names are rejected: raw SQL may use braces for its own purposes, and a query
+    that reads no variable is left completely alone.
+    """
+    if not _BARE_PLACEHOLDER.search(code):
+        return
+
+    declared = {variable.name for variable in variables}
+    scannable = _SQL_LITERALS_AND_COMMENTS.sub(lambda match: " " * len(match.group(0)), code)
+    used = sorted({match.group(1) for match in _BARE_PLACEHOLDER.finditer(scannable)} & declared)
+    if used:
+        raise NotebookVariableError(
+            f"Notebook variables ({', '.join(used)}) can't be used in a raw query. "
+            "Turn off 'send raw query' to run it as HogQL, or write the value into the SQL."
+        )
+
+
+def substitute_text_variables(code: str, variables: list[NotebookVariable]) -> str:
+    """Bind notebook variables into a DuckDB query, which has no HogQL AST.
+
+    Each `{name}` becomes an escaped literal (`_sql_literal`). Names inside string literals and
+    comments are left alone, matching the reference scan. DuckDB only — see `_sql_literal`.
     """
     if not _BARE_PLACEHOLDER.search(code):
         return code
