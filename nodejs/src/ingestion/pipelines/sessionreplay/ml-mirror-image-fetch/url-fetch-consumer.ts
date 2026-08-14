@@ -47,10 +47,13 @@ export class UrlFetchConsumer {
             )
         }
         // A NaN TTL would not disable expiry: SET with EX NaN fails per command, so every ledger
-        // write fails and the lane stops recording while looking healthy.
-        if (!Number.isInteger(options.seenTtlSeconds) || options.seenTtlSeconds <= 0) {
+        // write fails and the lane stops recording while looking healthy. The hour floor catches
+        // unit suffixes, which the env parser truncates rather than rejects: "7d" parses to 7, and
+        // a 7-second TTL empties the ledger as fast as it fills, so nothing dedups.
+        if (!Number.isInteger(options.seenTtlSeconds) || options.seenTtlSeconds < 60 * 60) {
             throw new Error(
-                `SESSION_RECORDING_ML_IMAGE_FETCH_SEEN_TTL_SECONDS must be a positive integer, got ${options.seenTtlSeconds}`
+                `SESSION_RECORDING_ML_IMAGE_FETCH_SEEN_TTL_SECONDS must be an integer of at least 3600, got ` +
+                    `${options.seenTtlSeconds} (a unit suffix like "7d" parses as 7: give the value in seconds)`
             )
         }
         if (!options.dryRun && !runner) {

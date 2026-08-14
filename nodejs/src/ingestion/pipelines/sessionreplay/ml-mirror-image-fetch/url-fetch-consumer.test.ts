@@ -131,9 +131,10 @@ describe('UrlFetchConsumer', () => {
         ).toThrow('SESSION_RECORDING_ML_IMAGE_FETCH_MAX_AGE_MS')
     })
 
-    it.each([NaN, 0, -1, 1.5])('refuses to start with a seen TTL of %p', (seenTtlSeconds) => {
-        // The TTL arrives from env, where a typo parses to NaN. SET with a NaN expiry fails per
-        // command, so every ledger write would fail while the lane looks healthy.
+    it.each([NaN, 0, -1, 1.5, 7, 3599])('refuses to start with a seen TTL of %p', (seenTtlSeconds) => {
+        // The TTL arrives from env, where a typo parses to NaN and a unit suffix truncates: "7d"
+        // parses to 7, and a 7-second TTL empties the ledger as fast as it fills. SET with a NaN
+        // expiry fails per command, so every ledger write would fail while the lane looks healthy.
         expect(
             () =>
                 new UrlFetchConsumer(crawlHistory, publisher, {
