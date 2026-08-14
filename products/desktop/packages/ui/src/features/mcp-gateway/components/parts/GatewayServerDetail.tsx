@@ -30,11 +30,11 @@ import {
 } from "@posthog/core/mcp-gateway/gatewayServers";
 import { usableInstallationId } from "@posthog/core/mcp-gateway/gatewayToolDiscovery";
 import { useOptionalAuthenticatedClient } from "@posthog/ui/features/auth/authClient";
+import { UserAvatar } from "@posthog/ui/features/auth/UserAvatar";
 import { useCurrentUser } from "@posthog/ui/features/auth/useCurrentUser";
 import {
   gatewayUserName,
   RobotAvatar,
-  UserAvatar,
 } from "@posthog/ui/features/mcp-gateway/components/parts/avatars";
 import { GatewayConnectDialog } from "@posthog/ui/features/mcp-gateway/components/parts/GatewayConnectDialog";
 import { GatewayDeleteServerDialog } from "@posthog/ui/features/mcp-gateway/components/parts/GatewayDeleteServerDialog";
@@ -878,7 +878,7 @@ function AccessSection({
                       accessRevoked ? "bg-gray-2 opacity-60" : ""
                     }`}
                   >
-                    <UserAvatar user={connection.user} />
+                    <UserAvatar user={connection.user} size="sm" />
                     <Flex direction="column" className="min-w-0 flex-1">
                       <Flex align="center" gap="2">
                         <Text truncate className="font-medium text-sm">

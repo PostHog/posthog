@@ -18,6 +18,9 @@ from temporalio.exceptions import ActivityError, ApplicationError
 
 from posthog.exceptions_capture import capture_exception
 from posthog.models import ProxyRecord
+from posthog.models.proxy_record import is_valid_proxy_domain
+from posthog.security.pinned_requests import select_pinned_ip
+from posthog.security.url_validation import validate_url_and_pin_ips
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.client import async_connect
 from posthog.temporal.common.logger import get_logger
@@ -289,6 +292,16 @@ async def check_proxy_is_live(inputs: CheckActivityInput) -> CheckActivityOutput
 
 
 def _probe_proxy(proxy_record: ProxyRecord) -> CheckActivityOutput:
+    # Records created before the serializer validated this field can hold a value that a DNS
+    # resolver and a URL parser read as two different hosts, so the probes below would report on a
+    # host nobody configured. The check runs unattended and its outcome is visible on the record.
+    if not is_valid_proxy_domain(proxy_record.domain):
+        return CheckActivityOutput(
+            errors=["Proxy domain is not a plain hostname; recreate this proxy record"],
+            warnings=[],
+        )
+    probe_base = f"https://{proxy_record.domain}"
+
     # send dummy event to check the proxy is working
     try:
         # allow_redirects=False is a security boundary: the domain is attacker-controllable
@@ -298,7 +311,7 @@ def _probe_proxy(proxy_record: ProxyRecord) -> CheckActivityOutput:
         # as the on-demand diagnostics probe in posthog/api/proxy_record_diagnostics.py
         # (_check_live_event).
         response = requests.post(
-            f"https://{proxy_record.domain}/i/v0/e/",
+            f"{probe_base}/i/v0/e/",
             headers={"Content-Type": "application/json"},
             data=json.dumps({"event": "test", "api_key": "test", "distinct_id": "test"}),
             timeout=PROXY_LIVE_CHECK_TIMEOUT_S,
@@ -321,9 +334,25 @@ def _probe_proxy(proxy_record: ProxyRecord) -> CheckActivityOutput:
         # create_connection carries PROXY_LIVE_CHECK_TIMEOUT_S into the connect and the TLS handshake so
         # an attacker-controlled domain can't stall this raw socket the way it could the POST above -
         # same guard, same reason. Mirrors _check_cert_expiry in proxy_record_diagnostics.py.
+        #
+        # A raw socket carries no proxy settings, so the egress proxy that covers the POST above
+        # does not see this connection. Validate and pin the address here instead: this resolution
+        # is its own, separate from whatever the POST resolved, so the domain can answer the first
+        # lookup correctly and point somewhere internal by this one. SNI stays on the hostname so
+        # certificate verification still checks the name the customer configured.
+        allowed, _reason, pinned_ips = validate_url_and_pin_ips(f"{probe_base}/")
+        if not allowed:
+            return CheckActivityOutput(
+                errors=["Proxy domain does not resolve to a public address"],
+                warnings=[],
+            )
+        chosen_ip = select_pinned_ip(pinned_ips)
+        # An empty set means validation was bypassed (dev mode), so fall back to the hostname.
+        connect_host = str(chosen_ip) if chosen_ip is not None else proxy_record.domain
+
         ctx = ssl.create_default_context()
         ctx.minimum_version = ssl.TLSVersion.TLSv1_2
-        with socket.create_connection((proxy_record.domain, 443), timeout=PROXY_LIVE_CHECK_TIMEOUT_S) as sock:
+        with socket.create_connection((connect_host, 443), timeout=PROXY_LIVE_CHECK_TIMEOUT_S) as sock:
             with ctx.wrap_socket(sock, server_hostname=proxy_record.domain) as s:
                 cert = s.getpeercert()
         if cert is None:

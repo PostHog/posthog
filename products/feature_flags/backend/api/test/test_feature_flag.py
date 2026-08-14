@@ -26,6 +26,7 @@ from parameterized import parameterized
 from prometheus_client import REGISTRY
 from rest_framework import status
 from rest_framework.relations import ManyRelatedField
+from rest_framework.response import Response
 
 from posthog import redis
 from posthog.api.cohort import BATCH_FLAG_EVALUATION_PAGE_ATTEMPTS, get_cohort_actors_for_feature_flag
@@ -36,6 +37,7 @@ from posthog.models.group.util import create_group
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.project_secret_api_key import ProjectSecretAPIKey
+from posthog.models.team.extensions import get_or_create_team_extension
 from posthog.models.team.team import Team
 from posthog.models.utils import generate_random_token_personal, hash_key_value
 from posthog.test.db_context_capturing import capture_db_queries
@@ -59,11 +61,8 @@ from products.feature_flags.backend.encrypted_flag_payloads import (
     get_decrypted_flag_payload,
 )
 from products.feature_flags.backend.flag_status import FeatureFlagStatus
-from products.feature_flags.backend.models.feature_flag import (
-    FeatureFlag,
-    FeatureFlagDashboards,
-    get_feature_flags_for_team_in_cache,
-)
+from products.feature_flags.backend.models.feature_flag import FeatureFlag, FeatureFlagDashboards
+from products.feature_flags.backend.models.team_feature_flags_config import TeamFeatureFlagsConfig
 from products.feature_flags.backend.user_blast_radius import get_user_blast_radius, get_user_blast_radius_persons
 from products.product_analytics.backend.models.insight import Insight
 from products.product_tours.backend.models import ProductTour
@@ -7296,57 +7295,6 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         assert len(response["results"]) == 1
         assert response["results"][0]["key"] == "all_flag"
 
-    @patch("django.db.transaction.on_commit", side_effect=lambda func: func())
-    def test_flag_is_cached_on_create_and_update(self, mock_on_commit):
-        # Ensure empty feature flag list
-        FeatureFlag.objects.all().delete()
-
-        feature_flag = self.client.post(
-            f"/api/projects/{self.team.id}/feature_flags/",
-            data={
-                "name": "Beta feature",
-                "key": "beta-feature",
-                "filters": {
-                    "aggregation_group_type_index": 0,
-                    "groups": [{"rollout_percentage": 65}],
-                },
-            },
-            format="json",
-        ).json()
-
-        flags = get_feature_flags_for_team_in_cache(self.team.id)
-
-        assert flags is not None
-        self.assertEqual(len(flags), 1)
-        self.assertEqual(flags[0].id, feature_flag["id"])
-        self.assertEqual(flags[0].key, "beta-feature")
-        self.assertEqual(flags[0].name, "Beta feature")
-
-        response = self.client.patch(
-            f"/api/projects/{self.team.id}/feature_flags/{feature_flag['id']}",
-            {"name": "XYZ", "key": "red_button"},
-        )
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-
-        flags = get_feature_flags_for_team_in_cache(self.team.id)
-
-        assert flags is not None
-        self.assertEqual(len(flags), 1)
-        self.assertEqual(flags[0].id, feature_flag["id"])
-        self.assertEqual(flags[0].key, "red_button")
-        self.assertEqual(flags[0].name, "XYZ")
-
-        response = self.client.patch(
-            f"/api/projects/{self.team.id}/feature_flags/{feature_flag['id']}",
-            {"deleted": True},
-        )
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-
-        flags = get_feature_flags_for_team_in_cache(self.team.id)
-
-        assert flags is not None
-        self.assertEqual(len(flags), 0)
-
     def test_feature_flag_dashboard(self):
         another_feature_flag = FeatureFlag.objects.create(
             team=self.team,
@@ -11289,182 +11237,6 @@ class TestFeatureFlagEvaluationContexts(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.data["evaluation_contexts"], [])
 
-    @pytest.mark.ee
-    def test_evaluation_contexts_in_cache(self):
-        from products.feature_flags.backend.models.evaluation_context import (
-            EvaluationContext,
-            FeatureFlagEvaluationContext,
-        )
-        from products.feature_flags.backend.models.feature_flag import set_feature_flags_for_team_in_cache
-
-        flag = FeatureFlag.objects.create(
-            team=self.team,
-            key="cached-flag",
-            name="Cached Flag",
-            filters={"groups": [{"properties": [], "rollout_percentage": 100}]},
-            created_by=self.user,
-        )
-
-        # Create evaluation context
-        ctx = EvaluationContext.objects.create(name="app", team=self.team)
-        FeatureFlagEvaluationContext.objects.create(feature_flag=flag, evaluation_context=ctx)
-
-        # Set flags in cache
-        set_feature_flags_for_team_in_cache(self.team.project_id)
-
-        # Get flags from cache
-        cached_flags = get_feature_flags_for_team_in_cache(self.team.project_id)
-        self.assertIsNotNone(cached_flags)
-        assert cached_flags is not None
-        self.assertEqual(len(cached_flags), 1)
-
-        cached_flag = cached_flags[0]
-        self.assertEqual(cached_flag.key, "cached-flag")
-        # Evaluation tag names should be exposed via the property when populated from cache
-        self.assertIsNotNone(cached_flag.evaluation_tag_names)
-        self.assertEqual(cached_flag.evaluation_tag_names, ["app"])
-
-    @parameterized.expand([("with_experiment", True), ("without_experiment", False)])
-    @pytest.mark.ee
-    def test_has_experiment_survives_cache_round_trip(self, _name: str, has_experiment: bool):
-        from products.feature_flags.backend.models.feature_flag import (
-            get_feature_flags_for_team_in_cache,
-            set_feature_flags_for_team_in_cache,
-        )
-
-        flag = FeatureFlag.objects.create(
-            team=self.team,
-            key="round-trip-flag",
-            filters={"groups": [{"properties": [], "rollout_percentage": 100}]},
-            created_by=self.user,
-        )
-        if has_experiment:
-            Experiment.objects.create(team=self.team, name="exp", feature_flag=flag)
-
-        set_feature_flags_for_team_in_cache(self.team.project_id)
-        cached_flags = get_feature_flags_for_team_in_cache(self.team.project_id)
-
-        assert cached_flags is not None
-        cached_flag = next(f for f in cached_flags if f.key == "round-trip-flag")
-        # The cached value is read back without a per-flag experiment query.
-        self.assertEqual(cached_flag._has_experiment, has_experiment)
-
-    @pytest.mark.ee
-    def test_evaluation_contexts_cache_invalidation(self):
-        from products.feature_flags.backend.models.feature_flag import (
-            get_feature_flags_for_team_in_cache,
-            set_feature_flags_for_team_in_cache,
-        )
-
-        flag = FeatureFlag.objects.create(
-            team=self.team,
-            key="cache-invalidation-test",
-            name="Cache Invalidation Test",
-            filters={"groups": [{"properties": [], "rollout_percentage": 100}]},
-            created_by=self.user,
-        )
-
-        set_feature_flags_for_team_in_cache(self.team.project_id)
-
-        cached_flags = get_feature_flags_for_team_in_cache(self.team.project_id)
-        assert cached_flags is not None
-        cached_flag = next((f for f in cached_flags if f.key == "cache-invalidation-test"), None)
-        assert cached_flag is not None
-        self.assertEqual(cached_flag.evaluation_tag_names, [])
-
-        response = self.client.patch(
-            f"/api/projects/{self.team.id}/feature_flags/{flag.id}/",
-            {
-                "tags": ["app", "docs"],
-                "evaluation_contexts": ["app"],
-            },
-            format="json",
-        )
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-
-        # Cache should be automatically invalidated and refreshed
-        cached_flags = get_feature_flags_for_team_in_cache(self.team.project_id)
-        assert cached_flags is not None
-        cached_flag = next((f for f in cached_flags if f.key == "cache-invalidation-test"), None)
-        assert cached_flag is not None
-        self.assertEqual(cached_flag.evaluation_tag_names, ["app"])
-
-    @pytest.mark.ee
-    def test_cache_read_back_ignores_unknown_non_model_key(self):
-        from posthog.caching.flags_redis_cache import write_flags_to_cache
-
-        from products.feature_flags.backend.models.feature_flag import FIVE_DAYS, serialize_feature_flags
-
-        flag = FeatureFlag.objects.create(
-            team=self.team,
-            key="unknown-key-flag",
-            name="Unknown Key Flag",
-            filters={"groups": [{"properties": [], "rollout_percentage": 100}]},
-            created_by=self.user,
-        )
-
-        [serialized] = serialize_feature_flags([flag])
-        # A future SDK-only serializer field that is not a model field must not break read-back.
-        serialized["some_future_sdk_field"] = {"anything": True}
-        write_flags_to_cache(
-            f"team_feature_flags_{self.team.project_id}",
-            json.dumps([serialized]),
-            FIVE_DAYS,
-        )
-
-        cached_flags = get_feature_flags_for_team_in_cache(self.team.project_id)
-        assert cached_flags is not None
-        self.assertEqual(len(cached_flags), 1)
-        self.assertEqual(cached_flags[0].key, "unknown-key-flag")
-
-    @parameterized.expand(
-        [
-            # (name, evaluation_contexts value, evaluation_tags value, expected)
-            ("current_key", ["app", "docs"], None, ["app", "docs"]),
-            ("legacy_key", None, ["app", "docs"], ["app", "docs"]),
-            # When both keys are present, the current `evaluation_contexts` key wins.
-            ("both_keys_current_wins", ["app", "docs"], ["legacy"], ["app", "docs"]),
-        ]
-    )
-    @pytest.mark.ee
-    def test_cache_read_back_accepts_evaluation_context_keys(
-        self,
-        _name: str,
-        contexts_value: Optional[list[str]],
-        tags_value: Optional[list[str]],
-        expected: list[str],
-    ):
-        from posthog.caching.flags_redis_cache import write_flags_to_cache
-
-        from products.feature_flags.backend.models.feature_flag import FIVE_DAYS, serialize_feature_flags
-
-        flag = FeatureFlag.objects.create(
-            team=self.team,
-            key=f"eval-context-key-{_name}",
-            name="Eval Context Key Flag",
-            filters={"groups": [{"properties": [], "rollout_percentage": 100}]},
-            created_by=self.user,
-        )
-
-        [serialized] = serialize_feature_flags([flag])
-        # Exercise the current `evaluation_contexts` key, the legacy `evaluation_tags`
-        # key, and entries that carry both (where the current key must take precedence).
-        serialized.pop("evaluation_contexts", None)
-        if contexts_value is not None:
-            serialized["evaluation_contexts"] = contexts_value
-        if tags_value is not None:
-            serialized["evaluation_tags"] = tags_value
-        write_flags_to_cache(
-            f"team_feature_flags_{self.team.project_id}",
-            json.dumps([serialized]),
-            FIVE_DAYS,
-        )
-
-        cached_flags = get_feature_flags_for_team_in_cache(self.team.project_id)
-        assert cached_flags is not None
-        cached_flag = next(f for f in cached_flags if f.key == flag.key)
-        self.assertEqual(cached_flag.evaluation_tag_names, expected)
-
     def _get_eval_context_activity_entries(self, flag_id: int, activity: str = "updated") -> list:
         from posthog.models.activity_logging.activity_log import ActivityLog
 
@@ -12936,6 +12708,7 @@ class TestFeatureFlagBulkDelete(APIBaseTest):
             assert flag.deleted is True
             assert flag.last_modified_by == self.user
 
+    @override_settings(FLAGS_REDIS_URL="redis://test")
     def test_bulk_delete_invalidates_cache_efficiently(self):
         """Test that cache invalidation happens once, not per flag."""
         flags = [
@@ -12953,9 +12726,7 @@ class TestFeatureFlagBulkDelete(APIBaseTest):
         with patch(
             "products.feature_flags.backend.api.feature_flag.transaction.on_commit", side_effect=lambda fn: fn()
         ):
-            with patch(
-                "products.feature_flags.backend.models.feature_flag.set_feature_flags_for_team_in_cache"
-            ) as mock_cache:
+            with patch("products.feature_flags.backend.tasks.update_team_service_flags_cache") as mock_cache_task:
                 response = self.client.post(
                     f"/api/projects/{self.team.id}/feature_flags/bulk_delete/",
                     {"ids": [f.id for f in flags]},
@@ -12965,7 +12736,7 @@ class TestFeatureFlagBulkDelete(APIBaseTest):
                 assert len(response.json()["deleted"]) == 10
 
                 # Cache should be invalidated only once, not 10 times
-                assert mock_cache.call_count == 1
+                assert mock_cache_task.delay.call_count == 1
 
     def test_bulk_delete_handles_mixed_key_rename_scenarios(self):
         """Test bulk delete correctly handles mix of flags needing key rename and not."""
@@ -13213,6 +12984,38 @@ class TestFeatureFlagLimits(APIBaseTest):
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert "Maximum of 2 feature flags allowed per team" in str(response.json())
+
+    @parameterized.expand(
+        [
+            ("override_raises_the_limit", 3, status.HTTP_201_CREATED, None),
+            ("override_lowers_the_limit", 1, status.HTTP_400_BAD_REQUEST, 1),
+            ("no_override_falls_back_to_global", None, status.HTTP_400_BAD_REQUEST, 2),
+        ]
+    )
+    def test_flag_limit_uses_the_teams_effective_limit(self, _name, override, expected_status, rejected_at_limit):
+        # Guards the wiring: check_flag_limits_for_team must read get_max_feature_flags_for_team,
+        # not settings.MAX_FEATURE_FLAGS_PER_TEAM directly. A regression that reverts to reading
+        # the global would pass every other test in this class (they all use the global) but
+        # ignore a per-team override in either direction.
+        self._create_flag("flag-1")
+        self._create_flag("flag-2")
+
+        config = get_or_create_team_extension(self.team, TeamFeatureFlagsConfig)
+        config.max_feature_flags_override = override
+        config.save(update_fields=["max_feature_flags_override"])
+
+        with self.settings(MAX_FEATURE_FLAGS_PER_TEAM=2):
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/feature_flags",
+                {
+                    "key": "flag-3",
+                    "filters": {"groups": [{"rollout_percentage": 100, "properties": []}]},
+                },
+            )
+
+        assert response.status_code == expected_status
+        if rejected_at_limit is not None:
+            assert f"Maximum of {rejected_at_limit} feature flags allowed per team" in response.json()["detail"]
 
 
 class TestFeatureFlagVersions(APIBaseTest):
@@ -14082,3 +13885,93 @@ class TestFeatureFlagEvaluationReasons(APIBaseTest, ClickhouseTestMixin):
 
         self.assertEqual(response.status_code, status.HTTP_502_BAD_GATEWAY)
         self.assertIn("error", response.json())
+
+
+class TestFeatureFlagReplayLinkFollowsRename(APIBaseTest):
+    def _link_flag(self, team: Team, linked_flag: dict[str, Any]) -> None:
+        team.session_recording_linked_flag = linked_flag
+        team.save()
+
+    def _rename(self, flag: FeatureFlag, new_key: str) -> Response:
+        # The relink runs on transaction commit, which a TestCase never reaches on its own.
+        with self.captureOnCommitCallbacks(execute=True):
+            return self.client.patch(f"/api/projects/{self.team.id}/feature_flags/{flag.id}/", {"key": new_key})
+
+    def test_rename_outside_the_api_still_rewrites_the_stored_key(self) -> None:
+        # A rename from the Django admin or a shell never reaches FeatureFlagSerializer, so the
+        # relink hangs off the model signal instead.
+        flag = FeatureFlag.objects.create(team=self.team, created_by=self.user, key="replay-gate")
+        self._link_flag(self.team, {"id": flag.id, "key": "replay-gate"})
+
+        flag.key = "replay-gate-v2"
+        with self.captureOnCommitCallbacks(execute=True):
+            flag.save()
+
+        self.team.refresh_from_db()
+        assert self.team.session_recording_linked_flag == {"id": flag.id, "key": "replay-gate-v2"}
+
+    @parameterized.expand([("same_project", True, "replay-gate-v2"), ("other_project", False, "replay-gate")])
+    def test_rename_rewrites_stored_key_only_within_the_project(
+        self, _name: str, same_project: bool, expected_key: str
+    ) -> None:
+        # A sibling team can gate recording on a flag owned by another team in its project, so the
+        # lookup is project-scoped; a team in a different project holding the same id must not move.
+        flag = FeatureFlag.objects.create(team=self.team, created_by=self.user, key="replay-gate")
+        linking_team = Team.objects.create(
+            organization=self.organization, **({"project": self.team.project} if same_project else {})
+        )
+        self._link_flag(linking_team, {"id": flag.id, "key": "replay-gate"})
+
+        response = self._rename(flag, "replay-gate-v2")
+
+        assert response.status_code == status.HTTP_200_OK, response.content
+        linking_team.refresh_from_db()
+        assert linking_team.session_recording_linked_flag == {"id": flag.id, "key": expected_key}
+
+    def test_rename_rewrites_stored_key_for_the_flags_own_team_and_keeps_the_variant(self) -> None:
+        flag = FeatureFlag.objects.create(team=self.team, created_by=self.user, key="replay-gate")
+        self._link_flag(self.team, {"id": flag.id, "key": "replay-gate", "variant": "control"})
+
+        response = self._rename(flag, "replay-gate-v2")
+
+        assert response.status_code == status.HTTP_200_OK, response.content
+        self.team.refresh_from_db()
+        assert self.team.session_recording_linked_flag == {
+            "id": flag.id,
+            "key": "replay-gate-v2",
+            "variant": "control",
+        }
+
+    @patch("posthog.models.remote_config._update_team_remote_config")
+    def test_rename_refreshes_remote_config_for_a_relinked_sibling_team(self, mock_refresh: MagicMock) -> None:
+        # The flag's own team is refreshed by the FeatureFlag post_save receiver, but a sibling
+        # team that gates recording on the same flag only gets a fresh SDK payload if we save it.
+        flag = FeatureFlag.objects.create(team=self.team, created_by=self.user, key="replay-gate")
+        sibling_team = Team.objects.create(organization=self.organization, project=self.team.project)
+        self._link_flag(sibling_team, {"id": flag.id, "key": "replay-gate"})
+
+        response = self._rename(flag, "replay-gate-v2")
+
+        assert response.status_code == status.HTTP_200_OK, response.content
+        assert sibling_team.id in {call.args[0] for call in mock_refresh.call_args_list}
+
+    @parameterized.expand([("stored_key_already_matches",), ("links_a_different_flag",)])
+    @patch("posthog.models.remote_config._update_team_remote_config")
+    def test_rename_does_not_save_teams_it_has_nothing_to_change(self, scope: str, mock_refresh: MagicMock) -> None:
+        # Every team save enqueues a RemoteConfig sync, so a rewrite that changes nothing costs a
+        # write and a Celery task for no benefit.
+        flag = FeatureFlag.objects.create(team=self.team, created_by=self.user, key="replay-gate")
+        sibling_team = Team.objects.create(organization=self.organization, project=self.team.project)
+        if scope == "stored_key_already_matches":
+            self._link_flag(sibling_team, {"id": flag.id, "key": "replay-gate-v2"})
+        else:
+            other_flag = FeatureFlag.objects.create(team=self.team, created_by=self.user, key="other-gate")
+            self._link_flag(sibling_team, {"id": other_flag.id, "key": "other-gate"})
+        linked_flag_before = sibling_team.session_recording_linked_flag
+
+        response = self._rename(flag, "replay-gate-v2")
+
+        assert response.status_code == status.HTTP_200_OK, response.content
+        sibling_team.refresh_from_db()
+        assert sibling_team.session_recording_linked_flag == linked_flag_before
+        assert sibling_team.id not in {call.args[0] for call in mock_refresh.call_args_list}

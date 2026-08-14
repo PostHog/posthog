@@ -311,16 +311,16 @@ def _state_claim_candidates_sql(sync_type_scope: str = "") -> str:
     lost its parquet to retention, so it must never be claimed. The gates keep
     ``PARTITION_PRUNING_INTERVAL`` for the same reason the sync-type scope
     stays out of them — they must see every row that still exists.
+
+    Selects only the join-back keys ``(id, created_at)``. The caller's fairness
+    ranking sorts the entire claimable set before its LIMIT can apply, so the
+    sort input must stay narrow: selecting the wide row here (``metadata``
+    alone is ~1 KB per batch) made every poll sort megabytes-to-gigabytes of
+    payload to keep ~50 rows, spilling past ``work_mem`` to disk once a backlog
+    built up and degrading the whole fleet's polls with it.
     """
     return f"""
-        SELECT
-            b.id, b.team_id, b.schema_id, b.source_id, b.job_id,
-            b.run_uuid, b.batch_index, b.s3_path, b.row_count, b.byte_size,
-            b.is_final_batch, b.total_batches, b.total_rows, b.sync_type,
-            b.cumulative_row_count, b.resource_name, b.is_resume,
-            b.is_first_ever_sync, b.metadata,
-            b.latest_attempt,
-            b.created_at
+        SELECT b.id, b.created_at
         FROM {BATCH_TABLE} b
         WHERE
             b.created_at > now() - interval '{CLAIM_ELIGIBILITY_INTERVAL}'
@@ -633,6 +633,13 @@ class BatchQueue:
         dropped by the ``JOIN claimed``. This replaces the old session advisory
         lock so an abandoned group simply expires rather than wedging the fleet.
 
+        Ranking runs over narrow ``(id, created_at)`` candidates and the wide
+        rows are fetched only for the LIMIT winners (the ``candidates``
+        join-back, ~LIMIT primary-key probes): the fairness sort has to process
+        the whole claimable set, so its input must stay narrow or a backlog
+        turns every poll into a disk-spilling sort of full rows (see
+        :func:`_state_claim_candidates_sql`).
+
         Uses a MATERIALIZED CTE so that candidate selection (with LIMIT) is
         fully resolved before the lease claim runs. ``candidate_groups`` is
         ``SELECT DISTINCT`` because ``INSERT ... ON CONFLICT DO UPDATE`` cannot
@@ -681,7 +688,7 @@ class BatchQueue:
         async with conn.cursor(row_factory=dict_row) as cur:
             await cur.execute(
                 f"""
-                WITH candidates AS MATERIALIZED (
+                WITH narrow AS MATERIALIZED (
                     {candidates_sql}
                         AND NOT EXISTS (
                             SELECT 1
@@ -698,6 +705,18 @@ class BatchQueue:
                         b.created_at ASC,
                         b.batch_index ASC
                     LIMIT %(limit)s
+                ),
+                candidates AS MATERIALIZED (
+                    SELECT
+                        b.id, b.team_id, b.schema_id, b.source_id, b.job_id,
+                        b.run_uuid, b.batch_index, b.s3_path, b.row_count, b.byte_size,
+                        b.is_final_batch, b.total_batches, b.total_rows, b.sync_type,
+                        b.cumulative_row_count, b.resource_name, b.is_resume,
+                        b.is_first_ever_sync, b.metadata,
+                        b.latest_attempt,
+                        b.created_at
+                    FROM {BATCH_TABLE} b
+                    JOIN narrow n ON n.id = b.id AND n.created_at = b.created_at
                 ),
                 candidate_groups AS (
                     SELECT DISTINCT team_id, schema_id FROM candidates
