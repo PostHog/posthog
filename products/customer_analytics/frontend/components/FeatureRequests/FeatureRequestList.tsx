@@ -90,7 +90,7 @@ export function FeatureRequestList(): JSX.Element {
     ]
 
     return (
-        <div className="@container flex flex-col gap-4 -m-4">
+        <div className="@container w-full flex flex-col gap-4">
             <div className="flex flex-wrap items-center gap-2 w-full">
                 <LemonInput
                     className="flex-1 min-w-56 max-w-[640px] [&_.LemonInput__input]:pr-4"
