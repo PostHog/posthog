@@ -75,6 +75,8 @@ const MOVE_TIMEOUT_MS = 30000
 export const PAGINATION_LIMIT = 100
 const PRODUCTS_SHOWN_WITH_SELECTED_PRODUCTS: Record<string, string[]> = {
     'LLM analytics': ['MCP analytics'],
+    // Replay vision scans the recordings Session replay captures, so alone it has nothing to work on.
+    'Session replay': ['Replay vision'],
 }
 
 // Reporting a move per item would toast N times for a bulk move, and because react-toastify dedupes

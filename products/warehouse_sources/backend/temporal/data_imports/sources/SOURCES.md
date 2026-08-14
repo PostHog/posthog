@@ -1065,6 +1065,7 @@ doesn't conflict with concurrent PRs.
 - holded
 - honeybadger
 - honeycomb
+- hootsuite
 - hostaway
 - housecall_pro
 - hubplanner
@@ -1432,6 +1433,7 @@ doesn't conflict with concurrent PRs.
 - who_gho
 - wikipedia_pageviews
 - windsor_ai
+- wisprflow
 - wix
 - wiz
 - wompi
