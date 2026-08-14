@@ -414,6 +414,7 @@ export default function FeatureFlagSchedule(): JSX.Element {
         customPairEnableCronPreview,
         customPairDisableCronPreview,
         canCreatePairedSchedule,
+        hasEarlyAccessFeatures,
     } = useValues(featureFlagLogic)
     const {
         deleteScheduledChange,
@@ -800,6 +801,7 @@ export default function FeatureFlagSchedule(): JSX.Element {
                                     filters={scheduleFilters}
                                     onChange={(value, errors) => setSchedulePayload(value, null, errors, null, null)}
                                     hideMatchOptions
+                                    hasEarlyAccessFeatures={hasEarlyAccessFeatures}
                                 />
                             </div>
                         </div>

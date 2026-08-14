@@ -20,10 +20,15 @@ import {
   SquaresFourIcon,
   XIcon,
 } from "@phosphor-icons/react";
+import type { CommentScope } from "@posthog/api-client/posthog-client";
 import {
   type ActivityEvent,
+  type ArtifactPayload,
+  type CommentEventPayload,
+  type CommitsPushedPayload,
   prLabel,
 } from "@posthog/core/canvas/activityEvents";
+import type { ChangedFile } from "@posthog/core/git/router-schemas";
 import { xmlToContent } from "@posthog/core/message-editor/content";
 import {
   Button,
@@ -41,7 +46,11 @@ import { UserAvatar } from "@posthog/ui/features/auth/UserAvatar";
 import { MentionText } from "@posthog/ui/features/canvas/components/MentionText";
 import { ThreadTimestamp } from "@posthog/ui/features/canvas/components/ThreadTimestamp";
 import { userDisplayName } from "@posthog/ui/features/canvas/utils/userDisplay";
+import { useCommitChangedFiles } from "@posthog/ui/features/git-interaction/useGitQueries";
 import { ChatMarkdown } from "@posthog/ui/features/sessions/components/chat-thread/ChatMarkdown";
+import { useCommentsQuery } from "@posthog/ui/features/sessions/components/useComments";
+import { openExternalUrl } from "@posthog/ui/shell/openExternal";
+import { parseHttpsUrl } from "@posthog/ui/utils/posthogLinks";
 import { type ReactNode, useMemo, useState } from "react";
 
 export function TimelineRow({
@@ -235,6 +244,9 @@ const EVENT_TONES: Record<ActivityEvent["kind"], BeadTone> = {
   artifact_created: "violet",
   artifact_revised: "violet",
   canvas_created: "violet",
+  // Comment rows draw the commenter's avatar bead instead; kept for the map's completeness.
+  comment_added: "neutral",
+  comment_state_changed: "green",
   pr_created: "neutral",
   pr_merged: "violet",
   pr_closed: "red",
@@ -251,6 +263,8 @@ const EVENT_ICONS: Record<ActivityEvent["kind"], ReactNode> = {
   artifact_created: <FileTextIcon size={11} />,
   artifact_revised: <ArrowsClockwiseIcon size={11} />,
   canvas_created: <SquaresFourIcon size={11} />,
+  comment_added: <ChatCircleIcon size={11} />,
+  comment_state_changed: <CheckIcon size={11} weight="bold" />,
   pr_created: <GitPullRequestIcon size={11} />,
   pr_merged: <GitMergeIcon size={11} />,
   pr_closed: <ProhibitIcon size={11} />,
@@ -331,6 +345,12 @@ function eventLabel(
         </>
       );
     }
+    case "comment_added":
+      return "Comment added";
+    case "comment_state_changed":
+      return event.payload.state === "resolved"
+        ? "Comment thread resolved"
+        : "Comment thread reopened";
     case "message_forwarded":
       return "Message sent to the agent";
   }
@@ -363,20 +383,16 @@ function eventDetail(event: ActivityEvent): ReactNode {
         </DetailBlock>
       );
     case "commits_pushed": {
-      const { commits, total } = event.payload;
+      const { commits, total, repository } = event.payload;
       return (
         <DetailBlock>
-          <div className="space-y-1">
+          <div className="max-h-56 space-y-1.5 overflow-y-auto overscroll-contain">
             {commits.map((commit) => (
-              <div
+              <PushedCommitRow
                 key={commit.sha}
-                className="flex min-w-0 items-baseline gap-2"
-              >
-                <span className="shrink-0 font-mono text-[11.5px] text-muted-foreground">
-                  {commit.sha.slice(0, 7)}
-                </span>
-                <span className="min-w-0 truncate">{commit.subject}</span>
-              </div>
+                commit={commit}
+                repository={repository}
+              />
             ))}
             {total > commits.length && (
               <div className="text-muted-foreground">
@@ -454,10 +470,189 @@ export function MessageBubble({ content }: { content: string }) {
 }
 
 /** No radius, so the left edge reads as a rule rather than the outline of a box. */
-export function DetailBlock({ children }: { children: ReactNode }) {
+export function DetailBlock({
+  children,
+  className,
+}: {
+  children: ReactNode;
+  className?: string;
+}) {
   return (
-    <div className="break-words border-gray-6 border-l-2 bg-gray-2 px-2.5 py-1.5 text-[12.5px]">
+    <div
+      className={cn(
+        "break-words border-gray-6 border-l-2 bg-gray-2 px-2.5 py-1.5 text-[12.5px]",
+        className,
+      )}
+    >
       {children}
+    </div>
+  );
+}
+
+/** Clickable when the artifact can open in the panel's artifact tab. */
+export function ArtifactEventDetail({
+  payload,
+  onOpen,
+}: {
+  payload: ArtifactPayload;
+  onOpen?: () => void;
+}) {
+  const body = (
+    <>
+      {payload.name}
+      <span className="text-muted-foreground"> · v{payload.version}</span>
+    </>
+  );
+  if (!onOpen) {
+    return <DetailBlock>{body}</DetailBlock>;
+  }
+  return (
+    <button
+      type="button"
+      onClick={onOpen}
+      className="block w-full cursor-pointer text-left"
+      aria-label={`Open ${payload.name}`}
+    >
+      <DetailBlock className="transition-colors hover:border-gray-7 hover:bg-gray-3">
+        {body}
+      </DetailBlock>
+    </button>
+  );
+}
+
+function CommitSha({ sha, url }: { sha: string; url: string | null }) {
+  const short = sha.slice(0, 7);
+  // url comes from caller-controlled run output, so a bare https check would
+  // let a crafted payload open any host behind a github-looking label. Pin it
+  // to github.com, the same gate usePrArtifact applies to run-output PR links.
+  const parsed = url ? parseHttpsUrl(url) : null;
+  const safeUrl = parsed?.origin === "https://github.com" ? parsed.href : null;
+  if (!safeUrl) {
+    return (
+      <span className="shrink-0 font-mono text-[11.5px] text-muted-foreground">
+        {short}
+      </span>
+    );
+  }
+  return (
+    <button
+      type="button"
+      onClick={() => openExternalUrl(safeUrl)}
+      className="shrink-0 cursor-pointer font-mono text-[11.5px] text-muted-foreground hover:text-foreground hover:underline"
+      aria-label={`Open commit ${short} on GitHub`}
+    >
+      {short}
+    </button>
+  );
+}
+
+/** The payload is identity-only; TimelineRow defers this detail to the first expand,
+ *  so the GitHub file fetch runs then. Without gh access the identity line stands alone. */
+function PushedCommitRow({
+  commit,
+  repository,
+}: {
+  commit: CommitsPushedPayload["commits"][number];
+  repository: string | null;
+}) {
+  const { data: files, isLoading } = useCommitChangedFiles(
+    repository,
+    commit.sha,
+  );
+  return (
+    <div className="min-w-0">
+      <div className="flex min-w-0 items-baseline gap-2">
+        <CommitSha sha={commit.sha} url={commit.url} />
+        <span className="min-w-0 truncate">{commit.subject}</span>
+      </div>
+      {isLoading ? (
+        <CommitFilesSkeleton />
+      ) : (
+        files && files.length > 0 && <CommitFilesList files={files} />
+      )}
+    </div>
+  );
+}
+
+const FILE_STATUS_GLYPHS: Record<
+  ChangedFile["status"],
+  { letter: string; tone: string }
+> = {
+  added: { letter: "A", tone: "text-green-11" },
+  modified: { letter: "M", tone: "text-muted-foreground" },
+  deleted: { letter: "D", tone: "text-red-11" },
+  renamed: { letter: "R", tone: "text-amber-11" },
+  // Not a state GitHub's commit API produces; covered for the shared ChangedFile type.
+  untracked: { letter: "A", tone: "text-green-11" },
+};
+
+/** Mirrors CommitFileRow's geometry (letter, path, stats) so the loaded list lands without a jump. */
+function CommitFilesSkeleton() {
+  return (
+    <div className="mt-0.5 space-y-px">
+      {["w-3/5", "w-2/5", "w-1/2"].map((width) => (
+        <div key={width} className="flex h-[17px] items-center gap-1.5">
+          <Skeleton className="size-2.5 shrink-0 rounded-[3px]" />
+          <Skeleton className={cn("h-2.5", width)} />
+          <Skeleton className="ml-auto h-2.5 w-8 shrink-0" />
+        </div>
+      ))}
+    </div>
+  );
+}
+
+export function CommitFilesList({ files }: { files: ChangedFile[] }) {
+  return (
+    <div className="mt-0.5 space-y-px">
+      {files.map((file) => (
+        <CommitFileRow key={file.path} file={file} />
+      ))}
+    </div>
+  );
+}
+
+function CommitFileRow({ file }: { file: ChangedFile }) {
+  const glyph = FILE_STATUS_GLYPHS[file.status];
+  const split = file.path.lastIndexOf("/");
+  // The directory truncates first so the file name stays readable on long paths.
+  const dir = split === -1 ? "" : file.path.slice(0, split + 1);
+  const base = split === -1 ? file.path : file.path.slice(split + 1);
+  const title = file.originalPath
+    ? `${file.originalPath} → ${file.path}`
+    : file.path;
+  return (
+    <div
+      className="flex min-w-0 items-baseline gap-1.5 font-mono text-[11px] leading-[17px]"
+      title={title}
+    >
+      <span
+        className={cn("w-3 shrink-0 text-center font-semibold", glyph.tone)}
+      >
+        {glyph.letter}
+      </span>
+      <span className="flex min-w-0 flex-1 items-baseline">
+        {dir && (
+          <span className="min-w-0 truncate text-muted-foreground">{dir}</span>
+        )}
+        <span
+          className={cn(
+            "shrink-0",
+            file.status === "deleted" && "text-muted-foreground line-through",
+          )}
+        >
+          {base}
+        </span>
+      </span>
+      {((file.linesAdded ?? 0) > 0 || (file.linesRemoved ?? 0) > 0) && (
+        <span className="shrink-0 text-[10.5px] tabular-nums">
+          {(file.linesAdded ?? 0) > 0 && (
+            <span className="text-green-11">+{file.linesAdded}</span>
+          )}{" "}
+          {(file.linesRemoved ?? 0) > 0 && (
+            <span className="text-red-11">-{file.linesRemoved}</span>
+          )}
+        </span>
+      )}
     </div>
   );
 }
@@ -636,6 +831,149 @@ export function CommentStateRow({
       {resolved ? "resolved a thread on" : "reopened a thread on"}{" "}
       <span className="font-medium">{thread.target.name}</span>
     </TimelineRow>
+  );
+}
+
+export function CommentEventRow({
+  event,
+  author,
+  timestamp,
+  taskId,
+  onOpenThread,
+  connectedAbove = true,
+  connectedBelow = true,
+}: {
+  event: Extract<
+    ActivityEvent,
+    { kind: "comment_added" | "comment_state_changed" }
+  >;
+  author: UserBasic | null;
+  timestamp: string;
+  taskId: string;
+  onOpenThread?: () => void;
+  connectedAbove?: boolean;
+  connectedBelow?: boolean;
+}) {
+  const name = author ? userDisplayName(author) : "Someone";
+  const target = event.payload.targetName;
+  if (event.kind === "comment_state_changed") {
+    const resolved = event.payload.state === "resolved";
+    return (
+      <TimelineRow
+        connectedAbove={connectedAbove}
+        connectedBelow={connectedBelow}
+        gutter={
+          <PersonBead
+            user={author}
+            badge={
+              resolved ? (
+                <CheckIcon size={8} weight="bold" />
+              ) : (
+                <ArrowCounterClockwiseIcon size={8} weight="bold" />
+              )
+            }
+            badgeTone={resolved ? "green" : "amber"}
+          />
+        }
+        timestamp={timestamp}
+      >
+        <span className="font-medium">{name}</span>{" "}
+        <span className="text-muted-foreground">
+          {resolved ? "resolved a thread" : "reopened a thread"}
+          {target ? " on" : ""}
+        </span>
+        {target && (
+          <>
+            {" "}
+            <span className="font-medium">{target}</span>
+          </>
+        )}
+      </TimelineRow>
+    );
+  }
+  return (
+    <TimelineRow
+      connectedAbove={connectedAbove}
+      connectedBelow={connectedBelow}
+      gutter={<PersonBead user={author} badge={COMMENT_BADGE} />}
+      timestamp={timestamp}
+      detail={
+        <CommentEventDetail
+          taskId={taskId}
+          payload={event.payload}
+          onOpenThread={onOpenThread}
+        />
+      }
+    >
+      <span className="font-medium">{name}</span>{" "}
+      <span className="text-muted-foreground">
+        commented{target ? " on" : ""}
+      </span>
+      {target && (
+        <>
+          {" "}
+          <span className="font-medium">{target}</span>
+        </>
+      )}
+    </TimelineRow>
+  );
+}
+
+const COMMENT_EVENT_SCOPES: readonly string[] = [
+  "task",
+  "task_artifact",
+  "desktop_canvas",
+];
+
+function CommentEventDetail({
+  taskId,
+  payload,
+  onOpenThread,
+}: {
+  taskId: string;
+  payload: CommentEventPayload;
+  onOpenThread?: () => void;
+}) {
+  const target =
+    COMMENT_EVENT_SCOPES.includes(payload.scope) && payload.itemId
+      ? { scope: payload.scope as CommentScope, itemId: payload.itemId }
+      : null;
+  const { data, isLoading } = useCommentsQuery(target, taskId, {
+    live: false,
+  });
+  const comments = data ?? [];
+  const root = comments.find((c) => c.id === payload.rootCommentId);
+  const replyCount = comments.filter(
+    (c) => c.source_comment === payload.rootCommentId,
+  ).length;
+  const context = root?.item_context as { anchor?: { quote?: unknown } } | null;
+  const quote =
+    typeof context?.anchor?.quote === "string" ? context.anchor.quote : null;
+  return (
+    <div className="space-y-1.5">
+      {isLoading ? (
+        <DetailBlock>
+          <Skeleton className="h-3 w-3/5" />
+        </DetailBlock>
+      ) : root ? (
+        <DetailBlock>
+          {quote && (
+            <div className="mb-1 truncate text-muted-foreground italic">
+              “{quote}”
+            </div>
+          )}
+          <MessageBody content={root.content ?? ""} />
+        </DetailBlock>
+      ) : null}
+      {replyCount > 0 && (
+        <div className="truncate text-[12.5px] text-muted-foreground">
+          {replyCount} {replyCount === 1 ? "reply" : "replies"}
+        </div>
+      )}
+      {onOpenThread && (
+        <DetailAction onClick={onOpenThread}>Open thread</DetailAction>
+      )}
+    </div>
   );
 }
 
