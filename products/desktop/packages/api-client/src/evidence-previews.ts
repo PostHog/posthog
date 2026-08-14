@@ -99,6 +99,36 @@ export function shapeRecordingPreview(
   };
 }
 
+/**
+ * Preview of a live `<hogql>` reference: the hover card runs the query and
+ * shows its result in one line. `data` is the raw `/query/` response.
+ */
+export function shapeHogqlPreview(
+  data: Record<string, unknown>,
+): EvidencePreview | null {
+  const results = Array.isArray(data.results) ? data.results : null;
+  if (!results) return null;
+  const columns = Array.isArray(data.columns) ? data.columns : [];
+  const single =
+    results.length === 1 && Array.isArray(results[0]) && results[0].length === 1
+      ? results[0][0]
+      : null;
+  if (typeof single === "number" && Number.isFinite(single)) {
+    return {
+      title: single.toLocaleString("en-US"),
+      detail: typeof columns[0] === "string" ? columns[0] : undefined,
+    };
+  }
+  if (typeof single === "string") {
+    return { title: single };
+  }
+  return {
+    title: `${results.length.toLocaleString("en-US")} ${results.length === 1 ? "row" : "rows"}`,
+    detail:
+      columns.filter((c) => typeof c === "string").join(", ") || undefined,
+  };
+}
+
 export function shapeDashboardPreview(
   dashboard: Schemas.Dashboard,
 ): EvidencePreview {

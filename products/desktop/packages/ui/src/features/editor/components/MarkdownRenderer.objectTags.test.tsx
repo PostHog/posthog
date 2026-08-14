@@ -1,0 +1,109 @@
+import { Theme } from "@radix-ui/themes";
+import { render, screen } from "@testing-library/react";
+import { describe, expect, it, vi } from "vitest";
+
+// quill-charts is canvas-backed and does not load in the test environment;
+// the tag-to-card dispatch around it is what these tests exercise.
+vi.mock("@posthog/quill-charts", () => ({
+  BarChart: () => <div data-testid="chart-plot" />,
+  LineChart: () => <div data-testid="chart-plot" />,
+  TimeSeriesBarChart: () => <div data-testid="chart-plot" />,
+  TimeSeriesLineChart: () => <div data-testid="chart-plot" />,
+  useChartTheme: () => ({}),
+}));
+
+// Chart cards resolve their data through the app shell's query client; here
+// they stay in their loading state, which is all the dispatch tests need.
+vi.mock("../../../hooks/useAuthenticatedQuery", () => ({
+  useAuthenticatedQuery: () => ({
+    isPending: true,
+    isError: false,
+    isFetched: false,
+    data: undefined,
+  }),
+}));
+
+import { MarkdownRenderer } from "./MarkdownRenderer";
+
+function renderMarkdown(content: string) {
+  return render(
+    <Theme>
+      <MarkdownRenderer content={content} />
+    </Theme>,
+  );
+}
+
+describe("object tags in agent markdown", () => {
+  it("renders an inline object tag as a reference chip with its label", () => {
+    renderMarkdown(
+      'The <insight id="9pQx3">checkout funnel</insight> dropped.',
+    );
+    expect(screen.getByText("checkout funnel")).toBeDefined();
+    expect(screen.queryByText(/<insight/)).toBeNull();
+  });
+
+  it("falls back to the id as the label for a self-closing tag", () => {
+    renderMarkdown('Gated by <flag id="42"/> since Jan 3.');
+    expect(screen.getByText("42")).toBeDefined();
+    expect(screen.queryByText(/<flag/)).toBeNull();
+  });
+
+  it("keeps markdown formatting inside a tag label", () => {
+    renderMarkdown(
+      'See <error id="018f">the **CouponValidator** issue</error>.',
+    );
+    expect(screen.getByText("CouponValidator").tagName).toBe("STRONG");
+  });
+
+  it.each([
+    ["session-replay", '<session-replay id="s1">a recording</session-replay>'],
+    ["feature-flag", '<feature-flag id="7">the flag</feature-flag>'],
+  ])("resolves the %s alias", (_alias, tag) => {
+    renderMarkdown(`Watch ${tag} now.`);
+    expect(screen.queryByText(/</)).toBeNull();
+  });
+
+  it("shows an inline hogql tag as its label, not its SQL", () => {
+    renderMarkdown(
+      'We saw <hogql label="signups today">SELECT count() FROM events</hogql> spike.',
+    );
+    expect(screen.getByText("signups today")).toBeDefined();
+    expect(screen.queryByText(/SELECT count/)).toBeNull();
+  });
+
+  it("renders a block insight tag as a chart card", () => {
+    renderMarkdown('Here it is:\n\n<insight id="9pQx3" display="block"/>\n');
+    expect(screen.getByTestId("report-chart")).toBeDefined();
+  });
+
+  it("renders a block hogql tag as a chart card titled from the tag", () => {
+    renderMarkdown(
+      '<hogql display="block" title="DAU, last 7 days">\nSELECT 1\n</hogql>\n',
+    );
+    expect(screen.getByTestId("report-chart")).toBeDefined();
+    expect(screen.getByText("DAU, last 7 days")).toBeDefined();
+    expect(screen.queryByText(/SELECT 1/)).toBeNull();
+  });
+
+  it("leaves tags inside code fences literal", () => {
+    const { container } = renderMarkdown(
+      'Example:\n\n```xml\n<insight id="9pQx3">label</insight>\n```\n',
+    );
+    expect(container.querySelector("code")?.textContent).toContain(
+      '<insight id="9pQx3">',
+    );
+    expect(screen.queryByTestId("report-chart")).toBeNull();
+  });
+
+  it("renders nothing for a half-streamed tag instead of raw text", () => {
+    renderMarkdown('<hogql display="block" title="DAU">\nSELECT 1');
+    expect(screen.queryByText(/hogql|SELECT/)).toBeNull();
+  });
+
+  it("leaves unknown tags unrendered rather than guessing", () => {
+    renderMarkdown('A <made-up-tag id="1">thing</made-up-tag> here.');
+    expect(screen.queryByTestId("report-chart")).toBeNull();
+    // The label text still flows through; only the tags themselves vanish.
+    expect(screen.getByText(/thing/)).toBeDefined();
+  });
+});

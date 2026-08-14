@@ -46,6 +46,7 @@ describe("evidenceLinks", () => {
     ["cohort", "31", "/cohorts/31"],
     ["action", "5", "/data-management/actions/5"],
     ["person", "0192-aaaa", "/persons/0192-aaaa"],
+    ["hogql", "SELECT 1", "/sql?open_query=SELECT%201"],
     // Flag pages only resolve by numeric id, so a key gets no direct URL.
     ["flag", "my-flag-key", null],
     // Kinds without a canonical object page.

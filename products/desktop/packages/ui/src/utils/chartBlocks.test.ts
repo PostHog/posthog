@@ -1,69 +1,47 @@
 import { describe, expect, it } from "vitest";
-import { parseChartBlock } from "./chartBlocks";
+import { chartBlockKey, parseChartBlock } from "./chartBlocks";
 
-describe("parseChartBlock", () => {
-  it("parses an inline data block", () => {
+describe("chartBlocks", () => {
+  it("parses an insight reference", () => {
+    expect(
+      parseChartBlock('{"mode":"insight","shortId":"9pQx3","title":"DAU"}'),
+    ).toEqual({
+      mode: "insight",
+      shortId: "9pQx3",
+      title: "DAU",
+      caption: undefined,
+    });
+  });
+
+  it("parses a hogql query with title and caption", () => {
     expect(
       parseChartBlock(
-        JSON.stringify({
-          title: "Daily active users",
-          render: "bar",
-          labels: ["Aug 7", "Aug 8"],
-          series: [{ name: "DAU", points: [69650, 39431] }],
-        }),
+        '{"mode":"hogql","query":"SELECT 1","title":"T","caption":"C"}',
       ),
-    ).toEqual({
-      mode: "data",
-      title: "Daily active users",
-      caption: undefined,
-      render: "bar",
-      labels: ["Aug 7", "Aug 8"],
-      series: [{ name: "DAU", points: [69650, 39431] }],
-    });
+    ).toEqual({ mode: "hogql", query: "SELECT 1", title: "T", caption: "C" });
   });
 
-  it("defaults render to line and names unnamed series", () => {
+  it("caps a runaway title so it cannot flood the card", () => {
     const spec = parseChartBlock(
-      JSON.stringify({ series: [{ points: [1, 2] }] }),
+      `{"mode":"hogql","query":"SELECT 1","title":"${"x".repeat(400)}"}`,
     );
-    expect(spec).toMatchObject({
-      mode: "data",
-      render: "line",
-      series: [{ name: "Series 1", points: [1, 2] }],
-    });
-  });
-
-  it("routes a query payload to query mode without validating the node", () => {
-    const query = { kind: "InsightVizNode", source: { kind: "TrendsQuery" } };
-    expect(parseChartBlock(JSON.stringify({ title: "T", query }))).toEqual({
-      mode: "query",
-      title: "T",
-      caption: undefined,
-      query,
-    });
+    expect(spec?.title?.length).toBe(120);
   });
 
   it.each([
-    ["malformed JSON", "{not json"],
-    ["no series or query", '{"title":"x"}'],
-    ["only non-numeric points", '{"series":[{"points":["a","b"]}]}'],
-    ["an array payload", "[1,2,3]"],
+    ["malformed JSON", '{"mode":"hogql","query":'],
+    ["unknown mode", '{"mode":"data","series":[]}'],
+    ["insight without an id", '{"mode":"insight"}'],
+    ["hogql without a query", '{"mode":"hogql","query":"  "}'],
+    ["non-object payload", '"SELECT 1"'],
   ])("returns null for %s", (_name, source) => {
     expect(parseChartBlock(source)).toBeNull();
   });
 
-  it("caps series count and points so a runaway block cannot flood the card", () => {
-    const spec = parseChartBlock(
-      JSON.stringify({
-        series: Array.from({ length: 30 }, () => ({
-          points: Array.from({ length: 500 }, (_, i) => i),
-        })),
-      }),
-    );
-    expect(spec?.mode).toBe("data");
-    if (spec?.mode === "data") {
-      expect(spec.series.length).toBe(15);
-      expect(spec.series[0].points.length).toBe(366);
-    }
+  it("keys equal sources identically and different sources apart", () => {
+    const a = '{"mode":"hogql","query":"SELECT 1"}';
+    const b = '{"mode":"hogql","query":"SELECT 2"}';
+    expect(chartBlockKey(a)).toBe(chartBlockKey(a));
+    expect(chartBlockKey(a)).not.toBe(chartBlockKey(b));
   });
 });

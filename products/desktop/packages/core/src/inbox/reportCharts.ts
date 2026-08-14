@@ -98,6 +98,57 @@ export type ReportChartData =
   | { type: "table"; columns: string[]; rows: unknown[][] }
   | { type: "empty" };
 
+/** 87342 -> "87.3K"; keeps small numbers plain. */
+export function compactChartValue(value: number): string {
+  const abs = Math.abs(value);
+  const format = (scaled: number, suffix: string): string => {
+    const rounded =
+      scaled >= 100 ? Math.round(scaled) : Number(scaled.toFixed(1));
+    return `${rounded}${suffix}`;
+  };
+  if (abs >= 1e9) return format(value / 1e9, "B");
+  if (abs >= 1e6) return format(value / 1e6, "M");
+  if (abs >= 1e3) return format(value / 1e3, "K");
+  return Number.isInteger(value) ? String(value) : value.toFixed(1);
+}
+
+export interface ChartHeadlineStat {
+  /** Latest value of the series, compact ("17.1K"). */
+  value: string;
+  /** Change against the previous point; null when too small to show. */
+  delta: { label: string; direction: "up" | "down" } | null;
+}
+
+/** Changes under this read as noise on a headline, not a trend. */
+const MIN_DELTA_PCT = 0.5;
+
+/**
+ * Headline for a chart card: the latest value and its step change. Only a
+ * single-series chart has one honest headline; anything else returns null.
+ */
+export function chartHeadlineStat(
+  data: ReportChartData,
+): ChartHeadlineStat | null {
+  if (data.type !== "series" || data.series.length !== 1) return null;
+  const points = data.series[0].data;
+  const last = points[points.length - 1];
+  if (typeof last !== "number" || !Number.isFinite(last)) return null;
+  const previous = points.length > 1 ? points[points.length - 2] : null;
+  let delta: ChartHeadlineStat["delta"] = null;
+  if (
+    typeof previous === "number" &&
+    Number.isFinite(previous) &&
+    previous !== 0
+  ) {
+    const pct = ((last - previous) / Math.abs(previous)) * 100;
+    if (Math.abs(pct) >= MIN_DELTA_PCT) {
+      const label = `${Math.abs(pct) >= 10 ? Math.round(Math.abs(pct)) : Math.abs(pct).toFixed(1)}%`;
+      delta = { label, direction: pct >= 0 ? "up" : "down" };
+    }
+  }
+  return { value: compactChartValue(last), delta };
+}
+
 const MAX_SERIES = 15;
 const MAX_TABLE_ROWS = 100;
 

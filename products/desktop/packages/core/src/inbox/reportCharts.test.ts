@@ -1,6 +1,7 @@
 import type { SignalReportChartSize } from "@posthog/shared/types";
 import { describe, expect, it } from "vitest";
 import {
+  chartHeadlineStat,
   planReportChart,
   type ReportChartData,
   type ReportChartPlan,
@@ -288,5 +289,39 @@ describe("reportCharts", () => {
     ["URL past the request-line cap", hogqlNode({ padding: "x".repeat(9000) })],
   ])("returns null when there is nowhere to link: %s", (_name, query) => {
     expect(reportChartOpenTarget(query, OPEN_OPTS)).toBeNull();
+  });
+
+  const headlineSeries = (points: number[][]): ReportChartData => ({
+    type: "series",
+    render: "line",
+    labels: points[0].map((_, i) => `d${i}`),
+    series: points.map((data, i) => ({ key: `${i}`, label: `s${i}`, data })),
+    isTimeSeries: false,
+    interval: "day",
+  });
+
+  it("headlines a single series with its latest value and step change", () => {
+    expect(chartHeadlineStat(headlineSeries([[69650, 77400, 17100]]))).toEqual({
+      value: "17.1K",
+      delta: { label: "78%", direction: "down" },
+    });
+  });
+
+  it.each([
+    [
+      "multiple series have no one honest headline",
+      headlineSeries([
+        [1, 2],
+        [3, 4],
+      ]),
+    ],
+    ["empty series", headlineSeries([[]])],
+    ["non-series data", { type: "number", value: 5 } as ReportChartData],
+  ])("returns no headline for %s", (_name, data) => {
+    expect(chartHeadlineStat(data)).toBeNull();
+  });
+
+  it("hides a step change too small to read as a trend", () => {
+    expect(chartHeadlineStat(headlineSeries([[1000, 1002]]))?.delta).toBeNull();
   });
 });

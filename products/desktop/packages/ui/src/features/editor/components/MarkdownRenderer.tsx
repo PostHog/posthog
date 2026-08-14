@@ -11,6 +11,7 @@ import { List, ListItem } from "@posthog/ui/primitives/List";
 import { parseArtifactLink } from "@posthog/ui/utils/artifactLinks";
 import { chartBlockKey, parseChartBlock } from "@posthog/ui/utils/chartBlocks";
 import { parseEvidenceLink } from "@posthog/ui/utils/evidenceLinks";
+import { remarkObjectTags } from "@posthog/ui/utils/remarkObjectTags";
 import { handleShareLinkClick } from "@posthog/ui/utils/shareLinks";
 import { Blockquote, Checkbox, Code, Kbd, Text } from "@radix-ui/themes";
 import { isValidElement, memo, useMemo } from "react";
@@ -38,8 +39,9 @@ function markdownUrlTransform(value: string, key: string): string {
   // The scheme survives only on `href` so `![x](chart:y)` can't become an
   // unsanitized image; consumers decide what a chart href renders as.
   if (key === "href" && value.startsWith("chart:")) return value;
-  // Evidence citations (`[label](evidence:<kind>/<id>)`) render as inline
-  // references with a hover preview; see EvidenceRefChip.
+  // Object references (authored as `<kind id="...">` tags, normalized to
+  // `evidence:` links by remarkObjectTags) render as inline reference chips
+  // with a hover preview; see EvidenceRefChip.
   if (key === "href" && value.startsWith("evidence:")) return value;
   if (isPostHogCodeDeeplink(value)) return value;
   return defaultUrlTransform(value);
@@ -230,7 +232,7 @@ export const baseComponents: Components = {
   ),
 };
 
-export const defaultRemarkPlugins = [remarkGfm];
+export const defaultRemarkPlugins = [remarkGfm, remarkObjectTags];
 
 export const MarkdownRenderer = memo(function MarkdownRenderer({
   content,

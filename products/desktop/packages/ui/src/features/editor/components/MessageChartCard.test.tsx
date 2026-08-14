@@ -12,29 +12,37 @@ vi.mock("@posthog/quill-charts", () => ({
   useChartTheme: () => ({}),
 }));
 
+// Chart cards resolve their data through the app shell's query client; here
+// they stay in their loading state, which still proves the dispatch.
+vi.mock("../../../hooks/useAuthenticatedQuery", () => ({
+  useAuthenticatedQuery: () => ({
+    isPending: true,
+    isError: false,
+    isFetched: false,
+    data: undefined,
+  }),
+}));
+
 import { MarkdownRenderer } from "./MarkdownRenderer";
 
-const DATA_BLOCK = JSON.stringify({
-  title: "Daily active users",
-  render: "bar",
-  labels: ["Aug 7", "Aug 8"],
-  series: [{ name: "DAU", points: [69650, 39431] }],
-});
-
 describe("posthog-chart blocks in agent markdown", () => {
-  it("renders a chart card instead of a code block", () => {
-    // Guards the whole dispatch: the code component must parse the fence into
-    // a card and the pre component must not wrap it in a code-block shell.
+  it("renders the internal chart node as a card instead of a code block", () => {
+    // remarkObjectTags emits these code nodes for block-display tags; the
+    // code component must parse them into a card and the pre component must
+    // not wrap the card in a code-block shell.
     render(
       <Theme>
         <MarkdownRenderer
-          content={`Numbers:\n\n\`\`\`posthog-chart\n${DATA_BLOCK}\n\`\`\`\n`}
+          content={
+            '```posthog-chart\n{"mode":"hogql","query":"SELECT 1","title":"Daily active users"}\n```\n'
+          }
         />
       </Theme>,
     );
     expect(screen.getByTestId("report-chart")).toBeDefined();
     expect(screen.getByText("Daily active users")).toBeDefined();
-    expect(screen.queryByText(/"series"/)).toBeNull();
+    expect(screen.queryByText(/"query"/)).toBeNull();
+    expect(screen.queryByLabelText("Copy code")).toBeNull();
   });
 
   it("leaves ordinary fenced code inside the code-block shell", () => {
@@ -56,11 +64,11 @@ describe("posthog-chart blocks in agent markdown", () => {
     render(
       <Theme>
         <MarkdownRenderer
-          content={'```posthog-chart\n{"series":[{"po\n```\n'}
+          content={'```posthog-chart\n{"mode":"hogql","que\n```\n'}
         />
       </Theme>,
     );
     expect(screen.queryByTestId("report-chart")).toBeNull();
-    expect(screen.queryByText(/series/)).toBeNull();
+    expect(screen.queryByText(/mode/)).toBeNull();
   });
 });

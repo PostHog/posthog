@@ -1,4 +1,5 @@
 import {
+  chartHeadlineStat,
   planReportChart,
   type ReportChartData,
   reportChartHeightClass,
@@ -16,49 +17,79 @@ import type { ChartBlockSpec } from "@posthog/ui/utils/chartBlocks";
 import { useMemo } from "react";
 
 /**
- * Full-size chart card for a `posthog-chart` block in an agent message.
- * Renders through the same card and quill-charts pipeline as report charts,
- * so agent-message charts and report charts look and behave identically.
+ * Full-size chart card for a block-display object tag in an agent message
+ * (`<insight display="block"/>` or `<hogql display="block">...`). Renders
+ * through the same card and quill-charts pipeline as report charts, so agent
+ * charts and report charts look and behave identically. Both modes resolve
+ * live at render time; the message stores only the reference or the query.
  */
 
-const DATE_ONLY = /^\d{4}-\d{2}-\d{2}$/;
-const DATE_TIME = /^\d{4}-\d{2}-\d{2}[T ]\d{2}/;
+const CHART_ERROR_MESSAGE =
+  "Couldn't run the query behind this chart. Open it in PostHog to investigate.";
 
-function shapeInlineData(
-  spec: Extract<ChartBlockSpec, { mode: "data" }>,
-): ReportChartData {
-  const isTimeSeries =
-    spec.labels.length > 0 &&
-    spec.labels.every(
-      (label) => DATE_ONLY.test(label) || DATE_TIME.test(label),
-    );
-  return {
-    type: "series",
-    render: spec.render,
-    labels: spec.labels,
-    series: spec.series.map((entry, index) => ({
-      key: `${index}:${entry.name}`,
-      label: entry.name,
-      data: entry.points,
-    })),
-    isTimeSeries,
-    interval: spec.labels.some((label) => DATE_TIME.test(label))
-      ? "hour"
-      : "day",
-  };
+function useOpenOptions(): { cloudUrl: string; projectId: number } | null {
+  const projectId = useAuthStateValue((state) => state.currentProjectId);
+  const cloudRegion = useAuthStateValue((state) => state.cloudRegion);
+  if (!projectId || !cloudRegion) return null;
+  return { cloudUrl: getCloudUrlFromRegion(cloudRegion), projectId };
 }
 
-function QueryChartCard({
+function ChartCard({
+  blockKey,
+  title,
+  caption,
+  state,
+  openTarget,
+}: {
+  blockKey: string;
+  title: string;
+  caption?: string;
+  state: ReportChartCardState;
+  openTarget: ReturnType<typeof reportChartOpenTarget>;
+}) {
+  const data = state.kind === "data" ? state.data : null;
+  return (
+    <div className="mb-2">
+      <ReportChartCardView
+        chartId={blockKey}
+        title={title}
+        caption={caption}
+        heightClass={reportChartHeightClass(null, data)}
+        state={state}
+        openTarget={openTarget}
+        stat={data ? chartHeadlineStat(data) : null}
+      />
+    </div>
+  );
+}
+
+function queryState(query: {
+  isPending: boolean;
+  isError: boolean;
+  data: ReportChartData | undefined;
+}): ReportChartCardState {
+  if (query.isPending) return { kind: "loading" };
+  if (query.isError || !query.data)
+    return { kind: "error", message: CHART_ERROR_MESSAGE };
+  return { kind: "data", data: query.data };
+}
+
+function HogqlChartCard({
   spec,
   blockKey,
 }: {
-  spec: Extract<ChartBlockSpec, { mode: "query" }>;
+  spec: Extract<ChartBlockSpec, { mode: "hogql" }>;
   blockKey: string;
 }) {
-  const projectId = useAuthStateValue((state) => state.currentProjectId);
-  const cloudRegion = useAuthStateValue((state) => state.cloudRegion);
-
-  const plan = useMemo(() => planReportChart(spec.query), [spec.query]);
+  const openOptions = useOpenOptions();
+  const node = useMemo(
+    () => ({
+      kind: "DataVisualizationNode",
+      source: { kind: "HogQLQuery", query: spec.query },
+    }),
+    [spec.query],
+  );
+  const plan = useMemo(() => planReportChart(node), [node]);
   const query = useAuthenticatedQuery<ReportChartData>(
     ["message-chart-block", blockKey],
     async (client) => {
@@ -66,48 +97,67 @@ function QueryChartCard({
       const response = await client.runQuery(plan.source);
       return shapeReportChartData(response, plan);
     },
-    {
-      enabled: plan.kind === "run",
-      staleTime: 5 * 60 * 1000,
-      refetchOnWindowFocus: false,
-      retry: 1,
+    { staleTime: 5 * 60 * 1000, refetchOnWindowFocus: false, retry: 1 },
+  );
+  return (
+    <ChartCard
+      blockKey={blockKey}
+      title={spec.title ?? "Query result"}
+      caption={spec.caption}
+      state={queryState(query)}
+      openTarget={openOptions ? reportChartOpenTarget(node, openOptions) : null}
+    />
+  );
+}
+
+interface InsightChartResult {
+  name: string | null;
+  data: ReportChartData | null;
+}
+
+function InsightChartCard({
+  spec,
+  blockKey,
+}: {
+  spec: Extract<ChartBlockSpec, { mode: "insight" }>;
+  blockKey: string;
+}) {
+  const openOptions = useOpenOptions();
+  const query = useAuthenticatedQuery<InsightChartResult>(
+    ["message-chart-block", blockKey],
+    async (client) => {
+      const insight = await client.getInsightDefinition(spec.shortId);
+      if (!insight) throw new Error(`No insight with short id ${spec.shortId}`);
+      const plan = planReportChart(insight.query);
+      if (plan.kind !== "run") return { name: insight.name, data: null };
+      const response = await client.runQuery(plan.source);
+      return { name: insight.name, data: shapeReportChartData(response, plan) };
     },
+    { staleTime: 5 * 60 * 1000, refetchOnWindowFocus: false, retry: 1 },
   );
 
-  const openTarget = useMemo(() => {
-    if (!cloudRegion || !projectId) return null;
-    return reportChartOpenTarget(spec.query, {
-      cloudUrl: getCloudUrlFromRegion(cloudRegion),
-      projectId,
-    });
-  }, [spec.query, cloudRegion, projectId]);
-
-  if (plan.kind === "invalid") return null;
-
-  const state: ReportChartCardState =
-    plan.kind !== "run"
-      ? { kind: "link-out" }
-      : query.isPending
-        ? { kind: "loading" }
-        : query.isError
-          ? {
-              kind: "error",
-              message:
-                "Couldn't run the query behind this chart. Open it in PostHog to investigate.",
-            }
-          : { kind: "data", data: query.data };
+  const state: ReportChartCardState = query.isPending
+    ? { kind: "loading" }
+    : query.isError
+      ? { kind: "error", message: CHART_ERROR_MESSAGE }
+      : query.data.data
+        ? { kind: "data", data: query.data.data }
+        : { kind: "link-out" };
 
   return (
-    <ReportChartCardView
-      chartId={blockKey}
-      title={spec.title ?? "Chart"}
+    <ChartCard
+      blockKey={blockKey}
+      title={spec.title ?? query.data?.name ?? "Insight"}
       caption={spec.caption}
-      heightClass={reportChartHeightClass(
-        null,
-        state.kind === "data" ? state.data : null,
-      )}
       state={state}
-      openTarget={openTarget}
+      openTarget={
+        openOptions
+          ? reportChartOpenTarget(
+              { kind: "SavedInsightNode", shortId: spec.shortId },
+              openOptions,
+            )
+          : null
+      }
     />
   );
 }
@@ -117,27 +167,11 @@ export function MessageChartCard({
   blockKey,
 }: {
   spec: ChartBlockSpec;
-  /** Stable identity for the block, e.g. a hash of its fence body. */
+  /** Stable identity for the block, e.g. a hash of its source. */
   blockKey: string;
 }) {
-  if (spec.mode === "query") {
-    return (
-      <div className="mb-2">
-        <QueryChartCard spec={spec} blockKey={blockKey} />
-      </div>
-    );
+  if (spec.mode === "insight") {
+    return <InsightChartCard spec={spec} blockKey={blockKey} />;
   }
-  const data = shapeInlineData(spec);
-  return (
-    <div className="mb-2">
-      <ReportChartCardView
-        chartId={blockKey}
-        title={spec.title ?? "Chart"}
-        caption={spec.caption}
-        heightClass={reportChartHeightClass(null, data)}
-        state={{ kind: "data", data }}
-        openTarget={null}
-      />
-    </div>
-  );
+  return <HogqlChartCard spec={spec} blockKey={blockKey} />;
 }

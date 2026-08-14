@@ -1,14 +1,15 @@
+import { getObjectKind } from "./objectKinds";
+
 /**
- * Recognizing evidence links inside agent messages.
+ * The internal `evidence:<kind>/<id>` href form for object references inside
+ * agent messages. Agents author references as `<kind id="...">` tags (see
+ * remarkObjectTags), which normalize to link nodes with this scheme; the
+ * scheme survives `markdownUrlTransform` (like `chart:` links do) and the
+ * markdown `a` component renders it as an inline reference chip.
  *
- * Agents cite the PostHog data they consulted as `[label](evidence:<kind>/<id>)`
- * links. The scheme survives `markdownUrlTransform` (like `chart:` links do) and
- * the markdown `a` component renders it as an inline evidence reference with a
- * hover preview, instead of an external link.
- *
- * The link carries only the reference. Names, status, and the open-in-PostHog
- * URL are resolved live when the reference is shown, so transcripts never
- * embed a stale copy of the data.
+ * The reference carries no data. Names, status, and the open-in-PostHog URL
+ * are resolved live when the reference is shown, so transcripts never embed
+ * a stale copy of the data. For `hogql` references the id is the SQL itself.
  */
 
 const EVIDENCE_SCHEME = "evidence:";
@@ -48,33 +49,11 @@ export function parseEvidenceLink(
   return { kind: match[1], id: decodePart(match[2]) };
 }
 
-// Paths mirror PostHog's canonical route table (the `generate-app-url` MCP
-// tool carries the same list). Feature flag pages only resolve by numeric id,
-// so a flag cited by key gets no direct URL.
-const KIND_WEB_PATH: Record<
-  string,
-  (encodedId: string, rawId: string) => string | null
-> = {
-  insight: (id) => `/insights/${id}`,
-  dashboard: (id) => `/dashboard/${id}`,
-  error: (id) => `/error_tracking/${id}`,
-  replay: (id) => `/replay/${id}`,
-  flag: (id, raw) => (/^\d+$/.test(raw) ? `/feature_flags/${id}` : null),
-  experiment: (id) => `/experiments/${id}`,
-  survey: (id) => `/surveys/${id}`,
-  ticket: (id) => `/support/tickets/${id}`,
-  trace: (id) => `/ai-observability/traces/${id}`,
-  eval: (id) => `/ai-evals/evaluations/${id}`,
-  cohort: (id) => `/cohorts/${id}`,
-  action: (id) => `/data-management/actions/${id}`,
-  person: (id) => `/persons/${id}`,
-};
-
 /**
  * Project-relative PostHog web path for an evidence target, or null when the
- * kind has no canonical page to open.
+ * kind has no canonical page to open. Paths come from the kind registry.
  */
 export function evidenceWebPath(kind: string, id: string): string | null {
-  const build = KIND_WEB_PATH[kind];
+  const build = getObjectKind(kind).webPath;
   return build ? build(encodeURIComponent(id), id) : null;
 }

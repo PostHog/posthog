@@ -1,21 +1,3 @@
-import {
-  BugIcon,
-  ChartLineIcon,
-  ChatCircleTextIcon,
-  ClipboardTextIcon,
-  CursorClickIcon,
-  FlagIcon,
-  FlaskIcon,
-  type Icon,
-  LightningIcon,
-  PlayCircleIcon,
-  PulseIcon,
-  ShieldCheckIcon,
-  SparkleIcon,
-  SquaresFourIcon,
-  UserIcon,
-  UsersThreeIcon,
-} from "@phosphor-icons/react";
 import type { EvidencePreview } from "@posthog/api-client/evidence-previews";
 import { getCloudUrlFromRegion } from "@posthog/shared";
 import type { MouseEvent, ReactNode } from "react";
@@ -28,9 +10,11 @@ import {
   type EvidenceLinkTarget,
   evidenceWebPath,
 } from "../../../utils/evidenceLinks";
+import { getObjectKind } from "../../../utils/objectKinds";
 
 /**
- * Inline evidence reference inside an agent message.
+ * Inline evidence reference inside an agent message, authored as a
+ * `<kind id="...">label</kind>` object tag (see remarkObjectTags).
  *
  * Renders as a dotted-underline span with a small kind icon, so it reads as
  * part of the sentence and wraps like text. The underline is a bottom border
@@ -38,90 +22,12 @@ import {
  * inline like the icon's svg, while a bottom border runs under the full
  * reference on every wrapped line fragment.
  *
- * The link carries only `kind/id`. Hovering mounts the card, which resolves
- * the object's live name and status through the PostHog API; clicking opens
- * the object in PostHog at a URL derived from the reference and the current
- * project. Nothing about the object is stored in the message itself.
+ * The reference carries only `kind/id`. Hovering mounts the card, which
+ * resolves the object's live name and status through the PostHog API (for
+ * `hogql`, runs the query); clicking opens the object in PostHog at a URL
+ * derived from the reference and the current project. Nothing about the
+ * object is stored in the message itself.
  */
-
-interface EvidenceKindMeta {
-  icon: Icon;
-  /** Human name of the evidence kind, e.g. "Insight". */
-  kindLabel: string;
-  /** Product the evidence comes from, e.g. "Product analytics". */
-  source: string;
-}
-
-const EVIDENCE_KIND_META: Record<string, EvidenceKindMeta> = {
-  insight: {
-    icon: ChartLineIcon,
-    kindLabel: "Insight",
-    source: "Product analytics",
-  },
-  dashboard: {
-    icon: SquaresFourIcon,
-    kindLabel: "Dashboard",
-    source: "Product analytics",
-  },
-  error: { icon: BugIcon, kindLabel: "Error issue", source: "Error tracking" },
-  replay: {
-    icon: PlayCircleIcon,
-    kindLabel: "Session replay",
-    source: "Session replay",
-  },
-  flag: { icon: FlagIcon, kindLabel: "Feature flag", source: "Feature flags" },
-  experiment: {
-    icon: FlaskIcon,
-    kindLabel: "Experiment",
-    source: "Experiments",
-  },
-  survey: { icon: ClipboardTextIcon, kindLabel: "Survey", source: "Surveys" },
-  ticket: {
-    icon: ChatCircleTextIcon,
-    kindLabel: "Support tickets",
-    source: "Conversations",
-  },
-  trace: {
-    icon: SparkleIcon,
-    kindLabel: "LLM trace",
-    source: "AI observability",
-  },
-  eval: {
-    icon: ShieldCheckIcon,
-    kindLabel: "Evaluation",
-    source: "AI evals",
-  },
-  event: {
-    icon: LightningIcon,
-    kindLabel: "Events",
-    source: "Product analytics",
-  },
-  cohort: {
-    icon: UsersThreeIcon,
-    kindLabel: "Cohort",
-    source: "Product analytics",
-  },
-  action: {
-    icon: CursorClickIcon,
-    kindLabel: "Action",
-    source: "Product analytics",
-  },
-  person: {
-    icon: UserIcon,
-    kindLabel: "Person",
-    source: "Product analytics",
-  },
-};
-
-const GENERIC_KIND_META: EvidenceKindMeta = {
-  icon: PulseIcon,
-  kindLabel: "Evidence",
-  source: "PostHog",
-};
-
-export function getEvidenceKindMeta(kind: string): EvidenceKindMeta {
-  return EVIDENCE_KIND_META[kind] ?? GENERIC_KIND_META;
-}
 
 /**
  * The hover card, presentation only. `preview` is the live lookup result:
@@ -139,7 +45,7 @@ export function EvidenceHoverCard({
   clickable: boolean;
   preview: EvidencePreview | null | undefined;
 }) {
-  const meta = getEvidenceKindMeta(target.kind);
+  const meta = getObjectKind(target.kind);
   const KindIcon = meta.icon;
   return (
     <div className="w-72">
@@ -237,7 +143,7 @@ export function EvidenceRefChip({
   target: EvidenceLinkTarget;
   children: ReactNode;
 }) {
-  const meta = getEvidenceKindMeta(target.kind);
+  const meta = getObjectKind(target.kind);
   const KindIcon = meta.icon;
   const projectId = useAuthStateValue((state) => state.currentProjectId);
   const cloudRegion = useAuthStateValue((state) => state.cloudRegion);

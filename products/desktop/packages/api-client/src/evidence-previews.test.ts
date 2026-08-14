@@ -4,6 +4,7 @@ import {
   shapeErrorIssuePreview,
   shapeExperimentPreview,
   shapeFlagPreview,
+  shapeHogqlPreview,
   shapeInsightPreview,
   shapeRecordingPreview,
   shapeSurveyPreview,
@@ -113,6 +114,27 @@ describe("evidence preview shaping", () => {
         description: "Weekly active users",
       } as Schemas.Cohort).detail,
     ).toBe("Weekly active users");
+  });
+
+  it.each([
+    [
+      "a single numeric cell as the value",
+      { results: [[17100]], columns: ["count"] },
+      { title: "17,100", detail: "count" },
+    ],
+    [
+      "a grid as a row count with its columns",
+      {
+        results: [
+          [1, 2],
+          [3, 4],
+        ],
+        columns: ["day", "users"],
+      },
+      { title: "2 rows", detail: "day, users" },
+    ],
+  ])("summarizes a hogql result: %s", (_case, response, expected) => {
+    expect(shapeHogqlPreview(response)).toEqual(expected);
   });
 
   it("describes a survey that has not started as a draft", () => {

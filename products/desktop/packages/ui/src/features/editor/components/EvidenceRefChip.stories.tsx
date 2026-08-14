@@ -127,12 +127,14 @@ export const InsideAgentMessage: Story = {
     <div className="max-w-xl">
       <MarkdownRenderer
         content={[
-          "The [coupon → purchase conversion](evidence:insight/9pQx3) dropped",
+          'The <insight id="9pQx3">coupon → purchase conversion</insight> dropped',
           "41% → 28% on Jan 3, the same day",
-          "[a TypeError in CouponValidator](evidence:error/018f44aa) first",
-          "appeared, and [14 recordings](evidence:replay/s_01HQ4K) show users",
+          '<error id="018f44aa">a TypeError in CouponValidator</error> first',
+          'appeared, and <replay id="s_01HQ4K">14 recordings</replay> show users',
           "retrying the field before leaving. This area is gated by",
-          "[new-checkout-flow](evidence:flag/42).",
+          '<flag id="42">new-checkout-flow</flag>, and',
+          "<hogql label=\"1,247 sessions\">SELECT count(distinct $session_id) FROM events WHERE event = '$exception'</hogql>",
+          "hit the error this week.",
         ].join(" ")}
       />
     </div>
