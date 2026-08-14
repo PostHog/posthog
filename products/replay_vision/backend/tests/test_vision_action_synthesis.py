@@ -855,7 +855,7 @@ class TestChunkedSynthesis(BaseTest):
             name="summarizer",
             scanner_type=ScannerType.SUMMARIZER,
             scanner_config={"prompt": "summarize"},
-            model=ScannerModel.GEMINI_3_6_FLASH,
+            model=ScannerModel.GEMINI_3_7_FLASH,
         )
         self.action = VisionAction(
             team=self.team,
