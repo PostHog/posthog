@@ -1036,6 +1036,50 @@ async def test_run_tags_session_with_scout_ai_stage(ateam, aerrors_skill):
 
 @pytest.mark.asyncio
 @pytest.mark.django_db
+async def test_run_passes_the_per_scout_server_selection_and_no_credential_owner(ateam, aerrors_skill):
+    # A scout is a team resource: its runs mount only team-scoped grants, gated by the
+    # config's per-scout server selection, and never delegate anyone's personal grants.
+    # Passing a credential owner here would silently re-open the personal lane.
+    session, result = await database_sync_to_async(_make_fake_session, thread_sensitive=False)(ateam)
+    captured: dict = {}
+
+    def _seed_config() -> None:
+        creator = User.objects.create(email=f"scout-owner-{random.randint(1, 99999)}@example.com")
+        SignalScoutConfig.objects.unscoped().create(
+            team_id=ateam.id,
+            skill_name="signals-scout-errors",
+            created_by=creator,
+            mcp_gateway_server_ids=["11111111-1111-1111-1111-111111111111"],
+        )
+
+    await database_sync_to_async(_seed_config, thread_sensitive=False)()
+
+    async def _capture_start(*args, on_task_run_created=None, **kwargs):
+        captured.update(kwargs)
+        if on_task_run_created is not None:
+            await on_task_run_created(session.task_run)
+        return session, result
+
+    with (
+        patch("products.signals.backend.scout_harness.runner.MultiTurnSession.start", new=_capture_start),
+        patch(
+            "products.signals.backend.scout_harness.runner.get_or_create_signals_sandbox_env",
+            return_value="env-id",
+        ),
+        patch(
+            "products.signals.backend.scout_harness.runner.resolve_acting_user_id_for_team",
+            return_value=42,
+        ),
+    ):
+        await arun_signals_scout(team_id=ateam.id, skill_name="signals-scout-errors")
+
+    assert captured["mcp_builtin_agent_key"] == "scout"
+    assert captured.get("mcp_credential_owner_id") is None
+    assert captured["mcp_gateway_server_ids"] == ["11111111-1111-1111-1111-111111111111"]
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db
 @pytest.mark.parametrize(
     "flag,expect_rule",
     [

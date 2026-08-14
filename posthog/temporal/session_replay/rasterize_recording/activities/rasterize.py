@@ -9,7 +9,7 @@ from temporalio import activity
 from posthog.session_recordings.recordings.recording_api_jwt import mint_recording_api_token, recording_api_jwt_enabled
 from posthog.storage import object_storage
 
-from products.exports.backend.models.exported_asset import ExportedAsset
+from products.exports.backend.models.exported_asset import ExportedAsset, is_valid_session_recording_id
 
 from ..types import (
     RASTERIZE_RENDER_MAX_ATTEMPTS,
@@ -47,6 +47,12 @@ def build_rasterization_input(exported_asset_id: int) -> BuildRasterizationResul
     session_id = ctx.get("session_recording_id")
     if not session_id:
         raise ValueError(f"ExportedAsset {exported_asset_id} has no session_recording_id in export_context")
+    # Assets reach this activity from several writers, not all of them behind the exports serializer,
+    # so the id is re-checked here before it becomes part of an internal recording API path.
+    if not is_valid_session_recording_id(session_id):
+        # Logged as well as raised so a session id we reject wrongly is greppable, not just a failed render.
+        logger.warning("rasterize.malformed_session_recording_id", asset_id=exported_asset_id)
+        raise ValueError(f"ExportedAsset {exported_asset_id} has a malformed session_recording_id")
 
     format_map = {"video/webm": "webm", "video/mp4": "mp4", "image/gif": "gif"}
     output_format = format_map.get(asset.export_format, "mp4")

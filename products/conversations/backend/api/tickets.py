@@ -61,7 +61,7 @@ from products.conversations.backend.events import (
     capture_ticket_status_changed,
 )
 from products.conversations.backend.metrics import TICKET_SEARCH_DURATION_SECONDS
-from products.conversations.backend.models import EmailChannel, Ticket, TicketAssignment, TicketView
+from products.conversations.backend.models import EmailChannel, EmailChannelKind, Ticket, TicketAssignment, TicketView
 from products.conversations.backend.models.constants import Channel, ChannelDetail, Status
 from products.conversations.backend.person_lookup import _get_persons_by_email
 
@@ -1474,6 +1474,7 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, AccessContro
         email_config = EmailChannel.objects.filter(
             id=data["email_config_id"],
             team=team,
+            kind=EmailChannelKind.SUPPORT,
             domain_verified=True,
         ).first()
         if not email_config:
