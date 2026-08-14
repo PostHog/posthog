@@ -246,8 +246,13 @@ export function ChannelItemPreview({
         <ItemContent className="min-w-0">
           {/* No gutter: the mark is one glyph on one line, and a column for it
               indents everything under it for the whole height of the card. */}
-          <ItemTitle className="flex items-baseline gap-2 break-words">
-            <span className="flex size-4 shrink-0 translate-y-0.5 items-center justify-center">
+          <ItemTitle className="flex items-start gap-2 break-words">
+            {/* A box one line tall, centered on the title's first line, rather
+                than a baseline-aligned box nudged down by half a step: a mark
+                sitting on the text's baseline reads low against it, and the
+                nudge was tuned to one glyph's metrics. `items-start` keeps it on
+                the first line when the title wraps. */}
+            <span className="flex h-[1lh] w-4 shrink-0 items-center justify-center">
               {previewGlyph(item, dot)}
             </span>
             <span className="min-w-0">{item.title}</span>
