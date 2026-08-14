@@ -37,6 +37,21 @@ describe("posthog-chart blocks in agent markdown", () => {
     expect(screen.queryByText(/"series"/)).toBeNull();
   });
 
+  it("leaves ordinary fenced code inside the code-block shell", () => {
+    // The chart dispatch widened the fence-language regex and made `pre`
+    // conditionally unwrap; a plain fence must keep its highlighted
+    // code-block chrome and never become a chart card.
+    const { container } = render(
+      <Theme>
+        <MarkdownRenderer content={"```ts\nconst a = 1;\n```\n"} />
+      </Theme>,
+    );
+    // Highlighting splits the code into spans, so match the joined text.
+    expect(container.querySelector("code")?.textContent).toBe("const a = 1;");
+    expect(screen.getByLabelText("Copy code")).toBeDefined();
+    expect(screen.queryByTestId("report-chart")).toBeNull();
+  });
+
   it("renders nothing for a malformed or half-streamed block", () => {
     render(
       <Theme>
