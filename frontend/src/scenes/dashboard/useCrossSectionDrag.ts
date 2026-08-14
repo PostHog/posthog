@@ -76,6 +76,7 @@ export function useCrossSectionDrag({ sections, disabled, onTileDrop, onSectionD
     const sectionDragPointerOffset = useRef<{ x: number; y: number } | null>(null)
     const dragged = useRef<DragSession>(null)
     const frame = useRef<number | null>(null)
+    const sectionCollapseFrame = useRef<number | null>(null)
     const latestEvent = useRef<MouseEvent | null>(null)
     const currentTarget = useRef<DashboardDropTarget>(null)
     const sectionsRef = useRef(sections)
@@ -137,6 +138,10 @@ export function useCrossSectionDrag({ sections, disabled, onTileDrop, onSectionD
             cancelAnimationFrame(frame.current)
             frame.current = null
         }
+        if (sectionCollapseFrame.current !== null) {
+            cancelAnimationFrame(sectionCollapseFrame.current)
+            sectionCollapseFrame.current = null
+        }
         setDropTarget(null)
         setDraggedGroupId(null)
         setSectionDragPreview(null)
@@ -161,6 +166,9 @@ export function useCrossSectionDrag({ sections, disabled, onTileDrop, onSectionD
             resizeObserver.current?.disconnect()
             if (frame.current !== null) {
                 cancelAnimationFrame(frame.current)
+            }
+            if (sectionCollapseFrame.current !== null) {
+                cancelAnimationFrame(sectionCollapseFrame.current)
             }
         },
         []
@@ -346,6 +354,12 @@ export function useCrossSectionDrag({ sections, disabled, onTileDrop, onSectionD
                 })
             }
             attachScrollMeasure()
+            sectionCollapseFrame.current = requestAnimationFrame(() => {
+                sectionCollapseFrame.current = null
+                if (dragged.current?.kind === 'section' && dragged.current.groupId === groupId) {
+                    measure()
+                }
+            })
             const handleMove = (moveEvent: PointerEvent): void => {
                 updateDrag(moveEvent)
             }
