@@ -8,6 +8,7 @@ import { teamLogic } from 'scenes/teamLogic'
 
 import { initKeaTests } from '~/test/init'
 
+import { resolveSnoozeUntil } from 'products/alerts/frontend/utils'
 import {
     logsAlertsCreate,
     logsAlertsList,
@@ -15,7 +16,7 @@ import {
     logsAlertsResetCreate,
 } from 'products/logs/frontend/generated/api'
 
-import { logsAlertingLogic, resolveSnoozeUntil } from '../logsAlertingLogic'
+import { logsAlertingLogic } from '../logsAlertingLogic'
 
 jest.mock('products/logs/frontend/generated/api', () => ({
     __esModule: true,
