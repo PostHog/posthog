@@ -100,6 +100,7 @@ function LogsViewerContent({
         isSelectionActive,
         keyboardNavEnabled,
         isLogDetailsOpen,
+        visibleRowDateRange,
     } = useValues(logsViewerLogic)
     const {
         moveCursorDown,
@@ -305,6 +306,7 @@ function LogsViewerContent({
                 collapsed={sparklineCollapsed}
                 onToggleCollapse={toggleSparklineCollapsed}
                 incompleteBarIndices={sparklineIncompleteBarIndices}
+                visibleRowDateRange={visibleRowDateRange}
             />
             <SceneDivider />
         </>

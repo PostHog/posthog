@@ -194,15 +194,17 @@ describe('logsViewerDataLogic', () => {
 
     describe('sparklineData selector', () => {
         it.each([
-            ['null', null, { labels: [], dates: [], data: [] }],
-            ['an empty array', [], { labels: [], dates: [], data: [] }],
+            ['null', null, { dates: [], data: [] }],
+            ['an empty array', [], { dates: [], data: [] }],
             [
                 'valid data',
                 [
                     { time: '2024-01-01T00:00:00Z', severity: 'info', count: 5 },
                     { time: '2024-01-01T00:01:00Z', severity: 'error', count: 3 },
                 ],
-                { labels: expect.any(Array), dates: expect.any(Array), data: expect.any(Array) },
+                // Raw bucket times, not display strings: the chart's time axis formats the ticks and
+                // the tooltip header itself.
+                { dates: ['2024-01-01T00:00:00Z', '2024-01-01T00:01:00Z'], data: expect.any(Array) },
             ],
         ])('returns correct data when sparkline is %s', async (_, sparklineInput, expected) => {
             logic.actions.setSparkline(sparklineInput as any[] | null)

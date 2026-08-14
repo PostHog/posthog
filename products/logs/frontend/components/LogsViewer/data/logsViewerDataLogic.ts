@@ -24,7 +24,6 @@ import api from 'lib/api'
 import { dataColorVars } from 'lib/colors'
 import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
 import { dayjs } from 'lib/dayjs'
-import { humanFriendlyDetailedTime } from 'lib/utils/datetime'
 import { teamLogic } from 'scenes/teamLogic'
 
 import {
@@ -179,7 +178,6 @@ export interface logsViewerDataLogicValues {
             values: number[]
         }[]
         dates: string[]
-        labels: string[]
     }
     sparklineIncompleteBarIndices: number[]
     sparklineLoading: boolean
@@ -455,7 +453,6 @@ export interface logsViewerDataLogicMeta {
                 values: number[]
             }[]
             dates: string[]
-            labels: string[]
         }
         sparklineIncompleteBarIndices: (
             sparklineData: {
@@ -465,7 +462,6 @@ export interface logsViewerDataLogicMeta {
                     values: number[]
                 }[]
                 dates: string[]
-                labels: string[]
             },
             liveLogsCheckpoint: string | null,
             sparklineLoading: boolean
@@ -860,23 +856,17 @@ export const logsViewerDataLogic = kea<logsViewerDataLogicType>([
             (s) => [s.sparkline, s.sparklineBreakdownBy],
             (sparkline: any[] | null, sparklineBreakdownBy: LogsSparklineBreakdownBy) => {
                 if (!sparkline) {
-                    return { labels: [], dates: [], data: [] }
+                    return { dates: [], data: [] }
                 }
 
                 const breakdownKey = sparklineBreakdownBy
 
                 let lastTime = ''
                 let i = -1
-                const labels: string[] = []
                 const dates: string[] = []
                 const accumulated = sparkline.reduce(
                     (accumulator, currentItem) => {
                         if (currentItem.time !== lastTime) {
-                            labels.push(
-                                humanFriendlyDetailedTime(currentItem.time, 'YYYY-MM-DD', 'HH:mm:ss', {
-                                    timestampStyle: 'absolute',
-                                })
-                            )
                             dates.push(currentItem.time)
                             lastTime = currentItem.time
                             i++
@@ -924,7 +914,7 @@ export const logsViewerDataLogic = kea<logsViewerDataLogicType>([
                     data.push({ name: OTHER_BREAKDOWN_LABEL, values: otherValues as number[], color: 'muted' })
                 }
 
-                return { data, labels, dates }
+                return { data, dates }
             },
         ],
         // Sparkline bar indices that are still being ingested (incomplete), to be hatched. A bucket is
