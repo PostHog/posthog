@@ -2,6 +2,7 @@ import { MOCK_DEFAULT_ORGANIZATION } from 'lib/api.mock'
 
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
+import posthog from 'posthog-js'
 
 import { SetupTaskId } from 'lib/components/ProductSetup'
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -778,6 +779,53 @@ describe('onboardingLogic — flow composition', () => {
             logic.actions.setProductKey(ProductKey.PRODUCT_ANALYTICS)
 
             expect(flowStepKeys()).not.toContain(OnboardingStepKey.AI_REPORTS)
+        })
+    })
+
+    // A session that opens `/onboarding/:productKey` skips product selection, so nothing on that
+    // path used to emit `onboarding started` and the onboarding experiment never counted it.
+    describe('onboarding started exposure for a product-scoped entry', () => {
+        let capture: jest.SpyInstance
+
+        beforeEach(() => {
+            capture = jest.spyOn(posthog, 'capture').mockImplementation()
+        })
+
+        afterEach(() => {
+            capture.mockRestore()
+        })
+
+        const onboardingStartedCount = (): number =>
+            capture.mock.calls.filter(([event]) => event === 'onboarding started').length
+
+        const receiveFlags = (variant: string): void => {
+            featureFlagLogic.findMounted()?.actions.setFeatureFlags([FEATURE_FLAGS.ONBOARDING_FLOW_VARIANT], {
+                [FEATURE_FLAGS.ONBOARDING_FLOW_VARIANT]: variant,
+            })
+        }
+
+        it('holds the event until the flags arrive, then emits it once', () => {
+            logic.actions.setProductKey(ProductKey.PRODUCT_ANALYTICS)
+            expect(onboardingStartedCount()).toBe(0)
+
+            receiveFlags('control')
+            expect(onboardingStartedCount()).toBe(1)
+
+            receiveFlags('control')
+            expect(onboardingStartedCount()).toBe(1)
+        })
+
+        it('emits nothing while no product is selected, leaving that entry to product selection', () => {
+            receiveFlags('control')
+
+            expect(onboardingStartedCount()).toBe(0)
+        })
+
+        it('emits nothing when the flags select the self-driving flow', () => {
+            logic.actions.setProductKey(ProductKey.PRODUCT_ANALYTICS)
+            receiveFlags('self-driving')
+
+            expect(onboardingStartedCount()).toBe(0)
         })
     })
 })

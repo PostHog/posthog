@@ -74,6 +74,7 @@ export interface onboardingLogicValues {
     onCompleteOnboardingRedirectUrl: string
     onCompleteOnboardingRedirectUrlOverride: string | null
     onboardingFlowVariant: string
+    onboardingStartedReported: boolean
     onboardingStepKeys: OnboardingStepKey[]
     product: OnboardingProduct | null
     productKey: ProductKey | null
@@ -131,6 +132,9 @@ export interface onboardingLogicActions {
     }
     markStepsVisited: (stepIds: string[]) => {
         stepIds: string[]
+    }
+    reportOnboardingStartedIfNeeded: () => {
+        value: true
     }
     resetOnboardingFlowState: () => {
         value: true
@@ -268,6 +272,7 @@ export const onboardingLogic = kea<onboardingLogicType>([
         setSubscribedDuringOnboarding: (subscribedDuringOnboarding: boolean) => ({ subscribedDuringOnboarding }),
         setTeamPropertiesForProduct: (productKey: ProductKey) => ({ productKey }),
         setWaitForBilling: (waitForBilling: boolean) => ({ waitForBilling }),
+        reportOnboardingStartedIfNeeded: true,
         goToNextStep: true,
         goToPreviousStep: true,
         setOnCompleteOnboardingRedirectUrl: (url: string | null) => ({ url }),
@@ -293,6 +298,12 @@ export const onboardingLogic = kea<onboardingLogicType>([
             {
                 setProductKey: (_, { productKey }) => productKey,
                 clearProductKey: () => null,
+            },
+        ],
+        onboardingStartedReported: [
+            false,
+            {
+                [eventUsageLogic.actionTypes.reportOnboardingStarted]: () => true,
             },
         ],
         product: [
@@ -698,6 +709,7 @@ export const onboardingLogic = kea<onboardingLogicType>([
                 actions.resetOnboardingFlowState()
             }
             actions.setProduct(availableOnboardingProducts[productKey])
+            actions.reportOnboardingStartedIfNeeded()
         },
         setSubscribedDuringOnboarding: ({ subscribedDuringOnboarding }) => {
             if (!subscribedDuringOnboarding) {
@@ -933,6 +945,25 @@ export const onboardingLogic = kea<onboardingLogicType>([
             if (prev) {
                 actions.setStepId(prev.id)
             }
+        },
+        // A session that enters on `/onboarding/:productKey` never renders product selection, so
+        // without this it reaches the flow host having emitted no `onboarding started` at all and
+        // the onboarding experiment never counts it. The flag gate matches the one in
+        // `productSelectionLogic`, because an event captured before the flags land carries no
+        // `$feature/onboarding-flow-variant` and the experiment discards it.
+        reportOnboardingStartedIfNeeded: () => {
+            if (
+                values.onboardingStartedReported ||
+                !values.productKey ||
+                !values.receivedFeatureFlags ||
+                resolveOnboardingFlowVariant(values.featureFlags) !== 'legacy'
+            ) {
+                return
+            }
+            eventUsageLogic.actions.reportOnboardingStarted('product_url')
+        },
+        [featureFlagLogic.actionTypes.setFeatureFlags]: () => {
+            actions.reportOnboardingStartedIfNeeded()
         },
     })),
     actionToUrl(({ values, actions }) => ({
