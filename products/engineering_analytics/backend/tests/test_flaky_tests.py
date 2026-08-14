@@ -363,6 +363,13 @@ class TestFlakyTestsAPI(ClickhouseTestMixin, APIBaseTest):
         assert data["truncated"] is True
         assert data["limit"] == 1
 
+    def test_runner_filters_before_limit(self) -> None:
+        data = self._get(runner="jest", limit="1")
+
+        assert len(data["items"]) == 1
+        assert data["items"][0]["runner"] == "jest"
+        assert data["truncated"] is True
+
     @parameterized.expand(
         [
             ("window_over_30_days", {"date_from": "-45d"}),
@@ -371,6 +378,7 @@ class TestFlakyTestsAPI(ClickhouseTestMixin, APIBaseTest):
             ("zero_limit", {"limit": "0"}),
             ("oversized_limit", {"limit": "201"}),
             ("non_integer_threshold", {"min_failed_prs": "lots"}),
+            ("unknown_runner", {"runner": "playwright"}),
         ]
     )
     def test_invalid_params_return_400(self, _name: str, params: dict) -> None:

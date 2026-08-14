@@ -12,6 +12,7 @@ from django.test import override_settings
 
 from modal.exception import (
     ConnectionError as ModalConnectionError,
+    ResourceExhaustedError as ModalResourceExhaustedError,
     ServiceError as ModalServiceError,
     TimeoutError as ModalTimeoutError,
 )
@@ -22,6 +23,7 @@ from products.tasks.backend.exceptions import (
     SandboxExecutionError,
     SandboxProvisionError,
     SnapshotCreationError,
+    SnapshotFileLimitExceededError,
     SnapshotTimeoutError,
 )
 from products.tasks.backend.logic.services.local_packages import LocalPackage
@@ -427,7 +429,7 @@ class TestModalSandboxAgentServer:
         mock_modal_sandbox.create_connect_token.return_value = mock_credentials
 
         config = SandboxConfig(name="test-sandbox")
-        with patch.object(ModalSandbox, "_get_app_for_template", return_value=MagicMock()):
+        with patch.object(ModalSandbox, "_get_app_for_config", return_value=MagicMock()):
             return ModalSandbox(sandbox=mock_modal_sandbox, config=config)
 
     @pytest.fixture(autouse=True)
@@ -834,6 +836,52 @@ class TestModalSandboxAgentServer:
         assert result == "snapshot-456"
         mock_sandbox._sandbox.snapshot_filesystem.assert_called_once_with(timeout=240, ttl=None)
 
+    def _trigger_snapshot(self, mock_sandbox: Any, snapshot_method: str, error: Exception) -> None:
+        mock_sandbox._sandbox.snapshot_directory.side_effect = error
+        mock_sandbox._sandbox.snapshot_filesystem.side_effect = error
+        if snapshot_method == "create_directory_snapshot":
+            mock_sandbox.create_directory_snapshot(DEFAULT_SANDBOX_WORKING_DIR)
+        else:
+            mock_sandbox.create_snapshot()
+
+    @pytest.mark.parametrize("snapshot_method", ["create_directory_snapshot", "create_snapshot"])
+    def test_snapshot_over_file_cap_raises_classified_error(self, mock_sandbox: Any, snapshot_method: str) -> None:
+        # Modal's 1M-file cap is permanent, not transient: it must surface as the classified,
+        # non-retryable error rather than a generic captured SnapshotCreationError.
+        cap_error = ModalResourceExhaustedError("filesystem snapshot contains more than 1000000 files")
+
+        with pytest.raises(SnapshotFileLimitExceededError) as exc:
+            self._trigger_snapshot(mock_sandbox, snapshot_method, cap_error)
+
+        assert exc.value.non_retryable is True
+
+    @pytest.mark.parametrize("snapshot_method", ["create_directory_snapshot", "create_snapshot"])
+    def test_generic_resource_exhausted_is_transient_not_file_cap(
+        self, mock_sandbox: Any, snapshot_method: str
+    ) -> None:
+        # A generic quota/rate-limit RESOURCE_EXHAUSTED must stay retryable, not be misclassified
+        # as the permanent file-count cap.
+        quota_error = ModalResourceExhaustedError("resource quota exceeded, please try again later")
+
+        with pytest.raises(SnapshotTimeoutError):
+            self._trigger_snapshot(mock_sandbox, snapshot_method, quota_error)
+
+    def test_prune_snapshot_heavy_dirs_targets_reproducible_trees(self, mock_sandbox: Any) -> None:
+        with patch.object(ModalSandbox, "execute") as execute:
+            mock_sandbox.prune_snapshot_heavy_dirs(DEFAULT_SANDBOX_WORKING_DIR)
+
+        prune_command = execute.call_args_list[0].args[0]
+        assert "node_modules" in prune_command
+        assert ".venv" in prune_command
+        assert DEFAULT_SANDBOX_WORKING_DIR in prune_command
+
+    def test_prune_snapshot_heavy_dirs_is_best_effort(self, mock_sandbox: Any) -> None:
+        # A failed or timed-out prune must not raise — the caller decides what to do next.
+        with patch.object(
+            ModalSandbox, "execute", side_effect=SandboxExecutionError("prune timed out", {}, cause=RuntimeError())
+        ):
+            mock_sandbox.prune_snapshot_heavy_dirs(DEFAULT_SANDBOX_WORKING_DIR)
+
 
 class TestModalSandboxProvisionDiagnostics:
     @pytest.mark.parametrize(
@@ -994,6 +1042,19 @@ class TestModalSandboxCommandEscaping:
             assert shlex.quote(mode) in command
 
 
+class TestModalSandboxResourceUsage:
+    def test_reads_cgroup_cpu_usage(self):
+        sandbox = ModalSandbox.__new__(ModalSandbox)
+        sandbox.id = "sb-usage"
+        sandbox.config = SandboxConfig(name="usage")
+        sandbox._sandbox = MagicMock()
+        sandbox._sandbox.filesystem.read_text.return_value = "usage_usec 12345678\nuser_usec 10000000\n"
+
+        assert sandbox.read_cpu_usage_usec() == 12_345_678
+
+        sandbox._sandbox.filesystem.read_text.assert_called_once_with("/sys/fs/cgroup/cpu.stat")
+
+
 class TestModalSandboxAgentServerStartupHelpers:
     def _make_sandbox(self) -> Any:
         sandbox = ModalSandbox.__new__(ModalSandbox)
@@ -1048,13 +1109,14 @@ class TestStartupFailureDiagnostics:
         assert "poll=137" in diagnostics["failure_reason"]
         sandbox._sandbox.exec.assert_not_called()
 
+    @override_settings(SITE_URL="https://eu.posthog.com", SANDBOX_MCP_URL=None)
     def test_reports_blocked_egress_host(self):
         sandbox = self._sandbox()
 
         def _exec(command: str, timeout_seconds: Any = None) -> ExecutionResult:
             if "printf" in command:
                 return ExecutionResult(
-                    stdout="api.anthropic.com code=200\nmcp.posthog.com http_code=000",
+                    stdout="api.anthropic.com http_code=200\nmcp-eu.posthog.com http_code=000",
                     stderr="",
                     exit_code=0,
                     error=None,
@@ -1071,7 +1133,7 @@ class TestStartupFailureDiagnostics:
 
         assert diagnostics["sandbox_terminated"] == "false"
         assert "egress blocked" in diagnostics["failure_reason"]
-        assert "mcp.posthog.com" in diagnostics["failure_reason"]
+        assert "mcp-eu.posthog.com" in diagnostics["failure_reason"]
 
     def test_reports_alive_without_session_when_no_block(self):
         sandbox = self._sandbox()
@@ -1099,7 +1161,7 @@ class TestModalSandboxCreateAllowlist:
         mock_sb.object_id = "sb-created"
         with (
             patch("products.tasks.backend.logic.services.modal_sandbox.modal.enable_output"),
-            patch.object(ModalSandbox, "_get_app_for_template", return_value=MagicMock()),
+            patch.object(ModalSandbox, "_get_app_for_config", return_value=MagicMock()),
             patch("products.tasks.backend.logic.services.modal_sandbox._get_template_image", return_value=MagicMock()),
             patch(
                 "products.tasks.backend.logic.services.modal_sandbox.modal.Sandbox.create", return_value=mock_sb
@@ -1151,7 +1213,7 @@ class TestModalSandboxCreateImageFallback:
 
         with (
             patch("products.tasks.backend.logic.services.modal_sandbox.modal.enable_output"),
-            patch.object(ModalSandbox, "_get_app_for_template", return_value=MagicMock()),
+            patch.object(ModalSandbox, "_get_app_for_config", return_value=MagicMock()),
             patch(
                 "products.tasks.backend.logic.services.modal_sandbox._get_template_image",
                 return_value=MagicMock(name="base"),
@@ -1221,7 +1283,7 @@ class TestModalSandboxCreateImageFallback:
 
         with (
             patch("products.tasks.backend.logic.services.modal_sandbox.modal.enable_output"),
-            patch.object(ModalSandbox, "_get_app_for_template", return_value=MagicMock()),
+            patch.object(ModalSandbox, "_get_app_for_config", return_value=MagicMock()),
             patch(
                 "products.tasks.backend.logic.services.modal_sandbox._get_template_image",
                 return_value=MagicMock(name="base"),
@@ -1359,7 +1421,7 @@ class TestLaunchDevStackBootstrap:
             snapshot_restored=snapshot_restored,
             **({"snapshot_kind": snapshot_kind} if snapshot_kind is not None else {}),
         )
-        with patch.object(ModalSandbox, "_get_app_for_template", return_value=MagicMock()):
+        with patch.object(ModalSandbox, "_get_app_for_config", return_value=MagicMock()):
             return ModalSandbox(sandbox=mock_modal_sandbox, config=config)
 
     @pytest.mark.parametrize(
@@ -1493,14 +1555,14 @@ class TestResourceCreateKwargs:
         # Reserve the explicitly requested floor, burst up to the configured limit.
         assert kwargs == {"cpu": (2.0, 8.0), "memory": (4096, 16384)}
 
-    def test_vm_runtime_pins_memory_but_keeps_cpu_elastic(self):
+    def test_vm_runtime_uses_equal_memory_request_and_limit(self):
         config = SandboxConfig(name="t", cpu_cores=4, memory_gb=16, burstable_resources=True, vm_runtime=True)
 
         kwargs = _resource_create_kwargs(config)
 
-        assert kwargs == {"cpu": (0.5, 4.0), "memory": 16384}
+        assert kwargs == {"cpu": (0.5, 4.0), "memory": (16384, 16384)}
 
-    def test_vm_template_pins_memory_but_keeps_cpu_elastic(self):
+    def test_vm_template_uses_equal_memory_request_and_limit(self):
         config = SandboxConfig(
             name="t",
             cpu_cores=4,
@@ -1511,7 +1573,7 @@ class TestResourceCreateKwargs:
 
         kwargs = _resource_create_kwargs(config)
 
-        assert kwargs == {"cpu": (0.5, 4.0), "memory": 16384}
+        assert kwargs == {"cpu": (0.5, 4.0), "memory": (16384, 16384)}
 
     def test_explicit_request_floor_is_clamped_to_limit(self):
         # A request floor above the configured limit is clamped down to the limit.
@@ -1537,7 +1599,7 @@ class TestModalSandboxCreateSnapshot:
         mock_modal_sandbox.poll.return_value = None  # None => still running
 
         config = SandboxConfig(name="test-sandbox")
-        with patch.object(ModalSandbox, "_get_app_for_template", return_value=MagicMock()):
+        with patch.object(ModalSandbox, "_get_app_for_config", return_value=MagicMock()):
             return ModalSandbox(sandbox=mock_modal_sandbox, config=config)
 
     def test_create_snapshot_success(self, mock_sandbox: Any):
@@ -1607,6 +1669,28 @@ class TestModalSandboxCreateSnapshot:
 
 
 class TestSessionInitProbeHosts:
+    @pytest.mark.parametrize(
+        ("site_url", "mcp_url", "expected_host", "unused_host"),
+        [
+            ("https://us.posthog.com", None, "mcp.posthog.com", "mcp-eu.posthog.com"),
+            ("https://eu.posthog.com", None, "mcp-eu.posthog.com", "mcp.posthog.com"),
+            (
+                "https://us.posthog.com",
+                "https://custom-mcp.example.com/mcp",
+                "custom-mcp.example.com",
+                "mcp.posthog.com",
+            ),
+        ],
+    )
+    def test_includes_only_resolved_mcp_host(
+        self, site_url: str, mcp_url: str | None, expected_host: str, unused_host: str
+    ):
+        with override_settings(SITE_URL=site_url, SANDBOX_MCP_URL=mcp_url):
+            hosts = _session_init_probe_hosts()
+
+        assert expected_host in hosts
+        assert unused_host not in hosts
+
     @override_settings(
         SANDBOX_LLM_GATEWAY_URL="https://gateway.dev.posthog.dev",
         SANDBOX_AI_GATEWAY_URL="https://ai-gateway.dev.posthog.dev",

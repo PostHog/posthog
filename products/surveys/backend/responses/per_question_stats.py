@@ -5,13 +5,13 @@ from datetime import UTC, datetime
 from typing import cast
 
 from posthog.hogql import ast
-from posthog.hogql.parser import parse_select
+from posthog.hogql.parser import parse_expr, parse_select
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.models import Team
 
 from products.surveys.backend.models import Survey
-from products.surveys.backend.responses.fetch_rows import resolve_question_metadata
+from products.surveys.backend.responses.fetch_rows import SUBMISSION_GROUPING_KEY, resolve_question_metadata
 
 
 @dataclass(frozen=True)
@@ -60,6 +60,7 @@ def fetch_per_question_stats(
             "end_date": ast.Constant(value=end_date),
             "q_idx": ast.Constant(value=question_index),
             "q_id": ast.Constant(value=question_id),
+            "grouping_key": parse_expr(SUBMISSION_GROUPING_KEY),
         }
 
         # For open questions: just count non-empty responses — distribution across free-text
@@ -69,14 +70,25 @@ def fetch_per_question_stats(
         # resolves to NULL (e.g. via its nullIf path) — `NULL != ''` is NULL, which would
         # filter the row implicitly but doesn't always behave consistently in count contexts.
         if question_type == "open":
+            # Merge each submission's events into one answer (latest non-null), then count
+            # the submissions that ended up with a non-empty answer.
             query_str = """
-                SELECT countIf(length(trim(coalesce(getSurveyResponse({q_idx}, {q_id}), ''))) > 0) AS n
-                FROM events
-                WHERE event = 'survey sent'
-                    AND properties.`$survey_id` = {survey_id}
-                    AND timestamp >= {start_date}
-                    AND timestamp <= {end_date}
-                    AND uniqueSurveySubmissionsFilter({survey_id}, {start_date}, {end_date})
+                SELECT countIf(length(trim(coalesce(answer, ''))) > 0) AS n
+                FROM (
+                    SELECT argMaxIf(response, timestamp, isNotNull(response)) AS answer
+                    FROM (
+                        SELECT
+                            getSurveyResponse({q_idx}, {q_id}) AS response,
+                            timestamp,
+                            {grouping_key} AS submission_key
+                        FROM events
+                        WHERE event = 'survey sent'
+                            AND properties.`$survey_id` = {survey_id}
+                            AND timestamp >= {start_date}
+                            AND timestamp <= {end_date}
+                    )
+                    GROUP BY submission_key
+                )
             """
             select_ast = cast(ast.SelectQuery, parse_select(query_str, placeholders))
             response = execute_hogql_query(
@@ -98,15 +110,26 @@ def fetch_per_question_stats(
 
         # For rating/choice: aggregate by answer value to get a distribution.
         # Same defensive coalesce as the open branch — filter out NULL and empty before grouping.
+        # Merge each submission's events into one answer (latest non-null), then build the
+        # distribution across those merged answers.
         query_str = """
-            SELECT getSurveyResponse({q_idx}, {q_id}) AS answer, count() AS n
-            FROM events
-            WHERE event = 'survey sent'
-                AND properties.`$survey_id` = {survey_id}
-                AND timestamp >= {start_date}
-                AND timestamp <= {end_date}
-                AND uniqueSurveySubmissionsFilter({survey_id}, {start_date}, {end_date})
-                AND length(trim(coalesce(getSurveyResponse({q_idx}, {q_id}), ''))) > 0
+            SELECT answer, count() AS n
+            FROM (
+                SELECT argMaxIf(response, timestamp, isNotNull(response)) AS answer
+                FROM (
+                    SELECT
+                        getSurveyResponse({q_idx}, {q_id}) AS response,
+                        timestamp,
+                        {grouping_key} AS submission_key
+                    FROM events
+                    WHERE event = 'survey sent'
+                        AND properties.`$survey_id` = {survey_id}
+                        AND timestamp >= {start_date}
+                        AND timestamp <= {end_date}
+                )
+                GROUP BY submission_key
+                HAVING length(trim(coalesce(answer, ''))) > 0
+            )
             GROUP BY answer
             ORDER BY n DESC
             LIMIT 200
@@ -123,11 +146,14 @@ def fetch_per_question_stats(
         # `hasOpenChoice` "Other: ___" response) and would leak respondent-entered content.
         # Bucket free-text answers under "<other>" so callers still see how many people picked
         # "Other" without exposing the text itself. Reading the text requires the responses
-        # endpoint, which requires `query:read`.
-        allowed_choices: set[str] | None = None
+        # endpoint, which requires `query:read`. Translated answers map back to their base
+        # choice so they aggregate with it rather than being redacted into "<other>".
+        # `multiple_choice` never actually reaches here today: the grouped query above resolves
+        # JSON-array answers to '', filtered out before this point. Kept in the tuple so
+        # normalization applies for free if the query is ever extended to array-extract answers.
+        choice_map: dict[str, str] | None = None
         if question_type in ("single_choice", "multiple_choice"):
-            choices = q.get("choices") or []
-            allowed_choices = set(choices) if choices else set()
+            choice_map = q.get("choice_map") or {}
 
         distribution: dict[str, int] = {}
         total_count = 0
@@ -140,13 +166,16 @@ def fetch_per_question_stats(
             if not answer_str:
                 continue
 
-            if allowed_choices is not None and answer_str not in allowed_choices:
-                # Free-text "Other" — keep the count but not the value.
-                other_count += count_n
-                total_count += count_n
-                continue
+            if choice_map is not None:
+                normalized = choice_map.get(answer_str)
+                if normalized is None:
+                    # Free-text "Other" — keep the count but not the value.
+                    other_count += count_n
+                    total_count += count_n
+                    continue
+                answer_str = normalized
 
-            distribution[answer_str] = count_n
+            distribution[answer_str] = distribution.get(answer_str, 0) + count_n
             total_count += count_n
             if question_type == "rating":
                 try:

@@ -64,13 +64,10 @@ export class PersonContext {
             partitionCount: 64,
             isTeamEnabled: () => false,
         },
-        /**
-         * Always-v1 rollout of the personless-table removal: when true, merge-added distinct id
-         * mappings get version 1 unconditionally instead of consulting posthog_personlessdistinctid.
-         */
-        public readonly mergeAlwaysV1: boolean = false,
         /** Fold plan shared by this event's consecutive $identify run; see person-merge-fold.ts. */
-        public readonly mergeFoldPlan?: MergeFoldPlan
+        public readonly mergeFoldPlan?: MergeFoldPlan,
+        /** New-world merge behavior for this team: lifecycle-mark claims plus tombstone deletes. */
+        public readonly mergeTombstoneEnabled: boolean = false
     ) {
         this.eventProperties = event.properties!
     }

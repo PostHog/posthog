@@ -31,6 +31,9 @@ export interface tileLogicActions {
         date_to: string | null | undefined
         explicitDate: boolean | undefined
     }
+    setFilterTestAccounts: (filterTestAccounts: boolean | null) => {
+        filterTestAccounts: boolean | null
+    }
     setIgnoreDashboardFilters: (ignoreDashboardFilters: boolean) => {
         ignoreDashboardFilters: boolean
     }
@@ -67,6 +70,7 @@ export const tileLogic = kea<tileLogicType>([
         setProperties: (properties: AnyPropertyFilter[] | null | undefined) => ({ properties }),
         setBreakdown: (breakdown_filter: BreakdownFilter | null | undefined) => ({ breakdown_filter }),
         setInterval: (interval: IntervalType | null | undefined) => ({ interval }),
+        setFilterTestAccounts: (filterTestAccounts: boolean | null) => ({ filterTestAccounts }),
         setIgnoreDashboardFilters: (ignoreDashboardFilters: boolean) => ({ ignoreDashboardFilters }),
         resetOverrides: true,
     })),
@@ -118,6 +122,17 @@ export const tileLogic = kea<tileLogicType>([
                         newState.interval = interval
                     } else {
                         delete newState.interval
+                    }
+                    return newState
+                },
+                setFilterTestAccounts: (state, { filterTestAccounts }) => {
+                    const newState = { ...state }
+                    // Tri-state: false means "force test account filtering off", so unlike the other
+                    // overrides only null (inherit) clears the key.
+                    if (filterTestAccounts === null) {
+                        delete newState.filterTestAccounts
+                    } else {
+                        newState.filterTestAccounts = filterTestAccounts
                     }
                     return newState
                 },

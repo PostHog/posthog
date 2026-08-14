@@ -337,24 +337,49 @@ def _find_resolved_params(endpoint_config: Endpoint) -> list[ResolvedParam]:
     ]
 
 
+_UNPARSED = object()
+
+
+def _json_field_value(body: object, path: str) -> object:
+    current = body
+    for key in path.split("."):
+        if not isinstance(current, dict):
+            return None
+        current = current.get(key)
+    return current
+
+
 def _handle_response_actions(response: Response, actions: list[ResponseAction]) -> Optional[ResponseAction]:
     content = response.text
+    # Parsed at most once per response, and only when an action actually matches on the body.
+    parsed_body: object = _UNPARSED
 
     for action in actions:
-        status_code = action.get("status_code")
-        content_substr = action.get("content")
         if action.get("action") is None:
             continue
 
-        if status_code is not None and content_substr is not None:
-            if response.status_code == status_code and content_substr in content:
-                return action
-        elif status_code is not None:
-            if response.status_code == status_code:
-                return action
-        elif content_substr is not None:
-            if content_substr in content:
-                return action
+        criteria: list[bool] = []
+
+        status_code = action.get("status_code")
+        if status_code is not None:
+            criteria.append(response.status_code == status_code)
+
+        content_substr = action.get("content")
+        if content_substr is not None:
+            criteria.append(content_substr in content)
+
+        json_field = action.get("json_field")
+        if json_field is not None:
+            if parsed_body is _UNPARSED:
+                try:
+                    parsed_body = response.json()
+                except ValueError:
+                    parsed_body = None
+            criteria.append(_json_field_value(parsed_body, json_field) in (action.get("json_values") or []))
+
+        # An action with no criteria at all would otherwise match every response.
+        if criteria and all(criteria):
+            return action
 
     return None
 
@@ -367,7 +392,9 @@ def _create_response_actions_hook(
         action_type = matched.get("action") if matched else None
 
         if action_type == "ignore":
-            logger.info(f"Ignoring response with code {response.status_code} and content '{response.json()}'.")
+            # Use response.text, not response.json(): an ignored response (e.g. a 404) often has an
+            # empty or non-JSON body, and parsing it here would raise before the ignore takes effect.
+            logger.info(f"Ignoring response with code {response.status_code} and content '{response.text[:500]}'.")
             raise IgnoreResponseException
 
         # Re-issue the request. This is how a source classifies an HTTP-200 body-level error

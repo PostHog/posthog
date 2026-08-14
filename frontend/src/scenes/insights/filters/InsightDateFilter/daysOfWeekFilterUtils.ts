@@ -1,6 +1,14 @@
 import { DateRange } from '~/queries/schema/schema-general'
+import { isFunnelsQuery, isStickinessQuery, isTrendsQuery } from '~/queries/utils'
 
 export type IsoDayOfWeek = NonNullable<DateRange['daysOfWeek']>[number]
+
+/** Mirrors backend support: trends, stickiness, and funnels. Lifecycle is excluded because its
+ *  statuses are defined by interval adjacency, which a sparse day axis breaks (weekend-only users
+ *  get misclassified as resurrecting, dormant lands on excluded days). */
+export function querySupportsDaysOfWeek(querySource: Record<string, any> | null | undefined): boolean {
+    return isTrendsQuery(querySource) || isStickinessQuery(querySource) || isFunnelsQuery(querySource)
+}
 
 const DAYS_IN_WEEK = 7
 const WEEKDAYS: IsoDayOfWeek[] = [1, 2, 3, 4, 5]
@@ -61,9 +69,7 @@ export function daysOfWeekLabel(days: IsoDayOfWeek[]): string {
     return days.map((day) => DAY_LABELS[day]).join(', ')
 }
 
-/** 0 or 7 excluded days normalise to daysOfWeek: null ("all days included"). Deliberately does
- *  not touch the legacy display-only trendsFilter.hideWeekends — its semantics differ (buckets
- *  hidden from the response, events kept in windowed aggregations), so it stays independent. */
+/** 0 or 7 excluded days normalise to daysOfWeek: null ("all days included"). */
 export function computeDaysOfWeekUpdate(
     excludedDays: IsoDayOfWeek[],
     dateRange: DateRange | null | undefined

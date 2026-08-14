@@ -117,6 +117,8 @@ mod tests {
     use common_types::CapturedEventHeaders;
     use uuid::Uuid;
 
+    use crate::ordering::OrderingGuarantee;
+
     use crate::config::CaptureMode;
     use crate::v1::context::RequestContext;
     use crate::v1::sinks::event::Event;
@@ -179,6 +181,9 @@ mod tests {
         }
         fn partition_key(&self, _ctx: &RequestContext) -> String {
             format!("key:{}", self.uuid())
+        }
+        fn ordering(&self) -> OrderingGuarantee {
+            OrderingGuarantee::PerDistinctId
         }
         fn serialize(&self, _ctx: &RequestContext) -> anyhow::Result<bytes::Bytes> {
             Ok(bytes::Bytes::from(r#"{"event":"test"}"#.to_string()))

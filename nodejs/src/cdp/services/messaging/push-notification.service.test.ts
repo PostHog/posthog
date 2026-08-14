@@ -64,9 +64,9 @@ describe('PushNotificationService', () => {
     let service: PushNotificationService
     let integrationManager: IntegrationManagerService
     let fetchUtils: PushNotificationFetchUtils
-    let redisStore: Map<string, string>
-    let mockRedisSet: jest.Mock
-    let mockRedis: any
+    let valkeyStore: Map<string, string>
+    let mockValkeySet: jest.Mock
+    let mockValkey: any
 
     const mockTrackedFetch = jest.fn()
 
@@ -91,21 +91,21 @@ describe('PushNotificationService', () => {
             backoffMaxMs: 30000,
         }
 
-        redisStore = new Map<string, string>()
-        mockRedisSet = jest.fn((key: string, value: string) => {
-            redisStore.set(key, value)
+        valkeyStore = new Map<string, string>()
+        mockValkeySet = jest.fn((key: string, value: string) => {
+            valkeyStore.set(key, value)
             return 'OK'
         })
-        mockRedis = {
+        mockValkey = {
             useClient: jest.fn((_opts: any, fn: any) =>
                 fn({
-                    get: (key: string) => redisStore.get(key) ?? null,
-                    set: mockRedisSet,
+                    get: (key: string) => valkeyStore.get(key) ?? null,
+                    set: mockValkeySet,
                 })
             ),
         } as any
 
-        service = new PushNotificationService(integrationManager, encryptedFields, fetchUtils, mockRedis)
+        service = new PushNotificationService(integrationManager, encryptedFields, fetchUtils, mockValkey)
     })
 
     afterEach(() => {
@@ -185,6 +185,92 @@ describe('PushNotificationService', () => {
             expect(result.metrics).not.toContainEqual(expect.objectContaining({ metric_name: 'push_sent' }))
         })
 
+        it('stamps workflow, action and invocation ids into the data payload so opens can be attributed', async () => {
+            // An open is captured on the device, so these ids riding along in the payload are the only
+            // way the resulting event can be tied back to the workflow and step that sent it.
+            const invocation = createSendPushNotificationInvocation({
+                '$device_push_subscription_test-project': encryptedFields.encrypt('device-token-123'),
+            })
+            invocation.state.actionId = 'push-step'
+            mockTrackedFetch.mockResolvedValue({
+                fetchError: null,
+                fetchResponse: {
+                    status: 200,
+                    text: () => Promise.resolve('{}'),
+                    dump: () => Promise.resolve(),
+                },
+                fetchDuration: 10,
+            })
+
+            await service.executeSendPushNotification(invocation)
+
+            const body = parseJSON(mockTrackedFetch.mock.calls[0][0].fetchParams.body)
+            // Nested under the single `posthog` key, JSON-encoded: that is the only entry the SDKs read,
+            // and FCM's `data` map only accepts string values. Sibling keys would be silently ignored.
+            expect(parseJSON(body.message.data.posthog)).toEqual({
+                workflow_id: invocation.functionId,
+                action_id: 'push-step',
+                invocation_id: invocation.id,
+            })
+        })
+
+        it('carries the batch run id so a batch push open divides against its sends', async () => {
+            // A batch run attributes its send metrics to the batch job, not the workflow
+            // (`parentRunId ?? functionId`). Without the same id on the open, sends would be counted
+            // against the batch and opens against the workflow, and the open rate wouldn't divide.
+            const invocation = createSendPushNotificationInvocation({
+                '$device_push_subscription_test-project': encryptedFields.encrypt('device-token-123'),
+            })
+            invocation.state.actionId = 'push-step'
+            invocation.parentRunId = 'batch-job-1'
+            mockTrackedFetch.mockResolvedValue({
+                fetchError: null,
+                fetchResponse: {
+                    status: 200,
+                    text: () => Promise.resolve('{}'),
+                    dump: () => Promise.resolve(),
+                },
+                fetchDuration: 10,
+            })
+
+            const result = await service.executeSendPushNotification(invocation)
+
+            const body = parseJSON(mockTrackedFetch.mock.calls[0][0].fetchParams.body)
+            expect(parseJSON(body.message.data.posthog)).toEqual({
+                workflow_id: invocation.functionId,
+                action_id: 'push-step',
+                invocation_id: invocation.id,
+                parent_run_id: 'batch-job-1',
+            })
+            // The same id the send metric is filed under, so the two are comparable.
+            expect(result.metrics).toContainEqual(
+                expect.objectContaining({ metric_name: 'push_sent', app_source_id: 'batch-job-1' })
+            )
+        })
+
+        it('does not let a custom data key shadow the correlation payload', async () => {
+            // `data` is customer-controlled. If a custom key could win, opens would be attributed to
+            // whatever workflow the sender named, so the reserved key has to be applied last.
+            const invocation = createSendPushNotificationInvocation({
+                '$device_push_subscription_test-project': encryptedFields.encrypt('device-token-123'),
+            })
+            ;(invocation.queueParameters as any).payload.data = { posthog: 'not-the-real-workflow' }
+            mockTrackedFetch.mockResolvedValue({
+                fetchError: null,
+                fetchResponse: {
+                    status: 200,
+                    text: () => Promise.resolve('{}'),
+                    dump: () => Promise.resolve(),
+                },
+                fetchDuration: 10,
+            })
+
+            await service.executeSendPushNotification(invocation)
+
+            const body = parseJSON(mockTrackedFetch.mock.calls[0][0].fetchParams.body)
+            expect(parseJSON(body.message.data.posthog).workflow_id).toBe(invocation.functionId)
+        })
+
         describe('message asset capture', () => {
             let serviceWithAssets: PushNotificationService
 
@@ -206,7 +292,7 @@ describe('PushNotificationService', () => {
                     integrationManager,
                     encryptedFields,
                     fetchUtils,
-                    mockRedis,
+                    mockValkey,
                     new MessageAssetsService({ produce: jest.fn() } as any)
                 )
             })
@@ -243,11 +329,11 @@ describe('PushNotificationService', () => {
                 if (captured === 'nothing') {
                     // An asset is a snapshot of what a recipient received; a send that reached nobody
                     // has none, and email behaves the same way (it captures only on success).
-                    expect(result.emailAssets).toEqual([])
+                    expect(result.messageAssets).toEqual([])
                     return
                 }
-                expect(result.emailAssets).toHaveLength(1)
-                expect(result.emailAssets[0]).toMatchObject({
+                expect(result.messageAssets).toHaveLength(1)
+                expect(result.messageAssets[0]).toMatchObject({
                     kind: 'push',
                     status: captured,
                     action_id: 'action_push_1',
@@ -267,7 +353,7 @@ describe('PushNotificationService', () => {
                     integrationManager,
                     encryptedFields,
                     fetchUtils,
-                    mockRedis,
+                    mockValkey,
                     {
                         buildRowForPush: () => {
                             throw new Error('boom')
@@ -279,10 +365,27 @@ describe('PushNotificationService', () => {
 
                 expect(result.error).toBeUndefined()
                 expect(result.metrics).toContainEqual(expect.objectContaining({ metric_name: 'push_sent' }))
-                expect(result.emailAssets).toEqual([])
+                expect(result.messageAssets).toEqual([])
                 expect(result.logs.map((log) => log.message)).toContainEqual(
                     expect.stringContaining('could not be captured')
                 )
+            })
+
+            it('records neither a metric nor an asset for a test send', async () => {
+                // "Run test" really delivers, but it must not show up as a workflow send: email
+                // already skips both, and a test row on the Assets tab reads as a real delivery.
+                respondWith(200)
+                const invocation = createSendPushNotificationInvocation({
+                    '$device_push_subscription_test-project': encryptedFields.encrypt('device-token-123'),
+                })
+                invocation.state.actionId = 'action_push_1'
+
+                const result = await serviceWithAssets.executeSendPushNotification(invocation, true)
+
+                expect(result.error).toBeUndefined()
+                expect(result.metrics).toEqual([])
+                expect(result.messageAssets).toEqual([])
+                expect(result.logs.map((log) => log.message)).toContainEqual(expect.stringContaining('accepted by FCM'))
             })
 
             it('captures one asset per notification, not one per delivered channel', async () => {
@@ -298,7 +401,7 @@ describe('PushNotificationService', () => {
 
                 const result = await serviceWithAssets.executeSendPushNotification(invocation)
 
-                expect(result.emailAssets).toHaveLength(1)
+                expect(result.messageAssets).toHaveLength(1)
             })
         })
 
@@ -545,9 +648,52 @@ describe('PushNotificationService', () => {
             await send()
             await send()
 
-            // The JWT is written to Redis once and read back on the second send. Minting a new token per
+            // The JWT is written to Valkey once and read back on the second send. Minting a new token per
             // send is what makes Apple return 429 TooManyProviderTokenUpdates.
-            expect(mockRedisSet).toHaveBeenCalledTimes(1)
+            expect(mockValkeySet).toHaveBeenCalledTimes(1)
+            // Apple accepts a provider token for up to an hour, so the TTL has to stay under that.
+            expect(mockValkeySet).toHaveBeenCalledWith(
+                expect.stringContaining('@posthog/apns-provider-jwt/'),
+                expect.any(String),
+                'EX',
+                2700
+            )
+        })
+
+        it('reuses the pod-local APNS token when Valkey is unavailable', async () => {
+            // Both Valkey calls are failOpen, so an outage makes the read return null. Without the
+            // pod-local fallback every send mints a token and Apple answers 429 TooManyProviderTokenUpdates.
+            const failingValkey = {
+                useClient: jest.fn().mockResolvedValue(null),
+            } as any
+            const offlineService = new PushNotificationService(
+                integrationManager,
+                encryptedFields,
+                fetchUtils,
+                failingValkey
+            )
+            mockTrackedFetch.mockResolvedValue({
+                fetchError: null,
+                fetchResponse: { status: 200, text: () => Promise.resolve(''), dump: () => Promise.resolve() },
+                fetchDuration: 15,
+            })
+            const send = (): Promise<any> =>
+                offlineService.executeSendPushNotification(
+                    createSendPushNotificationInvocation({
+                        '$device_push_subscription_com.example.app': encryptedFields.encrypt('apns-device-token'),
+                    })
+                )
+
+            mockTrackedFetch.mockClear()
+            await send()
+            await send()
+
+            const authHeaders = mockTrackedFetch.mock.calls.map(
+                (call: any) => call[0].fetchParams.headers.Authorization
+            )
+            expect(authHeaders).toHaveLength(2)
+            expect(authHeaders[0]).toEqual(expect.stringContaining('bearer '))
+            expect(authHeaders[0]).toBe(authHeaders[1])
         })
 
         it('sets apns-priority to 5 for passive interruption level', async () => {
