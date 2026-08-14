@@ -51,7 +51,13 @@ __LONG_SCALE__ = 0xFFFFFFFFFFFFFFF
 
 def hash_of(hash_key: str) -> float:
     """The pipeline half of calculate_hash() in flag_matching_utils.rs: first 15 hex
-    chars of sha1(hash_key), divided by LONG_SCALE. Deterministic, in [0, 1)."""
+    chars of sha1(hash_key), divided by LONG_SCALE. Deterministic, in [0, 1).
+
+    SHA1 here is a compatibility requirement, not a security choice: it is the hash
+    PostHog's flag matcher buckets users with, so this has to reproduce it bit for bit.
+    Do not take semgrep's SHA256 autofix — it would still compute a number and still
+    print a verdict, just a wrong one, which is the worst failure this script has."""
+    # nosemgrep: python.lang.security.insecure-hash-algorithms.insecure-hash-algorithm-sha1 (reproduces flag bucketing, not a signature)
     return int(hashlib.sha1(hash_key.encode("utf-8")).hexdigest()[:15], 16) / __LONG_SCALE__
 
 
