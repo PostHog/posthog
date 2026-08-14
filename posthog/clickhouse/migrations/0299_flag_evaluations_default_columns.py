@@ -10,8 +10,11 @@ from posthog.models.flag_evaluations.sql import (
 )
 
 # Recreates flag_evaluations with its nine typed property columns as DEFAULT
-# instead of MATERIALIZED, so the property-removal path can reset them by
-# ALTER UPDATE. posthog/models/flag_evaluations/sql.py carries the full rationale.
+# instead of MATERIALIZED, the assignable kind the property-removal rewrite
+# resets by ALTER UPDATE. This clears the schema obstacle only: the rewrite
+# machinery still sweeps just the events tables, so property removal does not
+# reach this table yet (docs/internal/clickhouse-deletion-coverage.md).
+# posthog/models/flag_evaluations/sql.py carries the full rationale.
 #
 # Drop-and-recreate rather than ALTER, as in 0297: nothing produces to the topic
 # yet, so the family is empty everywhere and this must land before the producer
