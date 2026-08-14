@@ -10,7 +10,7 @@ use crate::{
     app_context::AppContext,
     error::UnhandledError,
     issue_resolution::{
-        send_fingerprint_issue_state, send_issue_created_notification,
+        infer_issue_severity, send_fingerprint_issue_state, send_issue_created_notification,
         send_issue_reopened_notification, Issue, IssueFingerprintOverride,
     },
     metric_consts::{ISSUE_CREATED, ISSUE_LINKER_OPERATOR},
@@ -291,6 +291,10 @@ async fn resolve_issue(
         team_id,
         name.to_string(),
         description.to_string(),
+        infer_issue_severity(
+            event_properties.exception_level(),
+            event_properties.exception_handled(),
+        ),
         &mut *txn,
     )
     .await?;

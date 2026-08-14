@@ -843,6 +843,42 @@ describe('TrendsLineChart', () => {
         })
     })
 
+    describe('multi-year weekly x-axis', () => {
+        // Week display labels omit the year ("1–7 Jun"), so a multi-year range repeats them.
+        // The chart keys x positions off its labels prop and collapses a repeated key onto the
+        // first occurrence's x, which draws the series backwards — so the components must key
+        // the axis by the unique ISO days instead. Covers the bar path too, where a repeated
+        // key collapses whole bands.
+        it.each([
+            ['line', undefined],
+            ['bar', ChartDisplayType.ActionsBar],
+        ])(
+            'renders %s points at strictly increasing x when display labels repeat across years',
+            async (_displayName, display) => {
+                renderInsight({
+                    query: buildTrendsQuery({
+                        interval: 'week',
+                        series: [{ kind: NodeKind.EventsNode, event: 'WeeklyAcrossYears', name: 'WeeklyAcrossYears' }],
+                        trendsFilter: { showValuesOnSeries: true, ...(display ? { display } : {}) },
+                    }),
+                })
+
+                await waitFor(() => {
+                    expect(getHogChart().valueLabels()).toHaveLength(6)
+                })
+                const leftByText = new Map(
+                    Array.from(document.querySelectorAll<HTMLElement>('[data-attr="hog-chart-value-label"]')).map(
+                        (el) => [el.textContent, parseFloat(el.style.left)]
+                    )
+                )
+                const lefts = ['10', '20', '30', '40', '50', '60'].map((text) => leftByText.get(text)!)
+                for (let i = 1; i < lefts.length; i++) {
+                    expect(lefts[i]).toBeGreaterThan(lefts[i - 1])
+                }
+            }
+        )
+    })
+
     describe('drag-to-zoom', () => {
         const totalLabels = trendsSeries.pageviews.labels.length
         const zoomFlag = { [FEATURE_FLAGS.INSIGHT_DRAG_TO_ZOOM]: true }

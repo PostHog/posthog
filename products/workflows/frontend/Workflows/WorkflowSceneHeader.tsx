@@ -2,7 +2,7 @@ import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import { useEffect, useRef, useState } from 'react'
 
-import { IconArchive, IconCopy, IconScreen } from '@posthog/icons'
+import { IconArchive, IconClock, IconCopy, IconScreen, IconTrash, IconUpload } from '@posthog/icons'
 import { LemonButton, LemonDivider } from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
@@ -10,6 +10,7 @@ import { SceneMenuBarFileItems } from 'lib/components/Scenes/SceneMenuBarFileIte
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
+import { urls } from 'scenes/urls'
 
 import {
     SceneMenuBar,
@@ -31,13 +32,23 @@ export const WorkflowSceneHeader = (props: WorkflowSceneLogicProps = {}): JSX.El
     const {
         workflow,
         hasUnsavedChanges,
+        hasStagedDraft,
+        draftActionPending,
         isWorkflowSubmitting,
         workflowLoading,
         workflowHasErrors,
         workflowUserAccessLevel,
     } = useValues(workflowLogic)
-    const { saveWorkflowPartial, submitWorkflow, setWorkflowValue, duplicate, archiveWorkflow, discardChanges } =
-        useActions(workflowLogic)
+    const {
+        saveWorkflowPartial,
+        submitWorkflow,
+        setWorkflowValue,
+        duplicate,
+        archiveWorkflow,
+        discardChanges,
+        publishDraft,
+        discardDraft,
+    } = useActions(workflowLogic)
     const { searchParams } = useValues(router)
     const editTemplateId = searchParams.editTemplateId as string | undefined
     const templateId = searchParams.templateId as string | undefined
@@ -108,6 +119,66 @@ export const WorkflowSceneHeader = (props: WorkflowSceneLogicProps = {}): JSX.El
                         >
                             <IconScreen />
                             Save as template
+                        </SceneMenuBarItem>
+                        {hasStagedDraft && (
+                            <>
+                                <SceneMenuBarSeparator />
+                                <AccessControlAction
+                                    resourceType={AccessControlResourceType.Workflow}
+                                    minAccessLevel={AccessControlLevel.Editor}
+                                    userAccessLevel={workflowUserAccessLevel ?? undefined}
+                                >
+                                    {({ disabledReason }) => (
+                                        <SceneMenuBarItem
+                                            opensFloatingUi
+                                            onClick={() => publishDraft()}
+                                            data-attr="workflow-menubar-publish-draft"
+                                            disabled={!!disabledReason || hasUnsavedChanges}
+                                            tooltip={
+                                                disabledReason ??
+                                                (hasUnsavedChanges
+                                                    ? 'Save or clear your in-progress edits first'
+                                                    : undefined)
+                                            }
+                                        >
+                                            <IconUpload />
+                                            Publish draft
+                                        </SceneMenuBarItem>
+                                    )}
+                                </AccessControlAction>
+                                <AccessControlAction
+                                    resourceType={AccessControlResourceType.Workflow}
+                                    minAccessLevel={AccessControlLevel.Editor}
+                                    userAccessLevel={workflowUserAccessLevel ?? undefined}
+                                >
+                                    {({ disabledReason }) => (
+                                        <SceneMenuBarItem
+                                            variant="destructive"
+                                            onClick={() => discardDraft()}
+                                            data-attr="workflow-menubar-discard-draft"
+                                            disabled={!!disabledReason || hasUnsavedChanges}
+                                            tooltip={
+                                                disabledReason ??
+                                                (hasUnsavedChanges
+                                                    ? 'Save or clear your in-progress edits first'
+                                                    : undefined)
+                                            }
+                                        >
+                                            <IconTrash />
+                                            Discard draft
+                                        </SceneMenuBarItem>
+                                    )}
+                                </AccessControlAction>
+                            </>
+                        )}
+                    </SceneMenuBarMenu>
+                    <SceneMenuBarMenu label="View" dataAttr="workflow-menubar-view">
+                        <SceneMenuBarItem
+                            onClick={() => router.actions.push(urls.workflow(props.id!, 'history'))}
+                            data-attr="workflow-menubar-version-history"
+                        >
+                            <IconClock />
+                            Version history
                         </SceneMenuBarItem>
                     </SceneMenuBarMenu>
                 </SceneMenuBar>
@@ -219,6 +290,47 @@ export const WorkflowSceneHeader = (props: WorkflowSceneLogicProps = {}): JSX.El
                             >
                                 Update template
                             </LemonButton>
+                        ) : isSavedWorkflow && hasStagedDraft && !hasUnsavedChanges ? (
+                            // Staged and clean: publishing is the next act, so it takes the primary slot.
+                            <>
+                                <AccessControlAction
+                                    resourceType={AccessControlResourceType.Workflow}
+                                    minAccessLevel={AccessControlLevel.Editor}
+                                    userAccessLevel={workflowUserAccessLevel ?? undefined}
+                                >
+                                    <LemonButton
+                                        data-attr="workflow-discard-draft"
+                                        type="secondary"
+                                        size="small"
+                                        status="danger"
+                                        onClick={() => discardDraft()}
+                                        loading={draftActionPending === 'discard'}
+                                        disabledReason={
+                                            draftActionPending === 'publish' ? 'Publishing is in progress' : undefined
+                                        }
+                                    >
+                                        Discard draft
+                                    </LemonButton>
+                                </AccessControlAction>
+                                <AccessControlAction
+                                    resourceType={AccessControlResourceType.Workflow}
+                                    minAccessLevel={AccessControlLevel.Editor}
+                                    userAccessLevel={workflowUserAccessLevel ?? undefined}
+                                >
+                                    <LemonButton
+                                        data-attr="workflow-publish"
+                                        type="primary"
+                                        size="small"
+                                        onClick={() => publishDraft()}
+                                        loading={draftActionPending === 'publish'}
+                                        disabledReason={
+                                            draftActionPending === 'discard' ? 'Discarding is in progress' : undefined
+                                        }
+                                    >
+                                        Publish
+                                    </LemonButton>
+                                </AccessControlAction>
+                            </>
                         ) : (
                             <AccessControlAction
                                 resourceType={AccessControlResourceType.Workflow}
@@ -245,7 +357,11 @@ export const WorkflowSceneHeader = (props: WorkflowSceneLogicProps = {}): JSX.El
                                                 : 'No changes to save'
                                     }
                                 >
-                                    {props.id === 'new' ? 'Create as draft' : 'Save'}
+                                    {props.id === 'new'
+                                        ? 'Create as draft'
+                                        : workflow?.status === 'active'
+                                          ? 'Save draft'
+                                          : 'Save'}
                                 </LemonButton>
                             </AccessControlAction>
                         )}

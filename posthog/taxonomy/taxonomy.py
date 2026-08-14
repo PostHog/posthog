@@ -3329,9 +3329,9 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "description": "The description of the error tracking issue this exception belongs to.",
             "type": "String",
         },
-        "$exception_releases": {
-            "label": "Exception releases",
-            "description": "The releases in which this exception has been observed.",
+        "$exception_release": {
+            "label": "Exception release",
+            "description": "The release associated with this exception event.",
             "type": "String",
         },
         "$debug_images": {

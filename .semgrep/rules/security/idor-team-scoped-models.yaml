@@ -137,6 +137,10 @@ rules:
                               |DeploymentProject
                               |EarlyAccessFeature
                               |EmailMessageMapping
+                              |EmailChannelSetup
+                              |EmailThread
+                              |EmailThreadMessage
+                              |EmailThreadParticipant
                               |EmailReputationSnapshot
                               |EvaluationContext
                               |Edge
@@ -172,6 +176,10 @@ rules:
                               |ExternalDataSchemaOOMEvent
                               |ExternalDataSource
                               |FeatureFlag
+                              |FeatureRequest
+                              |FeatureRequestAccountLink
+                              |FeatureRequestProductArea
+                              |FeatureRequestProductAreaLink
                               |TeamExperimentsConfig
                               |TeamFeatureFlagDefaultsConfig
                               |TeamMCPGatewayConfig
@@ -318,6 +326,7 @@ rules:
                               |TaskAutomation
                               |TaskPresence
                               |TaskRun
+                              |TaskSearchDocument
                               |TaskSession
                               |TaskThreadMessage
                               |TaskThreadMessageMention
@@ -490,6 +499,10 @@ rules:
                         |DeploymentProject
                         |EarlyAccessFeature
                         |EmailMessageMapping
+                        |EmailChannelSetup
+                        |EmailThread
+                        |EmailThreadMessage
+                        |EmailThreadParticipant
                         |EmailReputationSnapshot
                         |EvaluationContext
                         |Edge
@@ -525,6 +538,10 @@ rules:
                         |ExternalDataSchemaOOMEvent
                         |ExternalDataSource
                         |FeatureFlag
+                        |FeatureRequest
+                        |FeatureRequestAccountLink
+                        |FeatureRequestProductArea
+                        |FeatureRequestProductAreaLink
                         |TeamExperimentsConfig
                         |TeamFeatureFlagDefaultsConfig
                         |TeamMCPGatewayConfig

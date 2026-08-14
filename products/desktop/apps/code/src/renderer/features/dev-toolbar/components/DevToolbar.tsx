@@ -33,6 +33,7 @@ import { Box, Flex, Switch, Text, Tooltip } from "@radix-ui/themes";
 import { trpcClient, useTRPC } from "@renderer/trpc/client";
 import { useQuery } from "@tanstack/react-query";
 import { useSubscription } from "@trpc/tanstack-react-query";
+import { logger } from "@utils/logger";
 import {
   Activity,
   AlertTriangle,
@@ -43,6 +44,7 @@ import {
   FileText,
   FolderOpen,
   Globe,
+  LayoutGrid,
   MemoryStick,
   Moon,
   Power,
@@ -70,6 +72,8 @@ import { IpcTimingsPanel } from "./IpcTimingsPanel";
 import { LogsPanel } from "./LogsPanel";
 import { MemoryPanel } from "./MemoryPanel";
 import { NetworkPanel } from "./NetworkPanel";
+
+const log = logger.scope("dev-toolbar");
 
 type DetailPanel =
   | "cpu"
@@ -99,7 +103,9 @@ export function DevToolbar() {
   };
 
   return (
-    <div className="relative h-10 shrink-0 border-(--gray-6) border-t bg-(--gray-2)">
+    // Above the Mission Control overlay (z-300), so forcing the overlay on
+    // cannot hide the toggle that turns it back off.
+    <div className="relative z-[400] h-10 shrink-0 border-(--gray-6) border-t bg-(--gray-2)">
       {openPanel && (
         <PanelChrome
           openPanel={openPanel}
@@ -799,6 +805,10 @@ function formatRttCompact(ms: number): string {
 
 const SLOW_PRESETS_MS = [0, 250, 1000, 3000] as const;
 
+// Long enough to run several gestures (Mission Control, app switch, Dock
+// hover) in one recording.
+const MISSION_CONTROL_PROBE_MS = 20_000;
+
 function QuickActionsMenu() {
   const trpcReact = useTRPC();
   const { data: sim, refetch: refetchSim } = useQuery({
@@ -812,6 +822,46 @@ function QuickActionsMenu() {
 
   const offline = sim?.offline ?? false;
   const slowMs = sim?.slowDelayMs ?? 0;
+
+  const [missionControlForced, setMissionControlForced] = useState(false);
+  const toggleMissionControlOverlay = () => {
+    const next = !missionControlForced;
+    setMissionControlForced(next);
+    trpcClient.dev.setForceMissionControlOverlay
+      .mutate({ enabled: next })
+      .catch((error: unknown) => {
+        setMissionControlForced(!next);
+        log.warn("Failed to force the Mission Control overlay", { error });
+      });
+  };
+
+  // Mission Control is modal, so a sample taken on click would only ever show
+  // the ordinary desktop; record over a window instead.
+  const [probing, setProbing] = useState(false);
+  const probeMissionControl = async () => {
+    setProbing(true);
+    try {
+      const probe = await trpcClient.dev.probeMissionControl.mutate({
+        durationMs: MISSION_CONTROL_PROBE_MS,
+      });
+      if (!probe.available) {
+        await trpcClient.dev.triggerToast.mutate({
+          variant: "error",
+          message: "Couldn't read the window list on this device",
+        });
+        return;
+      }
+      await navigator.clipboard.writeText(JSON.stringify(probe, null, 2));
+      await trpcClient.dev.triggerToast.mutate({
+        variant: "info",
+        message: "Window list copied to the clipboard",
+      });
+    } catch (error) {
+      log.warn("Mission Control probe failed", { error });
+    } finally {
+      setProbing(false);
+    }
+  };
 
   const setOffline = (next: boolean) =>
     void trpcClient.dev.setNetworkSim.mutate({ offline: next });
@@ -926,6 +976,31 @@ function QuickActionsMenu() {
           <DropdownMenuItem variant="destructive" onClick={triggerErrorToast}>
             <AlertTriangle size={12} className="mr-2" />
             Trigger error toast
+          </DropdownMenuItem>
+        </DropdownMenuGroup>
+        <DropdownMenuSeparator />
+        <DropdownMenuGroup>
+          <DropdownMenuLabel>Mission Control</DropdownMenuLabel>
+          <DropdownMenuItem onClick={toggleMissionControlOverlay}>
+            <LayoutGrid
+              size={12}
+              className={`mr-2 ${
+                missionControlForced ? "text-(--accent-11)" : "text-(--gray-9)"
+              }`}
+            />
+            {missionControlForced ? "Hide overlay" : "Force overlay on"}
+          </DropdownMenuItem>
+          <DropdownMenuItem
+            onClick={() => void probeMissionControl()}
+            disabled={probing}
+          >
+            <ScrollText
+              size={12}
+              className={`mr-2 ${probing ? "text-(--accent-11)" : "text-(--gray-9)"}`}
+            />
+            {probing
+              ? "Recording, run the gestures now"
+              : `Record the window list (${MISSION_CONTROL_PROBE_MS / 1000}s)`}
           </DropdownMenuItem>
         </DropdownMenuGroup>
       </DropdownMenuContent>

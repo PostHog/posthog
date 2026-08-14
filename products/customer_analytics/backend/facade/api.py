@@ -26,9 +26,12 @@ from django.apps import apps
 from django.conf import settings
 from django.contrib.postgres.aggregates import ArrayAgg
 from django.contrib.postgres.fields import ArrayField
+from django.core.cache import cache
 from django.core.exceptions import ValidationError
 from django.db import IntegrityError, transaction
 from django.db.models import (
+    Aggregate,
+    Avg,
     BooleanField,
     CharField,
     Count,
@@ -38,11 +41,14 @@ from django.db.models import (
     Field,
     FloatField,
     IntegerField,
+    Max,
+    Min,
     OuterRef,
     Prefetch,
     Q,
     QuerySet,
     Subquery,
+    Sum,
     TextField,
     Value,
 )
@@ -71,6 +77,7 @@ from products.conversations.backend.facade.api import (
     SupportSlackNotConfigured,
     TicketSummary as TicketSummary,
     list_account_tickets,
+    trigger_immediate_channel_summary,
 )
 from products.customer_analytics.backend.account_urls import build_account_deeplink as build_account_deeplink
 from products.customer_analytics.backend.events import emit_account_tags_added
@@ -81,6 +88,7 @@ from products.customer_analytics.backend.logic import (
     announcements as _announcements_logic,
     channel_summaries as _channel_summaries_logic,
     custom_property_values as _custom_property_values_logic,
+    feature_requests as _feature_requests_logic,
     relationships as _relationships_logic,
 )
 from products.customer_analytics.backend.logic.custom_property_definitions import (
@@ -1342,7 +1350,7 @@ def _resolve_person_source_schema(source: CustomPropertySource, user_access_cont
     schema_model = apps.get_model("warehouse_sources", "ExternalDataSchema")
     schema = (
         schema_model.objects.filter(id=source.external_data_schema_id, team_id=source.team_id)
-        .select_related("source")
+        .select_related("source", "table")
         .first()
     )
     if schema is None:
@@ -1352,6 +1360,19 @@ def _resolve_person_source_schema(source: CustomPropertySource, user_access_cont
     ):
         return None
     return schema
+
+
+def _schema_table_name(schema: Any) -> str:
+    """The bound table as it is named in HogQL, so the UI shows the name the table picker offered.
+    Falls back to the schema name when the first sync hasn't created the table yet. The HogQL import
+    is deferred to keep the heavy database module off this module's import path."""
+    from posthog.hogql.database.database import (
+        get_data_warehouse_table_name,  # noqa: PLC0415 — keeps HogQL off the import path
+    )
+
+    if schema.table_id is None:
+        return schema.name
+    return get_data_warehouse_table_name(schema.source, schema.table.name)
 
 
 def _schema_schedule(schema: Any) -> tuple[float | None, datetime | None]:
@@ -1388,6 +1409,8 @@ def _to_custom_property_source_view(
     sync_frequency_interval_seconds: float | None = None
     next_sync_at: datetime | None = None
     latest_run: contracts.CustomPropertySyncRunView | None = None
+    external_data_source: UUID | None = None
+    table_name: str | None = None
     if isinstance(enrichment, _ResolveEnrichmentInline):
         schema = _resolve_person_source_schema(source, user_access_control)
         latest = source.sync_runs.order_by("-created_at").first() if schema is not None else None
@@ -1397,6 +1420,8 @@ def _to_custom_property_source_view(
     if schema is not None:
         sync_frequency_interval_seconds, next_sync_at = _schema_schedule(schema)
         latest_run = _to_sync_run_view(latest) if latest is not None else None
+        external_data_source = schema.source_id
+        table_name = _schema_table_name(schema)
 
     # A person source's sync status (raw error text, failure streak, last-synced time) is produced by
     # the underlying billable warehouse source, so it's warehouse-derived metadata gated the same way as
@@ -1425,6 +1450,8 @@ def _to_custom_property_source_view(
         sync_frequency_interval_seconds=sync_frequency_interval_seconds,
         next_sync_at=next_sync_at,
         latest_run=latest_run,
+        external_data_source=external_data_source,
+        table_name=table_name,
     )
 
 
@@ -1443,7 +1470,7 @@ def _batch_source_enrichment(
         schema.id: schema
         for schema in schema_model.objects.filter(
             id__in={s.external_data_schema_id for s in person_sources}, team_id=team_id
-        ).select_related("source")
+        ).select_related("source", "table")
     }
     # Latest run per source in one query: DISTINCT ON (source_id) keeps the newest row per source.
     latest_run_by_source_id: dict[Any, CustomPropertySyncRun] = {
@@ -1932,6 +1959,82 @@ def list_custom_property_sync_runs(
     page = list(queryset[offset : offset + limit])
     _expire_stale_running_runs(team_id, page)
     return [_to_sync_run_view(run) for run in page], total_count
+
+
+FeatureRequestValidationError = _feature_requests_logic.FeatureRequestValidationError
+FeatureRequestProductAreaConflictError = _feature_requests_logic.FeatureRequestProductAreaConflictError
+
+
+def list_feature_request_product_areas(
+    team_id: int, *, include_inactive: bool = False
+) -> list[contracts.FeatureRequestProductAreaView]:
+    return _feature_requests_logic.list_product_areas(team_id, include_inactive=include_inactive)
+
+
+def create_feature_request_product_area(
+    *, team_id: int, name: str, display_order: int, actor_id: int
+) -> contracts.FeatureRequestProductAreaView:
+    return _feature_requests_logic.create_product_area(
+        team_id=team_id,
+        name=name,
+        display_order=display_order,
+        actor_id=actor_id,
+    )
+
+
+def update_feature_request_product_area(
+    *,
+    team_id: int,
+    product_area_id: UUID,
+    name: str | None,
+    display_order: int | None,
+    is_active: bool | None,
+    actor_id: int,
+) -> contracts.FeatureRequestProductAreaView | None:
+    return _feature_requests_logic.update_product_area(
+        team_id=team_id,
+        product_area_id=product_area_id,
+        name=name,
+        display_order=display_order,
+        is_active=is_active,
+        actor_id=actor_id,
+    )
+
+
+def list_feature_requests(
+    *, team_id: int, user_access_control: "UserAccessControl", offset: int, limit: int
+) -> tuple[list[contracts.FeatureRequestView], int]:
+    return _feature_requests_logic.list_feature_requests(
+        team_id=team_id,
+        user_access_control=user_access_control,
+        offset=offset,
+        limit=limit,
+    )
+
+
+def get_feature_request(
+    *, team_id: int, feature_request_id: UUID, user_access_control: "UserAccessControl"
+) -> contracts.FeatureRequestView | None:
+    return _feature_requests_logic.get_feature_request(
+        team_id=team_id,
+        feature_request_id=feature_request_id,
+        user_access_control=user_access_control,
+    )
+
+
+def create_feature_request(
+    *,
+    team_id: int,
+    input: contracts.CreateFeatureRequestInput,
+    actor_id: int,
+    user_access_control: "UserAccessControl",
+) -> contracts.FeatureRequestCreateOutcome:
+    return _feature_requests_logic.create_feature_request(
+        team_id=team_id,
+        input=input,
+        actor_id=actor_id,
+        user_access_control=user_access_control,
+    )
 
 
 # --- CustomerJourney ---
@@ -2458,6 +2561,90 @@ def _apply_account_table_sort(
     return queryset.order_by(primary_order, "id")
 
 
+class _PercentileCont(Aggregate):
+    function = "PERCENTILE_CONT"
+    template = "%(function)s(0.5) WITHIN GROUP (ORDER BY %(expressions)s)"
+    output_field = FloatField()
+
+
+def query_accounts_metrics(
+    *,
+    team_id: int,
+    user_access_control: "UserAccessControl",
+    filters: tuple[contracts.AccountTableFilter, ...],
+    metrics: tuple[contracts.AccountTableMetric, ...],
+) -> list[float | int | None]:
+    definition_ids = frozenset(
+        metric.definition_id
+        for metric in metrics
+        if isinstance(metric, contracts.AccountTableAggregateMetric | contracts.AccountTableCountThresholdMetric)
+    )
+    custom_property_display_types = _validate_account_table_definitions(
+        team_id=team_id,
+        selection=contracts.AccountTableColumnSelection(custom_property_definition_ids=definition_ids),
+        filters=filters,
+        sort=None,
+    )
+    for definition_id in definition_ids:
+        if DATA_TYPE_BY_DISPLAY_TYPE[custom_property_display_types[definition_id]] != DataType.NUMERIC:
+            raise InvalidAccountTableColumn("Account table metrics require numeric custom properties.")
+
+    accounts = _apply_account_table_filters(
+        _accounts_queryset(team_id, user_access_control),
+        team_id=team_id,
+        filters=filters,
+        custom_property_display_types=custom_property_display_types,
+    )
+    results: list[float | int | None] = [None] * len(metrics)
+    for index, metric in enumerate(metrics):
+        if isinstance(metric, contracts.AccountTableCountMetric):
+            results[index] = accounts.count()
+
+    aggregate_expressions: dict[str, Aggregate] = {}
+    for index, metric in enumerate(metrics):
+        alias = f"metric_{index}"
+        if isinstance(metric, contracts.AccountTableAggregateMetric):
+            aggregate_type = {
+                contracts.AccountTableAggregation.SUM: Sum,
+                contracts.AccountTableAggregation.AVERAGE: Avg,
+                contracts.AccountTableAggregation.MINIMUM: Min,
+                contracts.AccountTableAggregation.MAXIMUM: Max,
+                contracts.AccountTableAggregation.MEDIAN: _PercentileCont,
+            }[metric.aggregation]
+            aggregate_expressions[alias] = aggregate_type(
+                "value_num",
+                filter=Q(definition_id=metric.definition_id),
+            )
+        elif isinstance(metric, contracts.AccountTableCountThresholdMetric):
+            comparison = {
+                contracts.AccountTableThresholdOperator.GREATER_THAN: Q(value_num__gt=metric.value),
+                contracts.AccountTableThresholdOperator.GREATER_THAN_OR_EQUAL: Q(value_num__gte=metric.value),
+                contracts.AccountTableThresholdOperator.LESS_THAN: Q(value_num__lt=metric.value),
+                contracts.AccountTableThresholdOperator.LESS_THAN_OR_EQUAL: Q(value_num__lte=metric.value),
+                contracts.AccountTableThresholdOperator.EQUAL: Q(value_num=metric.value),
+                contracts.AccountTableThresholdOperator.NOT_EQUAL: ~Q(value_num=metric.value),
+            }[metric.operator]
+            aggregate_expressions[alias] = Count(
+                "account_id",
+                filter=Q(definition_id=metric.definition_id) & comparison,
+            )
+
+    if aggregate_expressions:
+        values = CustomPropertyValue.objects.for_team(team_id).filter(
+            account_id__in=accounts.order_by().values("id"),
+            is_deleted=False,
+            value_num__isnull=False,
+        )
+        aggregated = values.aggregate(**aggregate_expressions)
+        for index, metric in enumerate(metrics):
+            value = aggregated.get(f"metric_{index}")
+            if isinstance(metric, contracts.AccountTableAggregateMetric) and value is not None:
+                results[index] = float(value) * (metric.scale if metric.scale is not None else 1)
+            elif isinstance(metric, contracts.AccountTableCountThresholdMetric):
+                results[index] = int(value or 0)
+    return results
+
+
 def query_accounts_table(
     *,
     team_id: int,
@@ -2654,6 +2841,16 @@ def _cap_to_field_length(field_name: str, value: str) -> str:
     return value[:max_length]
 
 
+def _enqueue_meeting_rematch(team_id: int, account_id: str) -> None:
+    try:
+        current_app.send_task(
+            "customer_analytics.rematch_account_meetings",
+            kwargs={"team_id": team_id, "account_id": account_id},
+        )
+    except Exception as error:
+        capture_exception(error)
+
+
 def update_account(
     account: Account,
     *,
@@ -2661,11 +2858,13 @@ def update_account(
     external_id: str | None | _Unset = _UNSET,
     properties: "dict | _ModelAccountProperties | _Unset" = _UNSET,
     slack_summary_cadence: "str | None | _Unset" = _UNSET,
+    allow_matching_updates: bool = False,
 ) -> Account:
     """Field-write primitive shared by every account update path. Only the fields passed are
     written; ``properties`` replaces the stored JSON wholesale. Product-internal — takes and
     returns the model, so it must not be called across the product boundary."""
     update_fields: list[str] = []
+    matching_expanded = False
     if not isinstance(name, _Unset):
         account.name = _cap_to_field_length("name", name)
         update_fields.append("name")
@@ -2673,13 +2872,25 @@ def update_account(
         account.external_id = _cap_to_field_length("external_id", external_id) if external_id is not None else None
         update_fields.append("external_id")
     if not isinstance(properties, _Unset):
-        account._properties = _ModelAccountProperties.from_input(properties).model_dump(mode="json", exclude_unset=True)
+        previous_properties = account.properties
+        validated_properties = _ModelAccountProperties.from_input(properties)
+        known_emails_added = set(validated_properties.known_emails) - set(previous_properties.known_emails)
+        email_domains_added = set(validated_properties.email_domains) - set(previous_properties.email_domains)
+        matching_changed = set(validated_properties.known_emails) != set(previous_properties.known_emails) or set(
+            validated_properties.email_domains
+        ) != set(previous_properties.email_domains)
+        if matching_changed and not allow_matching_updates:
+            raise ResourceForbiddenError
+        matching_expanded = bool(known_emails_added or email_domains_added)
+        account._properties = validated_properties.model_dump(mode="json", exclude_unset=True)
         update_fields.append("_properties")
     if not isinstance(slack_summary_cadence, _Unset):
         account.slack_summary_cadence = slack_summary_cadence
         update_fields.append("slack_summary_cadence")
     if update_fields:
         account.save(update_fields=update_fields)
+    if matching_expanded:
+        transaction.on_commit(lambda: _enqueue_meeting_rematch(account.team_id, str(account.id)))
     return account
 
 
@@ -2759,6 +2970,7 @@ def update_account_for_view(
     organization_id,
     user: "User",
     was_impersonated: bool,
+    allow_matching_updates: bool = False,
 ) -> contracts.AccountView:
     account = _get_account_for_detail(team_id, account_id)
     _enforce_object_access(account, user_access_control, required_level)
@@ -2773,6 +2985,7 @@ def update_account_for_view(
         update_kwargs["properties"] = input.properties if input.properties is not None else {}
     if input.slack_summary_cadence_provided:
         update_kwargs["slack_summary_cadence"] = input.slack_summary_cadence
+    update_kwargs["allow_matching_updates"] = allow_matching_updates
 
     try:
         with transaction.atomic():
@@ -2798,7 +3011,74 @@ def update_account_for_view(
         was_impersonated=was_impersonated,
         previous=previous,
     )
+    # Off-to-on only: the coordinator picks a mid-flight cadence change up within the hour,
+    # and one backfill per switch is LLM spend nobody asked for.
+    if not previous.slack_summary_cadence and account.slack_summary_cadence:
+        _dispatch_initial_channel_summary(account)
     return _to_account_view(account)
+
+
+# Roughly 70 accounts opting into a daily cadence in one day, far above real use.
+CHANNEL_SUMMARY_BACKFILL_DAILY_CAP = 500
+
+
+def _reserve_backfill_budget(team_id: int, requested: int) -> int:
+    """How many of ``requested`` backfill dispatches this team may still start today.
+
+    The coordinator throttles itself with per-run caps, but these dispatches are driven by
+    an API call, so one caller opting in many channel-bound accounts could otherwise start
+    unbounded LLM work in a burst. ``cache.incr`` is atomic, so parallel requests cannot all
+    slip under the ceiling. Whatever this refuses, the coordinator still summarizes on
+    schedule.
+    """
+    window = int(datetime.now(UTC).timestamp()) // 86400
+    key = f"ca_channel_summary_backfills:{team_id}:{window}"
+    cache.add(key, 0, timeout=86400)
+    try:
+        used = cache.incr(key, requested)
+    except ValueError:
+        # The key expired between add and incr; this request is the window's first.
+        used = requested
+    allowed = requested - max(0, used - CHANNEL_SUMMARY_BACKFILL_DAILY_CAP)
+    return max(0, allowed)
+
+
+def _dispatch_initial_channel_summary(account: Account) -> None:
+    cadence = account.slack_summary_cadence
+    slack_channel_id = (account._properties or {}).get("slack_channel_id")
+    if not cadence or not slack_channel_id:
+        return
+    periods = _channel_summaries_logic.get_initial_summary_periods(cadence, timezone.now(), account.team.timezone_info)
+    allowed = _reserve_backfill_budget(account.team_id, len(periods))
+    if allowed < len(periods):
+        logger.warning(
+            "channel_summary_backfill_throttled",
+            team_id=account.team_id,
+            requested=len(periods),
+            allowed=allowed,
+        )
+    # Newest first, so a partly-throttled backfill keeps the periods a user looks at first.
+    for period in sorted(periods, key=lambda p: p.start, reverse=True)[:allowed]:
+        try:
+            trigger_immediate_channel_summary(
+                team_id=account.team_id,
+                account_id=str(account.id),
+                account_name=account.name,
+                slack_channel_id=slack_channel_id,
+                cadence=cadence,
+                period_start=period.start,
+                period_end=period.end,
+            )
+        except Exception as e:
+            # Per period, so one bad dispatch doesn't drop the rest.
+            capture_exception(
+                e,
+                {
+                    "team_id": account.team_id,
+                    "account_id": str(account.id),
+                    "period_start": period.start.isoformat(),
+                },
+            )
 
 
 def delete_account_for_view(
@@ -2971,9 +3251,7 @@ def list_accounts_due_for_slack_summary(now: datetime | None = None) -> list[con
         cadence = account.slack_summary_cadence
         if not slack_channel_id or not cadence:
             continue
-        period_start, period_end = _channel_summaries_logic.get_last_closed_period(
-            cadence, now, account.team.timezone_info
-        )
+        period = _channel_summaries_logic.get_last_closed_period(cadence, now, account.team.timezone_info)
         candidates.append(
             contracts.AccountDueForSlackSummary(
                 team_id=account.team_id,
@@ -2981,8 +3259,8 @@ def list_accounts_due_for_slack_summary(now: datetime | None = None) -> list[con
                 account_name=account.name,
                 slack_channel_id=slack_channel_id,
                 cadence=cadence,
-                period_start=period_start,
-                period_end=period_end,
+                period_start=period.start,
+                period_end=period.end,
             )
         )
     if not candidates:

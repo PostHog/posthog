@@ -999,6 +999,14 @@ export const CountPerActorMathTypeApi = {
     P99CountPerActor: 'p99_count_per_actor',
 } as const
 
+export type GroupMathTypeApi = (typeof GroupMathTypeApi)[keyof typeof GroupMathTypeApi]
+
+export const GroupMathTypeApi = {
+    UniqueGroup: 'unique_group',
+    FirstTimeForGroup: 'first_time_for_group',
+    FirstMatchingEventForGroup: 'first_matching_event_for_group',
+} as const
+
 export type ExperimentMetricMathTypeApi = (typeof ExperimentMetricMathTypeApi)[keyof typeof ExperimentMetricMathTypeApi]
 
 export const ExperimentMetricMathTypeApi = {
@@ -1233,9 +1241,9 @@ export interface EventsNodeApi {
         | FunnelMathTypeApi
         | PropertyMathTypeApi
         | CountPerActorMathTypeApi
+        | GroupMathTypeApi
         | ExperimentMetricMathTypeApi
         | CalendarHeatmapMathTypeApi
-        | 'unique_group'
         | 'hogql'
         | null
     math_group_type_index?: MathGroupTypeIndexApi | null
@@ -1320,9 +1328,9 @@ export interface ActionsNodeApi {
         | FunnelMathTypeApi
         | PropertyMathTypeApi
         | CountPerActorMathTypeApi
+        | GroupMathTypeApi
         | ExperimentMetricMathTypeApi
         | CalendarHeatmapMathTypeApi
-        | 'unique_group'
         | 'hogql'
         | null
     math_group_type_index?: MathGroupTypeIndexApi | null
@@ -1408,9 +1416,9 @@ export interface DataWarehouseNodeApi {
         | FunnelMathTypeApi
         | PropertyMathTypeApi
         | CountPerActorMathTypeApi
+        | GroupMathTypeApi
         | ExperimentMetricMathTypeApi
         | CalendarHeatmapMathTypeApi
-        | 'unique_group'
         | 'hogql'
         | null
     math_group_type_index?: MathGroupTypeIndexApi | null
@@ -1495,9 +1503,9 @@ export interface GroupNodeApi {
         | FunnelMathTypeApi
         | PropertyMathTypeApi
         | CountPerActorMathTypeApi
+        | GroupMathTypeApi
         | ExperimentMetricMathTypeApi
         | CalendarHeatmapMathTypeApi
-        | 'unique_group'
         | 'hogql'
         | null
     math_group_type_index?: MathGroupTypeIndexApi | null
@@ -1737,6 +1745,7 @@ export interface TrendsFilterApi {
     /** Goal Lines */
     goalLines?: GoalLineApi[] | null
     hiddenLegendIndexes?: number[] | null
+    /** Ignored. Superseded by `dateRange.daysOfWeek`, which excludes the days from the query instead of only hiding their buckets. Still accepted so existing API clients keep working. */
     hideWeekends?: boolean | null
     /** Where the in-chart legend sits relative to the plot. Only applies to the in-chart legend. */
     legendPosition?: LegendPositionApi | null
@@ -1896,9 +1905,9 @@ export interface FunnelExclusionEventsNodeApi {
         | FunnelMathTypeApi
         | PropertyMathTypeApi
         | CountPerActorMathTypeApi
+        | GroupMathTypeApi
         | ExperimentMetricMathTypeApi
         | CalendarHeatmapMathTypeApi
-        | 'unique_group'
         | 'hogql'
         | null
     math_group_type_index?: MathGroupTypeIndexApi | null
@@ -1985,9 +1994,9 @@ export interface FunnelExclusionActionsNodeApi {
         | FunnelMathTypeApi
         | PropertyMathTypeApi
         | CountPerActorMathTypeApi
+        | GroupMathTypeApi
         | ExperimentMetricMathTypeApi
         | CalendarHeatmapMathTypeApi
-        | 'unique_group'
         | 'hogql'
         | null
     math_group_type_index?: MathGroupTypeIndexApi | null
@@ -2185,9 +2194,9 @@ export interface FunnelsDataWarehouseNodeApi {
         | FunnelMathTypeApi
         | PropertyMathTypeApi
         | CountPerActorMathTypeApi
+        | GroupMathTypeApi
         | ExperimentMetricMathTypeApi
         | CalendarHeatmapMathTypeApi
-        | 'unique_group'
         | 'hogql'
         | null
     math_group_type_index?: MathGroupTypeIndexApi | null
@@ -2568,6 +2577,7 @@ export const PathTypeApi = {
 } as const
 
 export interface PathCleaningFilterApi {
+    /** The replacement for the matched path. Use angle-bracket placeholders (`<id>`, `<uuid>`, `<slug>`) by convention, or reuse a capture group from the regex with ClickHouse `replaceRegexpAll` replacement syntax: `\1` to `\9` for a group and `\0` for the whole match. */
     alias?: string | null
     order?: number | null
     regex?: string | null
@@ -3060,9 +3070,9 @@ export interface LifecycleDataWarehouseNodeApi {
         | FunnelMathTypeApi
         | PropertyMathTypeApi
         | CountPerActorMathTypeApi
+        | GroupMathTypeApi
         | ExperimentMetricMathTypeApi
         | CalendarHeatmapMathTypeApi
-        | 'unique_group'
         | 'hogql'
         | null
     math_group_type_index?: MathGroupTypeIndexApi | null
@@ -4429,6 +4439,8 @@ export interface Response23Api {
     hogql?: string | null
     kind?: 'AccountsTableQuery'
     limit: number
+    /** Aggregated values in the same order as the requested metrics. */
+    metricsResults?: (number | null)[] | null
     /** Modifiers used when performing the query */
     modifiers?: HogQLQueryModifiersApi | null
     offset: number
@@ -5065,9 +5077,9 @@ export interface ExperimentDataWarehouseNodeApi {
         | FunnelMathTypeApi
         | PropertyMathTypeApi
         | CountPerActorMathTypeApi
+        | GroupMathTypeApi
         | ExperimentMetricMathTypeApi
         | CalendarHeatmapMathTypeApi
-        | 'unique_group'
         | 'hogql'
         | null
     math_group_type_index?: MathGroupTypeIndexApi | null
@@ -6226,9 +6238,9 @@ export interface ConversionGoalFilter1Api {
         | FunnelMathTypeApi
         | PropertyMathTypeApi
         | CountPerActorMathTypeApi
+        | GroupMathTypeApi
         | ExperimentMetricMathTypeApi
         | CalendarHeatmapMathTypeApi
-        | 'unique_group'
         | 'hogql'
         | null
     math_group_type_index?: MathGroupTypeIndexApi | null
@@ -6322,9 +6334,9 @@ export interface ConversionGoalFilter2Api {
         | FunnelMathTypeApi
         | PropertyMathTypeApi
         | CountPerActorMathTypeApi
+        | GroupMathTypeApi
         | ExperimentMetricMathTypeApi
         | CalendarHeatmapMathTypeApi
-        | 'unique_group'
         | 'hogql'
         | null
     math_group_type_index?: MathGroupTypeIndexApi | null
@@ -6419,9 +6431,9 @@ export interface ConversionGoalFilter3Api {
         | FunnelMathTypeApi
         | PropertyMathTypeApi
         | CountPerActorMathTypeApi
+        | GroupMathTypeApi
         | ExperimentMetricMathTypeApi
         | CalendarHeatmapMathTypeApi
-        | 'unique_group'
         | 'hogql'
         | null
     math_group_type_index?: MathGroupTypeIndexApi | null
@@ -7356,6 +7368,47 @@ export interface AccountsTableCustomPropertyFilterApi {
     values?: (string | number | boolean)[] | null
 }
 
+export const AccountsTableCountMetricApiValue = {
+    kind: 'count',
+} as const
+export type AccountsTableCountMetricApi = typeof AccountsTableCountMetricApiValue
+
+export type AccountsTableAggregationApi = (typeof AccountsTableAggregationApi)[keyof typeof AccountsTableAggregationApi]
+
+export const AccountsTableAggregationApi = {
+    Sum: 'sum',
+    Avg: 'avg',
+    Min: 'min',
+    Max: 'max',
+    Median: 'median',
+} as const
+
+export interface AccountsTableAggregateMetricApi {
+    aggregation: AccountsTableAggregationApi
+    column: AccountsTableCustomPropertyColumnApi
+    kind?: 'aggregate'
+    scale?: number | null
+}
+
+export type AccountsTableThresholdOperatorApi =
+    (typeof AccountsTableThresholdOperatorApi)[keyof typeof AccountsTableThresholdOperatorApi]
+
+export const AccountsTableThresholdOperatorApi = {
+    Gt: 'gt',
+    Gte: 'gte',
+    Lt: 'lt',
+    Lte: 'lte',
+    Exact: 'exact',
+    IsNot: 'is_not',
+} as const
+
+export interface AccountsTableCountThresholdMetricApi {
+    column: AccountsTableCustomPropertyColumnApi
+    kind?: 'count_threshold'
+    operator: AccountsTableThresholdOperatorApi
+    value: number
+}
+
 export interface AccountsTableQueryResponseApi {
     /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
     error?: string | null
@@ -7364,6 +7417,8 @@ export interface AccountsTableQueryResponseApi {
     hogql?: string | null
     kind?: 'AccountsTableQuery'
     limit: number
+    /** Aggregated values in the same order as the requested metrics. */
+    metricsResults?: (number | null)[] | null
     /** Modifiers used when performing the query */
     modifiers?: HogQLQueryModifiersApi | null
     offset: number
@@ -7424,6 +7479,10 @@ export interface AccountsTableQueryApi {
         | null
     kind?: 'AccountsTableQuery'
     limit?: number | null
+    /** Aggregates to evaluate against the filtered account set. A metrics query skips row loading. */
+    metrics?:
+        | (AccountsTableCountMetricApi | AccountsTableAggregateMetricApi | AccountsTableCountThresholdMetricApi)[]
+        | null
     /** Modifiers used when performing the query */
     modifiers?: HogQLQueryModifiersApi | null
     offset?: number | null

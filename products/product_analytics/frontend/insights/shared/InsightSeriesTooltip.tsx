@@ -174,21 +174,29 @@ export function SeriesLabel({
 
     const seriesPrefix =
         seriesIdentification !== 'none' ? (
-            <span className="opacity-50 shrink-0 inline-flex items-center">
+            <>
                 {seriesLetter}
-                <span>
+                {/* The name is the same on every row, so it gives up space first — the breakdown
+                    value is what tells the rows apart, and a long event name would otherwise
+                    truncate it away. The letter and the separator stay put. */}
+                <span className="opacity-50 truncate min-w-0 shrink">
                     {(datum.action ? getDisplayNameFromEntityFilter(datum.action) : datum.series_name) ?? datum.label}
-                    &nbsp;·&nbsp;
                 </span>
-            </span>
+                <span className="opacity-50 shrink-0">&nbsp;·&nbsp;</span>
+            </>
         ) : null
 
-    // inline-flex: breakdown span truncates (flex-1), period label stays visible (shrink-0).
+    // Three levels of priority, in order: the period label never shrinks, the breakdown value
+    // shrinks only once the row runs out of name, and the name absorbs everything before that.
+    // The breakdown and the period share a shrink-0 group so shrinking is sequential — a group
+    // that shrinks proportionally costs a short value two characters to the ellipsis.
     return (
         <span className="inline-flex items-center w-full overflow-hidden">
             {seriesPrefix}
-            <span className="truncate min-w-0 flex-1">{breakdownTitle ?? datum.label}</span>
-            {comparePeriod && <span className="shrink-0 opacity-60">&nbsp;·&nbsp;{comparePeriod}</span>}
+            <span className="inline-flex items-center min-w-0 shrink-0 max-w-full">
+                <span className="truncate min-w-0 shrink">{breakdownTitle ?? datum.label}</span>
+                {comparePeriod && <span className="shrink-0 opacity-60">&nbsp;·&nbsp;{comparePeriod}</span>}
+            </span>
         </span>
     )
 }
