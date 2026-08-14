@@ -2,16 +2,18 @@ import { isPostHogCodeDeeplink } from "@posthog/shared";
 import { ArtifactRefChip } from "@posthog/ui/features/editor/components/ArtifactRefChip";
 import { EvidenceRefChip } from "@posthog/ui/features/editor/components/EvidenceRefChip";
 import { GithubRefChip } from "@posthog/ui/features/editor/components/GithubRefChip";
+import { MessageChartCard } from "@posthog/ui/features/editor/components/MessageChartCard";
 import { parseGithubIssueUrl } from "@posthog/ui/features/message-editor/githubIssueUrl";
 import { CodeBlock } from "@posthog/ui/primitives/CodeBlock";
 import { Divider } from "@posthog/ui/primitives/Divider";
 import { HighlightedCode } from "@posthog/ui/primitives/HighlightedCode";
 import { List, ListItem } from "@posthog/ui/primitives/List";
 import { parseArtifactLink } from "@posthog/ui/utils/artifactLinks";
+import { chartBlockKey, parseChartBlock } from "@posthog/ui/utils/chartBlocks";
 import { parseEvidenceLink } from "@posthog/ui/utils/evidenceLinks";
 import { handleShareLinkClick } from "@posthog/ui/utils/shareLinks";
 import { Blockquote, Checkbox, Code, Kbd, Text } from "@radix-ui/themes";
-import { memo, useMemo } from "react";
+import { isValidElement, memo, useMemo } from "react";
 import type { Components } from "react-markdown";
 import ReactMarkdown, { defaultUrlTransform } from "react-markdown";
 import remarkGfm from "remark-gfm";
@@ -114,9 +116,17 @@ export const baseComponents: Components = {
     </Blockquote>
   ),
   code: ({ children, className }) => {
-    const match = className?.match(/language-(\w+)/);
+    const match = className?.match(/language-([\w-]+)/);
     if (!match) {
       return <Code variant="ghost">{children}</Code>;
+    }
+    if (match[1] === "posthog-chart") {
+      const source = String(children).replace(/\n$/, "");
+      const spec = parseChartBlock(source);
+      // Malformed or half-streamed JSON renders nothing rather than raw JSON;
+      // the block completes (or stays broken) on the next stream snapshot.
+      if (!spec) return null;
+      return <MessageChartCard spec={spec} blockKey={chartBlockKey(source)} />;
     }
     return (
       <HighlightedCode
@@ -125,7 +135,16 @@ export const baseComponents: Components = {
       />
     );
   },
-  pre: ({ children }) => <CodeBlock size="1">{children}</CodeBlock>,
+  pre: ({ children }) => {
+    // A chart block renders as a full card, not inside a code block shell.
+    if (
+      isValidElement<{ className?: string }>(children) &&
+      children.props.className?.includes("language-posthog-chart")
+    ) {
+      return children;
+    }
+    return <CodeBlock size="1">{children}</CodeBlock>;
+  },
   em: ({ children }) => <em>{children}</em>,
   i: ({ children }) => <i>{children}</i>,
   strong: ({ children }) => <strong>{children}</strong>,

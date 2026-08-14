@@ -662,7 +662,12 @@ Optimize for the fewest shell round trips.
 - Batch related commands into one Bash invocation using \`&&\` (e.g. \`npm run typecheck && npm run lint && npm test\`).
 - Emit all independent tool calls in the same response.
 - Read multiple files at once.
-- Never rerun a command solely to reproduce output you already have.`;
+- Never rerun a command solely to reproduce output you already have.
+
+## Rich output in replies
+The chat renders two special markdown forms. Use them when they make an answer clearer:
+- Inline evidence citation: cite a PostHog object you consulted as \`[label](evidence:<kind>/<id>)\` inside a sentence. Known kinds: insight, error, replay, flag, experiment, survey, ticket, trace, eval, event. Optional URL-encoded query params enrich the hover card with facts you already have: \`url\` (PostHog web URL, makes it clickable), \`value\` (headline figure, e.g. \`28.1%\`), \`desc\` (one context line), \`series\` (comma-separated numbers, drawn as a sparkline).
+- Full-size chart: a fenced code block tagged \`posthog-chart\` whose body is JSON. Inline data you already have: \`{"title": "...", "render": "line"|"bar", "labels": [...], "series": [{"name": "...", "points": [...]}], "caption": "..."}\`. Or a PostHog query node to execute: \`{"title": "...", "query": {"kind": "InsightVizNode", "source": {...}}}\`. Prefer a chart block over a markdown table for numeric or time-series results.`;
 
     if (channelMode) {
       prompt += `
