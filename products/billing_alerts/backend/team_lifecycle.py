@@ -61,7 +61,9 @@ def rehome_billing_alerts_before_team_delete(
 
         # Billing alerts evaluate organization-wide data, but HogFunction destinations are team-scoped.
         # Re-home and disable them because team-specific integrations cannot be moved safely.
-        alerts.update(
+        # This bulk re-home on team deletion is an administrative lifecycle reset, not a per-alert
+        # evaluation transition, so it intentionally does not route through the state machine adapter.
+        alerts.update(  # nosemgrep: billing-alert-state-direct-mutation
             team_id=replacement_team_id,
             enabled=False,
             state=BillingAlertConfiguration.State.NOT_FIRING,

@@ -6,7 +6,7 @@
 # All other fields (title, description, enrich_url, etc.) are yours to configure.
 category: Billing alerts
 feature: billing_alerts
-url_prefix: /organization/billing/alerts
+url_prefix: /organization/billing
 ui_apps: {}
 tools:
     billing-alert-check-now:
@@ -55,7 +55,8 @@ tools:
             - organization:write
         annotations:
             readOnly: false
-            destructive: false
+            # destination_changes can delete a whole destination group, so clients must confirm.
+            destructive: true
             idempotent: false
         title: Update billing alert
         description: >
