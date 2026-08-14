@@ -3,12 +3,13 @@ import uuid
 import pytest
 
 import temporalio.worker
+import temporalio.workflow
 from temporalio import activity
 from temporalio.api.enums.v1 import IndexedValueType
 from temporalio.api.operatorservice.v1 import AddSearchAttributesRequest
 from temporalio.common import RetryPolicy, SearchAttributePair, TypedSearchAttributes
 from temporalio.testing import WorkflowEnvironment
-from temporalio.worker import Worker
+from temporalio.worker import Replayer, UnsandboxedWorkflowRunner, Worker
 
 from posthog.temporal.common.search_attributes import POSTHOG_SESSION_RECORDING_ID_KEY, POSTHOG_TEAM_ID_KEY
 from posthog.temporal.session_replay.rasterize_recording.activities.stuck_counter import BumpStuckCounterInput
@@ -17,8 +18,17 @@ from posthog.temporal.session_replay.rasterize_recording.types import (
     FinalizeRasterizationInput,
     RasterizationActivityOutput,
     RasterizeRecordingInputs,
+    RecordRasterizationFailureInput,
 )
 from posthog.temporal.session_replay.rasterize_recording.workflow import RasterizeRecordingWorkflow
+
+
+def _record_failure_into(calls: list[RecordRasterizationFailureInput]):
+    @activity.defn(name="record_rasterization_failure")
+    async def record_mocked(inputs: RecordRasterizationFailureInput) -> None:
+        calls.append(inputs)
+
+    return record_mocked
 
 
 async def _register_search_attributes(env: WorkflowEnvironment) -> None:
@@ -46,6 +56,7 @@ def _search_attributes(team_id: int = 7, session_id: str = "sess-123") -> TypedS
 @pytest.mark.asyncio
 async def test_terminal_failure_bumps_stuck_counter():
     bump_calls: list[BumpStuckCounterInput] = []
+    record_calls: list[RecordRasterizationFailureInput] = []
 
     @activity.defn(name="build_rasterization_input")
     async def build_failing(_exported_asset_id: int) -> BuildRasterizationResult:
@@ -66,7 +77,7 @@ async def test_terminal_failure_bumps_stuck_counter():
             env.client,
             task_queue=task_queue,
             workflows=[RasterizeRecordingWorkflow],
-            activities=[build_failing, finalize_unused, bump_mocked],
+            activities=[build_failing, finalize_unused, bump_mocked, _record_failure_into(record_calls)],
             workflow_runner=temporalio.worker.UnsandboxedWorkflowRunner(),
         ):
             with pytest.raises(Exception):
@@ -81,6 +92,77 @@ async def test_terminal_failure_bumps_stuck_counter():
                 )
 
     assert bump_calls == [BumpStuckCounterInput(team_id=7, session_id="sess-123")]
+    # The code has to come off the wrapped cause, not the ActivityError Temporal raises here.
+    # Reading the wrapper would classify every video failure identically.
+    assert [(call.exported_asset_id, call.error_code) for call in record_calls] == [(42, "RuntimeError")]
+
+
+def _scheduled_activities(history) -> list[str]:
+    return [
+        event.activity_task_scheduled_event_attributes.activity_type.name
+        for event in history.events
+        if event.HasField("activity_task_scheduled_event_attributes")
+    ]
+
+
+@pytest.mark.asyncio
+async def test_failure_recording_stays_behind_its_patch(monkeypatch):
+    """A video export already running when this deploys must not gain a command mid-flight.
+
+    An execution replaying a history that predates the patch has to take the old path exactly, or it
+    dies with a non-determinism error rather than finishing. Asserting the pre-patch run schedules no
+    failure activity is what holds the gate in place: drop the gate and this run gains one.
+    """
+
+    @activity.defn(name="build_rasterization_input")
+    async def build_failing(_exported_asset_id: int) -> BuildRasterizationResult:
+        raise RuntimeError("synthetic prep failure")
+
+    @activity.defn(name="finalize_rasterization")
+    async def finalize_unused(_inputs: FinalizeRasterizationInput) -> None:
+        pass
+
+    @activity.defn(name="bump_stuck_counter_activity")
+    async def bump_noop(_inputs: BumpStuckCounterInput) -> None:
+        pass
+
+    async def _run_to_failure(env, task_queue) -> object:
+        handle = await env.client.start_workflow(
+            RasterizeRecordingWorkflow.run,
+            RasterizeRecordingInputs(exported_asset_id=42),
+            id=str(uuid.uuid4()),
+            task_queue=task_queue,
+            retry_policy=RetryPolicy(maximum_attempts=1),
+            search_attributes=_search_attributes(),
+        )
+        with pytest.raises(Exception):
+            await handle.result()
+        return await handle.fetch_history()
+
+    task_queue = str(uuid.uuid4())
+    async with await WorkflowEnvironment.start_time_skipping() as env:
+        await _register_search_attributes(env)
+        async with Worker(
+            env.client,
+            task_queue=task_queue,
+            workflows=[RasterizeRecordingWorkflow],
+            activities=[build_failing, finalize_unused, bump_noop, _record_failure_into([])],
+            workflow_runner=temporalio.worker.UnsandboxedWorkflowRunner(),
+        ):
+            # `patched` reports False against a history recorded before the patch existed.
+            monkeypatch.setattr(temporalio.workflow, "patched", lambda _patch_id: False)
+            pre_patch_history = await _run_to_failure(env, task_queue)
+            monkeypatch.undo()
+
+            patched_history = await _run_to_failure(env, task_queue)
+
+    assert "record_rasterization_failure" not in _scheduled_activities(pre_patch_history)
+    assert "record_rasterization_failure" in _scheduled_activities(patched_history)
+
+    await Replayer(
+        workflows=[RasterizeRecordingWorkflow],
+        workflow_runner=UnsandboxedWorkflowRunner(),
+    ).replay_workflow(pre_patch_history)
 
 
 @pytest.mark.asyncio
@@ -216,7 +298,7 @@ async def test_failure_does_not_increment_rasterization_counter():
             env.client,
             task_queue=task_queue,
             workflows=[RasterizeRecordingWorkflow],
-            activities=[build_failing, finalize_unused, bump_noop],
+            activities=[build_failing, finalize_unused, bump_noop, _record_failure_into([])],
             workflow_runner=temporalio.worker.UnsandboxedWorkflowRunner(),
         ):
             with pytest.raises(Exception):
@@ -253,7 +335,7 @@ async def test_bump_failure_does_not_break_workflow_failure():
             env.client,
             task_queue=task_queue,
             workflows=[RasterizeRecordingWorkflow],
-            activities=[build_failing, finalize_unused, bump_failing],
+            activities=[build_failing, finalize_unused, bump_failing, _record_failure_into([])],
             workflow_runner=temporalio.worker.UnsandboxedWorkflowRunner(),
         ):
             with pytest.raises(Exception):
