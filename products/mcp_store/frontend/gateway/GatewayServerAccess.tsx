@@ -136,7 +136,7 @@ export function GatewayAccessSection(): JSX.Element | null {
                 </>
             )}
 
-            <div className="flex items-center gap-2 mt-3">
+            <div className="flex items-center gap-2">
                 <span className="text-xs uppercase text-secondary font-semibold">Agents</span>
                 <LemonTag type="muted" size="small">
                     {server.agents.length}
@@ -163,7 +163,7 @@ export function GatewayAccessSection(): JSX.Element | null {
                     No agents have access. Share your connection and choose which tools the agent may call.
                 </div>
             ) : (
-                <div className="border rounded divide-y">
+                <div className="border rounded divide-y bg-surface-primary">
                     {server.agents.map((agent) => {
                         const sharedByYou = agent.user.id === currentUserId
                         const agentShareCount = server.agents.filter(

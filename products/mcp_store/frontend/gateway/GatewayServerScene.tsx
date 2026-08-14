@@ -35,7 +35,7 @@ import { mcpGatewayLogic } from './mcpGatewayLogic'
 
 const TOOL_POLICY_BACKGROUND_CLASSES: Record<MCPToolApprovalStateEnumApi, string> = {
     approved: 'bg-success-highlight',
-    needs_approval: 'bg-warning-highlight',
+    needs_approval: '',
     do_not_use: 'bg-danger-highlight',
 }
 
