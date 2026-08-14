@@ -11,6 +11,7 @@ import { beforeAll, describe, expect, it } from "vitest";
 import {
   resetTeachingTips,
   retireTeachingTip,
+  setTeachingTipsEnabled,
   TeachingTip,
 } from "./TeachingTip";
 
@@ -78,8 +79,30 @@ describe("TeachingTip", () => {
     );
   });
 
-  // "Don't show again" is otherwise a one-way door, which is what settings
-  // offers a way back from.
+  // The switch is one answer over every lesson, and turning it back on must
+  // leave the per-lesson answers alone.
+  it("teaches nothing while tips are switched off", async () => {
+    const { rerender } = renderTip("tip-switched-off", true);
+    await screen.findByText("Artifacts placed here");
+
+    act(() => setTeachingTipsEnabled(false));
+    await waitFor(() =>
+      expect(screen.queryByText("Artifacts placed here")).toBeNull(),
+    );
+
+    act(() => setTeachingTipsEnabled(true));
+    rerender(
+      <Theme>
+        <TeachingTip id="tip-switched-off" open message="Artifacts placed here">
+          <button type="button">Artifacts</button>
+        </TeachingTip>
+      </Theme>,
+    );
+    await screen.findByText("Artifacts placed here");
+  });
+
+  // "Got it" is otherwise a one-way door, which is what settings offers a way
+  // back from.
   it("offers a retired tip again after a reset", async () => {
     retireTeachingTip("tip-reset");
     renderTip("tip-reset", true);

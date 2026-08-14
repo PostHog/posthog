@@ -11,10 +11,10 @@ const meta: Meta<typeof TipsSection> = {
 export default meta;
 type Story = StoryObj<typeof TipsSection>;
 
-/** Nothing turned off yet, so there is nothing to put back. */
-export const NothingTurnedOff: Story = {};
+/** Nothing dismissed for good yet, so there is nothing to put back. */
+export const Default: Story = {};
 
-export const SomethingTurnedOff: Story = {
+export const SomethingDismissedForGood: Story = {
   decorators: [
     (Story) => {
       retireTeachingTip("right-panel-artifacts");
