@@ -5,6 +5,7 @@ from uuid import UUID, uuid4
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
+from django.test import SimpleTestCase
 from django.utils import timezone
 
 from parameterized import parameterized
@@ -21,7 +22,7 @@ from posthog.temporal.oauth import ARRAY_APP_CLIENT_ID_DEV
 
 from products.annotations.backend.models.annotation import Annotation
 from products.canvas.backend import activity_visibility, build_service
-from products.canvas.backend.actions import CANVAS_ACTIONS
+from products.canvas.backend.actions import CANVAS_ACTIONS, TaskCreatePayloadSerializer
 from products.canvas.backend.models import Canvas, CanvasBuild, CanvasSourceVersion
 from products.canvas.backend.source import synthetic_source_project
 from products.tasks.backend.logic.services.compute_quota import ComputeQuotaDenialReason
@@ -1604,3 +1605,13 @@ class TestCanvasActions(CanvasAPIBaseTest):
         )
 
         assert response.status_code == status.HTTP_403_FORBIDDEN
+
+
+class TestTaskCreatePayloadSerializer(SimpleTestCase):
+    def test_title_over_the_task_store_limit_is_rejected(self):
+        # The task store caps title at 255; a longer value would reach Postgres
+        # and 500 rather than surface as a field error, so the cap belongs here.
+        serializer = TaskCreatePayloadSerializer(data={"title": "x" * 256, "description": ""})
+
+        assert not serializer.is_valid()
+        assert serializer.errors["title"][0].code == "max_length"

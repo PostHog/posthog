@@ -64,7 +64,7 @@ class AnnotationCreatePayloadSerializer(serializers.Serializer):
 class TaskCreatePayloadSerializer(serializers.Serializer):
     """Payload for the tasks.create verb."""
 
-    title = serializers.CharField(max_length=400, help_text="Task title.")
+    title = serializers.CharField(max_length=255, help_text="Task title (max 255 characters, matching the task store).")
     description = serializers.CharField(
         allow_blank=True, default="", help_text="Task description (markdown), passed to the agent that picks it up."
     )
