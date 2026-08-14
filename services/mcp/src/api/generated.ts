@@ -38215,9 +38215,70 @@ export namespace Schemas {
     }
 
     /**
+     * * `requested` - requested
+     * * `already_finished` - already_finished
+     * * `not_found` - not_found
+     * * `unmarked` - unmarked
+     */
+    export type HogInvocationCancelOutcomeOutcomeEnum = typeof HogInvocationCancelOutcomeOutcomeEnum[keyof typeof HogInvocationCancelOutcomeOutcomeEnum];
+
+
+    export const HogInvocationCancelOutcomeOutcomeEnum = {
+      Requested: 'requested',
+      AlreadyFinished: 'already_finished',
+      NotFound: 'not_found',
+      Unmarked: 'unmarked',
+    } as const;
+
+    /**
+     * Per-invocation outcome of a cancel request.
+     */
+    export interface HogInvocationCancelOutcome {
+      /** Invocation id. */
+      id: string;
+      /** 'requested': the run will terminate the next time a worker observes it. 'already_finished': the run already reached a terminal status (including cancelled). 'not_found': no such invocation for this workflow. 'unmarked': a concurrent transition raced the request; retry.
+       *
+       * * `requested` - requested
+       * * `already_finished` - already_finished
+       * * `not_found` - not_found
+       * * `unmarked` - unmarked */
+      outcome: HogInvocationCancelOutcomeOutcomeEnum;
+    }
+
+    /**
+     * Cancel in-flight invocations of a workflow. Provide exactly one selector.
+     */
+    export interface HogInvocationCancelRequest {
+      /**
+         * Cancel these specific invocations. Capped at 10000 per request. Invocations that already finished are reported per id rather than failing the request.
+         * @maxItems 10000
+         */
+      invocation_ids?: string[];
+      /** Cancel every in-flight invocation of this workflow, including parked delays and waits. */
+      all?: boolean;
+    }
+
+    /**
+     * Response from the cancel endpoint. Cancellation is asynchronous: this call flags runs, and
+     * the workflow workers terminate them shortly after (immediately for parked runs, at the next
+     * step boundary for runs mid-execution). A run stays 'running' in listings until that happens.
+     */
+    export interface HogInvocationCancelResponse {
+      /** In-flight runs newly flagged for cancellation by this request. */
+      marked: number;
+      /** Matching in-flight runs not yet flagged. Non-zero on very large workflows; call again. */
+      remaining: number;
+      /** True when no matching in-flight runs remain unflagged. */
+      done: boolean;
+      /** Per-invocation outcomes. Only returned when 'invocation_ids' was provided. */
+      ids?: HogInvocationCancelOutcome[];
+    }
+
+    /**
      * * `running` - running
      * * `succeeded` - succeeded
      * * `failed` - failed
+     * * `cancelled` - cancelled
      */
     export type HogInvocationRerunFilterStatusEnum = typeof HogInvocationRerunFilterStatusEnum[keyof typeof HogInvocationRerunFilterStatusEnum];
 
@@ -38226,6 +38287,7 @@ export namespace Schemas {
       Running: 'running',
       Succeeded: 'succeeded',
       Failed: 'failed',
+      Cancelled: 'cancelled',
     } as const;
 
     /**
@@ -44251,10 +44313,10 @@ export namespace Schemas {
      * * `completed` - Completed
      * * `error` - Error
      */
-    export type OutcomeEnum = typeof OutcomeEnum[keyof typeof OutcomeEnum];
+    export type MCPIntentClusterJourneyPathOutcomeEnum = typeof MCPIntentClusterJourneyPathOutcomeEnum[keyof typeof MCPIntentClusterJourneyPathOutcomeEnum];
 
 
-    export const OutcomeEnum = {
+    export const MCPIntentClusterJourneyPathOutcomeEnum = {
       Completed: 'completed',
       Error: 'error',
     } as const;
@@ -44266,7 +44328,7 @@ export namespace Schemas {
        *
        * * `completed` - Completed
        * * `error` - Error */
-      readonly outcome: OutcomeEnum;
+      readonly outcome: MCPIntentClusterJourneyPathOutcomeEnum;
       /** Number of sessions in this cluster that followed this exact path. */
       readonly count: number;
     }

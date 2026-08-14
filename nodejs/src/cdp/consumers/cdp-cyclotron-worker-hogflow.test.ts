@@ -370,7 +370,7 @@ describe('CdpCyclotronWorkerHogFlow', () => {
             expect(results[3].invocation.state.personId).toBeUndefined()
         })
 
-        it('should skip invocations when workflow is disabled after being queued', async () => {
+        it('terminates invocations as cancelled when the workflow is disabled after being queued', async () => {
             const hogFlow = hogFlows[0]
 
             const invocation1 = createSerializedHogFlowInvocation(hogFlow, {
@@ -406,19 +406,46 @@ describe('CdpCyclotronWorkerHogFlow', () => {
             // Mark the hogflow for refresh so it fetches fresh data
             ;(processor['hogFlowManager'] as any)['lazyLoader'].markForRefresh(hogFlow.id)
 
-            // Mock cancelInvocations to track what gets skipped
-            const cancelInvocationsSpy = jest.spyOn(processor['cyclotronJobQueue'], 'cancelInvocations')
+            // Second batch: invocation2 wakes under a disabled workflow. It must terminate
+            // through the result pipeline (terminal row, metric, log) - a silent queue-side
+            // flip would leave the run showing 'running' in the Invocations UI forever.
+            const results2 = await processor.processInvocations([invocation2])
 
-            // Second batch: invocation2 should be skipped because workflow is now disabled
-            const results2 = (await processor.processInvocations([
-                invocation2,
-            ])) as CyclotronJobInvocationResult<CyclotronJobInvocationHogFlow>[]
+            expect(results2).toHaveLength(1)
+            expect(results2[0].finished).toBe(true)
+            expect(results2[0].cancelled).toBe(true)
+            expect(results2[0].error).toBeUndefined()
+            expect(results2[0].logs.map((l) => l.message)).toContain('Run cancelled: the workflow is no longer active')
+            expect(results2[0].metrics).toEqual([
+                expect.objectContaining({
+                    team_id: hogFlow.team_id,
+                    app_source_id: hogFlow.id,
+                    metric_kind: 'other',
+                    metric_name: 'cancelled',
+                    count: 1,
+                }),
+            ])
+        })
 
-            // No results because the workflow is disabled
-            expect(results2).toHaveLength(0)
+        it('terminates cancel-requested invocations without loading the flow, so cancel works for deleted flows', async () => {
+            const invocation = createSerializedHogFlowInvocation(hogFlows[0], {
+                event: {
+                    distinct_id: 'distinct_A_1',
+                    properties: { foo: 'bar1' },
+                } as any,
+            })
+            invocation.functionId = new UUIDT().toString() // flow no longer exists
+            invocation.cancelRequestedAt = DateTime.now()
 
-            // The invocation should have been canceled (not failed)
-            expect(cancelInvocationsSpy).toHaveBeenCalledWith([invocation2])
+            const results = await processor.processInvocations([invocation])
+
+            expect(results).toHaveLength(1)
+            expect(results[0].finished).toBe(true)
+            expect(results[0].cancelled).toBe(true)
+            expect(results[0].logs.map((l) => l.message)).toContain('Run cancelled')
+            expect(results[0].metrics).toEqual([
+                expect.objectContaining({ metric_name: 'cancelled', metric_kind: 'other', count: 1 }),
+            ])
         })
     })
 })

@@ -35,6 +35,8 @@ import type {
     HogFlowsMetricsTotalsRetrieveParams,
     HogFlowsReputationRetrieveParams,
     HogFlowsRevisionsListParams,
+    HogInvocationCancelRequestApi,
+    HogInvocationCancelResponseApi,
     HogInvocationRerunRequestApi,
     HogInvocationRerunResponseApi,
     HogInvocationResultApi,
@@ -443,6 +445,27 @@ export const hogFlowsBatchJobsCreate = async (
     })
 }
 
+export const getHogFlowsBatchJobsCancelCreateUrl = (projectId: string, id: string, batchJobId: string) => {
+    return `/api/projects/${projectId}/hog_flows/${id}/batch_jobs/${batchJobId}/cancel/`
+}
+
+/**
+ * Stop a batch run: halts the audience fan-out and cancels every child run
+ * still in flight. Messages already sent are not recalled. Idempotent -
+ * cancelling a finished or already-cancelled run returns it unchanged.
+ */
+export const hogFlowsBatchJobsCancelCreate = async (
+    projectId: string,
+    id: string,
+    batchJobId: string,
+    options?: RequestInit
+): Promise<HogFlowBatchJobApi> => {
+    return apiMutator<HogFlowBatchJobApi>(getHogFlowsBatchJobsCancelCreateUrl(projectId, id, batchJobId), {
+        ...options,
+        method: 'POST',
+    })
+}
+
 export const getHogFlowsDiscardDraftCreateUrl = (projectId: string, id: string) => {
     return `/api/projects/${projectId}/hog_flows/${id}/discard_draft/`
 }
@@ -542,6 +565,32 @@ export const hogFlowsInvocationsCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(hogFlowInvocationApi),
+    })
+}
+
+export const getHogFlowsInvocationsCancelCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/hog_flows/${id}/invocations/cancel/`
+}
+
+/**
+ * Cancel in-flight invocations of this workflow, by id or all at once.
+ *
+ * Cancellation is asynchronous: runs are flagged here, then terminated by
+ * the workflow workers - promptly for parked runs (delays and waits), at
+ * the next step boundary for runs mid-execution. Steps that already
+ * executed are not undone. Cancelled runs can be re-run later via `rerun`.
+ */
+export const hogFlowsInvocationsCancelCreate = async (
+    projectId: string,
+    id: string,
+    hogInvocationCancelRequestApi?: HogInvocationCancelRequestApi,
+    options?: RequestInit
+): Promise<HogInvocationCancelResponseApi> => {
+    return apiMutator<HogInvocationCancelResponseApi>(getHogFlowsInvocationsCancelCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(hogInvocationCancelRequestApi),
     })
 }
 

@@ -178,7 +178,7 @@ async function updateSelfInTx(
         `transition_count = transition_count + 1`,
         `janitor_touch_count = 0`,
         // A cancel requested while this worker held the job must not sleep the full
-        // next delay before it's observed — wake immediately instead.
+        // next delay before it's observed - wake immediately instead.
         `scheduled = CASE WHEN cancel_requested_at IS NOT NULL THEN LEAST($3::timestamptz, NOW()) ELSE $3::timestamptz END`,
     ]
     const params: any[] = [jobId, lockId, scheduled]
@@ -471,7 +471,7 @@ export class CyclotronV2Worker {
                     // their whole life and get mistaken for poison pills.
                     `janitor_touch_count = 0`,
                     // A cancel requested while this worker held the job must not
-                    // sleep the full next delay before it's observed — wake
+                    // sleep the full next delay before it's observed - wake
                     // immediately instead.
                     `scheduled = CASE WHEN cancel_requested_at IS NOT NULL THEN LEAST($3::timestamptz, NOW()) ELSE $3::timestamptz END`,
                 ]

@@ -15,7 +15,7 @@ import { HogFunctionTypeType, LogEntryLevel, PersonType } from '~/types'
 
 import { hogFunctionsRerunCreate } from 'products/cdp/frontend/generated/api'
 import type { HogInvocationRerunFilterStatusEnumApi } from 'products/cdp/frontend/generated/api.schemas'
-import { hogFlowsRerunCreate } from 'products/workflows/frontend/generated/api'
+import { hogFlowsInvocationsCancelCreate, hogFlowsRerunCreate } from 'products/workflows/frontend/generated/api'
 
 export const HOG_INVOCATIONS_PAGE_SIZE = 100
 
@@ -23,7 +23,7 @@ export const HOG_INVOCATIONS_PAGE_SIZE = 100
  * `HOG_INVOCATION_RERUN_MAX_COUNT` env var (Django serializer + Node CDP config). */
 export const HOG_INVOCATIONS_RERUN_MAX_COUNT = 10000
 
-export type RunStatus = 'running' | 'succeeded' | 'failed'
+export type RunStatus = 'running' | 'succeeded' | 'failed' | 'cancelled'
 
 export type HogInvocationsFunctionKind = 'hog_function' | 'hog_flow'
 
@@ -180,7 +180,9 @@ const searchParamsToFilters = (searchParams: Record<string, string | undefined>)
     }
     const status = searchParams[URL_PARAMS.status]
     if (status) {
-        next.status = status.split(',').filter((s): s is RunStatus => ['running', 'succeeded', 'failed'].includes(s))
+        next.status = status
+            .split(',')
+            .filter((s): s is RunStatus => ['running', 'succeeded', 'failed', 'cancelled'].includes(s))
     }
     const errorKind = searchParams[URL_PARAMS.error_kind]
     if (errorKind) {
@@ -543,6 +545,7 @@ const SPARKLINE_STATUS_COLORS: Record<RunStatus, string> = {
     running: 'warning',
     succeeded: 'success',
     failed: 'danger',
+    cancelled: 'muted',
 }
 
 async function fetchSparkline(props: HogInvocationsLogicProps, filters: HogInvocationsFilters): Promise<SparklineData> {
@@ -619,7 +622,7 @@ async function fetchSparkline(props: HogInvocationsLogicProps, filters: HogInvoc
         if (!key) {
             continue
         }
-        const cell = (cellsByBucket[key] = cellsByBucket[key] ?? { running: 0, succeeded: 0, failed: 0 })
+        const cell = (cellsByBucket[key] = cellsByBucket[key] ?? { running: 0, succeeded: 0, failed: 0, cancelled: 0 })
         cell[status] = (cell[status] ?? 0) + Number(n ?? 0)
     }
     // Walk every bucket in the filter range — not just the ones CH returned
@@ -629,11 +632,13 @@ async function fetchSparkline(props: HogInvocationsLogicProps, filters: HogInvoc
     const timezone = teamTimezone()
     const dates = buckets.map((key) => dayjs.tz(key, timezone).toISOString())
     const buildValues = (status: RunStatus): number[] => buckets.map((key) => cellsByBucket[key]?.[status] ?? 0)
-    const series: SparklineSeries[] = (['failed', 'running', 'succeeded'] as RunStatus[]).map((status) => ({
-        name: status,
-        color: SPARKLINE_STATUS_COLORS[status],
-        values: buildValues(status),
-    }))
+    const series: SparklineSeries[] = (['failed', 'running', 'succeeded', 'cancelled'] as RunStatus[]).map(
+        (status) => ({
+            name: status,
+            color: SPARKLINE_STATUS_COLORS[status],
+            values: buildValues(status),
+        })
+    )
     return { dates, series }
 }
 
@@ -831,6 +836,7 @@ export interface hogInvocationsLogicValues {
     personSearchResultsLoading: boolean
     pickedPerson: PersonType | null
     rerunableSelectedIds: string[]
+    cancellableSelectedIds: string[]
     runs: HogInvocationRow[]
     runsLoading: boolean
     selectAllState: 'all' | 'none' | 'some'
@@ -949,6 +955,9 @@ export interface hogInvocationsLogicActions {
     rerunInvocations: (invocationIds: string[]) => {
         invocationIds: string[]
     }
+    cancelInvocations: (invocationIds: string[]) => {
+        invocationIds: string[]
+    }
     resetFilters: () => {
         value: true
     }
@@ -1005,6 +1014,7 @@ export interface hogInvocationsLogicMeta {
         selectedCount: (selectedIds: Record<string, boolean>) => number
         canBulkRerun: (selectedCount: number) => boolean
         rerunableSelectedIds: (selectedIds: Record<string, boolean>, runs: HogInvocationRow[]) => string[]
+        cancellableSelectedIds: (selectedIds: Record<string, boolean>, runs: HogInvocationRow[]) => string[]
         hasRunningRows: (runs: HogInvocationRow[]) => boolean
         selectableIds: (runs: HogInvocationRow[]) => string[]
         selectAllState: (selectedIds: Record<string, boolean>, selectableIds: string[]) => 'all' | 'none' | 'some'
@@ -1037,6 +1047,7 @@ export const hogInvocationsLogic = kea<hogInvocationsLogicType>([
         hydratePeople: (personIds: string[]) => ({ personIds }),
         setExpanded: (invocationId: string, expanded: boolean) => ({ invocationId, expanded }),
         rerunInvocations: (invocationIds: string[]) => ({ invocationIds }),
+        cancelInvocations: (invocationIds: string[]) => ({ invocationIds }),
         bulkRerun: (params: BulkRerunParams) => ({ params }),
         setHasMore: (hasMore: boolean) => ({ hasMore }),
         // Person filter picker: user picks a person from the typeahead → chip stays in the
@@ -1252,7 +1263,7 @@ export const hogInvocationsLogic = kea<hogInvocationsLogicType>([
         statusCounts: [
             (s) => [s.runs],
             (runs: HogInvocationRow[]): Record<RunStatus, number> => {
-                const counts: Record<RunStatus, number> = { running: 0, succeeded: 0, failed: 0 }
+                const counts: Record<RunStatus, number> = { running: 0, succeeded: 0, failed: 0, cancelled: 0 }
                 for (const r of runs) {
                     counts[r.status] = (counts[r.status] ?? 0) + 1
                 }
@@ -1282,16 +1293,32 @@ export const hogInvocationsLogic = kea<hogInvocationsLogicType>([
                 })
             },
         ],
+        cancellableSelectedIds: [
+            (s) => [s.selectedIds, s.runs],
+            (selectedIds: Record<string, boolean>, runs: HogInvocationRow[]): string[] => {
+                const ids = Object.keys(selectedIds)
+                if (ids.length === 0) {
+                    return []
+                }
+                const byId = new Map(runs.map((r) => [r.invocation_id, r]))
+                return ids.filter((id) => {
+                    const row = byId.get(id)
+                    // Only in-flight rows can be cancelled; the endpoint reports per-id outcomes
+                    // for anything that finished between render and request.
+                    return !!row && row.status === 'running' && !isRerunWrapperKind(row.function_kind)
+                })
+            },
+        ],
         hasRunningRows: [
             (s) => [s.runs],
             (runs: HogInvocationRow[]): boolean => runs.some((r) => r.status === 'running'),
         ],
         selectableIds: [
             (s) => [s.runs],
+            // Running rows are selectable too: rerun and cancel gate themselves on their own
+            // `*SelectedIds` selectors, so selection just tracks intent.
             (runs: HogInvocationRow[]): string[] =>
-                runs
-                    .filter((r) => !isRerunWrapperKind(r.function_kind) && r.status !== 'running')
-                    .map((r) => r.invocation_id),
+                runs.filter((r) => !isRerunWrapperKind(r.function_kind)).map((r) => r.invocation_id),
         ],
         selectAllState: [
             (s) => [s.selectedIds, s.selectableIds],
@@ -1388,7 +1415,7 @@ export const hogInvocationsLogic = kea<hogInvocationsLogicType>([
                     // defaults a missing status to ['failed'], which would silently drop
                     // succeeded rows the user explicitly selected. The ID restriction
                     // alone determines what gets rerun (the worker still skips in-flight).
-                    status: ['running', 'succeeded', 'failed'] as HogInvocationRerunFilterStatusEnumApi[],
+                    status: ['running', 'succeeded', 'failed', 'cancelled'] as HogInvocationRerunFilterStatusEnumApi[],
                 },
             }
 
@@ -1406,6 +1433,37 @@ export const hogInvocationsLogic = kea<hogInvocationsLogicType>([
                 actions.loadRuns(null)
             } catch (e: any) {
                 lemonToast.error(`Failed to enqueue rerun: ${e?.detail ?? e?.message ?? String(e)}`)
+            }
+        },
+        cancelInvocations: async ({ invocationIds }) => {
+            if (props.functionKind !== 'hog_flow') {
+                return
+            }
+            if (invocationIds.length === 0) {
+                lemonToast.warning('Nothing to cancel')
+                return
+            }
+
+            const teamId = ApiConfig.getCurrentTeamId()
+            try {
+                const response = await hogFlowsInvocationsCancelCreate(String(teamId), props.id, {
+                    invocation_ids: invocationIds,
+                })
+                const marked = response.marked ?? 0
+                if (marked > 0) {
+                    lemonToast.success(
+                        `Cancellation requested for ${marked} ${marked === 1 ? 'run' : 'runs'}. Parked runs stop within moments; runs mid-step stop at their next step.`
+                    )
+                } else {
+                    lemonToast.info('No runs needed cancelling - they may have already finished.')
+                }
+                actions.clearSelected()
+                // Cancelled rows flip once the worker terminates them - poll briefly so the
+                // status change surfaces without a manual refresh.
+                cache.forceRefreshUntil = Date.now() + FORCE_REFRESH_WINDOW_MS
+                actions.loadRuns(null)
+            } catch (e: any) {
+                lemonToast.error(`Failed to cancel: ${e?.detail ?? e?.message ?? String(e)}`)
             }
         },
         bulkRerun: async ({ params }) => {

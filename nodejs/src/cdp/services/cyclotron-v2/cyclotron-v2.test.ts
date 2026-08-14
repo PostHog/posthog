@@ -800,7 +800,7 @@ describe('Cyclotron V2', () => {
                 expect(parked.cancel_requested_at).not.toBeNull()
                 expect(new Date(parked.scheduled).getTime()).toBeLessThanOrEqual(Date.now())
 
-                // Running row: flagged only — its wake is pulled forward by the
+                // Running row: flagged only - its wake is pulled forward by the
                 // worker's release, never by an external write racing the lock.
                 const running = await queryJob(runningId)
                 expect(running.cancel_requested_at).not.toBeNull()
@@ -835,7 +835,7 @@ describe('Cyclotron V2', () => {
                 const result = await manager.cancelJobs({ teamId: 1, functionId, all: true })
 
                 expect(result).toMatchObject({ marked: 2, remaining: 0, done: true })
-                // A run's job can sit on another queue mid-step (e.g. email) — still cancelled.
+                // A run's job can sit on another queue mid-step (e.g. email) - still cancelled.
                 expect((await queryJob(parkedId)).cancel_requested_at).not.toBeNull()
                 expect((await queryJob(emailQueueId)).cancel_requested_at).not.toBeNull()
                 expect((await queryJob(otherFunctionId)).cancel_requested_at).toBeNull()

@@ -143,7 +143,7 @@ export type CyclotronV2CancelJobsOptions = {
 
 // 'requested': the flag is set (by this call or an earlier one) and the worker will
 // terminate the job when it next observes it. 'unmarked': the row is in flight but a
-// concurrent transition raced this call — retry. 'already_finished' covers every
+// concurrent transition raced this call - retry. 'already_finished' covers every
 // terminal status, including previously cancelled.
 export type CyclotronV2CancelJobOutcome = 'requested' | 'already_finished' | 'not_found' | 'unmarked'
 
@@ -152,7 +152,7 @@ export type CyclotronV2CancelJobsResult = {
     // time pulled forward; rows held by a worker were flagged only and terminate
     // at their next release.
     marked: number
-    // In-flight rows matching the selector still unflagged — non-zero when the
+    // In-flight rows matching the selector still unflagged - non-zero when the
     // per-call chunk budget ran out or a row transitioned mid-call. Call again.
     remaining: number
     done: boolean

@@ -604,7 +604,7 @@ export class CyclotronV2Manager {
      * itself: the manager has no path to the lifecycle/metric sinks, so the
      * owning worker performs the actual cancellation when it next observes the
      * job. Parked rows get their wake pulled forward so that happens promptly;
-     * rows a worker currently holds are flagged only (never fight `lock_id` —
+     * rows a worker currently holds are flagged only (never fight `lock_id` -
      * the worker's release pulls the wake forward via reschedule()'s
      * cancel-aware CASE, so they terminate one step later).
      *
@@ -643,7 +643,7 @@ export class CyclotronV2Manager {
             let marked = 0
 
             // Parked rows: flag + wake. SKIP LOCKED skips rows a concurrent dequeue
-            // is claiming — those turn 'running' and the second UPDATE catches them.
+            // is claiming - those turn 'running' and the second UPDATE catches them.
             const chunkLimitParam = params.length + 1
             for (let chunk = 0; chunk < this.reschedule.maxChunksPerCall; chunk++) {
                 if (chunk > 0) {
@@ -672,7 +672,7 @@ export class CyclotronV2Manager {
                 }
             }
 
-            // Rows held by a worker right now — bounded by worker concurrency, so
+            // Rows held by a worker right now - bounded by worker concurrency, so
             // no chunking or wake write needed.
             const runningResult = await this.pool.query(
                 `UPDATE cyclotron_jobs

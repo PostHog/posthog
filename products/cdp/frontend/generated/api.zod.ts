@@ -1558,8 +1558,10 @@ export const HogFunctionsRerunCreateBody = /* @__PURE__ */ zod
                 status: zod
                     .array(
                         zod
-                            .enum(['running', 'succeeded', 'failed'])
-                            .describe('\* `running` - running\n\* `succeeded` - succeeded\n\* `failed` - failed')
+                            .enum(['running', 'succeeded', 'failed', 'cancelled'])
+                            .describe(
+                                '\* `running` - running\n\* `succeeded` - succeeded\n\* `failed` - failed\n\* `cancelled` - cancelled'
+                            )
                     )
                     .optional()
                     .describe("Restrict to invocations whose latest status is one of these. Defaults to ['failed']."),

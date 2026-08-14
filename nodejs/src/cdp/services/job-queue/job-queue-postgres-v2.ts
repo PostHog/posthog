@@ -209,6 +209,8 @@ export class CyclotronJobQueuePostgresV2 implements JobQueue {
 
                 if (result.error) {
                     await job.fail()
+                } else if (result.cancelled) {
+                    await job.cancel()
                 } else if (result.finished) {
                     await job.ack()
                 } else {
@@ -366,6 +368,10 @@ export function v2JobToInvocation(job: CyclotronV2DequeuedJob): CyclotronJobInvo
 
     if (job.parentRunId) {
         invocation.parentRunId = job.parentRunId
+    }
+
+    if (job.cancelRequestedAt) {
+        invocation.cancelRequestedAt = job.cancelRequestedAt
     }
 
     return invocation

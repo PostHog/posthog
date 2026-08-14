@@ -122,24 +122,28 @@ def get_hog_flow_in_flight_count(team_id: int, hog_flow_id: str) -> requests.Res
     )
 
 
-def _mint_reschedule_parked_jwt(team_id: int, hog_flow_id: str) -> str:
-    """Short-lived scoped JWT for one reschedule_parked call — a leaked token can only sweep this
-    one team + workflow. Signed with the dedicated key (never INTERNAL_API_SECRET / SECRET_KEY /
-    JWT_SIGNING_KEY, per .agents/security.md); raises when unprovisioned so the sweep fails closed.
-    Verified in the plugin server's CdpApi.postHogFlowRescheduleParked."""
+def _mint_workflows_scoped_jwt(audience: str, team_id: int, hog_flow_id: str) -> str:
+    """Short-lived scoped JWT for one workflows CDP call - a leaked token can only act on this
+    one team + workflow, for this one audience. Signed with the dedicated key (never
+    INTERNAL_API_SECRET / SECRET_KEY / JWT_SIGNING_KEY, per .agents/security.md); raises when
+    unprovisioned so the call fails closed. Verified per-route in the plugin server's CdpApi."""
     secrets = settings.WORKFLOWS_RESCHEDULE_JWT_SECRETS
     if not secrets:
-        raise RuntimeError("WORKFLOWS_RESCHEDULE_JWT_SECRET is not configured — cannot call reschedule_parked")
+        raise RuntimeError(f"WORKFLOWS_RESCHEDULE_JWT_SECRET is not configured - cannot call {audience}")
     return jwt.encode(
         {
             "team_id": team_id,
             "hog_flow_id": hog_flow_id,
-            "aud": "posthog:workflows:reschedule_parked",
+            "aud": audience,
             "exp": datetime.now(tz=UTC) + timedelta(minutes=2),
         },
         secrets[0],
         algorithm="HS256",
     )
+
+
+def _mint_reschedule_parked_jwt(team_id: int, hog_flow_id: str) -> str:
+    return _mint_workflows_scoped_jwt("posthog:workflows:reschedule_parked", team_id, hog_flow_id)
 
 
 def reschedule_hog_flow_parked_jobs(
@@ -161,6 +165,22 @@ def reschedule_hog_flow_parked_jobs(
         CDP_API_URL + f"/api/projects/{team_id}/hog_flows/{hog_flow_id}/reschedule_parked",
         json=payload,
         headers={"Authorization": f"Bearer {_mint_reschedule_parked_jwt(team_id, hog_flow_id)}"},
+        timeout=30,
+    )
+
+
+def cancel_hog_flow_invocations(team_id: int, hog_flow_id: str, payload: dict) -> requests.Response:
+    """Flag a workflow's in-flight invocations for cancellation. `payload` carries exactly one
+    selector: {"invocation_ids": [...]}, {"parent_run_id": "..."}, or {"all": true}. The Node
+    side only marks rows and wakes parked ones - the workers terminate them with lifecycle rows
+    and metrics, so a `done: false` response just means another call is needed for the rest.
+    The timeout covers the endpoint's worst-case chunked sweep (chunk sleeps + UPDATEs)."""
+    return internal_requests.post(
+        CDP_API_URL + f"/api/projects/{team_id}/hog_flows/{hog_flow_id}/invocations/cancel",
+        json=payload,
+        headers={
+            "Authorization": f"Bearer {_mint_workflows_scoped_jwt('posthog:workflows:cancel_invocations', team_id, hog_flow_id)}"
+        },
         timeout=30,
     )
 

@@ -272,6 +272,10 @@ export class CdpApi {
             '/api/projects/:team_id/hog_flows/:id/reschedule_parked',
             asyncHandler(this.postHogFlowRescheduleParked)
         )
+        router.post(
+            '/api/projects/:team_id/hog_flows/:id/invocations/cancel',
+            asyncHandler(this.postHogFlowCancelInvocations)
+        )
         router.get('/api/projects/:team_id/hog_functions/:id/status', asyncHandler(this.getFunctionStatus()))
         router.patch('/api/projects/:team_id/hog_functions/:id/status', asyncHandler(this.patchFunctionStatus()))
         router.get('/api/hog_functions/states', asyncHandler(this.getFunctionStates()))
@@ -1100,6 +1104,100 @@ export class CdpApi {
             })
         } catch (e) {
             logger.error('Error rescheduling parked hog flow jobs', {
+                error: e instanceof Error ? e.message : String(e),
+            })
+            return res.status(500).json({ error: e instanceof Error ? e.message : String(e) })
+        }
+    }
+
+    // Flag a workflow's in-flight cyclotron jobs for cancellation. The workers own the actual
+    // termination (terminal status + lifecycle row + metric + log) when they observe the flag;
+    // this endpoint only marks rows and wakes parked ones. See CyclotronV2Manager.cancelJobs.
+    //
+    // Auth mirrors postHogFlowRescheduleParked: a per-call JWT minted by Django, pinned to this
+    // team + workflow, on its own audience - NOT the fleet-wide internal secret.
+    private postHogFlowCancelInvocations = async (req: ModifiedRequest, res: express.Response): Promise<any> => {
+        try {
+            if (!this.batchResolverProducer) {
+                return res.status(503).json({
+                    error: 'Cyclotron producer not initialized (CYCLOTRON_NODE_DATABASE_URL unset)',
+                })
+            }
+            if (!this.rescheduleJwt) {
+                return res.status(503).json({
+                    error: 'Workflows scoped auth not configured (WORKFLOWS_RESCHEDULE_JWT_SECRET unset)',
+                })
+            }
+
+            const { team_id, id } = req.params
+
+            const authHeader = req.headers['authorization']
+            const token =
+                typeof authHeader === 'string' && authHeader.startsWith('Bearer ') ? authHeader.slice(7) : undefined
+            const claims = token
+                ? (this.rescheduleJwt.verify(token, PosthogJwtAudience.WORKFLOWS_CANCEL_INVOCATIONS, {
+                      ignoreVerificationErrors: true,
+                  }) as { team_id?: number; hog_flow_id?: string } | undefined)
+                : undefined
+            // The claims pin the token to one team + workflow, so a leaked token can't cancel anything else.
+            if (!claims || claims.team_id !== parseInt(team_id) || claims.hog_flow_id !== id) {
+                return res.status(401).json({ error: 'Unauthorized: Invalid cancel token' })
+            }
+
+            const team = await this.deps.teamManager.getTeam(parseInt(team_id)).catch(() => null)
+            if (!team) {
+                return res.status(404).json({ error: 'Team not found' })
+            }
+
+            // Deliberately no hogFlowManager lookup beyond team pinning: cancel must keep working
+            // for flows that were deleted with runs still parked. The JWT claims already bind the
+            // request to this flow id, and cancelJobs filters on (team_id, function_id).
+
+            const body = req.body ?? {}
+            const invocationIds = body.invocation_ids
+            const parentRunId = body.parent_run_id
+            const all = body.all
+            const selectorCount = [invocationIds !== undefined, parentRunId !== undefined, all === true].filter(
+                Boolean
+            ).length
+            if (selectorCount !== 1) {
+                return res
+                    .status(400)
+                    .json({ error: 'Provide exactly one of invocation_ids, parent_run_id, or all=true' })
+            }
+            // UUID-shaped only: cancelJobs binds ids as ::uuid[], so a malformed id must be a 400
+            // here rather than a Postgres cast error counted as a write failure.
+            const uuidRe = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+            if (
+                invocationIds !== undefined &&
+                (!Array.isArray(invocationIds) ||
+                    invocationIds.length === 0 ||
+                    invocationIds.length > 10000 ||
+                    !invocationIds.every((i: unknown) => typeof i === 'string' && uuidRe.test(i)))
+            ) {
+                return res
+                    .status(400)
+                    .json({ error: 'invocation_ids must be a non-empty array of up to 10000 invocation UUIDs' })
+            }
+            if (parentRunId !== undefined && (typeof parentRunId !== 'string' || parentRunId.length === 0)) {
+                return res.status(400).json({ error: 'parent_run_id must be a non-empty string' })
+            }
+
+            const result = await this.batchResolverProducer.cancelJobs({
+                teamId: team.id,
+                functionId: id,
+                jobIds: invocationIds,
+                parentRunId,
+                all: all === true ? true : undefined,
+            })
+            return res.json({
+                marked: result.marked,
+                remaining: result.remaining,
+                done: result.done,
+                ids: result.ids,
+            })
+        } catch (e) {
+            logger.error('Error cancelling hog flow invocations', {
                 error: e instanceof Error ? e.message : String(e),
             })
             return res.status(500).json({ error: e instanceof Error ? e.message : String(e) })

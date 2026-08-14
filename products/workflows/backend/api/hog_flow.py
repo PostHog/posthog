@@ -33,6 +33,10 @@ from posthog.schema import ProductKey
 
 from posthog.api.app_metrics2 import AppMetricsMixin, fetch_app_metric_totals_by_source
 from posthog.api.documentation import _FallbackSerializer
+from posthog.api.hog_invocation_cancel import (
+    HogInvocationCancelRequestSerializer,
+    HogInvocationCancelResponseSerializer,
+)
 from posthog.api.hog_invocation_rerun import HogInvocationRerunRequestSerializer, HogInvocationRerunResponseSerializer
 from posthog.api.hog_invocation_results import (
     HogInvocationResultDetailSerializer,
@@ -59,6 +63,7 @@ from posthog.event_usage import AGENT_EVENT_SOURCES, EventSource, get_event_sour
 from posthog.models import Team
 from posthog.models.filters import Filter
 from posthog.plugins.plugin_server_api import (
+    cancel_hog_flow_invocations,
     create_hog_flow_invocation_test,
     create_hog_flow_scheduled_invocation,
     get_hog_flow_in_flight_count,
@@ -2661,6 +2666,8 @@ class HogFlowViewSet(
         "schedule_detail",
         "bulk_delete",
         "rerun",
+        "cancel_invocations",
+        "cancel_batch_job",
         "graph",
         "action_email",
         "publish",
@@ -2824,6 +2831,101 @@ class HogFlowViewSet(
             )
 
         return Response(res.json())
+
+    def _cancel_invocations_until_done(self, hog_flow: HogFlow, payload: dict) -> dict:
+        """Call the CDP cancel endpoint, repeating while it reports unflagged rows remain.
+        Each call is bounded (chunked sweep), so very large workflows need several; the cap
+        keeps one API request from pinning a worker on a pathological backlog - the response's
+        `done: false` tells the caller to request again."""
+        data: dict = {}
+        for _ in range(5):
+            res = cancel_hog_flow_invocations(team_id=self.team_id, hog_flow_id=str(hog_flow.id), payload=payload)
+            if res.status_code != 200:
+                raise exceptions.APIException(detail=res.text, code="cancel_failed")
+            page = res.json()
+            data = {
+                "marked": data.get("marked", 0) + page.get("marked", 0),
+                "remaining": page.get("remaining", 0),
+                "done": page.get("done", False),
+                **({"ids": page["ids"]} if page.get("ids") is not None else {}),
+            }
+            if data["done"]:
+                break
+        return data
+
+    @extend_schema(
+        request=HogInvocationCancelRequestSerializer,
+        responses={200: HogInvocationCancelResponseSerializer},
+    )
+    @action(detail=True, methods=["POST"], url_path="invocations/cancel")
+    def cancel_invocations(self, request: Request, *args, **kwargs) -> Response:
+        """
+        Cancel in-flight invocations of this workflow, by id or all at once.
+
+        Cancellation is asynchronous: runs are flagged here, then terminated by
+        the workflow workers - promptly for parked runs (delays and waits), at
+        the next step boundary for runs mid-execution. Steps that already
+        executed are not undone. Cancelled runs can be re-run later via `rerun`.
+        """
+        hog_flow = self.get_object()
+
+        serializer = HogInvocationCancelRequestSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        invocation_ids = serializer.validated_data.get("invocation_ids")
+        payload: dict = (
+            {"invocation_ids": [str(i) for i in invocation_ids]} if invocation_ids is not None else {"all": True}
+        )
+        data = self._cancel_invocations_until_done(hog_flow, payload)
+
+        self._report_workflow_action(
+            "hog_flow_invocations_cancel_requested",
+            hog_flow,
+            {"mode": "ids" if invocation_ids is not None else "all", "marked": data.get("marked", 0)},
+        )
+        return Response(data)
+
+    @extend_schema(
+        request=None,
+        responses={200: HogFlowBatchJobSerializer},
+        parameters=[OpenApiParameter("batch_job_id", str, OpenApiParameter.PATH)],
+    )
+    @action(detail=True, methods=["POST"], url_path=r"batch_jobs/(?P<batch_job_id>[^/.]+)/cancel")
+    def cancel_batch_job(self, request: Request, *args, batch_job_id: str, **kwargs) -> Response:
+        """
+        Stop a batch run: halts the audience fan-out and cancels every child run
+        still in flight. Messages already sent are not recalled. Idempotent -
+        cancelling a finished or already-cancelled run returns it unchanged.
+        """
+        hog_flow = self.get_object()
+        try:
+            batch_job = HogFlowBatchJob.objects.get(id=batch_job_id, hog_flow=hog_flow, team=self.team)
+        except HogFlowBatchJob.DoesNotExist:
+            raise exceptions.NotFound(f"Batch job {batch_job_id} not found")
+
+        terminal = (
+            HogFlowBatchJob.State.COMPLETED,
+            HogFlowBatchJob.State.CANCELLED,
+            HogFlowBatchJob.State.FAILED,
+        )
+        if batch_job.status in terminal:
+            return Response(HogFlowBatchJobSerializer(batch_job).data)
+
+        # Flags first, Django status second: the status row is display, but the flags are what
+        # actually stop the fan-out and the children. The reverse order could report 'cancelled'
+        # while everything keeps sending if the CDP call fails.
+        self._cancel_invocations_until_done(hog_flow, {"parent_run_id": str(batch_job.id)})
+
+        # The resolver may have finished the run between the flag write and here; a terminal
+        # status absorbs (internal_update_batch_job_status ignores late writes), so re-check
+        # rather than clobbering a genuine completion.
+        batch_job.refresh_from_db()
+        if batch_job.status not in terminal:
+            batch_job.status = HogFlowBatchJob.State.CANCELLED
+            batch_job.save(update_fields=["status", "updated_at"])
+
+        self._report_workflow_action("hog_flow_batch_job_cancelled", hog_flow, {"batch_job_id": str(batch_job.id)})
+        return Response(HogFlowBatchJobSerializer(batch_job).data)
 
     def _emit_resource_edited(self, instance: HogFlow) -> None:
         # Realtime "edited elsewhere" signal so an open builder (or another tab) can refresh instead of
