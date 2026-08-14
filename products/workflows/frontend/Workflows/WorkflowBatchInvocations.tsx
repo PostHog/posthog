@@ -52,6 +52,8 @@ const STOPPABLE_STATUSES: HogFlowBatchJob['status'][] = ['waiting', 'queued', 'a
 
 function BatchRunHeader({ job, hogFlowId }: { job: HogFlowBatchJob; hogFlowId: string }): JSX.Element {
     const { cancelBatchJob } = useActions(batchWorkflowJobsLogic({ id: hogFlowId }))
+    const { cancellingJobIds } = useValues(batchWorkflowJobsLogic({ id: hogFlowId }))
+    const isStopping = cancellingJobIds.includes(job.id)
 
     return (
         <div className="flex gap-2 w-full justify-between">
@@ -68,6 +70,7 @@ function BatchRunHeader({ job, hogFlowId }: { job: HogFlowBatchJob; hogFlowId: s
                         size="xsmall"
                         type="secondary"
                         status="danger"
+                        loading={isStopping}
                         onClick={(e) => {
                             // The header row toggles the collapse panel; stopping a run shouldn't.
                             e.stopPropagation()
