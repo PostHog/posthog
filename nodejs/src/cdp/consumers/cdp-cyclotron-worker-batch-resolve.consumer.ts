@@ -9,7 +9,12 @@ import { captureException } from '~/common/utils/posthog'
 import { UUIDT } from '~/common/utils/utils'
 
 import { HealthCheckResult, HealthCheckResultError, HealthCheckResultOk, PluginsServerConfig, Team } from '../../types'
-import type { CyclotronV2DequeuedJob, CyclotronV2JobInit, CyclotronV2Worker } from '../services/cyclotron-v2'
+import type {
+    CyclotronV2DequeuedJob,
+    CyclotronV2JobInit,
+    CyclotronV2JobProducer,
+    CyclotronV2Worker,
+} from '../services/cyclotron-v2'
 import {
     BatchResolverState,
     MAX_RESOLVER_ATTEMPTS,
@@ -65,7 +70,8 @@ export class CdpCyclotronWorkerBatchResolve extends CdpConsumerBase<PluginsServe
         deps: CdpConsumerBaseDeps,
         private cyclotronWorker: CyclotronV2Worker,
         private hogFlowBatchPersonQueryService: HogFlowBatchPersonQueryService,
-        private internalFetchService: InternalFetchService
+        private internalFetchService: InternalFetchService,
+        private cancelSweepProducer: CyclotronV2JobProducer
     ) {
         super(config, deps)
     }
@@ -101,6 +107,29 @@ export class CdpCyclotronWorkerBatchResolve extends CdpConsumerBase<PluginsServe
         // value) by the endpoint that flagged this job, so the resolver just stops without
         // reporting a terminal.
         if (job.cancelRequestedAt) {
+            // Re-sweep the children before acking: the endpoint's sweep raced this resolver,
+            // which can commit a page of children after that sweep ran. Those children carry
+            // no flag and would fire on their delay. Sweeping here closes the race, because
+            // the flagged resolver always wakes once more (reschedule pulls a flagged job's
+            // wake to NOW) after the racing page committed. On sweep failure, park and retry
+            // rather than ack, or the children leak.
+            if (job.functionId && job.parentRunId) {
+                try {
+                    await this.cancelSweepProducer.cancelJobs({
+                        teamId: job.teamId,
+                        functionId: job.functionId,
+                        parentRunId: job.parentRunId,
+                    })
+                } catch (err) {
+                    logger.error('🔴', `${this.name} - child cancel sweep failed, retrying`, {
+                        jobId: job.id,
+                        parentRunId: job.parentRunId,
+                        error: serializeError(err),
+                    })
+                    await job.reschedule({ scheduledAt: new Date(Date.now() + RETRY_BACKOFF_MS) })
+                    return
+                }
+            }
             counterBatchHogFlowResolverJobs.labels({ outcome: 'canceled' }).inc()
             logger.info('⏭️', `${this.name} - resolver job canceled, stopping fan-out`, {
                 jobId: job.id,

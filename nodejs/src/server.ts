@@ -402,12 +402,20 @@ export class PluginServer implements NodeServer {
                     this.config.INTERNAL_API_SECRET
                 )
                 const hogFlowBatchPersonQueryService = new HogFlowBatchPersonQueryService(internalFetchService)
+                const cancelSweepManager = new CyclotronV2Manager({
+                    pool: {
+                        dbUrl: this.config.CYCLOTRON_NODE_DATABASE_URL,
+                        maxConnections: 2,
+                    },
+                })
+                await cancelSweepManager.connect()
                 const consumer = new CdpCyclotronWorkerBatchResolve(
                     this.config,
                     cdpDeps!,
                     cyclotronWorker,
                     hogFlowBatchPersonQueryService,
-                    internalFetchService
+                    internalFetchService,
+                    cancelSweepManager
                 )
                 await consumer.start()
                 return consumer.service
