@@ -288,10 +288,14 @@ def _copy_for(
 
     if verdict == PredicateIndexVerdict.BLOCKED:
         if type_blocker == PropertyMinmaxBlocker.SOURCE_TYPE_DIFFERS_FROM_PROPERTY_TYPE:
+            # No fix here changes how the value is stored: both auto-materialized and slot-backed
+            # columns are String, so a numeric or datetime property is always converted at read time.
+            # Correcting the definition only helps when the definition is the thing that is wrong.
             return (
-                f"{label} '{name}' is stored as {physical_type} but its type is set to {semantic_type}. "
-                f"Every row has to be converted, so the index on '{source.column_name}' goes unused.",
-                f"Materialize '{name}' as {semantic_type}, or set its type to {physical_type} to match how it is stored.",
+                f"{label} '{name}' is stored as {physical_type} but compared as {semantic_type}, so every row is "
+                f"converted before the filter runs and the index on '{source.column_name}' cannot skip any data.",
+                f"If '{name}' is not really {semantic_type}, correct its type in data management. Otherwise add a "
+                "filter that can skip data, such as a date range on timestamp.",
             )
         return (
             f"{label} '{name}' is compared against a value of another type, so every row has to be "
