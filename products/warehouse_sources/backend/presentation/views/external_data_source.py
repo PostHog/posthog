@@ -146,6 +146,7 @@ from products.warehouse_sources.backend.facade.source_management import (
     filter_integration_accounts,
     get_cdc_adapter,
     get_primary_key_columns,
+    purge_buffer_prefix,
     repair_cdc_source,
     source_requires_ssl,
     source_type_supports_cdc,
@@ -476,7 +477,7 @@ DIRECT_QUERY_UNSUPPORTED_SOURCE_MESSAGE = (
     "Direct query mode is currently supported only for Postgres, MySQL, Snowflake, Redshift, and ClickHouse sources."
 )
 # Engines surfaced on a direct connection's `connection_metadata.engine` (duckdb backs direct Postgres).
-DIRECT_CONNECTION_ENGINE_CHOICES = ["duckdb", "postgres", "mysql", "snowflake", "redshift", "clickhouse"]
+DIRECT_CONNECTION_ENGINE_CHOICES = ["duckdb", "postgres", "mysql", "snowflake", "redshift", "clickhouse", "motherduck"]
 
 
 def count_active_sources(team_id: int, source_type: str) -> int:
@@ -3238,8 +3239,13 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
                 data={"message": f"Source type '{source_type}' does not support one-shot setup."},
             )
         except Exception as e:
-            capture_exception(e, {"source_type": source_type, "team_id": self.team_id})
-            return Response(status=status.HTTP_400_BAD_REQUEST, data={"message": str(e)})
+            # Credentials validated above can still fail here — `get_schemas` opens its own
+            # connection — so classify via the source's non-retryable-error map, same as `create`,
+            # `database_schema`, and `refresh_schemas`, instead of surfacing the raw driver error.
+            error_message, is_expected_source_error = _classify_refresh_schemas_error(source, e)
+            if not is_expected_source_error:
+                capture_exception(e, {"source_type": source_type, "team_id": self.team_id})
+            return Response(status=status.HTTP_400_BAD_REQUEST, data={"message": error_message})
 
         if not source_schemas:
             return Response(
@@ -3969,18 +3975,20 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
         if not cdc_config.enabled:
             return Response(status=status.HTTP_200_OK, data={"success": True, "already_disabled": True})
 
-        # Cancel running jobs for this source's CDC schemas — one holding the slot fails
-        # pg_drop_replication_slot. Scope to CDC schemas so we don't cancel unrelated
-        # incremental/full-refresh syncs on the same source. Read before the sync_type reset
-        # below, while these schemas are still marked CDC.
-        cdc_schema_ids = list(
+        # Read the CDC schemas before the sync_type reset below, while they're still
+        # marked CDC. Scoped so we don't touch unrelated incremental/full-refresh syncs.
+        cdc_schemas = list(
             ExternalDataSchema.objects.filter(
                 source=instance,
                 sync_type=ExternalDataSchema.SyncType.CDC,
             )
             .exclude(deleted=True)
-            .values_list("id", flat=True)
+            .select_related("table")
         )
+        # Disabling cancels jobs, drops the slot, purges buffered change data, and resets
+        # every CDC schema — editor on the source isn't enough when a table is locked below it.
+        self._assert_can_write_schemas(cdc_schemas)
+        cdc_schema_ids = [schema.id for schema in cdc_schemas]
         running_jobs = ExternalDataJob.objects.filter(
             pipeline_id=instance.pk,
             team_id=instance.team_id,
@@ -4007,6 +4015,11 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
         except Exception as e:
             logger.exception("Failed engine-side CDC cleanup during disable_cdc", exc_info=e)
             capture_exception(e, {"source_id": str(instance.id)})
+
+        # Drop each schema's S3 change buffer: the shadow lane's files are raw customer
+        # change data with no consumer once CDC is off, and nothing else expires them.
+        for schema_id in cdc_schema_ids:
+            purge_buffer_prefix(instance.team_id, str(schema_id), logger)
 
         with transaction.atomic():
             # Clear any broken marker (recovery contract): leaving a stale cdc_broken in

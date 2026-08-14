@@ -176,8 +176,25 @@ def _is_rate_limited(error_message: str) -> bool:
     return _TRANSIENT_RATE_LIMIT_SUBSTRING in error_message
 
 
+# The source server's own concurrency limit ("Code: 202. DB::Exception: Too many
+# simultaneous queries for all users. Current: N, maximum: N. (TOO_MANY_SIMULTANEOUS_QUERIES)")
+# rejects even the client-construction probe query when the server is already at capacity.
+# Like a 429, this is the server asking us to back off, not a config error, and it clears on
+# its own as other queries finish — so a backed-off retry recovers it the same way. The
+# "Current"/"maximum" counts are volatile; the ClickHouse error-code name is stable.
+_TRANSIENT_TOO_MANY_QUERIES_SUBSTRING = "TOO_MANY_SIMULTANEOUS_QUERIES"
+
+
+def _is_too_many_queries(error_message: str) -> bool:
+    return _TRANSIENT_TOO_MANY_QUERIES_SUBSTRING in error_message
+
+
 def _is_retryable_connect_error(error_message: str) -> bool:
-    return _is_transient_connect_drop(error_message) or _is_rate_limited(error_message)
+    return (
+        _is_transient_connect_drop(error_message)
+        or _is_rate_limited(error_message)
+        or _is_too_many_queries(error_message)
+    )
 
 
 def _apply_session_settings(client: ClickHouseClient, settings: dict[str, Any]) -> None:
@@ -349,10 +366,15 @@ def _get_client(
             attempt += 1
             message = str(e)
             if attempt < _MAX_CONNECT_ATTEMPTS and _is_retryable_connect_error(message):
-                # A 429 is the server asking us to slow down, so back off
-                # exponentially to give the rate limit room to clear; a dropped
-                # connection just needs a re-dial, so a short linear wait is enough.
-                wait = _RATE_LIMIT_BACKOFF_BASE_SECONDS * (2 ** (attempt - 1)) if _is_rate_limited(message) else attempt
+                # A 429 or a too-many-queries rejection is the server asking us to
+                # slow down, so back off exponentially to give it room to clear; a
+                # dropped connection just needs a re-dial, so a short linear wait
+                # is enough.
+                wait = (
+                    _RATE_LIMIT_BACKOFF_BASE_SECONDS * (2 ** (attempt - 1))
+                    if _is_rate_limited(message) or _is_too_many_queries(message)
+                    else attempt
+                )
                 structlog.get_logger().warning(
                     "Transient ClickHouse connect error; retrying",
                     attempt=attempt,

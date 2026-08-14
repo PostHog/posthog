@@ -20,7 +20,7 @@ import requests
 from google.auth.exceptions import RefreshError
 from parameterized import parameterized
 from rest_framework import status
-from rest_framework.exceptions import ValidationError
+from rest_framework.exceptions import PermissionDenied, ValidationError
 from sshtunnel import BaseSSHTunnelForwarderError
 
 from posthog.schema import (
@@ -56,6 +56,7 @@ from products.warehouse_sources.backend.facade.models import (
 from products.warehouse_sources.backend.facade.types import IncrementalFieldType
 from products.warehouse_sources.backend.presentation.views.external_data_schema import ExternalDataSchemaSerializer
 from products.warehouse_sources.backend.presentation.views.external_data_source import (
+    ExternalDataSourceViewSet,
     get_direct_connection_metadata,
     get_nonsensitive_and_sensitive_field_names,
     get_oauth_integration_kinds,
@@ -10439,6 +10440,65 @@ class TestDisableCDC(APIBaseTest):
         assert non_cdc_schema.sync_type == ExternalDataSchema.SyncType.INCREMENTAL
         assert non_cdc_schema.should_sync is True
 
+    @patch("products.warehouse_sources.backend.presentation.views.external_data_source.purge_buffer_prefix")
+    def test_disable_cdc_requires_editor_on_every_table(self, mock_purge) -> None:
+        # A table can be locked below source-level editor; the per-table gate must run
+        # before any destructive step (job cancel, slot drop, buffer purge, schema reset).
+        source = _make_postgres_source(self.team.pk, self.user, cdc_enabled=True)
+        cdc_schema = ExternalDataSchema.objects.create(
+            name="cdc_table",
+            team_id=self.team.pk,
+            source_id=source.pk,
+            sync_type=ExternalDataSchema.SyncType.CDC,
+            should_sync=True,
+        )
+
+        with patch.object(
+            ExternalDataSourceViewSet,
+            "_assert_can_write_schemas",
+            side_effect=PermissionDenied("You do not have editor access to every table in this source."),
+        ):
+            response = self.client.post(
+                f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/disable_cdc/",
+            )
+
+        assert response.status_code == 403
+        mock_purge.assert_not_called()
+        cdc_schema.refresh_from_db()
+        assert cdc_schema.sync_type == ExternalDataSchema.SyncType.CDC  # nothing was reset
+
+    @patch("products.warehouse_sources.backend.presentation.views.external_data_source.purge_buffer_prefix")
+    @patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.cdc.adapter.PostgresCDCAdapter.cleanup_resources",
+        return_value=None,
+    )
+    def test_disable_cdc_purges_shadow_buffer_prefixes(self, _cleanup, mock_purge) -> None:
+        # The shadow lane's buffer files are raw customer change data with no consumer
+        # once CDC is off, and nothing else expires them.
+        source = _make_postgres_source(self.team.pk, self.user, cdc_enabled=True)
+        cdc_schema = ExternalDataSchema.objects.create(
+            name="cdc_table",
+            team_id=self.team.pk,
+            source_id=source.pk,
+            sync_type=ExternalDataSchema.SyncType.CDC,
+            should_sync=True,
+        )
+        ExternalDataSchema.objects.create(
+            name="incremental_table",
+            team_id=self.team.pk,
+            source_id=source.pk,
+            sync_type=ExternalDataSchema.SyncType.INCREMENTAL,
+            should_sync=True,
+        )
+
+        response = self.client.post(
+            f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/disable_cdc/",
+        )
+        assert response.status_code == 200, response.content
+
+        purged = {call.args[1] for call in mock_purge.call_args_list}
+        assert purged == {str(cdc_schema.id)}  # CDC schemas only
+
     @patch(
         "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.cdc.adapter.PostgresCDCAdapter.cleanup_resources",
         return_value=None,
@@ -11366,6 +11426,34 @@ class TestExternalDataSourceSetup(APIBaseTest):
         )
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
         assert "does not support one-shot setup" in response.json()["message"]
+        mock_capture_exception.assert_not_called()
+        assert not ExternalDataSource.objects.filter(team=self.team).exists()
+
+    @patch("products.warehouse_sources.backend.presentation.views.external_data_source.capture_exception")
+    @patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.stripe.source.StripeSource.validate_credentials",
+        return_value=(True, None),
+    )
+    def test_setup_classifies_schema_discovery_error_instead_of_leaking_raw(
+        self, _mock_validate, mock_capture_exception
+    ):
+        # Credentials pass the earlier gate, but `get_schemas` opens its own connection and can still
+        # fail (e.g. the key expired in between). One-shot setup must classify via the source's
+        # non-retryable-error map, same as the `create` path, not surface the raw driver error.
+        with patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.stripe.source.StripeSource.get_schemas",
+            side_effect=Exception("Expired API Key provided"),
+        ):
+            response = self.client.post(
+                f"/api/environments/{self.team.pk}/external_data_sources/setup/",
+                data={
+                    "source_type": "Stripe",
+                    "prefix": "stripe_setup_error",
+                    "payload": {"auth_method": {"selection": "api_key", "stripe_secret_key": "sk_test_123"}},
+                },
+            )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+        assert response.json()["message"] == "Your Stripe API key has expired. Please create a new key and reconnect."
         mock_capture_exception.assert_not_called()
         assert not ExternalDataSource.objects.filter(team=self.team).exists()
 

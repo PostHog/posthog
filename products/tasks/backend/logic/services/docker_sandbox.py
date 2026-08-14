@@ -764,8 +764,10 @@ class DockerSandbox(SandboxBase):
         encoded_payload = base64.b64encode(payload).decode("utf-8")
         temp_path = f"{path}.tmp-{uuid.uuid4().hex}"
         result = ExecutionResult(stdout="", stderr="", exit_code=0, error=None)
-        for index in range(0, len(encoded_payload), chunk_size):
-            chunk = encoded_payload[index : index + chunk_size]
+        # An empty payload still has to produce an empty file: with no chunks the temp path is
+        # never created and the mv below fails. Blanking a credential file is exactly this case.
+        chunks = [encoded_payload[start : start + chunk_size] for start in range(0, len(encoded_payload), chunk_size)]
+        for index, chunk in enumerate(chunks or [""]):
             write_mode = "wb" if index == 0 else "ab"
             command = (
                 "python3 - <<'EOF_SANDBOX_WRITE'\n"

@@ -2010,6 +2010,7 @@ class TestUserAPI(APIBaseTest):
             {
                 "plugin_disabled": False,
                 "discussions_mentioned": False,
+                "task_comments_slack_dm": True,
                 "project_weekly_digest_disabled": {"123": True},  # Note: JSON converts int keys to strings
                 "all_weekly_digest_disabled": True,
                 "error_tracking_issue_assigned": False,
@@ -2017,6 +2018,8 @@ class TestUserAPI(APIBaseTest):
                 "data_pipeline_error_threshold": 0.1,
                 "project_api_key_exposed": True,
                 "materialized_view_sync_failed": True,
+                "materialized_view_sync_failed_daily": True,
+                "materialized_view_sync_failed_immediate": False,
                 "web_analytics_weekly_digest": True,
                 "organization_member_join_email_disabled": {},
                 "realtime_notifications_disabled": {},
@@ -2030,6 +2033,7 @@ class TestUserAPI(APIBaseTest):
             {
                 "plugin_disabled": False,
                 "discussions_mentioned": False,
+                "task_comments_slack_dm": True,
                 "project_weekly_digest_disabled": {"123": True},
                 "all_weekly_digest_disabled": True,
                 "error_tracking_issue_assigned": False,
@@ -2037,6 +2041,8 @@ class TestUserAPI(APIBaseTest):
                 "data_pipeline_error_threshold": 0.1,
                 "project_api_key_exposed": True,
                 "materialized_view_sync_failed": True,
+                "materialized_view_sync_failed_daily": True,
+                "materialized_view_sync_failed_immediate": False,
                 "web_analytics_weekly_digest": True,
                 "organization_member_join_email_disabled": {},
                 "realtime_notifications_disabled": {},
@@ -2298,6 +2304,7 @@ class TestUserAPI(APIBaseTest):
             {
                 "plugin_disabled": True,  # Default value
                 "discussions_mentioned": True,  # Default value
+                "task_comments_slack_dm": True,  # Default value
                 "project_weekly_digest_disabled": {},  # Default value
                 "all_weekly_digest_disabled": True,
                 "error_tracking_issue_assigned": True,  # Default value
@@ -2305,6 +2312,8 @@ class TestUserAPI(APIBaseTest):
                 "data_pipeline_error_threshold": 0.01,  # Default value
                 "project_api_key_exposed": True,  # Default value
                 "materialized_view_sync_failed": False,  # Default value
+                "materialized_view_sync_failed_daily": True,  # Default value
+                "materialized_view_sync_failed_immediate": False,  # Default value
                 "web_analytics_weekly_digest": True,  # Default value
                 "organization_member_join_email_disabled": {},  # Default value
                 "realtime_notifications_disabled": {},  # Default value

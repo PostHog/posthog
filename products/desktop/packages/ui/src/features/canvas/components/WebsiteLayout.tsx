@@ -84,6 +84,7 @@ function FreeformEditControls({
   const containerNoun = spacesLayout ? "space" : "channel";
   const editing = useIsDashboardEditing(dashboardId);
   const setEditing = useDashboardEditStore((s) => s.setEditing);
+  const openChat = useCanvasChatPanelStore((state) => state.openChat);
   const { dashboard } = useDashboard(dashboardId);
   const { setPinned, invalidateDashboards } = useDashboardMutations();
   const isPinned = dashboard?.pinnedAt != null;
@@ -91,8 +92,8 @@ function FreeformEditControls({
   // its version history go away for everyone in the space.
   const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false);
 
-  // Once confirmed the canvas vanishes from every list and we leave for the
-  // space's artifacts list, but the delete isn't sent until the undo toast's
+  // Once confirmed the canvas vanishes from every list and we return to the
+  // space, but the delete isn't sent until the undo toast's
   // timer runs out — Undo simply cancels it.
   const confirmDelete = () => {
     setConfirmDeleteOpen(false);
@@ -104,7 +105,7 @@ function FreeformEditControls({
       invalidate: invalidateDashboards,
     });
     void navigate({
-      to: "/website/$channelId/artifacts",
+      to: "/website/$channelId",
       params: { channelId },
     });
   };
@@ -260,6 +261,7 @@ function FreeformEditControls({
             kind: "freeform",
             editing: !editing,
           });
+          if (!editing) openChat();
           setEditing(dashboardId, !editing);
         }}
       >

@@ -36,7 +36,6 @@ export interface NewMetricForm {
     description: string
     unit: string
     definitionType: NewMetricDefinitionType
-    markdown: string
     sourceInsightShortId: string
 }
 
@@ -46,7 +45,6 @@ export const EMPTY_NEW_METRIC_FORM: NewMetricForm = {
     description: '',
     unit: '',
     definitionType: 'sql',
-    markdown: '',
     sourceInsightShortId: '',
 }
 
@@ -62,14 +60,8 @@ export interface MetricFromInsightRequest {
     source_insight_short_id: string
 }
 
-const MARKDOWN_DEFINITION_KIND = 'MarkdownDefinition'
-
 function projectId(): string {
     return String(ApiConfig.getCurrentTeamId())
-}
-
-function buildMarkdownDefinition(markdown: string): Record<string, unknown> {
-    return { kind: MARKDOWN_DEFINITION_KIND, markdown }
 }
 
 function apiErrorDetail(error: unknown): string | null {
@@ -342,12 +334,13 @@ export const metricsLogic = kea<metricsLogicType>([
             }
             const form = values.newMetricForm
             if (form.definitionType === 'sql') {
-                // SQL metrics are defined from the SQL editor, so the else branch below only handles markdown.
                 lemonToast.error('Create SQL metrics from the SQL editor.')
                 return
             }
             actions.setCreatingMetric(true)
             try {
+                // A markdown metric is created as a stub; its definition is authored on the
+                // metric page, where the editor has room.
                 const created = await dataCatalogMetricsCreate(projectId(), {
                     name: form.name,
                     display_name: form.display_name || undefined,
@@ -355,12 +348,15 @@ export const metricsLogic = kea<metricsLogicType>([
                     unit: form.unit || undefined,
                     ...(form.definitionType === 'insight'
                         ? { source_insight_short_id: form.sourceInsightShortId }
-                        : { definition: buildMarkdownDefinition(form.markdown) }),
+                        : {}),
                     created_source: 'user',
                 })
                 actions.loadMetricsSuccess([created, ...values.allMetrics])
                 actions.closeNewMetricModal()
                 lemonToast.success('Metric created')
+                if (form.definitionType === 'markdown') {
+                    router.actions.push(urls.dataCatalogMetric(created.name), { edit: 'definition' })
+                }
             } catch (error) {
                 lemonToast.error(
                     apiErrorDetail(error) || 'Could not create the metric. Check the fields and try again.'

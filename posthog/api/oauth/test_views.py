@@ -3296,6 +3296,31 @@ class TestOAuthAPI(APIBaseTest):
         self.assertEqual(response_data["error"], "invalid_request")
         self.assertIn("Invalid JSON", response_data["error_description"])
 
+    @parameterized.expand(
+        [
+            ("array", "[]"),
+            ("null", "null"),
+            ("string", '"authorization_code"'),
+            ("number", "1"),
+            ("non_string_value", '{"grant_type": "authorization_code", "client_id": {"nested": "object"}}'),
+        ]
+    )
+    def test_token_endpoint_rejects_json_payloads_that_are_not_string_objects(self, _name: str, body: str):
+        response = self.client.post("/oauth/token/", data=body, content_type="application/json")
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.json()["error"], "invalid_request")
+
+    def test_token_endpoint_rejects_deeply_nested_json_payload(self):
+        # json.loads raises RecursionError, not JSONDecodeError, once nesting exceeds the
+        # interpreter's recursion limit -- a second parser failure mode the shape guard above
+        # must also turn into a 400 rather than an unhandled 500.
+        body = '{"a":' + "[" * 10000 + "]" * 10000 + "}"
+        response = self.client.post("/oauth/token/", data=body, content_type="application/json")
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.json()["error"], "invalid_request")
+
     def _create_access_and_refresh_tokens(self, scopes: str = "openid") -> tuple[OAuthAccessToken, OAuthRefreshToken]:
         response = self.client.post(
             "/oauth/authorize/",
@@ -3372,6 +3397,40 @@ class TestOAuthAPI(APIBaseTest):
             self.assertEqual(data["token_type"], "refresh_token")
             self.assertNotIn("scope", data)
 
+    @parameterized.expand(["access_token", "refresh_token"])
+    def test_introspection_with_client_credentials_rejects_a_different_clients_token(self, token_type):
+        # Client credentials prove who is asking, not which token they may see. Being a
+        # confidential client is cheap -- /oauth/register/ mints one to anyone -- so the
+        # response must be bound to the authenticated client's own tokens.
+        other_confidential_app = OAuthApplication.objects.create(
+            name="Other Confidential App",
+            client_id="other_confidential_client_id",
+            client_secret="other_confidential_client_secret",
+            client_type=OAuthApplication.CLIENT_CONFIDENTIAL,
+            authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
+            redirect_uris="https://other.example.com/callback",
+            user=self.user,
+            hash_client_secret=True,
+            algorithm="RS256",
+        )
+
+        access_token, refresh_token = self._create_access_and_refresh_tokens()
+        token = access_token if token_type == "access_token" else refresh_token
+
+        response = self.post(
+            "/oauth/introspect/",
+            {
+                "token": token.token,
+                "client_id": other_confidential_app.client_id,
+                "client_secret": "other_confidential_client_secret",
+            },
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        data = response.json()
+        self.assertFalse(data["active"])
+        self.assertEqual(len(data), 1)
+
     def test_introspection_with_bearer_token_requires_introspection_scope(self):
         access_token, _ = self._create_access_and_refresh_tokens(scopes="openid")
         token_to_introspect, _ = self._create_access_and_refresh_tokens()
@@ -3425,10 +3484,62 @@ class TestOAuthAPI(APIBaseTest):
         self.assertFalse(data["active"])
         self.assertEqual(len(data), 1)
 
+    def test_introspection_self_check_with_deeply_nested_json_body_does_not_500(self):
+        # _is_self_introspection parses the body before any token is validated, with the
+        # same except clause the token endpoint's shape guard has -- and the same missing
+        # RecursionError case.
+        body = '{"a":' + "[" * 10000 + "]" * 10000 + "}"
+        response = self.client.post(
+            "/oauth/introspect/",
+            data=body,
+            content_type="application/json",
+            headers={"Authorization": "Bearer whatever"},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_introspection_post_with_deeply_nested_json_body_does_not_500(self):
+        authorization_header = self.get_basic_auth_header(
+            "test_confidential_client_id", "test_confidential_client_secret"
+        )
+        body = '{"a":' + "[" * 10000 + "]" * 10000 + "}"
+
+        response = self.client.post(
+            "/oauth/introspect/",
+            data=body,
+            content_type="application/json",
+            headers={"Authorization": authorization_header},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertFalse(response.json()["active"])
+
     def test_introspection_without_authentication_fails(self):
         access_token, _ = self._create_access_and_refresh_tokens()
 
         response = self.post("/oauth/introspect/", {"token": access_token.token})
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+    @parameterized.expand(["request_body", "http_basic"])
+    def test_introspection_rejects_a_public_client_claiming_the_device_code_grant(self, transport: str):
+        # oauth2_provider's `_authenticate_basic_auth` and `_authenticate_request_body` each
+        # return True for a public client presenting this grant type before either one reaches
+        # `_check_secret`, so the blank-secret guard in `verify_client_secret` never sees it.
+        access_token, _ = self._create_access_and_refresh_tokens()
+
+        body = {
+            "token": access_token.token,
+            "grant_type": "urn:ietf:params:oauth:grant-type:device_code",
+        }
+        headers = None
+
+        if transport == "request_body":
+            body["client_id"] = self.public_application.client_id
+        else:
+            headers = {"Authorization": self.get_basic_auth_header(self.public_application.client_id, "wrong-secret")}
+
+        response = self.post("/oauth/introspect/", body, headers=headers)
 
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
 
