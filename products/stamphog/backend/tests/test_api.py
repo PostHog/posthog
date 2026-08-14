@@ -184,21 +184,26 @@ class TestStamphogRepoConfigSerializerValidation(SimpleTestCase):
         [
             ("create", None, {"repository": "PostHog/posthog", "enabled": False, "digest_enabled": True}),
             (
-                "disable_reviews_on_digesting_repo",
-                StamphogRepoConfig(enabled=True, digest_enabled=True),
-                {"enabled": False},
-            ),
-            (
                 "enable_digest_on_review_off_repo",
                 StamphogRepoConfig(enabled=False, digest_enabled=False),
                 {"digest_enabled": True},
             ),
         ]
     )
-    def test_digest_requires_reviews(self, _name: str, instance: StamphogRepoConfig | None, data: dict) -> None:
+    def test_asking_for_digest_without_reviews_is_rejected(
+        self, _name: str, instance: StamphogRepoConfig | None, data: dict
+    ) -> None:
         serializer = StamphogRepoConfigSerializer(instance=instance, data=data, partial=instance is not None)
         assert not serializer.is_valid()
         assert "digest_enabled" in serializer.errors
+
+    def test_disabling_reviews_clears_the_digest(self) -> None:
+        # The Enabled toggle PATCHes only `enabled`, so rejecting the write would leave an admin
+        # unable to turn reviews off on any digest-enabled repo, with a generic failure toast.
+        instance = StamphogRepoConfig(enabled=True, digest_enabled=True)
+        serializer = StamphogRepoConfigSerializer(instance=instance, data={"enabled": False}, partial=True)
+        assert serializer.is_valid(), serializer.errors
+        assert serializer.validated_data["digest_enabled"] is False
 
 
 class TestReviewRunAPI(StamphogTeamScopedTestMixin, APIBaseTest):

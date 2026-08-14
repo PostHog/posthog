@@ -74,10 +74,17 @@ class StamphogRepoConfigSerializer(serializers.ModelSerializer):
     def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
         # The digest reports what stamphog approved, so it has nothing to report without the review
         # path running. PATCH sends only changed fields, so fall back to the stored values.
+        attrs = super().validate(attrs)
         enabled = attrs.get("enabled", getattr(self.instance, "enabled", True))
-        digest_enabled = attrs.get("digest_enabled", getattr(self.instance, "digest_enabled", False))
-        if digest_enabled and not enabled:
-            raise serializers.ValidationError({"digest_enabled": "Digests need reviews enabled for this repo."})
+        if enabled:
+            return attrs
+        if attrs.get("digest_enabled"):
+            raise serializers.ValidationError(
+                {"digest_enabled": "Digests report what stamphog approved, so they need 'enabled' set to true."}
+            )
+        # Turning reviews off takes the digest with it rather than failing the write — the same
+        # pairing the soft-delete tombstone applies, and the Enabled toggle sends only `enabled`.
+        attrs["digest_enabled"] = False
         return attrs
 
     class Meta:
