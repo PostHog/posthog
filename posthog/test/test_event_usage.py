@@ -1,3 +1,5 @@
+import json
+from pathlib import Path
 from types import SimpleNamespace
 from typing import cast
 
@@ -373,6 +375,14 @@ class TestGetEventSource(BaseTest):
             successful_authenticator=_oauth_authenticator("some-third-party-client-id"),
         )
         assert get_event_source(request) == EventSource.MCP
+
+    def test_mcp_server_only_emits_sources_this_enum_knows(self):
+        # The MCP server stamps the same `source` property on its own events. A value it emits
+        # that isn't an EventSource drops out of every breakdown that joins the two. Both sides
+        # assert against this contract file, so neither can add a surface on its own.
+        repo_root = Path(__file__).resolve().parents[2]
+        contract = json.loads((repo_root / "services/mcp/src/lib/event-sources.json").read_text())
+        assert set(contract["sources"]) <= {source.value for source in EventSource}
 
     def test_agent_sources_cover_every_llm_driven_surface(self):
         # Membership here holds agent writes to a review-then-apply path, so a surface missing

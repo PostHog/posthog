@@ -111,6 +111,23 @@ describe('Hono MCP analytics contexts', () => {
         })
     })
 
+    it('stamps the surface as `source` so MCP events join product events', async () => {
+        // Without it, $mcp_* events carry no `source` at all and sit outside the breakdown
+        // that measures MCP adoption. The resolution matrix itself is covered in
+        // tests/event-source.test.ts — this only proves the property reaches the event.
+        await trackToolCall(
+            'user-get',
+            12,
+            false,
+            makeState({
+                apiKeyScopes: ['insight:read', 'internal_run:read'],
+                requestContext: { ...makeState().requestContext, mcpConsumer: 'slack' },
+            })
+        )
+
+        expect(mockCaptureToolCall.mock.calls[0]![0].properties.source).toBe('slack')
+    })
+
     it('omits session properties when there is no MCP session context', async () => {
         await trackToolCall('user-get', 12, false, makeState({ sessionContext: null }))
 
