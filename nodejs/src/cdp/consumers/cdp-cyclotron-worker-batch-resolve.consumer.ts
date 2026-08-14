@@ -96,12 +96,12 @@ export class CdpCyclotronWorkerBatchResolve extends CdpConsumerBase<PluginsServe
     }
 
     private async processResolverJob(job: CyclotronV2DequeuedJob): Promise<void> {
-        // A cancelled batch run must stop fanning out children. The batch job's user-visible
-        // status is Django's HogFlowBatchJob row, already set to 'cancelled' by the endpoint
+        // A canceled batch run must stop fanning out children. The batch job's user-visible
+        // status is Django's HogFlowBatchJob row, already set to 'cancelled' (its shipped enum value) by the endpoint
         // that flagged this job - the resolver just stops, it doesn't report a terminal.
         if (job.cancelRequestedAt) {
-            counterBatchHogFlowResolverJobs.labels({ outcome: 'cancelled' }).inc()
-            logger.info('⏭️', `${this.name} - resolver job cancelled, stopping fan-out`, {
+            counterBatchHogFlowResolverJobs.labels({ outcome: 'canceled' }).inc()
+            logger.info('⏭️', `${this.name} - resolver job canceled, stopping fan-out`, {
                 jobId: job.id,
                 teamId: job.teamId,
                 parentRunId: job.parentRunId,

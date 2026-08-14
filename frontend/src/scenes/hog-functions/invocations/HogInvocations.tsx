@@ -58,7 +58,7 @@ const STATUS_OPTIONS: { value: RunStatus; label: string }[] = [
     { value: 'running', label: 'Running' },
     { value: 'succeeded', label: 'Succeeded' },
     { value: 'failed', label: 'Failed' },
-    { value: 'cancelled', label: 'Cancelled' },
+    { value: 'canceled', label: 'Canceled' },
 ]
 
 /**
@@ -119,7 +119,7 @@ const tagTypeForStatus = (status: RunStatus): LemonTagProps['type'] => {
             return 'success'
         case 'failed':
             return 'danger'
-        case 'cancelled':
+        case 'canceled':
             return 'muted'
         case 'running':
         default:
@@ -261,7 +261,6 @@ export function HogInvocations({
         selectedCount,
         expandedIds,
         rerunableSelectedIds,
-        cancellableSelectedIds,
         hasMore,
         hasLoadedOnce,
         selectableIds,
@@ -280,6 +279,7 @@ export function HogInvocations({
         setExpanded,
         rerunInvocations,
         cancelInvocations,
+        cancelAllInvocations,
         bulkRerun,
     } = useActions(logic)
     const [rerunModalOpen, setRerunModalOpen] = useState(false)
@@ -621,6 +621,31 @@ export function HogInvocations({
                     >
                         Refresh
                     </LemonButton>
+                    {functionKind === 'hog_flow' ? (
+                        <LemonButton
+                            size="small"
+                            type="secondary"
+                            status="danger"
+                            icon={<IconX />}
+                            onClick={() => {
+                                LemonDialog.open({
+                                    title: 'Cancel all in-flight runs?',
+                                    content:
+                                        'Every run of this workflow that has not finished stops before its ' +
+                                        'next step, including runs parked on delays and waits. Steps that ' +
+                                        'already ran, like sent emails, are not undone.',
+                                    primaryButton: {
+                                        children: 'Cancel all runs',
+                                        status: 'danger',
+                                        onClick: () => cancelAllInvocations(),
+                                    },
+                                    secondaryButton: { children: 'Keep running' },
+                                })
+                            }}
+                        >
+                            Cancel in-flight runs
+                        </LemonButton>
+                    ) : null}
                     {compact ? null : (
                         <LemonButton
                             size="small"
@@ -663,36 +688,6 @@ export function HogInvocations({
                         <LemonButton size="small" type="tertiary" onClick={() => clearSelected()}>
                             Clear
                         </LemonButton>
-                        {functionKind === 'hog_flow' ? (
-                            <LemonButton
-                                size="small"
-                                type="secondary"
-                                status="danger"
-                                disabledReason={
-                                    cancellableSelectedIds.length === 0
-                                        ? 'No selected runs are in flight'
-                                        : selectedCount > HOG_INVOCATIONS_RERUN_MAX_COUNT
-                                          ? `Selected ${selectedCount} > limit ${HOG_INVOCATIONS_RERUN_MAX_COUNT}`
-                                          : undefined
-                                }
-                                onClick={() => {
-                                    LemonDialog.open({
-                                        title: `Cancel ${cancellableSelectedIds.length} ${cancellableSelectedIds.length === 1 ? 'run' : 'runs'}?`,
-                                        content:
-                                            'Each run stops before its next step. Steps that already ran, ' +
-                                            'like sent emails, are not undone.',
-                                        primaryButton: {
-                                            children: `Cancel ${cancellableSelectedIds.length}`,
-                                            status: 'danger',
-                                            onClick: () => cancelInvocations(cancellableSelectedIds),
-                                        },
-                                        secondaryButton: { children: 'Keep running' },
-                                    })
-                                }}
-                            >
-                                Cancel selected
-                            </LemonButton>
-                        ) : null}
                         <LemonButton
                             size="small"
                             type="primary"

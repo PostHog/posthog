@@ -13,7 +13,7 @@ import { CdpCyclotronWorker } from './cdp-cyclotron-worker.consumer'
 
 type LoadHogFlowsResult = {
     loadedInvocations: CyclotronJobInvocationHogFlow[]
-    cancelledResults: CyclotronJobInvocationResult[]
+    canceledResults: CyclotronJobInvocationResult[]
 }
 
 export class CdpCyclotronWorkerHogFlow extends CdpCyclotronWorker {
@@ -27,26 +27,26 @@ export class CdpCyclotronWorkerHogFlow extends CdpCyclotronWorker {
     public override async processInvocations(
         invocations: CyclotronJobInvocation[]
     ): Promise<CyclotronJobInvocationResult[]> {
-        const { loadedInvocations, cancelledResults } = await this.loadHogFlows(invocations)
+        const { loadedInvocations, canceledResults } = await this.loadHogFlows(invocations)
         const executed = await Promise.all(loadedInvocations.map((item) => this.hogFlowExecutor.execute(item)))
-        return [...cancelledResults, ...executed]
+        return [...canceledResults, ...executed]
     }
 
     /**
-     * Terminate an invocation as cancelled through the normal result pipeline, so the
+     * Terminate an invocation as canceled through the normal result pipeline, so the
      * terminal lifecycle row, app metric, and run log all land - a bare cyclotron
      * status flip would leave the run showing 'running' in the Invocations UI forever.
      */
-    private buildCancelledResult(item: CyclotronJobInvocation, message: string): CyclotronJobInvocationResult {
+    private buildCanceledResult(item: CyclotronJobInvocation, message: string): CyclotronJobInvocationResult {
         const result = createInvocationResult(item, {}, { finished: true })
-        result.cancelled = true
+        result.canceled = true
         result.logs.push({ level: 'info', timestamp: DateTime.now(), message })
         result.metrics.push({
             team_id: item.teamId,
             app_source_id: item.parentRunId ?? item.functionId,
             instance_id: (item.state as CyclotronJobInvocationHogFlow['state'] | null)?.currentAction?.id,
             metric_kind: 'other',
-            metric_name: 'cancelled',
+            metric_name: 'canceled',
             count: 1,
         })
         return result
@@ -56,14 +56,14 @@ export class CdpCyclotronWorkerHogFlow extends CdpCyclotronWorker {
     protected async loadHogFlows(invocations: CyclotronJobInvocation[]): Promise<LoadHogFlowsResult> {
         const loadedInvocations: CyclotronJobInvocationHogFlow[] = []
         const failedInvocations: CyclotronJobInvocation[] = []
-        const cancelledResults: CyclotronJobInvocationResult[] = []
+        const canceledResults: CyclotronJobInvocationResult[] = []
 
         await Promise.all(
             invocations.map(async (item) => {
                 // Checked before anything loads: a cancel-requested run must terminate even
                 // when its flow or team has since been deleted.
                 if (item.cancelRequestedAt) {
-                    cancelledResults.push(this.buildCancelledResult(item, 'Run cancelled'))
+                    canceledResults.push(this.buildCanceledResult(item, 'Run canceled'))
                     return
                 }
 
@@ -79,7 +79,7 @@ export class CdpCyclotronWorkerHogFlow extends CdpCyclotronWorker {
                     return
                 }
 
-                // A run waking while its workflow is disabled/archived is cancelled rather
+                // A run waking while its workflow is disabled/archived is canceled rather
                 // than executed. Runs that wake while the workflow is active proceed
                 // normally, so re-enabling before a parked run's wake time releases it.
                 if (hogFlow.status !== 'active') {
@@ -88,8 +88,8 @@ export class CdpCyclotronWorkerHogFlow extends CdpCyclotronWorker {
                         status: hogFlow.status,
                     })
 
-                    cancelledResults.push(
-                        this.buildCancelledResult(item, 'Run cancelled: the workflow is no longer active')
+                    canceledResults.push(
+                        this.buildCanceledResult(item, 'Run canceled: the workflow is no longer active')
                     )
 
                     return
@@ -187,6 +187,6 @@ export class CdpCyclotronWorkerHogFlow extends CdpCyclotronWorker {
 
         await this.cyclotronJobQueue.dequeueInvocations(failedInvocations)
 
-        return { loadedInvocations, cancelledResults }
+        return { loadedInvocations, canceledResults }
     }
 }

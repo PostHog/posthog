@@ -370,7 +370,7 @@ describe('CdpCyclotronWorkerHogFlow', () => {
             expect(results[3].invocation.state.personId).toBeUndefined()
         })
 
-        it('terminates invocations as cancelled when the workflow is disabled after being queued', async () => {
+        it('terminates invocations as canceled when the workflow is disabled after being queued', async () => {
             const hogFlow = hogFlows[0]
 
             const invocation1 = createSerializedHogFlowInvocation(hogFlow, {
@@ -413,15 +413,15 @@ describe('CdpCyclotronWorkerHogFlow', () => {
 
             expect(results2).toHaveLength(1)
             expect(results2[0].finished).toBe(true)
-            expect(results2[0].cancelled).toBe(true)
+            expect(results2[0].canceled).toBe(true)
             expect(results2[0].error).toBeUndefined()
-            expect(results2[0].logs.map((l) => l.message)).toContain('Run cancelled: the workflow is no longer active')
+            expect(results2[0].logs.map((l) => l.message)).toContain('Run canceled: the workflow is no longer active')
             expect(results2[0].metrics).toEqual([
                 expect.objectContaining({
                     team_id: hogFlow.team_id,
                     app_source_id: hogFlow.id,
                     metric_kind: 'other',
-                    metric_name: 'cancelled',
+                    metric_name: 'canceled',
                     count: 1,
                 }),
             ])
@@ -441,10 +441,10 @@ describe('CdpCyclotronWorkerHogFlow', () => {
 
             expect(results).toHaveLength(1)
             expect(results[0].finished).toBe(true)
-            expect(results[0].cancelled).toBe(true)
-            expect(results[0].logs.map((l) => l.message)).toContain('Run cancelled')
+            expect(results[0].canceled).toBe(true)
+            expect(results[0].logs.map((l) => l.message)).toContain('Run canceled')
             expect(results[0].metrics).toEqual([
-                expect.objectContaining({ metric_name: 'cancelled', metric_kind: 'other', count: 1 }),
+                expect.objectContaining({ metric_name: 'canceled', metric_kind: 'other', count: 1 }),
             ])
         })
     })

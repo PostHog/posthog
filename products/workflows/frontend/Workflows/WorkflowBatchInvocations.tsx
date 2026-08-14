@@ -57,7 +57,10 @@ function BatchRunHeader({ job, hogFlowId }: { job: HogFlowBatchJob; hogFlowId: s
         <div className="flex gap-2 w-full justify-between">
             <div className="flex items-center gap-2 min-w-0">
                 <strong className="truncate">{job.id}</strong>
-                <LemonTag type={STATUS_TAG_TYPE[job.status] ?? 'default'}>{job.status}</LemonTag>
+                <LemonTag type={STATUS_TAG_TYPE[job.status] ?? 'default'}>
+                    {/* The stored enum value is 'cancelled'; display American spelling. */}
+                    {job.status === 'cancelled' ? 'canceled' : job.status}
+                </LemonTag>
             </div>
             <div className="flex items-center gap-2">
                 {STOPPABLE_STATUSES.includes(job.status) ? (

@@ -452,7 +452,7 @@ export const getHogFlowsBatchJobsCancelCreateUrl = (projectId: string, id: strin
 /**
  * Stop a batch run: halts the audience fan-out and cancels every child run
  * still in flight. Messages already sent are not recalled. Idempotent -
- * cancelling a finished or already-cancelled run returns it unchanged.
+ * cancelling a finished or already-canceled run returns it unchanged.
  */
 export const hogFlowsBatchJobsCancelCreate = async (
     projectId: string,
@@ -578,7 +578,7 @@ export const getHogFlowsInvocationsCancelCreateUrl = (projectId: string, id: str
  * Cancellation is asynchronous: runs are flagged here, then terminated by
  * the workflow workers - promptly for parked runs (delays and waits), at
  * the next step boundary for runs mid-execution. Steps that already
- * executed are not undone. Cancelled runs can be re-run later via `rerun`.
+ * executed are not undone. Canceled runs can be re-run later via `rerun`.
  */
 export const hogFlowsInvocationsCancelCreate = async (
     projectId: string,

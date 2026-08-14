@@ -941,7 +941,7 @@ export const HogInvocationCancelOutcomeOutcomeEnumApi = {
 export interface HogInvocationCancelOutcomeApi {
     /** Invocation id. */
     id: string
-    /** 'requested': the run will terminate the next time a worker observes it. 'already_finished': the run already reached a terminal status (including cancelled). 'not_found': no such invocation for this workflow. 'unmarked': a concurrent transition raced the request; retry.
+    /** 'requested': the run will terminate the next time a worker observes it. 'already_finished': the run already reached a terminal status (including canceled). 'not_found': no such invocation for this workflow. 'unmarked': a concurrent transition raced the request; retry.
      *
      * * `requested` - requested
      * * `already_finished` - already_finished
@@ -1073,7 +1073,7 @@ export interface HogFlowPublishResponseApi {
  * * `running` - running
  * * `succeeded` - succeeded
  * * `failed` - failed
- * * `cancelled` - cancelled
+ * * `canceled` - canceled
  */
 export type HogInvocationRerunFilterStatusEnumApi =
     (typeof HogInvocationRerunFilterStatusEnumApi)[keyof typeof HogInvocationRerunFilterStatusEnumApi]
@@ -1082,7 +1082,7 @@ export const HogInvocationRerunFilterStatusEnumApi = {
     Running: 'running',
     Succeeded: 'succeeded',
     Failed: 'failed',
-    Cancelled: 'cancelled',
+    Canceled: 'canceled',
 } as const
 
 /**

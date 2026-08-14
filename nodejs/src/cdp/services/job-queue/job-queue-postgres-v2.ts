@@ -209,7 +209,7 @@ export class CyclotronJobQueuePostgresV2 implements JobQueue {
 
                 if (result.error) {
                     await job.fail()
-                } else if (result.cancelled) {
+                } else if (result.canceled) {
                     await job.cancel()
                 } else if (result.finished) {
                     await job.ack()

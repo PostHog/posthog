@@ -2865,7 +2865,7 @@ class HogFlowViewSet(
         Cancellation is asynchronous: runs are flagged here, then terminated by
         the workflow workers - promptly for parked runs (delays and waits), at
         the next step boundary for runs mid-execution. Steps that already
-        executed are not undone. Cancelled runs can be re-run later via `rerun`.
+        executed are not undone. Canceled runs can be re-run later via `rerun`.
         """
         hog_flow = self.get_object()
 
@@ -2895,7 +2895,7 @@ class HogFlowViewSet(
         """
         Stop a batch run: halts the audience fan-out and cancels every child run
         still in flight. Messages already sent are not recalled. Idempotent -
-        cancelling a finished or already-cancelled run returns it unchanged.
+        cancelling a finished or already-canceled run returns it unchanged.
         """
         hog_flow = self.get_object()
         try:

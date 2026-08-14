@@ -48,7 +48,7 @@ class HogInvocationCancelOutcomeSerializer(serializers.Serializer):
         choices=["requested", "already_finished", "not_found", "unmarked"],
         help_text=(
             "'requested': the run will terminate the next time a worker observes it. "
-            "'already_finished': the run already reached a terminal status (including cancelled). "
+            "'already_finished': the run already reached a terminal status (including canceled). "
             "'not_found': no such invocation for this workflow. "
             "'unmarked': a concurrent transition raced the request; retry."
         ),

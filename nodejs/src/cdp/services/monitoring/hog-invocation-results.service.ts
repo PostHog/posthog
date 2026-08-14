@@ -40,12 +40,12 @@ export type HogInvocationResultsServiceOutput = HogInvocationResultsOutput | Cdp
  * Lifecycle row produced to ClickHouse via Kafka. Mirrors the columns on the
  * hog_invocation_results_data table. Two such rows are produced per
  * invocation: one when execution starts (`status='running'`) and one when it
- * finishes (`status='succeeded' | 'failed' | 'cancelled'`). On a rerun, the cycle repeats
+ * finishes (`status='succeeded' | 'failed' | 'canceled'`). On a rerun, the cycle repeats
  * with the same `invocation_id`, `is_retry=1`, and `attempts` bumped — the
  * ReplacingMergeTree on `(team_id, function_kind, function_id, invocation_id)`
  * keyed by `version` collapses prior versions at merge time.
  */
-export type HogInvocationResultStatus = 'running' | 'succeeded' | 'failed' | 'cancelled'
+export type HogInvocationResultStatus = 'running' | 'succeeded' | 'failed' | 'canceled'
 
 export interface HogInvocationResultRow {
     team_id: number
@@ -563,8 +563,8 @@ export class HogInvocationResultsService {
 
             const status: HogInvocationResultStatus = result.error
                 ? 'failed'
-                : result.cancelled
-                  ? 'cancelled'
+                : result.canceled
+                  ? 'canceled'
                   : 'succeeded'
             this.queueLifecycleRow(result.invocation, status, { error: result.error })
         }

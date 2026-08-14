@@ -2113,7 +2113,7 @@ export const HogFlowsInvocationsCreateBody = /* @__PURE__ */ zod.object({
  * Cancellation is asynchronous: runs are flagged here, then terminated by
  * the workflow workers - promptly for parked runs (delays and waits), at
  * the next step boundary for runs mid-execution. Steps that already
- * executed are not undone. Cancelled runs can be re-run later via `rerun`.
+ * executed are not undone. Canceled runs can be re-run later via `rerun`.
  */
 export const hogFlowsInvocationsCancelCreateBodyInvocationIdsMax = 10000
 
@@ -2182,9 +2182,9 @@ export const HogFlowsRerunCreateBody = /* @__PURE__ */ zod
                 status: zod
                     .array(
                         zod
-                            .enum(['running', 'succeeded', 'failed', 'cancelled'])
+                            .enum(['running', 'succeeded', 'failed', 'canceled'])
                             .describe(
-                                '\* `running` - running\n\* `succeeded` - succeeded\n\* `failed` - failed\n\* `cancelled` - cancelled'
+                                '\* `running` - running\n\* `succeeded` - succeeded\n\* `failed` - failed\n\* `canceled` - canceled'
                             )
                     )
                     .optional()

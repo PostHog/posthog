@@ -38508,7 +38508,7 @@ export namespace Schemas {
     export interface HogInvocationCancelOutcome {
       /** Invocation id. */
       id: string;
-      /** 'requested': the run will terminate the next time a worker observes it. 'already_finished': the run already reached a terminal status (including cancelled). 'not_found': no such invocation for this workflow. 'unmarked': a concurrent transition raced the request; retry.
+      /** 'requested': the run will terminate the next time a worker observes it. 'already_finished': the run already reached a terminal status (including canceled). 'not_found': no such invocation for this workflow. 'unmarked': a concurrent transition raced the request; retry.
        *
        * * `requested` - requested
        * * `already_finished` - already_finished
@@ -38550,7 +38550,7 @@ export namespace Schemas {
      * * `running` - running
      * * `succeeded` - succeeded
      * * `failed` - failed
-     * * `cancelled` - cancelled
+     * * `canceled` - canceled
      */
     export type HogInvocationRerunFilterStatusEnum = typeof HogInvocationRerunFilterStatusEnum[keyof typeof HogInvocationRerunFilterStatusEnum];
 
@@ -38559,7 +38559,7 @@ export namespace Schemas {
       Running: 'running',
       Succeeded: 'succeeded',
       Failed: 'failed',
-      Cancelled: 'cancelled',
+      Canceled: 'canceled',
     } as const;
 
     /**

@@ -1558,9 +1558,9 @@ export const HogFunctionsRerunCreateBody = /* @__PURE__ */ zod
                 status: zod
                     .array(
                         zod
-                            .enum(['running', 'succeeded', 'failed', 'cancelled'])
+                            .enum(['running', 'succeeded', 'failed', 'canceled'])
                             .describe(
-                                '\* `running` - running\n\* `succeeded` - succeeded\n\* `failed` - failed\n\* `cancelled` - cancelled'
+                                '\* `running` - running\n\* `succeeded` - succeeded\n\* `failed` - failed\n\* `canceled` - canceled'
                             )
                     )
                     .optional()

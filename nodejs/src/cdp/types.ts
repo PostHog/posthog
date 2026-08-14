@@ -214,7 +214,7 @@ export type MinimalAppMetric = {
     metric_kind: 'failure' | 'success' | 'other' | 'email' | 'sms' | 'push' | 'billing' | 'fetch'
     metric_name:
         | 'early_exit'
-        | 'cancelled'
+        | 'canceled'
         | 'triggered'
         | 'trigger_failed'
         | 'succeeded'
@@ -306,7 +306,7 @@ export type CyclotronJobInvocation = {
     // Where the invocation came from (kafka or postgres)
     queueSource?: CyclotronJobQueueSource
     // Cancellation was requested (CyclotronV2Manager.cancelJobs) while this invocation
-    // was in flight. The consumer must terminate it as cancelled instead of executing.
+    // was in flight. The consumer must terminate it as canceled instead of executing.
     cancelRequestedAt?: DateTime
 }
 
@@ -314,10 +314,10 @@ export type CyclotronJobInvocation = {
 export type CyclotronJobInvocationResult<T extends CyclotronJobInvocation = CyclotronJobInvocation> = {
     invocation: T
     finished: boolean
-    // The run was cancelled rather than succeeding or failing. Only meaningful with
-    // finished=true and no error: the job row flips to 'canceled' and the lifecycle
-    // row gets status 'cancelled'.
-    cancelled?: boolean
+    // The run was canceled rather than succeeding or failing. Only meaningful with
+    // finished=true and no error: the job row and the lifecycle row both flip to
+    // 'canceled'.
+    canceled?: boolean
     error?: any
     logs: MinimalLogEntry[]
     metrics: MinimalAppMetric[]

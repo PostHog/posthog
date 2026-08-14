@@ -185,9 +185,9 @@ export class HogFunctionMonitoringService {
                 )
             }
 
-            // A cancelled run is neither a success nor a failure - it carries its own
-            // 'cancelled' metric on result.metrics, so the derived terminal metric is skipped.
-            if ((result.finished || result.error) && !result.cancelled) {
+            // A canceled run is neither a success nor a failure - it carries its own
+            // 'canceled' metric on result.metrics, so the derived terminal metric is skipped.
+            if ((result.finished || result.error) && !result.canceled) {
                 // Process each timing entry individually instead of totaling them
                 const timings = isHogFunctionResult(result) ? (result.invocation.state?.timings ?? []) : []
                 for (const timing of timings) {
