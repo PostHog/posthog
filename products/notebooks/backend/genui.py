@@ -111,6 +111,20 @@ class GenUIStatus:
 
 
 @frozen
+class GenUISource:
+    version_id: UUID
+    source: str
+
+
+@frozen
+class GenUIVersion:
+    id: UUID
+    prompt: str | None
+    created_at: datetime
+    is_current: bool
+
+
+@frozen
 class GenUIGenerationClaim:
     row: NotebookGenUI
     acquired: bool
@@ -996,6 +1010,96 @@ def retry_genui(*, notebook: Notebook, node_id: str, user_id: int) -> tuple[Note
     if not claimed.acquired:
         return row, inspection
     row = _run_claimed_generation(row=row, notebook=notebook, user_id=user_id, inspection=inspection)
+    return row, inspection
+
+
+def read_genui_source(*, notebook: Notebook, node_id: str, version_id: UUID | None = None) -> GenUISource:
+    row = NotebookGenUI.objects.for_team(notebook.team_id).filter(notebook=notebook, node_id=node_id).first()
+    if row is None or row.canvas_id is None or row.source_version_id is None:
+        raise GenUIError("Generate this visualization before viewing its source.", "source_missing")
+    try:
+        source = canvas_facade.get_notebook_canvas_source(
+            team_id=notebook.team_id,
+            canvas_id=row.canvas_id,
+            version_id=version_id or row.source_version_id,
+        )
+    except canvas_facade.NotebookCanvasNotFoundError as error:
+        raise GenUIError("This visualization version is no longer available.", "version_missing") from error
+    except canvas_facade.NotebookCanvasSourceUnavailableError as error:
+        raise GenUIError(
+            "The visualization source is temporarily unavailable. Try again.", "source_unavailable"
+        ) from error
+    return GenUISource(version_id=source.version_id, source=source.source)
+
+
+def list_genui_versions(*, notebook: Notebook, node_id: str) -> list[GenUIVersion]:
+    row = NotebookGenUI.objects.for_team(notebook.team_id).filter(notebook=notebook, node_id=node_id).first()
+    if row is None or row.canvas_id is None:
+        return []
+    try:
+        versions = canvas_facade.list_notebook_canvas_versions(team_id=notebook.team_id, canvas_id=row.canvas_id)
+    except canvas_facade.NotebookCanvasNotFoundError as error:
+        raise GenUIError("This visualization is no longer available.", "canvas_missing") from error
+    return [
+        GenUIVersion(
+            id=version.id,
+            prompt=version.prompt,
+            created_at=version.created_at,
+            is_current=version.id == row.source_version_id,
+        )
+        for version in versions
+    ]
+
+
+def restore_genui_version(
+    *, notebook: Notebook, node_id: str, version_id: UUID, user_id: int
+) -> tuple[NotebookGenUI, GenUIInputInspection]:
+    row, inspection = refresh_genui(notebook=notebook, node_id=node_id)
+    if row.lifecycle_status in _ACTIVE_LIFECYCLES:
+        raise GenUIConflictError("Wait for the current visualization update to finish.", "update_in_progress")
+    if row.canvas_id is None or row.source_version_id is None or not row.generated_hash:
+        raise GenUIConflictError("Generate this visualization before choosing a version.", "source_missing")
+    if version_id == row.source_version_id:
+        return row, inspection
+    try:
+        canvas_facade.restore_notebook_canvas_version(
+            team_id=notebook.team_id,
+            canvas_id=row.canvas_id,
+            version_id=version_id,
+            expected_current_version_id=row.source_version_id,
+            user_id=user_id,
+        )
+    except canvas_facade.NotebookCanvasNotFoundError as error:
+        raise GenUIError("This visualization version is no longer available.", "version_missing") from error
+    except canvas_facade.NotebookCanvasVersionConflictError as error:
+        raise GenUIConflictError(
+            "The visualization changed while this version was selected. Reload the versions and try again.",
+            "version_conflict",
+        ) from error
+    except canvas_facade.NotebookCanvasBuildCapacityError as error:
+        raise GenUIRateLimitError(
+            "Visualization builds are busy. Try switching versions again shortly.", "build_capacity_exhausted"
+        ) from error
+
+    row.pending_generation_hash = row.generated_hash
+    row.pending_schema_hash = row.generated_schema_hash or inspection.schema_hash
+    row.lifecycle_status = NotebookGenUI.LifecycleStatus.BUILDING
+    row.generation_task_id = None
+    row.generation_started_at = timezone.now()
+    row.last_error_code = None
+    row.last_error = None
+    row.save(
+        update_fields=[
+            "pending_generation_hash",
+            "pending_schema_hash",
+            "lifecycle_status",
+            "generation_task_id",
+            "generation_started_at",
+            "last_error_code",
+            "last_error",
+            "updated_at",
+        ]
+    )
     return row, inspection
 
 

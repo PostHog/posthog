@@ -253,6 +253,13 @@ export const NotebooksGenuiRegenerateBody = /* @__PURE__ */ zod.object({
 /**
  * The API for interacting with Notebooks. This feature is in early access and the API can have breaking changes without announcement.
  */
+export const NotebooksGenuiRestoreVersionBody = /* @__PURE__ */ zod.object({
+    version_id: zod.uuid().describe('Existing source version to make current.'),
+})
+
+/**
+ * The API for interacting with Notebooks. This feature is in early access and the API can have breaking changes without announcement.
+ */
 export const notebooksHogqlExecuteCreateBodyTitleMax = 256
 
 export const notebooksHogqlExecuteCreateBodyVersionMin = -2147483648

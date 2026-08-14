@@ -12,9 +12,12 @@ import { initKeaTests } from '~/test/init'
 import {
     notebooksGenuiEnsure,
     notebooksGenuiRegenerate,
+    notebooksGenuiRestoreVersion,
     notebooksGenuiRetry,
     notebooksGenuiRun,
+    notebooksGenuiSource,
     notebooksGenuiStatus,
+    notebooksGenuiVersions,
 } from 'products/notebooks/frontend/generated/api'
 import type { GenUIStatusApi } from 'products/notebooks/frontend/generated/api.schemas'
 
@@ -25,9 +28,12 @@ jest.mock('products/notebooks/frontend/generated/api', () => ({
     notebooksGenuiEnsure: jest.fn(),
     notebooksGenuiFrame: jest.fn(),
     notebooksGenuiRegenerate: jest.fn(),
+    notebooksGenuiRestoreVersion: jest.fn(),
     notebooksGenuiRetry: jest.fn(),
     notebooksGenuiRun: jest.fn(),
+    notebooksGenuiSource: jest.fn(),
     notebooksGenuiStatus: jest.fn(),
+    notebooksGenuiVersions: jest.fn(),
 }))
 
 const status = (
@@ -77,7 +83,10 @@ describe('notebookNodeGenUILogic', () => {
         jest.mocked(notebooksGenuiStatus).mockReset()
         jest.mocked(notebooksGenuiRun).mockReset()
         jest.mocked(notebooksGenuiRegenerate).mockReset()
+        jest.mocked(notebooksGenuiRestoreVersion).mockReset()
         jest.mocked(notebooksGenuiRetry).mockReset()
+        jest.mocked(notebooksGenuiSource).mockReset()
+        jest.mocked(notebooksGenuiVersions).mockReset()
     })
 
     afterEach(() => {
@@ -208,5 +217,43 @@ describe('notebookNodeGenUILogic', () => {
 
         sourceLogic.unmount()
         stalenessLogic.unmount()
+    })
+
+    it('refreshes a stale GenUI node after running downstream cells', async () => {
+        const stalenessLogic = notebookNodeStalenessLogic({ shortId: props.notebookShortId })
+        stalenessLogic.mount()
+        jest.mocked(notebooksGenuiRun).mockResolvedValue(status('ready'))
+        logic = notebookNodeGenUILogic({ ...props, prompt: '' })
+        logic.mount()
+        logic.actions.statusReceived(status('stale'))
+        stalenessLogic.actions.markStaleNodeIds([props.nodeId])
+
+        stalenessLogic.actions.runStaleChain(content, 'source')
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(notebooksGenuiRun).toHaveBeenCalledWith(String(MOCK_TEAM_ID), 'notebook-1', 'globe')
+        expect(notebooksGenuiRegenerate).not.toHaveBeenCalled()
+        stalenessLogic.unmount()
+    })
+
+    it('tracks a data refresh separately from regeneration', async () => {
+        let resolveRun: (value: GenUIStatusApi) => void = () => undefined
+        jest.mocked(notebooksGenuiRun).mockReturnValue(
+            new Promise((resolve) => {
+                resolveRun = resolve
+            })
+        )
+        logic = notebookNodeGenUILogic({ ...props, prompt: '' })
+        logic.mount()
+        logic.actions.statusReceived(status('stale'))
+
+        logic.actions.runVisualization()
+
+        expect(logic.values.isRefreshingData).toBe(true)
+        expect(logic.values.isRegenerating).toBe(false)
+        expect(notebooksGenuiRegenerate).not.toHaveBeenCalled()
+        resolveRun(status('ready'))
+        await expectLogic(logic).toFinishAllListeners()
+        expect(logic.values.isRefreshingData).toBe(false)
     })
 })

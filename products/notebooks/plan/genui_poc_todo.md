@@ -16,6 +16,8 @@ The current branch implements an end-to-end browser path:
 - The artifact runs behind two sandboxed iframe boundaries with network access disabled. The host rejects all data methods except `readFrame` and rejects undeclared frame names.
 - The Canvas build platform pins Three.js and its source validator checks declared notebook frame capabilities.
 - Regeneration keeps the last successful artifact visible and replaces it only after the task publishes a ready build.
+- Data refresh is a separate, fast action that reuses generated source and runs automatically after an upstream notebook chain finishes.
+- Generated React source is available read-only, and immutable source versions can be selected without invoking the generation agent.
 
 The hardened implementation moves generation coordination into notebook-specific backend services and generated notebook API clients.
 It persists a team-scoped GenUI lifecycle row, stores notebook-owned snapshots in object storage, and exposes Canvas only through a narrow backend facade.
@@ -80,8 +82,9 @@ The serialized form remains comma-separated for multiple inputs:
 - [x] The node shows a compact generation state: waiting for inputs, generating, building, ready, or failed.
 - [x] A failed generation gives a clear retry action and keeps the last successful artifact when one exists.
 - [x] The ready artifact renders inline and follows the notebook node's height and resize behavior.
-- [x] The settings view exposes the prompt, detected inputs, and a regenerate action without asking for dataframe names.
-- [x] The settings view does not include a raw source editor, Canvas metadata, channel selection, task controls, drafts, or publishing controls.
+- [x] The settings view exposes the prompt, detected inputs, separate data refresh and regenerate actions, and does not ask for dataframe names.
+- [x] The settings view exposes generated source read-only and keeps Canvas metadata, channel selection, task controls, drafts, publishing controls, and source editing hidden.
+- [x] The settings view lists immutable generated versions and can switch the live visualization to an earlier version without invoking the agent.
 - [x] Editing the prompt creates a new generated source version after an explicit regenerate action.
 - [x] Re-running upstream cells marks the GenUI node stale.
 - [x] Running a stale GenUI node captures new input snapshots without invoking the model when the input schemas and prompt are unchanged.
@@ -336,18 +339,21 @@ The frontend should not call Canvas endpoints directly.
 Suggested actions:
 
 ```text
-POST /api/environments/:team_id/notebooks/:short_id/genui/ensure
-GET  /api/environments/:team_id/notebooks/:short_id/genui/:node_id
-POST /api/environments/:team_id/notebooks/:short_id/genui/:node_id/run
-POST /api/environments/:team_id/notebooks/:short_id/genui/:node_id/regenerate
-POST /api/environments/:team_id/notebooks/:short_id/genui/:node_id/retry
+POST /api/projects/:team_id/notebooks/:short_id/genui/ensure
+GET  /api/projects/:team_id/notebooks/:short_id/genui/:node_id
+POST /api/projects/:team_id/notebooks/:short_id/genui/:node_id/run
+POST /api/projects/:team_id/notebooks/:short_id/genui/:node_id/regenerate
+POST /api/projects/:team_id/notebooks/:short_id/genui/:node_id/retry
+GET  /api/projects/:team_id/notebooks/:short_id/genui/:node_id/source
+GET  /api/projects/:team_id/notebooks/:short_id/genui/:node_id/versions
+POST /api/projects/:team_id/notebooks/:short_id/genui/:node_id/versions/restore
 ```
 
 - [x] Use serializers as the source of truth for request and response types.
 - [x] Add schema annotations and `help_text` to every field.
 - [x] Generate frontend API types with `hogli build:openapi` after the endpoint shape stabilizes.
-- [x] Validate notebook edit access for ensure, run, regenerate, and retry.
-- [x] Validate notebook view access for status, artifact URL, and snapshots.
+- [x] Validate notebook edit access for ensure, run, regenerate, retry, and version selection.
+- [x] Validate notebook view access for status, artifact URL, snapshots, generated source, and version history.
 - [x] Resolve all GenUI records through both team and notebook scope.
 - [x] Rate-limit generation and cap active builds using existing Canvas limits.
 - [x] Return one consolidated status response so the node does not coordinate Canvas, task, and build APIs itself.

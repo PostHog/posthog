@@ -36218,6 +36218,18 @@ export namespace Schemas {
       error?: string | null;
     }
 
+    export interface GenUIRestoreVersionRequest {
+      /** Existing source version to make current. */
+      version_id: string;
+    }
+
+    export interface GenUISource {
+      /** Source version shown in the response. */
+      version_id: string;
+      /** Generated React component source. */
+      source: string;
+    }
+
     /**
      * * `awaiting_inputs` - awaiting_inputs
      * * `awaiting_generation` - awaiting_generation
@@ -36327,6 +36339,20 @@ export namespace Schemas {
          * @nullable
          */
       snapshot_updated_at?: string | null;
+    }
+
+    export interface GenUIVersion {
+      /** Immutable source version identifier. */
+      id: string;
+      /**
+         * Description recorded when the source version was generated.
+         * @nullable
+         */
+      prompt?: string | null;
+      /** When the source version was generated. */
+      created_at: string;
+      /** Whether this version backs the live notebook visualization. */
+      is_current: boolean;
     }
 
     /**
@@ -48296,6 +48322,15 @@ export namespace Schemas {
       /** @nullable */
       previous?: string | null;
       results: GatewayMemberSummary[];
+    }
+
+    export interface PaginatedGenUIVersionList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: GenUIVersion[];
     }
 
     export interface PaginatedGroupUsageMetricList {
@@ -87981,6 +88016,25 @@ export namespace Schemas {
      * If any value is provided for this parameter, return notebooks created by the logged in user.
      */
     user?: string;
+    };
+
+    export type NotebooksGenuiSourceParams = {
+    /**
+     * Historical source version to read. Defaults to the live notebook version.
+     */
+    version_id?: string;
+    };
+
+    export type NotebooksGenuiVersionsParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    short_id?: string;
     };
 
     export type NotificationsListParams = {

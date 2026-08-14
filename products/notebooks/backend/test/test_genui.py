@@ -12,8 +12,10 @@ from parameterized import parameterized
 from rest_framework import status
 
 from posthog.models import Team
+from posthog.models.scoping import team_scope
 
-from products.canvas.backend.facade import CanvasGenerationState
+from products.canvas.backend.facade import CanvasGenerationState, NotebookCanvasSource
+from products.canvas.backend.models import Canvas, CanvasSourceVersion
 from products.notebooks.backend.genui import (
     GENUI_GENERATOR_VERSION,
     GenUIError,
@@ -29,10 +31,12 @@ from products.notebooks.backend.genui import (
     normalize_inputs,
     read_genui_frame,
     reconcile_generation,
+    restore_genui_version,
     run_stale_genui,
 )
 from products.notebooks.backend.genui_snapshot_store import GenUISnapshotStoreError, build_snapshot_key, read_snapshot
 from products.notebooks.backend.models import Notebook, NotebookGenUI, NotebookNodeRun
+from products.tasks.backend.models import Channel
 
 
 def markdown_content(markdown: str) -> dict[str, Any]:
@@ -439,6 +443,95 @@ class TestGenUILifecycle(APIBaseTest):
         assert "channel_id" not in response.json()
         assert "canvas_id" not in response.json()
 
+    @patch("products.notebooks.backend.genui.canvas_facade.get_notebook_canvas_source")
+    def test_source_endpoint_returns_the_current_generated_component(self, get_canvas_source) -> None:
+        notebook = self._notebook()
+        self._run(notebook)
+        row, _ = self._ready_row(notebook)
+        assert row.source_version_id is not None
+        get_canvas_source.return_value = NotebookCanvasSource(
+            version_id=row.source_version_id,
+            source="export default function Canvas() { return <div>Hello</div> }",
+        )
+
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/notebooks/{notebook.short_id}/genui/{self.NODE_ID}/source/"
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json() == {
+            "version_id": str(row.source_version_id),
+            "source": "export default function Canvas() { return <div>Hello</div> }",
+        }
+
+    def test_versions_endpoint_marks_the_live_notebook_version(self) -> None:
+        notebook = self._notebook()
+        self._run(notebook)
+        row, _ = self._ready_row(notebook)
+        with team_scope(self.team.id):
+            channel = Channel.objects.create(team=self.team, name="Notebook visualizations")
+            canvas = Canvas.objects.create(team=self.team, channel=channel, name="Globe", created_by=self.user)
+            previous_version = CanvasSourceVersion.objects.create(
+                team=self.team,
+                canvas=canvas,
+                source_hash="1" * 64,
+                source_object_key="canvas_source/previous",
+                source_size=10,
+                prompt="First globe",
+            )
+            current_version = CanvasSourceVersion.objects.create(
+                team=self.team,
+                canvas=canvas,
+                parent_version=previous_version,
+                source_hash="2" * 64,
+                source_object_key="canvas_source/current",
+                source_size=10,
+                prompt="Current globe",
+            )
+        row.canvas_id = canvas.id
+        row.source_version_id = current_version.id
+        row.save(update_fields=["canvas_id", "source_version_id", "updated_at"])
+
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/notebooks/{notebook.short_id}/genui/{self.NODE_ID}/versions/"
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        versions = response.json()["results"]
+        assert [version["id"] for version in versions] == [str(current_version.id), str(previous_version.id)]
+        assert [version["is_current"] for version in versions] == [True, False]
+
+    @patch("products.notebooks.backend.genui.canvas_facade.restore_notebook_canvas_version")
+    @patch("products.notebooks.backend.genui.canvas_facade.get_canvas_generation_state")
+    def test_restoring_a_version_keeps_the_live_artifact_until_its_build_is_ready(
+        self, get_canvas_state, restore_canvas_version
+    ) -> None:
+        notebook = self._notebook()
+        self._run(notebook)
+        row, _ = self._ready_row(notebook)
+        get_canvas_state.return_value = self._canvas_state(row)
+        previous_version_id = UUID("00000000-0000-0000-0000-000000000099")
+        current_version_id = row.source_version_id
+
+        restored, _ = restore_genui_version(
+            notebook=notebook,
+            node_id=self.NODE_ID,
+            version_id=previous_version_id,
+            user_id=self.user.id,
+        )
+
+        assert restored.lifecycle_status == NotebookGenUI.LifecycleStatus.BUILDING
+        assert restored.source_version_id == current_version_id
+        assert restored.pending_generation_hash == restored.generated_hash
+        assert restored.generation_task_id is None
+        restore_canvas_version.assert_called_once_with(
+            team_id=self.team.id,
+            canvas_id=row.canvas_id,
+            version_id=previous_version_id,
+            expected_current_version_id=current_version_id,
+            user_id=self.user.id,
+        )
+
     @patch("products.notebooks.backend.genui.canvas_facade.soft_delete_notebook_canvas")
     @patch("products.notebooks.backend.genui.delete_snapshot")
     def test_removed_nodes_clean_up_snapshots_and_canvas(self, delete_snapshot, soft_delete_canvas) -> None:
@@ -488,6 +581,9 @@ class TestGenUILifecycle(APIBaseTest):
             ("regenerate", "post", "regenerate"),
             ("retry", "post", "retry"),
             ("frame", "get", f"frames/{INPUT_NAME}"),
+            ("source", "get", "source"),
+            ("versions", "get", "versions"),
+            ("restore_version", "post", "versions/restore"),
         ]
     )
     def test_every_endpoint_rejects_a_notebook_from_another_team(self, _name: str, method: str, suffix: str) -> None:

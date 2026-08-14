@@ -143,6 +143,26 @@ class GenUIErrorSerializer(serializers.Serializer):
     detail = serializers.CharField(help_text="Error detail with a next action.")
 
 
+class GenUISourceSerializer(serializers.Serializer):
+    version_id = serializers.UUIDField(help_text="Source version shown in the response.")
+    source = serializers.CharField(help_text="Generated React component source.")
+
+
+class GenUIVersionSerializer(serializers.Serializer):
+    id = serializers.UUIDField(help_text="Immutable source version identifier.")
+    prompt = serializers.CharField(
+        required=False,
+        allow_null=True,
+        help_text="Description recorded when the source version was generated.",
+    )
+    created_at = serializers.DateTimeField(help_text="When the source version was generated.")
+    is_current = serializers.BooleanField(help_text="Whether this version backs the live notebook visualization.")
+
+
+class GenUIRestoreVersionRequestSerializer(serializers.Serializer):
+    version_id = serializers.UUIDField(help_text="Existing source version to make current.")
+
+
 @extend_schema_field(OpenApiTypes.ANY)
 class GenUIFrameCellField(serializers.Field):
     def to_representation(self, value: object) -> object:

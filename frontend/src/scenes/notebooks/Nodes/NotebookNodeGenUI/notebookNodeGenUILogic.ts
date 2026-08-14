@@ -13,6 +13,7 @@ import {
     reducers,
     selectors,
 } from 'kea'
+import { loaders } from 'kea-loaders'
 import posthog from 'posthog-js'
 
 import { lemonToast } from '@posthog/lemon-ui'
@@ -29,16 +30,24 @@ import {
     notebooksGenuiEnsure,
     notebooksGenuiFrame,
     notebooksGenuiRegenerate,
+    notebooksGenuiRestoreVersion,
     notebooksGenuiRetry,
     notebooksGenuiRun,
+    notebooksGenuiSource,
     notebooksGenuiStatus,
+    notebooksGenuiVersions,
 } from 'products/notebooks/frontend/generated/api'
-import type { GenUIFrameApi, GenUIStatusApi } from 'products/notebooks/frontend/generated/api.schemas'
+import type {
+    GenUIFrameApi,
+    GenUISourceApi,
+    GenUIStatusApi,
+    GenUIVersionApi,
+} from 'products/notebooks/frontend/generated/api.schemas'
 
 const STATUS_POLL_INTERVAL_MS = 3000
 const STATUS_POLL_MAX_ATTEMPTS = 600
 
-type GenUIRefreshIntent = 'ensure' | 'regenerate' | 'retry' | 'run'
+type GenUIRefreshIntent = 'ensure' | 'regenerate' | 'restore' | 'retry' | 'run'
 
 export type NotebookNodeGenUILogicProps = {
     notebookShortId: string
@@ -58,30 +67,46 @@ export interface notebookNodeGenUILogicValues {
     currentTeamId: number | null
     error: string | null
     isGenerating: boolean
+    isRefreshingData: boolean
+    isRegenerating: boolean
     isRefreshingInputs: boolean
+    isSwitchingVersion: boolean
+    inputRefreshIntent: GenUIRefreshIntent | null
+    mutationIntent: GenUIRefreshIntent | null
     mutationInFlight: boolean
     pollAttempts: number
     runtimeError: string | null
+    source: GenUISourceApi | null
+    sourceLoading: boolean
+    sourceModalOpen: boolean
     status: GenUIStatusApi | null
     statusLoading: boolean
+    versions: GenUIVersionApi[]
+    versionsLoading: boolean
 }
 
 export interface notebookNodeGenUILogicActions {
     clearNodeStale: (nodeId: string) => { nodeId: string }
+    closeSource: () => { value: true }
     dependencyChainFinished: (
         targetNodeId: string,
         status: NotebookDependencyChainStatus
     ) => { targetNodeId: string; status: NotebookDependencyChainStatus }
     ensureVisualization: () => { value: true }
     inputRefreshFinished: () => { value: true }
-    inputRefreshStarted: () => { value: true }
+    inputRefreshStarted: (intent: GenUIRefreshIntent) => { intent: GenUIRefreshIntent }
+    loadGenUISource: () => { value: true }
+    loadGenUIVersions: () => { value: true }
     loadStatus: () => { value: true }
     mutationFailed: (error: string) => { error: string }
-    mutationStarted: () => { value: true }
+    mutationStarted: (intent: GenUIRefreshIntent) => { intent: GenUIRefreshIntent }
+    openSource: () => { value: true }
+    refreshStaleGenUINodes: (nodeIds: string[]) => { nodeIds: string[] }
     reportRenderFailure: (reason: string) => { reason: string }
     reportRenderSuccess: () => { value: true }
     regenerateVisualization: () => { value: true }
     retryVisualization: () => { value: true }
+    restoreVersion: (versionId: string) => { versionId: string }
     runDependencyChain: (
         content: JSONContent | null,
         targetNodeId: string
@@ -96,6 +121,16 @@ export interface notebookNodeGenUILogicMeta {
     key: string
     __keaTypeGenInternalSelectorTypes: {
         isGenerating: (status: GenUIStatusApi | null) => boolean
+        isRefreshingData: (
+            mutationIntent: GenUIRefreshIntent | null,
+            inputRefreshIntent: GenUIRefreshIntent | null
+        ) => boolean
+        isRegenerating: (
+            mutationIntent: GenUIRefreshIntent | null,
+            inputRefreshIntent: GenUIRefreshIntent | null,
+            status: GenUIStatusApi | null
+        ) => boolean
+        isSwitchingVersion: (mutationIntent: GenUIRefreshIntent | null, status: GenUIStatusApi | null) => boolean
     }
 }
 
@@ -137,25 +172,57 @@ export const notebookNodeGenUILogic: LogicWrapper<notebookNodeGenUILogicType> = 
         values: [teamLogic, ['currentTeamId']],
         actions: [
             notebookNodeStalenessLogic({ shortId: props.notebookShortId }),
-            ['clearNodeStale', 'dependencyChainFinished', 'runDependencyChain'],
+            ['clearNodeStale', 'dependencyChainFinished', 'refreshStaleGenUINodes', 'runDependencyChain'],
         ],
     })),
     actions({
+        closeSource: true,
         ensureVisualization: true,
         inputRefreshFinished: true,
-        inputRefreshStarted: true,
+        inputRefreshStarted: (intent: GenUIRefreshIntent) => ({ intent }),
         loadStatus: true,
         mutationFailed: (error: string) => ({ error }),
-        mutationStarted: true,
+        mutationStarted: (intent: GenUIRefreshIntent) => ({ intent }),
+        openSource: true,
         reportRenderFailure: (reason: string) => ({ reason }),
         reportRenderSuccess: true,
         regenerateVisualization: true,
         retryVisualization: true,
+        restoreVersion: (versionId: string) => ({ versionId }),
         runVisualization: true,
         setRuntimeError: (error: string | null) => ({ error }),
         statusFailed: (error: string) => ({ error }),
         statusReceived: (status: GenUIStatusApi) => ({ status }),
     }),
+    loaders(({ values, props }) => ({
+        source: [
+            null as GenUISourceApi | null,
+            {
+                loadGenUISource: async () => {
+                    if (!values.currentTeamId) {
+                        throw new Error('The current project is unavailable. Refresh and try again.')
+                    }
+                    return await notebooksGenuiSource(String(values.currentTeamId), props.notebookShortId, props.nodeId)
+                },
+            },
+        ],
+        versions: [
+            [] as GenUIVersionApi[],
+            {
+                loadGenUIVersions: async () => {
+                    if (!values.currentTeamId) {
+                        throw new Error('The current project is unavailable. Refresh and try again.')
+                    }
+                    const response = await notebooksGenuiVersions(
+                        String(values.currentTeamId),
+                        props.notebookShortId,
+                        props.nodeId
+                    )
+                    return response.results
+                },
+            },
+        ],
+    })),
     reducers({
         status: [
             null as GenUIStatusApi | null,
@@ -179,12 +246,35 @@ export const notebookNodeGenUILogic: LogicWrapper<notebookNodeGenUILogicType> = 
                 mutationFailed: () => false,
             },
         ],
+        mutationIntent: [
+            null as GenUIRefreshIntent | null,
+            {
+                mutationStarted: (_, { intent }) => intent,
+                statusReceived: (intent, { status }) => (shouldPoll(status) ? intent : null),
+                mutationFailed: () => null,
+            },
+        ],
         isRefreshingInputs: [
             false,
             {
                 inputRefreshStarted: () => true,
                 inputRefreshFinished: () => false,
                 mutationFailed: () => false,
+            },
+        ],
+        inputRefreshIntent: [
+            null as GenUIRefreshIntent | null,
+            {
+                inputRefreshStarted: (_, { intent }) => intent,
+                inputRefreshFinished: () => null,
+                mutationFailed: () => null,
+            },
+        ],
+        sourceModalOpen: [
+            false,
+            {
+                openSource: () => true,
+                closeSource: () => false,
             },
         ],
         error: [
@@ -213,6 +303,22 @@ export const notebookNodeGenUILogic: LogicWrapper<notebookNodeGenUILogicType> = 
     }),
     selectors({
         isGenerating: [(s) => [s.status], (status: GenUIStatusApi | null): boolean => shouldPoll(status)],
+        isRefreshingData: [
+            (s) => [s.mutationIntent, s.inputRefreshIntent],
+            (mutationIntent, inputRefreshIntent): boolean => mutationIntent === 'run' || inputRefreshIntent === 'run',
+        ],
+        isRegenerating: [
+            (s) => [s.mutationIntent, s.inputRefreshIntent, s.status],
+            (mutationIntent, inputRefreshIntent, status): boolean =>
+                ['ensure', 'regenerate', 'retry'].includes(mutationIntent ?? '') ||
+                ['ensure', 'regenerate', 'retry'].includes(inputRefreshIntent ?? '') ||
+                (shouldPoll(status) && !!status?.task_id),
+        ],
+        isSwitchingVersion: [
+            (s) => [s.mutationIntent, s.status],
+            (mutationIntent, status): boolean =>
+                mutationIntent === 'restore' || (shouldPoll(status) && !status?.task_id),
+        ],
     }),
     listeners(({ actions, values, props, cache }) => {
         const requestBody = (): { prompt: string; inputs: string[]; legacy_canvas_id?: string } => ({
@@ -235,12 +341,15 @@ export const notebookNodeGenUILogic: LogicWrapper<notebookNodeGenUILogicType> = 
             }
             return { projectId: String(values.currentTeamId) }
         }
-        const completeMutation = async (request: () => Promise<GenUIStatusApi>): Promise<GenUIStatusApi | null> => {
+        const completeMutation = async (
+            intent: GenUIRefreshIntent,
+            request: () => Promise<GenUIStatusApi>
+        ): Promise<GenUIStatusApi | null> => {
             if (cache.mutationInFlight) {
                 return null
             }
             cache.mutationInFlight = true
-            actions.mutationStarted()
+            actions.mutationStarted(intent)
             try {
                 const status = await request()
                 actions.statusReceived(status)
@@ -257,7 +366,7 @@ export const notebookNodeGenUILogic: LogicWrapper<notebookNodeGenUILogicType> = 
             }
         }
         const startInputRefresh = (intent: GenUIRefreshIntent): void => {
-            if (cache.inputRefreshIntent) {
+            if (values.inputRefreshIntent) {
                 return
             }
             const content = props.getContent()
@@ -265,8 +374,7 @@ export const notebookNodeGenUILogic: LogicWrapper<notebookNodeGenUILogicType> = 
                 actions.mutationFailed('The notebook content is unavailable. Refresh and try again.')
                 return
             }
-            cache.inputRefreshIntent = intent
-            actions.inputRefreshStarted()
+            actions.inputRefreshStarted(intent)
             actions.runDependencyChain(content, props.nodeId)
         }
         const performIntent = async (intent: GenUIRefreshIntent, allowInputRefresh = true): Promise<void> => {
@@ -281,7 +389,7 @@ export const notebookNodeGenUILogic: LogicWrapper<notebookNodeGenUILogicType> = 
                 if (!request) {
                     return
                 }
-                response = await completeMutation(() =>
+                response = await completeMutation(intent, () =>
                     intent === 'ensure'
                         ? notebooksGenuiEnsure(request.projectId, props.notebookShortId, props.nodeId, requestBody())
                         : notebooksGenuiRegenerate(
@@ -292,7 +400,7 @@ export const notebookNodeGenUILogic: LogicWrapper<notebookNodeGenUILogicType> = 
                           )
                 )
             } else if (values.currentTeamId) {
-                response = await completeMutation(() =>
+                response = await completeMutation(intent, () =>
                     intent === 'retry'
                         ? notebooksGenuiRetry(String(values.currentTeamId), props.notebookShortId, props.nodeId)
                         : notebooksGenuiRun(String(values.currentTeamId), props.notebookShortId, props.nodeId)
@@ -354,12 +462,33 @@ export const notebookNodeGenUILogic: LogicWrapper<notebookNodeGenUILogicType> = 
                 }
                 await performIntent('run')
             },
-            dependencyChainFinished: async ({ targetNodeId, status }) => {
-                if (targetNodeId !== props.nodeId || !cache.inputRefreshIntent) {
+            restoreVersion: async ({ versionId }) => {
+                if (!props.isEditable || !values.currentTeamId) {
                     return
                 }
-                const intent = cache.inputRefreshIntent as GenUIRefreshIntent
-                cache.inputRefreshIntent = null
+                const response = await completeMutation('restore', () =>
+                    notebooksGenuiRestoreVersion(String(values.currentTeamId), props.notebookShortId, props.nodeId, {
+                        version_id: versionId,
+                    })
+                )
+                if (response) {
+                    lemonToast.success('Visualization version selected')
+                }
+            },
+            openSource: () => {
+                actions.loadGenUISource()
+            },
+            refreshStaleGenUINodes: async ({ nodeIds }) => {
+                if (!nodeIds.includes(props.nodeId) || !props.isEditable || !values.currentTeamId) {
+                    return
+                }
+                await performIntent('run')
+            },
+            dependencyChainFinished: async ({ targetNodeId, status }) => {
+                if (targetNodeId !== props.nodeId || !values.inputRefreshIntent) {
+                    return
+                }
+                const intent = values.inputRefreshIntent
                 actions.inputRefreshFinished()
                 if (status !== 'done') {
                     actions.mutationFailed(

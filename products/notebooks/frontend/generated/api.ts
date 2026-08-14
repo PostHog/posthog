@@ -11,6 +11,8 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
 import type {
     GenUIEnsureRequestApi,
     GenUIFrameApi,
+    GenUIRestoreVersionRequestApi,
+    GenUISourceApi,
     GenUIStatusApi,
     NotebookApi,
     NotebookCollabPresenceApi,
@@ -24,7 +26,10 @@ import type {
     NotebookSQLV2RunResponseApi,
     NotebookSQLV2RunStatusResponseApi,
     NotebookSQLV2StateResponseApi,
+    NotebooksGenuiSourceParams,
+    NotebooksGenuiVersionsParams,
     NotebooksListParams,
+    PaginatedGenUIVersionListApi,
     PaginatedNotebookMinimalListApi,
     PatchedNotebookApi,
 } from './api.schemas'
@@ -371,6 +376,43 @@ export const notebooksGenuiRun = async (
     })
 }
 
+export const getNotebooksGenuiSourceUrl = (
+    projectId: string,
+    shortId: string,
+    nodeId: string,
+    params?: NotebooksGenuiSourceParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/notebooks/${shortId}/genui/${nodeId}/source/?${stringifiedParams}`
+        : `/api/projects/${projectId}/notebooks/${shortId}/genui/${nodeId}/source/`
+}
+
+/**
+ * The API for interacting with Notebooks. This feature is in early access and the API can have breaking changes without announcement.
+ */
+export const notebooksGenuiSource = async (
+    projectId: string,
+    shortId: string,
+    nodeId: string,
+    params?: NotebooksGenuiSourceParams,
+    options?: RequestInit
+): Promise<GenUISourceApi> => {
+    return apiMutator<GenUISourceApi>(getNotebooksGenuiSourceUrl(projectId, shortId, nodeId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
 export const getNotebooksGenuiStatusUrl = (projectId: string, shortId: string, nodeId: string) => {
     return `/api/projects/${projectId}/notebooks/${shortId}/genui/${nodeId}/status/`
 }
@@ -387,6 +429,65 @@ export const notebooksGenuiStatus = async (
     return apiMutator<GenUIStatusApi>(getNotebooksGenuiStatusUrl(projectId, shortId, nodeId), {
         ...options,
         method: 'GET',
+    })
+}
+
+export const getNotebooksGenuiVersionsUrl = (
+    projectId: string,
+    shortId: string,
+    nodeId: string,
+    params?: NotebooksGenuiVersionsParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/notebooks/${shortId}/genui/${nodeId}/versions/?${stringifiedParams}`
+        : `/api/projects/${projectId}/notebooks/${shortId}/genui/${nodeId}/versions/`
+}
+
+/**
+ * The API for interacting with Notebooks. This feature is in early access and the API can have breaking changes without announcement.
+ */
+export const notebooksGenuiVersions = async (
+    projectId: string,
+    shortId: string,
+    nodeId: string,
+    params?: NotebooksGenuiVersionsParams,
+    options?: RequestInit
+): Promise<PaginatedGenUIVersionListApi> => {
+    return apiMutator<PaginatedGenUIVersionListApi>(getNotebooksGenuiVersionsUrl(projectId, shortId, nodeId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getNotebooksGenuiRestoreVersionUrl = (projectId: string, shortId: string, nodeId: string) => {
+    return `/api/projects/${projectId}/notebooks/${shortId}/genui/${nodeId}/versions/restore/`
+}
+
+/**
+ * The API for interacting with Notebooks. This feature is in early access and the API can have breaking changes without announcement.
+ */
+export const notebooksGenuiRestoreVersion = async (
+    projectId: string,
+    shortId: string,
+    nodeId: string,
+    genUIRestoreVersionRequestApi: GenUIRestoreVersionRequestApi,
+    options?: RequestInit
+): Promise<GenUIStatusApi> => {
+    return apiMutator<GenUIStatusApi>(getNotebooksGenuiRestoreVersionUrl(projectId, shortId, nodeId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(genUIRestoreVersionRequestApi),
     })
 }
 

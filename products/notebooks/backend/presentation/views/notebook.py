@@ -67,9 +67,12 @@ from products.notebooks.backend.genui import (
     GenUIRateLimitError,
     cleanup_removed_genui_nodes,
     ensure_genui,
+    list_genui_versions,
     read_genui_frame,
+    read_genui_source,
     refresh_genui,
     regenerate_genui,
+    restore_genui_version,
     retry_genui,
     run_stale_genui,
     status_payload,
@@ -80,7 +83,10 @@ from products.notebooks.backend.presentation.genui_serializers import (
     GenUIEnsureRequestSerializer,
     GenUIErrorSerializer,
     GenUIFrameSerializer,
+    GenUIRestoreVersionRequestSerializer,
+    GenUISourceSerializer,
     GenUIStatusSerializer,
+    GenUIVersionSerializer,
 )
 from products.notebooks.backend.python_analysis import analyze_python_globals, annotate_python_nodes
 from products.notebooks.backend.query_validation import InvalidNotebookQueryError, normalize_notebook_query_nodes
@@ -713,6 +719,10 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
             response_status = 403
         elif error.code in {"snapshot_missing", "snapshot_unavailable"}:
             response_status = 410
+        elif error.code in {"canvas_missing", "source_missing", "version_missing"}:
+            response_status = 404
+        elif error.code == "source_unavailable":
+            response_status = 503
         else:
             response_status = 400
         return Response(GenUIErrorSerializer({"code": error.code, "detail": error.detail}).data, status=response_status)
@@ -791,6 +801,121 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
             raise Http404()
         try:
             row, inspection = refresh_genui(notebook=notebook, node_id=node_id)
+        except GenUIError as error:
+            return self._genui_error_response(error)
+        return self._genui_status_response(row, inspection)
+
+    @extend_schema(
+        operation_id="notebooks_genui_source",
+        responses={200: GenUISourceSerializer, 404: GenUIErrorSerializer, 503: GenUIErrorSerializer},
+        parameters=[
+            OpenApiParameter(
+                "node_id",
+                type=OpenApiTypes.STR,
+                location=OpenApiParameter.PATH,
+                description="Stable identifier of the GenUI notebook node.",
+            ),
+            OpenApiParameter(
+                "version_id",
+                type=OpenApiTypes.UUID,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description="Historical source version to read. Defaults to the live notebook version.",
+            ),
+        ],
+    )
+    @action(
+        methods=["GET"],
+        url_path="genui/(?P<node_id>[^/.]+)/source",
+        detail=True,
+        required_scopes=["notebook:read"],
+    )
+    def genui_source(self, request: Request, node_id: str | None = None, **kwargs) -> Response:
+        notebook = self.get_object()
+        if node_id is None:
+            raise Http404()
+        version_id = None
+        if request.query_params.get("version_id"):
+            serializer = GenUIRestoreVersionRequestSerializer(data={"version_id": request.query_params["version_id"]})
+            serializer.is_valid(raise_exception=True)
+            version_id = serializer.validated_data["version_id"]
+        try:
+            source = read_genui_source(notebook=notebook, node_id=node_id, version_id=version_id)
+        except GenUIError as error:
+            return self._genui_error_response(error)
+        return Response(GenUISourceSerializer(source).data)
+
+    @extend_schema(
+        operation_id="notebooks_genui_versions",
+        responses={200: GenUIVersionSerializer(many=True), 404: GenUIErrorSerializer},
+        parameters=[
+            OpenApiParameter(
+                "node_id",
+                type=OpenApiTypes.STR,
+                location=OpenApiParameter.PATH,
+                description="Stable identifier of the GenUI notebook node.",
+            )
+        ],
+    )
+    @action(
+        methods=["GET"],
+        url_path="genui/(?P<node_id>[^/.]+)/versions",
+        detail=True,
+        required_scopes=["notebook:read"],
+    )
+    def genui_versions(self, request: Request, node_id: str | None = None, **kwargs) -> Response:
+        notebook = self.get_object()
+        if node_id is None:
+            raise Http404()
+        try:
+            versions = list_genui_versions(notebook=notebook, node_id=node_id)
+        except GenUIError as error:
+            return self._genui_error_response(error)
+        page = self.paginate_queryset(versions)
+        if page is not None:
+            return self.get_paginated_response(GenUIVersionSerializer(page, many=True).data)
+        return Response(GenUIVersionSerializer(versions, many=True).data)
+
+    @extend_schema(
+        operation_id="notebooks_genui_restore_version",
+        request=GenUIRestoreVersionRequestSerializer,
+        responses={
+            200: GenUIStatusSerializer,
+            404: GenUIErrorSerializer,
+            409: GenUIErrorSerializer,
+            429: GenUIErrorSerializer,
+        },
+        parameters=[
+            OpenApiParameter(
+                "node_id",
+                type=OpenApiTypes.STR,
+                location=OpenApiParameter.PATH,
+                description="Stable identifier of the GenUI notebook node.",
+            )
+        ],
+    )
+    @action(
+        methods=["POST"],
+        url_path="genui/(?P<node_id>[^/.]+)/versions/restore",
+        detail=True,
+        required_scopes=["notebook:write"],
+    )
+    def genui_restore_version(self, request: Request, node_id: str | None = None, **kwargs) -> Response:
+        notebook = self.get_object()
+        if node_id is None:
+            raise Http404()
+        serializer = GenUIRestoreVersionRequestSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        user = self._current_user()
+        if user is None:
+            raise PermissionDenied("A user is required to choose a visualization version.")
+        try:
+            row, inspection = restore_genui_version(
+                notebook=notebook,
+                node_id=node_id,
+                version_id=serializer.validated_data["version_id"],
+                user_id=user.id,
+            )
         except GenUIError as error:
             return self._genui_error_response(error)
         return self._genui_status_response(row, inspection)

@@ -502,6 +502,41 @@ export interface GenUIFrameApi {
     truncated: boolean
 }
 
+export interface GenUISourceApi {
+    /** Source version shown in the response. */
+    version_id: string
+    /** Generated React component source. */
+    source: string
+}
+
+export interface GenUIVersionApi {
+    /** Immutable source version identifier. */
+    id: string
+    /**
+     * Description recorded when the source version was generated.
+     * @nullable
+     */
+    prompt?: string | null
+    /** When the source version was generated. */
+    created_at: string
+    /** Whether this version backs the live notebook visualization. */
+    is_current: boolean
+}
+
+export interface PaginatedGenUIVersionListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: GenUIVersionApi[]
+}
+
+export interface GenUIRestoreVersionRequestApi {
+    /** Existing source version to make current. */
+    version_id: string
+}
+
 export interface NotebookKernelConfigApi {
     /** CPU cores for the notebook's sandbox kernel; must be a supported option. */
     cpu_cores?: number
@@ -857,4 +892,23 @@ export type NotebooksListParams = {
      * If any value is provided for this parameter, return notebooks created by the logged in user.
      */
     user?: string
+}
+
+export type NotebooksGenuiSourceParams = {
+    /**
+     * Historical source version to read. Defaults to the live notebook version.
+     */
+    version_id?: string
+}
+
+export type NotebooksGenuiVersionsParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+    short_id?: string
 }

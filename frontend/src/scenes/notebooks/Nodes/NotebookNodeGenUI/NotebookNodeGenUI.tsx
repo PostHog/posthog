@@ -68,7 +68,10 @@ function Component({
         currentTeamId,
         error,
         isGenerating,
+        isRefreshingData,
         isRefreshingInputs,
+        isRegenerating,
+        isSwitchingVersion,
         mutationInFlight,
         runtimeError,
         status,
@@ -106,30 +109,40 @@ function Component({
         : undefined
     const generationStatus =
         isRefreshingInputs || isGenerating ? (
-            <div className="flex w-full min-w-0 flex-1 items-start gap-2" role="status" aria-live="polite">
+            <div
+                className="flex w-full min-w-0 items-start justify-between gap-3 text-left"
+                role="status"
+                aria-live="polite"
+            >
                 <div className="min-w-0 flex-1">
-                    <div className="flex min-w-0 items-start gap-1.5 font-semibold text-primary">
-                        <Spinner className="mt-0.5 shrink-0 text-sm" />
+                    <div className="flex min-w-0 items-center gap-1.5 font-semibold text-primary">
+                        <Spinner className="shrink-0 text-sm" />
                         <span className="min-w-0">
-                            {isRefreshingInputs
-                                ? 'Running required dataframe cells'
-                                : lifecycleStatus === 'building'
-                                  ? 'Building visualization'
-                                  : 'Agent is building the visualization'}
+                            {isRefreshingData
+                                ? 'Refreshing visualization data'
+                                : isSwitchingVersion
+                                  ? 'Switching visualization version'
+                                  : lifecycleStatus === 'building'
+                                    ? 'Building visualization'
+                                    : 'Agent is building the visualization'}
                         </span>
                     </div>
-                    <div className="text-muted">
+                    <div className="ml-5 text-muted">
                         {error ||
-                            (isRefreshingInputs
-                                ? 'The visualization will continue automatically when the cells finish.'
-                                : 'This can take a few minutes.')}
+                            (isRefreshingData
+                                ? isRefreshingInputs
+                                    ? 'Running the required dataframe cells. The visualization will update when they finish.'
+                                    : 'Updating the visualization with the latest saved dataframe rows.'
+                                : isSwitchingVersion
+                                  ? 'Building the selected version. Your current visualization stays available until it is ready.'
+                                  : 'This can take a few minutes.')}
                     </div>
-                    {!isRefreshingInputs && status?.task_id ? (
+                    {isRegenerating && !isRefreshingInputs && status?.task_id ? (
                         <GenUIGenerationActivity taskId={status.task_id} />
                     ) : null}
                 </div>
-                {!isRefreshingInputs && status?.task_id ? (
-                    <LemonButton size="xsmall" to={urls.taskDetail(status.task_id)}>
+                {isRegenerating && !isRefreshingInputs && status?.task_id ? (
+                    <LemonButton size="xsmall" to={urls.taskDetail(status.task_id)} targetBlank>
                         View task
                     </LemonButton>
                 ) : null}
@@ -139,12 +152,10 @@ function Component({
         lifecycleStatus === 'stale' ? (
             <LemonBanner type="warning" className="m-2">
                 <div className="flex items-center justify-between gap-2">
-                    <span>
-                        Upstream dataframe results changed. Run the visualization to use the latest saved previews.
-                    </span>
+                    <span>Upstream dataframe results changed. Refresh data to use the latest saved previews.</span>
                     {isEditable ? (
-                        <LemonButton size="small" onClick={() => runVisualization()} loading={isWorking}>
-                            Run visualization
+                        <LemonButton size="small" onClick={() => runVisualization()} loading={isRefreshingData}>
+                            Refresh data
                         </LemonButton>
                     ) : null}
                 </div>
@@ -156,7 +167,7 @@ function Component({
                 <div className="flex items-center justify-between gap-2">
                     <span>The prompt or dataframe schema changed. Regenerate to update the visualization code.</span>
                     {isEditable ? (
-                        <LemonButton size="small" onClick={() => regenerateVisualization()} loading={isWorking}>
+                        <LemonButton size="small" onClick={() => regenerateVisualization()} loading={isRegenerating}>
                             Regenerate visualization
                         </LemonButton>
                     ) : null}
@@ -169,7 +180,7 @@ function Component({
                 <div className="flex items-center justify-between gap-2">
                     <span>{status?.error_detail || error || "Couldn't generate this visualization. Try again."}</span>
                     {isEditable ? (
-                        <LemonButton size="small" onClick={() => retryVisualization()} loading={isWorking}>
+                        <LemonButton size="small" onClick={() => retryVisualization()} loading={isRegenerating}>
                             Try again
                         </LemonButton>
                     ) : null}
@@ -240,7 +251,11 @@ function Component({
                             Try again
                         </LemonButton>
                     ) : null}
-                    {status?.task_id ? <LemonButton to={urls.taskDetail(status.task_id)}>View task</LemonButton> : null}
+                    {status?.task_id ? (
+                        <LemonButton to={urls.taskDetail(status.task_id)} targetBlank>
+                            View task
+                        </LemonButton>
+                    ) : null}
                 </div>
             </EmptyState>
         )
@@ -248,7 +263,7 @@ function Component({
     if (generationStatus) {
         return (
             <EmptyState>
-                <div className="flex w-full max-w-lg flex-col items-center gap-3">{generationStatus}</div>
+                <div className="w-full max-w-xl">{generationStatus}</div>
             </EmptyState>
         )
     }

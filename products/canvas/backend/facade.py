@@ -1,10 +1,15 @@
+from datetime import datetime
 from uuid import UUID
 
 from posthog.dataclasses import frozen
+from posthog.models import User
+from posthog.storage.object_storage import ObjectStorageError
 
+from products.canvas.backend import build_service
 from products.canvas.backend.artifacts import create_canvas_artifact_url
 from products.canvas.backend.build_service import MAX_ACTIVE_CANVAS_BUILDS_PER_TEAM
-from products.canvas.backend.models import Canvas, CanvasBuild
+from products.canvas.backend.models import Canvas, CanvasBuild, CanvasSourceVersion
+from products.canvas.backend.source import CANVAS_COMPONENT_PATH
 
 
 @frozen
@@ -19,6 +24,39 @@ class CanvasGenerationState:
     current_build_id: UUID | None
     current_build_status: str | None
     current_build_diagnostics: list[dict[str, object]]
+
+
+@frozen
+class NotebookCanvasSource:
+    version_id: UUID
+    source: str
+
+
+@frozen
+class NotebookCanvasVersion:
+    id: UUID
+    prompt: str | None
+    created_at: datetime
+
+
+class NotebookCanvasError(Exception):
+    pass
+
+
+class NotebookCanvasNotFoundError(NotebookCanvasError):
+    pass
+
+
+class NotebookCanvasVersionConflictError(NotebookCanvasError):
+    pass
+
+
+class NotebookCanvasBuildCapacityError(NotebookCanvasError):
+    pass
+
+
+class NotebookCanvasSourceUnavailableError(NotebookCanvasError):
+    pass
 
 
 def create_notebook_canvas(
@@ -111,3 +149,67 @@ def active_build_capacity_available(*, team_id: int) -> bool:
 
 def soft_delete_notebook_canvas(*, team_id: int, canvas_id: UUID) -> None:
     Canvas.objects.for_team(team_id).filter(id=canvas_id).update(deleted=True)
+
+
+def get_notebook_canvas_source(
+    *, team_id: int, canvas_id: UUID, version_id: UUID | None = None
+) -> NotebookCanvasSource:
+    canvas = Canvas.objects.for_team(team_id).filter(id=canvas_id, deleted=False).first()
+    if canvas is None:
+        raise NotebookCanvasNotFoundError
+    resolved_version_id = version_id or canvas.current_source_version_id
+    if resolved_version_id is None:
+        raise NotebookCanvasNotFoundError
+    version = (
+        CanvasSourceVersion.objects.for_team(team_id)
+        .filter(id=resolved_version_id, canvas_id=canvas.id, draft=False)
+        .first()
+    )
+    if version is None:
+        raise NotebookCanvasNotFoundError
+    try:
+        project = build_service.read_source_project(version)
+    except ObjectStorageError as error:
+        raise NotebookCanvasSourceUnavailableError from error
+    files = project.get("files")
+    source = files.get(CANVAS_COMPONENT_PATH) if isinstance(files, dict) else None
+    if not isinstance(source, str):
+        raise NotebookCanvasSourceUnavailableError
+    return NotebookCanvasSource(version_id=version.id, source=source)
+
+
+def list_notebook_canvas_versions(*, team_id: int, canvas_id: UUID) -> list[NotebookCanvasVersion]:
+    canvas = Canvas.objects.for_team(team_id).filter(id=canvas_id, deleted=False).first()
+    if canvas is None:
+        raise NotebookCanvasNotFoundError
+    return [
+        NotebookCanvasVersion(id=version.id, prompt=version.prompt, created_at=version.created_at)
+        for version in CanvasSourceVersion.objects.for_team(team_id)
+        .filter(canvas_id=canvas.id, draft=False)
+        .order_by("-created_at")[:100]
+    ]
+
+
+def restore_notebook_canvas_version(
+    *, team_id: int, canvas_id: UUID, version_id: UUID, expected_current_version_id: UUID | None, user_id: int
+) -> None:
+    canvas = Canvas.objects.for_team(team_id).filter(id=canvas_id, deleted=False).first()
+    if canvas is None:
+        raise NotebookCanvasNotFoundError
+    user = User.objects.filter(id=user_id).first()
+    if user is None:
+        raise NotebookCanvasNotFoundError
+    try:
+        build_service.revert_to_version(
+            canvas,
+            version_id,
+            expected_current_version_id,
+            user=user,
+            was_impersonated=False,
+        )
+    except CanvasSourceVersion.DoesNotExist as error:
+        raise NotebookCanvasNotFoundError from error
+    except build_service.CanvasVersionConflict as error:
+        raise NotebookCanvasVersionConflictError from error
+    except build_service.CanvasBuildCapacityExceeded as error:
+        raise NotebookCanvasBuildCapacityError from error
