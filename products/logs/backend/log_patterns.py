@@ -201,29 +201,20 @@ _JSON_MESSAGE_KEYS = ("message", "msg", "log", "msg_", "_msg", "content", "event
 _RAW_EXAMPLE_CAP_MULTIPLIER = 4
 
 
-def _json_value_shape(value: object) -> str:
-    # "<val>" is deliberately not a mining placeholder (<*>, <num>, …): those must only ever
-    # mean "matches raw text here", and a shape token never should — compile_match_regex would
-    # otherwise emit predicates that can't match the raw JSON. Nested containers keep their
-    # own sorted-key structure one level down, then collapse to <val>.
-    if isinstance(value, dict):
-        return "{" + " ".join(f'"{key}": <val>' for key in sorted(value)) + "}"
-    if isinstance(value, list):
-        return "[<val>]"
-    return "<val>"
-
-
 def _prepare_json_body(body: str) -> str | None:
-    """Reduce a JSON log body to something Drain can cluster, or None when the body isn't JSON.
+    """Return the message-like field of a JSON log body, or None when there is no such field.
 
     Drain tokenizes on spaces, so a raw JSON blob is punctuation-glued junk: values sit fused
-    to keys and braces where the masking regexes can't isolate them, every value is
-    high-cardinality, and key order shuffles tokens — one code path fragments into dozens of
-    sub-floor templates. The industry norm (Loki's pattern ingester, Datadog's JSON
-    preprocessing, Elastic's categorization) is to mine only the message-like field. When no
-    such field exists we canonicalize the *shape* — sorted keys, values replaced by "<val>" —
-    so identical structures cluster into one stable template instead of being dropped (Loki
-    skips these lines entirely; templating the shape is strictly more useful).
+    to keys and braces where the masking regexes can't isolate them, and every value is
+    high-cardinality. The industry norm (Loki's pattern ingester, Datadog's JSON preprocessing,
+    Elastic's categorization) is to mine only the message-like field.
+
+    A body carrying no such field falls through to prose mining rather than being rewritten
+    into a canonical shape. Mining a rewritten body produces a template describing text that
+    appears nowhere in the raw row, so compile_match_regex and extract_match_literal must both
+    withhold a predicate, and the pattern cannot be pivoted to the logs behind it. An extracted
+    message is exempt because it is a literal substring of the raw row, which is what the
+    unanchored variant in compile_match_regex matches against.
     """
     # Shippers (Fluentd, Vector, Docker's json-file driver) sometimes deliver a BOM or
     # leading whitespace before the object — that must not demote the body to prose mining.
@@ -242,11 +233,12 @@ def _prepare_json_body(body: str) -> str | None:
         if isinstance(value, str) and value.strip():
             return value
 
-    return "{" + " ".join(f'"{key}": {_json_value_shape(parsed[key])}' for key in sorted(parsed)) + "}"
+    return None
 
 
 def _prepare_body(body: str, truncate: int) -> _PreparedBody:
-    # JSON bodies are reduced first (see _prepare_json_body); prose bodies pass through.
+    # A JSON body carrying a message field is reduced to it (see _prepare_json_body); every
+    # other body, JSON or prose, passes through unchanged.
     # Then collapse newlines / whitespace runs so multi-line bodies (stack traces) mine as a
     # single line, and bound length to keep Drain's parse tree and memory in check.
     prepared = _prepare_json_body(body)

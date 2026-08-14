@@ -88,19 +88,6 @@ class TestLogPatternsProperties(TestCase):
                 needle = pattern.match_literal.lower()
                 assert any(needle in body.lower() for body in bodies)
 
-    @given(obj=_json_objects, seed=st.randoms(use_true_random=False))
-    @settings(max_examples=200, deadline=None, suppress_health_check=_SUPPRESSED_HEALTH_CHECKS)
-    def test_shape_canonicalization_is_key_order_and_value_invariant(self, obj: dict, seed) -> None:
-        # Only shape-path objects (no extractable message) exercise canonicalization.
-        keys = list(obj)
-        seed.shuffle(keys)
-        shuffled = {key: obj[key] for key in keys}
-
-        a = _prepare_json_body(json.dumps(obj))
-        b = _prepare_json_body(json.dumps(shuffled))
-
-        assert a == b
-
     @given(obj=_json_objects, message=st.text(min_size=1, max_size=100).filter(lambda s: s.strip()))
     @settings(max_examples=200, deadline=None, suppress_health_check=_SUPPRESSED_HEALTH_CHECKS)
     def test_message_extraction_returns_the_message_verbatim(self, obj: dict, message: str) -> None:

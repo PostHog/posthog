@@ -554,25 +554,13 @@ class TestPrepareJsonBody(TestCase):
             ("not_json", "User alice not found", None),
             ("json_array", '[{"message": "in a list"}]', None),
             ("json_scalar_in_braces_invalid", "{not valid json}", None),
-            ("empty_message_falls_to_shape", '{"message": "", "a": 1}', '{"a": <val> "message": <val>}'),
-            ("non_string_message_falls_to_shape", '{"message": 42}', '{"message": <val>}'),
+            ("empty_message_is_not_a_message", '{"message": "", "a": 1}', None),
+            ("non_string_message_is_not_a_message", '{"message": 42}', None),
+            ("no_message_key", '{"user_id": 1, "ok": true}', None),
         ]
     )
     def test_json_body_reduction(self, _name: str, body: str, expected: str | None) -> None:
         assert _prepare_json_body(body) == expected
-
-    def test_shape_is_key_order_and_value_invariant(self) -> None:
-        # The two properties that stop shape-only JSON from fragmenting: same keys in any
-        # order with any values must canonicalize identically.
-        a = _prepare_json_body('{"user_id": 1, "action": "login", "ok": true}')
-        b = _prepare_json_body('{"ok": false, "action": "logout", "user_id": 999}')
-        assert a == b == '{"action": <val> "ok": <val> "user_id": <val>}'
-
-    def test_nested_containers_keep_one_level_of_shape(self) -> None:
-        assert (
-            _prepare_json_body('{"ctx": {"b": 1, "a": 2}, "tags": [1, 2]}')
-            == '{"ctx": {"a": <val> "b": <val>} "tags": [<val>]}'
-        )
 
 
 class TestJsonBodyMining(TestCase):
@@ -595,16 +583,19 @@ class TestJsonBodyMining(TestCase):
             assert compiled.search(raw)
         assert patterns[0].match_literal == "not found"
 
-    def test_shape_only_json_clusters_once_and_withholds_predicates(self) -> None:
-        # No message field: identical shapes must become one stable template (Loki drops these
-        # lines entirely; we template the shape instead), but neither predicate can honestly
-        # match the raw rows — "<val>" never appears in them — so both must be withheld.
-        raws = ['{"user_id": 1, "ok": true}', '{"ok": false, "user_id": 22}', '{"user_id": 333, "ok": true}']
+    def test_message_less_json_keeps_a_predicate_that_matches_the_raw_row(self) -> None:
+        # Rewriting these bodies into a canonical shape collapses them into one template, but
+        # that template then describes text absent from the raw row, so every predicate has to
+        # be withheld and the pattern loses the drill-down to its logs. Mining the body
+        # unchanged is what keeps the pivot working.
+        raws = ['{"user_id": 1, "ok": true}', '{"user_id": 22, "ok": true}', '{"user_id": 333, "ok": true}']
         patterns = mine_patterns([_sample(raw) for raw in raws])
 
         assert len(patterns) == 1
-        assert patterns[0].match_regex is None
-        assert patterns[0].match_literal is None
+        assert patterns[0].match_regex is not None
+        compiled = re.compile(patterns[0].match_regex)
+        for raw in raws:
+            assert compiled.search(raw)
 
     def test_message_with_json_escaped_content_withholds_the_regex(self) -> None:
         # The raw row stores the newline as a two-character escape (\n); the extracted message
