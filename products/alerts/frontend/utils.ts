@@ -1,3 +1,5 @@
+import type { AlertCheckDelivery } from './types'
+
 export enum AlertsTab {
     INSIGHTS = 'insights',
     LOGS = 'logs',
@@ -48,4 +50,22 @@ export function getAlertsTabs({
         tabs.push({ key: AlertsTab.LOGS, label: 'Log alerts' })
     }
     return tabs
+}
+
+const DELIVERY_TEMPLATE_LABELS: Record<string, string> = {
+    slack: 'Slack',
+    discord: 'Discord',
+    webhook: 'Webhook',
+    teams: 'Microsoft Teams',
+}
+
+export function describeDelivery(delivery: AlertCheckDelivery): string {
+    if (delivery.channel === 'email') {
+        return `Email: ${delivery.target}`
+    }
+    if (delivery.channel === 'hog_function') {
+        const label = (delivery.template && DELIVERY_TEMPLATE_LABELS[delivery.template]) || 'Destination'
+        return `${label}: ${delivery.target}`
+    }
+    return `${delivery.channel}: ${delivery.target}`
 }

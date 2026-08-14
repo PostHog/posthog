@@ -27,6 +27,7 @@ import { AlertHistoryChart } from 'products/alerts/frontend/views/AlertHistoryCh
 import { alertLogic, CHART_CHECKS_LIMIT, TABLE_CHECKS_PAGE_SIZE } from '../logic/alertLogic'
 import { isAnyRowHogQLConfig } from '../types'
 import type { AlertCheck, AlertType, InvestigationVerdict } from '../types'
+import { describeDelivery } from '../utils'
 
 const VERDICT_CONFIG: Record<InvestigationVerdict, { label: string; className: string; tooltip: string }> = {
     true_positive: {
@@ -211,7 +212,45 @@ export function AlertHistorySection({
             title: 'Targets notified',
             key: 'targets_notified',
             align: 'right',
-            render: (_value, check) => (check.targets_notified ? 'Yes' : 'No'),
+            render: (_value, check) => {
+                const deliveries = check.deliveries ?? []
+                const accepted = deliveries.filter((delivery) => delivery.status === 'accepted')
+                if (accepted.length > 0) {
+                    return (
+                        <Tooltip
+                            title={
+                                <div className="flex flex-col gap-0.5">
+                                    {accepted.map((delivery, i) => (
+                                        <span key={i}>{describeDelivery(delivery)}</span>
+                                    ))}
+                                </div>
+                            }
+                        >
+                            <span>Yes · {accepted.length}</span>
+                        </Tooltip>
+                    )
+                }
+                if (deliveries.length > 0 || check.targets_notified) {
+                    return (
+                        <Tooltip
+                            title={
+                                <div className="flex flex-col gap-0.5">
+                                    {deliveries.map((delivery, i) => (
+                                        <span key={i}>{describeDelivery(delivery)}</span>
+                                    ))}
+                                    <span>
+                                        Recorded before delivery receipts were added, so the exact destinations are not
+                                        known.
+                                    </span>
+                                </div>
+                            }
+                        >
+                            <span>Yes</span>
+                        </Tooltip>
+                    )
+                }
+                return 'No'
+            },
         })
         return columns
     }, [alertHistoryIsAnomalyDetection, investigationAgentEnabled, isAnyRowSqlAlert])

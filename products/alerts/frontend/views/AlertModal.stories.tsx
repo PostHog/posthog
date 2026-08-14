@@ -87,6 +87,12 @@ const makeAlert = (overrides: Partial<AlertType>): AlertType =>
     }) as AlertType
 
 const trendsAlert = makeAlert({})
+// Shows the delivery details tooltip on the History tab's "Targets notified" cell.
+trendsAlert.checks![trendsAlert.checks!.length - 1].targets_notified = true
+trendsAlert.checks![trendsAlert.checks!.length - 1].deliveries = [
+    { channel: 'email', target: 'alerts@example.com', status: 'accepted' },
+    { channel: 'hog_function', target: 'Eng alerts', template: 'slack', status: 'accepted' },
+]
 
 const funnelAlert = makeAlert({
     id: 'alert-funnel',
