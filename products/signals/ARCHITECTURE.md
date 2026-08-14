@@ -533,7 +533,6 @@ Per-team configuration for which signal sources are enabled.
 - `llm_analytics` signals go through the standard enabled-row check like every other source. `evaluation_report` is the only type AI observability emits, gated by its own `(llm_analytics, evaluation_report)` row (the inbox "AI observability" toggle). The per-result workflow and activity remain registered only so existing Temporal histories can finish replaying.
 - For session replay configs, serializer validation enforces that `config.recording_filters` is a JSON object when present.
 - The serializer exposes a computed `status` field:
-  - `session_analysis_cluster` derives status from the Temporal clustering workflow
   - data-import-backed sources (`github`, `linear`, `zendesk`) derive status from `ExternalDataSchema`
 - The `signals_scout` source variant pairs with `source_type=cross_source_issue` and is the emission channel used by the headless Signals agent's `emit_signal_*` tools. It is the only `(source_product, source_type)` pair the agent emits today.
 
@@ -806,10 +805,8 @@ Full CRUD for per-team signal source configurations. Uses `IsAuthenticated` + `A
 
 Important side effects:
 
-- Creating or enabling a `session_analysis_cluster` config starts the clustering workflow
 - Creating an enabled `error_tracking / issue_created` config starts the error-tracking backfill workflow
 - Enabling data-import-backed sources can trigger external data syncs
-- Disabling a clustering config cancels the clustering workflow
 
 #### `SignalTeamConfigViewSet`
 
@@ -934,7 +931,7 @@ Generated MCP tool names:
 - **`SignalSourceConfigSerializer`**
   - Exposes `id`, `source_product`, `source_type`, `enabled`, `config`, `created_at`, `updated_at`, `status`
   - Validates that `recording_filters` in config is a JSON object for `session_replay`
-  - Computes `status` from the clustering workflow or external data import state depending on the source
+  - Computes `status` from external data import state for data-import-backed sources
 - **`SignalTeamConfigSerializer`**
   - ModelSerializer for `SignalTeamConfig`
   - Exposes `id`, `default_autostart_priority`, `created_at`, `updated_at`
