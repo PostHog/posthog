@@ -69,6 +69,10 @@ Each of these is numbered so a test can name the one it covers.
 
 ### Limits
 
+These limits count every request the lane makes, not only a request for an image. A file the lane
+reads to decide whether it may fetch at all, such as robots.txt, spends the same budget as the image
+would. A host feels those requests the same way.
+
 1. Requests in flight never exceed the pod limit.
 2. Requests in flight to one domain never exceed the domain limit, redirects included.
 3. Requests to one domain never exceed the rate its token bucket allows.
