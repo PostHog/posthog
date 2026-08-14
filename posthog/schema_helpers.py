@@ -177,6 +177,7 @@ def grouped_chart_display_types(display: ChartDisplayType) -> ChartDisplayType:
             | ChartDisplayType.ACTIONS_UNSTACKED_BAR
             | ChartDisplayType.ACTIONS_STACKED_BAR
             | ChartDisplayType.TWO_DIMENSIONAL_HEATMAP
+            | ChartDisplayType.SCATTER_PLOT
             | ChartDisplayType.METRIC
         ):
             # standard time series
