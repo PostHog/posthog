@@ -133,6 +133,9 @@ class LogSample:
     severity_text: str
     service_name: str
     timestamp: dt.datetime
+    # Set on the examples the miner keeps, when `body` covers only a prefix of the raw line.
+    # compile_match_regex drops its end anchor for those.
+    truncated: bool = False
 
 
 @dataclass
@@ -164,16 +167,34 @@ class _Accumulator:
     first_seen: dt.datetime
     last_seen: dt.datetime
     count: int = 0
+    # Cluster-level, because `examples` is deduped and capped: a truncated sample can be
+    # dropped before it lands there, and the end anchor must still come off.
+    truncated: bool = False
     examples: list[LogSample] = field(default_factory=list)
     services: list[str] = field(default_factory=list)
     bucket_counts: list[int] = field(default_factory=list)
     severity_counts: dict[str, int] = field(default_factory=dict)
 
 
-def _prepare_body(body: str, truncate: int) -> str:
+@dataclass(frozen=True)
+class _PreparedBody:
+    text: str
+    truncated: bool
+
+
+def _prepare_body(body: str, truncate: int) -> _PreparedBody:
     # Collapse newlines / whitespace runs so multi-line bodies (stack traces) mine as a
     # single line, then bound length to keep Drain's parse tree and memory in check.
-    return _WHITESPACE_RE.sub(" ", body).strip()[:truncate]
+    collapsed = _WHITESPACE_RE.sub(" ", body).strip()
+    if len(collapsed) <= truncate:
+        return _PreparedBody(collapsed, truncated=False)
+    # Cut back to the last space inside the cap. Drain splits on whitespace, so a mid-word
+    # cut hands it a fragment ("(Macinto") that it treats as a literal token, and one long
+    # statement then fragments into a cluster per distinct cut point. A body with no space
+    # inside the cap has no boundary to cut at, so it still cuts hard.
+    head = collapsed[:truncate]
+    boundary = head.rfind(" ")
+    return _PreparedBody(head[:boundary] if boundary > 0 else head, truncated=True)
 
 
 def _build_miner(sim_th: float, depth: int, max_clusters: int) -> tuple[LogMasker, Drain]:
@@ -224,15 +245,18 @@ def pattern_fingerprint(template: str) -> str:
     return "\x00".join(literals) if literals else template
 
 
-def compile_match_regex(template: str, examples: list[LogSample], truncate: int) -> str | None:
+def compile_match_regex(template: str, examples: list[LogSample], *, truncated: bool | None = None) -> str | None:
     """Compile a mined template into an RE2-safe regex over raw log bodies, self-validated
     against the pattern's own examples.
 
     Returns None rather than an unvalidated predicate: Drain refines templates as rows merge,
     so an early-stored example can diverge from the final template — and a filter that
     silently matches the wrong logs is worse than no filter. Anchored at the start (leading
-    whitespace was stripped before mining); the end anchor is dropped when any example hit
-    the mining truncation cap, since the template then only covers a prefix of the raw line.
+    whitespace was stripped before mining); the end anchor is dropped when the cluster held a
+    truncated body, since the template then only covers a prefix of the raw line.
+
+    Pass `truncated` from the cluster. Falling back to the retained examples under-reports it,
+    because dedup and the example cap can both drop the truncated body.
     """
     if not examples:
         return None
@@ -248,7 +272,8 @@ def compile_match_regex(template: str, examples: list[LogSample], truncate: int)
         pos = match.end()
     parts.append(_escape_literal(template[pos:]))
 
-    truncated = any(len(example.body) >= truncate for example in examples)
+    if truncated is None:
+        truncated = any(example.truncated for example in examples)
     candidate = r"^\s*" + "".join(parts) + ("" if truncated else r"\s*$")
 
     try:
@@ -308,7 +333,7 @@ def mine_patterns(
 
     for sample in samples:
         prepared = _prepare_body(sample.body, truncate)
-        cluster, _change_type = drain.add_log_message(masker.mask(prepared))
+        cluster, _change_type = drain.add_log_message(masker.mask(prepared.text))
         cluster_id = cluster.cluster_id
 
         acc = accumulators.get(cluster_id)
@@ -329,15 +354,17 @@ def mine_patterns(
                 acc.last_seen = sample.timestamp
 
         acc.count += 1
+        acc.truncated = acc.truncated or prepared.truncated
         severity = sample.severity_text.lower()
         acc.severity_counts[severity] = acc.severity_counts.get(severity, 0) + 1
-        if len(acc.examples) < max_examples and all(e.body != prepared for e in acc.examples):
+        if len(acc.examples) < max_examples and all(e.body != prepared.text for e in acc.examples):
             acc.examples.append(
                 LogSample(
-                    body=prepared,
+                    body=prepared.text,
                     severity_text=sample.severity_text,
                     service_name=sample.service_name,
                     timestamp=sample.timestamp,
+                    truncated=prepared.truncated,
                 )
             )
         if sample.service_name not in acc.services and len(acc.services) < max_services:
@@ -360,7 +387,7 @@ def mine_patterns(
             services=acc.services,
             bucket_counts=acc.bucket_counts,
             severity_counts=acc.severity_counts,
-            match_regex=compile_match_regex(acc.template, acc.examples, truncate),
+            match_regex=compile_match_regex(acc.template, acc.examples, truncated=acc.truncated),
             match_literal=extract_match_literal(acc.template),
         )
         for acc in accumulators.values()
