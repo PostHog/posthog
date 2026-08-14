@@ -9,9 +9,11 @@ import type {
   SessionConfigSelectOption,
   SessionUpdate,
 } from "@agentclientprotocol/sdk";
+import { requestErrorStatus } from "@posthog/api-client/fetcher";
 import type {
   CreateResourceCommentRequest,
   ResourceComment,
+  TaskRunSessionLogsResult,
 } from "@posthog/api-client/posthog-client";
 import {
   type AcpMessage,
@@ -4250,8 +4252,16 @@ export class SessionService {
       // sandbox that hits the same provisioning failure — surface the error
       // instead of looping.
       if (session.cloudStatus === "failed" && session.status !== "connected") {
+        let errorMessage = session.cloudErrorMessage;
+        if (!errorMessage) {
+          // A restart drops the in-memory error; refetch the run so the user
+          // sees the real failure instead of the generic fallback.
+          await this.refreshCloudRunStatus(session);
+          errorMessage =
+            this.d.store.getSessions()[session.taskRunId]?.cloudErrorMessage;
+        }
         throw new Error(
-          session.cloudErrorMessage ??
+          errorMessage ??
             "Cloud run couldn't start. Check that GitHub is connected for this project, then try again.",
         );
       }
@@ -4667,6 +4677,11 @@ export class SessionService {
       );
     } catch (error) {
       rollbackOptimisticPrompt();
+      if (requestErrorStatus(error) === 404 && session.isTaskAuthor === false) {
+        throw new Error(
+          "Only the person who created this task can send it messages. Start a new session to continue the work yourself.",
+        );
+      }
       throw error;
     }
     const newRun = updatedTask.latest_run;
@@ -6277,6 +6292,21 @@ export class SessionService {
     );
   }
 
+  private logHydrationTruncation(
+    taskId: string,
+    runId: string,
+    result: TaskRunSessionLogsResult,
+  ): void {
+    if (result.truncatedHeadCount > 0) {
+      this.d.log.info("Session log hydration dropped oldest entries", {
+        taskId,
+        runId,
+        truncatedHeadCount: result.truncatedHeadCount,
+        hydratedCount: result.entries.length,
+      });
+    }
+  }
+
   private async performCloudTaskSessionHydration(
     taskId: string,
     taskRunId: string,
@@ -6319,6 +6349,7 @@ export class SessionService {
             });
             return;
           }
+          this.logHydrationTruncation(taskId, taskRunId, result);
           rawEntries = result.entries;
           const markedLeafStart = rawEntries.findIndex(
             (entry) => getEntryTaskRunMarker(entry) === taskRunId,
@@ -6352,6 +6383,8 @@ export class SessionService {
             });
             return;
           }
+          this.logHydrationTruncation(taskId, resumeFromRunId, ancestorResult);
+          this.logHydrationTruncation(taskId, taskRunId, currentRunResult);
           const ancestorEntries: StoredLogEntry[] = ancestorResult.entries;
           const currentRunEntries: StoredLogEntry[] = currentRunResult.entries;
           const ancestorKeys = ancestorEntries.map((entry) =>
@@ -6392,6 +6425,7 @@ export class SessionService {
           });
           return;
         }
+        this.logHydrationTruncation(taskId, taskRunId, result);
         rawEntries = result.entries;
         liveStreamLineCount = rawEntries.length;
         // A terminal run whose persisted chain comes back empty can still

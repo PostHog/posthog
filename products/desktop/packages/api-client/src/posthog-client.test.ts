@@ -2030,11 +2030,19 @@ describe("PostHogAPIClient", () => {
       }));
     }
 
-    function page(entries: unknown[], hasMore: boolean) {
+    function page(
+      entries: unknown[],
+      hasMore: boolean,
+      matchingCount?: number,
+    ) {
+      const headers = new Headers({ "X-Has-More": String(hasMore) });
+      if (matchingCount !== undefined) {
+        headers.set("X-Matching-Count", String(matchingCount));
+      }
       return {
         ok: true,
         json: async () => entries,
-        headers: new Headers({ "X-Has-More": String(hasMore) }),
+        headers,
       };
     }
 
@@ -2141,6 +2149,92 @@ describe("PostHogAPIClient", () => {
       });
     });
 
+    it("fetches the newest entries when the log exceeds the requested cap", async () => {
+      const fetch = vi
+        .fn()
+        .mockResolvedValueOnce(page(makeEntries(5000, "head"), true, 9000))
+        .mockResolvedValueOnce(page(makeEntries(5000, "tail-a"), true, 9000))
+        .mockResolvedValueOnce(page(makeEntries(1000, "tail-b"), false, 9000));
+      const client = makeClient(fetch);
+
+      const result = await client.getTaskRunSessionLogsResult(
+        "task-1",
+        "run-1",
+        { limit: 6000 },
+      );
+
+      expect(result.complete).toBe(true);
+      expect(result.truncatedHeadCount).toBe(3000);
+      expect(result.entries).toHaveLength(6000);
+      expect(
+        (result.entries[0] as { notification: { method: string } }).notification
+          .method,
+      ).toBe("tail-a-0");
+      expect(fetch).toHaveBeenCalledTimes(3);
+      expect(requestedParams(fetch.mock.calls[1][0])).toEqual({
+        limit: "5000",
+        offset: "3000",
+      });
+      expect(requestedParams(fetch.mock.calls[2][0])).toEqual({
+        limit: "1000",
+        offset: "8000",
+      });
+    });
+
+    it("does not refetch when the matching count equals the cap", async () => {
+      const fetch = vi
+        .fn()
+        .mockResolvedValue(page(makeEntries(5000, "a"), false, 5000));
+      const client = makeClient(fetch);
+
+      const result = await client.getTaskRunSessionLogsResult(
+        "task-1",
+        "run-1",
+        { limit: 5000 },
+      );
+
+      expect(result.complete).toBe(true);
+      expect(result.truncatedHeadCount).toBe(0);
+      expect(fetch).toHaveBeenCalledTimes(1);
+    });
+
+    it("retries a rejected page fetch once and keeps paginating", async () => {
+      const fetch = vi
+        .fn()
+        .mockResolvedValueOnce(page(makeEntries(50, "a"), true))
+        .mockRejectedValueOnce(new Error("socket hang up"))
+        .mockResolvedValueOnce(page(makeEntries(10, "b"), false));
+      const client = makeClient(fetch);
+
+      const result = await client.getTaskRunSessionLogsResult(
+        "task-1",
+        "run-1",
+        { limit: 100000 },
+      );
+
+      expect(result.complete).toBe(true);
+      expect(result.entries).toHaveLength(60);
+      expect(fetch).toHaveBeenCalledTimes(3);
+    });
+
+    it("gives up after a second rejection on the same page", async () => {
+      const fetch = vi
+        .fn()
+        .mockResolvedValueOnce(page(makeEntries(50, "a"), true))
+        .mockRejectedValue(new Error("socket hang up"));
+      const client = makeClient(fetch);
+
+      const result = await client.getTaskRunSessionLogsResult(
+        "task-1",
+        "run-1",
+        { limit: 100000 },
+      );
+
+      expect(result.complete).toBe(false);
+      expect(result.entries).toHaveLength(50);
+      expect(fetch).toHaveBeenCalledTimes(3);
+    });
+
     it("marks entries collected before a failed page as incomplete", async () => {
       const fetch = vi
         .fn()
@@ -2159,7 +2253,11 @@ describe("PostHogAPIClient", () => {
         { limit: 100000 },
       );
 
-      expect(result).toEqual({ entries: expect.any(Array), complete: false });
+      expect(result).toEqual({
+        entries: expect.any(Array),
+        complete: false,
+        truncatedHeadCount: 0,
+      });
       expect(result.entries).toHaveLength(50);
       expect(fetch).toHaveBeenCalledTimes(2);
     });
