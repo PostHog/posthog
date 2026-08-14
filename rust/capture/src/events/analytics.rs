@@ -480,9 +480,9 @@ async fn process_events_inner(
     // overflowable lane is reachable, so behavior is identical across paths.
     if context.capture_mode.applies_global_rate_limit() {
         // Token-level aggregate first. Stamps only person processing and the
-        // overflow reroute -- events stay live, so the per-key loop below still
-        // consults the shared per-key limiter for every one of them, keeping
-        // v0/v1 per-key counts identical (see the invariant note above).
+        // overflow reroute -- and since the per-key loop below skips events
+        // whose person processing is already off, a token-level flood also
+        // stops feeding the per-key limiter's cache and Redis pipeline.
         if let Some(ref limiter) = global_rate_limiter_token {
             let event_count = events.len() as u64;
             let cache_key = GlobalRateLimitKey::Token(&context.token).to_cache_key();

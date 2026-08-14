@@ -167,10 +167,11 @@ pub async fn process_batch(
     if state.capture_mode.applies_global_rate_limit() {
         // Token-level aggregate first: a token-limited event keeps
         // `EventResult::Ok` (only person processing and destination are
-        // stamped), so the per-key loop below still counts its volume --
-        // preserving the v0/v1 invariant that both pipelines feed the shared
-        // per-key limiter identical counts. The loop then reports such events
-        // as `already_disabled` and never double-stamps them.
+        // stamped). The per-key loop below skips events whose person
+        // processing is already off, so a token-level flood also stops feeding
+        // the per-key limiter -- its cache, channel, and Redis pipeline are
+        // shielded from exactly the cardinality burst that trips the token
+        // level. The loop reports such events as `already_disabled`.
         if let Some(ref limiter) = state.global_rate_limiter_token {
             apply_token_limits(limiter, context, &mut events).await;
         }
@@ -2501,11 +2502,12 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn token_limited_events_still_feed_per_key_limiter() {
-        // The v0/v1 invariant: both pipelines consult the shared per-key
-        // limiter for every non-dropped event. A token-limited batch must not
-        // vanish from the per-key counts -- the per-key loop still evaluates
-        // each event and reports it as already_disabled.
+    async fn token_limited_events_skip_per_key_limiter() {
+        // A token-limited event has person processing off already, and the
+        // per-key stage skips such events entirely (the limiter has nothing
+        // left to take away). That skip is also what shields the per-key
+        // limiter's cache and Redis pipeline from the cardinality of a
+        // token-level flood -- this test pins that shielding.
         let token_limiter = mock_limiter(vec!["phc_tok"]);
         let (per_key_limiter, calls) = mock_limiter_with_log(vec![]);
         let ctx = td_context();
@@ -2519,8 +2521,8 @@ mod tests {
 
         assert_eq!(
             calls.lock().unwrap().len(),
-            2,
-            "per-key limiter must still count token-limited events"
+            0,
+            "token-limited events must not reach the per-key limiter"
         );
         assert_eq!(tally.already_disabled, 2);
         assert_eq!(tally.limited, 0);

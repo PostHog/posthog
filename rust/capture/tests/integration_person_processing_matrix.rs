@@ -242,6 +242,7 @@ async fn run_v0(inputs: Inputs, distinct_ids: &[&str]) -> Batch {
         Arc::new(sink),
         redis,
         Some(Arc::new(limiter)),
+        None, // global_rate_limiter_token
         quota_limiter,
         TokenDropper::default(),
         Some(service),
