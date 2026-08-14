@@ -327,7 +327,7 @@ tools:
             readOnly: false
             destructive: false
             idempotent: true
-        enrich_url: ?open_view={id}
+        enrich_url: ?open_view={params.id}
         title: Run saved query
         description: >
             Trigger a manual materialization run for a saved query. This immediately refreshes the materialized table
@@ -500,6 +500,9 @@ tools:
         enabled: false
     warehouse-saved-queries-cancel-create:
         operation: warehouse_saved_queries_cancel_create
+        enabled: false
+    warehouse-saved-queries-check-incremental-create:
+        operation: warehouse_saved_queries_check_incremental_create
         enabled: false
     warehouse-saved-queries-dependencies-retrieve:
         operation: warehouse_saved_queries_dependencies_retrieve

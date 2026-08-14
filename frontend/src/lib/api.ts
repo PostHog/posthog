@@ -100,6 +100,7 @@ import {
     DataModelingNode,
     DataWarehouseManagedViewsetSavedQuery,
     DataWarehouseSavedQuery,
+    DataWarehouseSavedQueryIncrementalCheck,
     DataWarehouseSavedQueryDependencies,
     DataWarehouseSavedQueryDraft,
     DataWarehouseSavedQueryFolder,
@@ -5692,8 +5693,19 @@ const api = {
         ): Promise<DataWarehouseSavedQuery> {
             return await new ApiRequest().dataWarehouseSavedQuery(viewId).update({ data })
         },
-        async run(viewId: DataWarehouseSavedQuery['id']): Promise<void> {
-            return await new ApiRequest().dataWarehouseSavedQuery(viewId).withAction('run').create()
+        async run(viewId: DataWarehouseSavedQuery['id'], fullRefresh?: boolean): Promise<void> {
+            return await new ApiRequest()
+                .dataWarehouseSavedQuery(viewId)
+                .withAction('run')
+                .create({ data: { full_refresh: !!fullRefresh } })
+        },
+        async checkIncremental(data: {
+            query: string
+            incremental_key?: string
+            unique_key?: string[]
+            lookback_seconds?: number
+        }): Promise<DataWarehouseSavedQueryIncrementalCheck> {
+            return await new ApiRequest().dataWarehouseSavedQueries().withAction('check_incremental').create({ data })
         },
         async cancel(viewId: DataWarehouseSavedQuery['id']): Promise<void> {
             return await new ApiRequest().dataWarehouseSavedQuery(viewId).withAction('cancel').create()
