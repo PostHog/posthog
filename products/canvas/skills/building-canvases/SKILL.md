@@ -106,6 +106,21 @@ canvas tools return (`canvas-create`, `canvas-list`, and the publish/source resp
 That field is the only valid link to a canvas — never construct one yourself; guessed URLs
 (project pages, web routes) do not resolve.
 
+## Runtime memory and actions
+
+- **`ph.state`** — durable key-value memory: `ph.state.get(key, { scope })`,
+  `ph.state.set(key, value, { scope })` (a null value deletes the key), `ph.state.list({ scope })`.
+  Scope `"user"` (the default) is private to each viewer; `"shared"` is one value per canvas,
+  visible to the whole team. Declare the scopes you use in `capabilities.posthog.state`.
+  Values are JSON, capped at 64 KB serialized and 256 keys per scope — store big data in
+  PostHog (insights, the warehouse) and reference it. Never put secrets or viewer PII in state.
+- **`ph.actions.invoke(verb, payload)`** — write into PostHog as the viewer. Declare every verb
+  in `capabilities.posthog.actions`; undeclared or unregistered verbs fail validation and the
+  host refuses them at runtime. Wire actions to explicit user gestures (a button the viewer
+  clicks), never to load or render. The registry is the source of truth: list it with the
+  `canvases-actions-retrieve` tool and follow each verb's `usage` (payload/result shape,
+  behavior, and the confirmation copy it warrants) before wiring it.
+
 ## Source-project shape
 
 - Keep `index.html` as the entry shell returned by the source tool.

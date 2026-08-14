@@ -176,6 +176,7 @@ __all__ = [
     "build_sandbox_custom_image",
     "create_sandbox_custom_image",
     "create_sandbox_environment",
+    "create_channel_task",
     "create_task",
     "create_task_automation",
     "create_task_without_run",
@@ -1301,13 +1302,17 @@ def create_task_without_run(
     description: str = "",
     repository: str | None = None,
     mcp_builtin_agent_key: MCPBuiltInAgentKey | None = None,
+    channel: Channel | None = None,
 ) -> UUID:
     """Create a Task row with no initial run, returning its id.
 
     For callers that own run creation themselves — e.g. the sandbox warm path, which boots the first
     run via the warming facade. ``team`` is a core ``posthog.Team`` (not a tasks model).
     """
-    channel = None if origin_product in TEAM_READABLE_ORIGIN_PRODUCTS else _ensure_personal_channel(team.id, user_id)
+    if channel is None:
+        channel = (
+            None if origin_product in TEAM_READABLE_ORIGIN_PRODUCTS else _ensure_personal_channel(team.id, user_id)
+        )
     task = Task.create_without_run(
         team=team,
         title=title,
@@ -1319,6 +1324,26 @@ def create_task_without_run(
         mcp_builtin_agent_key=mcp_builtin_agent_key,
     )
     return task.id
+
+
+def create_channel_task(team_id: int, user_id: int, channel_id: str | UUID, *, title: str, description: str) -> UUID:
+    """Create a task filed into a channel, as the user — for product surfaces
+    (canvas actions) that file work into their own channel. No initial run:
+    the channel's feed shows it and the user drives it from there.
+    """
+    channel = (
+        Channel.objects.for_team(team_id).filter(Channel.visible_to_q(user_id), id=channel_id, deleted=False).first()
+    )
+    if channel is None:
+        raise ValueError("Channel not found in this team.")
+    return create_task_without_run(
+        team=Team.objects.get(id=team_id),
+        user_id=user_id,
+        origin_product=Task.OriginProduct.USER_CREATED,
+        title=title,
+        description=description,
+        channel=channel,
+    )
 
 
 def create_run(
