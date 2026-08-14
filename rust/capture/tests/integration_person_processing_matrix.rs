@@ -37,8 +37,8 @@ use axum::http::StatusCode;
 use axum_test_helper::TestClient;
 use capture::config::CaptureMode;
 use capture::event_restrictions::{
-    EventRestrictionService, Pipeline, Restriction, RestrictionManager, RestrictionScope,
-    RestrictionType,
+    EventRestrictionService, Pipeline, Restriction, RestrictionFilters, RestrictionManager,
+    RestrictionScope, RestrictionType,
 };
 use capture::global_rate_limiter::GlobalRateLimiter;
 use capture::quota_limiters::CaptureQuotaLimiter;
@@ -56,11 +56,15 @@ use limiters::token_dropper::TokenDropper;
 use metrics_util::debugging::{DebugValue, DebuggingRecorder};
 use rstest::rstest;
 use serde_json::json;
+use std::collections::HashSet;
 use std::sync::Arc;
 use std::time::Duration;
 
 const TOKEN: &str = "phc_matrix_token";
 const DISTINCT_ID: &str = "matrix-user";
+/// A key the filtered restriction covers, and one it does not.
+const RESTRICTED_DISTINCT_ID: &str = "matrix-user-restricted";
+const OPEN_DISTINCT_ID: &str = "matrix-user-open";
 
 /// The limiter evaluates the local cache, so the first event for a key is always
 /// a miss and passes. A threshold of 0 makes the second event for that key
@@ -88,6 +92,10 @@ struct Inputs {
     overflow_restriction: bool,
     /// The limiter's threshold is low enough to limit the observed event.
     over_rate_limit: bool,
+    /// Narrow the restrictions to one distinct id instead of the whole token.
+    /// Restrictions are keyed by token and may carry filters, so a token can
+    /// have some of its keys restricted and the rest untouched.
+    restricted_distinct_id: Option<&'static str>,
 }
 
 /// The lane an event landed on, independent of each path's topic names.
@@ -98,31 +106,35 @@ enum Lane {
     Other(&'static str),
 }
 
+/// The wire facts of one produced record.
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
+struct Record {
+    lane: Lane,
+    has_key: bool,
+    force_disable_person_processing: Option<bool>,
+}
+
+/// One record's facts plus the limiter cost for the batch that produced it.
+/// Consultations are a batch total, not per record, because the Redis work this
+/// counts is paid once per consulted event and read back from one counter.
 #[derive(Debug, PartialEq, Eq)]
 struct Observed {
-    lane: Lane,
-    has_key: bool,
-    force_disable_person_processing: Option<bool>,
+    record: Record,
     limiter_consultations: u64,
 }
 
-#[derive(Debug, PartialEq, Eq, Clone, Copy)]
-struct Expected {
-    lane: Lane,
-    has_key: bool,
-    force_disable_person_processing: Option<bool>,
-    /// Consultations across the whole two-event batch, not just the observed
-    /// event, because the cost this counts is paid per event.
+#[derive(Debug, PartialEq, Eq)]
+struct Batch {
+    records: Vec<Record>,
     limiter_consultations: u64,
 }
 
-impl From<Expected> for Observed {
-    fn from(e: Expected) -> Self {
-        Self {
-            lane: e.lane,
-            has_key: e.has_key,
-            force_disable_person_processing: e.force_disable_person_processing,
-            limiter_consultations: e.limiter_consultations,
+impl Batch {
+    /// The facts of one record, paired with the batch's limiter cost.
+    fn at(&self, index: usize) -> Observed {
+        Observed {
+            record: self.records[index],
+            limiter_consultations: self.limiter_consultations,
         }
     }
 }
@@ -160,18 +172,26 @@ fn build_limiter(inputs: Inputs, redis: Arc<MockRedisClient>) -> GlobalRateLimit
 }
 
 async fn build_restrictions(inputs: Inputs) -> EventRestrictionService {
+    let scope = match inputs.restricted_distinct_id {
+        Some(distinct_id) => RestrictionScope::Filtered(RestrictionFilters {
+            distinct_ids: HashSet::from([distinct_id.to_string()]),
+            ..Default::default()
+        }),
+        None => RestrictionScope::AllEvents,
+    };
+
     let mut restrictions = Vec::new();
     if inputs.skip_person_restriction {
         restrictions.push(Restriction {
             restriction_type: RestrictionType::SkipPersonProcessing,
-            scope: RestrictionScope::AllEvents,
+            scope: scope.clone(),
             args: None,
         });
     }
     if inputs.overflow_restriction {
         restrictions.push(Restriction {
             restriction_type: RestrictionType::ForceOverflow,
-            scope: RestrictionScope::AllEvents,
+            scope,
             args: None,
         });
     }
@@ -185,14 +205,15 @@ async fn build_restrictions(inputs: Inputs) -> EventRestrictionService {
     service
 }
 
-/// Drive the v0 endpoint (`/capture`) into a real `KafkaSinkBase` and read the
-/// second record off the mock producer.
+/// Drive the v0 endpoint (`/capture`) into a real `KafkaSinkBase` and read every
+/// record off the mock producer, in request order.
 ///
-/// The batch carries two events for one key on purpose: the limiter evaluates
-/// the local cache, so the first is always a miss that passes, and only the
-/// second can exceed a zero threshold. That keeps the limiting case free of
-/// Redis and of the clock.
-async fn run_v0(inputs: Inputs) -> Observed {
+/// `distinct_ids` gives one event per entry. Repeating an id is how a case
+/// reaches the limiter's limiting branch: the limiter evaluates the local cache,
+/// so the first event for a key is always a miss that passes, and only a later
+/// one can exceed a zero threshold. That keeps the limiting case free of Redis
+/// and of the clock.
+async fn run_v0(inputs: Inputs, distinct_ids: &[&str]) -> Batch {
     // The handler runs on this thread: `#[tokio::test]` is a current-thread
     // runtime, so a thread-local recorder sees the limiter's counters.
     let recorder = DebuggingRecorder::new();
@@ -252,12 +273,17 @@ async fn run_v0(inputs: Inputs) -> Observed {
     if inputs.personless {
         properties["$process_person_profile"] = json!(false);
     }
-    let event = json!({
-        "event": "$pageview",
-        "distinct_id": DISTINCT_ID,
-        "properties": properties,
-    });
-    let payload = json!({ "api_key": TOKEN, "batch": [event.clone(), event] });
+    let batch: Vec<_> = distinct_ids
+        .iter()
+        .map(|distinct_id| {
+            json!({
+                "event": "$pageview",
+                "distinct_id": distinct_id,
+                "properties": properties,
+            })
+        })
+        .collect();
+    let payload = json!({ "api_key": TOKEN, "batch": batch });
 
     let response = TestClient::new(router)
         .post("/capture")
@@ -268,21 +294,29 @@ async fn run_v0(inputs: Inputs) -> Observed {
         .await;
     assert_eq!(response.status(), StatusCode::OK, "v0 rejected the batch");
 
-    let records = producer.get_records();
-    assert_eq!(records.len(), 2, "v0 must produce both events");
-    let observed = &records[1];
+    let produced = producer.get_records();
+    assert_eq!(
+        produced.len(),
+        distinct_ids.len(),
+        "v0 must produce every event"
+    );
 
-    Observed {
-        lane: v0_lane(&observed.topic),
-        has_key: observed.key.is_some(),
-        force_disable_person_processing: observed.headers.force_disable_person_processing,
+    Batch {
+        records: produced
+            .iter()
+            .map(|r| Record {
+                lane: v0_lane(&r.topic),
+                has_key: r.key.is_some(),
+                force_disable_person_processing: r.headers.force_disable_person_processing,
+            })
+            .collect(),
         limiter_consultations: consultations(&snapshotter),
     }
 }
 
 /// Drive the v1 endpoint (`/i/v1/analytics/events`) through its own router and
-/// sink, reading the second record off the v1 mock producer.
-async fn run_v1(inputs: Inputs) -> Observed {
+/// sink, reading every record off the v1 mock producer, in request order.
+async fn run_v1(inputs: Inputs, distinct_ids: &[&str]) -> Batch {
     let recorder = DebuggingRecorder::new();
     let snapshotter = recorder.snapshotter();
     let _guard = metrics::set_default_local_recorder(&recorder);
@@ -308,19 +342,24 @@ async fn run_v1(inputs: Inputs) -> Observed {
     } else {
         json!({})
     };
-    let event = json!({
-        "event": "$pageview",
-        "uuid": "0198f0a0-0000-7000-8000-000000000001",
-        "distinct_id": DISTINCT_ID,
-        "timestamp": "2026-03-19T14:29:58.123Z",
-        "options": options,
-        "properties": {},
-    });
-    let mut second = event.clone();
-    second["uuid"] = json!("0198f0a0-0000-7000-8000-000000000002");
+    // v1 requires a distinct uuid per event, so index them.
+    let batch: Vec<_> = distinct_ids
+        .iter()
+        .enumerate()
+        .map(|(i, distinct_id)| {
+            json!({
+                "event": "$pageview",
+                "uuid": format!("0198f0a0-0000-7000-8000-00000000000{i}"),
+                "distinct_id": distinct_id,
+                "timestamp": "2026-03-19T14:29:58.123Z",
+                "options": options,
+                "properties": {},
+            })
+        })
+        .collect();
     let payload = json!({
         "created_at": "2026-03-19T14:30:00.000Z",
-        "batch": [event, second],
+        "batch": batch,
     });
 
     let response = TestClient::new(router)
@@ -340,16 +379,25 @@ async fn run_v1(inputs: Inputs) -> Observed {
     let body = response.text().await;
     assert_eq!(status, StatusCode::OK, "v1 rejected the batch: {body}");
 
-    ts.mock_producer.with_records(|records| {
-        assert_eq!(records.len(), 2, "v1 must produce both events");
-        let observed = &records[1];
-        Observed {
-            lane: v1_lane(&observed.topic),
-            has_key: observed.key.is_some(),
-            // The wire header is bytes, so read it back the way a consumer would.
-            force_disable_person_processing: observed
-                .header("force_disable_person_processing")
-                .map(|v| v == "true"),
+    ts.mock_producer.with_records(|produced| {
+        assert_eq!(
+            produced.len(),
+            distinct_ids.len(),
+            "v1 must produce every event"
+        );
+        Batch {
+            records: produced
+                .iter()
+                .map(|r| Record {
+                    lane: v1_lane(&r.topic),
+                    has_key: r.key.is_some(),
+                    // The wire header is bytes, so read it back the way a
+                    // consumer would.
+                    force_disable_person_processing: r
+                        .header("force_disable_person_processing")
+                        .map(|v| v == "true"),
+                })
+                .collect(),
             limiter_consultations: consultations(&snapshotter),
         }
     })
@@ -377,90 +425,176 @@ fn v1_lane(topic: &str) -> Lane {
 // Nothing applies: the limiter runs on both events and changes nothing.
 #[case::plain(
     Inputs::default(),
-    Expected { lane: Lane::Main, has_key: true, force_disable_person_processing: None, limiter_consultations: 2 }
+    Observed { record: Record { lane: Lane::Main, has_key: true, force_disable_person_processing: None }, limiter_consultations: 2 }
 )]
 #[case::plain_personless(
     Inputs { personless: true, ..Inputs::default() },
-    Expected { lane: Lane::Main, has_key: true, force_disable_person_processing: None, limiter_consultations: 2 }
+    Observed { record: Record { lane: Lane::Main, has_key: true, force_disable_person_processing: None }, limiter_consultations: 2 }
 )]
 // The limiter alone: it takes person processing away and spreads the key.
 #[case::rate_limited(
     Inputs { over_rate_limit: true, ..Inputs::default() },
-    Expected { lane: Lane::Overflow, has_key: false, force_disable_person_processing: Some(true), limiter_consultations: 2 }
+    Observed { record: Record { lane: Lane::Overflow, has_key: false, force_disable_person_processing: Some(true) }, limiter_consultations: 2 }
 )]
 #[case::rate_limited_personless(
     Inputs { over_rate_limit: true, personless: true, ..Inputs::default() },
-    Expected { lane: Lane::Overflow, has_key: false, force_disable_person_processing: Some(true), limiter_consultations: 2 }
+    Observed { record: Record { lane: Lane::Overflow, has_key: false, force_disable_person_processing: Some(true) }, limiter_consultations: 2 }
 )]
 // The skip-person restriction alone: person processing off and the key dropped,
 // on the main lane, and the limiter is never consulted.
 #[case::skip_person(
     Inputs { skip_person_restriction: true, ..Inputs::default() },
-    Expected { lane: Lane::Main, has_key: false, force_disable_person_processing: Some(true), limiter_consultations: 0 }
+    Observed { record: Record { lane: Lane::Main, has_key: false, force_disable_person_processing: Some(true) }, limiter_consultations: 0 }
 )]
 #[case::skip_person_personless(
     Inputs { skip_person_restriction: true, personless: true, ..Inputs::default() },
-    Expected { lane: Lane::Main, has_key: false, force_disable_person_processing: Some(true), limiter_consultations: 0 }
+    Observed { record: Record { lane: Lane::Main, has_key: false, force_disable_person_processing: Some(true) }, limiter_consultations: 0 }
 )]
 // The restriction shadows the limiter entirely: the key is over its window, but
 // the limiter is skipped, so nothing reroutes it.
 #[case::skip_person_and_rate_limited(
     Inputs { skip_person_restriction: true, over_rate_limit: true, ..Inputs::default() },
-    Expected { lane: Lane::Main, has_key: false, force_disable_person_processing: Some(true), limiter_consultations: 0 }
+    Observed { record: Record { lane: Lane::Main, has_key: false, force_disable_person_processing: Some(true) }, limiter_consultations: 0 }
 )]
 #[case::skip_person_and_rate_limited_personless(
     Inputs { skip_person_restriction: true, over_rate_limit: true, personless: true, ..Inputs::default() },
-    Expected { lane: Lane::Main, has_key: false, force_disable_person_processing: Some(true), limiter_consultations: 0 }
+    Observed { record: Record { lane: Lane::Main, has_key: false, force_disable_person_processing: Some(true) }, limiter_consultations: 0 }
 )]
 // The overflow restriction alone moves the lane but leaves person processing on,
 // so the key survives.
 #[case::force_overflow(
     Inputs { overflow_restriction: true, ..Inputs::default() },
-    Expected { lane: Lane::Overflow, has_key: true, force_disable_person_processing: None, limiter_consultations: 2 }
+    Observed { record: Record { lane: Lane::Overflow, has_key: true, force_disable_person_processing: None }, limiter_consultations: 2 }
 )]
 #[case::force_overflow_personless(
     Inputs { overflow_restriction: true, personless: true, ..Inputs::default() },
-    Expected { lane: Lane::Overflow, has_key: true, force_disable_person_processing: None, limiter_consultations: 2 }
+    Observed { record: Record { lane: Lane::Overflow, has_key: true, force_disable_person_processing: None }, limiter_consultations: 2 }
 )]
 // Overflow restriction plus the limiter: already on the overflow lane, and the
 // limiter's verdict drops the key.
 #[case::force_overflow_and_rate_limited(
     Inputs { overflow_restriction: true, over_rate_limit: true, ..Inputs::default() },
-    Expected { lane: Lane::Overflow, has_key: false, force_disable_person_processing: Some(true), limiter_consultations: 2 }
+    Observed { record: Record { lane: Lane::Overflow, has_key: false, force_disable_person_processing: Some(true) }, limiter_consultations: 2 }
 )]
 #[case::force_overflow_and_rate_limited_personless(
     Inputs { overflow_restriction: true, over_rate_limit: true, personless: true, ..Inputs::default() },
-    Expected { lane: Lane::Overflow, has_key: false, force_disable_person_processing: Some(true), limiter_consultations: 2 }
+    Observed { record: Record { lane: Lane::Overflow, has_key: false, force_disable_person_processing: Some(true) }, limiter_consultations: 2 }
 )]
 // Both restrictions: the overflow lane from one, the dropped key from the other.
 #[case::both_restrictions(
     Inputs { skip_person_restriction: true, overflow_restriction: true, ..Inputs::default() },
-    Expected { lane: Lane::Overflow, has_key: false, force_disable_person_processing: Some(true), limiter_consultations: 0 }
+    Observed { record: Record { lane: Lane::Overflow, has_key: false, force_disable_person_processing: Some(true) }, limiter_consultations: 0 }
 )]
 #[case::both_restrictions_personless(
     Inputs { skip_person_restriction: true, overflow_restriction: true, personless: true, ..Inputs::default() },
-    Expected { lane: Lane::Overflow, has_key: false, force_disable_person_processing: Some(true), limiter_consultations: 0 }
+    Observed { record: Record { lane: Lane::Overflow, has_key: false, force_disable_person_processing: Some(true) }, limiter_consultations: 0 }
 )]
 // All three: the limiter is still skipped, and the restrictions alone produce
 // the same wire outcome the limiter would have.
 #[case::everything(
     Inputs { skip_person_restriction: true, overflow_restriction: true, over_rate_limit: true, ..Inputs::default() },
-    Expected { lane: Lane::Overflow, has_key: false, force_disable_person_processing: Some(true), limiter_consultations: 0 }
+    Observed { record: Record { lane: Lane::Overflow, has_key: false, force_disable_person_processing: Some(true) }, limiter_consultations: 0 }
 )]
 #[case::everything_personless(
-    Inputs { skip_person_restriction: true, overflow_restriction: true, over_rate_limit: true, personless: true },
-    Expected { lane: Lane::Overflow, has_key: false, force_disable_person_processing: Some(true), limiter_consultations: 0 }
+    Inputs { skip_person_restriction: true, overflow_restriction: true, over_rate_limit: true, personless: true, restricted_distinct_id: None },
+    Observed { record: Record { lane: Lane::Overflow, has_key: false, force_disable_person_processing: Some(true) }, limiter_consultations: 0 }
 )]
 #[tokio::test]
-async fn person_processing_and_routing_matrix(#[case] inputs: Inputs, #[case] expected: Expected) {
+async fn person_processing_and_routing_matrix(#[case] inputs: Inputs, #[case] expected: Observed) {
+    // Two events for one key: the second is the one a zero threshold can limit.
+    let batch = [DISTINCT_ID, DISTINCT_ID];
+
     assert_eq!(
-        run_v0(inputs).await,
-        Observed::from(expected),
+        run_v0(inputs, &batch).await.at(1),
+        expected,
         "v0 endpoint, inputs: {inputs:?}"
     );
     assert_eq!(
-        run_v1(inputs).await,
-        Observed::from(expected),
+        run_v1(inputs, &batch).await.at(1),
+        expected,
         "v1 endpoint, inputs: {inputs:?}"
     );
+}
+
+/// A restriction filtered to one distinct id must not shield the token's other
+/// keys from the limiter.
+///
+/// The skip is a per-event decision, so a batch mixing a restricted key with an
+/// unrestricted one has to split: the restricted events skip the limiter and
+/// keep the main lane, while the unrestricted ones are still consulted and still
+/// rerouted once they exceed the window. Hoisting the check to the batch, or
+/// keying it on the token rather than the event, would silently stop rate
+/// limiting every other key belonging to a token that has any restriction at all.
+#[rstest]
+#[case::skip_person(false)]
+#[case::skip_person_and_force_overflow(true)]
+#[tokio::test]
+async fn restriction_filtered_to_one_distinct_id_leaves_other_keys_rate_limited(
+    #[case] overflow_restriction: bool,
+) {
+    let inputs = Inputs {
+        skip_person_restriction: true,
+        overflow_restriction,
+        over_rate_limit: true,
+        restricted_distinct_id: Some(RESTRICTED_DISTINCT_ID),
+        personless: false,
+    };
+    // Two events per key, so each key reaches the limiter's limiting branch on
+    // its second event if it is consulted at all.
+    let batch = [
+        RESTRICTED_DISTINCT_ID,
+        RESTRICTED_DISTINCT_ID,
+        OPEN_DISTINCT_ID,
+        OPEN_DISTINCT_ID,
+    ];
+    let restricted_lane = if overflow_restriction {
+        Lane::Overflow
+    } else {
+        Lane::Main
+    };
+
+    for (path, observed) in [
+        ("v0", run_v0(inputs, &batch).await),
+        ("v1", run_v1(inputs, &batch).await),
+    ] {
+        // Only the two unrestricted events cost a limiter evaluation.
+        assert_eq!(
+            observed.limiter_consultations, 2,
+            "{path}: the limiter must be consulted for the unrestricted key only"
+        );
+
+        for i in 0..2 {
+            assert_eq!(
+                observed.records[i],
+                Record {
+                    lane: restricted_lane,
+                    has_key: false,
+                    force_disable_person_processing: Some(true),
+                },
+                "{path}: restricted event {i} must carry the restriction's outcome"
+            );
+        }
+
+        // The unrestricted key is untouched by the restriction, so its first
+        // event passes with person processing on and its key intact.
+        assert_eq!(
+            observed.records[2],
+            Record {
+                lane: Lane::Main,
+                has_key: true,
+                force_disable_person_processing: None,
+            },
+            "{path}: the unrestricted key's first event must pass untouched"
+        );
+        // Its second event exceeds the window, so the limiter acts on it.
+        assert_eq!(
+            observed.records[3],
+            Record {
+                lane: Lane::Overflow,
+                has_key: false,
+                force_disable_person_processing: Some(true),
+            },
+            "{path}: the unrestricted key must still be rate limited"
+        );
+    }
 }
