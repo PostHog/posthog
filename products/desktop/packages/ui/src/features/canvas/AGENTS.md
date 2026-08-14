@@ -56,8 +56,9 @@ The root `AGENTS.md` architecture rules still apply.
   thing saying nobody else can see this space, which is worth its name starting a
   glyph's width right of the others. The alpha's more deeply indented Channels
   tree and hash glyphs are unchanged.
-- **The private space reads as "personal", and only on screen.** The row is `me`
+- **The private space reads as "personal" without a hash, and only on screen.** The row is `me`
   on the backend; `channelDisplayName` (core) swaps it on the way to a reader.
+  `channelDisplayLabel` adds a hash to shared spaces but leaves personal bare.
   Four routes carry a channel's name — the channel list, an activity row, a
   mention row, and remote search — and each calls it, because only the first
   goes through `useTaskChannels`.
