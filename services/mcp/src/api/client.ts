@@ -56,6 +56,9 @@ export interface GroupType {
     name_plural: string | null
 }
 
+/** Team self-driving delivery state, from `/signals/config/self_driving_status/`. */
+export type SelfDrivingStatus = Schemas.SelfDrivingStatus
+
 // Global search types
 export const SearchableEntitySchema = z.enum([
     'insight',
@@ -1458,6 +1461,16 @@ export class ApiClient {
 
     async getGroupTypes(projectId: string): Promise<GroupType[]> {
         const result = await this.fetchJson<GroupType[]>(`${this.baseUrl}/api/projects/${projectId}/groups_types/`)
+        if (!result.success) {
+            throw new Error(result.error.message)
+        }
+        return result.data
+    }
+
+    async getSelfDrivingStatus(projectId: string): Promise<SelfDrivingStatus> {
+        const result = await this.fetchJson<SelfDrivingStatus>(
+            `${this.baseUrl}/api/projects/${projectId}/signals/config/self_driving_status/`
+        )
         if (!result.success) {
             throw new Error(result.error.message)
         }

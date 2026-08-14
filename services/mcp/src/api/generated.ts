@@ -69538,6 +69538,15 @@ export namespace Schemas {
       sdks: SdkAssessment[];
     }
 
+    export interface SelfDrivingStatus {
+      /** Effective autostart state: true unless the team explicitly switched autonomous inbox PRs off. A team that never touched the setting reads as true. */
+      autostart_enabled: boolean;
+      /** Whether the team has a GitHub integration. Self-driving needs one to open pull requests. */
+      github_connected: boolean;
+      /** Whether the org is over its self-driving credits quota with enforcement active. While true, autostart runs are paused even when everything else is configured. */
+      quota_blocked: boolean;
+    }
+
     export interface SendCommentToSlack {
       /** ID of the Slack integration (kind='slack') whose bot posts the thread. */
       integration_id: number;

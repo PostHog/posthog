@@ -4,7 +4,7 @@ import { MCPClientProfile } from '@/lib/client-detection'
 import {
     isCloudApi,
     isLocalApi,
-    MCP_ERROR_TRACKING_FIX_NUDGE_FLAG,
+    MCP_ERROR_TRACKING_SELF_DRIVING_NUDGE_FLAG,
     MCP_GATEWAY_FLAG,
     PRODUCT_DATA_CATALOG_FLAG,
 } from '@/lib/constants'
@@ -151,13 +151,13 @@ export class RequestStateResolver {
         // None of these gates a catalog tool, so the tool-definition scan can't discover
         // them: PRODUCT_DATA_CATALOG_FLAG gates instructions content (the metric-discovery
         // prompt section), MCP_GATEWAY_FLAG gates the third-party tools `exec` resolves,
-        // MCP_ERROR_TRACKING_FIX_NUDGE_FLAG gates the fix-task nudge on error tracking results.
+        // MCP_ERROR_TRACKING_SELF_DRIVING_NUDGE_FLAG gates the self-driving nudge on error tracking results.
         const allFlagKeys = [
             ...new Set([
                 ...getRequiredFeatureFlags(),
                 PRODUCT_DATA_CATALOG_FLAG,
                 MCP_GATEWAY_FLAG,
-                MCP_ERROR_TRACKING_FIX_NUDGE_FLAG,
+                MCP_ERROR_TRACKING_SELF_DRIVING_NUDGE_FLAG,
             ]),
         ]
 

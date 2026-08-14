@@ -5,9 +5,9 @@ import { markExecPayload, buildToolResultPayload, estimateResponseTokens } from 
 import { isPostHogCodeConsumer } from '@/lib/client-detection'
 import { ExecCommandError, findRecoverableApiError, PostHogApiError, ToolInputValidationError } from '@/lib/errors'
 import { estimateTokens } from '@/lib/estimate-tokens'
-import { getFixTaskNudge } from '@/lib/fix-task-nudge'
 import type { EvaluatedFlags } from '@/lib/posthog/flags'
 import { formatResponse } from '@/lib/response'
+import { maybeGetSelfDrivingNudge, type SelfDrivingGap } from '@/lib/self-driving-nudge'
 
 import type { ExecHelpCatalog } from './exec-help'
 import { TOKEN_CHAR_LIMIT, listAvailablePaths, resolveSchemaPath, summarizeSchema } from './schema-utils'
@@ -98,8 +98,10 @@ export interface ExecCommandMeta {
     exec_search_match_count?: number
     /** How many of those matches came from a connected third-party server. */
     exec_search_gateway_match_count?: number
-    /** Set when the fix-task nudge rode this call's result, so exposure is countable on `$mcp_tool_call`. */
-    mcp_fix_nudge_shown?: boolean
+    /** Set when the self-driving nudge rode this call's result, so exposure is countable on `$mcp_tool_call`. */
+    mcp_self_driving_nudge_shown?: boolean
+    /** Which setup gap the nudge named (`github_missing` or `autostart_off`). */
+    mcp_self_driving_nudge_gap?: SelfDrivingGap
 }
 
 export type ExecCommandTracker = (meta: ExecCommandMeta) => void
@@ -125,7 +127,7 @@ export interface ExecToolOptions {
     trackCommand?: ExecCommandTracker
     /**
      * Per-request evaluated flags, for result shaping that must be killable without a
-     * deploy (currently the fix-task nudge). Absent means every gated behavior stays off.
+     * deploy (currently the self-driving nudge). Absent means every gated behavior stays off.
      */
     featureFlags?: EvaluatedFlags
 }
@@ -962,15 +964,18 @@ export function createExecTool(
 
                     // Attached to the handler result rather than the serialized text so it
                     // reaches the agent through every branch below (--json included).
-                    const fixTaskNudge = getFixTaskNudge({
+                    const selfDrivingNudge = await maybeGetSelfDrivingNudge(context, {
                         toolName: tool.name,
                         handlerResult: result,
                         featureFlags: options.featureFlags,
-                        availableTools: allTools,
                     })
-                    if (fixTaskNudge) {
-                        result = withAgentNote(result, fixTaskNudge)
-                        options.trackCommand?.({ exec_verb: verb, mcp_fix_nudge_shown: true })
+                    if (selfDrivingNudge) {
+                        result = withAgentNote(result, selfDrivingNudge.note)
+                        options.trackCommand?.({
+                            exec_verb: verb,
+                            mcp_self_driving_nudge_shown: true,
+                            mcp_self_driving_nudge_gap: selfDrivingNudge.gap,
+                        })
                     }
 
                     if (useJson && isInformationalResponse && typeof formattedOverride === 'string') {

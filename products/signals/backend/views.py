@@ -123,6 +123,7 @@ from products.signals.backend.serializers import (
     PullRequestReviewCommentReactionCreateSerializer,
     PullRequestReviewCommentUpdateSerializer,
     ReportSignalsResponseSerializer,
+    SelfDrivingStatusSerializer,
     SignalReportArtefactLogCreateSerializer,
     SignalReportArtefactLogUpdateSerializer,
     SignalReportArtefactSerializer,
@@ -423,6 +424,29 @@ class SignalTeamConfigViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         serializer.is_valid(raise_exception=True)
         serializer.save()
         return Response(serializer.data)
+
+    @extend_schema(
+        responses=SelfDrivingStatusSerializer,
+        description=(
+            "Whether self-driving can deliver autonomous fix PRs for this team: the effective "
+            "autostart switch, GitHub connectivity, and the credits quota gate."
+        ),
+    )
+    @action(detail=False, methods=["GET"])
+    def self_driving_status(self, request: Request, *args, **kwargs) -> Response:
+        config = self._get_config()
+        quota_gate = self_driving_quota_gate(self.team)
+        return Response(
+            SelfDrivingStatusSerializer(
+                {
+                    "autostart_enabled": config.autostart_enabled is not False,
+                    "github_connected": Integration.objects.filter(
+                        team=self.team, kind=Integration.IntegrationKind.GITHUB
+                    ).exists(),
+                    "quota_blocked": quota_gate.enforced,
+                }
+            ).data
+        )
 
 
 SIGNAL_REPORT_DISMISSAL_NOTE_MAX_LENGTH = 4000

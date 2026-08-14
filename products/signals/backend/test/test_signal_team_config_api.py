@@ -1,9 +1,13 @@
 from posthog.test.base import APIBaseTest
+from unittest.mock import patch
 
 from parameterized import parameterized
 from rest_framework import status
 
+from posthog.models.integration import Integration
+
 from products.signals.backend.models import SignalTeamConfig
+from products.signals.backend.quota import SelfDrivingQuotaGate
 
 
 class TestSignalTeamConfigAPI(APIBaseTest):
@@ -153,3 +157,49 @@ class TestSignalTeamConfigAPI(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK, response.json()
         self.config.refresh_from_db()
         assert self.config.autostart_enabled is False
+
+
+class TestSelfDrivingStatusAPI(APIBaseTest):
+    def setUp(self) -> None:
+        super().setUp()
+        self.config = SignalTeamConfig.objects.get(team=self.team)
+
+    def _url(self) -> str:
+        return f"/api/projects/{self.team.id}/signals/config/self_driving_status/"
+
+    @parameterized.expand(
+        [
+            ("never_set", None, True),
+            ("explicitly_on", True, True),
+            ("explicitly_off", False, False),
+        ]
+    )
+    def test_autostart_enabled_reflects_effective_switch(self, _name, stored, expected):
+        # Null must read as on: inverting that would tell every untouched team autostart is off.
+        self.config.autostart_enabled = stored
+        self.config.save(update_fields=["autostart_enabled"])
+        response = self.client.get(self._url())
+        data = response.json()
+        assert response.status_code == status.HTTP_200_OK, data
+        assert data["autostart_enabled"] is expected
+
+    def test_github_connected_reflects_integration_presence(self):
+        response = self.client.get(self._url())
+        data = response.json()
+        assert response.status_code == status.HTTP_200_OK, data
+        assert data["github_connected"] is False
+        assert data["quota_blocked"] is False
+
+        Integration.objects.create(team=self.team, kind=Integration.IntegrationKind.GITHUB, config={})
+        response = self.client.get(self._url())
+        assert response.json()["github_connected"] is True
+
+    def test_quota_blocked_reflects_enforced_gate(self):
+        with patch(
+            "products.signals.backend.views.self_driving_quota_gate",
+            return_value=SelfDrivingQuotaGate(limited=True, enforced=True),
+        ):
+            response = self.client.get(self._url())
+        data = response.json()
+        assert response.status_code == status.HTTP_200_OK, data
+        assert data["quota_blocked"] is True

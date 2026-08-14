@@ -180,6 +180,24 @@ class SignalTeamConfigSerializer(serializers.ModelSerializer):
         return cleaned
 
 
+class SelfDrivingStatusSerializer(serializers.Serializer):
+    autostart_enabled = serializers.BooleanField(
+        help_text=(
+            "Effective autostart state: true unless the team explicitly switched autonomous inbox PRs off. "
+            "A team that never touched the setting reads as true."
+        )
+    )
+    github_connected = serializers.BooleanField(
+        help_text="Whether the team has a GitHub integration. Self-driving needs one to open pull requests."
+    )
+    quota_blocked = serializers.BooleanField(
+        help_text=(
+            "Whether the org is over its self-driving credits quota with enforcement active. "
+            "While true, autostart runs are paused even when everything else is configured."
+        )
+    )
+
+
 class _UserSerializer(serializers.ModelSerializer):
     class Meta:
         model = User

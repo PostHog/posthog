@@ -7,6 +7,15 @@
  * PostHog API - generated
  * OpenAPI spec version: 1.0.0
  */
+export interface SelfDrivingStatusApi {
+    /** Effective autostart state: true unless the team explicitly switched autonomous inbox PRs off. A team that never touched the setting reads as true. */
+    autostart_enabled: boolean
+    /** Whether the team has a GitHub integration. Self-driving needs one to open pull requests. */
+    github_connected: boolean
+    /** Whether the org is over its self-driving credits quota with enforcement active. While true, autostart runs are paused even when everything else is configured. */
+    quota_blocked: boolean
+}
+
 export interface PauseStateResponseApi {
     /**
      * The timestamp the pipeline is paused until, or null if not paused/not running.

@@ -1,4 +1,4 @@
-import type { ApiClient, GroupType } from '@/api/client'
+import type { ApiClient, GroupType, SelfDrivingStatus } from '@/api/client'
 import { hasScope } from '@/lib/api'
 import type { ScopedCache } from '@/lib/cache/ScopedCache'
 import {
@@ -389,6 +389,20 @@ export class StateManager {
             cacheKey: `groupTypes:${projectId}` as const,
             fetchedAtKey: `groupTypesFetchedAt:${projectId}` as const,
             fetcher: () => this._api.getGroupTypes(projectId),
+        })
+    }
+
+    /**
+     * Whether self-driving can deliver autonomous fix PRs for this team (see the
+     * `self_driving_status` endpoint). Consumed by the error tracking nudge, which
+     * fires on at most three tools per conversation, so the default TTL is fine.
+     */
+    async getOrFetchSelfDrivingStatus(projectId: string): Promise<SelfDrivingStatus | undefined> {
+        return this.getOrFetchCached({
+            name: 'self_driving_status',
+            cacheKey: `selfDrivingStatus:${projectId}` as const,
+            fetchedAtKey: `selfDrivingStatusFetchedAt:${projectId}` as const,
+            fetcher: () => this._api.getSelfDrivingStatus(projectId),
         })
     }
 

@@ -18,9 +18,9 @@ import {
     findRecoverableApiError,
 } from '@/lib/errors'
 import { estimateTokens } from '@/lib/estimate-tokens'
-import { getFixTaskNudge } from '@/lib/fix-task-nudge'
 import { resolveGatewayTools } from '@/lib/gateway-tools'
 import { getPostHogClient } from '@/lib/posthog'
+import { maybeGetSelfDrivingNudge } from '@/lib/self-driving-nudge'
 import {
     createExecTool,
     describeApiValidationError,
@@ -250,14 +250,13 @@ export class ToolExecutor {
 
             // Attached to the handler result rather than the payload text so it reaches
             // the agent on every serialization path, including `output_format=json`.
-            const fixTaskNudge = getFixTaskNudge({
+            const selfDrivingNudge = await maybeGetSelfDrivingNudge(state.context, {
                 toolName: tool.name,
                 handlerResult,
                 featureFlags: state.toolFeatureFlags,
-                availableTools: state.allTools,
             })
-            if (fixTaskNudge) {
-                handlerResult = withAgentNote(handlerResult, fixTaskNudge)
+            if (selfDrivingNudge) {
+                handlerResult = withAgentNote(handlerResult, selfDrivingNudge.note)
             }
 
             let response: ToolResultPayload
@@ -286,7 +285,9 @@ export class ToolExecutor {
                 {
                     input_tokens: estimateTokens(validation.data),
                     output_tokens: estimateResponseTokens(response),
-                    ...(fixTaskNudge ? { mcp_fix_nudge_shown: true } : {}),
+                    ...(selfDrivingNudge
+                        ? { mcp_self_driving_nudge_shown: true, mcp_self_driving_nudge_gap: selfDrivingNudge.gap }
+                        : {}),
                 },
                 intentMeta,
                 this.servedToolDescription(tool.name, state)

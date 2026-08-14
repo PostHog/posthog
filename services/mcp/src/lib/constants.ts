@@ -36,7 +36,7 @@ export const PRODUCT_DATA_CATALOG_FLAG = 'product-data-catalog'
 // the gateway's own UI in the main app, so a team gets the tools when it gets the gateway.
 export const MCP_GATEWAY_FLAG = 'mcp-gateway'
 
-// Gates the fix-task nudge appended to error tracking query tool results (see
-// lib/fix-task-nudge.ts). No tool declares it, so it must be joined into the
-// evaluated flag set explicitly.
-export const MCP_ERROR_TRACKING_FIX_NUDGE_FLAG = 'mcp-error-tracking-fix-nudge'
+// Gates the self-driving setup nudge appended to error tracking query tool results
+// (see lib/self-driving-nudge.ts). No tool declares it, so it must be joined into
+// the evaluated flag set explicitly.
+export const MCP_ERROR_TRACKING_SELF_DRIVING_NUDGE_FLAG = 'mcp-error-tracking-self-driving-nudge'

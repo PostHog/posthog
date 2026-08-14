@@ -50,6 +50,7 @@ import type {
     ScoutNoteCreateRequestApi,
     ScoutRunIdsBatchRequestApi,
     ScratchpadEntryApi,
+    SelfDrivingStatusApi,
     SignalReportApi,
     SignalReportArtefactApi,
     SignalReportArtefactLogCreateApi,
@@ -103,6 +104,23 @@ type NonReadonly<T> = [T] extends [UnionToIntersection<T>]
           [P in keyof Writable<T>]: T[P] extends object ? NonReadonly<NonNullable<T[P]>> : T[P]
       }
     : DistributeReadOnlyOverUnions<T>
+
+export const getSignalsConfigSelfDrivingStatusRetrieveUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/signals/config/self_driving_status/`
+}
+
+/**
+ * Whether self-driving can deliver autonomous fix PRs for this team: the effective autostart switch, GitHub connectivity, and the credits quota gate.
+ */
+export const signalsConfigSelfDrivingStatusRetrieve = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<SelfDrivingStatusApi> => {
+    return apiMutator<SelfDrivingStatusApi>(getSignalsConfigSelfDrivingStatusRetrieveUrl(projectId), {
+        ...options,
+        method: 'GET',
+    })
+}
 
 export const getSignalsProcessingListUrl = (projectId: string, params?: SignalsProcessingListParams) => {
     const normalizedParams = new URLSearchParams()

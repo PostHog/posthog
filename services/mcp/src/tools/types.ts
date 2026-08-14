@@ -1,6 +1,6 @@
 import type { z } from 'zod'
 
-import type { ApiClient, GroupType } from '@/api/client'
+import type { ApiClient, GroupType, SelfDrivingStatus } from '@/api/client'
 import type { Schemas } from '@/api/generated'
 import type { ScopedCache } from '@/lib/cache/ScopedCache'
 import type { AnalyticsEvent } from '@/lib/posthog/analytics'
@@ -41,7 +41,9 @@ export type State = {
     Record<PrefixedString<'cachedProject'>, CachedProject | undefined> &
     Record<PrefixedString<'cachedProjectFetchedAt'>, number | undefined> &
     Record<PrefixedString<'gatewayTools'>, Schemas.AvailableToolsResponse | undefined> &
-    Record<PrefixedString<'gatewayToolsFetchedAt'>, number | undefined>
+    Record<PrefixedString<'gatewayToolsFetchedAt'>, number | undefined> &
+    Record<PrefixedString<'selfDrivingStatus'>, SelfDrivingStatus | undefined> &
+    Record<PrefixedString<'selfDrivingStatusFetchedAt'>, number | undefined>
 
 export type Env = {
     /**

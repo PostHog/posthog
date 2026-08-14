@@ -157,39 +157,60 @@ describe('exec tool', () => {
             expect(result).not.toBe(JSON.stringify({ id: 1, name: 'test', items: [{ a: 1 }, { a: 2 }] }))
         })
 
-        it('appends the fix-task nudge and reports exposure when the flag is on', async () => {
+        it('appends the self-driving nudge and reports exposure when the flag is on', async () => {
             const commandMetas: ExecCommandMeta[] = []
             const issueTool = makeMockTool({
                 name: 'query-error-tracking-issue',
                 handler: async () => ({ id: 'issue-1', name: 'TypeError: x is not a function' }),
             })
-            const exec = createExec([issueTool, makeMockTool({ name: 'tasks-create' })], undefined, {
-                featureFlags: { 'mcp-error-tracking-fix-nudge': true },
-                trackCommand: (meta) => commandMetas.push(meta),
-            })
+            const nudgeContext = {
+                getDistinctId: async () => 'test-distinct-id',
+                stateManager: {
+                    getProjectId: async () => '1',
+                    getOrFetchSelfDrivingStatus: async () => ({
+                        autostart_enabled: true,
+                        github_connected: false,
+                        quota_blocked: false,
+                    }),
+                },
+                api: { getProjectBaseUrl: () => 'https://us.posthog.com/project/1' },
+            } as unknown as Context
+            const exec = createExecTool(
+                [issueTool],
+                nudgeContext,
+                'test description',
+                'test command reference',
+                undefined,
+                undefined,
+                [],
+                {
+                    featureFlags: { 'mcp-error-tracking-self-driving-nudge': true },
+                    trackCommand: (meta) => commandMetas.push(meta),
+                }
+            )
 
-            const result = (await exec.handler(mockContext, {
+            const result = (await exec.handler(nudgeContext, {
                 command: 'call query-error-tracking-issue',
             })) as string
 
-            expect(result).toContain('tasks-create')
-            expect(commandMetas.some((meta) => meta.mcp_fix_nudge_shown)).toBe(true)
+            expect(result).toContain('/inbox?utm_source=mcp')
+            expect(commandMetas.some((meta) => meta.mcp_self_driving_nudge_gap === 'github_missing')).toBe(true)
         })
 
-        it('leaves the result untouched when the fix task tool is not in the roster', async () => {
+        it('leaves the result untouched when the flag is off', async () => {
             const issueTool = makeMockTool({
                 name: 'query-error-tracking-issue',
                 handler: async () => ({ id: 'issue-1', name: 'TypeError: x is not a function' }),
             })
             const exec = createExec([issueTool], undefined, {
-                featureFlags: { 'mcp-error-tracking-fix-nudge': true },
+                featureFlags: { 'mcp-error-tracking-self-driving-nudge': false },
             })
 
             const result = (await exec.handler(mockContext, {
                 command: 'call query-error-tracking-issue',
             })) as string
 
-            expect(result).not.toContain('tasks-create')
+            expect(result).not.toContain('_agentNote')
         })
 
         it('returns raw JSON when --json flag is passed in command', async () => {
