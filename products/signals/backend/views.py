@@ -1241,8 +1241,8 @@ class SignalReportViewSet(
     def _annotate_implementation_pr_url(self, queryset):
         # Latest TaskRun output->pr_url across the tasks associated with each report, unified over
         # the task_run artefact log + legacy SignalReportTask rows (see associated_task_runs_filter).
-        # Only implementation runs carry a pr_url, so the non-empty-pr_url filter inside the facade
-        # subquery makes "any associated task" resolve to the implementation PR.
+        # The non-empty-pr_url filter inside the facade subquery is what narrows "any associated
+        # task" to the one that opened the report's PR.
         latest_impl_pr_url = tasks_facade.latest_task_run_pr_url_subquery(
             SignalReport.associated_task_runs_filter(OuterRef(OuterRef("id"))),
         )
