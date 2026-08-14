@@ -61,7 +61,11 @@ export function DashboardSectionHeader({
 
     return (
         <div
-            className="flex items-center gap-2 rounded-t bg-surface-primary px-3 py-2"
+            className={
+                canEdit
+                    ? 'flex cursor-grab items-center gap-2 rounded-t bg-surface-primary px-3 py-2'
+                    : 'flex items-center gap-2 rounded-t bg-surface-primary px-3 py-2'
+            }
             data-attr="dashboard-section-header"
             onPointerDown={canEdit ? handlePointerDown : undefined}
         >
