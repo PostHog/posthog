@@ -1,0 +1,207 @@
+{
+    "strategy": "union_find",
+    "supports_current_contract": false,
+    "git_sha": "a1d5a04b",
+    "pg_version": "16.13 (Ubuntu 16.13-0ubuntu0.24.04.1)",
+    "args": {
+        "strategy": "union_find",
+        "cases": "neither,one,both",
+        "sizes": "1,10,100,1000,10000",
+        "reps": 20,
+        "concurrency": 1,
+        "contention": "none",
+        "preload": 50000,
+        "out": "results/union-find-iter1.json"
+    },
+    "phases": [
+        {
+            "case": "neither",
+            "size": 0,
+            "reps": 20,
+            "concurrency": 1,
+            "contention": "none",
+            "latency_ms": {
+                "p50": 1.441,
+                "p95": 7.339,
+                "max": 7.573,
+                "raw": [
+                    7.573, 2.892, 2.693, 2.128, 2.421, 2.119, 1.456, 1.388, 1.491, 1.394, 1.525, 1.364, 1.361, 1.209,
+                    1.425, 1.788, 1.387, 1.334, 1.201, 1.294
+                ]
+            },
+            "read_latency_ms": {
+                "p50": 0.1864,
+                "p95": 0.8741
+            },
+            "wal_bytes_per_op": 8769,
+            "emissions_per_op": {
+                "current_contract": 3.0,
+                "new_contract": 0.0
+            },
+            "retries_total": 0,
+            "oracle_checks": 220
+        },
+        {
+            "case": "one",
+            "size": 0,
+            "reps": 20,
+            "concurrency": 1,
+            "contention": "none",
+            "latency_ms": {
+                "p50": 1.344,
+                "p95": 5.696,
+                "max": 5.868,
+                "raw": [
+                    5.868, 2.438, 2.176, 1.842, 1.805, 2.171, 1.609, 1.544, 1.281, 1.353, 1.654, 1.22, 1.335, 1.072,
+                    0.991, 0.971, 1.133, 1.228, 1.057, 0.987
+                ]
+            },
+            "read_latency_ms": {
+                "p50": 0.1929,
+                "p95": 1.2177
+            },
+            "wal_bytes_per_op": 1966,
+            "emissions_per_op": {
+                "current_contract": 2.0,
+                "new_contract": 0.0
+            },
+            "retries_total": 0,
+            "oracle_checks": 200
+        },
+        {
+            "case": "both",
+            "size": 1,
+            "reps": 20,
+            "concurrency": 1,
+            "contention": "none",
+            "latency_ms": {
+                "p50": 2.302,
+                "p95": 7.485,
+                "max": 7.681,
+                "raw": [
+                    7.681, 3.624, 3.767, 3.098, 3.088, 3.371, 2.253, 2.631, 2.145, 2.136, 2.29, 1.846, 1.672, 1.704,
+                    1.736, 1.741, 1.654, 2.395, 2.443, 2.314
+                ]
+            },
+            "read_latency_ms": {
+                "p50": 0.2121,
+                "p95": 0.8909
+            },
+            "wal_bytes_per_op": 9760,
+            "emissions_per_op": {
+                "current_contract": 2.0,
+                "new_contract": 1.0
+            },
+            "retries_total": 0,
+            "oracle_checks": 280
+        },
+        {
+            "case": "both",
+            "size": 10,
+            "reps": 20,
+            "concurrency": 1,
+            "contention": "none",
+            "latency_ms": {
+                "p50": 2.226,
+                "p95": 7.373,
+                "max": 7.567,
+                "raw": [
+                    7.567, 3.591, 3.685, 3.115, 3.034, 3.295, 2.36, 2.191, 2.416, 2.336, 2.261, 1.891, 2.034, 1.847,
+                    1.88, 2.039, 2.021, 1.9, 1.799, 1.943
+                ]
+            },
+            "read_latency_ms": {
+                "p50": 0.1969,
+                "p95": 0.513
+            },
+            "wal_bytes_per_op": 10714,
+            "emissions_per_op": {
+                "current_contract": 2.0,
+                "new_contract": 1.0
+            },
+            "retries_total": 0,
+            "oracle_checks": 820
+        },
+        {
+            "case": "both",
+            "size": 100,
+            "reps": 20,
+            "concurrency": 1,
+            "contention": "none",
+            "latency_ms": {
+                "p50": 2.431,
+                "p95": 7.55,
+                "max": 7.731,
+                "raw": [
+                    7.731, 3.615, 3.805, 3.408, 3.813, 4.112, 2.398, 2.888, 2.476, 2.623, 2.464, 1.949, 1.961, 2.18,
+                    2.102, 2.083, 1.889, 2.002, 2.083, 1.883
+                ]
+            },
+            "read_latency_ms": {
+                "p50": 0.1994,
+                "p95": 0.3068
+            },
+            "wal_bytes_per_op": 11236,
+            "emissions_per_op": {
+                "current_contract": 2.0,
+                "new_contract": 1.0
+            },
+            "retries_total": 0,
+            "oracle_checks": 6220
+        },
+        {
+            "case": "both",
+            "size": 1000,
+            "reps": 20,
+            "concurrency": 1,
+            "contention": "none",
+            "latency_ms": {
+                "p50": 2.445,
+                "p95": 8.473,
+                "max": 8.665,
+                "raw": [
+                    8.665, 3.628, 3.275, 3.212, 3.054, 4.814, 2.762, 3.23, 2.405, 2.382, 2.597, 2.043, 1.855, 1.954,
+                    1.94, 1.931, 2.175, 2.486, 2.206, 1.946
+                ]
+            },
+            "read_latency_ms": {
+                "p50": 0.2229,
+                "p95": 0.3058
+            },
+            "wal_bytes_per_op": 12320,
+            "emissions_per_op": {
+                "current_contract": 2.0,
+                "new_contract": 1.0
+            },
+            "retries_total": 0,
+            "oracle_checks": 60220
+        },
+        {
+            "case": "both",
+            "size": 10000,
+            "reps": 20,
+            "concurrency": 1,
+            "contention": "none",
+            "latency_ms": {
+                "p50": 3.632,
+                "p95": 11.456,
+                "max": 11.733,
+                "raw": [
+                    11.733, 5.76, 4.972, 4.841, 5.133, 6.194, 4.179, 3.581, 3.684, 3.869, 3.489, 2.759, 2.928, 3.875,
+                    2.769, 2.674, 2.592, 2.171, 2.063, 2.111
+                ]
+            },
+            "read_latency_ms": {
+                "p50": 0.191,
+                "p95": 0.3338
+            },
+            "wal_bytes_per_op": 13051,
+            "emissions_per_op": {
+                "current_contract": 2.0,
+                "new_contract": 1.0
+            },
+            "retries_total": 0,
+            "oracle_checks": 600220
+        }
+    ]
+}

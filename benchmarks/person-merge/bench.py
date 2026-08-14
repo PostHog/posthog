@@ -30,11 +30,14 @@ import psycopg
 import workload
 from strategies.base import MergeOutcome, Strategy
 from strategies.current import CurrentStrategy
+from strategies.union_find import UnionFindCompatStrategy, UnionFindStrategy
 
 DSN_DEFAULT = "host=127.0.0.1 port=5544 user=posthog dbname=merge_bench"
 
 STRATEGIES: dict[str, type] = {
     "current": CurrentStrategy,
+    "union_find": UnionFindStrategy,
+    "union_find_compat": UnionFindCompatStrategy,
 }
 
 

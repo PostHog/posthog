@@ -1,0 +1,66 @@
+{
+    "strategy": "union_find",
+    "supports_current_contract": false,
+    "git_sha": "a1d5a04b",
+    "pg_version": "16.13 (Ubuntu 16.13-0ubuntu0.24.04.1)",
+    "args": {
+        "strategy": "union_find",
+        "cases": "both",
+        "sizes": "100,1000",
+        "reps": 12,
+        "concurrency": 4,
+        "contention": "shared-target",
+        "preload": 50000,
+        "out": "results/union-find-iter1-contended.json"
+    },
+    "phases": [
+        {
+            "case": "both",
+            "size": 100,
+            "reps": 12,
+            "concurrency": 4,
+            "contention": "shared-target",
+            "latency_ms": {
+                "p50": 15.344,
+                "p95": 25.241,
+                "max": 23.899,
+                "raw": [12.964, 17.339, 19.047, 23.899, 7.797, 15.945, 20.064, 11.537, 16.577, 14.743, 6.499, 14.61]
+            },
+            "read_latency_ms": {
+                "p50": 0.2356,
+                "p95": 0.4809
+            },
+            "wal_bytes_per_op": 10783,
+            "emissions_per_op": {
+                "current_contract": 2.0,
+                "new_contract": 1.0
+            },
+            "retries_total": 0,
+            "oracle_checks": 1212
+        },
+        {
+            "case": "both",
+            "size": 1000,
+            "reps": 12,
+            "concurrency": 4,
+            "contention": "shared-target",
+            "latency_ms": {
+                "p50": 11.204,
+                "p95": 22.457,
+                "max": 22.081,
+                "raw": [8.224, 11.474, 13.979, 22.081, 10.934, 21.007, 10.487, 12.782, 10.828, 8.089, 11.688, 9.691]
+            },
+            "read_latency_ms": {
+                "p50": 0.1907,
+                "p95": 0.2854
+            },
+            "wal_bytes_per_op": 10275,
+            "emissions_per_op": {
+                "current_contract": 2.0,
+                "new_contract": 1.0
+            },
+            "retries_total": 0,
+            "oracle_checks": 12012
+        }
+    ]
+}
