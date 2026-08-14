@@ -128,8 +128,9 @@ export function StepDelayConfiguration({
                         />
 
                         <p className="mb-0 mt-1 text-xs text-muted">
-                            The property is read again each time the run wakes, so a date that moves still applies. A
-                            run never waits more than {maxDelayText} past this step.
+                            If the date moves further out, the wait follows it. If it moves closer, the wait still ends
+                            on the original date, so the next step runs late. A run never waits more than {maxDelayText}{' '}
+                            past this step.
                         </p>
                     </>
                 )}
