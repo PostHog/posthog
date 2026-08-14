@@ -911,6 +911,15 @@ class ExperimentFeatureFlagInputSerializer(_StrictFieldsMixin, serializers.Seria
         allow_null=True,
         help_text="Whether the flag persists variant assignment across authentication steps.",
     )
+    evaluation_contexts = serializers.ListField(
+        child=serializers.CharField(),
+        required=False,
+        help_text=(
+            "Evaluation contexts to apply to a newly created flag, controlling where it evaluates at "
+            "runtime. When omitted, the team's default evaluation contexts are applied. Only applies "
+            "when the experiment creates its flag; an existing linked flag keeps its own contexts."
+        ),
+    )
 
 
 # Advertises the writable feature_flag input in the OpenAPI request schema. PostHog's drf-spectacular
@@ -1122,6 +1131,15 @@ class CreateFromPromptInputSerializer(serializers.Serializer):
         required=False,
         allow_blank=True,
         help_text="Optional experiment description.",
+    )
+    evaluation_contexts = serializers.ListField(
+        child=serializers.CharField(),
+        required=False,
+        help_text=(
+            "Evaluation contexts to apply to the created feature flag. When omitted, the team's "
+            "default evaluation contexts are applied. Required when the project requires evaluation "
+            "contexts and has no defaults configured."
+        ),
     )
 
     def validate_versions(self, value: list[int]) -> list[int]:

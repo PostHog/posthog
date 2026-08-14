@@ -1217,7 +1217,8 @@ class ExperimentService:
 
         ``feature_flag_config`` is the flag's own write shape
         (``{filters: {multivariate, groups, aggregation_group_type_index, payloads},
-        ensure_experience_continuity}``); a new flag is built from it plus defaults.
+        ensure_experience_continuity, evaluation_contexts}``); a new flag is built from it plus
+        defaults.
         """
         existing_flag = FeatureFlag.objects.filter(key=feature_flag_key, team_id=self.team.id).first()
 
@@ -1267,7 +1268,12 @@ class ExperimentService:
             feature_flag_data["ensure_experience_continuity"] = self.team.flags_persistence_default or False
         if create_in_folder is not None:
             feature_flag_data["_create_in_folder"] = create_in_folder
-        apply_default_evaluation_contexts(feature_flag_data, self.team, self.user)
+        # Contexts chosen in the creation form win; the team's defaults only fill in for callers that
+        # supply none (API clients, and clients predating the form field).
+        if config.get("evaluation_contexts") is not None:
+            feature_flag_data["evaluation_contexts"] = config["evaluation_contexts"]
+        else:
+            apply_default_evaluation_contexts(feature_flag_data, self.team, self.user)
 
         feature_flag = create_flag(
             feature_flag_data,
@@ -3333,12 +3339,19 @@ class ExperimentService:
         source_groups = source_experiment.feature_flag.get_filters().get("groups")
         if source_groups and source_groups[0].get("rollout_percentage") is not None:
             clone_filters["groups"] = [{"properties": [], "rollout_percentage": source_groups[0]["rollout_percentage"]}]
-        feature_flag_config = {
+        # Inherit the source flag's evaluation contexts, so a clone evaluates where the original did
+        # instead of falling back to the target team's defaults.
+        source_evaluation_contexts = list(
+            source_experiment.feature_flag.flag_evaluation_contexts.values_list("evaluation_context__name", flat=True)
+        )
+        feature_flag_config: dict[str, Any] = {
             "filters": clone_filters,
             # bool() so a NULL continuity clones as off — the create path treats None as "unset" and
             # would substitute the target team's flags_persistence_default, changing SDK behavior.
             "ensure_experience_continuity": bool(source_experiment.feature_flag.ensure_experience_continuity),
         }
+        if source_evaluation_contexts:
+            feature_flag_config["evaluation_contexts"] = source_evaluation_contexts
 
         self.validate_experiment_exposure_criteria(source_experiment.exposure_criteria)
         self.validate_experiment_metrics(source_experiment.metrics)

@@ -814,6 +814,11 @@ class EnterpriseExperimentsViewSet(
                     "groups": [{"properties": [], "rollout_percentage": 100}],
                     "payloads": feature_flag_payloads,
                 },
+                **(
+                    {"evaluation_contexts": data["evaluation_contexts"]}
+                    if data.get("evaluation_contexts") is not None
+                    else {}
+                ),
             },
             metrics=metrics,
             serializer_context=self.get_serializer_context(),

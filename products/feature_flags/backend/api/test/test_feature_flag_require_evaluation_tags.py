@@ -346,7 +346,7 @@ class TestFeatureFlagRequireEvaluationTags(APIBaseTest):
         self.assertEqual(flag.flag_evaluation_contexts.count(), 0)
 
     def test_create_experiment_flag_without_tags_when_required(self):
-        """Experiment flags have no field to supply contexts, so they're exempt like surveys"""
+        """Experiment flags are not exempt: the experiment creation form can supply contexts"""
         self.team.require_evaluation_contexts = True
         self.team.save()
 
@@ -360,9 +360,8 @@ class TestFeatureFlagRequireEvaluationTags(APIBaseTest):
             format="json",
         )
 
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
-        flag = FeatureFlag.objects.get(key="experiment-flag", team=self.team)
-        self.assertEqual(flag.flag_evaluation_contexts.count(), 0)
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertFalse(FeatureFlag.objects.filter(key="experiment-flag", team=self.team).exists())
 
     def test_create_early_access_feature_flag_without_tags_when_required(self):
         """Early access feature flags have no field to supply contexts, so they're exempt like surveys"""

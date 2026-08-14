@@ -1,4 +1,4 @@
-import { MOCK_TEAM_ID } from 'lib/api.mock'
+import { MOCK_DEFAULT_TEAM, MOCK_TEAM_ID } from 'lib/api.mock'
 
 import '@testing-library/jest-dom'
 
@@ -7,7 +7,11 @@ import userEvent from '@testing-library/user-event'
 import { BindLogic } from 'kea'
 import { expectLogic, partial } from 'kea-test-utils'
 
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { defaultEvaluationContextsLogic } from 'scenes/feature-flags/defaultEvaluationContextsLogic'
 import { featureFlagsLogic } from 'scenes/feature-flags/featureFlagsLogic'
+import { teamLogic } from 'scenes/teamLogic'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
@@ -79,6 +83,15 @@ const apiMocks = {
     get: {
         '/api/projects/:team_id/feature_flags/': () => [200, { results: [], count: 0 }],
         '/api/projects/:team_id/experiments': () => [200, { results: [], count: 0 }],
+        '/api/environments/:team_id/default_evaluation_contexts/': () => [
+            200,
+            {
+                default_evaluation_contexts: [],
+                available_contexts: ['main-app'],
+                hidden_contexts: [],
+                enabled: false,
+            },
+        ],
     },
 }
 
@@ -508,6 +521,56 @@ describe('experimentWizardLogic', () => {
             await expectLogic(logic).toMatchValues({
                 stepValidationErrors: partial({
                     about: ['Name is required', 'Feature flag key is required'],
+                }),
+            })
+        })
+
+        it('requires an evaluation context when the team requires one and has no defaults', async () => {
+            featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.FLAG_EVALUATION_TAGS]: true })
+            teamLogic.actions.loadCurrentTeamSuccess({
+                ...MOCK_DEFAULT_TEAM,
+                require_evaluation_contexts: true,
+            })
+
+            logic.actions.markStepDeparted('about')
+
+            await expectLogic(logic).toMatchValues({
+                evaluationContextsRequired: true,
+                stepValidationErrors: partial({
+                    about: expect.arrayContaining(['At least one evaluation context is required']),
+                }),
+            })
+
+            createLogic.actions.setFeatureFlagConfig({ evaluation_contexts: ['main-app'] })
+
+            await expectLogic(logic).toMatchValues({
+                stepValidationErrors: partial({
+                    about: expect.not.arrayContaining(['At least one evaluation context is required']),
+                }),
+            })
+        })
+
+        it('team default contexts satisfy the requirement, since the backend applies them', async () => {
+            featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.FLAG_EVALUATION_TAGS]: true })
+            teamLogic.actions.loadCurrentTeamSuccess({
+                ...MOCK_DEFAULT_TEAM,
+                require_evaluation_contexts: true,
+                default_evaluation_contexts_enabled: true,
+            })
+            defaultEvaluationContextsLogic.actions.loadDefaultEvaluationContextsSuccess({
+                default_evaluation_contexts: [{ id: 1, name: 'production' }],
+                available_contexts: ['production'],
+                hidden_contexts: [],
+                enabled: true,
+            })
+
+            logic.actions.markStepDeparted('about')
+
+            await expectLogic(logic).toMatchValues({
+                appliedDefaultEvaluationContexts: ['production'],
+                evaluationContextsRequired: false,
+                stepValidationErrors: partial({
+                    about: expect.not.arrayContaining(['At least one evaluation context is required']),
                 }),
             })
         })

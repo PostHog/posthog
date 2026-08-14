@@ -168,12 +168,14 @@ export interface createExperimentLogicActions {
     }
     setFeatureFlagConfig: (config: {
         ensure_experience_continuity?: boolean
+        evaluation_contexts?: string[]
         feature_flag_key?: string
         rollout_percentage?: number
         variants?: MultivariateFlagVariant[]
     }) => {
         config: {
             ensure_experience_continuity?: boolean | undefined
+            evaluation_contexts?: string[] | undefined
             feature_flag_key?: string | undefined
             rollout_percentage?: number | undefined
             variants?: MultivariateFlagVariant[] | undefined
@@ -256,6 +258,7 @@ export const createExperimentLogic = kea<createExperimentLogicType>([
             variants?: MultivariateFlagVariant[]
             rollout_percentage?: number
             ensure_experience_continuity?: boolean
+            evaluation_contexts?: string[]
         }) => ({ config }),
         saveExperiment: true,
         saveExperimentStarted: true,
@@ -300,6 +303,9 @@ export const createExperimentLogic = kea<createExperimentLogicType>([
                             filters,
                             ...(config.ensure_experience_continuity !== undefined && {
                                 ensure_experience_continuity: config.ensure_experience_continuity,
+                            }),
+                            ...(config.evaluation_contexts !== undefined && {
+                                evaluation_contexts: config.evaluation_contexts,
                             }),
                         },
                     }

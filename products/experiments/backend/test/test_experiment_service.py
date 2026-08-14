@@ -197,18 +197,35 @@ class TestExperimentService(APIBaseTest):
         )
         assert context_names == {"production"}
 
-    def test_create_experiment_without_default_evaluation_contexts_when_required(self):
-        """Creating an experiment has no field to pick evaluation contexts, so a team requiring them
-        with no defaults configured must not be blocked from creating the flag."""
+    def test_create_experiment_applies_requested_evaluation_contexts(self):
+        self.team.require_evaluation_contexts = True
+        self.team.default_evaluation_contexts_enabled = True
+        self.team.save()
+        ctx = EvaluationContext.objects.create(name="production", team=self.team)
+        TeamDefaultEvaluationContext.objects.create(team=self.team, evaluation_context=ctx)
+
+        with patch("posthoganalytics.feature_enabled", return_value=True):
+            experiment = self._service().create_experiment(
+                name="Requested Contexts Experiment",
+                feature_flag_key="requested-contexts-flag",
+                feature_flag_config={"evaluation_contexts": ["marketing-site"]},
+            )
+
+        context_names = set(
+            experiment.feature_flag.flag_evaluation_contexts.values_list("evaluation_context__name", flat=True)
+        )
+        assert context_names == {"marketing-site"}
+
+    def test_create_experiment_without_evaluation_contexts_when_required(self):
         self.team.require_evaluation_contexts = True
         self.team.save()
 
-        experiment = self._service().create_experiment(
-            name="No Defaults Experiment",
-            feature_flag_key="no-defaults-flag",
-        )
-
-        assert experiment.feature_flag.flag_evaluation_contexts.count() == 0
+        with patch("posthoganalytics.feature_enabled", return_value=True):
+            with self.assertRaises(ValidationError):
+                self._service().create_experiment(
+                    name="No Contexts Experiment",
+                    feature_flag_key="no-contexts-flag",
+                )
 
     def test_create_launched_experiment_activates_flag(self):
         from django.utils import timezone
@@ -2488,6 +2505,30 @@ class TestExperimentService(APIBaseTest):
         assert len(clone_groups) == 1
         assert clone_groups[0]["rollout_percentage"] == 20
         assert clone_groups[0]["properties"] == []
+
+    def test_duplicate_experiment_inherits_evaluation_contexts(self):
+        self.team.require_evaluation_contexts = True
+        self.team.default_evaluation_contexts_enabled = True
+        self.team.save()
+        default_ctx = EvaluationContext.objects.create(name="production", team=self.team)
+        TeamDefaultEvaluationContext.objects.create(team=self.team, evaluation_context=default_ctx)
+
+        with patch("posthoganalytics.feature_enabled", return_value=True):
+            service = self._service()
+            source = service.create_experiment(
+                name="Contexts Source",
+                feature_flag_key="dup-contexts-source",
+                feature_flag_config={"evaluation_contexts": ["marketing-site"]},
+            )
+
+            dup = service.duplicate_experiment(source, feature_flag_key="dup-contexts-target")
+
+        assert dup.feature_flag.id != source.feature_flag.id
+        context_names = set(
+            dup.feature_flag.flag_evaluation_contexts.values_list("evaluation_context__name", flat=True)
+        )
+        # The source's contexts, not the team defaults.
+        assert context_names == {"marketing-site"}
 
     # ------------------------------------------------------------------
     # Launch experiment

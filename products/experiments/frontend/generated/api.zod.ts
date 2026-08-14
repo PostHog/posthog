@@ -1241,4 +1241,10 @@ export const ExperimentsCreateFromPromptCreateBody = /* @__PURE__ */ zod.object(
         .optional()
         .describe('Optional feature flag key. If omitted, a slug is derived from the experiment name.'),
     description: zod.string().optional().describe('Optional experiment description.'),
+    evaluation_contexts: zod
+        .array(zod.string())
+        .optional()
+        .describe(
+            "Evaluation contexts to apply to the created feature flag. When omitted, the team's default evaluation contexts are applied. Required when the project requires evaluation contexts and has no defaults configured."
+        ),
 })

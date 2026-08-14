@@ -402,9 +402,10 @@ FEATURE_FLAG_CREATION_CONTEXT_CHOICES = (
 # requiring them (with no default contexts configured) could never auto-create these
 # flags otherwise. Default contexts are still applied when configured (see
 # apply_default_evaluation_contexts) - this exemption only covers the no-defaults gap.
+# Experiments are not exempt: their creation form has a context selector, so the
+# requirement is satisfiable there.
 EVALUATION_CONTEXT_EXEMPT_CREATION_CONTEXTS = (
     "surveys",
-    "experiments",
     "early_access_features",
 )
 
@@ -1069,8 +1070,8 @@ class FeatureFlagSerializer(
         if not request:
             return attrs
 
-        # Auto-created flags (surveys, experiments, early access features) are exempt from
-        # evaluation tag requirements - their creation forms have no field to supply contexts.
+        # Auto-created flags (surveys, early access features) are exempt from evaluation tag
+        # requirements - their creation forms have no field to supply contexts.
         creation_context = self.initial_data.get("creation_context") if hasattr(self, "initial_data") else None
         if creation_context in EVALUATION_CONTEXT_EXEMPT_CREATION_CONTEXTS:
             return attrs
