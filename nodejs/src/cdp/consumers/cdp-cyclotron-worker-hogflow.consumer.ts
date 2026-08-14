@@ -4,6 +4,8 @@ import { instrumented } from '~/common/tracing/tracing-utils'
 import { logger } from '~/common/utils/logger'
 import { PluginsServerConfig } from '~/types'
 
+import { HogFlow } from '~/cdp/schema/hogflow'
+
 import { JobQueue } from '../services/job-queue/job-queue.interface'
 import { CyclotronJobInvocation, CyclotronJobInvocationHogFlow, CyclotronJobInvocationResult } from '../types'
 import { convertToHogFunctionFilterGlobal } from '../utils/hog-function-filtering'
@@ -37,8 +39,18 @@ export class CdpCyclotronWorkerHogFlow extends CdpCyclotronWorker {
      * terminal lifecycle row, app metric, and run log all land - a bare cyclotron
      * status flip would leave the run showing 'running' in the Invocations UI forever.
      */
-    private buildCanceledResult(item: CyclotronJobInvocation, message: string): CyclotronJobInvocationResult {
-        const result = createInvocationResult(item, {}, { finished: true })
+    private buildCanceledResult(
+        item: CyclotronJobInvocation,
+        message: string,
+        hogFlow?: HogFlow
+    ): CyclotronJobInvocationResult {
+        // Carry the flow onto the invocation when we have it. The monitoring services identify a
+        // workflow result by the presence of `hogFlow`; without it the terminal lifecycle row keys
+        // as `hog_function`. Since `function_kind` is part of the ReplacingMergeTree key, that row
+        // could never collapse the `running` row (written as `hog_flow`), leaving the run stuck at
+        // `running` in the Invocations tab - the exact bug this cancel path exists to fix.
+        const invocation = hogFlow ? { ...item, hogFlow } : item
+        const result = createInvocationResult(invocation, {}, { finished: true })
         result.canceled = true
         result.logs.push({ level: 'info', timestamp: DateTime.now(), message })
         result.metrics.push({
@@ -60,10 +72,13 @@ export class CdpCyclotronWorkerHogFlow extends CdpCyclotronWorker {
 
         await Promise.all(
             invocations.map(async (item) => {
-                // Checked before anything loads: a cancel-requested run must terminate even
-                // when its flow or team has since been deleted.
+                // Checked first so a cancel-requested run terminates even when its flow or team has
+                // since been deleted. The flow lookup here is best-effort and only sets the
+                // terminal row's function_kind - a null flow (deleted) or a lookup error still
+                // cancels, so the "cancel works for deleted flows" guarantee is preserved.
                 if (item.cancelRequestedAt) {
-                    canceledResults.push(this.buildCanceledResult(item, 'Run canceled'))
+                    const hogFlow = await this.hogFlowManager.getHogFlow(item.functionId).catch(() => null)
+                    canceledResults.push(this.buildCanceledResult(item, 'Run canceled', hogFlow ?? undefined))
                     return
                 }
 
@@ -89,7 +104,7 @@ export class CdpCyclotronWorkerHogFlow extends CdpCyclotronWorker {
                     })
 
                     canceledResults.push(
-                        this.buildCanceledResult(item, 'Run canceled: the workflow is no longer active')
+                        this.buildCanceledResult(item, 'Run canceled: the workflow is no longer active', hogFlow)
                     )
 
                     return

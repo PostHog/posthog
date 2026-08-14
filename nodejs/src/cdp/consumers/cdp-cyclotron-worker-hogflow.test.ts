@@ -425,6 +425,25 @@ describe('CdpCyclotronWorkerHogFlow', () => {
                     count: 1,
                 }),
             ])
+            // The flow must ride along on the canceled result: the monitoring services key the
+            // terminal lifecycle row off its presence, so without it the row keys `hog_function`,
+            // never collapses the `running` row, and the run stays stuck at `running` in the UI.
+            expect((results2[0].invocation as CyclotronJobInvocationHogFlow).hogFlow?.id).toBe(hogFlow.id)
+        })
+
+        it('attaches the live flow to a cancel-requested run so the terminal row keys as hog_flow', async () => {
+            const hogFlow = hogFlows[0]
+            const invocation = createSerializedHogFlowInvocation(hogFlow, {
+                event: { distinct_id: 'distinct_person_1', properties: { foo: 'bar1' } } as any,
+            })
+            invocation.cancelRequestedAt = DateTime.now()
+
+            const results = await processor.processInvocations([invocation])
+
+            expect(results).toHaveLength(1)
+            expect(results[0].finished).toBe(true)
+            expect(results[0].canceled).toBe(true)
+            expect((results[0].invocation as CyclotronJobInvocationHogFlow).hogFlow?.id).toBe(hogFlow.id)
         })
 
         it('terminates cancel-requested invocations without loading the flow, so cancel works for deleted flows', async () => {
