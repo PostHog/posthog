@@ -9,10 +9,6 @@ from posthog.schema import (
     SourceFieldInputConfigType,
 )
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import (
-    SourceInputs,
-    SourceResponse,
-)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
@@ -20,6 +16,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.can
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.confluent_cloud.confluent_cloud import (
     ConfluentCloudResumeConfig,
     confluent_cloud_source,
@@ -160,6 +157,7 @@ Then list the IDs of the resources to collect metrics for — for example Kafka 
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         def _build_schema(endpoint: str) -> SourceSchema:
             endpoint_config = CONFLUENT_CLOUD_ENDPOINTS[endpoint]
@@ -194,7 +192,7 @@ Then list the IDs of the resources to collect metrics for — for example Kafka 
         return schemas
 
     def get_endpoint_permissions(
-        self, config: ConfluentCloudSourceConfig, team_id: int, endpoints: list[str]
+        self, config: ConfluentCloudSourceConfig, team_id: int, endpoints: list[str], api_version: str | None = None
     ) -> dict[str, str | None]:
         permissions: dict[str, str | None] = {}
         for endpoint in endpoints:
@@ -232,7 +230,11 @@ Then list the IDs of the resources to collect metrics for — for example Kafka 
         return kafka.probe_metric, kafka.resource_label, _FALLBACK_PROBE_RESOURCE_ID, False
 
     def validate_credentials(
-        self, config: ConfluentCloudSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: ConfluentCloudSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         probe_metric, resource_label, resource_id, is_real_resource = self._credentials_probe(config, schema_name)
         ok, status_code = validate_confluent_cloud_credentials(

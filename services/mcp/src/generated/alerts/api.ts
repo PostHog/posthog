@@ -12,7 +12,7 @@ export const AlertsListParams = /* @__PURE__ */ zod.object({
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
 
@@ -21,7 +21,12 @@ export const AlertsListQueryParams = /* @__PURE__ */ zod.object({
         .string()
         .optional()
         .describe('Optional. Restrict results to alerts created by the user with this UUID.'),
+    has_detector: zod
+        .boolean()
+        .optional()
+        .describe('Optional. Restrict results by whether the alert uses anomaly detection.'),
     insight_id: zod.number().optional().describe('Optional. Restrict results to alerts on this insight ID.'),
+    insight_tag: zod.string().optional().describe('Optional. Restrict results to alerts whose insight has this tag.'),
     limit: zod.number().optional().describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
     search: zod
@@ -36,7 +41,7 @@ export const AlertsCreateParams = /* @__PURE__ */ zod.object({
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
 
@@ -115,7 +120,7 @@ export const AlertsCreateBody = /* @__PURE__ */ zod.object({
                         ),
                 })
                 .describe(
-                    'Threshold bounds and type. Includes bounds (lower/upper floats) and type (absolute or percentage). For threshold-based alerts (no detector_config), at least one of lower or upper must be set.'
+                    'Threshold bounds and type. Includes bounds (lower\/upper floats) and type (absolute or percentage). For threshold-based alerts (no detector_config), at least one of lower or upper must be set.'
                 ),
         })
         .describe('Threshold configuration with bounds and type for evaluating the alert.'),
@@ -161,7 +166,7 @@ export const AlertsCreateBody = /* @__PURE__ */ zod.object({
                             .union([zod.string(), zod.null()])
                             .optional()
                             .describe(
-                                'Column whose value labels the evaluated row(s) in breach messages: every row in `any_row` mode, or the single evaluated row in `last_row`/`first_row`. When unset, the first non-evaluated column is used, falling back to the row number (any_row) or the value column name (last_row/first_row).'
+                                'Column whose value labels the evaluated row(s) in breach messages: every row in `any_row` mode, or the single evaluated row in `last_row`\/`first_row`. When unset, the first non-evaluated column is used, falling back to the row number (any_row) or the value column name (last_row\/first_row).'
                             ),
                         type: zod.enum(['HogQLAlertConfig']).default(alertsCreateBodyConfigOneTwoTypeDefault),
                     }),
@@ -196,7 +201,7 @@ export const AlertsCreateBody = /* @__PURE__ */ zod.object({
         ])
         .optional()
         .describe(
-            "Per-insight-kind alert configuration, discriminated by `type`. TrendsAlertConfig: series_index (which series to monitor) and check_ongoing_interval (whether to check the current incomplete interval). HogQLAlertConfig (SQL insights): column (which result column to evaluate, defaults to the single numeric column), evaluation ('last_row' checks the latest value of an oldest->newest query, 'first_row' checks the first value of a newest->oldest query, 'any_row' fires if any row breaches), and label_column (names the evaluated row(s) in breach messages, in every evaluation mode). FunnelsAlertConfig (funnel insights): funnel_step (the step to monitor, null for the overall last step), metric ('conversion_from_start' or 'conversion_from_previous'), and check_ongoing_interval (historical-trend funnels: also evaluate the current in-progress period). Steps funnels support only absolute_value conditions; historical-trend funnels also support relative_increase/relative_decrease (compared against the prior period)."
+            "Per-insight-kind alert configuration, discriminated by `type`. TrendsAlertConfig: series_index (which series to monitor) and check_ongoing_interval (whether to check the current incomplete interval). HogQLAlertConfig (SQL insights): column (which result column to evaluate, defaults to the single numeric column), evaluation ('last_row' checks the latest value of an oldest->newest query, 'first_row' checks the first value of a newest->oldest query, 'any_row' fires if any row breaches), and label_column (names the evaluated row(s) in breach messages, in every evaluation mode). FunnelsAlertConfig (funnel insights): funnel_step (the step to monitor, null for the overall last step), metric ('conversion_from_start' or 'conversion_from_previous'), and check_ongoing_interval (historical-trend funnels: also evaluate the current in-progress period). Steps funnels support only absolute_value conditions; historical-trend funnels also support relative_increase\/relative_decrease (compared against the prior period)."
         ),
     detector_config: zod
         .union([
@@ -245,7 +250,7 @@ export const AlertsCreateBody = /* @__PURE__ */ zod.object({
                                         window: zod
                                             .union([zod.number(), zod.null()])
                                             .optional()
-                                            .describe('Rolling window size for calculating mean/std (default: 30)'),
+                                            .describe('Rolling window size for calculating mean\/std (default: 30)'),
                                     }),
                                     zod.object({
                                         preprocessing: zod
@@ -286,7 +291,7 @@ export const AlertsCreateBody = /* @__PURE__ */ zod.object({
                                         window: zod
                                             .union([zod.number(), zod.null()])
                                             .optional()
-                                            .describe('Rolling window size for calculating median/MAD (default: 30)'),
+                                            .describe('Rolling window size for calculating median\/MAD (default: 30)'),
                                     }),
                                     zod.object({
                                         multiplier: zod
@@ -642,7 +647,7 @@ export const AlertsCreateBody = /* @__PURE__ */ zod.object({
                                         kernel: zod
                                             .union([zod.string(), zod.null()])
                                             .optional()
-                                            .describe('SVM kernel type (default: "rbf")'),
+                                            .describe('SVM kernel type (default: \"rbf\")'),
                                         nu: zod
                                             .union([zod.number(), zod.null()])
                                             .optional()
@@ -775,7 +780,7 @@ export const AlertsCreateBody = /* @__PURE__ */ zod.object({
                         window: zod
                             .union([zod.number(), zod.null()])
                             .optional()
-                            .describe('Rolling window size for calculating mean/std (default: 30)'),
+                            .describe('Rolling window size for calculating mean\/std (default: 30)'),
                     }),
                     zod.object({
                         preprocessing: zod
@@ -814,7 +819,7 @@ export const AlertsCreateBody = /* @__PURE__ */ zod.object({
                         window: zod
                             .union([zod.number(), zod.null()])
                             .optional()
-                            .describe('Rolling window size for calculating median/MAD (default: 30)'),
+                            .describe('Rolling window size for calculating median\/MAD (default: 30)'),
                     }),
                     zod.object({
                         multiplier: zod
@@ -1148,7 +1153,7 @@ export const AlertsCreateBody = /* @__PURE__ */ zod.object({
                         kernel: zod
                             .union([zod.string(), zod.null()])
                             .optional()
-                            .describe('SVM kernel type (default: "rbf")'),
+                            .describe('SVM kernel type (default: \"rbf\")'),
                         nu: zod
                             .union([zod.number(), zod.null()])
                             .optional()
@@ -1238,11 +1243,11 @@ export const AlertsCreateBody = /* @__PURE__ */ zod.object({
     calculation_interval: zod
         .enum(['real_time', 'every_15_minutes', 'hourly', 'daily', 'weekly', 'monthly'])
         .describe(
-            '* `real_time` - real_time\n* `every_15_minutes` - every_15_minutes\n* `hourly` - hourly\n* `daily` - daily\n* `weekly` - weekly\n* `monthly` - monthly'
+            '\* `real_time` - real_time\n\* `every_15_minutes` - every_15_minutes\n\* `hourly` - hourly\n\* `daily` - daily\n\* `weekly` - weekly\n\* `monthly` - monthly'
         )
         .optional()
         .describe(
-            'How often the alert is checked: real time (Scale+), every 15 minutes (Boost+), hourly, daily, weekly, or monthly.\n\n* `real_time` - real_time\n* `every_15_minutes` - every_15_minutes\n* `hourly` - hourly\n* `daily` - daily\n* `weekly` - weekly\n* `monthly` - monthly'
+            'How often the alert is checked: real time (Scale+), every 15 minutes (Boost+), hourly, daily, weekly, or monthly.\n\n\* `real_time` - real_time\n\* `every_15_minutes` - every_15_minutes\n\* `hourly` - hourly\n\* `daily` - daily\n\* `weekly` - weekly\n\* `monthly` - monthly'
         ),
     snoozed_until: zod
         .string()
@@ -1296,10 +1301,10 @@ export const AlertsCreateBody = /* @__PURE__ */ zod.object({
         ),
     investigation_inconclusive_action: zod
         .enum(['notify', 'suppress'])
-        .describe('* `notify` - Notify\n* `suppress` - Suppress')
+        .describe('\* `notify` - Notify\n\* `suppress` - Suppress')
         .optional()
         .describe(
-            "How to handle an 'inconclusive' verdict when notifications are gated. 'notify' is the safe default — an agent that can't be sure is itself useful signal.\n\n* `notify` - Notify\n* `suppress` - Suppress"
+            "How to handle an 'inconclusive' verdict: whether gated notifications fire and whether the investigation surfaces in the Signals inbox. 'notify' is the safe default — an agent that can't be sure is itself useful signal. False positives never reach the inbox regardless of this setting.\n\n\* `notify` - Notify\n\* `suppress` - Suppress"
         ),
 })
 
@@ -1308,7 +1313,7 @@ export const AlertsRetrieveParams = /* @__PURE__ */ zod.object({
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
 
@@ -1340,7 +1345,7 @@ export const AlertsPartialUpdateParams = /* @__PURE__ */ zod.object({
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
 
@@ -1421,7 +1426,7 @@ export const AlertsPartialUpdateBody = /* @__PURE__ */ zod.object({
                         ),
                 })
                 .describe(
-                    'Threshold bounds and type. Includes bounds (lower/upper floats) and type (absolute or percentage). For threshold-based alerts (no detector_config), at least one of lower or upper must be set.'
+                    'Threshold bounds and type. Includes bounds (lower\/upper floats) and type (absolute or percentage). For threshold-based alerts (no detector_config), at least one of lower or upper must be set.'
                 ),
         })
         .optional()
@@ -1468,7 +1473,7 @@ export const AlertsPartialUpdateBody = /* @__PURE__ */ zod.object({
                             .union([zod.string(), zod.null()])
                             .optional()
                             .describe(
-                                'Column whose value labels the evaluated row(s) in breach messages: every row in `any_row` mode, or the single evaluated row in `last_row`/`first_row`. When unset, the first non-evaluated column is used, falling back to the row number (any_row) or the value column name (last_row/first_row).'
+                                'Column whose value labels the evaluated row(s) in breach messages: every row in `any_row` mode, or the single evaluated row in `last_row`\/`first_row`. When unset, the first non-evaluated column is used, falling back to the row number (any_row) or the value column name (last_row\/first_row).'
                             ),
                         type: zod.enum(['HogQLAlertConfig']).default(alertsPartialUpdateBodyConfigOneTwoTypeDefault),
                     }),
@@ -1505,7 +1510,7 @@ export const AlertsPartialUpdateBody = /* @__PURE__ */ zod.object({
         ])
         .optional()
         .describe(
-            "Per-insight-kind alert configuration, discriminated by `type`. TrendsAlertConfig: series_index (which series to monitor) and check_ongoing_interval (whether to check the current incomplete interval). HogQLAlertConfig (SQL insights): column (which result column to evaluate, defaults to the single numeric column), evaluation ('last_row' checks the latest value of an oldest->newest query, 'first_row' checks the first value of a newest->oldest query, 'any_row' fires if any row breaches), and label_column (names the evaluated row(s) in breach messages, in every evaluation mode). FunnelsAlertConfig (funnel insights): funnel_step (the step to monitor, null for the overall last step), metric ('conversion_from_start' or 'conversion_from_previous'), and check_ongoing_interval (historical-trend funnels: also evaluate the current in-progress period). Steps funnels support only absolute_value conditions; historical-trend funnels also support relative_increase/relative_decrease (compared against the prior period)."
+            "Per-insight-kind alert configuration, discriminated by `type`. TrendsAlertConfig: series_index (which series to monitor) and check_ongoing_interval (whether to check the current incomplete interval). HogQLAlertConfig (SQL insights): column (which result column to evaluate, defaults to the single numeric column), evaluation ('last_row' checks the latest value of an oldest->newest query, 'first_row' checks the first value of a newest->oldest query, 'any_row' fires if any row breaches), and label_column (names the evaluated row(s) in breach messages, in every evaluation mode). FunnelsAlertConfig (funnel insights): funnel_step (the step to monitor, null for the overall last step), metric ('conversion_from_start' or 'conversion_from_previous'), and check_ongoing_interval (historical-trend funnels: also evaluate the current in-progress period). Steps funnels support only absolute_value conditions; historical-trend funnels also support relative_increase\/relative_decrease (compared against the prior period)."
         ),
     detector_config: zod
         .union([
@@ -1556,7 +1561,7 @@ export const AlertsPartialUpdateBody = /* @__PURE__ */ zod.object({
                                         window: zod
                                             .union([zod.number(), zod.null()])
                                             .optional()
-                                            .describe('Rolling window size for calculating mean/std (default: 30)'),
+                                            .describe('Rolling window size for calculating mean\/std (default: 30)'),
                                     }),
                                     zod.object({
                                         preprocessing: zod
@@ -1599,7 +1604,7 @@ export const AlertsPartialUpdateBody = /* @__PURE__ */ zod.object({
                                         window: zod
                                             .union([zod.number(), zod.null()])
                                             .optional()
-                                            .describe('Rolling window size for calculating median/MAD (default: 30)'),
+                                            .describe('Rolling window size for calculating median\/MAD (default: 30)'),
                                     }),
                                     zod.object({
                                         multiplier: zod
@@ -1969,7 +1974,7 @@ export const AlertsPartialUpdateBody = /* @__PURE__ */ zod.object({
                                         kernel: zod
                                             .union([zod.string(), zod.null()])
                                             .optional()
-                                            .describe('SVM kernel type (default: "rbf")'),
+                                            .describe('SVM kernel type (default: \"rbf\")'),
                                         nu: zod
                                             .union([zod.number(), zod.null()])
                                             .optional()
@@ -2102,7 +2107,7 @@ export const AlertsPartialUpdateBody = /* @__PURE__ */ zod.object({
                         window: zod
                             .union([zod.number(), zod.null()])
                             .optional()
-                            .describe('Rolling window size for calculating mean/std (default: 30)'),
+                            .describe('Rolling window size for calculating mean\/std (default: 30)'),
                     }),
                     zod.object({
                         preprocessing: zod
@@ -2141,7 +2146,7 @@ export const AlertsPartialUpdateBody = /* @__PURE__ */ zod.object({
                         window: zod
                             .union([zod.number(), zod.null()])
                             .optional()
-                            .describe('Rolling window size for calculating median/MAD (default: 30)'),
+                            .describe('Rolling window size for calculating median\/MAD (default: 30)'),
                     }),
                     zod.object({
                         multiplier: zod
@@ -2477,7 +2482,7 @@ export const AlertsPartialUpdateBody = /* @__PURE__ */ zod.object({
                         kernel: zod
                             .union([zod.string(), zod.null()])
                             .optional()
-                            .describe('SVM kernel type (default: "rbf")'),
+                            .describe('SVM kernel type (default: \"rbf\")'),
                         nu: zod
                             .union([zod.number(), zod.null()])
                             .optional()
@@ -2567,11 +2572,11 @@ export const AlertsPartialUpdateBody = /* @__PURE__ */ zod.object({
     calculation_interval: zod
         .enum(['real_time', 'every_15_minutes', 'hourly', 'daily', 'weekly', 'monthly'])
         .describe(
-            '* `real_time` - real_time\n* `every_15_minutes` - every_15_minutes\n* `hourly` - hourly\n* `daily` - daily\n* `weekly` - weekly\n* `monthly` - monthly'
+            '\* `real_time` - real_time\n\* `every_15_minutes` - every_15_minutes\n\* `hourly` - hourly\n\* `daily` - daily\n\* `weekly` - weekly\n\* `monthly` - monthly'
         )
         .optional()
         .describe(
-            'How often the alert is checked: real time (Scale+), every 15 minutes (Boost+), hourly, daily, weekly, or monthly.\n\n* `real_time` - real_time\n* `every_15_minutes` - every_15_minutes\n* `hourly` - hourly\n* `daily` - daily\n* `weekly` - weekly\n* `monthly` - monthly'
+            'How often the alert is checked: real time (Scale+), every 15 minutes (Boost+), hourly, daily, weekly, or monthly.\n\n\* `real_time` - real_time\n\* `every_15_minutes` - every_15_minutes\n\* `hourly` - hourly\n\* `daily` - daily\n\* `weekly` - weekly\n\* `monthly` - monthly'
         ),
     snoozed_until: zod
         .string()
@@ -2625,10 +2630,10 @@ export const AlertsPartialUpdateBody = /* @__PURE__ */ zod.object({
         ),
     investigation_inconclusive_action: zod
         .enum(['notify', 'suppress'])
-        .describe('* `notify` - Notify\n* `suppress` - Suppress')
+        .describe('\* `notify` - Notify\n\* `suppress` - Suppress')
         .optional()
         .describe(
-            "How to handle an 'inconclusive' verdict when notifications are gated. 'notify' is the safe default — an agent that can't be sure is itself useful signal.\n\n* `notify` - Notify\n* `suppress` - Suppress"
+            "How to handle an 'inconclusive' verdict: whether gated notifications fire and whether the investigation surfaces in the Signals inbox. 'notify' is the safe default — an agent that can't be sure is itself useful signal. False positives never reach the inbox regardless of this setting.\n\n\* `notify` - Notify\n\* `suppress` - Suppress"
         ),
 })
 
@@ -2637,7 +2642,7 @@ export const AlertsDestroyParams = /* @__PURE__ */ zod.object({
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
 
@@ -2648,7 +2653,7 @@ export const AlertsSimulateCreateParams = /* @__PURE__ */ zod.object({
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
 
@@ -2730,7 +2735,7 @@ export const AlertsSimulateCreateBody = /* @__PURE__ */ zod.object({
                                 window: zod
                                     .union([zod.number(), zod.null()])
                                     .optional()
-                                    .describe('Rolling window size for calculating mean/std (default: 30)'),
+                                    .describe('Rolling window size for calculating mean\/std (default: 30)'),
                             }),
                             zod.object({
                                 preprocessing: zod
@@ -2771,7 +2776,7 @@ export const AlertsSimulateCreateBody = /* @__PURE__ */ zod.object({
                                 window: zod
                                     .union([zod.number(), zod.null()])
                                     .optional()
-                                    .describe('Rolling window size for calculating median/MAD (default: 30)'),
+                                    .describe('Rolling window size for calculating median\/MAD (default: 30)'),
                             }),
                             zod.object({
                                 multiplier: zod
@@ -3125,7 +3130,7 @@ export const AlertsSimulateCreateBody = /* @__PURE__ */ zod.object({
                                 kernel: zod
                                     .union([zod.string(), zod.null()])
                                     .optional()
-                                    .describe('SVM kernel type (default: "rbf")'),
+                                    .describe('SVM kernel type (default: \"rbf\")'),
                                 nu: zod
                                     .union([zod.number(), zod.null()])
                                     .optional()
@@ -3256,7 +3261,7 @@ export const AlertsSimulateCreateBody = /* @__PURE__ */ zod.object({
                 window: zod
                     .union([zod.number(), zod.null()])
                     .optional()
-                    .describe('Rolling window size for calculating mean/std (default: 30)'),
+                    .describe('Rolling window size for calculating mean\/std (default: 30)'),
             }),
             zod.object({
                 preprocessing: zod
@@ -3293,7 +3298,7 @@ export const AlertsSimulateCreateBody = /* @__PURE__ */ zod.object({
                 window: zod
                     .union([zod.number(), zod.null()])
                     .optional()
-                    .describe('Rolling window size for calculating median/MAD (default: 30)'),
+                    .describe('Rolling window size for calculating median\/MAD (default: 30)'),
             }),
             zod.object({
                 multiplier: zod
@@ -3608,7 +3613,7 @@ export const AlertsSimulateCreateBody = /* @__PURE__ */ zod.object({
                     ),
             }),
             zod.object({
-                kernel: zod.union([zod.string(), zod.null()]).optional().describe('SVM kernel type (default: "rbf")'),
+                kernel: zod.union([zod.string(), zod.null()]).optional().describe('SVM kernel type (default: \"rbf\")'),
                 nu: zod
                     .union([zod.number(), zod.null()])
                     .optional()
@@ -3729,7 +3734,7 @@ export const AlertsSimulateCreateBody = /* @__PURE__ */ zod.object({
                             .union([zod.string(), zod.null()])
                             .optional()
                             .describe(
-                                'Column whose value labels the evaluated row(s) in breach messages: every row in `any_row` mode, or the single evaluated row in `last_row`/`first_row`. When unset, the first non-evaluated column is used, falling back to the row number (any_row) or the value column name (last_row/first_row).'
+                                'Column whose value labels the evaluated row(s) in breach messages: every row in `any_row` mode, or the single evaluated row in `last_row`\/`first_row`. When unset, the first non-evaluated column is used, falling back to the row number (any_row) or the value column name (last_row\/first_row).'
                             ),
                         type: zod.enum(['HogQLAlertConfig']).default(alertsSimulateCreateBodyConfigOneTwoTypeDefault),
                     }),
@@ -3768,6 +3773,6 @@ export const AlertsSimulateCreateBody = /* @__PURE__ */ zod.object({
         ])
         .optional()
         .describe(
-            'Per-insight-kind alert config. For SQL insights, selects the evaluated column and read direction (last_row/first_row) so the preview matches the alert; ignored for trends.'
+            'Per-insight-kind alert config. For SQL insights, selects the evaluated column and read direction (last_row\/first_row) so the preview matches the alert; ignored for trends.'
         ),
 })

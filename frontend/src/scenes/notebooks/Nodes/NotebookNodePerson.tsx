@@ -13,12 +13,15 @@ import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
 import { formatCurrency } from 'lib/utils/currency'
 import { compactNumber } from 'lib/utils/numbers'
 import { createPostHogWidgetNode } from 'scenes/notebooks/Nodes/NodeWrapper'
+import { defineNotebookWidgetViews, getNotebookWidgetDefaultView } from 'scenes/notebooks/notebookWidgetCatalog'
 import { asDisplay } from 'scenes/persons/person-utils'
 import { PersonIcon } from 'scenes/persons/PersonDisplay'
 import { personLogic } from 'scenes/persons/personLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
+import { defaultDataTableColumns } from '~/queries/nodes/DataTable/utils'
+import { Query } from '~/queries/Query/Query'
 import { NodeKind } from '~/queries/schema/schema-general'
 import { PersonType } from '~/types'
 
@@ -26,7 +29,14 @@ import { NotebookNodeProps, NotebookNodeType } from '../types'
 import { DataSourceIcon } from './components/DataSourceIcon'
 import { notebookNodeLogic } from './notebookNodeLogic'
 
-const Component = ({ attributes }: NotebookNodeProps<NotebookNodePersonAttributes>): JSX.Element => {
+const Component = (props: NotebookNodeProps<NotebookNodePersonAttributes>): JSX.Element => {
+    return <PersonCard {...props} compact={false} />
+}
+
+function PersonCard({
+    attributes,
+    compact,
+}: NotebookNodeProps<NotebookNodePersonAttributes> & { compact: boolean }): JSX.Element {
     const { id, distinctId } = attributes
 
     const personLogicProps = { id, distinctId }
@@ -37,7 +47,7 @@ const Component = ({ attributes }: NotebookNodeProps<NotebookNodePersonAttribute
     useAttachedLogic(mountedPersonLogic, notebookLogic)
 
     useEffect(() => {
-        const title = person ? `Person: ${asDisplay(person)}` : 'Person'
+        const title = person ? asDisplay(person) : 'Person'
         setTitlePlaceholder(title)
         setActions([
             {
@@ -127,7 +137,7 @@ const Component = ({ attributes }: NotebookNodeProps<NotebookNodePersonAttribute
                                     <div>{propertyIcons}</div>
                                 </div>
                             </div>
-                            <PersonInfo />
+                            {!compact ? <PersonInfo /> : null}
                         </>
                     )}
                 </div>
@@ -227,12 +237,8 @@ function EventCount(): JSX.Element {
 }
 
 function MRR(): JSX.Element | null {
-    const { revenueData, revenueDataLoading, isRevenueAnalyticsEnabled } = useValues(personLogic)
+    const { revenueData, revenueDataLoading } = useValues(personLogic)
     const { baseCurrency } = useValues(teamLogic)
-
-    if (!isRevenueAnalyticsEnabled) {
-        return null
-    }
 
     return (
         <div className="flex items-center gap-1">
@@ -252,12 +258,8 @@ function MRR(): JSX.Element | null {
 }
 
 function LifetimeValue(): JSX.Element | null {
-    const { revenueData, revenueDataLoading, isRevenueAnalyticsEnabled } = useValues(personLogic)
+    const { revenueData, revenueDataLoading } = useValues(personLogic)
     const { baseCurrency } = useValues(teamLogic)
-
-    if (!isRevenueAnalyticsEnabled) {
-        return null
-    }
 
     return (
         <div className="flex items-center gap-1">
@@ -279,11 +281,66 @@ function LifetimeValue(): JSX.Element | null {
 type NotebookNodePersonAttributes = {
     id: string | undefined
     distinctId: string | undefined
+    view?: string
 }
+
+function PersonSummary(props: NotebookNodeProps<NotebookNodePersonAttributes>): JSX.Element {
+    return <PersonCard {...props} compact />
+}
+
+function PersonActivity({ attributes }: NotebookNodeProps<NotebookNodePersonAttributes>): JSX.Element {
+    const personLogicProps = { id: attributes.id, distinctId: attributes.distinctId }
+    const { person, personLoading } = useValues(personLogic(personLogicProps))
+    const { setTitlePlaceholder } = useActions(notebookNodeLogic)
+    const { notebookLogic } = useValues(notebookNodeLogic)
+
+    useEffect(() => {
+        setTitlePlaceholder(person ? asDisplay(person) : 'Person')
+    }, [person, setTitlePlaceholder])
+
+    if (!person && !personLoading) {
+        return <NotFound object="person" />
+    }
+    if (!person) {
+        return (
+            <div className="p-3">
+                <LemonSkeleton className="h-6 w-full" />
+            </div>
+        )
+    }
+
+    return (
+        <BindLogic logic={personLogic} props={personLogicProps}>
+            <Query
+                uniqueKey={`${attributes.nodeId}-activity`}
+                attachTo={notebookLogic}
+                query={{
+                    kind: NodeKind.DataTableNode,
+                    embedded: true,
+                    full: false,
+                    source: {
+                        kind: NodeKind.EventsQuery,
+                        personId: person.uuid,
+                        select: defaultDataTableColumns(NodeKind.EventsQuery),
+                        after: '-30d',
+                        limit: 50,
+                    },
+                }}
+                readOnly
+            />
+        </BindLogic>
+    )
+}
+
+const PERSON_NOTEBOOK_WIDGET_VIEWS = defineNotebookWidgetViews<NotebookNodePersonAttributes, 'Person'>('Person', {
+    summary: PersonSummary,
+    activity: PersonActivity,
+})
 
 export const NotebookNodePerson = createPostHogWidgetNode<NotebookNodePersonAttributes>({
     nodeType: NotebookNodeType.Person,
     titlePlaceholder: 'Person',
+    editableTitle: false,
     Component,
     expandable: false,
     href: (attrs) => {
@@ -298,10 +355,9 @@ export const NotebookNodePerson = createPostHogWidgetNode<NotebookNodePersonAttr
     attributes: {
         id: {},
         distinctId: {},
+        view: {},
     },
-    serializedText: (attrs) => {
-        const personTitle = attrs?.title || ''
-        const personId = attrs?.id || ''
-        return `${personTitle} ${personId}`.trim()
-    },
+    defaultView: getNotebookWidgetDefaultView('Person'),
+    views: PERSON_NOTEBOOK_WIDGET_VIEWS,
+    serializedText: (attrs) => attrs.title || 'Person',
 })

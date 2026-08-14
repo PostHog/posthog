@@ -10,6 +10,7 @@ from django.utils import timezone
 import posthoganalytics
 from structlog.contextvars import bind_contextvars
 from temporalio import activity
+from temporalio.exceptions import ApplicationError
 
 from posthog.exceptions_capture import capture_exception
 from posthog.models.team.team import Team
@@ -25,6 +26,12 @@ from products.warehouse_sources.backend.models.table import HIDDEN_COLUMNS, Data
 from products.warehouse_sources.backend.temporal.data_imports.external_product_hooks import (
     emit_signals_enabled_for,
     person_property_sync_enabled_for,
+)
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.common.db_retry import (
+    retry_on_operational_error,
+)
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.sync_lock import (
+    get_v3_pipeline_lock_holder,
 )
 
 WAREHOUSE_PIPELINES_V3_FLAG = "warehouse-pipelines-v3"
@@ -103,6 +110,22 @@ def _enrichment_pending(team_id: int, table: DataWarehouseTable | None, schema: 
     return bool(new_columns or table_needs_description)
 
 
+def _verify_v3_lock_still_held(team_id: int, schema_id: uuid.UUID) -> None:
+    """Fail fast if another run stole the v3 lock during this run's startup window,
+    instead of double-writing the Delta table. Best-effort: skipped when Redis is down."""
+    run_id = activity.info().workflow_run_id
+    if not run_id:
+        return
+    holder = get_v3_pipeline_lock_holder(team_id, str(schema_id))
+    if holder is None:
+        return
+    if holder != run_id:
+        raise ApplicationError(
+            "v3 pipeline lock lost to another run before job creation",
+            non_retryable=True,
+        )
+
+
 def _build_schema_snapshot(schema: ExternalDataSchema) -> dict[str, Any]:
     return {
         "name": schema.name,
@@ -116,6 +139,33 @@ def _build_schema_snapshot(schema: ExternalDataSchema) -> dict[str, Any]:
         "last_synced_at": schema.last_synced_at.isoformat() if schema.last_synced_at else None,
         "initial_sync_complete": schema.initial_sync_complete,
     }
+
+
+@retry_on_operational_error
+def _create_job(
+    *,
+    team_id: int,
+    source_id: uuid.UUID,
+    schema_id: uuid.UUID,
+    pipeline_version: str,
+    billable: bool,
+    schema_snapshot: dict[str, Any],
+) -> ExternalDataJob:
+    # A deadlock aborts the INSERT without creating a row, so retrying from scratch is safe. This
+    # activity has no Temporal-level retry (see external_data_job.py), because a retry after job
+    # creation succeeds would create a duplicate job — retrying just the INSERT avoids that.
+    return ExternalDataJob.objects.create(
+        team_id=team_id,
+        pipeline_id=source_id,
+        schema_id=schema_id,
+        status=ExternalDataJob.Status.RUNNING,
+        rows_synced=0,
+        workflow_id=activity.info().workflow_id,
+        workflow_run_id=activity.info().workflow_run_id,
+        pipeline_version=pipeline_version,
+        billable=billable,
+        schema_snapshot=schema_snapshot,
+    )
 
 
 # TODO: remove dependency
@@ -190,15 +240,12 @@ def create_external_data_job_model_activity(
         pipeline_version = ExternalDataJob.PipelineVersion.V2
         if inputs.is_v3:
             pipeline_version = ExternalDataJob.PipelineVersion.V3
+            _verify_v3_lock_still_held(inputs.team_id, inputs.schema_id)
 
-        job = ExternalDataJob.objects.create(
+        job = _create_job(
             team_id=inputs.team_id,
-            pipeline_id=inputs.source_id,
+            source_id=inputs.source_id,
             schema_id=inputs.schema_id,
-            status=ExternalDataJob.Status.RUNNING,
-            rows_synced=0,
-            workflow_id=activity.info().workflow_id,
-            workflow_run_id=activity.info().workflow_run_id,
             pipeline_version=pipeline_version,
             billable=inputs.billable,
             schema_snapshot=_build_schema_snapshot(schema),

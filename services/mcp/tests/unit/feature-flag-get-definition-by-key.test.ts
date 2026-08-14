@@ -37,7 +37,7 @@ describe('feature-flag-get-definition-by-key', () => {
             path: '/api/projects/42/feature_flags/',
             query: { key: 'new-checkout', limit: 5 },
         })
-        expect(result).toMatchObject({ id: 7, key: 'new-checkout' })
+        expect(result).toMatchObject({ id: 7, key: 'new-checkout', found: true })
     })
 
     it('picks the exact-case match when the key filter also returns a same-key different-case duplicate', async () => {
@@ -45,7 +45,7 @@ describe('feature-flag-get-definition-by-key', () => {
 
         const result = await tool.handler(createMockContext(request), { key: 'checkout' })
 
-        expect(result).toMatchObject({ id: 7, key: 'checkout' })
+        expect(result).toMatchObject({ id: 7, key: 'checkout', found: true })
     })
 
     it('resolves a key case-insensitively when no exact-case match exists', async () => {
@@ -53,7 +53,7 @@ describe('feature-flag-get-definition-by-key', () => {
 
         const result = await tool.handler(createMockContext(request), { key: 'new-checkout' })
 
-        expect(result).toMatchObject({ id: 7, key: 'New-Checkout' })
+        expect(result).toMatchObject({ id: 7, key: 'New-Checkout', found: true })
     })
 
     it('raises a validation error when a key matches multiple flags only case-insensitively', async () => {
@@ -64,12 +64,13 @@ describe('feature-flag-get-definition-by-key', () => {
         )
     })
 
-    it('raises a validation error naming the missing key when no flag matches', async () => {
+    it('returns a non-error found:false result naming the missing key when no flag matches', async () => {
         const request = vi.fn().mockResolvedValue({ results: [] })
 
-        await expect(tool.handler(createMockContext(request), { key: 'checkout' })).rejects.toBeInstanceOf(
-            ToolInputValidationError
-        )
+        const result = await tool.handler(createMockContext(request), { key: 'checkout' })
+
+        expect(result).toMatchObject({ found: false, key: 'checkout' })
+        expect((result as { message: string }).message).toContain('checkout')
         expect(request).toHaveBeenCalledTimes(1)
     })
 
@@ -80,5 +81,32 @@ describe('feature-flag-get-definition-by-key', () => {
             ToolInputValidationError
         )
         expect(request).not.toHaveBeenCalled()
+    })
+
+    // Agents reconstruct this call from the tool name in exec mode and send the
+    // key as `flagKey` / `flag_key` / `feature_flag_key`; production traces show
+    // that mismatch as the dominant validation failure. Every alias must
+    // normalize onto `key` (canonical wins on conflict) or those failures return.
+    describe('key aliases', () => {
+        it.each([
+            ['key', { key: 'new-checkout' }],
+            ['flagKey', { flagKey: 'new-checkout' }],
+            ['flag_key', { flag_key: 'new-checkout' }],
+            ['feature_flag_key', { feature_flag_key: 'new-checkout' }],
+            ['featureFlagKey', { featureFlagKey: 'new-checkout' }],
+            ['key over an alias on conflict', { key: 'new-checkout', flagKey: 'other' }],
+        ])('normalizes %s to `key`', (_label, input) => {
+            const result = tool.schema.safeParse(input)
+            expect(result.success).toBe(true)
+            const data = result.data as Record<string, unknown>
+            expect(data.key).toBe('new-checkout')
+            for (const alias of ['flagKey', 'flag_key', 'feature_flag_key', 'featureFlagKey']) {
+                expect(data).not.toHaveProperty(alias)
+            }
+        })
+
+        it('still rejects a call with no key under any accepted name', () => {
+            expect(tool.schema.safeParse({}).success).toBe(false)
+        })
     })
 })

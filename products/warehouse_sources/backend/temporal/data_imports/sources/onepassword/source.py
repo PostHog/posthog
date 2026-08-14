@@ -11,10 +11,6 @@ from posthog.schema import (
     SourceFieldSelectConfigOption,
 )
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import (
-    SourceInputs,
-    SourceResponse,
-)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
@@ -25,6 +21,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.sch
     SourceSchema,
     build_endpoint_schemas,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.onepassword import (
     OnePasswordSourceConfig,
 )
@@ -123,6 +120,7 @@ Select the region where your 1Password account is hosted — the Events API is s
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         # `start_time` is a genuine server-side timestamp filter on every stream, so all are
         # incremental. Events are immutable, but incremental runs re-pull a boundary window that
@@ -131,7 +129,11 @@ Select the region where your 1Password account is hosted — the Events API is s
         return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names, merge_only=set(ENDPOINTS))
 
     def validate_credentials(
-        self, config: OnePasswordSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: OnePasswordSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         introspection = introspect(config.region, config.api_token)
         if introspection is None:
@@ -149,7 +151,7 @@ Select the region where your 1Password account is hosted — the Events API is s
         return True, None
 
     def get_endpoint_permissions(
-        self, config: OnePasswordSourceConfig, team_id: int, endpoints: list[str]
+        self, config: OnePasswordSourceConfig, team_id: int, endpoints: list[str], api_version: str | None = None
     ) -> dict[str, str | None]:
         introspection = introspect(config.region, config.api_token)
         if introspection is None:

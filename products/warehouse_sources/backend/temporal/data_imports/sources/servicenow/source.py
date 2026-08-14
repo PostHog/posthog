@@ -11,10 +11,6 @@ from posthog.schema import (
     SourceFieldSelectConfigOption,
 )
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import (
-    SourceInputs,
-    SourceResponse,
-)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
@@ -25,6 +21,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.sch
     SourceSchema,
     build_endpoint_schemas,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.servicenow import (
     ServiceNowSourceConfig,
 )
@@ -172,11 +169,16 @@ The account or API key needs **read** access (the `rest_api_explorer` role or eq
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names)
 
     def validate_credentials(
-        self, config: ServiceNowSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: ServiceNowSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         try:
             auth = self._auth_for_config(config)
@@ -184,7 +186,9 @@ The account or API key needs **read** access (the `rest_api_explorer` role or eq
             return False, str(exc)
 
         table = SERVICENOW_ENDPOINTS[schema_name].table if schema_name in SERVICENOW_ENDPOINTS else None
-        return validate_servicenow_credentials(config.instance_url, auth, team_id, table=table)
+        return validate_servicenow_credentials(
+            config.instance_url, auth, team_id, table=table, api_version=self.resolve_api_version(api_version)
+        )
 
     def get_resumable_source_manager(self, inputs: SourceInputs) -> ResumableSourceManager[ServiceNowResumeConfig]:
         return ResumableSourceManager[ServiceNowResumeConfig](inputs, ServiceNowResumeConfig)

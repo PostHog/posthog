@@ -10,18 +10,13 @@ from structlog.contextvars import bind_contextvars
 from temporalio.common import RetryPolicy
 from temporalio.exceptions import ApplicationError
 
-from posthog.api.capture import capture_internal
-from posthog.models.team import Team
+from posthog.api.capture import CaptureInternalError
 from posthog.sync import database_sync_to_async
 from posthog.temporal.ai_observability.evaluation_event_io import extract_event_io
-from posthog.temporal.ai_observability.evaluation_workflow_activities import (
-    SendTrialUsageEmailInputs,
-    increment_trial_eval_count_activity,
-    send_trial_usage_email_activity,
-    update_key_state_activity,
-)
+from posthog.temporal.ai_observability.evaluation_workflow_activities import update_key_state_activity
 from posthog.temporal.ai_observability.message_utils import extract_text_from_messages
 from posthog.temporal.ai_observability.model_resolution import model_spec
+from posthog.temporal.ai_observability.team_capture import capture_internal_for_team
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.scoped import scoped_temporal
 
@@ -228,9 +223,9 @@ async def execute_tagger_activity(inputs: ExecuteTaggerInputs) -> dict[str, Any]
     if isinstance(properties, str):
         properties = json.loads(properties)
 
-    input_raw, output_raw = extract_event_io(event_type, properties)
-    input_data = extract_text_from_messages(input_raw)
-    output_data = extract_text_from_messages(output_raw)
+    io = extract_event_io(event_type, properties)
+    input_data = extract_text_from_messages(io.input_raw)
+    output_data = extract_text_from_messages(io.output_raw)
 
     system_prompt = build_tagger_system_prompt(prompt, tags, min_tags, max_tags)
     tag_names = [tag["name"] for tag in tags]
@@ -358,10 +353,10 @@ def run_hog_tagger(bytecode: list, event_data: dict[str, Any], valid_tag_names: 
         properties = json.loads(properties)
 
     event_type = event_data["event"]
-    input_raw, output_raw = extract_event_io(event_type, properties)
+    io = extract_event_io(event_type, properties)
 
-    input_val = json.dumps(input_raw) if isinstance(input_raw, list | dict) else (input_raw or "")
-    output_val = json.dumps(output_raw) if isinstance(output_raw, list | dict) else (output_raw or "")
+    input_val = json.dumps(io.input_raw) if isinstance(io.input_raw, list | dict) else (io.input_raw or "")
+    output_val = json.dumps(io.output_raw) if isinstance(io.output_raw, list | dict) else (io.output_raw or "")
 
     globals_dict: dict[str, Any] = {
         "input": input_val,
@@ -477,12 +472,6 @@ async def emit_tagger_event_activity(inputs: EmitTaggerEventInputs) -> None:
     start_time = inputs.start_time
 
     def _emit():
-        try:
-            team = Team.objects.get(id=event_data["team_id"])
-        except Team.DoesNotExist:
-            logger.exception("Team not found", team_id=event_data["team_id"])
-            raise ValueError(f"Team {event_data['team_id']} not found")
-
         properties_raw = (
             json.loads(event_data["properties"])
             if isinstance(event_data["properties"], str)
@@ -519,20 +508,22 @@ async def emit_tagger_event_activity(inputs: EmitTaggerEventInputs) -> None:
                 }
             )
 
-        event_timestamp = datetime.now(UTC)
-
-        routed_result = capture_internal(
-            token=team.api_token,
+        capture_internal_for_team(
+            team_id=event_data["team_id"],
             event_name="$ai_tag",
             event_source="llm_analytics_tagger",
             distinct_id=event_data["distinct_id"],
-            timestamp=event_timestamp,
+            timestamp=datetime.now(UTC),
             properties=properties,
-            process_person_profile=True,
         )
-        routed_result.raise_for_status()
 
-    await database_sync_to_async(_emit, thread_sensitive=False)()
+    try:
+        await database_sync_to_async(_emit, thread_sensitive=False)()
+    except CaptureInternalError as e:
+        if e.is_billing_limit_exceeded:
+            logger.info("Skipping tag event emission; team over billing quota", team_id=event_data["team_id"])
+            return
+        raise
 
 
 @temporalio.activity.defn
@@ -567,6 +558,10 @@ class RunTaggerWorkflow(PostHogWorkflow):
 
     @temporalio.workflow.run
     async def run(self, inputs: RunTaggerInputs) -> dict[str, Any]:
+        # Every #71518-era run recorded the "remove-trial-evals" patch marker; accept those
+        # histories for one release, then delete this call (temporal-workflow-versioning rule).
+        temporalio.workflow.deprecate_patch("remove-trial-evals")
+
         start_time = temporalio.workflow.now()
 
         # Activity 1: Fetch tagger config
@@ -615,24 +610,15 @@ class RunTaggerWorkflow(PostHogWorkflow):
                     details = e.cause.details[0]
                     error_type = details.get("error_type")
 
-                    # Replay-only compatibility for runs started before trial evals were removed:
-                    # reproduce the commands the old code scheduled for trial-era errors.
-                    # workflow.patched returns False only when replaying pre-patch histories, so
-                    # fresh runs never take the legacy branches. Remove in the follow-up PR.
-                    legacy_trial_era = not temporalio.workflow.patched("remove-trial-evals")
-                    legacy_trial_error_types = ("trial_limit_reached", "model_not_allowed") if legacy_trial_era else ()
-
                     if error_type in (
                         "provider_key_required",
                         "key_invalid",
                         "parse_error",
                         "no_default_model",
-                        *legacy_trial_error_types,
                     ):
                         if error_type in (
                             "provider_key_required",
                             "no_default_model",
-                            *legacy_trial_error_types,
                         ):
                             await temporalio.workflow.execute_activity(
                                 disable_tagger_activity,
@@ -640,24 +626,6 @@ class RunTaggerWorkflow(PostHogWorkflow):
                                 schedule_to_close_timeout=timedelta(seconds=30),
                                 retry_policy=RetryPolicy(maximum_attempts=2),
                             )
-                            if (
-                                legacy_trial_era
-                                and error_type in ("provider_key_required", "trial_limit_reached", "model_not_allowed")
-                                and temporalio.workflow.patched("trial-usage-email")
-                            ):
-                                try:
-                                    await temporalio.workflow.execute_activity(
-                                        send_trial_usage_email_activity,
-                                        SendTrialUsageEmailInputs(team_id=tagger["team_id"], threshold_pct=100),
-                                        activity_id=f"send-trial-usage-email-100pct-tagger-{tagger['team_id']}",
-                                        schedule_to_close_timeout=timedelta(seconds=30),
-                                        retry_policy=RetryPolicy(maximum_attempts=2),
-                                    )
-                                except Exception:
-                                    temporalio.workflow.logger.exception(
-                                        "Failed to send trial exhausted email",
-                                        team_id=tagger["team_id"],
-                                    )
                         return {
                             "tags": [],
                             "skipped": True,
@@ -679,33 +647,6 @@ class RunTaggerWorkflow(PostHogWorkflow):
                             retry_policy=RetryPolicy(maximum_attempts=2),
                         )
                 raise
-
-        # Replay-only trial counting for runs started before trial evals were removed; the
-        # activities are no-op stubs. Remove in the follow-up PR.
-        if not temporalio.workflow.patched("remove-trial-evals") and tagger_type != "hog" and not result.get("is_byok"):
-            threshold_pct = await temporalio.workflow.execute_activity(
-                increment_trial_eval_count_activity,
-                tagger["team_id"],
-                activity_id=f"increment-trial-tagger-{tagger['id']}",
-                schedule_to_close_timeout=timedelta(seconds=10),
-                retry_policy=RetryPolicy(maximum_attempts=2),
-            )
-
-            if threshold_pct is not None and temporalio.workflow.patched("trial-usage-email"):
-                try:
-                    await temporalio.workflow.execute_activity(
-                        send_trial_usage_email_activity,
-                        SendTrialUsageEmailInputs(team_id=tagger["team_id"], threshold_pct=threshold_pct),
-                        activity_id=f"send-trial-usage-email-{threshold_pct}pct-tagger-{tagger['team_id']}",
-                        schedule_to_close_timeout=timedelta(seconds=30),
-                        retry_policy=RetryPolicy(maximum_attempts=2),
-                    )
-                except Exception:
-                    temporalio.workflow.logger.exception(
-                        "Failed to send trial usage email",
-                        team_id=tagger["team_id"],
-                        threshold_pct=threshold_pct,
-                    )
 
         # Activity 3: Emit tagger event
         await temporalio.workflow.execute_activity(

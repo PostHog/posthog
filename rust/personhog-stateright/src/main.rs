@@ -11,7 +11,7 @@
 
 use clap::{Parser, ValueEnum};
 
-use personhog_stateright::model::{HandoffModel, Variant};
+use personhog_stateright::model::{ClaimDetection, HandoffModel, Variant, WarmOrder};
 use stateright::Model;
 
 #[derive(Parser)]
@@ -28,26 +28,38 @@ enum Scenario {
     CurrentZombie,
     /// The epoch-fencing fix.
     EpochFenced,
+    /// The rejected warm ordering (read before fence), with
+    /// counterexamples.
+    EpochFencedReadFirst,
 }
 
 fn main() {
     let args = Args::parse();
-    let (variant, crashes, zombie_window) = match args.scenario {
-        Scenario::Current => (Variant::Current, 1, 0),
-        Scenario::CurrentZombie => (Variant::Current, 1, 1),
-        Scenario::EpochFenced => (Variant::EpochFenced, 1, 1),
+    let (variant, warm_order, crashes, zombie_window) = match args.scenario {
+        Scenario::Current => (Variant::Current, WarmOrder::FenceFirst, 1, 0),
+        Scenario::CurrentZombie => (Variant::Current, WarmOrder::FenceFirst, 1, 1),
+        Scenario::EpochFenced => (Variant::EpochFenced, WarmOrder::FenceFirst, 1, 1),
+        Scenario::EpochFencedReadFirst => (Variant::EpochFenced, WarmOrder::ReadFirst, 2, 1),
     };
 
     let model = HandoffModel {
         pods: 2,
         routers: 2,
+        late_routers: 0,
         partitions: 1,
         variant,
+        warm_order,
+        lease_gated_reads: false,
+        claim_recovers: true,
+        claim_detection: ClaimDetection::Prompt,
         writes: 2,
         reads: 1,
         crashes,
         rejoins: 0,
+        router_joins: 0,
         zombie_window,
+        hold_pods: 0,
+        cancels: 0,
         probes: false,
     };
     println!("exploring {:?} at http://localhost:3000 …", args.scenario);

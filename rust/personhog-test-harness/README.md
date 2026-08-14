@@ -35,8 +35,30 @@ target/debug/personhog-test-harness gate --external-router-url http://127.0.0.1:
 ```
 
 The spawned stack is isolated from the dev stack: its own port range (24xxx, kept below the ephemeral range so outbound connections cannot steal a listen port), its own etcd prefix (`/personhog-test-harness/`), and a per-run changelog topic (`personhog_test_harness_<run_id>`, deleted on teardown).
-Persons are seeded directly in Postgres for a reserved harness team id (SQL is the interim seeding mechanism until the create RPC's future is settled; `src/seed.rs` is the swap seam).
+Persons are seeded directly in Postgres for a reserved harness team id by default; `--create-via-identity` (below) creates them through the identity service instead.
 Service logs land in `<bin-dir>/harness-logs/<run_id>/`.
+
+### Creating persons via the identity service
+
+`--create-via-identity` swaps SQL seeding for the personhog-identity get-or-create path: the spawned stack also runs `personhog-identity`, persons are created through `GetOrCreatePersonsByDistinctIds` (stub insert on the Postgres primary, then initial `$set` properties through the router to the owning leader), and the update traffic then targets the created persons.
+Each create ack is journaled like any other write, so the gate holds create visibility — the initial properties and the acked version — to the same invariant as update visibility, in strong reads and in Postgres.
+
+```bash
+# Create through identity, then update through the router
+target/debug/personhog-test-harness gate --create-via-identity \
+  --duration 10s --persons 100 --concurrency 10
+
+# The create path composes with chaos like any other run
+target/debug/personhog-test-harness gate --create-via-identity \
+  --leaders 3 --partitions 8 --duration 15s --kill-after 5s --scale-up-after 8s
+
+# Against an already-running stack, point at its identity service too
+# (the dev stack runs it at 50055)
+target/debug/personhog-test-harness gate --create-via-identity \
+  --external-router-url http://127.0.0.1:50054 \
+  --external-identity-url http://127.0.0.1:50055 \
+  --pg-target-table personhog_person_tmp
+```
 
 Multiple local leaders work because each registers with a `host:port` pod name, which the router's address resolver dials as-is (bare pod names still resolve via DNS on the fleet-wide leader port).
 
@@ -86,6 +108,19 @@ target/debug/personhog-test-harness gate --leaders 3 --routers 3 --duration 20s 
 # fires on the first handoff observed after the shutdown/scale-up)
 target/debug/personhog-test-harness gate --leaders 3 --duration 20s \
   --shutdown-after 5s --kill-handoff-target
+
+# Lifecycle fence window: fence 5 persons (delete-op) at 3s, release
+# (aborted) at 12s. While fenced, any write acked above the sealed version
+# is a violation — writes to fenced persons must be rejected, not lost.
+target/debug/personhog-test-harness gate --duration 15s \
+  --fence-after 3s --fence-release-after 12s
+
+# The fence durability property: the fence is part of the person document,
+# so it must survive a leader crash-restart (recovered via warming /
+# changelog recovery) — a fence that fails open after the restart acks a
+# write above the seal and fails the gate
+target/debug/personhog-test-harness gate --leaders 3 --duration 18s \
+  --fence-after 3s --restart-after 6s --fence-release-after 14s
 ```
 
 ### Known defects these scenarios reproduce
@@ -94,13 +129,13 @@ Four real leader-path bugs surfaced under specific gate configurations; two are 
 They are documented here so red or noisy runs read as signal, not harness flakiness.
 
 **Cache eviction under writer lag loses acked writes — FIXED, now a CI regression gate.**
-`--cache-capacity` sets the leader cache size in entries; below `--persons` it forces eviction of dirty entries whose writes the writer has not yet flushed.
+`--cache-capacity` sets the leader cache budget in bytes (entries are weighed by serialized size); set it below the seeded pool's footprint to force eviction of dirty entries whose writes the writer has not yet flushed.
 Every operation used to reload the stale Postgres row on the next miss, later merges built on the stale base, and acked writes disappeared (this exact configuration once produced 4,886 violations).
 The leader now marks every acked produce in a dirty index and recovers evicted marked persons from their changelog record instead of trusting PG; the scenario runs in CI (with a writer pause to guarantee the lag) and must stay green:
 
 ```bash
 target/debug/personhog-test-harness gate --leaders 3 --partitions 8 --persons 50 \
-  --cache-capacity 10 --duration 15s --writer-pause-after 3s --writer-pause-duration 8s
+  --cache-capacity 4096 --duration 15s --writer-pause-after 3s --writer-pause-duration 8s
 ```
 
 **Graceful shutdown black-holes the leader's partitions — FIXED via lifecycle shutdown phases.**

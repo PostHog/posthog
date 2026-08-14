@@ -183,7 +183,7 @@ pub struct FlagsCanonicalLogLine {
 
     // Request metadata (useful for SDK debugging)
     pub user_agent: Option<String>,
-    pub lib: Option<&'static str>,
+    pub lib: Option<String>,
     pub lib_version: Option<String>,
     pub api_version: Option<String>,
 
@@ -199,6 +199,10 @@ pub struct FlagsCanonicalLogLine {
     pub flags_experience_continuity: usize,
     pub flags_disabled: bool,
     pub quota_limited: bool,
+    /// Set when the request supplied a `$geoip_*` value disagreeing with the MaxMind lookup.
+    /// Attributable counterpart to `flags_geoip_properties_differ_from_lookup_total`, which has
+    /// no labels.
+    pub geoip_properties_differ_from_lookup: bool,
     /// Flag keys that were overridden with custom definitions (for testing/historical evaluation)
     pub flags_overridden: Option<Vec<String>>,
     /// Source of the flags data: "Redis", "S3", or "Fallback" (PostgreSQL).
@@ -329,6 +333,7 @@ impl Default for FlagsCanonicalLogLine {
             flags_experience_continuity: 0,
             flags_disabled: false,
             quota_limited: false,
+            geoip_properties_differ_from_lookup: false,
             flags_overridden: None,
             flags_cache_source: None,
             eval: EvalCounters::default(),
@@ -388,7 +393,7 @@ impl FlagsCanonicalLogLine {
             anon_distinct_id = self.anon_distinct_id.as_deref(),
             ip = %self.ip,
             user_agent = user_agent,
-            lib = self.lib,
+            lib = self.lib.as_deref(),
             lib_version = self.lib_version.as_deref(),
             api_version = self.api_version.as_deref(),
             duration_ms = duration_ms,
@@ -398,6 +403,7 @@ impl FlagsCanonicalLogLine {
             flags_device_id_bucketing = self.eval.flags_device_id_bucketing,
             flags_disabled = self.flags_disabled,
             quota_limited = self.quota_limited,
+            geoip_properties_differ_from_lookup = self.geoip_properties_differ_from_lookup,
             flags_overridden = ?self.flags_overridden,
             flags_cache_source = self.flags_cache_source,
             db_property_fetches = self.db_property_fetches,
@@ -708,7 +714,7 @@ mod tests {
     fn test_emit_with_all_fields_populated() {
         let mut log = FlagsCanonicalLogLine::new(Uuid::new_v4(), "10.0.0.1".to_string());
         log.user_agent = Some("posthog-python/1.0.0".to_string());
-        log.lib = Some("posthog-python");
+        log.lib = Some("posthog-python".to_string());
         log.lib_version = Some("1.0.0".to_string());
         log.api_version = Some("3".to_string());
         log.team_id = Some(123);

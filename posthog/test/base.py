@@ -32,7 +32,10 @@ import pendulum  # noqa F401
 import sqlparse
 from clickhouse_pool import ChPool
 from clickhouse_pool.pool import TooManyConnections
-from rest_framework.test import APITestCase as DRFTestCase
+from rest_framework.test import (
+    APITestCase as DRFTestCase,
+    APITransactionTestCase,
+)
 from syrupy.extensions.amber import AmberSnapshotExtension
 
 from posthog.hogql import (
@@ -122,6 +125,13 @@ from posthog.models.exchange_rate.sql import (
     EXCHANGE_RATE_DATA_BACKFILL_SQL,
     EXCHANGE_RATE_DICTIONARY_SQL,
     EXCHANGE_RATE_TABLE_SQL,
+)
+from posthog.models.flag_evaluations.sql import (
+    DISTRIBUTED_FLAG_EVALUATIONS_TABLE_SQL,
+    DROP_FLAG_EVALUATIONS_PROXY_TABLES_SQL,
+    DROP_FLAG_EVALUATIONS_TABLE_SQL,
+    FLAG_EVALUATIONS_TABLE_SQL,
+    WRITABLE_FLAG_EVALUATIONS_TABLE_SQL,
 )
 from posthog.models.group.sql import TRUNCATE_GROUPS_TABLE_SQL
 from posthog.models.instance_setting import get_instance_setting
@@ -1111,6 +1121,39 @@ class APIBaseTest(PostHogTestCase, ErrorResponsesMixin, DRFTestCase):
             yield
 
 
+class NonAtomicAPIBaseTest(PostHogTestCase, ErrorResponsesMixin, APITransactionTestCase):
+    """Like APIBaseTest, but on TransactionTestCase (via DRF's APITransactionTestCase) rather
+    than TestCase - for endpoints that hand work to real worker threads which must see this
+    test's own DB writes. TestCase wraps each test in an outer, never-committed transaction that
+    only the test's own connection can see; a worker thread opens its own connection and a fresh
+    query on it finds no such row at all, not a stale one. See NonAtomicBaseTest for the same
+    trade-off outside DRF, and its docstring's link for background.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        cls.setUpTestData()
+
+    def setUp(self):
+        super().setUp()
+
+        cache.clear()
+        TEST_clear_instance_license_cache()
+        rate_limit.is_rate_limit_enabled.cache_clear()
+        rate_limit.get_team_allow_list.cache_clear()
+
+        if self.CONFIG_AUTO_LOGIN and self.user:
+            self.client.force_login(self.user)
+
+    def _fixture_teardown(self):
+        for db_name in cast(Any, self)._databases_names(include_mirrors=False):
+            try:
+                _selective_flush(db_name, reset_sequences=True)
+            except Exception:
+                logger.exception("Selective flush of %r failed; falling back to the stock flush command", db_name)
+                call_command("flush", verbosity=0, interactive=False, database=db_name, allow_cascade=True)
+
+
 def stripResponse(response, remove=("action", "label", "persons_urls", "filter")):
     if len(response):
         for attr in remove:
@@ -1541,6 +1584,24 @@ def snapshot_postgres_queries(fn):
     return wrapped
 
 
+def reset_unusable_db_connections() -> None:
+    """Close any DB connection whose underlying handle is dead or left in an errored state
+    by an earlier test, so Django transparently reconnects on next use.
+
+    A prior test in the same pytest process can sever the shared connection without Django
+    noticing — notably transaction=True suites whose code under test calls
+    close_old_connections() on the main thread (e.g. the warehouse duckgres backfill). The
+    next test to touch the stale wrapper then fails with "the connection is closed", and
+    in-process reruns reuse the same dead wrapper, so they never recover on their own.
+
+    Checking errors_occurred first is cheap and catches a connection left broken without a
+    round-trip; is_usable() confirms liveness for the rest.
+    """
+    for conn in connections.all():
+        if conn.connection is not None and (conn.errors_occurred or not conn.is_usable()):
+            conn.close()
+
+
 class BaseTestMigrations(QueryMatchingTest):
     @property
     def app(self) -> str:
@@ -1554,7 +1615,19 @@ class BaseTestMigrations(QueryMatchingTest):
     apps: Optional[Any] = None
     assert_snapshots = False
 
+    @classmethod
+    def setUpClass(cls) -> None:
+        # Reset dead/errored connections before the class setup machinery starts, so a
+        # connection an earlier test left broken doesn't carry into this class.
+        reset_unusable_db_connections()
+        # Mixin: setUpClass resolves via the TestCase mixed in by concrete subclasses.
+        super().setUpClass()  # type: ignore[misc]
+
     def setUp(self):
+        # In-process reruns (pytest --reruns) re-enter setUp without setUpClass, and a
+        # connection can also drop after class setup, so reset again here — otherwise the
+        # dead wrapper is reused and the test can never recover.
+        reset_unusable_db_connections()
         assert hasattr(self, "migrate_from") and hasattr(self, "migrate_to"), (
             "TestCase '{}' must define migrate_from and migrate_to properties".format(type(self).__name__)
         )
@@ -1564,6 +1637,7 @@ class BaseTestMigrations(QueryMatchingTest):
         old_apps = executor.loader.project_state(migrate_from).apps
 
         # Reverse to the original migration
+        self._flush_deferred_constraint_triggers()
         executor.migrate(migrate_from)
 
         self.setUpBeforeMigration(old_apps)
@@ -1572,12 +1646,22 @@ class BaseTestMigrations(QueryMatchingTest):
         executor = MigrationExecutor(connection)
         executor.loader.build_graph()  # reload.
 
+        self._flush_deferred_constraint_triggers()
         if self.assert_snapshots:
             self._execute_migration_with_snapshots(executor)
         else:
             executor.migrate(migrate_to)
 
         self.apps = executor.loader.project_state(migrate_to).apps
+
+    @staticmethod
+    def _flush_deferred_constraint_triggers() -> None:
+        # Fixture inserts (e.g. BaseTest teams) queue deferred FK checks in the open test
+        # transaction; (un)applying a migration that adds or drops an FK on those tables then
+        # fails with "cannot ALTER TABLE ... because it has pending trigger events". Firing
+        # the checks now clears the queue.
+        with connection.cursor() as cursor:
+            cursor.execute("SET CONSTRAINTS ALL IMMEDIATE")
 
     @snapshot_postgres_queries
     def _execute_migration_with_snapshots(self, executor):
@@ -1980,6 +2064,8 @@ def reset_clickhouse_database() -> None:
             TRUNCATE_PLUGIN_LOG_ENTRIES_TABLE_SQL,
             TRUNCATE_CUSTOM_METRICS_COUNTER_EVENTS_TABLE,
             TRUNCATE_AI_EVENTS_TABLE_SQL(),
+            DROP_FLAG_EVALUATIONS_TABLE_SQL(),
+            *DROP_FLAG_EVALUATIONS_PROXY_TABLES_SQL(),
         ]
     )
     run_clickhouse_statement_in_parallel(
@@ -1987,6 +2073,9 @@ def reset_clickhouse_database() -> None:
             CHANNEL_DEFINITION_TABLE_SQL(),
             EXCHANGE_RATE_TABLE_SQL(),
             *clickhouse_events_data_table_sqls(),
+            FLAG_EVALUATIONS_TABLE_SQL(),
+            WRITABLE_FLAG_EVALUATIONS_TABLE_SQL(),
+            DISTRIBUTED_FLAG_EVALUATIONS_TABLE_SQL(),
             PERSONS_TABLE_SQL(),
             PROPERTY_DEFINITIONS_TABLE_SQL(),
             RAW_SESSIONS_TABLE_SQL(),

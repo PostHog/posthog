@@ -11,10 +11,6 @@ from posthog.schema import (
     SourceFieldSelectConfigOption,
 )
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import (
-    SourceInputs,
-    SourceResponse,
-)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
@@ -25,6 +21,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.sch
     SourceSchema,
     build_endpoint_schemas,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.rapid7insightvm import (
     Rapid7InsightvmSourceConfig,
 )
@@ -75,6 +72,7 @@ class Rapid7InsightvmSource(ResumableSource[Rapid7InsightvmSourceConfig, Rapid7I
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         # No endpoint has incremental fields, so build_endpoint_schemas marks every table full
         # refresh (supports_incremental / supports_append both False) — the v4 timestamp filter
@@ -82,7 +80,11 @@ class Rapid7InsightvmSource(ResumableSource[Rapid7InsightvmSourceConfig, Rapid7I
         return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names)
 
     def validate_credentials(
-        self, config: Rapid7InsightvmSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: Rapid7InsightvmSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         return validate_rapid7_insightvm_credentials(config.api_key, config.region)
 

@@ -4,6 +4,7 @@ import { z } from 'zod'
 import type { Schemas } from '@/api/generated'
 import {
     McpAnalyticsFeedbackCreateBody,
+    McpAnalyticsIntentClustersRetrieveQueryParams,
     McpAnalyticsMissingCapabilitiesCreateBody,
     McpAnalyticsSessionsGenerateIntentParams,
     McpAnalyticsSessionsGenerateIntentQueryParams,
@@ -34,7 +35,7 @@ const mcpAnalyticsIntentClustersRecompute = (): ToolBase<
     },
 })
 
-const McpAnalyticsIntentClustersRetrieveSchema = z.object({})
+const McpAnalyticsIntentClustersRetrieveSchema = McpAnalyticsIntentClustersRetrieveQueryParams
 
 const mcpAnalyticsIntentClustersRetrieve = (): ToolBase<
     typeof McpAnalyticsIntentClustersRetrieveSchema,
@@ -42,12 +43,14 @@ const mcpAnalyticsIntentClustersRetrieve = (): ToolBase<
 > => ({
     name: 'mcp-analytics-intent-clusters-retrieve',
     schema: McpAnalyticsIntentClustersRetrieveSchema,
-    // eslint-disable-next-line no-unused-vars
     handler: async (context: Context, params: z.infer<typeof McpAnalyticsIntentClustersRetrieveSchema>) => {
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.MCPIntentClusterSnapshot[]>({
             method: 'GET',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/mcp_analytics/intent_clusters/`,
+            query: {
+                tool: params.tool,
+            },
         })
         return result
     },
@@ -259,6 +262,10 @@ const PropertyOperator = z.enum([
     'is_not',
     'icontains',
     'not_icontains',
+    'starts_with',
+    'not_starts_with',
+    'ends_with',
+    'not_ends_with',
     'regex',
     'not_regex',
     'gt',
@@ -291,7 +298,7 @@ const PropertyOperator = z.enum([
     'not_icontains_multi',
 ])
 
-const PropertyFilterBaseValue = z.union([z.string(), z.coerce.number(), z.coerce.boolean()])
+const PropertyFilterBaseValue = z.union([z.string(), z.number(), z.boolean()])
 
 const PropertyFilterValue = z.union([PropertyFilterBaseValue, z.array(PropertyFilterBaseValue), z.null()])
 
@@ -383,7 +390,7 @@ const LogEntryPropertyFilter = z.object({
 
 const GroupPropertyFilter = z.object({
     group_key_names: z.record(z.string(), z.string()).optional(),
-    group_type_index: z.union([z.coerce.number().int(), z.null()]).optional(),
+    group_type_index: z.union([z.number().int(), z.null()]).optional(),
     key: z.string(),
     label: z.string().optional(),
     operator: PropertyOperator,
@@ -407,7 +414,7 @@ const FlagPropertyFilter = z.object({
         .describe('Only flag_evaluates_to operator is allowed for flag dependencies')
         .default('flag_evaluates_to'),
     type: z.literal('flag').describe('Feature flag dependency').default('flag'),
-    value: z.union([z.coerce.boolean(), z.string()]).describe('The value can be true, false, or a variant name'),
+    value: z.union([z.boolean(), z.string()]).describe('The value can be true, false, or a variant name'),
 })
 
 const HogQLPropertyFilter = z.object({
@@ -566,6 +573,21 @@ const MCPToolFailuresQuery = z.object({
         .describe('The effective tool name to scope to (matched against the single-exec-resolved tool name).'),
 })
 
+const MCPToolFailureOccurrencesQuery = z.object({
+    dateRange: DateRange.optional(),
+    errorStatus: z
+        .string()
+        .describe('When set, only events with this HTTP status match; when unset, only events without a status match.')
+        .optional(),
+    errorType: z
+        .string()
+        .describe('Raw $mcp_error_type bucket; "unknown" selects errored events without an error type.'),
+    kind: z.literal('MCPToolFailureOccurrencesQuery').default('MCPToolFailureOccurrencesQuery'),
+    toolName: z
+        .string()
+        .describe('The effective tool name to scope to (matched against the single-exec-resolved tool name).'),
+})
+
 const MCPToolTopUsersQuery = z.object({
     dateRange: DateRange.optional(),
     kind: z.literal('MCPToolTopUsersQuery').default('MCPToolTopUsersQuery'),
@@ -628,6 +650,11 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
         name: 'query-mcp-tool-failures',
         schema: MCPToolFailuresQuery,
         kind: 'MCPToolFailuresQuery',
+    }),
+    'query-mcp-tool-failure-occurrences': createQueryWrapper({
+        name: 'query-mcp-tool-failure-occurrences',
+        schema: MCPToolFailureOccurrencesQuery,
+        kind: 'MCPToolFailureOccurrencesQuery',
     }),
     'query-mcp-tool-top-users': createQueryWrapper({
         name: 'query-mcp-tool-top-users',

@@ -2,6 +2,7 @@ import uuid
 from typing import TypeVar
 
 from posthog.test.base import BaseTest
+from unittest.mock import patch
 
 from products.review_hog.backend.models import ReviewReport, ReviewReportArtefact
 from products.review_hog.backend.reviewer.artefact_content import (
@@ -10,6 +11,7 @@ from products.review_hog.backend.reviewer.artefact_content import (
     ValidationVerdict,
     parse_artefact_content,
 )
+from products.review_hog.backend.reviewer.constants import DEFAULT_REVIEW_ARM, ReviewArm
 from products.review_hog.backend.reviewer.models.github_meta import PRComment, PRMetadata
 from products.review_hog.backend.reviewer.models.issue_validation import IssueValidation
 from products.review_hog.backend.reviewer.models.issues_review import Issue, IssuePriority, IssuesReview, LineRange
@@ -21,6 +23,7 @@ from products.review_hog.backend.reviewer.persistence import (
     load_pr_snapshot,
     load_prior_findings,
     load_prior_findings_with_verdicts,
+    load_review_arm,
     load_run_issues,
     load_run_validations,
     load_valid_findings,
@@ -35,6 +38,7 @@ from products.review_hog.backend.reviewer.persistence import (
 )
 from products.signals.backend.artefact_attribution import ArtefactAttribution
 from products.signals.backend.artefact_schemas import Commit
+from products.tasks.backend.facade.run_config import ReasoningEffort, RuntimeAdapter
 
 _ContentT = TypeVar("_ContentT")
 
@@ -45,7 +49,7 @@ def _content_as(model: type[_ContentT], artefact_type: str, content: str) -> _Co
     return parsed
 
 
-def _pr_metadata(pr_number: int = 123, head_sha: str | None = None) -> PRMetadata:
+def _pr_metadata(pr_number: int = 123, head_sha: str | None = None, author: str = "a") -> PRMetadata:
     return PRMetadata(
         number=pr_number,
         title="t",
@@ -53,7 +57,7 @@ def _pr_metadata(pr_number: int = 123, head_sha: str | None = None) -> PRMetadat
         draft=False,
         created_at="2026-01-01T00:00:00Z",
         updated_at="2026-01-01T00:00:00Z",
-        author="a",
+        author=author,
         base_branch="main",
         head_branch="feat",
         head_sha=head_sha,
@@ -104,6 +108,89 @@ class TestUpsertReviewReport(BaseTest):
         assert report.report_markdown == "# report"
         assert report.status == ReviewReport.Status.IDLE
         assert report.completed_head_sha == "sha-2"  # what the finished turn reviewed, for read anchoring
+
+    def test_finalize_defers_idle_for_publishing_runs(self) -> None:
+        # On publishing runs the publish stage owns the idle write: going idle at finalize hands
+        # the UI's poll a completed-but-unpublished row as the run's final state, freezing a wrong
+        # "Not published" on screen until a manual refresh.
+        report_id = upsert_review_report(team_id=self.team.id, repository="o/r", pr_url="u", pr_metadata=_pr_metadata())
+        finalize_review_report(
+            team_id=self.team.id,
+            report_id=report_id,
+            body_markdown="# report",
+            run_index=1,
+            head_sha="sha-1",
+            will_publish=True,
+        )
+        report = ReviewReport.objects.for_team(self.team.id).get(id=report_id)
+        assert report.status == ReviewReport.Status.ACTIVE
+        assert report.run_count == 1  # the turn still finalizes fully; only the idle write is deferred
+
+    def test_review_arm_is_drawn_once_and_sticky_across_turns(self) -> None:
+        # Sticky-per-report is the arm draw's core invariant: a redraw on the update path would
+        # flip a report's reviewer between turns, poisoning per-arm metrics and feeding one arm's
+        # findings into the other's "already covered" injection. The drawn arm deliberately differs
+        # from the default pins on every field so a loader that silently falls back cannot pass.
+        sonnet = ReviewArm(
+            runtime_adapter=RuntimeAdapter.CLAUDE,
+            model="claude-sonnet-5",
+            reasoning_effort=ReasoningEffort.XHIGH,
+            initial_permission_mode=None,
+        )
+        with patch("products.review_hog.backend.reviewer.persistence.draw_review_arm", return_value=sonnet):
+            report_id = upsert_review_report(
+                team_id=self.team.id, repository="o/r", pr_url="u", pr_metadata=_pr_metadata()
+            )
+        report = ReviewReport.objects.for_team(self.team.id).get(id=report_id)
+        assert (
+            report.review_runtime_adapter,
+            report.review_model,
+            report.review_reasoning_effort,
+            report.review_initial_permission_mode,
+        ) == ("claude", "claude-sonnet-5", "xhigh", None)
+        # Through the real loader, not just the raw columns: the values_list → resolve positional
+        # coupling would otherwise silently fall every off-default report back to the default pins.
+        assert load_review_arm(team_id=self.team.id, report_id=report_id) == sonnet
+        assert load_review_arm(team_id=self.team.id, report_id=str(uuid.uuid4())) == DEFAULT_REVIEW_ARM
+
+        with patch(
+            "products.review_hog.backend.reviewer.persistence.draw_review_arm", return_value=DEFAULT_REVIEW_ARM
+        ) as redraw:
+            assert (
+                upsert_review_report(team_id=self.team.id, repository="o/r", pr_url="u", pr_metadata=_pr_metadata())
+                == report_id
+            )
+        assert redraw.call_count == 0  # the update path must not even draw
+        report.refresh_from_db()
+        assert report.review_model == "claude-sonnet-5"
+
+    def test_author_login_is_stamped_on_create_and_refreshed_each_turn(self) -> None:
+        # The "For you" scope's authored-PRs match rides this stamp. It must track the PR's current
+        # author (the login is the stable fact, not a login→user resolution), and a turn with
+        # unknown authorship must not erase a known one.
+        report_id = upsert_review_report(team_id=self.team.id, repository="o/r", pr_url="u", pr_metadata=_pr_metadata())
+        assert ReviewReport.objects.for_team(self.team.id).get(id=report_id).author_login == "a"
+        upsert_review_report(team_id=self.team.id, repository="o/r", pr_url="u", pr_metadata=_pr_metadata(author="b"))
+        assert ReviewReport.objects.for_team(self.team.id).get(id=report_id).author_login == "b"
+        upsert_review_report(team_id=self.team.id, repository="o/r", pr_url="u", pr_metadata=_pr_metadata(author=""))
+        assert ReviewReport.objects.for_team(self.team.id).get(id=report_id).author_login == "b"
+
+    def test_finalize_stamps_the_turns_urgency_threshold(self) -> None:
+        # The detail view buckets published vs held-back findings by this stamp; a finalize that
+        # stops writing it silently reverts the drawer to bucketing by the VIEWER's settings — the
+        # exact lie the stamp exists to fix. Absent (pre-column) turns stay null for the fallback.
+        report_id = upsert_review_report(team_id=self.team.id, repository="o/r", pr_url="u", pr_metadata=_pr_metadata())
+        assert ReviewReport.objects.for_team(self.team.id).get(id=report_id).run_urgency_threshold is None
+        finalize_review_report(
+            team_id=self.team.id,
+            report_id=report_id,
+            body_markdown="# r",
+            run_index=1,
+            head_sha="sha-1",
+            urgency_threshold="must_fix",
+        )
+        report = ReviewReport.objects.for_team(self.team.id).get(id=report_id)
+        assert (report.run_urgency_threshold, report.run_count) == ("must_fix", 1)
 
     def test_finalize_is_idempotent_within_a_turn(self) -> None:
         # build_body_activity retries on worker crash after its finalize committed: the retry must

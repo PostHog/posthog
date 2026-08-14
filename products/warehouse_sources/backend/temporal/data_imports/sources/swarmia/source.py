@@ -9,10 +9,6 @@ from posthog.schema import (
     SourceFieldInputConfigType,
 )
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import (
-    SourceInputs,
-    SourceResponse,
-)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
@@ -20,6 +16,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.can
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.swarmia import (
     SwarmiaSourceConfig,
 )
@@ -96,6 +93,7 @@ Some reports (investment balance, software capitalization, effort) map to Swarmi
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         def _build_schema(endpoint: str) -> SourceSchema:
             endpoint_config = SWARMIA_ENDPOINTS[endpoint]
@@ -118,7 +116,11 @@ Some reports (investment balance, software capitalization, effort) map to Swarmi
         return schemas
 
     def validate_credentials(
-        self, config: SwarmiaSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: SwarmiaSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         status = check_credentials(config.api_key)
         if status is not None and status < 400:
@@ -134,7 +136,7 @@ Some reports (investment balance, software capitalization, effort) map to Swarmi
         return False, "Could not connect to the Swarmia API"
 
     def get_endpoint_permissions(
-        self, config: SwarmiaSourceConfig, team_id: int, endpoints: list[str]
+        self, config: SwarmiaSourceConfig, team_id: int, endpoints: list[str], api_version: str | None = None
     ) -> dict[str, str | None]:
         return check_endpoint_access(config.api_key, endpoints)
 

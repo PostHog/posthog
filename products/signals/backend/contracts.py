@@ -71,6 +71,9 @@ class SessionProblemSignalInput(SignalInputBase):
 # ── LLM analytics ───────────────────────────────────────────────────────────────
 
 
+# Read-only: no emitter writes `llm_analytics/evaluation` signals any more (only whole eval reports
+# do), but signals ingested while that path existed keep this payload shape, and the inbox card that
+# renders them is generated from this model.
 class LlmEvalSignalExtra(SignalExtraBase):
     evaluation_id: str
     target_event_id: str | None = None
@@ -78,12 +81,6 @@ class LlmEvalSignalExtra(SignalExtraBase):
     trace_id: str
     model: str | None = None
     provider: str | None = None
-
-
-class LlmEvaluationSignalInput(SignalInputBase):
-    source_type: Literal[SignalSourceType.EVALUATION]
-    source_product: Literal[SignalSourceProduct.LLM_ANALYTICS]
-    extra: LlmEvalSignalExtra
 
 
 class LlmEvalReportSignalExtra(SignalExtraBase):
@@ -185,6 +182,11 @@ class JiraIssueSignalInput(SignalInputBase):
 # ── Conversations ───────────────────────────────────────────────────────────────
 
 
+class ConversationsTicketImage(ContractModel):
+    url: str
+    author: str
+
+
 class ConversationsTicketSignalExtra(SignalExtraBase):
     ticket_number: int
     channel_source: str
@@ -193,6 +195,9 @@ class ConversationsTicketSignalExtra(SignalExtraBase):
     priority: str | None
     created_at: str
     email_subject: str | None
+    # Publicly fetchable media URLs pasted into the thread, so the research agent can inspect
+    # screenshots directly. Absent (rather than empty) when the thread has no attachments.
+    images: list[ConversationsTicketImage] | None = None
 
 
 class ConversationsTicketSignalInput(SignalInputBase):
@@ -402,6 +407,72 @@ class HealthCheckSignalInput(SignalInputBase):
     source_type: Literal[SignalSourceType.HEALTH_ISSUE]
     source_product: Literal[SignalSourceProduct.HEALTH_CHECKS]
     extra: HealthCheckSignalExtra
+
+
+# ── Engineering analytics ───────────────────────────────────────────────────────
+# CI signals; detection lives in products/engineering_analytics/backend/logic/signals.
+
+
+class EngineeringAnalyticsCIFlakyCheckSignalExtra(SignalExtraBase):
+    """One immutable flaky observation: failed then passed on a later attempt of the same run,
+    so only non-determinism can explain the flip."""
+
+    repo_owner: str
+    repo_name: str
+    workflow_name: str
+    job_name: str
+    run_id: int
+    head_sha: str
+    failed_attempt: int
+    passed_attempt: int
+    # Runs this job flapped on within the window.
+    flaky_count: int
+    window_days: int
+
+
+class EngineeringAnalyticsCIFlakyCheckSignalInput(SignalInputBase):
+    source_type: Literal[SignalSourceType.CI_FLAKY_CHECK]
+    source_product: Literal[SignalSourceProduct.ENGINEERING_ANALYTICS]
+    extra: EngineeringAnalyticsCIFlakyCheckSignalExtra
+
+
+class EngineeringAnalyticsCIBrokenDefaultBranchSignalExtra(SignalExtraBase):
+    repo_owner: str
+    repo_name: str
+    workflow_name: str
+    branch: str
+    # Success rate in [0, 1] over runs that reached a verdict (success / failure / timed_out).
+    # Cancelled and skipped runs are excluded: they decided nothing, and counting them makes any
+    # workflow whose concurrency group cancels superseded trunk runs read as permanently failing.
+    conclusive_success_rate: float
+    conclusive_run_count: int
+    latest_conclusion: str
+    window_hours: int
+
+
+class EngineeringAnalyticsCIBrokenDefaultBranchSignalInput(SignalInputBase):
+    source_type: Literal[SignalSourceType.CI_BROKEN_DEFAULT_BRANCH]
+    source_product: Literal[SignalSourceProduct.ENGINEERING_ANALYTICS]
+    extra: EngineeringAnalyticsCIBrokenDefaultBranchSignalExtra
+
+
+class EngineeringAnalyticsCIDurationRegressionSignalExtra(SignalExtraBase):
+    repo_owner: str
+    repo_name: str
+    workflow_name: str
+    current_p95_seconds: float
+    baseline_p95_seconds: float
+    # Fractional increase of current p95 over baseline (0.5 = +50%).
+    pct_increase: float
+    current_p50_seconds: float
+    baseline_p50_seconds: float
+    window_days: int
+
+
+class EngineeringAnalyticsCIDurationRegressionSignalInput(SignalInputBase):
+    source_type: Literal[SignalSourceType.CI_DURATION_REGRESSION]
+    source_product: Literal[SignalSourceProduct.ENGINEERING_ANALYTICS]
+    extra: EngineeringAnalyticsCIDurationRegressionSignalExtra
 
 
 # ── Report reviewer types ───────────────────────────────────────────────────────
@@ -872,6 +943,25 @@ class HubspotTicketSignalInput(SignalInputBase):
     extra: HubspotTicketSignalExtra
 
 
+# ── Search analytics ──────────────────────────────────────────────────────────────
+
+
+class GoogleSearchConsoleSearchOpportunitySignalExtra(SignalExtraBase):
+    page: str
+    query: str
+    date: str
+    clicks: int
+    impressions: int
+    ctr: float
+    position: float
+
+
+class GoogleSearchConsoleSearchOpportunitySignalInput(SignalInputBase):
+    source_type: Literal[SignalSourceType.SEARCH_OPPORTUNITY]
+    source_product: Literal[SignalSourceProduct.GOOGLE_SEARCH_CONSOLE]
+    extra: GoogleSearchConsoleSearchOpportunitySignalExtra
+
+
 # ── Union over all signal variants ──────────────────────────────────────────────
 # Discrimination is by the composite (source_product, source_type) pair, resolved via
 # SIGNAL_VARIANT_LOOKUP below — a single-field pydantic discriminator can't express it
@@ -880,7 +970,6 @@ class HubspotTicketSignalInput(SignalInputBase):
 
 SignalInput = Annotated[
     SessionProblemSignalInput
-    | LlmEvaluationSignalInput
     | LlmEvaluationReportSignalInput
     | ZendeskTicketSignalInput
     | GithubIssueSignalInput
@@ -927,13 +1016,16 @@ SignalInput = Annotated[
     | AppfollowReviewSignalInput
     | JudgemeReviewsReviewSignalInput
     | IntercomTicketSignalInput
-    | HubspotTicketSignalInput,
+    | HubspotTicketSignalInput
+    | EngineeringAnalyticsCIFlakyCheckSignalInput
+    | EngineeringAnalyticsCIBrokenDefaultBranchSignalInput
+    | EngineeringAnalyticsCIDurationRegressionSignalInput
+    | GoogleSearchConsoleSearchOpportunitySignalInput,
     Field(union_mode="left_to_right"),
 ]
 
 SIGNAL_INPUT_VARIANTS: tuple[type[SignalInputBase], ...] = (
     SessionProblemSignalInput,
-    LlmEvaluationSignalInput,
     LlmEvaluationReportSignalInput,
     ZendeskTicketSignalInput,
     GithubIssueSignalInput,
@@ -981,6 +1073,10 @@ SIGNAL_INPUT_VARIANTS: tuple[type[SignalInputBase], ...] = (
     JudgemeReviewsReviewSignalInput,
     IntercomTicketSignalInput,
     HubspotTicketSignalInput,
+    EngineeringAnalyticsCIFlakyCheckSignalInput,
+    EngineeringAnalyticsCIBrokenDefaultBranchSignalInput,
+    EngineeringAnalyticsCIDurationRegressionSignalInput,
+    GoogleSearchConsoleSearchOpportunitySignalInput,
 )
 
 

@@ -17,7 +17,8 @@
                 {
                     "type": "null"
                 }
-            ]
+            ],
+            "description": "Human-readable summary of what the insight shows. Max 400 characters (longer values are rejected)."
         },
         "favorited": {
             "type": "boolean"
@@ -159,6 +160,10 @@
                                 },
                                 "showNullsAsZero": {
                                     "description": "Replace null aggregation results with zero.",
+                                    "type": "boolean"
+                                },
+                                "showTotalRow": {
+                                    "description": "Show a total summing all Y series. Applies to line, bar, and area charts.",
                                     "type": "boolean"
                                 },
                                 "showValuesOnSeries": {
@@ -325,7 +330,8 @@
                                 "ActionsPie",
                                 "ActionsStackedBar",
                                 "ActionsAreaGraph",
-                                "TwoDimensionalHeatmap"
+                                "TwoDimensionalHeatmap",
+                                "ScatterPlot"
                             ],
                             "type": "string"
                         },
@@ -422,10 +428,6 @@
                                         "type": "string"
                                     },
                                     "type": "array"
-                                },
-                                "showTotalRow": {
-                                    "description": "Show a total row at the bottom of the table.",
-                                    "type": "boolean"
                                 },
                                 "transpose": {
                                     "description": "Transpose rows and columns.",

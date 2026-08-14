@@ -25,6 +25,10 @@ export const PropertyGroupTypeEnumApi = {
  * * `is_not` - is_not
  * * `icontains` - icontains
  * * `not_icontains` - not_icontains
+ * * `starts_with` - starts_with
+ * * `not_starts_with` - not_starts_with
+ * * `ends_with` - ends_with
+ * * `not_ends_with` - not_ends_with
  * * `regex` - regex
  * * `not_regex` - not_regex
  * * `gt` - gt
@@ -40,6 +44,10 @@ export const FeatureFlagFilterPropertyGenericSchemaOperatorEnumApi = {
     IsNot: 'is_not',
     Icontains: 'icontains',
     NotIcontains: 'not_icontains',
+    StartsWith: 'starts_with',
+    NotStartsWith: 'not_starts_with',
+    EndsWith: 'ends_with',
+    NotEndsWith: 'not_ends_with',
     Regex: 'regex',
     NotRegex: 'not_regex',
     Gt: 'gt',
@@ -75,6 +83,10 @@ export interface FeatureFlagFilterPropertyGenericSchemaApi {
      * * `is_not` - is_not
      * * `icontains` - icontains
      * * `not_icontains` - not_icontains
+     * * `starts_with` - starts_with
+     * * `not_starts_with` - not_starts_with
+     * * `ends_with` - ends_with
+     * * `not_ends_with` - not_ends_with
      * * `regex` - regex
      * * `not_regex` - not_regex
      * * `gt` - gt
@@ -393,6 +405,7 @@ export interface FeatureFlagConditionGroupSchemaApi {
  * * `leadership` - Leadership
  * * `marketing` - Marketing
  * * `sales` - Sales / Success
+ * * `student` - Student
  * * `other` - Other
  */
 export type RoleAtOrganizationEnumApi = (typeof RoleAtOrganizationEnumApi)[keyof typeof RoleAtOrganizationEnumApi]
@@ -405,6 +418,7 @@ export const RoleAtOrganizationEnumApi = {
     Leadership: 'leadership',
     Marketing: 'marketing',
     Sales: 'sales',
+    Student: 'student',
     Other: 'other',
 } as const
 
@@ -811,6 +825,12 @@ export interface PaginatedExperimentBasicListApi {
 }
 
 /**
+ * The experiment state as the client last read it, used together with `version` to resolve concurrent edits: metric collections merge per metric uuid, and any other field the update carries merges per field against its base value here (only a same-field double edit fails). Relevant keys are metrics, metrics_secondary, saved_metrics_ids, plus the last-read values of whichever scalar fields the update writes; unknown keys are ignored. Changed fields without a base value — and, without this object, any version mismatch — fail with HTTP 409.
+ * @nullable
+ */
+export type ExperimentWriteApiOriginalExperiment = { [key: string]: unknown } | null
+
+/**
  * A single release-condition group carrying only the overall rollout percentage, the one
  * groups entry the experiment input applies.
  */
@@ -918,6 +938,10 @@ export const PropertyOperatorApi = {
     IsNot: 'is_not',
     Icontains: 'icontains',
     NotIcontains: 'not_icontains',
+    StartsWith: 'starts_with',
+    NotStartsWith: 'not_starts_with',
+    EndsWith: 'ends_with',
+    NotEndsWith: 'not_ends_with',
     Regex: 'regex',
     NotRegex: 'not_regex',
     Gt: 'gt',
@@ -1220,6 +1244,8 @@ export const MultipleVariantHandlingApi = {
 } as const
 
 export interface ExperimentApiExposureCriteriaApi {
+    /** Additional event (or action) an entity must emit at/after their first default exposure event before they count as exposed; exposure time becomes this event's timestamp. Only valid with the default exposure event, not a custom `exposure_config`. */
+    activation_config?: ExperimentApiExposureConfigApi | null
     exposure_config?: ExperimentApiExposureConfigApi | null
     filterTestAccounts?: boolean | null
     /** How to handle entities exposed to multiple variants. 'exclude' (default) drops them from the analysis; 'first_seen' assigns them to the variant from their earliest exposure. */
@@ -1451,27 +1477,51 @@ export interface ExperimentWriteApi {
      */
     conclusion_comment?: string | null
     /**
-     * ID of the Code task opened to remove the experiment's feature-flag code, when one was requested via open_cleanup_pr on end/ship_variant. Read its status via the flag_cleanup_task action.
+     * ID of the Desktop task opened to remove the experiment's feature-flag code, when one was requested via open_cleanup_pr on end/ship_variant. Read its status via the flag_cleanup_task action.
      * @nullable
      */
     readonly flag_cleanup_task_id: string | null
+    /**
+     * GitHub repository holding this experiment's feature-flag code, in `organization/repository` format. Used as the target of the flag-cleanup pull request opened via open_cleanup_pr on end/ship_variant. When not set, cleanup targets the team's only connected repository and is skipped if the team has several.
+     * @maxLength 255
+     * @nullable
+     */
+    repository?: string | null
     primary_metrics_ordered_uuids?: unknown
     secondary_metrics_ordered_uuids?: unknown
     only_count_matured_users?: boolean
     /** When true, sync the flag config sent in this request (via the `feature_flag` object) to the linked feature flag. Draft experiments always sync regardless. On a running experiment, `feature_flag` config without this flag is rejected. */
     update_feature_flag_params?: boolean
+    /**
+     * Optimistic-concurrency token. Reads return the experiment's current version, bumped on every update. Send the version you last read with an update to detect concurrent edits: a stale update merges concurrent changes where safe — metric collections per metric uuid, other fields per field — using the base values sent in `original_experiment`, and fails with HTTP 409 only when the same metric or field changed on both sides (or no base value was sent for a changed field). Omit to skip the check.
+     * @nullable
+     */
+    version?: number | null
+    /**
+     * The experiment state as the client last read it, used together with `version` to resolve concurrent edits: metric collections merge per metric uuid, and any other field the update carries merges per field against its base value here (only a same-field double edit fails). Relevant keys are metrics, metrics_secondary, saved_metrics_ids, plus the last-read values of whichever scalar fields the update writes; unknown keys are ignored. Changed fields without a base value — and, without this object, any version mismatch — fail with HTTP 409.
+     * @nullable
+     */
+    original_experiment?: ExperimentWriteApiOriginalExperiment
     /** Experiment lifecycle state: 'draft' (not yet launched), 'running' (launched with active feature flag), 'paused' (running with feature flag deactivated — virtual state derived from feature_flag.active, not stored), 'exposure_frozen' (running with enrollment frozen to the already-exposed cohort while metrics keep flowing — virtual state derived from the flag's release groups, not stored), 'stopped' (ended). */
     readonly status: ExperimentStatusEnumApi
     /** Whether the experiment uses any legacy-engine metrics (ExperimentTrendsQuery or ExperimentFunnelsQuery). Used to flag legacy experiments and gate actions that don't support them, such as duplicate and copy-to-project. */
     readonly is_legacy: boolean
     /** Whether enrollment can be frozen right now: the experiment must be running (not draft, paused, stopped, or already frozen) and its feature flag must have release conditions that a person cohort can narrow (no group aggregation, no holdout, no early access conditions). */
     readonly can_freeze_exposure: boolean
+    /** The event exposures are actually counted on when the experiment doesn't configure a custom one — `$feature_flag_called`, or `$experiment_exposure` once the team is in the rollout and the experiment started at or after the cutoff. Resolved server-side so clients display the same event the results queries read. For a draft, this is what the experiment would resolve to if launched now. */
+    readonly resolved_exposure_event: string
     /**
      * The effective access level the user has for this object
      * @nullable
      */
     readonly user_access_level: string | null
 }
+
+/**
+ * The experiment state as the client last read it, used together with `version` to resolve concurrent edits: metric collections merge per metric uuid, and any other field the update carries merges per field against its base value here (only a same-field double edit fails). Relevant keys are metrics, metrics_secondary, saved_metrics_ids, plus the last-read values of whichever scalar fields the update writes; unknown keys are ignored. Changed fields without a base value — and, without this object, any version mismatch — fail with HTTP 409.
+ * @nullable
+ */
+export type ExperimentApiOriginalExperiment = { [key: string]: unknown } | null
 
 /**
  * Full experiment representation for the detail, create, and update endpoints.
@@ -1564,27 +1614,51 @@ export interface ExperimentApi {
      */
     conclusion_comment?: string | null
     /**
-     * ID of the Code task opened to remove the experiment's feature-flag code, when one was requested via open_cleanup_pr on end/ship_variant. Read its status via the flag_cleanup_task action.
+     * ID of the Desktop task opened to remove the experiment's feature-flag code, when one was requested via open_cleanup_pr on end/ship_variant. Read its status via the flag_cleanup_task action.
      * @nullable
      */
     readonly flag_cleanup_task_id: string | null
+    /**
+     * GitHub repository holding this experiment's feature-flag code, in `organization/repository` format. Used as the target of the flag-cleanup pull request opened via open_cleanup_pr on end/ship_variant. When not set, cleanup targets the team's only connected repository and is skipped if the team has several.
+     * @maxLength 255
+     * @nullable
+     */
+    repository?: string | null
     primary_metrics_ordered_uuids?: unknown
     secondary_metrics_ordered_uuids?: unknown
     only_count_matured_users?: boolean
     /** When true, sync the flag config sent in this request (via the `feature_flag` object) to the linked feature flag. Draft experiments always sync regardless. On a running experiment, `feature_flag` config without this flag is rejected. */
     update_feature_flag_params?: boolean
+    /**
+     * Optimistic-concurrency token. Reads return the experiment's current version, bumped on every update. Send the version you last read with an update to detect concurrent edits: a stale update merges concurrent changes where safe — metric collections per metric uuid, other fields per field — using the base values sent in `original_experiment`, and fails with HTTP 409 only when the same metric or field changed on both sides (or no base value was sent for a changed field). Omit to skip the check.
+     * @nullable
+     */
+    version?: number | null
+    /**
+     * The experiment state as the client last read it, used together with `version` to resolve concurrent edits: metric collections merge per metric uuid, and any other field the update carries merges per field against its base value here (only a same-field double edit fails). Relevant keys are metrics, metrics_secondary, saved_metrics_ids, plus the last-read values of whichever scalar fields the update writes; unknown keys are ignored. Changed fields without a base value — and, without this object, any version mismatch — fail with HTTP 409.
+     * @nullable
+     */
+    original_experiment?: ExperimentApiOriginalExperiment
     /** Experiment lifecycle state: 'draft' (not yet launched), 'running' (launched with active feature flag), 'paused' (running with feature flag deactivated — virtual state derived from feature_flag.active, not stored), 'exposure_frozen' (running with enrollment frozen to the already-exposed cohort while metrics keep flowing — virtual state derived from the flag's release groups, not stored), 'stopped' (ended). */
     readonly status: ExperimentStatusEnumApi
     /** Whether the experiment uses any legacy-engine metrics (ExperimentTrendsQuery or ExperimentFunnelsQuery). Used to flag legacy experiments and gate actions that don't support them, such as duplicate and copy-to-project. */
     readonly is_legacy: boolean
     /** Whether enrollment can be frozen right now: the experiment must be running (not draft, paused, stopped, or already frozen) and its feature flag must have release conditions that a person cohort can narrow (no group aggregation, no holdout, no early access conditions). */
     readonly can_freeze_exposure: boolean
+    /** The event exposures are actually counted on when the experiment doesn't configure a custom one — `$feature_flag_called`, or `$experiment_exposure` once the team is in the rollout and the experiment started at or after the cutoff. Resolved server-side so clients display the same event the results queries read. For a draft, this is what the experiment would resolve to if launched now. */
+    readonly resolved_exposure_event: string
     /**
      * The effective access level the user has for this object
      * @nullable
      */
     readonly user_access_level: string | null
 }
+
+/**
+ * The experiment state as the client last read it, used together with `version` to resolve concurrent edits: metric collections merge per metric uuid, and any other field the update carries merges per field against its base value here (only a same-field double edit fails). Relevant keys are metrics, metrics_secondary, saved_metrics_ids, plus the last-read values of whichever scalar fields the update writes; unknown keys are ignored. Changed fields without a base value — and, without this object, any version mismatch — fail with HTTP 409.
+ * @nullable
+ */
+export type PatchedExperimentWriteApiOriginalExperiment = { [key: string]: unknown } | null
 
 /**
  * Experiment write payload. Identical to Experiment, plus the writable `feature_flag` config input.
@@ -1673,26 +1747,111 @@ export interface PatchedExperimentWriteApi {
      */
     conclusion_comment?: string | null
     /**
-     * ID of the Code task opened to remove the experiment's feature-flag code, when one was requested via open_cleanup_pr on end/ship_variant. Read its status via the flag_cleanup_task action.
+     * ID of the Desktop task opened to remove the experiment's feature-flag code, when one was requested via open_cleanup_pr on end/ship_variant. Read its status via the flag_cleanup_task action.
      * @nullable
      */
     readonly flag_cleanup_task_id?: string | null
+    /**
+     * GitHub repository holding this experiment's feature-flag code, in `organization/repository` format. Used as the target of the flag-cleanup pull request opened via open_cleanup_pr on end/ship_variant. When not set, cleanup targets the team's only connected repository and is skipped if the team has several.
+     * @maxLength 255
+     * @nullable
+     */
+    repository?: string | null
     primary_metrics_ordered_uuids?: unknown
     secondary_metrics_ordered_uuids?: unknown
     only_count_matured_users?: boolean
     /** When true, sync the flag config sent in this request (via the `feature_flag` object) to the linked feature flag. Draft experiments always sync regardless. On a running experiment, `feature_flag` config without this flag is rejected. */
     update_feature_flag_params?: boolean
+    /**
+     * Optimistic-concurrency token. Reads return the experiment's current version, bumped on every update. Send the version you last read with an update to detect concurrent edits: a stale update merges concurrent changes where safe — metric collections per metric uuid, other fields per field — using the base values sent in `original_experiment`, and fails with HTTP 409 only when the same metric or field changed on both sides (or no base value was sent for a changed field). Omit to skip the check.
+     * @nullable
+     */
+    version?: number | null
+    /**
+     * The experiment state as the client last read it, used together with `version` to resolve concurrent edits: metric collections merge per metric uuid, and any other field the update carries merges per field against its base value here (only a same-field double edit fails). Relevant keys are metrics, metrics_secondary, saved_metrics_ids, plus the last-read values of whichever scalar fields the update writes; unknown keys are ignored. Changed fields without a base value — and, without this object, any version mismatch — fail with HTTP 409.
+     * @nullable
+     */
+    original_experiment?: PatchedExperimentWriteApiOriginalExperiment
     /** Experiment lifecycle state: 'draft' (not yet launched), 'running' (launched with active feature flag), 'paused' (running with feature flag deactivated — virtual state derived from feature_flag.active, not stored), 'exposure_frozen' (running with enrollment frozen to the already-exposed cohort while metrics keep flowing — virtual state derived from the flag's release groups, not stored), 'stopped' (ended). */
     readonly status?: ExperimentStatusEnumApi
     /** Whether the experiment uses any legacy-engine metrics (ExperimentTrendsQuery or ExperimentFunnelsQuery). Used to flag legacy experiments and gate actions that don't support them, such as duplicate and copy-to-project. */
     readonly is_legacy?: boolean
     /** Whether enrollment can be frozen right now: the experiment must be running (not draft, paused, stopped, or already frozen) and its feature flag must have release conditions that a person cohort can narrow (no group aggregation, no holdout, no early access conditions). */
     readonly can_freeze_exposure?: boolean
+    /** The event exposures are actually counted on when the experiment doesn't configure a custom one — `$feature_flag_called`, or `$experiment_exposure` once the team is in the rollout and the experiment started at or after the cutoff. Resolved server-side so clients display the same event the results queries read. For a draft, this is what the experiment would resolve to if launched now. */
+    readonly resolved_exposure_event?: string
     /**
      * The effective access level the user has for this object
      * @nullable
      */
     readonly user_access_level?: string | null
+}
+
+export interface ChangeApi {
+    readonly type: string
+    readonly action: string
+    readonly field: string
+    readonly before: unknown
+    readonly after: unknown
+}
+
+export interface MergeApi {
+    readonly type: string
+    readonly source: unknown
+    readonly target: unknown
+}
+
+export interface TriggerApi {
+    readonly job_type: string
+    readonly job_id: string
+    readonly payload: unknown
+}
+
+export interface DetailApi {
+    readonly id: string
+    changes?: ChangeApi[]
+    merge?: MergeApi
+    trigger?: TriggerApi
+    readonly name: string
+    readonly short_id: string
+    readonly type: string
+}
+
+/**
+ * @nullable
+ */
+export type ActivityLogEntryApiUser = { [key: string]: unknown } | null
+
+export interface ActivityLogEntryApi {
+    readonly id: string
+    /** @nullable */
+    readonly user: ActivityLogEntryApiUser
+    readonly activity: string
+    readonly scope: string
+    readonly item_id: string
+    detail?: DetailApi
+    readonly created_at: string
+    /** Whether the activity was performed by the system rather than a user. */
+    readonly is_system: boolean
+    /** Whether the acting user was being impersonated by PostHog staff. */
+    readonly was_impersonated: boolean
+    /**
+     * API client that triggered the activity, from the x-posthog-client request header (e.g. 'mcp'). Null for requests that did not send the header.
+     * @nullable
+     */
+    readonly client: string | null
+}
+
+/**
+ * Response shape for paginated activity log endpoints.
+ */
+export interface ActivityLogPaginatedResponseApi {
+    results: ActivityLogEntryApi[]
+    /** @nullable */
+    next: string | null
+    /** @nullable */
+    previous: string | null
+    total_count: number
 }
 
 export interface ArchiveExperimentApi {
@@ -1724,8 +1883,52 @@ export interface EndExperimentApi {
      * @nullable
      */
     conclusion_comment?: string | null
-    /** When true, open a draft pull request that removes the experiment's feature-flag code from the linked repository. Requires the requesting user to have access to PostHog Code (403 otherwise). Only acts for allowlisted teams; ignored otherwise. */
+    /** When true, open a draft pull request that removes the experiment's feature-flag code from the linked repository. Requires the requesting user to have access to PostHog Desktop (403 otherwise). Only acts for allowlisted teams; ignored otherwise. */
     open_cleanup_pr?: boolean
+    /**
+     * GitHub repository to open the cleanup pull request in, in `organization/repository` format. Only used when open_cleanup_pr is true. It must be one of the team's connected repositories (see the flag_cleanup_target action); it is then saved as the experiment's repository. When omitted, the experiment's saved repository, the team's default cleanup repository, or the team's only connected repository is used.
+     * @maxLength 255
+     * @nullable
+     */
+    repository?: string | null
+    /** When true, also save `repository` as this environment's default cleanup repository, used for experiments that have no repository of their own. Only acts when open_cleanup_pr is true and `repository` is provided and belongs to the team's GitHub installation. Requires project admin access (403 otherwise). */
+    set_repository_as_team_default?: boolean
+}
+
+/**
+ * * `explicit` - explicit
+ * * `team_default` - team_default
+ * * `single_repo` - single_repo
+ * * `ambiguous` - ambiguous
+ * * `no_integration` - no_integration
+ */
+export type ExperimentFlagCleanupTargetSourceEnumApi =
+    (typeof ExperimentFlagCleanupTargetSourceEnumApi)[keyof typeof ExperimentFlagCleanupTargetSourceEnumApi]
+
+export const ExperimentFlagCleanupTargetSourceEnumApi = {
+    Explicit: 'explicit',
+    TeamDefault: 'team_default',
+    SingleRepo: 'single_repo',
+    Ambiguous: 'ambiguous',
+    NoIntegration: 'no_integration',
+} as const
+
+export interface ExperimentFlagCleanupTargetApi {
+    /**
+     * Repository a flag-cleanup pull request would be opened in, or null when none can be determined.
+     * @nullable
+     */
+    repository: string | null
+    /** How the repository was determined: `explicit` (saved on the experiment), `team_default` (the environment's default cleanup repository), `single_repo` (the team's only connected repository), `ambiguous` (several connected repositories and none saved — pass one via repository on end/ship_variant), or `no_integration` (no GitHub integration or no connected repositories, so no cleanup PR can be opened).
+     *
+     * * `explicit` - explicit
+     * * `team_default` - team_default
+     * * `single_repo` - single_repo
+     * * `ambiguous` - ambiguous
+     * * `no_integration` - no_integration */
+    source: ExperimentFlagCleanupTargetSourceEnumApi
+    /** Repositories connected to the team's GitHub integration, to choose a target from. */
+    candidates: string[]
 }
 
 /**
@@ -1748,7 +1951,7 @@ export const RunStatusEnumApi = {
 } as const
 
 export interface ExperimentFlagCleanupTaskApi {
-    /** ID of the flag-cleanup Code task. */
+    /** ID of the flag-cleanup Desktop task. */
     task_id: string
     /** Status of the task's latest run.
      *
@@ -1766,10 +1969,13 @@ export interface ExperimentFlagCleanupTaskApi {
      * @nullable
      */
     pr_url: string | null
+    /** Whether the requesting user can open the task in PostHog Desktop. Cleanup tasks are visible to their creator only, so other viewers should not be shown a task link. */
+    can_view_task: boolean
 }
 
 /**
  * * `manual` - Manual
+ * * `agent_mcp` - Agent (MCP)
  * * `cold_run` - Cold Run
  * * `stale_refresh` - Stale Refresh
  * * `auto_refresh` - Auto Refresh
@@ -1782,6 +1988,7 @@ export type TriggerEnumApi = (typeof TriggerEnumApi)[keyof typeof TriggerEnumApi
 
 export const TriggerEnumApi = {
     Manual: 'manual',
+    AgentMcp: 'agent_mcp',
     ColdRun: 'cold_run',
     StaleRefresh: 'stale_refresh',
     AutoRefresh: 'auto_refresh',
@@ -1798,6 +2005,7 @@ export interface RecalculateMetricsRequestApi {
     /** What triggered this recalculation (manual is the default for user-initiated runs)
      *
      * * `manual` - Manual
+     * * `agent_mcp` - Agent (MCP)
      * * `cold_run` - Cold Run
      * * `stale_refresh` - Stale Refresh
      * * `auto_refresh` - Auto Refresh
@@ -1913,6 +2121,7 @@ export interface ExperimentMetricsRecalculationApi {
     /** What triggered this recalculation
      *
      * * `manual` - Manual
+     * * `agent_mcp` - Agent (MCP)
      * * `cold_run` - Cold Run
      * * `stale_refresh` - Stale Refresh
      * * `auto_refresh` - Auto Refresh
@@ -1961,6 +2170,236 @@ export interface ExperimentMetricsRecalculationApi {
     estimated_rows_total?: number | null
 }
 
+/**
+ * * `fired_any` - fired_any
+ * * `no_metric_activity` - no_metric_activity
+ * * `funnel_dropoff` - funnel_dropoff
+ */
+export type ExperimentSessionBucketEnumApi =
+    (typeof ExperimentSessionBucketEnumApi)[keyof typeof ExperimentSessionBucketEnumApi]
+
+export const ExperimentSessionBucketEnumApi = {
+    FiredAny: 'fired_any',
+    NoMetricActivity: 'no_metric_activity',
+    FunnelDropoff: 'funnel_dropoff',
+} as const
+
+/**
+ * Request body for the session-bucket endpoint.
+ */
+export interface ExperimentSessionBucketRequestApi {
+    /** Which question the returned session set answers. 'fired_any': the session fired at least one event of any listed metric (an OR the recordings query itself can't express). 'no_metric_activity': the session fired none of them. 'funnel_dropoff': the session saw an exposure event but never fired the funnel metric's last step; the exposure is the funnel's implicit first step, the same as in the experiment analysis. All three are session-scoped and goal-free: they say what happened in the session, not whether it helped or hurt the metric.
+     *
+     * * `fired_any` - fired_any
+     * * `no_metric_activity` - no_metric_activity
+     * * `funnel_dropoff` - funnel_dropoff */
+    bucket: ExperimentSessionBucketEnumApi
+    /** Metrics the bucket is computed over. Exactly one funnel metric for 'funnel_dropoff'. Omit for the other buckets to use every metric of the experiment that can be matched to recordings. */
+    metric_uuids?: string[]
+    /**
+     * Restrict to sessions that saw this variant. Omit for every variant. A session that saw more than one variant matches each variant it saw.
+     * @nullable
+     */
+    variant?: string | null
+    /**
+     * Maximum session IDs to return, at most 100. The most recently active matching sessions win.
+     * @minimum 1
+     * @maximum 100
+     */
+    limit?: number
+}
+
+/**
+ * One metric the bucket was computed over.
+ */
+export interface ExperimentSessionBucketMetricApi {
+    /** UUID of the experiment metric. */
+    metric_uuid: string
+    /** Display name of the metric, or an event-derived title (matching the experiment UI) when unnamed. */
+    metric_name: string
+}
+
+/**
+ * One requested metric the bucket could not be computed over.
+ */
+export interface ExperimentSessionBucketExcludedMetricApi {
+    /** UUID of the experiment metric. */
+    metric_uuid: string
+    /** Display name of the metric. */
+    metric_name: string
+    /** Why the metric can't be matched to recordings: a data-warehouse-only source, a retention window, or events only ever captured server-side. */
+    reason: string
+}
+
+/**
+ * Session recordings of an experiment matching a bucket.
+ */
+export interface ExperimentSessionBucketResponseApi {
+    /** IDs of matching sessions that have a recording, most recently active first. Feed these to a recordings query as session_ids; they are a subset of the experiment's exposed sessions, so the exposure filter can stay in place alongside them. */
+    session_ids: string[]
+    /** True when more sessions matched than the limit returned. Older matches were dropped first. */
+    truncated: boolean
+    /** The metrics the bucket was actually computed over. Load-bearing for 'no_metric_activity': 'fired nothing' only means something next to the list of metrics it was evaluated against. */
+    considered_metrics: ExperimentSessionBucketMetricApi[]
+    /** Requested metrics left out of the bucket because they can never match a recording, with the reason. They are reported rather than silently producing an empty result. */
+    excluded_metrics: ExperimentSessionBucketExcludedMetricApi[]
+    /** Start of the window scanned: the experiment's run window, clamped to its most recent 30 days. Matches outside it are not returned. */
+    date_from: string
+    /** End of the window scanned: the experiment's end date, or now while it runs. */
+    date_to: string
+    /** Whether the project's test-account filters were applied, following the experiment's exposure criteria, the same rule the experiment's recordings list uses. */
+    filter_test_accounts: boolean
+    /** True when the exposed population was matched on the stamped $feature/<flag key> event property instead of the exposure event, because the default exposure event has only ever been captured server-side and can never match a session. The sessions then mean 'the flag was active in this session', not 'the exposure moment was captured'. The variant comes from the flag's value on each event, so a returning user can appear under a variant they were re-bucketed into later. */
+    used_exposure_fallback: boolean
+}
+
+/**
+ * * `behavior` - behavior
+ * * `friction` - friction
+ * * `variant_only` - variant_only
+ * * `metric` - metric
+ */
+export type ExperimentWatchCardKindEnumApi =
+    (typeof ExperimentWatchCardKindEnumApi)[keyof typeof ExperimentWatchCardKindEnumApi]
+
+export const ExperimentWatchCardKindEnumApi = {
+    Behavior: 'behavior',
+    Friction: 'friction',
+    VariantOnly: 'variant_only',
+    Metric: 'metric',
+} as const
+
+/**
+ * * `only` - only
+ * * `far_more` - far_more
+ * * `more` - more
+ * * `slightly_more` - slightly_more
+ */
+export type ExperimentWatchCardStrengthEnumApi =
+    (typeof ExperimentWatchCardStrengthEnumApi)[keyof typeof ExperimentWatchCardStrengthEnumApi]
+
+export const ExperimentWatchCardStrengthEnumApi = {
+    Only: 'only',
+    FarMore: 'far_more',
+    More: 'more',
+    SlightlyMore: 'slightly_more',
+} as const
+
+/**
+ * One recording a card names first, and the phrase that says why.
+ */
+export interface ExperimentWatchHighlightApi {
+    /** The recording to open. Always one of the card's own session_ids. */
+    session_id: string
+    /** Everything this recording carries that earned it the place, ready to render as-is, for example '6 rage clicks, 6 errors' or '1 error, did this 4 times'. Every signal the session shows is listed, so the phrase is the whole picture rather than the single strongest part of it. Friction counts cover the whole session; 'did this N times' counts the card's own event. Not a comparison and not a reason the card exists. */
+    reason: string
+}
+
+/**
+ * One group of recordings worth opening, and the sentence that justifies it.
+ *
+ * Deliberately no rate, no ratio and no person count: a precise number next to an event name is
+ * an effect size, and the experiment's results publish those for everything it measures, computed
+ * over a different window and a different unit. The only number here is how many recordings the
+ * card can actually show.
+ */
+export interface ExperimentWatchCardApi {
+    /** What the card is: 'behavior' for an event this variant did clearly more than the other variants together, 'friction' for the same finding on an error or rage signal, 'variant_only' for an event no other variant fired at all, and 'metric' for a shortcut to recordings around one of the experiment's own metric events. A 'variant_only' card shows the variant rendering its own change rather than a behavior difference, so present it as confirmation the change is live and never as a finding. Metric cards claim nothing about how the metric moved: that is the experiment results' answer.
+     *
+     * * `behavior` - behavior
+     * * `friction` - friction
+     * * `variant_only` - variant_only
+     * * `metric` - metric */
+    kind: ExperimentWatchCardKindEnumApi
+    /** The event behind the card. */
+    event: string
+    /** The variant whose recordings these are: for comparison cards, the one that did the event more. */
+    variant: string
+    /** How far apart this variant and the rest are, as a band rather than a number: 'only' when nobody in the other variants did it at all among the people compared, then 'far_more', 'more' and 'slightly_more'. Read off the conservative end of the difference, so a card that clears the bar only because the sample is large reports as slight. Null on metric cards, which compare nothing. Present a band as a comparison ('far more common in test'), never convert it into a multiple.
+     *
+     * * `only` - only
+     * * `far_more` - far_more
+     * * `more` - more
+     * * `slightly_more` - slightly_more */
+    strength: ExperimentWatchCardStrengthEnumApi | null
+    /**
+     * The metric this card's event belongs to, on a comparison card as well as on a shortcut card. When set, the experiment's results measure this event over the whole run window with the statistics that go with a result, so say the card points there and never present the card as a second answer about that metric. Null when no metric counts the event.
+     * @nullable
+     */
+    metric_name: string | null
+    /** How many recordings the card carries, at most max_card_recordings (20). Every card is backed by recordings that actually exist: a finding whose sessions were never recorded is dropped rather than promised. A count sitting on the ceiling means at least that many, so say 'at least' and never compare two such counts: how often the event happened is the experiment's results, and this only counts what replay kept. */
+    recording_count: number
+    /** The recordings themselves, most recent first, ready to hand to the recordings list as-is. */
+    session_ids: string[]
+    /** Which of the card's recordings to open first, at most 3, ranked by how much each one carries: recordings showing several kinds of signal at once come before recordings showing more of a single kind. Offer these before the full list: the recordings list orders by its own sort, so session_ids order never reaches the viewer, and twenty recordings that share an event are otherwise indistinguishable in it. Empty when no recording the viewer can open carries a signal, which is worth saying rather than hiding. */
+    highlights: ExperimentWatchHighlightApi[]
+}
+
+/**
+ * One variant's compared population.
+ */
+export interface ExperimentWatchArmApi {
+    /** The variant key. */
+    key: string
+    /** Exposed people the comparison covered for this variant. People rather than sessions because a variant can change how often the flag is evaluated again later, which moves a variant's session count without anyone behaving differently. Each person is read from the first session the comparison covers them in, so every variant gets the same amount of behavior per person. */
+    persons: number
+    /** Exposed sessions those people were seen in, which is more than the comparison reads: it says how much recorded material sits behind the variant. */
+    sessions: number
+}
+
+/**
+ * * `exclude` - exclude
+ * * `first_seen` - first_seen
+ */
+export type ExperimentWatchMultipleVariantHandlingEnumApi =
+    (typeof ExperimentWatchMultipleVariantHandlingEnumApi)[keyof typeof ExperimentWatchMultipleVariantHandlingEnumApi]
+
+export const ExperimentWatchMultipleVariantHandlingEnumApi = {
+    Exclude: 'exclude',
+    FirstSeen: 'first_seen',
+} as const
+
+/**
+ * The recordings worth watching for this experiment, grouped into cards.
+ *
+ * Descriptive, never a result: cards say where behavior visibly differed and hand over the
+ * recordings, while the experiment's results measure its metrics over the whole run window and
+ * state the magnitudes. Nothing here says a variant is winning.
+ */
+export interface ExperimentSessionEventDeltaResponseApi {
+    /** The shelf, strongest comparison first, then the variant's own rendering, then metric shortcuts. Events the variants can't be told apart on get no card at all rather than a weak one, so an empty shelf means no difference was big enough to be sure of, not that nothing was measured. Group by kind before presenting: a 'variant_only' card outranks every real difference by construction, and reading the shelf in order would report it as the headline. */
+    cards: ExperimentWatchCardApi[]
+    /** Every variant's compared population, in the flag's variant order. */
+    arms: ExperimentWatchArmApi[]
+    /** People who saw more than one variant and were left out of every card. Always 0 when the experiment attributes such users to the variant they saw first. */
+    multiple_variant_persons: number
+    /** How the experiment handles someone who saw more than one variant, followed here so the cards split their people the same way the analysis does.
+     *
+     * * `exclude` - exclude
+     * * `first_seen` - first_seen */
+    multiple_variant_handling: ExperimentWatchMultipleVariantHandlingEnumApi
+    /** The events the experiment's own metrics count. A card on one of these carries metric_name and must be read as pointing at the experiment's results, which measure the same event over the whole run window with the statistics that go with a result. Cards state no magnitude for exactly this reason, so never turn one into a claim about how the metric moved. */
+    metric_events: string[]
+    /** Start of what was actually compared. The requested window is the experiment's run window clamped to its most recent 14 days (2 when sessions are matched on the stamped flag property, which no event name can prune a scan on), but a busy experiment reaches the session ceiling long before that, and this reports where the compared sessions really begin - often hours rather than days back. Display this, not the experiment's own dates. */
+    date_from: string
+    /** End of what was compared: the experiment's end date, or now while it runs. */
+    date_to: string
+    /** Whether the project's test-account filters were applied, following the experiment's exposure criteria, the same rule the experiment's recordings list uses. */
+    filter_test_accounts: boolean
+    /** True when the compared sessions were matched on the stamped $feature/<flag key> event property instead of the exposure event, because the default exposure event has only ever been captured server-side and can never match a session. The sessions then mean 'the flag was active in this session', and the variant comes from the flag's value on each event, so a returning user can be counted under a variant they were re-bucketed into later. */
+    used_exposure_fallback: boolean
+    /** True when the experiment had more exposed sessions in the requested window than one comparison covers, so the most recent ones were used and date_from is later than the experiment's own window. Every variant is still covered over the same stretch of time. */
+    sessions_truncated: boolean
+    /** True when the project has more distinct event names in the window than one comparison can rank, so some were never considered. */
+    events_truncated: boolean
+    /** How many exposed people a variant needs before it can be compared at all. Below it a variant's cards would be noise whatever the evidence bar allows. */
+    min_arm_persons: number
+    /** The most recordings one card can carry. A card whose recording_count equals this hit the ceiling, so report it as 'at least this many' rather than as a count. */
+    max_card_recordings: number
+    /** True when fewer than two variants have min_arm_persons exposed people, so no comparison exists and cards is empty. Say 'too early to compare' and show the arms' counts; an empty shelf presented without this would read as 'the variants behaved identically'. */
+    too_early: boolean
+}
+
 export interface ShipVariantApi {
     /** The conclusion of the experiment.
      *
@@ -1976,8 +2415,16 @@ export interface ShipVariantApi {
      * @nullable
      */
     conclusion_comment?: string | null
-    /** When true, open a draft pull request that removes the experiment's feature-flag code from the linked repository. Requires the requesting user to have access to PostHog Code (403 otherwise). Only acts for allowlisted teams; ignored otherwise. */
+    /** When true, open a draft pull request that removes the experiment's feature-flag code from the linked repository. Requires the requesting user to have access to PostHog Desktop (403 otherwise). Only acts for allowlisted teams; ignored otherwise. */
     open_cleanup_pr?: boolean
+    /**
+     * GitHub repository to open the cleanup pull request in, in `organization/repository` format. Only used when open_cleanup_pr is true. It must be one of the team's connected repositories (see the flag_cleanup_target action); it is then saved as the experiment's repository. When omitted, the experiment's saved repository, the team's default cleanup repository, or the team's only connected repository is used.
+     * @maxLength 255
+     * @nullable
+     */
+    repository?: string | null
+    /** When true, also save `repository` as this environment's default cleanup repository, used for experiments that have no repository of their own. Only acts when open_cleanup_pr is true and `repository` is provided and belongs to the team's GitHub installation. Requires project admin access (403 otherwise). */
+    set_repository_as_team_default?: boolean
     /** The key of the variant to ship. */
     variant_key: string
     /** If true, prepend a release condition to the feature flag that rolls the variant out to 100% of users, overriding any existing release conditions on the flag. If false (default), only update the variant distribution — existing release conditions are preserved and the variant is served only to users who already match them. */
@@ -2142,6 +2589,70 @@ export interface CreateFromPromptInputApi {
 }
 
 /**
+ * * `source` - source
+ * * `step` - step
+ * * `numerator` - numerator
+ * * `denominator` - denominator
+ * * `retention_start` - retention_start
+ * * `retention_completion` - retention_completion
+ */
+export type SourceRoleEnumApi = (typeof SourceRoleEnumApi)[keyof typeof SourceRoleEnumApi]
+
+export const SourceRoleEnumApi = {
+    Source: 'source',
+    Step: 'step',
+    Numerator: 'numerator',
+    Denominator: 'denominator',
+    RetentionStart: 'retention_start',
+    RetentionCompletion: 'retention_completion',
+} as const
+
+/**
+ * One event/action source of a metric with at least one matching event in a session recording.
+ */
+export interface ExperimentSessionMetricSourceHitApi {
+    /** What this source means to its metric: 'source' (a mean metric's single event), 'step' (a funnel step, numbered by source_index), 'numerator'/'denominator' (a ratio metric's two sides), or 'retention_start'/'retention_completion' (a retention metric's start event and return visit). A hit on one source is not a hit on the metric as the analysis counts it.
+     *
+     * * `source` - source
+     * * `step` - step
+     * * `numerator` - numerator
+     * * `denominator` - denominator
+     * * `retention_start` - retention_start
+     * * `retention_completion` - retention_completion */
+    source_role: SourceRoleEnumApi
+    /** Display name of the source event or action. */
+    source_name: string
+    /** 0-based position of this source among all the metric's sources, data-warehouse ones included — so a funnel step keeps its real step number even when an earlier step has no session events. */
+    source_index: number
+    /** Total number of sources the metric is defined over. */
+    source_total: number
+    /** Number of events in the session matching this source. */
+    event_count: number
+    /** Timestamp of the first event in the session matching this source. */
+    first_timestamp: string
+    /** Ascending timestamps of this source's matching events in the session, capped at the first 50. event_count is the true total, so this list may be shorter — treat these as seek points, not a count. */
+    timestamps: string[]
+}
+
+/**
+ * One experiment metric with at least one matching event in a session recording.
+ */
+export interface ExperimentSessionMetricHitApi {
+    /** UUID of the experiment metric (inline primary/secondary or saved) whose events fired. */
+    metric_uuid: string
+    /** Display name of the metric, or an event-derived title (matching the experiment UI) when unnamed. */
+    metric_name: string
+    /** Total number of events in the session matching any of the metric's event/action sources. */
+    event_count: number
+    /** Timestamp of the first event in the session matching the metric. */
+    first_timestamp: string
+    /** Ascending timestamps of the metric's matching events in the session, capped at the first 50. event_count is the true total, so this list may be shorter — treat these as seek points, not a count. */
+    timestamps: string[]
+    /** Which of the metric's sources fired, so a hit reads as 'step 2 of 3' or 'the start event of a retention metric' rather than an unqualified 'this metric happened'. Sources with no matching event are omitted, as is the whole breakdown for metrics beyond the scan's aggregate ceiling. A retention metric whose start and completion are the same event contributes only the start source: the completion would match the identical events and render a duplicate. */
+    sources: ExperimentSessionMetricSourceHitApi[]
+}
+
+/**
  * One experiment whose feature flag a session recording saw.
  */
 export interface ExperimentSessionContextItemApi {
@@ -2172,6 +2683,8 @@ export interface ExperimentSessionContextItemApi {
      * @nullable
      */
     experiment_end_date: string | null
+    /** This experiment's metrics with at least one matching event in the session, sorted by first occurrence. Empty when none of the experiment's metric events fired during the session. */
+    metrics_in_session: ExperimentSessionMetricHitApi[]
 }
 
 /**
@@ -2182,6 +2695,26 @@ export interface ExperimentSessionContextResponseApi {
     session_id: string
     /** Experiments (and variants) the session saw, sorted by experiment name. Empty when no launched experiment's run window overlaps the recording or no flag data was observed in the session. */
     results: ExperimentSessionContextItemApi[]
+}
+
+/**
+ * Request body for the batch session-context endpoint.
+ */
+export interface ExperimentSessionContextsRequestApi {
+    /**
+     * IDs of the session recordings to resolve experiment context for, at most 20 per request. Duplicates are ignored.
+     * @minItems 1
+     * @maxItems 20
+     */
+    session_ids: string[]
+}
+
+/**
+ * Experiment/variant context for a batch of session recordings.
+ */
+export interface ExperimentSessionContextsResponseApi {
+    /** Per-session experiment context, in the order the session IDs were requested. Sessions whose recording metadata doesn't exist yet (still ingesting, or unknown to this project) are omitted, as are recordings you don't have access to and sessions beyond the batch's recording-day budget (only the most recent days are computed). Fetch omitted sessions individually via the single-session endpoint. */
+    results: ExperimentSessionContextResponseApi[]
 }
 
 export type ExperimentHoldoutsListParams = {
@@ -2268,6 +2801,19 @@ export const ExperimentsListStatus = {
     Running: 'running',
     Stopped: 'stopped',
 } as const
+
+export type ExperimentsActivityRetrieveParams = {
+    /**
+     * Number of items per page
+     * @minimum 1
+     */
+    limit?: number
+    /**
+     * Page number
+     * @minimum 1
+     */
+    page?: number
+}
 
 export type ExperimentsTimeseriesResultsRetrieveParams = {
     /**

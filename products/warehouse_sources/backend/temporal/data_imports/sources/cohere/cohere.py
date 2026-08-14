@@ -1,6 +1,5 @@
 from typing import Any
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.cohere.settings import (
     COHERE_ENDPOINTS,
     CohereEndpointConfig,
@@ -18,6 +17,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
     SinglePagePaginator,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.source_helpers import validate_via_probe
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 
 # Cohere serves a single global API host; there are no regional variants.
 COHERE_BASE_URL = "https://api.cohere.com/v1"
@@ -75,10 +75,13 @@ def cohere_source(
                     "path": config.path,
                     "params": params,
                     "data_selector": config.data_key,
-                    # A successful response that omits the envelope key is a shape mismatch, not empty
-                    # data. Every Cohere schema is full-refresh-only, so silently treating a missing
-                    # key as an empty page would clear the existing warehouse table; fail loud instead.
+                    # A response that carries other keys but omits the envelope key is a shape mismatch,
+                    # not empty data. Every Cohere schema is full-refresh-only, so silently treating that
+                    # as an empty page would clear the existing warehouse table; fail loud instead.
                     "data_selector_required": True,
+                    # Cohere returns a bare ``{}`` for an empty collection (e.g. an account with no
+                    # datasets) rather than ``{"datasets": []}``, so an empty body is a valid 0-row page.
+                    "data_selector_empty_ok": True,
                 },
             }
         ],

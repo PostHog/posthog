@@ -14,11 +14,7 @@ from posthog.schema import (
     SourceFieldInputConfigType,
 )
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import (
-    SourceInputs,
-    SourceResponse,
-)
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.utils import table_from_py_list
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arrow_utils import table_from_py_list
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import (
     ExternalWebhookInfo,
     FieldType,
@@ -33,6 +29,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.can
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.webhook_s3 import WebhookSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.revenuecat import (
     RevenueCatSourceConfig,
@@ -265,7 +262,11 @@ class RevenueCatSource(
         }
 
     def validate_credentials(
-        self, config: RevenueCatSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: RevenueCatSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         return api_client.validate_credentials(config.secret_api_key, config.project_id)
 
@@ -276,6 +277,7 @@ class RevenueCatSource(
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         # `events` is webhook-only — the v2 API doesn't expose a historical
         # backfill endpoint for webhook events, so the only way to populate
@@ -316,7 +318,9 @@ class RevenueCatSource(
     def get_webhook_source_manager(self, inputs: SourceInputs) -> WebhookSourceManager:
         return WebhookSourceManager(inputs, inputs.logger)
 
-    def create_webhook(self, config: RevenueCatSourceConfig, webhook_url: str, team_id: int) -> WebhookCreationResult:
+    def create_webhook(
+        self, config: RevenueCatSourceConfig, webhook_url: str, team_id: int, api_version: str | None = None
+    ) -> WebhookCreationResult:
         # The user hasn't entered the auth-header value yet on the warehouse
         # side. Skip passing one and the surrounding flow will collect it via
         # `webhookFields`, then bind it to the integration in place.
@@ -327,7 +331,12 @@ class RevenueCatSource(
         )
 
     def webhook_inputs_updated(
-        self, config: RevenueCatSourceConfig, webhook_url: str, team_id: int, inputs: dict[str, Any]
+        self,
+        config: RevenueCatSourceConfig,
+        webhook_url: str,
+        team_id: int,
+        inputs: dict[str, Any],
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         # Once the user provides the authorization header value, bind it to the
         # integration so RevenueCat starts sending the header on every
@@ -348,11 +357,13 @@ class RevenueCatSource(
         return True, None
 
     def get_external_webhook_info(
-        self, config: RevenueCatSourceConfig, webhook_url: str, team_id: int
+        self, config: RevenueCatSourceConfig, webhook_url: str, team_id: int, api_version: str | None = None
     ) -> ExternalWebhookInfo | None:
         return api_client.get_external_webhook_info(config.secret_api_key, config.project_id, webhook_url)
 
-    def delete_webhook(self, config: RevenueCatSourceConfig, webhook_url: str, team_id: int) -> WebhookDeletionResult:
+    def delete_webhook(
+        self, config: RevenueCatSourceConfig, webhook_url: str, team_id: int, api_version: str | None = None
+    ) -> WebhookDeletionResult:
         return api_client.delete_webhook(config.secret_api_key, config.project_id, webhook_url)
 
     def source_for_pipeline(

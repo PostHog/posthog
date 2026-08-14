@@ -1,5 +1,6 @@
 import uuid
 from time import time_ns
+from typing import cast
 
 import pytest
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, _create_person
@@ -15,12 +16,15 @@ from posthog.schema import (
 )
 
 from posthog.hogql import ast
+from posthog.hogql.context import HogQLContext
+from posthog.hogql.database.database import Database
 from posthog.hogql.database.schema.sessions_v2 import (
     get_lazy_session_table_properties_v2,
     get_lazy_session_table_values_v2,
 )
 from posthog.hogql.parser import parse_select
 from posthog.hogql.query import execute_hogql_query
+from posthog.hogql.resolver import resolve_types
 
 from posthog.uuidt import uuid7
 
@@ -753,6 +757,33 @@ class TestSessionsV2(ClickhouseTestMixin, APIBaseTest):
 
         assert response.results == [(2,)]
 
+    @parameterized.expand(
+        [
+            ("v1", SessionTableVersion.V1),
+            ("v2", SessionTableVersion.V2),
+            ("v3", SessionTableVersion.V3),
+        ]
+    )
+    def test_is_bounce_resolves_as_nullable(self, _name: str, session_table_version: SessionTableVersion):
+        # Every sessions table builds $is_bounce as `if(<no pageviews>, NULL, ...)` so a session with
+        # nothing to bounce on stays out of the average. Declaring the field non-nullable makes the
+        # NULL guards around bounce rate (`coalesce(bounce.bounce_rate, 0)` in the web stats table)
+        # look redundant to type-aware rewrites; dropping them reports NULL instead of 0%.
+        modifiers = HogQLQueryModifiers(sessionTableVersion=session_table_version)
+        context = HogQLContext(
+            team_id=self.team.pk,
+            enable_select_queries=True,
+            database=Database.create_for(team=self.team, modifiers=modifiers),
+            modifiers=modifiers,
+        )
+        node = cast(
+            ast.SelectQuery,
+            resolve_types(parse_select("SELECT `$is_bounce` FROM sessions"), context, dialect="clickhouse"),
+        )
+        column_type = node.select[0].type
+        assert column_type is not None
+        assert column_type.resolve_constant_type(context).nullable is True
+
 
 class TestGetLazySessionProperties(ClickhouseTestMixin, APIBaseTest):
     def test_all(self):
@@ -872,6 +903,7 @@ class TestGetLazySessionProperties(ClickhouseTestMixin, APIBaseTest):
             ["Organic Social"],
             ["Organic Video"],
             ["Organic Shopping"],
+            ["AI"],
             ["Push"],
             ["SMS"],
             ["Audio"],

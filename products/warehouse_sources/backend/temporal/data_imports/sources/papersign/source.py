@@ -9,10 +9,6 @@ from posthog.schema import (
     SourceFieldInputConfigType,
 )
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import (
-    SourceInputs,
-    SourceResponse,
-)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
@@ -20,6 +16,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.can
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.papersign import (
     PapersignSourceConfig,
 )
@@ -100,6 +97,7 @@ The Papersign API requires a paid Paperform plan (Standard or Business tier)."""
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         # Full refresh only: Papersign documents mutate over their lifetime (status transitions) and
         # its timestamp filters could not be curl-verified, while folders and spaces expose no filter
@@ -121,7 +119,11 @@ The Papersign API requires a paid Paperform plan (Standard or Business tier)."""
         return schemas
 
     def validate_credentials(
-        self, config: PapersignSourceConfig, team_id: int, schema_name: str | None = None
+        self,
+        config: PapersignSourceConfig,
+        team_id: int,
+        schema_name: str | None = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         return validate_papersign_credentials(config.api_token)
 

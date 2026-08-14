@@ -204,7 +204,7 @@ warn_step() {
 }
 
 # ── Interactive mode detection ────────────────────────────────────
-# Skip all interactive prompts in non-interactive terminals or when running under PostHog Code (automated agent).
+# Skip all interactive prompts in non-interactive terminals or when running under PostHog Desktop (automated agent).
 _interactive=false
 if [[ -t 0 ]] && [[ -z "${POSTHOG_CODE:-}" ]]; then
   _interactive=true
@@ -224,6 +224,12 @@ export GOMODCACHE="$GOPATH/pkg/mod"
 # can't expand $FLOX_ENV_CACHE). Used below for uv sync + the hogli symlink.
 export UV_PROJECT_ENVIRONMENT="$FLOX_ENV_CACHE/venv"
 
+# In `flox activate -- <cmd>` mode, Flox does not source [profile], so the uv venv
+# is not on PATH. Add it here so non-interactive commands can find hogli and
+# Python tooling.
+if [[ "$_interactive" != true ]] && [[ ":$PATH:" != *":$UV_PROJECT_ENVIRONMENT/bin:"* ]]; then
+  export PATH="$UV_PROJECT_ENVIRONMENT/bin:$PATH"
+fi
 # ── Direnv first-time setup (interactive only) ─────────────────────
 if [[ "$_interactive" == true ]] && ! command -v direnv >/dev/null 2>&1 && [[ ! -f "$FLOX_ENV_CACHE/.hush-direnv" ]]; then
   read -p "$(echo -e "${C_BOLD}direnv${C_RESET} recommended for auto-activation. Set up now? (Y/n) ")" -n 1 -r

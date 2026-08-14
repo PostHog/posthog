@@ -23,7 +23,6 @@ from posthog.schema import (
     AssistantStickinessQuery,
     AssistantTrendsQuery,
     ChartDisplayType,
-    CurrencyCode,
     DataVisualizationNode,
     FunnelsQuery,
     FunnelVizType,
@@ -31,10 +30,6 @@ from posthog.schema import (
     LifecycleQuery,
     PathsQuery,
     RetentionQuery,
-    RevenueAnalyticsGrossRevenueQuery,
-    RevenueAnalyticsMetricsQuery,
-    RevenueAnalyticsMRRQuery,
-    RevenueAnalyticsTopCustomersQuery,
     StickinessQuery,
     TrendsQuery,
 )
@@ -56,16 +51,13 @@ from posthog.rbac.user_access_control import UserAccessControlError
 from posthog.sync import database_sync_to_async
 
 from ee.hogai.context.insight.format import (
+    NULL_MARKER,
     TRUNCATED_MARKER,
     BoxPlotResultsFormatter,
     FunnelResultsFormatter,
     LifecycleResultsFormatter,
     PathsResultsFormatter,
     RetentionResultsFormatter,
-    RevenueAnalyticsGrossRevenueResultsFormatter,
-    RevenueAnalyticsMetricsResultsFormatter,
-    RevenueAnalyticsMRRResultsFormatter,
-    RevenueAnalyticsTopCustomersResultsFormatter,
     SQLResultsFormatter,
     StickinessResultsFormatter,
     TrendsResultsFormatter,
@@ -92,10 +84,6 @@ from .prompts import (
     PATHS_EXAMPLE_PROMPT,
     QUERY_RESULTS_PROMPT,
     RETENTION_EXAMPLE_PROMPT,
-    REVENUE_ANALYTICS_GROSS_REVENUE_EXAMPLE_PROMPT,
-    REVENUE_ANALYTICS_METRICS_EXAMPLE_PROMPT,
-    REVENUE_ANALYTICS_MRR_EXAMPLE_PROMPT,
-    REVENUE_ANALYTICS_TOP_CUSTOMERS_EXAMPLE_PROMPT,
     SQL_EXAMPLE_PROMPT,
     STICKINESS_EXAMPLE_PROMPT,
     TRENDS_EXAMPLE_PROMPT,
@@ -124,11 +112,7 @@ def is_supported_query(query: AnyPydanticModelQuery | AnyAssistantGeneratedQuery
         | RetentionQuery
         | AssistantHogQLQuery
         | HogQLQuery
-        | DataVisualizationNode
-        | RevenueAnalyticsGrossRevenueQuery
-        | RevenueAnalyticsMetricsQuery
-        | RevenueAnalyticsMRRQuery
-        | RevenueAnalyticsTopCustomersQuery,
+        | DataVisualizationNode,
     )
 
 
@@ -541,18 +525,6 @@ class AssistantQueryExecutor:
                 result = SQLResultsFormatter(
                     query, response["results"], response["columns"], max_cell_length=max_cell_length
                 ).format()
-            elif isinstance(query, RevenueAnalyticsGrossRevenueQuery):
-                formatter_name = "RevenueAnalyticsGrossRevenueResultsFormatter"
-                result = RevenueAnalyticsGrossRevenueResultsFormatter(query, response["results"]).format()
-            elif isinstance(query, RevenueAnalyticsMetricsQuery):
-                formatter_name = "RevenueAnalyticsMetricsResultsFormatter"
-                result = RevenueAnalyticsMetricsResultsFormatter(query, response["results"]).format()
-            elif isinstance(query, RevenueAnalyticsMRRQuery):
-                formatter_name = "RevenueAnalyticsMRRResultsFormatter"
-                result = RevenueAnalyticsMRRResultsFormatter(query, response["results"]).format()
-            elif isinstance(query, RevenueAnalyticsTopCustomersQuery):
-                formatter_name = "RevenueAnalyticsTopCustomersResultsFormatter"
-                result = RevenueAnalyticsTopCustomersResultsFormatter(query, response["results"]).format()
             else:
                 raise NotImplementedError(f"Unsupported query type: {query_type}")
 
@@ -571,16 +543,6 @@ class AssistantQueryExecutor:
             if debug_timing:
                 logger.exception(f"{TIMING_LOG_PREFIX} _compress_results failed after {elapsed:.3f}s for {query_type}")
             raise
-
-
-def is_revenue_analytics_query(query: AnyPydanticModelQuery | AnyAssistantGeneratedQuery) -> bool:
-    return isinstance(
-        query,
-        RevenueAnalyticsGrossRevenueQuery
-        | RevenueAnalyticsMetricsQuery
-        | RevenueAnalyticsMRRQuery
-        | RevenueAnalyticsTopCustomersQuery,
-    )
 
 
 def _is_boxplot_query(query: AnyPydanticModelQuery | AnyAssistantGeneratedQuery) -> bool:
@@ -617,14 +579,6 @@ def get_example_prompt(query: AnyPydanticModelQuery | AnyAssistantGeneratedQuery
         return RETENTION_EXAMPLE_PROMPT
     if isinstance(query, AssistantHogQLQuery | HogQLQuery | DataVisualizationNode):
         return SQL_EXAMPLE_PROMPT
-    if isinstance(query, RevenueAnalyticsGrossRevenueQuery):
-        return REVENUE_ANALYTICS_GROSS_REVENUE_EXAMPLE_PROMPT
-    if isinstance(query, RevenueAnalyticsMetricsQuery):
-        return REVENUE_ANALYTICS_METRICS_EXAMPLE_PROMPT
-    if isinstance(query, RevenueAnalyticsMRRQuery):
-        return REVENUE_ANALYTICS_MRR_EXAMPLE_PROMPT
-    if isinstance(query, RevenueAnalyticsTopCustomersQuery):
-        return REVENUE_ANALYTICS_TOP_CUSTOMERS_EXAMPLE_PROMPT
     raise NotImplementedError(f"Unsupported query type: {type(query)}")
 
 
@@ -668,7 +622,6 @@ async def execute_and_format_query(
     if not include_prompt_framing:
         return results
     example_prompt = FALLBACK_EXAMPLE_PROMPT if used_fallback else get_example_prompt(query)
-    currency = team.base_currency or CurrencyCode.USD.value
 
     insight_schema = ""
     if not isinstance(query, AssistantHogQLQuery | HogQLQuery):
@@ -677,6 +630,10 @@ async def execute_and_format_query(
     # Check if SQL results contain truncated values
     has_truncated_values = isinstance(query, AssistantHogQLQuery | HogQLQuery | DataVisualizationNode) and (
         TRUNCATED_MARKER in results and not used_fallback
+    )
+    # Check if SQL results contain null values
+    has_null_values = isinstance(query, AssistantHogQLQuery | HogQLQuery | DataVisualizationNode) and (
+        NULL_MARKER in results and not used_fallback
     )
 
     query_result = format_prompt_string(
@@ -687,8 +644,8 @@ async def execute_and_format_query(
         utc_datetime_display=utc_now_datetime.strftime("%Y-%m-%d %H:%M:%S"),
         project_datetime_display=utc_now_datetime.astimezone(team.timezone_info).strftime("%Y-%m-%d %H:%M:%S"),
         project_timezone=team.timezone_info.tzname(utc_now_datetime),
-        currency=currency if is_revenue_analytics_query(query) else None,
         has_truncated_values=has_truncated_values,
+        has_null_values=has_null_values,
         sql_query=True if isinstance(query, AssistantHogQLQuery | HogQLQuery | DataVisualizationNode) else None,
     )
 

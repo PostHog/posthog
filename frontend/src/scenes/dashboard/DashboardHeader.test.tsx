@@ -3,7 +3,6 @@ import '@testing-library/jest-dom'
 import { cleanup, render } from '@testing-library/react'
 import { BindLogic } from 'kea'
 
-import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { DashboardEventSource } from 'lib/utils/eventUsageLogic'
 
@@ -74,17 +73,19 @@ describe('DashboardHeader', () => {
     })
 
     function renderHeader(opts: {
-        dashboard?: DashboardType<QueryBasedInsightModel>
+        dashboard?: DashboardType<QueryBasedInsightModel> | null
         dashboardMode?: DashboardMode | null
         dashboardModeSource?: DashboardEventSource
+        loading?: boolean
     }): { logic: ReturnType<typeof dashboardLogic.build> } {
         const {
             dashboard = MOCK_DASHBOARD,
             dashboardMode = null,
             dashboardModeSource = DashboardEventSource.Browser,
+            loading = false,
         } = opts
 
-        const logic = dashboardLogic({ id: dashboard.id, dashboard })
+        const logic = dashboardLogic({ id: dashboard?.id ?? MOCK_DASHBOARD.id, dashboard: dashboard ?? undefined })
         logic.mount()
 
         if (dashboardMode) {
@@ -92,13 +93,24 @@ describe('DashboardHeader', () => {
         }
 
         render(
-            <BindLogic logic={dashboardLogic} props={{ id: dashboard.id, dashboard }}>
-                <DashboardHeader />
+            <BindLogic
+                logic={dashboardLogic}
+                props={{ id: dashboard?.id ?? MOCK_DASHBOARD.id, dashboard: dashboard ?? undefined }}
+            >
+                <DashboardHeader loading={loading} />
             </BindLogic>
         )
 
         return { logic }
     }
+
+    it('keeps the scene header visible while the dashboard is loading', () => {
+        const { logic } = renderHeader({ dashboard: null, loading: true })
+
+        expect(document.querySelector('.scene-title-section')).toBeInTheDocument()
+
+        logic.unmount()
+    })
 
     it.each([
         {
@@ -162,26 +174,4 @@ describe('DashboardHeader', () => {
             logic.unmount()
         }
     )
-
-    it.each([
-        { variant: 'control', showsLabel: false },
-        { variant: 'control_b', showsLabel: false },
-        { variant: 'test', showsLabel: true },
-    ])('$variant variant sets the PostHog AI button label', ({ variant, showsLabel }) => {
-        featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.DASHBOARD_POSTHOG_AI_BUTTON_LABEL], {
-            [FEATURE_FLAGS.DASHBOARD_POSTHOG_AI_BUTTON_LABEL]: variant,
-        })
-
-        const { logic } = renderHeader({ dashboard: MOCK_DASHBOARD })
-        const aiButton = document.querySelector('[data-attr="open-context-panel-ai-button"]')
-
-        expect(aiButton).toBeInTheDocument()
-        if (showsLabel) {
-            expect(aiButton).toHaveTextContent('PostHog AI')
-        } else {
-            expect(aiButton).not.toHaveTextContent('PostHog AI')
-        }
-
-        logic.unmount()
-    })
 })

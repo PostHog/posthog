@@ -10,7 +10,8 @@ import { UUIDT } from '~/common/utils/utils'
 import { createCdpConsumerDeps } from '~/tests/helpers/cdp'
 import { Clickhouse } from '~/tests/helpers/clickhouse'
 import { waitForExpect } from '~/tests/helpers/expectations'
-import { ensureKafkaTopics, resetKafka } from '~/tests/helpers/kafka'
+import { waitForHogInvocationResultsMvReady } from '~/tests/helpers/hog-invocation-results'
+import { TEST_KAFKA_TOPICS, ensureKafkaTopics } from '~/tests/helpers/kafka'
 import { getFirstTeam, resetTestDatabase } from '~/tests/helpers/sql'
 
 import { Hub, Team } from '../../types'
@@ -23,7 +24,7 @@ import { HogFunctionManagerService } from '../services/managers/hog-function-man
 import { HogFunctionMonitoringService } from '../services/monitoring/hog-function-monitoring.service'
 import { HogInvocationResultsService } from '../services/monitoring/hog-invocation-results.service'
 import { CyclotronJobInvocationHogFunction, HogFunctionInvocationGlobals, HogFunctionType } from '../types'
-import { RERUN_PAGE_SIZE, RerunJobState } from './rerun-job.types'
+import { RERUN_MAX_CONSECUTIVE_PAGE_ERRORS, RERUN_PAGE_SIZE, RerunJobState } from './rerun-job.types'
 import { RerunPaginatorService } from './rerun-paginator.service'
 
 const ActualKafkaProducerWrapper = jest.requireActual('~/common/kafka/producer').KafkaProducerWrapper
@@ -118,6 +119,7 @@ describe('RerunPaginatorService integration', () => {
             seedingService.queueLifecycleRow(invocation, r.status, { error: r.error, errorKind: r.errorKind })
         }
         await seedingService.flush()
+        await kafkaProducer.flush()
 
         // Track cumulative seeded rows so calling seedRows twice in the same
         // test waits for *all* rows (rather than trivially passing on the
@@ -187,9 +189,12 @@ describe('RerunPaginatorService integration', () => {
 
     beforeAll(async () => {
         MockKafkaProducerWrapper.create = jest.fn((...args: any[]) => ActualKafkaProducerWrapper.create(...args))
-        await resetKafka()
-        await ensureKafkaTopics([KAFKA_HOG_INVOCATION_RESULTS])
+        // Ensure all topics exist (idempotently, without deleting) so the ClickHouse Kafka engine
+        // consumers keep their connections. Includes KAFKA_HOG_INVOCATION_RESULTS, which this test's
+        // MV needs but the shared set does not cover.
+        await ensureKafkaTopics([...TEST_KAFKA_TOPICS, KAFKA_HOG_INVOCATION_RESULTS])
         await clickhouse.truncate('hog_invocation_results_data')
+        await waitForHogInvocationResultsMvReady(clickhouse)
     })
 
     beforeEach(async () => {
@@ -493,6 +498,32 @@ describe('RerunPaginatorService integration', () => {
             expect(next.progress.done).toBe(true)
             expect(hogQueue.queueInvocations).not.toHaveBeenCalled()
         })
+
+        it('keeps a page successful when only the wrapper progress row fails to write', async () => {
+            // The page's invocations are committed before the wrapper row is
+            // written, so a failure there must not count toward the give-up
+            // streak — otherwise a lifecycle-write outage marks a rerun failed
+            // that actually ran, and holds the cursor back onto the same page.
+            await seedRows([{ invocation_id: 'inv-ok', status: 'succeeded' }])
+            jest.spyOn(paginatorLifecycleService, 'queueRerunWrapperRow').mockImplementation(() => {
+                throw new Error('lifecycle write boom')
+            })
+
+            const state = buildState({
+                request: {
+                    filter: { window_start: '2026-01-01T00:00:00Z', window_end: '2027-01-01T00:00:00Z' },
+                },
+            })
+
+            const { state: next } = await paginator.processPage(team.id, state, {
+                jobId: 'test-rerun-job',
+                createdAt: DateTime.now(),
+            })
+
+            expect(next.progress.done).toBe(true)
+            expect(next.progress.last_error).toBeUndefined()
+            expect(next.progress.consecutive_errors).toBeUndefined()
+        })
     })
 
     describe('max_attempts filter (poison-pill autodrain path)', () => {
@@ -602,13 +633,11 @@ describe('RerunPaginatorService integration', () => {
     })
 
     describe('error handling', () => {
-        it('captures a ClickHouse query error on progress.last_error without marking done', async () => {
-            // Point the paginator at a deliberately broken ClickHouse client to
-            // exercise the catch path.
+        const buildBrokenPaginator = (): RerunPaginatorService => {
             const brokenChClient = {
                 query: jest.fn().mockRejectedValue(new Error('clickhouse boom')),
             } as unknown as ClickHouseClient
-            const brokenPaginator = new RerunPaginatorService(
+            return new RerunPaginatorService(
                 brokenChClient,
                 hogFunctionManager,
                 hogFlowManager,
@@ -617,8 +646,10 @@ describe('RerunPaginatorService integration', () => {
                 paginatorMonitoringService,
                 10000
             )
+        }
 
-            const state = buildState({
+        const brokenState = () =>
+            buildState({
                 request: {
                     filter: {
                         window_start: '2026-01-01T00:00:00Z',
@@ -629,13 +660,32 @@ describe('RerunPaginatorService integration', () => {
                 progress: { queued: 0, skipped: 0, done: false },
             })
 
-            const { state: next } = await brokenPaginator.processPage(team.id, state, {
+        it('captures a page error on progress.last_error, bumps the streak, and keeps the job running', async () => {
+            const { state: next } = await buildBrokenPaginator().processPage(team.id, brokenState(), {
                 jobId: 'test-rerun-job',
                 createdAt: DateTime.now(),
             })
             expect(next.progress.done).toBe(false)
             expect(next.progress.last_error).toContain('clickhouse boom')
+            // Streak tracked so a persistently-failing page eventually gives up
+            // instead of rescheduling forever (which overflows transition_count).
+            expect(next.progress.consecutive_errors).toBe(1)
             expect(hogQueue.queueInvocations).not.toHaveBeenCalled()
+        })
+
+        it('gives up (throws) once a page has errored RERUN_MAX_CONSECUTIVE_PAGE_ERRORS times', async () => {
+            // One more errored page past the cap must throw so the worker fails
+            // the wrapper job terminally — the guard against an unbounded retry
+            // loop that would drive the SMALLINT transition_count to overflow.
+            const state = brokenState()
+            state.progress.consecutive_errors = RERUN_MAX_CONSECUTIVE_PAGE_ERRORS - 1
+
+            await expect(
+                buildBrokenPaginator().processPage(team.id, state, {
+                    jobId: 'test-rerun-job',
+                    createdAt: DateTime.now(),
+                })
+            ).rejects.toThrow('clickhouse boom')
         })
     })
 

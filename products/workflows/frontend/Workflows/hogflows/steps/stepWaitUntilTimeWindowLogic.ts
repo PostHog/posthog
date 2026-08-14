@@ -75,8 +75,10 @@ export function getWaitUntilTimeWindowDescription(
     return `Wait until ${dayDesc} ${timeClause} (${tzDesc}).`
 }
 
-export function shouldAutoUpdateDescription(description: string): boolean {
+export function shouldAutoUpdateDescription(description: string | undefined): boolean {
+    // Agent-created actions can arrive without a description at all; treat an absent one like empty.
     return (
+        !description ||
         description.trim() === '' ||
         AUTO_DESCRIPTION_REGEX.test(description) ||
         description === LEGACY_DEFAULT_DESCRIPTION
@@ -125,7 +127,11 @@ export interface stepWaitUntilTimeWindowLogicActions {
               }
             | {
                   filters: {
+                      all_roles_unassigned?: boolean | undefined
+                      assigned_to_user_ids?: number[] | undefined
+                      audience_type?: 'accounts' | 'persons' | undefined
                       properties: any[]
+                      tag_names?: string[] | undefined
                   }
                   type: 'batch'
               }
@@ -306,22 +312,6 @@ export interface stepWaitUntilTimeWindowLogicActions {
                   >
                   message_category_id?: string | undefined
                   message_category_type?: 'marketing' | 'transactional' | undefined
-                  template_id: 'template-email'
-                  template_uuid?: string | undefined
-              }
-            | {
-                  inputs: Record<
-                      string,
-                      {
-                          bytecode?: any
-                          order?: number | undefined
-                          secret?: boolean | undefined
-                          templating?: 'hog' | 'liquid' | undefined
-                          value: any
-                      }
-                  >
-                  message_category_id?: string | undefined
-                  message_category_type?: 'marketing' | 'transactional' | undefined
                   template_id: 'template-native-push'
                   template_uuid?: string | undefined
               }
@@ -351,6 +341,23 @@ export interface stepWaitUntilTimeWindowLogicActions {
                   time: [string, string] | 'any'
                   timezone: string | null
                   use_person_timezone?: boolean | undefined
+              }
+            | {
+                  inputs: Record<
+                      string,
+                      {
+                          bytecode?: any
+                          order?: number | undefined
+                          secret?: boolean | undefined
+                          templating?: 'hog' | 'liquid' | undefined
+                          value: any
+                      }
+                  >
+                  message_category_id?: string | undefined
+                  message_category_type?: 'marketing' | 'transactional' | undefined
+                  template_id: 'template-email'
+                  template_uuid?: string | undefined
+                  tracking_enabled?: boolean | undefined
               }
         >
     ) => {
@@ -384,18 +391,22 @@ export interface stepWaitUntilTimeWindowLogicActions {
               }
             | {
                   filters: {
-                      properties: any[]
-                  }
-                  type: 'batch'
-              }
-            | {
-                  filters: {
                       actions?: any[] | undefined
                       events?: any[] | undefined
                       filter_test_accounts?: boolean | undefined
                       properties?: any[] | undefined
                   }
                   type: 'event'
+              }
+            | {
+                  filters: {
+                      all_roles_unassigned?: boolean | undefined
+                      assigned_to_user_ids?: number[] | undefined
+                      audience_type?: 'accounts' | 'persons' | undefined
+                      properties: any[]
+                      tag_names?: string[] | undefined
+                  }
+                  type: 'batch'
               }
             | {
                   condition: {
@@ -576,22 +587,6 @@ export interface stepWaitUntilTimeWindowLogicActions {
                   >
                   message_category_id?: string | undefined
                   message_category_type?: 'marketing' | 'transactional' | undefined
-                  template_id: 'template-email'
-                  template_uuid?: string | undefined
-              }
-            | {
-                  inputs: Record<
-                      string,
-                      {
-                          bytecode?: any
-                          order?: number | undefined
-                          secret?: boolean | undefined
-                          templating?: 'hog' | 'liquid' | undefined
-                          value: any
-                      }
-                  >
-                  message_category_id?: string | undefined
-                  message_category_type?: 'marketing' | 'transactional' | undefined
                   template_id: 'template-native-push'
                   template_uuid?: string | undefined
               }
@@ -610,6 +605,23 @@ export interface stepWaitUntilTimeWindowLogicActions {
                   message_category_type?: 'marketing' | 'transactional' | undefined
                   template_id: 'template-twilio'
                   template_uuid?: string | undefined
+              }
+            | {
+                  inputs: Record<
+                      string,
+                      {
+                          bytecode?: any
+                          order?: number | undefined
+                          secret?: boolean | undefined
+                          templating?: 'hog' | 'liquid' | undefined
+                          value: any
+                      }
+                  >
+                  message_category_id?: string | undefined
+                  message_category_type?: 'marketing' | 'transactional' | undefined
+                  template_id: 'template-email'
+                  template_uuid?: string | undefined
+                  tracking_enabled?: boolean | undefined
               }
         >
     } // workflowLogic

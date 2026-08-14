@@ -9,10 +9,6 @@ from posthog.schema import (
     SourceFieldInputConfigType,
 )
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import (
-    SourceInputs,
-    SourceResponse,
-)
 from products.warehouse_sources.backend.temporal.data_imports.sources.apify_dataset.apify_dataset import (
     ApifyResumeConfig,
     apify_dataset_source,
@@ -30,6 +26,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.sch
     SourceSchema,
     build_endpoint_schemas,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.apifydataset import (
     ApifyDatasetSourceConfig,
 )
@@ -110,6 +107,7 @@ The token needs read access to the dataset's storage.""",
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         return build_endpoint_schemas(
             ENDPOINTS,
@@ -121,7 +119,11 @@ The token needs read access to the dataset's storage.""",
         )
 
     def validate_credentials(
-        self, config: ApifyDatasetSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: ApifyDatasetSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         return validate_apify_credentials(config.api_token, config.dataset_id)
 

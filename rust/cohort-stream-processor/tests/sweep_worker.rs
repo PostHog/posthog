@@ -376,6 +376,11 @@ async fn sweep_evicts_a_single_leaf_member_emits_left_and_deletes() {
         state_at(&store, lsk, alice).is_none(),
         "a fully-expired single is deleted",
     );
+    assert_eq!(
+        stage2_bit(&store, 1, alice),
+        Some(false),
+        "the sweep commit retains an explicit false membership register after deleting leaf state",
+    );
 }
 
 #[tokio::test]

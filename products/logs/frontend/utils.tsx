@@ -69,6 +69,9 @@ export function getFiltersSummaryLines(filters: Record<string, any>): FiltersSum
     return lines
 }
 
+// Mirror of DISTINCT_ID_ATTRIBUTE_KEY_CONVENTIONS in products/logs/backend/models.py — keep the
+// two in sync. Values under these keys render as clickable person links here, and the person
+// Logs tab scopes on them server-side so those logs appear on the person's tab.
 const DISTINCT_ID_KEYS = [
     'distinct.id',
     'distinct_id',
@@ -97,8 +100,10 @@ function matchesKey(key: string, candidates: string[]): boolean {
     return candidates.some((candidate) => key === candidate || key.endsWith(`.${candidate}`))
 }
 
-export function isDistinctIdKey(key: string): boolean {
-    return matchesKey(key, DISTINCT_ID_KEYS)
+// Configured keys (the team's `logs_distinct_id_attribute_keys` setting) match exactly;
+// only the built-in convention list gets dot-suffix matching.
+export function isDistinctIdKey(key: string, configuredKeys?: string[]): boolean {
+    return (configuredKeys ?? []).includes(key) || matchesKey(key, DISTINCT_ID_KEYS)
 }
 
 // Configured keys (the team's `logs_session_id_attribute_keys` setting) match exactly;

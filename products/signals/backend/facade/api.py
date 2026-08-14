@@ -1,12 +1,16 @@
 import dataclasses
+from collections.abc import Callable, Sequence
 from datetime import timedelta
+from typing import TYPE_CHECKING
 
 from django.conf import settings
+from django.db import transaction
 
 import pydantic
 import structlog
 import temporalio
 import posthoganalytics
+from temporalio.common import WorkflowIDReusePolicy
 
 from posthog.event_usage import groups
 from posthog.helpers.tiktoken_encoding import LLM_TOKEN_COUNT_PROXY_MODEL, get_tiktoken_encoding_for_model
@@ -17,14 +21,115 @@ from posthog.temporal.common.client import async_connect
 from products.signals.backend.contracts import SIGNAL_VARIANT_LOOKUP, SignalRemediation
 from products.signals.backend.models import SignalSourceConfig
 
+if TYPE_CHECKING:
+    from products.tasks.backend.facade.repo_selection import RepoSelectionResult
+
 logger = structlog.get_logger(__name__)
 
 MAX_SIGNAL_DESCRIPTION_TOKENS = 8000
 MAX_SIGNAL_REMEDIATION_TOKENS = 16000
 
 
+@dataclasses.dataclass(frozen=True)
+class SignalSourceTypesState:
+    """configured = any bundle row exists; all_enabled = every type is currently enabled."""
+
+    configured: bool
+    all_enabled: bool
+
+
+def signal_source_types_state(
+    *, team_id: int, source_product: str, source_types: tuple[str, ...]
+) -> SignalSourceTypesState:
+    rows = list(
+        SignalSourceConfig.objects.filter(
+            team_id=team_id,
+            source_product=source_product,
+            source_type__in=source_types,
+        ).values_list("source_type", "enabled")
+    )
+    enabled_types = {source_type for source_type, enabled in rows if enabled}
+    return SignalSourceTypesState(configured=bool(rows), all_enabled=enabled_types == set(source_types))
+
+
+def set_signal_source_types_enabled(
+    *,
+    team_id: int,
+    source_product: str,
+    source_types: tuple[str, ...],
+    enabled: bool,
+    created_by_id: int,
+    config: dict | None = None,
+) -> None:
+    """Atomically update a product-owned bundle of signal-source types. Every enable refreshes
+    ``created_by``. Provided ``config`` keys are merged into each row's stored config rather than
+    replacing it, so re-enables can't wipe keys they don't manage (e.g. an operator's ``dry_run``)."""
+    with transaction.atomic():
+        Team.objects.select_for_update().only("id").get(id=team_id)
+        if not enabled:
+            SignalSourceConfig.objects.filter(
+                team_id=team_id,
+                source_product=source_product,
+                source_type__in=source_types,
+            ).update(enabled=False)
+            return
+        for source_type in source_types:
+            row, _ = SignalSourceConfig.objects.update_or_create(
+                team_id=team_id,
+                source_product=source_product,
+                source_type=source_type,
+                defaults={"enabled": True, "created_by_id": created_by_id},
+            )
+            if config is not None:
+                merged = {**row.config, **config} if isinstance(row.config, dict) else dict(config)
+                if merged != row.config:
+                    row.config = merged
+                    row.save(update_fields=["config"])
+
+
 def _token_count(text: str) -> int:
     return len(get_tiktoken_encoding_for_model(LLM_TOKEN_COUNT_PROXY_MODEL).encode(text))
+
+
+def validate_signal_input(
+    *,
+    source_product: str,
+    source_type: str,
+    source_id: str,
+    description: str,
+    weight: float,
+    extra: dict | None,
+    remediation: SignalRemediation | None,
+) -> dict | None:
+    """The single emit-time schema check; emitters' tests call it directly so payloads can't drift
+    from the contract unnoticed. Raises ``pydantic.ValidationError`` on an unknown type pair or
+    mismatched payload; returns the JSON-safe remediation dict ``emit_signal`` forwards."""
+    variant_model = SIGNAL_VARIANT_LOOKUP.get((source_product, source_type))
+    if variant_model is None:
+        raise pydantic.ValidationError.from_exception_data(
+            title="SignalInput",
+            line_errors=[
+                {
+                    "type": "value_error",
+                    "loc": ("source_product", "source_type"),
+                    "input": {"source_product": source_product, "source_type": source_type},
+                    "ctx": {"error": ValueError(f"Unknown signal type: {source_product}/{source_type}")},
+                }
+            ],
+        )
+    remediation_dict = remediation.model_dump(mode="json", exclude_none=True) if remediation is not None else None
+    variant_model.model_validate(
+        {
+            "source_product": source_product,
+            "source_type": source_type,
+            "source_id": source_id,
+            "description": description,
+            "weight": weight,
+            "extra": extra or {},
+            "remediation": remediation_dict,
+        }
+    )
+    return remediation_dict
 
 
 def dismiss_report_from_slack(
@@ -36,6 +141,28 @@ def dismiss_report_from_slack(
     )
 
     return suppress_report_from_slack(team_id, report_id, slack_user_id=slack_user_id, user_id=user_id)
+
+
+def persisted_repo_selection(report_id: str) -> "RepoSelectionResult | None":
+    """Facade entrypoint for a report's latest repo selection. See select_repo.persisted_repo_selection."""
+    from products.signals.backend.report_generation.select_repo import (
+        persisted_repo_selection as persisted_repo_selection_impl,  # noqa: PLC0415 — avoids importing model layer at facade import time
+    )
+
+    return persisted_repo_selection_impl(report_id)
+
+
+def autostart_base_branch_for_repository(team_id: int, repository: str | None) -> str | None:
+    """Team's configured base branch for ``repository``, for callers outside the signals product."""
+    if not repository:
+        return None
+
+    from products.signals.backend.models import (
+        SignalTeamConfig,  # noqa: PLC0415 — avoids importing model layer at facade import time
+    )
+
+    config = SignalTeamConfig.objects.filter(team_id=team_id).only("autostart_base_branches").first()
+    return config.base_branch_for(repository) if config is not None else None
 
 
 def get_default_slack_notification_channel(team_id: int) -> str | None:
@@ -68,17 +195,26 @@ def set_default_slack_notification_channel(team_id: int, value: str | None) -> N
 # One catalog drives the list, the toggles, and the "connected" checks.
 # ---------------------------------------------------------------------------
 
-_DEFAULT_SESSION_ANALYSIS_SAMPLE_RATE = 0.1
-
 
 @dataclasses.dataclass(frozen=True)
 class OnboardingSource:
-    """A signal source offered as a checkbox in the Slack onboarding flow, with current state."""
+    """A signal source shown in the Slack onboarding flow, with current state."""
 
     key: str
     label: str
     description: str
     enabled: bool
+    # False for a source that authorizes itself elsewhere: onboarding reports it instead of
+    # offering a checkbox that would have nothing to write.
+    togglable: bool = True
+
+
+def _has_emitting_replay_scanner(team_id: int) -> bool:
+    from products.replay_vision.backend.facade.api import (
+        has_signal_emitting_scanner,  # noqa: PLC0415 — keeps the Replay Vision stack off this import path
+    )
+
+    return has_signal_emitting_scanner(team_id)
 
 
 @dataclasses.dataclass(frozen=True)
@@ -87,8 +223,10 @@ class _SourceSpec:
     label: str
     description: str
     # The SignalSourceConfig (source_product, source_type) rows ticking this source enables.
-    pairs: tuple[tuple[str, str], ...]
-    needs_ai_approval: bool = False
+    # Empty when the source authorizes itself elsewhere, which is also what makes it untickable.
+    pairs: tuple[tuple[str, str], ...] = ()
+    # Reads the on/off state of a source that has no config row to read it from.
+    enabled_check: Callable[[int], bool] | None = None
 
 
 _SOURCE_CATALOG: tuple[_SourceSpec, ...] = (
@@ -103,25 +241,49 @@ _SOURCE_CATALOG: tuple[_SourceSpec, ...] = (
         ),
     ),
     _SourceSpec(
-        "session_replay",
-        "Session replay analysis",
-        "problems real users hit",
-        (("session_replay", "session_analysis_cluster"),),
-        needs_ai_approval=True,
+        "replay_vision",
+        "Replay vision",
+        "bugs and UX problems scanners find in recordings",
+        enabled_check=_has_emitting_replay_scanner,
     ),
 )
 _SOURCE_BY_KEY: dict[str, _SourceSpec] = {spec.key: spec for spec in _SOURCE_CATALOG}
 
 
-def _ai_data_processing_approved(team_id: int) -> bool:
-    return bool(
-        Team.objects.filter(id=team_id).values_list("organization__is_ai_data_processing_approved", flat=True).first()
+def has_enabled_source(team_id: int) -> bool:
+    """True once the team has at least one enabled signal source — i.e. there's something to respond to.
+
+    Replay Vision is checked separately because it has no config row to find: each scanner's own
+    `emits_signals` flag authorizes it (see `SignalSourceConfig.is_source_enabled`)."""
+    if (
+        SignalSourceConfig.objects.filter(team_id=team_id, enabled=True)
+        # Retired: rows outlive the feature until the cleanup migration runs, and counting one marks
+        # onboarding complete on a source that emits nothing.
+        .exclude(source_product="session_replay", source_type="session_analysis_cluster")
+        .exists()
+    ):
+        return True
+    return _has_emitting_replay_scanner(team_id)
+
+
+def team_ids_with_source_product_enabled(source_product: str) -> list[int]:
+    """Team ids with at least one enabled source of ``source_product`` — the enrolment list a
+    product's own scheduled emitter fans out over (e.g. engineering_analytics' CI-signals
+    coordinator). Per-``source_type`` and org AI-approval gating still happens in ``emit_signal``;
+    this is the cheap pre-filter so a sweep skips teams that never turned the product on."""
+    return list(
+        SignalSourceConfig.objects.filter(source_product=source_product, enabled=True)
+        .values_list("team_id", flat=True)
+        .distinct()
     )
 
 
-def has_enabled_source(team_id: int) -> bool:
-    """True once the team has at least one enabled signal source — i.e. there's something to respond to."""
-    return SignalSourceConfig.objects.filter(team_id=team_id, enabled=True).exists()
+def is_signal_source_enabled(team_id: int, source_product: str, source_type: str) -> bool:
+    """Whether ``emit_signal`` will accept this ``(source_product, source_type)`` for the team, or
+    silently drop it. A scheduled emitter that pre-checks this can skip a disabled type instead of
+    recording a phantom emission in its own dedupe ledger — ``emit_signal`` returns silently, not by
+    raising, so the caller can't otherwise tell an accepted emit from a dropped one."""
+    return SignalSourceConfig.is_source_enabled(team_id, source_product, source_type)
 
 
 def onboarding_sources(team_id: int) -> list[OnboardingSource]:
@@ -134,31 +296,28 @@ def onboarding_sources(team_id: int) -> list[OnboardingSource]:
             key=spec.key,
             label=spec.label,
             description=spec.description,
-            enabled=any(pair in enabled_pairs for pair in spec.pairs),
+            enabled=(
+                spec.enabled_check(team_id) if spec.enabled_check else any(pair in enabled_pairs for pair in spec.pairs)
+            ),
+            togglable=bool(spec.pairs),
         )
         for spec in _SOURCE_CATALOG
     ]
 
 
-def set_sources(team_id: int, user_id: int | None, selected_keys: list[str]) -> list[str]:
+def set_sources(team_id: int, user_id: int | None, selected_keys: list[str]) -> None:
     """Sync the team's onboarding sources to ``selected_keys`` (tick = enable, untick = disable;
-    enabling a source sets up its SignalSourceConfig). Returns the labels of any that couldn't be
-    enabled because AI data processing isn't approved (session replay analysis)."""
+    enabling a source sets up its SignalSourceConfig)."""
     selected = set(selected_keys)
-    ai_approved = _ai_data_processing_approved(team_id)
-    blocked: list[str] = []
     for spec in _SOURCE_CATALOG:
-        want_on = spec.key in selected
-        if want_on and spec.needs_ai_approval and not ai_approved:
-            # Wanted but AI-gated: leave the source as-is. Disabling here would silently turn off a
-            # previously-approved source when the full checkbox snapshot is re-submitted.
-            blocked.append(spec.label)
+        if not spec.pairs:
+            # Authorized elsewhere (Replay Vision, per scanner), so onboarding never offered it as a
+            # checkbox and has nothing to write here.
             continue
+        want_on = spec.key in selected
         for source_product, source_type in spec.pairs:
             if want_on:
                 defaults: dict = {"enabled": True, "created_by_id": user_id}
-                if source_type == "session_analysis_cluster":
-                    defaults["config"] = {"sample_rate": _DEFAULT_SESSION_ANALYSIS_SAMPLE_RATE}
                 obj, created = SignalSourceConfig.objects.get_or_create(
                     team_id=team_id, source_product=source_product, source_type=source_type, defaults=defaults
                 )
@@ -169,7 +328,6 @@ def set_sources(team_id: int, user_id: int | None, selected_keys: list[str]) -> 
                 SignalSourceConfig.objects.filter(
                     team_id=team_id, source_product=source_product, source_type=source_type, enabled=True
                 ).update(enabled=False)
-    return blocked
 
 
 # The signal channel's generic `extra` passthrough only forwards top-level *scalar* values,
@@ -206,6 +364,7 @@ async def emit_signal(
     weight: float = 0.5,
     extra: dict | None = None,
     remediation: SignalRemediation | None = None,
+    idempotency_key: str | None = None,
 ) -> None:
     """
     Emit a signal for grouping and potential report generation, fire-and-forget.
@@ -231,6 +390,8 @@ async def emit_signal(
             (`human` + `agent` combined). When set, the signal is treated as actionable: the guidance
             is surfaced to the research agent as authoritative direction, which it follows instead of
             investigating from scratch. Not required by any existing source.
+        idempotency_key: Optional stable key for callers that may retry. Repeated calls with
+            the same key, source product, and source type start at most one emitter workflow.
 
     Example:
         await emit_signal(
@@ -243,6 +404,9 @@ async def emit_signal(
             extra={"html_url": "https://github.com/posthog/posthog/issues/12345", "number": 12345, ...},
         )
     """
+    if idempotency_key is not None and not idempotency_key.strip():
+        raise ValueError("idempotency_key must not be empty")
+
     # Deferred: the temporal package imports the facade back (reingestion -> emit_signal), so
     # importing these workflows at module scope forms a circular import and drags the whole
     # temporal stack onto the Django startup path. Resolved lazily at call time instead.
@@ -275,34 +439,15 @@ async def emit_signal(
                 f"Trim the remediation guidance before calling emit_signal."
             )
 
-    # Validate the signal against the matching schema variant
-    variant_model = SIGNAL_VARIANT_LOOKUP.get((source_product, source_type))
-    if variant_model is None:
-        raise pydantic.ValidationError.from_exception_data(
-            title="SignalInput",
-            line_errors=[
-                {
-                    "type": "value_error",
-                    "loc": ("source_product", "source_type"),
-                    "input": {"source_product": source_product, "source_type": source_type},
-                    "ctx": {"error": ValueError(f"Unknown signal type: {source_product}/{source_type}")},
-                }
-            ],
-        )
-    # Carry the remediation as a plain dict from here on (like `extra`) so it survives the
-    # Temporal/S3 JSON round-trip; `model_validate` below re-checks it against the variant's
-    # declared `remediation: SignalRemediation | None` field.
-    remediation_dict = remediation.model_dump(mode="json", exclude_none=True) if remediation is not None else None
-    payload_to_validate: dict = {
-        "source_product": source_product,
-        "source_type": source_type,
-        "source_id": source_id,
-        "description": description,
-        "weight": weight,
-        "extra": extra or {},
-        "remediation": remediation_dict,
-    }
-    variant_model.model_validate(payload_to_validate)
+    remediation_dict = validate_signal_input(
+        source_product=source_product,
+        source_type=source_type,
+        source_id=source_id,
+        description=description,
+        weight=weight,
+        extra=extra,
+        remediation=remediation,
+    )
 
     # Fire a "started" marker so direct callers (error tracking, AI observability evals, etc.)
     # that don't go through the data-source pipeline still have a top-of-funnel event. The
@@ -355,13 +500,26 @@ async def emit_signal(
 
     # Fire-and-forget: the emitter workflow will submit the signal to the buffer
     # via update, blocking if the buffer is full (backpressure).
-    await client.start_workflow(
-        SignalEmitterWorkflow.run,
-        SignalEmitterInput(team_id=team.id, signal=signal_input),
-        id=SignalEmitterWorkflow.workflow_id_for(team.id),
-        task_queue=settings.VIDEO_EXPORT_TASK_QUEUE,
-        run_timeout=timedelta(minutes=10),
+    emitter_idempotency_key = (
+        f"{source_product}:{source_type}:{idempotency_key}" if idempotency_key is not None else None
     )
+    try:
+        await client.start_workflow(
+            SignalEmitterWorkflow.run,
+            SignalEmitterInput(team_id=team.id, signal=signal_input),
+            id=SignalEmitterWorkflow.workflow_id_for(team.id, emitter_idempotency_key),
+            task_queue=settings.VIDEO_EXPORT_TASK_QUEUE,
+            run_timeout=timedelta(minutes=10),
+            id_reuse_policy=(
+                WorkflowIDReusePolicy.ALLOW_DUPLICATE_FAILED_ONLY
+                if emitter_idempotency_key is not None
+                else WorkflowIDReusePolicy.ALLOW_DUPLICATE
+            ),
+        )
+    except temporalio.exceptions.WorkflowAlreadyStartedError:
+        if emitter_idempotency_key is None:
+            raise
+        return
 
     # Fire the analytics event only after the signal is definitively queued so
     # Temporal/connection failures don't inflate the "signals emitted" metric.
@@ -385,3 +543,39 @@ async def emit_signal(
             source_type=source_type,
             source_id=source_id,
         )
+
+
+def forward_report_discussion_note(
+    *,
+    team: Team,
+    report_id: str | None,
+    relationship: str | None,
+    text: str,
+    user_id: int | None,
+    scoped_team_ids: Sequence[int] | None,
+    api_scopes: Sequence[str] | None,
+) -> str | None:
+    """Forward an inbox "Discuss" question to the report's scout as a steering note.
+
+    Called by the tasks presentation layer once a discussion task exists, with the calling
+    credential's reach (`scoped_team_ids`, `api_scopes`) read off the request there — the note write
+    is gated on authorization the task creation itself doesn't require. Only a `discussion`
+    relationship forwards, so an implementation or research kickoff never leaves a note. Best-effort:
+    returns the note id, or None when nothing was forwarded.
+    """
+    from products.signals.backend.artefact_schemas import (  # noqa: PLC0415 — keeps the notes stack off this module's import path
+        TASK_RUN_TYPE_DISCUSSION,
+    )
+    from products.signals.backend.discussion_notes import forward_discussion_note  # noqa: PLC0415 — same
+
+    if relationship != TASK_RUN_TYPE_DISCUSSION or not report_id:
+        return None
+
+    return forward_discussion_note(
+        team=team,
+        report_id=report_id,
+        text=text,
+        user_id=user_id,
+        scoped_team_ids=scoped_team_ids,
+        api_scopes=api_scopes,
+    )

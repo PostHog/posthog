@@ -4,7 +4,7 @@ from datetime import timedelta
 from typing import Any, cast, get_args
 
 from django.conf import settings
-from django.db.models import Max, QuerySet
+from django.db.models import Max, Q, QuerySet
 from django.utils import timezone
 
 from drf_spectacular.openapi import AutoSchema
@@ -42,7 +42,7 @@ from products.review_hog.backend.reviewer.progress import (
 )
 from products.review_hog.backend.reviewer.tools.github_client import GitHubAPIError, github_api_request
 from products.review_hog.backend.reviewer.tools.github_meta import PRFetcher, PRMetadata, PRParser
-from products.review_hog.backend.temporal.client import start_review_pr_workflow
+from products.review_hog.backend.temporal.client import start_resolution_workflow, start_review_pr_workflow
 from products.review_hog.backend.temporal.types import TRIGGER_UI
 
 logger = logging.getLogger(__name__)
@@ -70,8 +70,9 @@ class ReviewsListParamsSerializer(serializers.Serializer):
     scope = serializers.ChoiceField(
         choices=[SCOPE_MINE, SCOPE_EVERYONE],
         default=SCOPE_MINE,
-        help_text="Whose reviews to list: `mine` for reviews of the requesting user's pull requests "
-        "(the default), `everyone` for every review on this project.",
+        help_text="Whose reviews to list: `mine` (the default) for reviews the requesting user ran "
+        "plus reviews of pull requests they authored (matched via their linked GitHub login), "
+        "`everyone` for every review on this project.",
     )
     limit = serializers.IntegerField(
         default=DEFAULT_REVIEWS_LIMIT,
@@ -86,8 +87,9 @@ class PerspectiveStatsParamsSerializer(serializers.Serializer):
     scope = serializers.ChoiceField(
         choices=[SCOPE_MINE, SCOPE_EVERYONE],
         default=SCOPE_MINE,
-        help_text="Whose reviews to aggregate: `mine` for reviews of the requesting user's pull requests "
-        "(the default), `everyone` for every review on this project.",
+        help_text="Whose reviews to aggregate: `mine` (the default) for reviews the requesting user ran "
+        "plus reviews of pull requests they authored (matched via their linked GitHub login), "
+        "`everyone` for every review on this project.",
     )
 
 
@@ -211,10 +213,27 @@ class ReviewRecentReviewsPageSerializer(serializers.Serializer):
     )
 
 
+# What the trigger runs. The default 'review' includes the resolution stage when the requesting
+# user's `resolve_comments` setting is on; the other two are the split button's explicit variants.
+RUN_MODE_REVIEW = "review"
+RUN_MODE_REVIEW_ONLY = "review_only"
+RUN_MODE_RESOLVE_ONLY = "resolve_only"
+
+
 class ReviewTriggerRequestSerializer(serializers.Serializer):
     pr_url = serializers.CharField(
         help_text="GitHub pull request URL to review, e.g. 'https://github.com/PostHog/posthog.com/pull/123'. "
         "The repository must be accessible to the project's GitHub App installation.",
+    )
+    run_mode = serializers.ChoiceField(
+        required=False,
+        default=RUN_MODE_REVIEW,
+        choices=[RUN_MODE_REVIEW, RUN_MODE_REVIEW_ONLY, RUN_MODE_RESOLVE_ONLY],
+        help_text="What to run on the pull request. 'review' (default) reviews it and, when the "
+        "requesting user's resolve_comments setting is on, chains the resolution stage; "
+        "'review_only' reviews without resolving regardless of that setting; 'resolve_only' skips "
+        "the review and only runs the resolution stage on the PR's existing unresolved review "
+        "threads.",
     )
 
 
@@ -275,6 +294,13 @@ class ReviewDetailSerializer(ReviewRecentReviewSerializer):
     )
     report_markdown = serializers.CharField(
         allow_blank=True, help_text="The rendered review body published to GitHub, as markdown."
+    )
+    run_urgency_threshold = serializers.ChoiceField(
+        choices=_PRIORITY_CHOICES,
+        allow_null=True,
+        help_text="The urgency threshold the completed turn's publishing gated on (stamped at finalize "
+        "from the run's own resolve snapshot); null for turns that predate its recording — readers "
+        "fall back to the viewer's current setting as an approximation.",
     )
     findings = ReviewFindingSerializer(many=True, help_text="The latest turn's validated findings, most urgent first.")
     dismissed_findings = ReviewFindingSerializer(
@@ -341,6 +367,12 @@ def _in_progress_report_ids(team_id: int, reports: list[ReviewReport]) -> set[st
     Artefacts stream in throughout a run (snapshot, chunk set, per-chunk results, verdicts), so the
     newest artefact is the liveness signal; a crashed run goes quiet and ages out instead of showing
     a stuck spinner forever.
+
+    `finding_outcome` is excluded because it is the one artefact type not written by a turn: the
+    outcome sweep appends it after the PR merges, which can be long after the run ended. Counting it
+    would restart the staleness window and re-show the spinner for a report with nothing running —
+    exactly the crashed-and-never-finalized report (status only leaves ACTIVE on a successful
+    finalize) that the ageing-out exists to retire.
     """
     candidates = [report for report in reports if report.status == ReviewReport.Status.ACTIVE]
     if not candidates:
@@ -348,6 +380,7 @@ def _in_progress_report_ids(team_id: int, reports: list[ReviewReport]) -> set[st
     latest_artefact = dict(
         ReviewReportArtefact.objects.for_team(team_id)
         .filter(report_id__in=[report.id for report in candidates])
+        .exclude(type=ReviewReportArtefact.ArtefactType.FINDING_OUTCOME)
         .values_list("report_id")
         .annotate(latest=Max("created_at"))
         .values_list("report_id", "latest")
@@ -450,15 +483,19 @@ class ReviewRecentReviewsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet
 
     Read-only meta for the Code review tab's "recent reviews" block: what was reviewed, how many
     valid findings at each effective priority, the reviewed PR's facts, and the pipeline shape of
-    the latest turn. `list` covers the requesting user's reviews (reports where they are the acting
-    user) by default, or the whole project's via `scope=everyone` — mirroring the inbox's
+    the latest turn. `list` covers the requesting user's reviews by default — reports where they are
+    the acting user OR the PR's author (`author_login` matched case-insensitively against their
+    linked GitHub login) — or the whole project's via `scope=everyone`, mirroring the inbox's
     "For you / Entire project" switch; `perspective_stats` honors the same `scope` so the
     effectiveness cards can follow the page-level switch. `retrieve` adds the findings themselves
     (valid + dismissed) and the published review body; it is project-wide so any listed review can
     be opened.
     """
 
-    scope_object = "INTERNAL"
+    # `review_hog` rather than INTERNAL so the reads and trigger the Code review UI drives are also
+    # reachable with a personal API key or OAuth token, which is how MCP tools authenticate. Session
+    # UI access is unchanged; this only adds token access, gated by review_hog:read / review_hog:write.
+    scope_object = "review_hog"
     # Unscoped only to satisfy the router/introspection; every real query goes through `for_team`.
     queryset = ReviewReport.objects.unscoped()
     serializer_class = ReviewRecentReviewSerializer
@@ -469,7 +506,16 @@ class ReviewRecentReviewsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet
         team_id = resolve_effective_team_id(self.team_id)
         queryset = ReviewReport.objects.for_team(team_id, canonical=True)
         if scope == SCOPE_MINE:
-            queryset = queryset.filter(acting_user_id=request.user.id)
+            # "For you" is the union of reviews the user ran (acting user) and reviews of PRs they
+            # authored — a teammate-triggered review of your PR lands under THEIR acting_user, so
+            # without the author match the findings would never reach you. The author match rides
+            # the viewer's linked GitHub login (the reverse of the author→user mapping the reviewer
+            # runs under), case-insensitively; no linked login keeps the acting-user-only behavior.
+            mine = Q(acting_user_id=request.user.id)
+            github_login = cast(User, request.user).get_github_login()
+            if github_login:
+                mine |= Q(author_login__iexact=github_login)
+            queryset = queryset.filter(mine)
         return team_id, queryset
 
     @extend_schema(
@@ -568,7 +614,7 @@ class ReviewRecentReviewsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet
         "recent completed reviews in scope — the requesting user's by default, every review on this project "
         "with `scope=everyone` — and how many of those the validator kept vs dismissed.",
     )
-    @action(methods=["GET"], detail=False)
+    @action(methods=["GET"], detail=False, required_scopes=["review_hog:read"])
     def perspective_stats(self, request: Request, **kwargs) -> Response:
         params = PerspectiveStatsParamsSerializer(data=request.query_params)
         params.is_valid(raise_exception=True)
@@ -613,19 +659,22 @@ class ReviewRecentReviewsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet
         summary="Start a review of a pull request",
         description="Start a ReviewHog review of any pull request the project's GitHub App installation can "
         "access, and publish it back to the PR. The requesting user is the review's acting user: their "
-        "enabled perspectives, blind-spot check, validator, and urgency threshold drive the run, and it "
-        "appears under their recent reviews. Nonexistent, closed, and fork PRs are rejected synchronously; "
+        "enabled perspectives, blind-spot check, validator, urgency threshold, and resolution criteria "
+        "drive the run, and it appears under their recent reviews. `run_mode` picks the variant: a review "
+        "(which chains the resolution stage per the user's resolve_comments setting), a review without "
+        "resolving, or resolution only. Nonexistent, closed, and fork PRs are rejected synchronously; "
         "a PR whose current commit already has a published review returns 'already_reviewed' without "
-        "starting a run, and triggering a PR whose review is currently running joins the in-flight run. "
-        "Otherwise non-blocking: returns the Temporal workflow id immediately while the review runs in "
+        "starting a run (resolve_only skips that check — settling threads on a reviewed head is its whole "
+        "point), and triggering a PR whose run is currently in flight joins that run. "
+        "Otherwise non-blocking: returns the Temporal workflow id immediately while the run executes in "
         "the worker.",
     )
-    @action(methods=["POST"], detail=False)
+    @action(methods=["POST"], detail=False, required_scopes=["review_hog:write"])
     def trigger(self, request: Request, **kwargs) -> Response:
         team_id = resolve_effective_team_id(self.team_id)
         # Dogfood gate: the UI trigger only runs on the designated ReviewHog team for now — reviews are
         # expensive, so widening beyond it is a deliberate later decision, not a default.
-        if not settings.REVIEWHOG_TEAM_ID or team_id != settings.REVIEWHOG_TEAM_ID:
+        if team_id not in settings.REVIEWHOG_TEAM_IDS:
             return Response(
                 {"error": "ReviewHog reviews can't be started from this project yet"},
                 status=status.HTTP_403_FORBIDDEN,
@@ -681,6 +730,29 @@ class ReviewRecentReviewsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet
                 {"error": f"Pull request #{pr_number} is {pr_meta.state}; ReviewHog reviews open pull requests"},
                 status=status.HTTP_400_BAD_REQUEST,
             )
+        run_mode: str = serializer.validated_data["run_mode"]
+        # Rebuilt canonical URL: the parser accepts trailing paths (e.g. …/pull/123/files).
+        pr_url = f"https://github.com/{pr_info['owner']}/{pr_info['repo']}/pull/{pr_info['pr_number']}"
+        # The requester is both the run user (sandbox identity) and the acting user (whose
+        # perspectives/validator/threshold/criteria apply). The route is authenticated, so never anonymous.
+        requester_id = cast(User, request.user).id
+
+        if run_mode == RUN_MODE_RESOLVE_ONLY:
+            # No already-reviewed early-return here: an already-reviewed head is exactly when a
+            # standalone resolution run is useful (the threads exist, the review won't re-run).
+            workflow_id = start_resolution_workflow(
+                pr_url=pr_url,
+                team_id=team_id,
+                user_id=requester_id,
+                acting_user_id=requester_id,
+                trigger_source=TRIGGER_UI,
+            )
+            logger.info(f"ReviewHog UI trigger started resolution {workflow_id} for {pr_url} by user {requester_id}")
+            return Response(
+                ReviewTriggerResponseSerializer({"workflow_id": workflow_id, "status": "started"}).data,
+                status=status.HTTP_202_ACCEPTED,
+            )
+
         # Repository casing can differ per trigger (the report stores whatever its trigger carried).
         report = (
             ReviewReport.objects.for_team(team_id).filter(repository__iexact=repository, pr_number=pr_number).first()
@@ -692,11 +764,6 @@ class ReviewRecentReviewsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet
                 ReviewTriggerResponseSerializer({"workflow_id": "", "status": "already_reviewed"}).data,
                 status=status.HTTP_200_OK,
             )
-        # Rebuilt canonical URL: the parser accepts trailing paths (e.g. …/pull/123/files).
-        pr_url = f"https://github.com/{pr_info['owner']}/{pr_info['repo']}/pull/{pr_info['pr_number']}"
-        # The requester is both the run user (sandbox identity) and the acting user (whose
-        # perspectives/validator/threshold apply). The route is authenticated, so never anonymous.
-        requester_id = cast(User, request.user).id
         workflow_id = start_review_pr_workflow(
             pr_url=pr_url,
             team_id=team_id,
@@ -704,6 +771,8 @@ class ReviewRecentReviewsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet
             publish=True,
             acting_user_id=requester_id,
             trigger_source=TRIGGER_UI,
+            # None = the requester's resolve_comments setting decides; review_only pins it off.
+            resolve_comments=False if run_mode == RUN_MODE_REVIEW_ONLY else None,
         )
         logger.info(f"ReviewHog UI trigger started workflow {workflow_id} for {pr_url} by user {requester_id}")
         return Response(
@@ -758,6 +827,7 @@ class ReviewRecentReviewsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet
             ),
             "head_sha": completed_head,
             "report_markdown": report.report_markdown,
+            "run_urgency_threshold": report.run_urgency_threshold or None,
             "findings": sorted(valid, key=sort_key),
             "dismissed_findings": sorted(dismissed, key=sort_key),
             "perspective_selection": _selection_payload(turns.get(report_id, TurnStats()), chunk_set),

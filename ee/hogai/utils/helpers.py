@@ -77,6 +77,12 @@ _CONTROL_CHARS_RE = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]")
 # blow up every team member's prompt. The taxonomy already bounds the number of events per prompt.
 MAX_EVENT_DESCRIPTION_LENGTH = 500
 
+NOT_SEEN_RECENTLY_MARKER = "(not seen in the last 30 days)"
+NOT_SEEN_RECENTLY_LEGEND = (
+    f"Events marked {NOT_SEEN_RECENTLY_MARKER} are listed for reference only. This project has sent none of them "
+    "recently, so never present them as data it is collecting."
+)
+
 
 def sanitize_event_description(text: str) -> str:
     """Neutralize an untrusted event description before it goes into the model's context.
@@ -211,6 +217,10 @@ def _process_events_data(
 
     has_more = bool(response.hasMore)
 
+    # The runner pads its results with well-known event names at count 0, so a zero count means the
+    # project has no such event in the query window — not that the event is merely rare.
+    not_seen_recently = {item.event for item in response.results if item.count == 0}
+
     events: list[str] = [
         # Add "All events" to the mapping
         "All events",
@@ -237,7 +247,9 @@ def _process_events_data(
 
     processed_events = []
     for event_name in events:
-        event_data = {"name": event_name}
+        event_data: dict[str, Any] = {"name": event_name}
+        if event_name in not_seen_recently:
+            event_data["not_seen_recently"] = True
 
         if event_core_definition := CORE_FILTER_DEFINITIONS_BY_GROUP["events"].get(event_name):
             # Only skip if it's not in context (context events should always be included)
@@ -245,12 +257,8 @@ def _process_events_data(
                 event_core_definition.get("system") or event_core_definition.get("ignored_in_assistant")
             ):
                 continue  # Skip irrelevant events but keep events the user has added to the context
-            if description := event_core_definition.get("description"):
-                if label := event_core_definition.get("label_llm") or event_core_definition.get("label"):
-                    event_data["description"] = f"{label}. {description}"
-                else:
-                    event_data["description"] = description
-                event_data["description"] = remove_line_breaks(event_data["description"])
+            if core_description := _format_core_event_description(event_core_definition):
+                event_data["description"] = core_description
         elif event_name in event_to_description:
             event_data["description"] = sanitize_event_description(event_to_description[event_name])
         elif event_name in db_event_descriptions:
@@ -259,6 +267,31 @@ def _process_events_data(
         processed_events.append(event_data)
 
     return processed_events, event_to_description, has_more
+
+
+def _format_core_event_description(event_core_definition: Mapping[str, Any]) -> str | None:
+    """Build a single-line description for a core taxonomy event, prefixed with its label."""
+    description = event_core_definition.get("description")
+    if not description:
+        return None
+    if label := event_core_definition.get("label_llm") or event_core_definition.get("label"):
+        description = f"{label}. {description}"
+    return remove_line_breaks(description)
+
+
+def get_event_description(team: Team, event_name: str) -> str | None:
+    """Return a human-readable description for a single event, or None if none is known.
+
+    Mirrors the precedence used when listing events: the built-in core taxonomy description wins,
+    otherwise fall back to the user-authored description stored on the event definition (EE only).
+    Used to surface a description on the single-event properties path so the agent doesn't have to
+    list every event to learn what one event means.
+    """
+    if event_core_definition := CORE_FILTER_DEFINITIONS_BY_GROUP["events"].get(event_name):
+        return _format_core_event_description(event_core_definition)
+    if description := _get_event_definition_descriptions(team, [event_name], {}).get(event_name):
+        return sanitize_event_description(description)
+    return None
 
 
 def _get_event_definition_descriptions(
@@ -307,6 +340,8 @@ def format_events_xml(events_in_context: list[MaxEventContext], team: Team, user
         if "description" in event_data:
             desc_tag = ET.SubElement(event_tag, "description")
             desc_tag.text = event_data["description"]
+        if event_data.get("not_seen_recently"):
+            ET.SubElement(event_tag, "not_seen_recently").text = "true"
 
     return ET.tostring(root, encoding="unicode")
 
@@ -321,10 +356,18 @@ def format_events_yaml(
     processed_events, _, has_more = _process_events_data(events_in_context, team, user, limit=limit, offset=offset)
 
     formatted_events = ["events:"]
+    any_not_seen_recently = False
     for event_data in processed_events:
         name = event_data["name"]
         description = event_data.get("description", "")
-        formatted_events.append(f"- `{name}` - {description}" if description else f"- `{name}`")
+        line = f"- `{name}` - {description}" if description else f"- `{name}`"
+        if event_data.get("not_seen_recently"):
+            any_not_seen_recently = True
+            line += f" {NOT_SEEN_RECENTLY_MARKER}"
+        formatted_events.append(line)
+
+    if any_not_seen_recently:
+        formatted_events.append(f"\n# {NOT_SEEN_RECENTLY_LEGEND}")
 
     if has_more:
         next_offset = (offset or 0) + (limit or 500)

@@ -79,7 +79,7 @@ Follow this order. Each step maps to TODOs in `source.template`.
    - Airbyte: <https://airbyte.com/connectors> (connector pages often link to source code — useful reference)
    - Fivetran: <https://www.fivetran.com/connectors>
    - Stitch: <https://www.stitchdata.com/docs/integrations/>
-     Find the official API docs or OpenAPI spec. Make sure it's the current version, not a deprecated one.
+     Find the official API docs or OpenAPI spec, and **work out the vendor's latest generally-available API version before you write any request code** — that is the version the source must be built against. Check the vendor's changelog, versioning, or deprecation page, not just whichever page ranked first; docs sites routinely default to an older version, and Airbyte/Fivetran connectors are often years behind. See "Vendor API version metadata" for what counts as latest and what to do when the newest channel isn't GA.
 2. **Bootstrap the source.** Copy the template and wire up the enum/type references:
 
    ```sh
@@ -132,7 +132,7 @@ This keeps endpoint behavior declarative and easy to extend.
 
 ### Source behaviour goes in the source, never in the API layer
 
-The `data_warehouse` presentation layer (`products/data_warehouse/backend/presentation/views/external_data_source.py`, `external_data_schema.py`) must stay source-agnostic.
+The `warehouse_sources` presentation layer (`products/warehouse_sources/backend/presentation/views/external_data_source.py`, `external_data_schema.py`) must stay source-agnostic.
 Do **not** add `if source_type == ExternalDataSourceType.X` / `source.is_direct_<engine>` branches there — a CI guard (`.github/scripts/check-dwh-source-agnostic.py`) blocks new ones.
 
 When a source needs behaviour the API must invoke, expose it on the source instead:
@@ -262,6 +262,29 @@ enum. Adding a **new** category means editing that array and rebuilding — don'
 alternate spelling a user might type (e.g. `["ga4", "ga"]`, `["sql server"]`, `["facebook ads"]`). Skip it when
 the name already obviously matches; don't add noise.
 
+## Self-driving Inbox candidacy (issues / tickets / conversations)
+
+Some sources are also candidates for the **Self-driving Inbox** — the feature that watches a synced
+table of _actionable records_ and emits findings into the PostHog Desktop Inbox. Shipped today: GitHub,
+Linear, Zendesk, pganalyze, and Jira.
+
+The signal is the **table you sync**, not the vendor: a source is an inbox candidate when one of its
+tables is a stream of records a human (or agent) triages one by one — an `issues`, `tickets`, or
+`conversations` table. These live under the support/helpdesk (`CUSTOMER_SUPPORT`), issue-tracker and
+monitoring (`ENGINEERING___MONITORING`), and some project-tool (`PRODUCTIVITY`) categories. Analytics,
+billing, ad-platform, CRM, and raw database sources are **not** inbox candidates — they sync facts to
+query, not a work queue to act on. If the source you're building has no such table, there's nothing to
+do here.
+
+Wiring a source into the inbox is a **separate, additive piece of work** with its own skill —
+`/adding-inbox-sources` — and it changes nothing in this skill's deliverable. It only becomes possible
+once the data-warehouse source exists (which is exactly what this skill produces), so build and ship the
+source first. That skill touches three surfaces: a server-side "signals scout" emitter plus a registry
+entry and `SignalSourceProduct` enum in this repo (`products/signals/backend/`), the inbox UI in the
+separate `posthog/code` repo, and the `npx @posthog/wizard self-driving` onboarding flow in
+`PostHog/context-mill`. Read `/adding-inbox-sources` before starting — none of that plumbing belongs in
+the source's own `products/warehouse_sources/` code.
+
 ## Vendor API version metadata
 
 Every source declares three class attributes (on the source class body, alongside `lists_tables_without_credentials`)
@@ -283,9 +306,24 @@ Two cases:
       api_docs_url = "https://vendor.example/docs/api"   # API reference or changelog page (https, not the marketing site)
   ```
 
-  Pin **the version the source's own code actually calls** (the base URL path, a version header, or a version
-  constant in `settings.py` / `{source}.py`) — not the vendor's newest version. Examples already in the tree:
-  GitHub `("2022-11-28",)` (dated header), HubSpot `("v3",)` (path), Klaviyo `("2024-10-15",)` (dated revision).
+  **Build the source against the vendor's latest generally-available version, and pin that.** A new source starts
+  on one version and every customer who connects it lands there, so shipping on an older version means shipping a
+  migration someone has to run later. Two rules, and they must agree:
+
+  1. Write the request code against the newest GA version the vendor offers.
+  2. Declare **the version that code actually calls** (the base URL path, a version header, or a version constant
+     in `settings.py` / `{source}.py`). Never declare a version the code doesn't send — that pin is a lie the
+     framework can't detect, and it makes the deprecation warnings and the upgrade path wrong for every customer.
+
+  If you can't reach the newest version — it's preview/beta/unstable/RC, it's gated behind an application or a
+  paid tier, or its response shapes aren't implemented yet — build against the newest GA version you can actually
+  call, pin that, and say why in a comment on the class. "Latest" means latest stable: don't pin Shopify's
+  `unstable`, a vendor's `-rc` channel, or a version whose docs are still marked preview.
+
+  Examples already in the tree: Anthropic `("2023-06-01",)` (dated `anthropic-version` header),
+  ActiveCampaign `("v3",)` (`/api/3` path segment), Alguna `("2026-04-01",)` (dated version header).
+  A source that later gains a second version declares them oldest→newest — GitHub `("2022-11-28", "2026-03-10")`,
+  HubSpot `("v3", "2026-03")` — but that's the `/warehouse-source-new-version` skill's job, not this one.
 
 - **The vendor has no meaningful API versioning** — set only `api_docs_url`; leave `supported_versions` /
   `default_version` at the framework default (`("v1",)`, the `UNVERSIONED_API_VERSION` sentinel). A bare `/v1/`
@@ -295,6 +333,11 @@ Rules:
 
 - `default_version` must equal the single entry in `supported_versions`, and `api_docs_url` must be `https://`.
 - Use the vendor's exact version string; never invent one.
+- **Never ship a new source on a version the vendor has already deprecated or given a sunset date.** A brand-new
+  source with a `deprecated_versions` entry covering its only version is a bug — it means the source was written
+  against the wrong version. `test_source_versions.py` fails the build if `default_version` is deprecated.
+- Prefer an `api_docs_url` that points at the vendor's versioning/changelog page over a generic API landing page —
+  it's where the next version gets announced, and it's what the next person checks before repinning.
 - Don't hardcode a fallback version in the transport/request layer — resolve it from the source class
   (`self.resolve_api_version(inputs.api_version)`), which already falls back to `default_version`.
 - Adding support for a **new** vendor version later, or **deprecating** an old one, is the
@@ -323,9 +366,9 @@ Return a `SourceResponse` directly. **Do not** use `dlt_source_to_source_respons
 
 Prefer yielding data in the shape the API returns it. No custom dataclasses, no heavy parsing. Yield either `dict`, `list[dict]` (preferred when possible), or a `pyarrow.Table`. The pipeline buffers and batches for you.
 
-**Default to yielding raw `dict` / `list[dict]` and let the pipeline batch for you.** The pipeline already runs a `Batcher` (`pipelines/pipeline/pipeline.py`) at 5000-row / 200 MiB thresholds, so the common case needs no batcher of its own. Reach for `pyarrow.Table` only when you already have arrow-shaped data (e.g. a ClickHouse adapter). A source _may_ instantiate its own `Batcher` with **smaller** thresholds (e.g. `chunk_size=2000, chunk_size_bytes=100 * 1024 * 1024`, as klaviyo and ~70 other sources do) when it deliberately wants a tighter memory footprint for large/wide rows — that's a valid choice, not the default. What to avoid is a second _full-size_ batcher, which just double-buffers with no win.
+**Default to yielding raw `dict` / `list[dict]` and let the pipeline batch for you.** The pipeline already runs a `Batcher` (`pipelines/pipeline_v2/pipeline.py`) at 5000-row / 200 MiB thresholds, so the common case needs no batcher of its own. Reach for `pyarrow.Table` only when you already have arrow-shaped data (e.g. a ClickHouse adapter). A source _may_ instantiate its own `Batcher` with **smaller** thresholds (e.g. `chunk_size=2000, chunk_size_bytes=100 * 1024 * 1024`, as klaviyo and ~70 other sources do) when it deliberately wants a tighter memory footprint for large/wide rows — that's a valid choice, not the default. What to avoid is a second _full-size_ batcher, which just double-buffers with no win.
 
-For pyarrow tables, cap in-memory rows at ~200 MiB or ~5000 rows. Use helpers like `table_from_iterator()` / `table_from_py_list()` from `products/warehouse_sources/backend/temporal/data_imports/pipelines/pipeline/utils.py`.
+For pyarrow tables, cap in-memory rows at ~200 MiB or ~5000 rows. Use helpers like `table_from_iterator()` / `table_from_py_list()` from `products/warehouse_sources/backend/temporal/data_imports/pipelines/core/arrow_utils.py`.
 
 **URL construction:** use `urllib.parse.urlencode` for query strings. Don't use `requests.Request(...).prepare().url` — `PreparedRequest.url` is typed `Optional[str]` and the typical workaround (`prepared.url or f"..."`) carries an unreachable fallback. `urlencode` is shorter, dependency-free, and produces identical output for ASCII-safe params.
 
@@ -579,6 +622,34 @@ Fan-out = iterate a parent resource, then query child endpoints per parent.
 
 **Custom iterator only when fan-out is 2+ levels deep.** Reuse the same pagination/retry helpers as elsewhere.
 
+### Reading the fan-out parent from the warehouse (`parent_source="warehouse"`)
+
+> [!IMPORTANT]
+> **Not generally available — do not opt new sources in.** The flag is off everywhere and Sentry is the only source wired up, pending validation against real syncs.
+> This section is here because the shared fan-out builder carries the machinery either way, so anyone changing fan-out internals needs to know the constraints. Treat the caveats below (windowed parents, ordered parents, non-REST callers) as unproven outside Sentry, and ask the data warehouse team before opting another source in.
+
+By default a fan-out child re-fetches its parent endpoint on every sync — syncing `issue_hashes` re-pulls all of `issues` even when the `issues` schema already synced.
+A child endpoint opts into warehouse parent reuse with `parent_source="warehouse"` on its `DependentEndpointConfig`:
+the child then streams parent rows from the parent schema's already-synced Delta table (`iter_parent_pages_from_warehouse` in `common/rest_source/warehouse_parent.py`) instead of hitting the parent API.
+Reference implementation: Sentry (`issue_events` / `issue_hashes` via the config flag, `issue_tag_values` via the custom iterator calling the reader directly).
+
+Requirements and behavior:
+
+- **The parent must be a selectable schema of the same source** — it has to produce its own Delta table.
+- **Soft dependency — the child falls back to the parent API.** Declare the parents by overriding `get_required_parent_schemas` on the source (wire it to `required_parents_from_endpoint_configs(ENDPOINTS, schema_name)`; add explicit entries for custom-iterator endpoints). That override is the only declaration: nothing surfaces the relationship through the API, so don't add a schema-payload field for it while the feature is unvalidated.
+  Nothing in the API constrains the selection either: a child can be enabled without its parent, and a parent can be disabled or deleted while children sync. `_warehouse_parent_reuse_available` in `import_data_activity_sync` decides per run — a parent that is missing, disabled, not yet initially synced, or on any sync type other than merge or full refresh sends that run down the legacy parent-API path, so enabling the flag can never break a schema that syncs today. A parent that is merely mid-sync does not force the fallback, because `resolve_parent_table_ref` pins the read to the parent's last completed snapshot via Delta time travel.
+  Never enable a parent as a side effect of enabling a child: parent syncs count toward the customer's billed rows.
+- **Feature-flagged.** The whole path is gated by the `warehouse-fanout-parent-reuse` flag (`is_fanout_warehouse_reuse_enabled`); with the flag off, opted-in endpoints silently keep the legacy parent-API path, so rollback is a flag flip.
+- **Strictly streaming — never materialize the parent table.** The reader scans one projected batch at a time with column projection pushed down to the parquet read. Do not add `to_table`, global sorts, or seen-set dedupe to it — parents can be arbitrarily large, and the whole pipeline exists to avoid full-dataset memory. If a caller's semantics depend on parent order (the API returned sorted rows), rework them into per-row filters over the unordered stream (see Sentry's `issue_tag_values` cutoff handling) instead of sorting.
+- **The usable sync types are an allow-list, not a deny-list.** Only merge and full refresh hold one row per key; append accumulates a row per sync and CDC keeps change history, so streaming either would fan the child out once per duplicate, and dedupe would need unbounded state. A new sync type has to opt in deliberately in `_parent_unusable_reason`.
+- **Values carry Delta physical types, not the API's JSON types.** A timestamp comes back as a datetime rather than an ISO string, a nested object as a dict. Because the API fallback engages per run, projecting such a field through `include_from_parent` makes the child's column type flip between runs and trips the merge's type-drift guards. Only project fields whose physical type matches what the API returned (an id string is safe), or normalize in the caller.
+- **Stale parents 404.** The warehouse snapshot can contain parents deleted upstream since the parent's last sync; the builder adds a `404 → ignore` response action on the child (custom iterators must skip 404s themselves — see Sentry's `_skip_rows_on_stale_issue_404`).
+- **Freshness**: children fan out over the parent's last synced snapshot. Parents created after the parent's last sync appear once the parent re-syncs — same staleness class as independent schedules.
+- **Column names**: the reader takes API field names (e.g. `lastSeen`), maps them to the snake_case physical Delta columns, and re-keys rows back to API names. Request only the columns the fan-out needs (`resolve_field` + `include_from_parent`).
+- **Windowed parents must stay windowed.** If the source currently bounds its parent walk by the child watermark (e.g. Github's `_fan_out_get_rows`), a full warehouse read would _increase_ child fan-out — filter the warehouse read to the same window instead.
+- **Non-REST sources** (e.g. Stripe's SDK loop) can call `iter_parent_pages_from_warehouse` directly; project any fields their skip-checks inspect (e.g. customer `balance`). Resolve the table with `resolve_parent_table_ref(..., required_columns=[...])` eagerly in `source_for_pipeline` (sync context) — it does an ORM read, and the pipeline's iterator executor threads are the wrong place for ad-hoc DB connections. It also pins the parent's Delta version, so a parent that re-syncs mid-fan-out can't shift the rows underneath the child; pass the returned ref to the reader instead of re-deriving a URI.
+- **Catch `WarehouseParentTableNotFoundError` around that resolve call and take the API path.** A schema row can claim a completed sync while its table is unreadable (purged, renamed, or missing the fan-out columns), and the reader is a generator, so anything it validated lazily would raise deep inside the pipeline where no fallback is left. That is why `required_columns` is validated eagerly during resolution. When falling back, also turn off any behavior that only makes sense for a warehouse snapshot (the child's stale-parent `404 → ignore`, and resume checkpoints the warehouse scan skips), so the run matches the feature-off path exactly.
+
 ## OAuth configuration
 
 Before implementing OAuth, **check if the integration already exists** — search `posthog/models/integration.py` loosely for the service name before concluding it's new.
@@ -596,8 +667,17 @@ If new:
    - Add to `IntegrationKind` enum.
    - Add to `OauthIntegration.supported_kinds`.
    - Add an `elif kind == "your-source": return OauthConfig(...)` branch in `oauth_config_for_kind()`.
-3. **Redirect URI**: `https://localhost:8010/integrations/your-kind/callback` in the external service.
-4. List any new env vars in the final handoff so they can be set in all environments.
+     Raise `NotImplementedError("<Source> app not configured")` when the env vars are empty — that's the
+     fail-closed message, so code and charts can ship before the secret values exist.
+   - If the provider's token response has **no account identifier** (e.g. Resend), decode the
+     access-token JWT and set `id_path` / `name_path` from a claim (`sub`), mirroring the reddit/bing
+     branches in `integration_from_oauth_response`.
+3. **Register the client + deploy the credentials.** Registering the OAuth client with the provider,
+   the redirect URIs (US/EU/dev/localhost), the **charts** PR (wiring the env vars into both
+   `posthog-django-shared-secrets` for the web app and the worker's `secret_env_app_specific` store),
+   and writing the values into AWS Secrets Manager via the `PostHog/secrets` UI or CLI — plus which of these
+   an agent can vs. must not automate — are all in
+   [references/oauth-app-deployment.md](references/oauth-app-deployment.md).
 
 ## Non-retryable errors
 
@@ -745,6 +825,8 @@ Tests & handoff:
 - [ ] User-facing doc written/updated per /documenting-warehouse-sources (docsUrl matches filename; `audit_source_docs` passes)
 - [ ] `ruff check . --fix` and `ruff format .`
 - [ ] List any new env vars (OAuth client IDs/secrets, etc) in the PR / handoff
+- [ ] (Only if the source syncs an issues/tickets/conversations table) Note it as a Self-driving Inbox
+      candidate — that's a separate follow-up via /adding-inbox-sources, not part of shipping the source
 ```
 
 ## Validation and generation workflow

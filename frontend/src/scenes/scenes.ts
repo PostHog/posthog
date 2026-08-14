@@ -239,32 +239,6 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
     },
     [Scene.GroupsNew]: { projectBased: true },
     [Scene.Groups]: { projectBased: true, name: 'Groups' },
-    [Scene.Heatmaps]: {
-        projectBased: true,
-        name: 'Heatmaps',
-        iconType: 'heatmap',
-        description: 'Heatmaps are a way to visualize user behavior on your website.',
-    },
-    [Scene.Inbox]: {
-        projectBased: true,
-        name: 'Inbox',
-        description: 'Actionable reports automatically generated from user session analysis and other signals.',
-    },
-    [Scene.Heatmap]: {
-        projectBased: true,
-        name: 'Heatmap',
-        iconType: 'heatmap',
-    },
-    [Scene.HeatmapNew]: {
-        projectBased: true,
-        name: 'New heatmap',
-        iconType: 'heatmap',
-    },
-    [Scene.HeatmapRecording]: {
-        projectBased: true,
-        name: 'Heatmap recording',
-        iconType: 'heatmap',
-    },
     [Scene.HogFunction]: { projectBased: true, name: 'Hog function', activityScope: ActivityScope.HOG_FUNCTION },
     [Scene.Insight]: {
         projectBased: true,
@@ -384,11 +358,6 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
         name: 'Homepage',
         layout: 'app-raw-no-header',
     },
-    [Scene.Quickstart]: {
-        projectBased: true,
-        name: 'Quickstart',
-        layout: 'app-container',
-    },
     [Scene.PropertyDefinitionEdit]: {
         projectBased: true,
         name: 'Data management',
@@ -456,11 +425,6 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
     [Scene.DashboardTemplateCopy]: {
         projectBased: true,
         name: 'Copy template to project',
-        layout: 'app-container',
-    },
-    [Scene.RevenueAnalytics]: {
-        projectBased: true,
-        name: 'Revenue analytics',
         layout: 'app-container',
     },
     [Scene.MarketingAnalytics]: {
@@ -576,6 +540,7 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
     [Scene.Unsubscribe]: { allowUnauthenticated: true, layout: 'app-raw' },
     [Scene.CodeCanvasLink]: { allowUnauthenticated: true, layout: 'app-raw' },
     [Scene.CodeChannelLink]: { allowUnauthenticated: true, layout: 'app-raw' },
+    [Scene.CodeTaskLink]: { allowUnauthenticated: true, layout: 'app-raw' },
     [Scene.VerifyEmail]: { allowUnauthenticated: true, layout: 'plain' },
     [Scene.WebAnalyticsPageReports]: {
         projectBased: true,
@@ -668,6 +633,9 @@ export const redirects: Record<
     '/annotations/:id': ({ id }) => urls.annotation(id),
     '/batch_exports/:id': ({ id }) => urls.batchExport(id),
     '/batch_exports': urls.destinations(),
+    // The scene lives at /code-review (hyphen); catch the old underscore variant, keeping the
+    // ?review= / ?reviews_scope= deep links that PR status comments bake in
+    '/code_review': (_params, searchParams, hashParams) => combineUrl(urls.codeReview(), searchParams, hashParams).url,
     '/comments': () => urls.comments(),
     '/dashboards': urls.dashboards(),
     '/data-management': urls.eventDefinitions(),
@@ -679,6 +647,7 @@ export const redirects: Record<
         const params = new URLSearchParams(searchParams as Record<string, string>).toString()
         return urls.marketingAnalyticsApp() + (params ? `?${params}` : '')
     },
+    '/web/ai-search': urls.webAnalyticsPagePerformance(),
 
     '/events': urls.activity(),
     '/events/:id/*': ({ id, _ }) => {
@@ -735,6 +704,8 @@ export const redirects: Record<
     '/pipeline/transformations': urls.transformations(),
     '/pipeline/data-import': urls.sources(),
     '/project/settings': urls.settings('project'),
+    // The quickstart landing page is gone; keep old bookmarks and pinned tabs out of a 404
+    '/quickstart': urls.default(),
     '/recordings/file-playback': () => urls.replayFilePlayback(),
     '/recordings/playlists/:id': ({ id }) => urls.replayPlaylist(id),
     '/recordings/settings': () => urls.replaySettings(),
@@ -786,11 +757,11 @@ export const routes: Record<string, [Scene | string, string]> = {
     [urls.webAnalytics()]: [Scene.WebAnalytics, 'webAnalytics'],
     [urls.webAnalyticsWebVitals()]: [Scene.WebAnalytics, 'webAnalyticsWebVitals'],
     [urls.webAnalyticsBotAnalytics()]: [Scene.WebAnalytics, 'webAnalyticsBotAnalytics'],
+    [urls.webAnalyticsPagePerformance()]: [Scene.WebAnalytics, 'webAnalyticsPagePerformance'],
     [urls.webAnalyticsHealth()]: [Scene.WebAnalyticsHealth, 'webAnalyticsHealth'],
     [urls.webAnalyticsLive()]: [Scene.WebAnalyticsLive, 'webAnalyticsLive'],
     [urls.webAnalyticsRecap()]: [Scene.WebAnalyticsRecap, 'webAnalyticsRecap'],
     [urls.webAnalyticsPageReports()]: [Scene.WebAnalytics, 'webAnalyticsPageReports'],
-    [urls.revenueAnalytics()]: [Scene.RevenueAnalytics, 'revenueAnalytics'],
     [urls.marketingAnalyticsApp()]: [Scene.MarketingAnalytics, 'marketingAnalytics'],
     [urls.revenueSettings()]: [Scene.DataManagement, 'revenue'],
     [urls.dataWarehouseManagedViewsets()]: [Scene.DataManagement, 'dataWarehouseManagedViewsets'],
@@ -831,8 +802,6 @@ export const routes: Record<string, [Scene | string, string]> = {
     [urls.groupsNew(':groupTypeIndex')]: [Scene.GroupsNew, 'groupsNew'],
     [urls.group(':groupTypeIndex', ':groupKey', false)]: [Scene.Group, 'group'],
     [urls.group(':groupTypeIndex', ':groupKey', false, ':groupTab')]: [Scene.Group, 'groupWithTab'],
-    // Must precede the cohort detail route, or /cohorts/staff resolves as cohort id "staff".
-    [urls.cohortsStaffTools()]: ['CohortsStaffTools' as Scene, 'cohortsStaffTools'],
     [urls.cohort(':id')]: [Scene.Cohort, 'cohort'],
     [urls.cohortCalculationHistory(':id')]: [Scene.CohortCalculationHistory, 'cohortCalculationHistory'],
     [urls.cohorts()]: [Scene.Cohorts, 'cohorts'],
@@ -853,6 +822,7 @@ export const routes: Record<string, [Scene | string, string]> = {
     [urls.featureFlags()]: [Scene.FeatureFlags, 'featureFlags'],
     [urls.featureFlagTemplates()]: ['FeatureFlagTemplates' as Scene, 'featureFlagTemplates'],
     [urls.featureFlagsStaffTools()]: ['FeatureFlagsStaffTools' as Scene, 'featureFlagsStaffTools'],
+    [urls.cohortsStaffTools()]: ['CohortsStaffTools' as Scene, 'cohortsStaffTools'],
     [urls.featureFlag(':id')]: [Scene.FeatureFlag, 'featureFlag'],
     [urls.annotations()]: [Scene.DataManagement, 'annotations'],
     [urls.annotation(':id')]: [Scene.DataManagement, 'annotation'],
@@ -860,7 +830,6 @@ export const routes: Record<string, [Scene | string, string]> = {
     [urls.variables()]: [Scene.DataManagement, 'variables'],
     [urls.variableEdit(':id')]: [Scene.SqlVariableEdit, 'sqlVariableEdit'],
     [urls.projectHomepage()]: [Scene.ProjectHomepage, 'projectHomepage'],
-    [urls.quickstart()]: [Scene.Quickstart, 'quickstart'],
     [urls.aiHistory()]: [Scene.Max, 'maxHistory'],
     [urls.ai()]: [Scene.Max, 'max'],
     [urls.projectCreateFirst()]: [Scene.ProjectCreateFirst, 'projectCreateFirst'],
@@ -916,6 +885,7 @@ export const routes: Record<string, [Scene | string, string]> = {
     [urls.codeCanvasLink(':channelId', ':dashboardId')]: [Scene.CodeCanvasLink, 'codeCanvasLink'],
     [urls.codeChannelLink(':channelId')]: [Scene.CodeChannelLink, 'codeChannelLink'],
     [urls.codeChannelLink(':channelId', ':taskId')]: [Scene.CodeChannelLink, 'codeChannelThreadLink'],
+    [urls.codeTaskLink(':taskId')]: [Scene.CodeTaskLink, 'codeTaskLink'],
     [urls.integrationsRedirect(':kind')]: [Scene.IntegrationsRedirect, 'integrationsRedirect'],
     [urls.integration(':slug')]: [Scene.IntegrationsLanding, 'integrationsLanding'],
     [urls.stripeConfirmInstall()]: [Scene.StripeConfirmInstall, 'stripeConfirmInstall'],
@@ -928,10 +898,6 @@ export const routes: Record<string, [Scene | string, string]> = {
     [urls.settings(':section' as any)]: [Scene.Settings, 'settings'],
     [urls.moveToPostHogCloud()]: [Scene.MoveToPostHogCloud, 'moveToPostHogCloud'],
     [urls.advancedActivityLogs()]: [Scene.AdvancedActivityLogs, 'advancedActivityLogs'],
-    [urls.heatmaps()]: [Scene.Heatmaps, 'heatmaps'],
-    [urls.heatmapNew()]: [Scene.HeatmapNew, 'heatmapNew'],
-    [urls.heatmapRecording()]: [Scene.HeatmapRecording, 'heatmapRecording'],
-    [urls.heatmap(':id')]: [Scene.Heatmap, 'heatmap'],
     [urls.liveDebugger()]: [Scene.LiveDebugger, 'liveDebugger'],
     [urls.links()]: [Scene.Links, 'links'],
     [urls.link(':id')]: [Scene.Link, 'link'],
@@ -939,15 +905,6 @@ export const routes: Record<string, [Scene | string, string]> = {
     [urls.wizard()]: [Scene.Wizard, 'wizard'],
     [urls.coupons(':campaign')]: [Scene.Coupons, 'coupons'],
     [urls.health()]: [Scene.Health, 'health'],
-    [urls.inbox()]: [Scene.Inbox, 'inbox'],
-    [urls.inbox(':tab')]: [Scene.Inbox, 'inbox'],
-    // Static memory route, registered before `:skillName` so it isn't read as a scout name.
-    [urls.inboxScratchpad()]: [Scene.Inbox, 'inbox'],
-    // Registered before the generic report route: both are two-segment `/inbox/x/y` shapes.
-    [urls.inboxScout(':skillName')]: [Scene.Inbox, 'inbox'],
-    // Deep-link to a single scout finding: the bare scout route plus a trailing `/<finding>` segment.
-    [urls.inboxScout(':skillName', ':findingId')]: [Scene.Inbox, 'inbox'],
-    [urls.inboxReport(':tab', ':reportId')]: [Scene.Inbox, 'inbox'],
     [urls.pipelineStatus()]: [Scene.PipelineStatus, 'pipelineStatus'],
     [urls.sdkHealth()]: [Scene.SdkHealth, 'sdkHealth'],
     [urls.healthAlerts()]: [Scene.HealthAlerts, 'healthAlerts'],

@@ -1,7 +1,7 @@
 import { MakeLogicType, actions, kea, key, path, props, reducers } from 'kea'
 
 import { BreakdownFilter, TileFilters } from '~/queries/schema/schema-general'
-import { AnyPropertyFilter } from '~/types'
+import { AnyPropertyFilter, IntervalType } from '~/types'
 
 export interface TileLogicProps {
     dashboardId: number
@@ -30,6 +30,15 @@ export interface tileLogicActions {
         date_from: string | null | undefined
         date_to: string | null | undefined
         explicitDate: boolean | undefined
+    }
+    setFilterTestAccounts: (filterTestAccounts: boolean | null) => {
+        filterTestAccounts: boolean | null
+    }
+    setIgnoreDashboardFilters: (ignoreDashboardFilters: boolean) => {
+        ignoreDashboardFilters: boolean
+    }
+    setInterval: (interval: IntervalType | null | undefined) => {
+        interval: IntervalType | null | undefined
     }
     setProperties: (properties: AnyPropertyFilter[] | null | undefined) => {
         properties: AnyPropertyFilter[] | null | undefined
@@ -60,6 +69,9 @@ export const tileLogic = kea<tileLogicType>([
         }),
         setProperties: (properties: AnyPropertyFilter[] | null | undefined) => ({ properties }),
         setBreakdown: (breakdown_filter: BreakdownFilter | null | undefined) => ({ breakdown_filter }),
+        setInterval: (interval: IntervalType | null | undefined) => ({ interval }),
+        setFilterTestAccounts: (filterTestAccounts: boolean | null) => ({ filterTestAccounts }),
+        setIgnoreDashboardFilters: (ignoreDashboardFilters: boolean) => ({ ignoreDashboardFilters }),
         resetOverrides: true,
     })),
 
@@ -95,7 +107,44 @@ export const tileLogic = kea<tileLogicType>([
                     }
                     return newState
                 },
-                setBreakdown: (state, { breakdown_filter }) => ({ ...state, breakdown_filter }),
+                setBreakdown: (state, { breakdown_filter }) => {
+                    const newState = { ...state }
+                    if (breakdown_filter) {
+                        newState.breakdown_filter = breakdown_filter
+                    } else {
+                        delete newState.breakdown_filter
+                    }
+                    return newState
+                },
+                setInterval: (state, { interval }) => {
+                    const newState = { ...state }
+                    if (interval) {
+                        newState.interval = interval
+                    } else {
+                        delete newState.interval
+                    }
+                    return newState
+                },
+                setFilterTestAccounts: (state, { filterTestAccounts }) => {
+                    const newState = { ...state }
+                    // Tri-state: false means "force test account filtering off", so unlike the other
+                    // overrides only null (inherit) clears the key.
+                    if (filterTestAccounts === null) {
+                        delete newState.filterTestAccounts
+                    } else {
+                        newState.filterTestAccounts = filterTestAccounts
+                    }
+                    return newState
+                },
+                setIgnoreDashboardFilters: (state, { ignoreDashboardFilters }) => {
+                    const newState = { ...state }
+                    if (ignoreDashboardFilters) {
+                        newState.ignoreDashboardFilters = true
+                    } else {
+                        delete newState.ignoreDashboardFilters
+                    }
+                    return newState
+                },
                 resetOverrides: () => ({}),
             },
         ],

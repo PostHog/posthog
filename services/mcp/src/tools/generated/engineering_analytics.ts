@@ -81,8 +81,8 @@ const engineeringAnalyticsFlakyTests = (): ToolBase<
                 date_to: params.date_to,
                 limit: params.limit,
                 min_failed_prs: params.min_failed_prs,
-                min_rerun_passes: params.min_rerun_passes,
                 repo: params.repo,
+                runner: params.runner,
                 source_id: params.source_id,
             },
         })
@@ -170,7 +170,6 @@ const engineeringAnalyticsTeamCiHealth = (): ToolBase<
                 date_to: params.date_to,
                 limit: params.limit,
                 min_failed_prs: params.min_failed_prs,
-                min_rerun_passes: params.min_rerun_passes,
                 source_id: params.source_id,
             },
         })

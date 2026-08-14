@@ -9,10 +9,6 @@ from posthog.schema import (
     SourceFieldInputConfigType,
 )
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import (
-    SourceInputs,
-    SourceResponse,
-)
 from products.warehouse_sources.backend.temporal.data_imports.sources.aircall.aircall import (
     AircallResumeConfig,
     aircall_source,
@@ -32,6 +28,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.sch
     SourceSchema,
     build_endpoint_schemas,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.aircall import (
     AircallSourceConfig,
 )
@@ -52,6 +49,7 @@ class AircallSource(ResumableSource[AircallSourceConfig, AircallResumeConfig]):
 
     def get_non_retryable_errors(self) -> dict[str, str | None]:
         return {
+            "400 Client Error: Bad Request for url: https://api.aircall.io": "Aircall rejected the request. Contact support if this keeps happening so we can look into it.",
             "401 Client Error: Unauthorized for url: https://api.aircall.io": "Aircall authentication failed. Please check your API ID and API token.",
             "403 Client Error: Forbidden for url: https://api.aircall.io": "Aircall denied access. Please check that your API key has the required permissions.",
         }
@@ -105,11 +103,16 @@ You can create an API key (API ID + API token) in your [Aircall dashboard](https
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names)
 
     def validate_credentials(
-        self, config: AircallSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: AircallSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         if validate_aircall_credentials(config.api_id, config.api_token):
             return True, None

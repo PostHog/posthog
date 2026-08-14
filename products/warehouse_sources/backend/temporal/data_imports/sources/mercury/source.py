@@ -9,10 +9,6 @@ from posthog.schema import (
     SourceFieldInputConfigType,
 )
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import (
-    SourceInputs,
-    SourceResponse,
-)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
@@ -23,6 +19,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.sch
     SourceSchema,
     build_endpoint_schemas,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.mercury import (
     MercurySourceConfig,
 )
@@ -69,6 +66,7 @@ class MercurySource(ResumableSource[MercurySourceConfig, MercuryResumeConfig]):
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         schemas = build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names)
         for schema in schemas:
@@ -79,7 +77,11 @@ class MercurySource(ResumableSource[MercurySourceConfig, MercuryResumeConfig]):
         return schemas
 
     def validate_credentials(
-        self, config: MercurySourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: MercurySourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         try:
             status = check_credentials(config.api_key)

@@ -6,16 +6,16 @@ Use this reference to decide where code belongs before editing it.
 
 | Layer                       | Location                                                     | Owns                                                                                                                                                   |
 | --------------------------- | ------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| Pure lifecycle decisions    | `common/alerting/`                                           | State transitions, policy decisions, and notification actions                                                                                          |
+| Pure lifecycle decisions    | `products/alerts/backend/state_machine.py`                   | State transitions, policy decisions, and notification actions                                                                                          |
 | Shared alert infrastructure | `products/alerts/backend/`                                   | Scheduling math, destination configuration and persistence, internal-event delivery, email transport, insight alert models/API, and insight evaluation |
 | Product adapter             | `products/<name>/backend/`                                   | Domain evaluation, model snapshots, the single mutator, event payloads, allowed destinations, due queries, history, and orchestration                  |
 | Shared alert creation UI    | `frontend/src/lib/components/Alerting/AlertWizard/`          | Reusable HogFunction destination, trigger, and configuration flow                                                                                      |
 | Shared product alert UI     | `products/alerts/frontend/components/`                       | Container-agnostic editor layout, definition primitives, advanced options, destination editor, schedule presentation, and evaluation chart             |
 | Product UI                  | `products/<name>/frontend/` or `frontend/src/scenes/<name>/` | Form logic, API calls, product fields, normalized adapters, entry points, detail tables, and wizard configuration                                      |
 
-`products/logs` is the reference adopter for the shared lifecycle, fixed-cadence scheduling, HogFunction destinations, delivery rollback, product-owned Temporal orchestration, and the shared product alert editor components.
+`products/logs` is the reference adopter for fixed-cadence scheduling, HogFunction destinations, delivery rollback, product-owned Temporal orchestration, and the shared product alert editor components.
 
-Insight alerts are the reference adopter for shared calendar anchors, schedule restrictions, weekend skipping, and email delivery. Their model, API, query evaluation, and Django scheduling adapters live in `products/alerts/backend/` and `posthog/tasks/alerts/`. The evaluation package is shared across insight query kinds, but it is not a generic evaluator for unrelated products.
+Logs and insight alerts both adapt their product state to the shared lifecycle engine. Insight alerts are the reference adopter for calendar anchors, weekend skipping, and email delivery. Both products use shared schedule restrictions for quiet hours. Each product keeps its model, due query, and scheduling persistence. The evaluation package is shared across insight query kinds, but it is not a generic evaluator for unrelated products.
 
 ## Frontend contract
 
@@ -24,6 +24,7 @@ Shared product alert UI lives in `products/alerts/frontend/components/`. It is p
 - `AlertEditor`, `AlertEditorFormDetails`, and `AlertEditorSection` provide the container-agnostic form shell.
 - `AlertDefinition*` components provide composable definition, schedule, next-evaluation, and timezone presentation.
 - `AlertAdvancedOptions` owns shared collapse and enabled-count behavior.
+- `QuietHoursFields` renders shared quiet-hour inputs from a normalized restriction, cadence, and project timezone.
 - `AlertNotificationDestinationEditor` renders normalized saved and pending destinations.
 - `AlertEvaluationHistoryChart` renders normalized evaluation points and current thresholds.
 
@@ -35,7 +36,7 @@ Read [frontend-alerting.md](frontend-alerting.md) before adding or extending a p
 
 ## Lifecycle contract
 
-`common/alerting/state_machine.py` is pure Python.
+`products/alerts/backend/state_machine.py` is pure Python.
 
 - `CheckInput` normalizes one product evaluation.
 - `AlertSnapshot` contains only fields needed for lifecycle decisions.

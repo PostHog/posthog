@@ -10,12 +10,13 @@ import structlog
 import temporalio
 from structlog.contextvars import bind_contextvars
 
-from posthog.api.capture import capture_internal
+from posthog.api.capture import CaptureInternalError
 from posthog.models.team import Team
 from posthog.sync import database_sync_to_async
 from posthog.temporal.ai_observability.evaluation_llm_judge import DEFAULT_JUDGE_MODEL
 from posthog.temporal.ai_observability.evaluation_types import EvaluationActivityResult
 from posthog.temporal.ai_observability.metrics import increment_emit_event_outcome
+from posthog.temporal.ai_observability.team_capture import capture_internal_for_team
 
 from products.ai_observability.backend.models.evaluations import Evaluation, EvaluationStatus
 from products.ai_observability.backend.models.provider_keys import LLMProviderKey
@@ -92,27 +93,6 @@ async def update_key_state_activity(key_id: str, state: str, error_message: str 
             logger.warning("Tried to update state for non-existent key", key_id=key_id)
 
     await database_sync_to_async(_update)()
-
-
-@dataclass
-class SendTrialUsageEmailInputs:
-    team_id: int
-    threshold_pct: int
-
-
-@temporalio.activity.defn
-async def increment_trial_eval_count_activity(team_id: int) -> int | None:
-    """No-op stub kept registered so evaluation runs started on the previous release can finish
-    during the rollout. Returning None means no usage email follows. The follow-up column-drop PR
-    deletes it."""
-    return None
-
-
-@temporalio.activity.defn
-async def send_trial_usage_email_activity(inputs: SendTrialUsageEmailInputs) -> None:
-    """No-op stub kept registered so evaluation runs started on the previous release can finish
-    during the rollout. The follow-up column-drop PR deletes it."""
-    return None
 
 
 @temporalio.activity.defn
@@ -274,11 +254,12 @@ def build_evaluation_event_properties(
         properties["$ai_evaluation_key_id"] = result.get("key_id")
 
     if result["result_type"] == "sentiment":
-        properties["$ai_sentiment_label"] = result.get("sentiment_label")
-        properties["$ai_sentiment_score"] = result.get("sentiment_score")
-        properties["$ai_sentiment_scores"] = result.get("sentiment_scores")
-        properties["$ai_sentiment_messages"] = result.get("sentiment_messages")
-        properties["$ai_sentiment_message_count"] = result.get("sentiment_message_count")
+        if not result.get("skipped"):
+            properties["$ai_sentiment_label"] = result.get("sentiment_label")
+            properties["$ai_sentiment_score"] = result.get("sentiment_score")
+            properties["$ai_sentiment_scores"] = result.get("sentiment_scores")
+            properties["$ai_sentiment_messages"] = result.get("sentiment_messages")
+            properties["$ai_sentiment_message_count"] = result.get("sentiment_message_count")
     else:
         properties["$ai_evaluation_allows_na"] = allows_na
         if allows_na:
@@ -301,12 +282,6 @@ async def emit_evaluation_event_activity(inputs: EmitEvaluationEventInputs) -> N
     start_time = inputs.start_time
 
     def _emit() -> None:
-        try:
-            team = Team.objects.get(id=event_data["team_id"])
-        except Team.DoesNotExist:
-            logger.exception("Team not found", team_id=event_data["team_id"])
-            raise ValueError(f"Team {event_data['team_id']} not found")
-
         source_props = (
             json.loads(event_data["properties"])
             if isinstance(event_data["properties"], str)
@@ -329,22 +304,25 @@ async def emit_evaluation_event_activity(inputs: EmitEvaluationEventInputs) -> N
             if source_props.get(property_name) is not None:
                 properties[property_name] = source_props[property_name]
 
-        event_timestamp = datetime.now(UTC)
-
-        capture_result = capture_internal(
-            token=team.api_token,
+        capture_internal_for_team(
+            team_id=event_data["team_id"],
             event_name="$ai_evaluation",
             event_source="llm_analytics_evaluation",
             distinct_id=event_data["distinct_id"],
-            timestamp=event_timestamp,
+            timestamp=datetime.now(UTC),
             properties=properties,
-            process_person_profile=True,
         )
-        capture_result.raise_for_status()
 
     try:
         await database_sync_to_async(_emit, thread_sensitive=False)()
         increment_emit_event_outcome("success")
+    except CaptureInternalError as e:
+        if e.is_billing_limit_exceeded:
+            increment_emit_event_outcome("dropped_billing_limited")
+            logger.info("Skipping eval event emission; team over billing quota", team_id=event_data["team_id"])
+            return
+        increment_emit_event_outcome("failed")
+        raise
     except Exception:
         increment_emit_event_outcome("failed")
         raise
@@ -374,8 +352,7 @@ async def emit_internal_telemetry_activity(inputs: EmitInternalTelemetryInputs) 
     result = inputs.result
 
     def _emit_telemetry() -> None:
-        team = Team.objects.get(id=team_id)
-        organization_id = str(team.organization_id)
+        organization_id = str(Team.objects.filter(id=team_id).values_list("organization_id", flat=True).get())
 
         ph_client = get_ph_client(sync_mode=True)
         ph_client.capture(

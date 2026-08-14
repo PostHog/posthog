@@ -1,5 +1,7 @@
+import hmac
 import json
 import time
+import hashlib
 from datetime import UTC, datetime, timedelta
 from enum import Enum
 from typing import Any, Optional, cast
@@ -7,6 +9,8 @@ from uuid import UUID
 
 from django.conf import settings
 from django.db.models import F
+from django.utils import timezone
+from django.utils.dateparse import parse_datetime
 
 import jwt
 import requests
@@ -19,10 +23,14 @@ from posthog.event_usage import report_user_action
 from posthog.exceptions_capture import capture_exception
 from posthog.models import Organization
 from posthog.models.organization import OrganizationMembership, OrganizationUsageInfo
+from posthog.models.team.event_retention import (
+    organization_events_retention_months,
+    reconcile_organization_events_retention,
+)
+from posthog.models.team.logs_retention import reset_revoked_logs_retention
 from posthog.models.user import User
 
-from ee.api.agentic_provisioning.signature import compute_signature
-from ee.billing.billing_types import BillingProvider, BillingStatus
+from ee.billing.billing_types import BillingProvider, BillingStatus, CustomerInfo
 from ee.billing.quota_limiting import set_org_usage_summary, update_org_billing_quotas
 from ee.models import License
 from ee.settings import BILLING_SERVICE_URL
@@ -55,6 +63,19 @@ def _has_quota_limiting_markers(usage: dict | None) -> bool:
             return True
 
     return False
+
+
+def _free_trial_active(customer: CustomerInfo) -> bool:
+    free_trial_until = customer.get("free_trial_until")
+    if not free_trial_until:
+        return False
+    expires = parse_datetime(free_trial_until) if isinstance(free_trial_until, str) else free_trial_until
+    if expires is None:
+        return False
+    # An offset-less timestamp parses naive, and comparing naive to aware raises TypeError.
+    if timezone.is_naive(expires):
+        expires = expires.replace(tzinfo=UTC)
+    return expires > timezone.now()
 
 
 def _get_user_organization_role(user: User, organization: Organization) -> Optional[str]:
@@ -143,13 +164,21 @@ def build_billing_token(
     return encoded_jwt
 
 
+def _compute_webhook_signature(secret: str, timestamp: int, body: bytes) -> str:
+    """HMAC-SHA256 over "<timestamp>.<body>", hex-encoded."""
+    mac = hmac.new(secret.encode(), digestmod=hashlib.sha256)
+    mac.update(f"{timestamp}.".encode())
+    mac.update(body)
+    return mac.digest().hex()
+
+
 def build_billing_provider_webhook_signature_headers(body: bytes) -> dict[str, str]:
     secret = getattr(settings, "BILLING_PROVIDER_WEBHOOK_SECRET", "")
     if not secret:
         raise ValueError("BILLING_PROVIDER_WEBHOOK_SECRET is not configured")
 
     timestamp = int(time.time())
-    digest = compute_signature(secret, timestamp, body)
+    digest = _compute_webhook_signature(secret, timestamp, body)
     return {
         BILLING_PROVIDER_WEBHOOK_SIGNATURE_HEADER: f"{BILLING_PROVIDER_WEBHOOK_SIGNATURE_VERSION}={digest}",
         BILLING_PROVIDER_WEBHOOK_TIMESTAMP_HEADER: str(timestamp),
@@ -254,8 +283,27 @@ class BillingManager:
 
         available_product_features_json = res.json()
         available_product_features = available_product_features_json.get("available_product_features", [])
+        previous_feature_keys = {
+            feature.get("key") for feature in (organization.available_product_features or []) if feature
+        }
+        previous_retention_months = organization_events_retention_months(organization)
         organization.available_product_features = available_product_features
         organization.save()
+
+        if (
+            available_product_features
+            and organization_events_retention_months(organization) != previous_retention_months
+        ):
+            reconcile_organization_events_retention(organization)
+
+        # Only reset on a non-empty list: the retention reset is not self-healing, so an
+        # empty error-path response must not permanently downgrade team settings.
+        if available_product_features:
+            revoked_feature_keys = previous_feature_keys - {
+                feature.get("key") for feature in available_product_features if feature
+            }
+            if revoked_feature_keys:
+                reset_revoked_logs_retention(organization, revoked_feature_keys)
 
         return available_product_features
 
@@ -457,6 +505,10 @@ class BillingManager:
                 ai_credits=usage_summary.get("ai_credits", {}),
                 signals_credits=usage_summary.get("signals_credits", {}),
                 posthog_code_credits=usage_summary.get("posthog_code_credits", {}),
+                posthog_code_token_credits=usage_summary.get("posthog_code_token_credits", {}),
+                sandbox_compute_credits=usage_summary.get("sandbox_compute_credits", {}),
+                sandbox_compute_cpu_millicore_seconds=usage_summary.get("sandbox_compute_cpu_millicore_seconds", {}),
+                sandbox_compute_memory_mib_seconds=usage_summary.get("sandbox_compute_memory_mib_seconds", {}),
                 workflow_emails=usage_summary.get("workflow_emails", {}),
                 workflow_push=usage_summary.get("workflow_push", {}),
                 workflow_destinations_dispatched=usage_summary.get("workflow_destinations_dispatched", {}),
@@ -477,14 +529,37 @@ class BillingManager:
             should_update_org_billing_quotas = usage_changed or had_quota_limiting_markers
 
         available_product_features = data.get("available_product_features", None)
+        revoked_feature_keys: set[str] = set()
+        events_retention_changed = False
+        # An empty list is deliberately ignored: this runs on hot paths (get_billing, usage
+        # reports) and a partial or error-path billing response must not downgrade the org.
+        # Genuine cancellations still send the (non-empty) free-tier feature list.
         if available_product_features and available_product_features != organization.available_product_features:
+            previous_feature_keys = {
+                feature.get("key") for feature in (organization.available_product_features or []) if feature
+            }
+            new_feature_keys = {feature.get("key") for feature in available_product_features if feature}
+            revoked_feature_keys = previous_feature_keys - new_feature_keys
+            previous_retention_months = organization_events_retention_months(organization)
             organization.available_product_features = data["available_product_features"]
+            events_retention_changed = organization_events_retention_months(organization) != previous_retention_months
             org_modified = True
 
         never_drop_data = cast(bool | None, data.get("never_drop_data"))
         if never_drop_data != organization.never_drop_data:
             organization.never_drop_data = never_drop_data
             org_modified = True
+
+        # A missing key (partial or error-path response) must not reset a known value to unknown.
+        if "has_active_subscription" in data:
+            has_active_subscription = data.get("has_active_subscription")
+            # Trials run without a Stripe subscription, so a trialing org would otherwise read
+            # as free tier and get metered; count an active trial as paid until it expires.
+            if has_active_subscription is False and _free_trial_active(data):
+                has_active_subscription = True
+            if has_active_subscription != organization.has_active_subscription:
+                organization.has_active_subscription = has_active_subscription
+                org_modified = True
 
         customer_trust_scores = data.get("customer_trust_scores", {})
 
@@ -513,6 +588,12 @@ class BillingManager:
 
         if org_modified:
             organization.save()
+
+        if events_retention_changed:
+            reconcile_organization_events_retention(organization)
+
+        if revoked_feature_keys:
+            reset_revoked_logs_retention(organization, revoked_feature_keys)
 
         if should_update_org_billing_quotas:
             update_org_billing_quotas(organization)

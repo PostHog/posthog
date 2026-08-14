@@ -2,7 +2,8 @@ import uuid
 from typing import Annotated, Any, cast
 from zoneinfo import ZoneInfo
 
-from django.db.models import OuterRef, Q, QuerySet, Subquery
+from django.db import transaction
+from django.db.models import OuterRef, Prefetch, Q, QuerySet, Subquery
 
 import posthoganalytics
 from drf_spectacular.utils import OpenApiParameter, OpenApiTypes, extend_schema, extend_schema_view
@@ -10,7 +11,7 @@ from pydantic import (
     Field as PydanticField,
     RootModel,
 )
-from rest_framework import serializers, viewsets
+from rest_framework import serializers, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import PermissionDenied, ValidationError
 from rest_framework.response import Response
@@ -18,7 +19,6 @@ from rest_framework.response import Response
 from posthog.schema import (
     AlertCalculationInterval,
     AlertCondition,
-    AlertState,
     DetectorConfig,
     FunnelsAlertConfig,
     HogQLAlertConfig,
@@ -29,10 +29,12 @@ from posthog.schema import (
 )
 
 from posthog.api.documentation import extend_schema_field
+from posthog.api.fields import OptionalBooleanField
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.scoped_related_fields import TeamScopedPrimaryKeyRelatedField
 from posthog.api.shared import SearchMatchTypeSerializerMixin, UserBasicSerializer
 from posthog.event_usage import get_request_analytics_properties
+from posthog.exceptions_capture import capture_exception
 from posthog.helpers.trigram_search import (
     MAX_SEARCH_LENGTH,
     NAME_FIELD,
@@ -40,15 +42,24 @@ from posthog.helpers.trigram_search import (
     drop_similar_when_exact_exists,
 )
 from posthog.models import User
+from posthog.models.tag import tagify
+from posthog.models.tagged_item import TaggedItem
 from posthog.permissions import get_authenticator_scopes
+from posthog.rate_limit import AlertTestDeliveryThrottle
 from posthog.resource_limits import LimitKey, check_count_limit
 from posthog.schema_migrations.upgrade_manager import upgrade_query
 from posthog.tasks.alerts.detector import MAX_DETECTOR_BREAKDOWN_VALUES
 from posthog.tasks.alerts.schedule_restriction import validate_and_normalize_schedule_restriction
-from posthog.tasks.alerts.utils import next_check_at_after_schedule_restriction_change
+from posthog.tasks.alerts.utils import (
+    next_check_at_after_schedule_restriction_change,
+    send_test_alert_email,
+    trigger_alert_hog_functions,
+)
 from posthog.utils import relative_date_parse
 
 from products.alerts.backend.api.alert_schedule_restriction import AlertScheduleRestriction
+from products.alerts.backend.destination_configs import DestinationType
+from products.alerts.backend.destinations import count_active_alert_destinations
 from products.alerts.backend.evaluation.contract import AlertExtractionError
 from products.alerts.backend.evaluation.detector import simulate_detector_on_insight
 from products.alerts.backend.evaluation.validation import (
@@ -56,8 +67,17 @@ from products.alerts.backend.evaluation.validation import (
     should_default_check_ongoing_interval,
     validate_alert_config,
 )
+from products.alerts.backend.insight_alert_state_machine import (
+    apply_disable,
+    apply_enable,
+    apply_snooze,
+    apply_threshold_change,
+    apply_unsnooze,
+)
 from products.alerts.backend.models.alert import AlertCheck, AlertConfiguration, AlertSubscription, Threshold
 from products.product_analytics.backend.models.insight import Insight
+
+INSIGHT_ALERT_FIRING_EVENT = "$insight_alert_firing"
 
 
 def _validate_interval_entitlement(
@@ -198,10 +218,47 @@ class ThresholdSerializer(serializers.ModelSerializer):
         return data
 
 
+def _destination_deliveries(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    # Only Slack names its own channel; the rest repeat a bare type name, so carry the hog
+    # function id to tell two apart — never the webhook URL, which is the credential.
+    labelled = []
+    for row in rows:
+        label = row.get("target") or "Destination"
+        target_id = row.get("target_id")
+        if target_id and row.get("template") != DestinationType.SLACK.value:
+            label = f"{label} · {target_id[-4:]}"
+        labelled.append({**row, "display_label": label})
+    return labelled
+
+
+class AlertDeliverySerializer(serializers.Serializer):
+    channel = serializers.CharField(help_text="Delivery channel: 'email' or 'hog_function' (destinations).")
+    target = serializers.CharField(help_text="Email address, or destination name, that received the notification.")
+    target_id = serializers.CharField(
+        required=False, allow_null=True, help_text="Hog function ID, for destination deliveries. Null for email."
+    )
+    template = serializers.CharField(
+        required=False,
+        allow_null=True,
+        help_text="Destination template: 'slack', 'discord', 'webhook', or 'teams'. Null for email.",
+    )
+    status = serializers.CharField(help_text="Delivery status. Always 'accepted', for a confirmed send.")
+    at = serializers.DateTimeField(allow_null=True, help_text="When the delivery was recorded.")
+    display_label = serializers.CharField(
+        help_text="Ready-to-display description of the delivery, e.g. 'Email: a@example.com' or 'Slack #eng-alerts'."
+    )
+
+
 class AlertCheckSerializer(serializers.ModelSerializer):
     targets_notified = serializers.SerializerMethodField()
     investigation_notebook_short_id = serializers.SerializerMethodField(
         help_text="Short ID of the Notebook produced by the investigation agent, when the agent ran for this check."
+    )
+    deliveries = serializers.SerializerMethodField(
+        allow_null=True,
+        help_text="Destinations that accepted this check's notification, one record per destination "
+        "(channel, target, status, at). Null when no delivery receipt was recorded, which covers "
+        "checks that notified nobody and checks predating delivery receipts.",
     )
 
     class Meta:
@@ -223,6 +280,7 @@ class AlertCheckSerializer(serializers.ModelSerializer):
             "investigation_notebook_short_id",
             "notification_sent_at",
             "notification_suppressed_by_agent",
+            "deliveries",
         ]
         read_only_fields = fields
 
@@ -232,6 +290,24 @@ class AlertCheckSerializer(serializers.ModelSerializer):
     def get_investigation_notebook_short_id(self, instance: AlertCheck) -> str | None:
         notebook = instance.investigation_notebook
         return notebook.short_id if notebook is not None else None
+
+    @extend_schema_field(AlertDeliverySerializer(many=True))
+    def get_deliveries(self, instance: AlertCheck) -> list[dict[str, Any]] | None:
+        if not instance.has_delivery_receipts:
+            return None
+        notified = instance.targets_notified or {}
+        accepted_at = instance.notification_sent_at.isoformat() if instance.notification_sent_at else None
+        emails = [
+            {
+                "channel": "email",
+                "target": email,
+                "status": "accepted",
+                "at": accepted_at,
+                "display_label": f"Email: {email}",
+            }
+            for email in notified.get("users") or []
+        ]
+        return emails + _destination_deliveries(notified.get("destinations") or [])
 
 
 class AlertSubscriptionSerializer(serializers.ModelSerializer):
@@ -306,6 +382,15 @@ class AlertSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerialize
         queryset=Insight.objects.all(),
         help_text="Insight ID monitored by this alert. Note: Response returns full InsightBasicSerializer object.",
     )
+    insight_short_id = serializers.CharField(
+        source="insight.short_id",
+        read_only=True,
+        help_text="Short ID of the insight monitored by this alert.",
+    )
+    insight_display_name = serializers.SerializerMethodField(
+        read_only=True,
+        help_text="Display name of the insight monitored by this alert.",
+    )
     name = serializers.CharField(
         required=False,
         allow_blank=True,
@@ -356,7 +441,7 @@ class AlertSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerialize
     investigation_inconclusive_action = serializers.ChoiceField(
         choices=[("notify", "Notify"), ("suppress", "Suppress")],
         required=False,
-        help_text="How to handle an 'inconclusive' verdict when notifications are gated. 'notify' is the safe default — an agent that can't be sure is itself useful signal.",
+        help_text="How to handle an 'inconclusive' verdict: whether gated notifications fire and whether the investigation surfaces in the Signals inbox. 'notify' is the safe default — an agent that can't be sure is itself useful signal. False positives never reach the inbox regardless of this setting.",
     )
     state = serializers.CharField(
         read_only=True,
@@ -371,6 +456,9 @@ class AlertSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerialize
     def get_checks_total(self, obj: AlertConfiguration) -> int | None:
         return getattr(obj, "checks_total", None)
 
+    def get_insight_display_name(self, obj: AlertConfiguration) -> str:
+        return obj.insight.name or obj.insight.derived_name or "Untitled insight"
+
     class Meta:
         model = AlertConfiguration
         fields = [
@@ -378,6 +466,8 @@ class AlertSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerialize
             "created_by",
             "created_at",
             "insight",
+            "insight_short_id",
+            "insight_display_name",
             "name",
             "subscribed_users",
             "threshold",
@@ -463,29 +553,19 @@ class AlertSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerialize
         )
         return instance
 
+    @transaction.atomic
     def update(self, instance, validated_data):
-        if "snoozed_until" in validated_data:
-            snoozed_until_param = validated_data.pop("snoozed_until")
+        enabled_changed = "enabled" in validated_data and validated_data["enabled"] != instance.enabled
+        resulting_enabled = validated_data.get("enabled", instance.enabled)
+        if enabled_changed and validated_data["enabled"]:
+            apply_enable(instance)
 
-            if snoozed_until_param is None:
-                instance.state = AlertState.NOT_FIRING
-                instance.snoozed_until = None
-            else:
-                # always store snoozed_until as UTC time
-                # as we look at current UTC time to check when to run alerts
-                snoozed_until = relative_date_parse(
-                    snoozed_until_param, ZoneInfo("UTC"), increase=True, always_truncate=True
-                )
-                instance.state = AlertState.SNOOZED
-                instance.snoozed_until = snoozed_until
-
-            AlertCheck.objects.create(
-                alert_configuration=instance,
-                calculated_value=None,
-                condition=instance.condition,
-                targets_notified={},
-                state=instance.state,
-                error=None,
+        snoozed_until_param = validated_data.pop("snoozed_until", serializers.empty)
+        snooze_changed = snoozed_until_param is not serializers.empty
+        snoozed_until = None
+        if snooze_changed and snoozed_until_param is not None:
+            snoozed_until = relative_date_parse(
+                snoozed_until_param, ZoneInfo("UTC"), increase=True, always_truncate=True
             )
 
         conditions_or_threshold_changed = False
@@ -522,7 +602,29 @@ class AlertSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerialize
             and validated_data["calculation_interval"] != instance.calculation_interval
         )
         if conditions_or_threshold_changed or calculation_interval_changed:
-            instance.mark_for_recheck(reset_state=conditions_or_threshold_changed)
+            if conditions_or_threshold_changed:
+                apply_threshold_change(instance)
+            instance.next_check_at = None
+
+        if snooze_changed:
+            instance.snoozed_until = snoozed_until
+            if snoozed_until_param is None:
+                apply_unsnooze(instance)
+            else:
+                apply_snooze(instance)
+
+        if not resulting_enabled:
+            apply_disable(instance)
+
+        if snooze_changed:
+            AlertCheck.objects.create(
+                alert_configuration=instance,
+                calculated_value=None,
+                condition=instance.condition,
+                targets_notified={},
+                state=instance.state,
+                error=None,
+            )
 
         schedule_restriction_changed = False
         if "schedule_restriction" in validated_data:
@@ -696,7 +798,9 @@ class AlertSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerialize
             organization=organization,
         )
 
-        # Investigation agent is only supported for detector-based alerts.
+        # Investigation agent is supported for detector-based alerts (the agent
+        # workflow) and for metrics threshold alerts (a synchronous facade
+        # investigation attached to the firing check) — nothing else.
         investigation_enabled = attrs.get(
             "investigation_agent_enabled",
             self.instance.investigation_agent_enabled if self.instance else False,
@@ -706,7 +810,7 @@ class AlertSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerialize
                 "detector_config",
                 self.instance.detector_config if self.instance else None,
             )
-            if not detector_config:
+            if not detector_config and insight.alertable_query_kind != NodeKind.METRICS_QUERY:
                 raise ValidationError(
                     {
                         "investigation_agent_enabled": [
@@ -873,6 +977,20 @@ class AlertSimulateResponseSerializer(serializers.Serializer):
     )
 
 
+class AlertTestDeliveryResponseSerializer(serializers.Serializer):
+    destination_count = serializers.IntegerField(help_text="Number of active destinations queued for test delivery.")
+    email_recipient_count = serializers.IntegerField(help_text="Number of subscribed users sent a test email.")
+    failed_delivery_channels = serializers.ListField(
+        child=serializers.ChoiceField(choices=("email", "destination")),
+        help_text="Configured delivery channels that failed to schedule or send.",
+    )
+
+
+class AlertListFiltersSerializer(serializers.Serializer):
+    insight_tag = serializers.CharField(required=False, max_length=255)
+    has_detector = OptionalBooleanField(required=False)
+
+
 @extend_schema_view(
     list=extend_schema(
         parameters=[
@@ -898,6 +1016,18 @@ class AlertSimulateResponseSerializer(serializers.Serializer):
                 location=OpenApiParameter.QUERY,
                 description="Optional. Restrict results to alerts on this insight ID.",
             ),
+            OpenApiParameter(
+                "insight_tag",
+                OpenApiTypes.STR,
+                location=OpenApiParameter.QUERY,
+                description="Optional. Restrict results to alerts whose insight has this tag.",
+            ),
+            OpenApiParameter(
+                "has_detector",
+                OpenApiTypes.BOOL,
+                location=OpenApiParameter.QUERY,
+                description="Optional. Restrict results by whether the alert uses anomaly detection.",
+            ),
         ],
     ),
 )
@@ -905,19 +1035,40 @@ class AlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     scope_object = "alert"
     queryset = (
         AlertConfiguration.objects.select_related("team", "insight", "threshold", "created_by")
-        .prefetch_related("subscribed_users")
+        .prefetch_related(
+            "subscribed_users",
+            Prefetch(
+                "insight__tagged_items",
+                queryset=TaggedItem.objects.select_related("tag"),
+                to_attr="prefetched_tags",
+            ),
+        )
         .order_by("-created_at")
     )
     serializer_class = AlertSerializer
 
     def safely_get_queryset(self, queryset) -> QuerySet:
         filters = self.request.query_params
+        list_filters = AlertListFiltersSerializer(data=filters)
+        list_filters.is_valid(raise_exception=True)
+
         if "insight" in filters:
             queryset = queryset.filter(insight_id=filters["insight"])
 
         insight_id = filters.get("insight_id")
         if insight_id is not None:
             queryset = queryset.filter(insight_id=insight_id)
+
+        insight_tag = list_filters.validated_data.get("insight_tag")
+        if insight_tag:
+            queryset = queryset.filter(
+                insight__tagged_items__tag__name=tagify(insight_tag),
+                insight__tagged_items__tag__team_id=self.team_id,
+            )
+
+        has_detector = list_filters.validated_data.get("has_detector")
+        if has_detector is not None:
+            queryset = queryset.filter(detector_config__isnull=not has_detector)
 
         created_by = filters.get("created_by")
         if created_by:
@@ -1076,6 +1227,83 @@ class AlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
         serializer = self.get_serializer(alerts, many=True)
         return Response(serializer.data)
+
+    @extend_schema(
+        request=None,
+        responses={202: AlertTestDeliveryResponseSerializer},
+        description="Send a synthetic test notification to subscribed users and every active destination on this alert.",
+    )
+    @action(
+        detail=True,
+        methods=["POST"],
+        url_path="test-delivery",
+        required_scopes=["alert:write"],
+        throttle_classes=[AlertTestDeliveryThrottle],
+    )
+    def test_delivery(self, request, *args, **kwargs):
+        alert = self.get_object()
+        destination_count = count_active_alert_destinations(
+            team_id=alert.team_id,
+            alert_id=str(alert.id),
+            allowed_event_ids=(INSIGHT_ALERT_FIRING_EVENT,),
+        )
+        email_targets = alert.get_subscribed_users_emails()
+        if destination_count == 0 and not email_targets:
+            return Response(
+                {"detail": "Add an email recipient or active destination before sending a test."},
+                status=status.HTTP_409_CONFLICT,
+            )
+
+        failed_delivery_channels: list[str] = []
+        successful_email_count = 0
+        successful_destination_count = 0
+        if email_targets:
+            try:
+                send_test_alert_email(alert, recipients=email_targets, idempotency_key=str(uuid.uuid4()))
+                successful_email_count = len(email_targets)
+            except Exception as error:
+                capture_exception(
+                    error,
+                    additional_properties={"alert_id": str(alert.id), "feature": "alerts", "channel": "email"},
+                )
+                failed_delivery_channels.append("email")
+        if destination_count and trigger_alert_hog_functions(
+            alert,
+            {
+                "breaches": "Test alert from PostHog. No action is needed.",
+                "is_test": True,
+                "alert_name": f"[TEST] {alert.name}",
+            },
+        ):
+            successful_destination_count = destination_count
+        elif destination_count:
+            failed_delivery_channels.append("destination")
+
+        if successful_email_count == 0 and successful_destination_count == 0:
+            return Response(
+                {"detail": "Unable to start the test delivery. Check the configured channels and try again."},
+                status=status.HTTP_503_SERVICE_UNAVAILABLE,
+            )
+        posthoganalytics.capture(
+            distinct_id=str(request.user.distinct_id),
+            event="insight alert test delivery scheduled",
+            properties={
+                **get_request_analytics_properties(request),
+                "alert_id": str(alert.id),
+                "destination_count": successful_destination_count,
+                "email_recipient_count": successful_email_count,
+                "failed_delivery_channels": failed_delivery_channels,
+                "team_id": alert.team_id,
+            },
+        )
+        return Response(
+            {
+                "destination_count": successful_destination_count,
+                "email_recipient_count": successful_email_count,
+                "failed_delivery_channels": failed_delivery_channels,
+            },
+            status=status.HTTP_202_ACCEPTED,
+        )
 
     @extend_schema(
         request=AlertSimulateSerializer,

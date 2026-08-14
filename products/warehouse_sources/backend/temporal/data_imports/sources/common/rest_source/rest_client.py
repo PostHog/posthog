@@ -1,3 +1,4 @@
+import re
 import copy
 import logging
 from collections.abc import Callable, Iterator
@@ -10,10 +11,14 @@ from requests import Request, Response, Session
 from requests.auth import AuthBase
 from requests.exceptions import (
     ChunkedEncodingError,
+    ConnectionError as RequestsConnectionError,
     HTTPError,
     JSONDecodeError as RequestsJSONDecodeError,
+    Timeout as RequestsTimeout,
 )
 from tenacity import RetryCallState, retry, retry_if_exception_type
+
+from posthog.temporal.common.errors import NonReportableError
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 
@@ -26,18 +31,30 @@ from .utils import resolve_request_url
 logger = logging.getLogger(__name__)
 
 
-class RESTClientRetryableError(Exception):
+class RESTClientRetryableError(NonReportableError):
+    """A transient failure (429/5xx, connection reset/timeout, malformed/truncated body) that
+    tenacity reissues up to the client's attempt cap. Once that budget is exhausted it escapes to
+    the activity and Temporal's own activity retry takes over — the upstream blip is expected to
+    clear, not a PostHog defect. Subclasses NonReportableError, like ``RESTClientNonRetryableError``,
+    so the activity interceptor keeps it out of error tracking instead of minting an issue per blip.
+    """
+
     def __init__(self, message: str, retry_after: Optional[float] = None) -> None:
         super().__init__(message)
         self.retry_after = retry_after
 
 
-class RESTClientNonRetryableError(Exception):
+class RESTClientNonRetryableError(NonReportableError):
     """A response that retrying can never turn into usable data.
 
     Not a subclass of RESTClientRetryableError so the tenacity retry — which only
     reissues RESTClientRetryableError — stops immediately instead of re-fetching a
     deterministic failure.
+
+    Raised only for a 2xx response whose body is not JSON (an auth/login page, an HTML
+    error page, plain text) — always a customer/upstream condition, never a PostHog defect.
+    Subclasses NonReportableError so the activity interceptor stops it from becoming
+    error-tracking noise while the job still fails with the message.
     """
 
 
@@ -49,6 +66,81 @@ _JSON_START_BYTES = frozenset(b'{["-tfn0123456789')
 def _looks_like_json(content: bytes) -> bool:
     stripped = content.lstrip()
     return bool(stripped) and stripped[0] in _JSON_START_BYTES
+
+
+# Keys an API conventionally uses for the machine-readable identity of an error, and for the docs
+# link explaining it. The human-readable siblings — `message`, `detail`, `reason`, `title` — are
+# deliberately absent: that's where an API puts the account, billing, or record detail that has no
+# business in a persisted, logged error message.
+_ERROR_CODE_KEYS = ("code", "error_code", "errorCode", "error", "type")
+_ERROR_LINK_KEYS = ("more_info", "documentation_url", "doc_url", "type")
+# Wrappers the error object commonly sits inside, e.g. {"errors": [{"code": ...}]}.
+_ERROR_WRAPPER_KEYS = ("error", "errors", "meta")
+# An identifier: digits, a slug, a dotted or namespaced token. Anything with a space is prose.
+_ERROR_CODE_PATTERN = re.compile(r"^[A-Za-z0-9_.:/-]{1,64}$")
+_ERROR_LINK_LIMIT = 200
+
+
+def _error_code_value(value: Any) -> Optional[str]:
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, int | float):
+        return str(value)
+    if isinstance(value, str) and _ERROR_CODE_PATTERN.match(value):
+        return value
+    return None
+
+
+def _error_link_value(value: Any) -> Optional[str]:
+    if not isinstance(value, str) or len(value) > _ERROR_LINK_LIMIT:
+        return None
+    parts = urlsplit(value)
+    # A docs link is a bare https URL. A query string or userinfo would be carrying state, which is
+    # exactly what must not reach the error message.
+    if parts.scheme != "https" or parts.query or parts.fragment or "@" in parts.netloc:
+        return None
+    return value
+
+
+def _error_identity(response: Response) -> str:
+    """The machine-readable identity of an API error: its code, and the docs link explaining it.
+
+    `requests` builds its HTTPError message from the status, reason, and URL alone, so the part of
+    the response that names the cause never reaches `latest_error` and a 4xx can only be diagnosed
+    by its status code. This reads back the code and the docs link, and nothing else — no free
+    text, so no customer data, whatever the API chose to put in its error body.
+    """
+    try:
+        body = response.json()
+    except Exception:
+        return ""
+
+    candidates: list[dict[str, Any]] = []
+    if isinstance(body, dict):
+        candidates.append(body)
+        for key in _ERROR_WRAPPER_KEYS:
+            nested = body.get(key)
+            if isinstance(nested, list):
+                nested = nested[0] if nested else None
+            if isinstance(nested, dict):
+                candidates.append(nested)
+
+    parts: list[str] = []
+    for candidate in candidates:
+        for key in _ERROR_CODE_KEYS:
+            code = _error_code_value(candidate.get(key))
+            if code is not None:
+                parts.append(f"code={code}")
+                break
+        for key in _ERROR_LINK_KEYS:
+            link = _error_link_value(candidate.get(key))
+            if link is not None:
+                parts.append(link)
+                break
+        if parts:
+            break
+
+    return " ".join(parts)
 
 
 def _safe_url(url: str) -> str:
@@ -75,6 +167,11 @@ MAX_RETRY_AFTER_SECONDS = 300.0
 # rate-limited endpoint surfaces an error instead of sleeping on `Retry-After`.
 DEFAULT_RETRY_ATTEMPTS = 5
 
+# Ceiling on the exponential backoff between retries when a response carries no server-provided
+# delay. A source whose rate-limit window is longer than this can raise it per client so the retry
+# budget outlasts the window.
+DEFAULT_RETRY_BACKOFF_MAX_SECONDS = 60.0
+
 # Default network ports per scheme, used to compare a request URL's effective port against the
 # base origin's when host-pinning is enabled.
 _DEFAULT_PORTS = {"http": 80, "https": 443}
@@ -87,16 +184,50 @@ def _effective_port(scheme: str, port: Optional[int]) -> Optional[int]:
     return _DEFAULT_PORTS.get(scheme)
 
 
+def _seconds_from_epoch_reset(value: str) -> Optional[float]:
+    try:
+        reset_epoch = int(value)
+    except ValueError:
+        return None
+    return reset_epoch - datetime.now(UTC).timestamp()
+
+
+def _seconds_from_rfc3339_reset(value: str) -> Optional[float]:
+    try:
+        reset_at = datetime.fromisoformat(value.strip().replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if reset_at.tzinfo is None:
+        reset_at = reset_at.replace(tzinfo=UTC)
+    return (reset_at - datetime.now(UTC)).total_seconds()
+
+
+# Rate-limit reset headers to fall back on when a 429 carries no ``Retry-After``, each paired with
+# the parser that turns its value into "seconds from now until the budget replenishes".
+_RATE_LIMIT_RESET_HEADERS: tuple[tuple[str, Callable[[str], Optional[float]]], ...] = (
+    # Anthropic rate limits per organization and documents this RFC 3339 instant as when the request
+    # budget replenishes. Its Admin API (the usage/cost report endpoints an Anthropic source pages
+    # through) answers 429 without a ``Retry-After``, so this is the only delay it advertises.
+    ("anthropic-ratelimit-requests-reset", _seconds_from_rfc3339_reset),
+    # Sentry signals its rate-limit window with a UNIX epoch timestamp rather than ``Retry-After``,
+    # and Sentry's flat / fan-out endpoints (e.g. ``project_users``) sync through this client too.
+    ("X-Sentry-Rate-Limit-Reset", _seconds_from_epoch_reset),
+    # The common ``X-RateLimit-*`` convention, spelled with a UNIX epoch reset and no
+    # ``Retry-After`` — SendGrid answers every 429 this way, and its Email Activity endpoint is
+    # capped at 6 requests/minute, so without honoring the reset a message-activity backfill
+    # spends its whole attempt budget inside a single window. APIs that put delta-seconds in this
+    # header parse to an elapsed instant and fall back to exponential backoff.
+    ("X-RateLimit-Reset", _seconds_from_epoch_reset),
+)
+
+
 def _parse_retry_after(response: Response) -> Optional[float]:
     """Best-effort retry delay (seconds) from a rate-limited / erroring response.
 
-    Honors the standard ``Retry-After`` header (delta-seconds or HTTP-date)
-    first. When it's absent, falls back to Sentry's ``X-Sentry-Rate-Limit-Reset``
-    (a UNIX epoch timestamp): Sentry's API signals its rate-limit window with
-    that header rather than ``Retry-After``, and Sentry's flat / fan-out
-    endpoints (e.g. ``project_users``) sync through this generic client, so
-    without it a 429 backs off on the short exponential fallback and exhausts
-    retries while still rate-limited. Capped at ``MAX_RETRY_AFTER_SECONDS``.
+    Honors the standard ``Retry-After`` header (delta-seconds or HTTP-date) first, then the
+    vendor rate-limit reset headers in ``_RATE_LIMIT_RESET_HEADERS``. Without a server-provided
+    delay a 429 backs off on the short exponential fallback and the attempt budget is spent long
+    before the limit window clears. Capped at ``MAX_RETRY_AFTER_SECONDS``.
     """
     retry_after_header = response.headers.get("Retry-After")
     if retry_after_header:
@@ -109,16 +240,16 @@ def _parse_retry_after(response: Response) -> Optional[float]:
                 return None
             return min(max(0.0, (dt - datetime.now(UTC)).total_seconds()), MAX_RETRY_AFTER_SECONDS)
 
-    reset_header = response.headers.get("X-Sentry-Rate-Limit-Reset")
-    if reset_header:
-        try:
-            reset_epoch = int(reset_header)
-        except ValueError:
+    for header, parse in _RATE_LIMIT_RESET_HEADERS:
+        value = response.headers.get(header)
+        if not value:
+            continue
+        wait_seconds = parse(value)
+        # A reset already in the past says the window has cleared — nothing to honor, so fall
+        # through to the caller's exponential backoff rather than retrying with no delay at all.
+        if wait_seconds is None or wait_seconds <= 0:
             return None
-        wait_seconds = reset_epoch - int(datetime.now(UTC).timestamp())
-        if wait_seconds <= 0:
-            return None
-        return min(float(wait_seconds), MAX_RETRY_AFTER_SECONDS)
+        return min(wait_seconds, MAX_RETRY_AFTER_SECONDS)
 
     return None
 
@@ -133,7 +264,11 @@ def _stop_after_client_attempts(state: RetryCallState) -> bool:
 
 
 def _retry_wait_seconds(state: RetryCallState) -> float:
-    fallback = min(2 ** (state.attempt_number - 1), 60)
+    # Read the backoff ceiling off the bound instance the same way `_stop_after_client_attempts`
+    # reads the attempt cap, so a client with a longer rate-limit window can widen its own backoff.
+    client = state.args[0] if state.args else None
+    ceiling = getattr(client, "_retry_backoff_max", DEFAULT_RETRY_BACKOFF_MAX_SECONDS)
+    fallback = min(2 ** (state.attempt_number - 1), ceiling)
     if state.outcome is None or not state.outcome.failed:
         return float(fallback)
     exc = state.outcome.exception()
@@ -171,14 +306,22 @@ class RESTClient:
         paginator: Optional[BasePaginator] = None,
         session: Optional[Session] = None,
         max_retry_attempts: int = DEFAULT_RETRY_ATTEMPTS,
+        retry_backoff_max_seconds: float = DEFAULT_RETRY_BACKOFF_MAX_SECONDS,
         allowed_hosts: Optional[list[str]] = None,
         allow_redirects: bool = True,
+        request_timeout: Optional[float | tuple[float, float]] = None,
     ) -> None:
         self.base_url = base_url or ""
         self.headers = headers or {}
         self.auth = auth
         self.paginator = paginator
         self._max_retry_attempts = max_retry_attempts
+        self._retry_backoff_max = retry_backoff_max_seconds
+        # Per-request (connect, read) timeout in seconds handed to ``session.send``. Left None,
+        # a request can hang forever — a source pointed at a server that accepts the connection
+        # then never responds would hold an import worker indefinitely. Sources talking to a
+        # customer-controlled host should set this so every sync request is bounded.
+        self._request_timeout = request_timeout
         self._allow_redirects = allow_redirects
         # When set (even to an empty list), every outgoing request URL — including
         # paginator next-page links and seeded resume URLs — must resolve to one of
@@ -271,6 +414,7 @@ class RESTClient:
         resume_hook: Optional[Callable[[Optional[dict[str, Any]]], None]] = None,
         initial_paginator_state: Optional[dict[str, Any]] = None,
         data_selector_required: bool = False,
+        data_selector_empty_ok: bool = False,
         data_selector_malformed_retryable: bool = False,
     ) -> Iterator[list[Any]]:
         paginator = copy.deepcopy(paginator) if paginator else copy.deepcopy(self.paginator)
@@ -311,7 +455,9 @@ class RESTClient:
             except IgnoreResponseException:
                 break
 
-            data = self._extract_response(body, data_selector, required=data_selector_required)
+            data = self._extract_response(
+                body, data_selector, required=data_selector_required, empty_body_ok=data_selector_empty_ok
+            )
 
             if paginator is not None:
                 paginator.update_state(response, data)
@@ -340,11 +486,35 @@ class RESTClient:
         # retryable-error type so it propagates immediately rather than being retried.
         self._check_allowed_host(prepared.url)
         # `send` reads the body eagerly (stream=False), so a connection dropped mid-stream
-        # surfaces here as ChunkedEncodingError. Reissue it like a truncated/partial body below.
+        # surfaces here as ChunkedEncodingError. A connection that never got established at all —
+        # egress proxy refusing/resetting the connection, a connect timeout — surfaces as
+        # ConnectionError (already retried a few times inside urllib3's own adapter-level policy,
+        # but that budget is short). Both are transient network failures, so reissue them like a
+        # truncated/partial body below rather than letting them skip this retry loop and fail the
+        # whole sync on one bad connection attempt.
         try:
-            response = self.session.send(prepared, allow_redirects=self._allow_redirects)
+            response = self.session.send(prepared, allow_redirects=self._allow_redirects, timeout=self._request_timeout)
         except ChunkedEncodingError as e:
             raise RESTClientRetryableError(self._redact(f"Connection broken while reading response: {e}")) from e
+        except RequestsConnectionError as e:
+            # Unlike ChunkedEncodingError, a ConnectionError's message (e.g. urllib3's "Max
+            # retries exceeded with url: ...") embeds the full request URL including the query
+            # string. `_redact` only replaces a secret's raw value, not the percent-encoded form
+            # a query-param API key takes there — so build the message from `_safe_url` (scheme/
+            # host/path only) rather than the raw exception text, the same way the 5xx path below
+            # avoids leaking an encoded credential into the persisted `latest_error`.
+            raise RESTClientRetryableError(
+                self._redact(f"Connection error ({type(e).__name__}) for {_safe_url(prepared.url or '')}")
+            ) from e
+        except RequestsTimeout as e:
+            # A connect/read timeout (a host that accepts the connection then stalls) is transient
+            # from our side. Reissue it through the retry loop like the connection failures above —
+            # so a stalled request is bounded per attempt instead of hanging the worker forever, yet
+            # still gets a few tries before the sync gives up. Built from `_safe_url` for the same
+            # credential-in-query-string reason as the ConnectionError branch.
+            raise RESTClientRetryableError(
+                self._redact(f"Request timed out ({type(e).__name__}) for {_safe_url(prepared.url or '')}")
+            ) from e
 
         # With redirects disabled, a 3xx is not an error to `raise_for_status` and would fall
         # through to JSON parsing; reject it explicitly so a redirect can't smuggle the request
@@ -376,7 +546,13 @@ class RESTClient:
             try:
                 response.raise_for_status()
             except HTTPError as e:
-                raise HTTPError(self._redact(str(e)), response=e.response, request=e.request) from None
+                message = str(e)
+                # Appended after the stock message, so non-retryable-error patterns — which match
+                # the message as a substring — keep matching.
+                identity = _error_identity(response)
+                if identity:
+                    message = f"{message} | api error: {identity}"
+                raise HTTPError(self._redact(message), response=e.response, request=e.request) from None
 
         # Parse inside the retry so a truncated/partial body is reissued like a 429/5xx
         # instead of bubbling up uncaught and failing the import.
@@ -410,7 +586,9 @@ class RESTClient:
 
         return response, body
 
-    def _extract_response(self, body: Any, data_selector: Optional[TJsonPath], *, required: bool = False) -> list[Any]:
+    def _extract_response(
+        self, body: Any, data_selector: Optional[TJsonPath], *, required: bool = False, empty_body_ok: bool = False
+    ) -> list[Any]:
         if data_selector:
             matches: Any = find_values(data_selector, body)
             # ``required`` distinguishes "the selector key is absent" (no matches -> the response
@@ -418,6 +596,13 @@ class RESTClient:
             # zero-row page, which yields one match whose value is []). Sources that treat a missing
             # data key as an error set data_selector_required=True instead of silently syncing 0 rows.
             if required and not matches:
+                # An empty container omits the key but carries no rows and no alternative shape.
+                # Sources whose API drops the envelope key for an empty collection (rather than
+                # returning an empty list) opt into treating it as a 0-row page via ``empty_body_ok``;
+                # by default it stays a fail-loud shape mismatch, since a body with other keys is a
+                # genuine shape change.
+                if empty_body_ok and isinstance(body, dict | list) and not body:
+                    return []
                 keys = sorted(body.keys())[:20] if isinstance(body, dict) else type(body).__name__
                 raise ValueError(
                     f"Required data_selector {data_selector!r} matched nothing in the response "

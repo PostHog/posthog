@@ -14,10 +14,6 @@ from posthog.schema import (
     SourceFieldInputConfigType,
 )
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import (
-    SourceInputs,
-    SourceResponse,
-)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import (
     ExternalWebhookInfo,
     FieldType,
@@ -35,6 +31,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.sch
     SourceSchema,
     build_endpoint_schemas,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.webhook_s3 import WebhookSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.instantly import (
     InstantlySourceConfig,
@@ -158,6 +155,7 @@ Instantly webhooks require the Hypergrowth plan or above, and automatic creation
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         schemas = build_endpoint_schemas(
             ENDPOINTS,
@@ -187,12 +185,16 @@ Instantly webhooks require the Hypergrowth plan or above, and automatic creation
         return schemas
 
     def validate_credentials(
-        self, config: InstantlySourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: InstantlySourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         return validate_instantly_credentials(config.api_key, schema_name)
 
     def get_endpoint_permissions(
-        self, config: InstantlySourceConfig, team_id: int, endpoints: list[str]
+        self, config: InstantlySourceConfig, team_id: int, endpoints: list[str], api_version: str | None = None
     ) -> dict[str, str | None]:
         return get_instantly_endpoint_permissions(config.api_key, endpoints)
 
@@ -202,15 +204,19 @@ Instantly webhooks require the Hypergrowth plan or above, and automatic creation
     def get_webhook_source_manager(self, inputs: SourceInputs) -> WebhookSourceManager:
         return WebhookSourceManager(inputs, inputs.logger)
 
-    def create_webhook(self, config: InstantlySourceConfig, webhook_url: str, team_id: int) -> WebhookCreationResult:
+    def create_webhook(
+        self, config: InstantlySourceConfig, webhook_url: str, team_id: int, api_version: str | None = None
+    ) -> WebhookCreationResult:
         return create_instantly_webhook(config.api_key, webhook_url, logger)
 
     def get_external_webhook_info(
-        self, config: InstantlySourceConfig, webhook_url: str, team_id: int
+        self, config: InstantlySourceConfig, webhook_url: str, team_id: int, api_version: str | None = None
     ) -> ExternalWebhookInfo:
         return get_instantly_webhook_info(config.api_key, webhook_url, logger)
 
-    def delete_webhook(self, config: InstantlySourceConfig, webhook_url: str, team_id: int) -> WebhookDeletionResult:
+    def delete_webhook(
+        self, config: InstantlySourceConfig, webhook_url: str, team_id: int, api_version: str | None = None
+    ) -> WebhookDeletionResult:
         return delete_instantly_webhook(config.api_key, webhook_url, logger)
 
     def source_for_pipeline(

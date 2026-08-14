@@ -4,6 +4,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 from django.test import override_settings
 
 from products.signals.backend.temporal.llm import call_llm
+from products.signals.eval.llm_gen.client import CanonicalSignal, CanonicalSignalBatch, generate_canonical_signals
 
 MODULE_PATH = "products.signals.backend.temporal.llm"
 
@@ -75,3 +76,19 @@ async def test_without_ai_product_stays_on_python_gateway_even_with_env_set():
     legacy.assert_called_once()
     gateway.assert_not_called()
     assert client.messages.create.call_args.kwargs["extra_headers"] == {"x-posthog-property-ai_stage": "match"}
+
+
+# `ai_product` is the opt-in switch, not just a label: dropping it from a call site silently
+# reverts that site to the Python gateway and unattributes its spend, with no failing call to
+# notice. Each site that opts in pins its own tag and stage.
+
+
+@pytest.mark.asyncio
+async def test_eval_fixture_generation_opts_in_as_signals_eval():
+    batch = CanonicalSignalBatch(signals=[CanonicalSignal(title="a" * 10, body="b" * 20)])
+    with patch("products.signals.eval.llm_gen.client.call_llm", new=AsyncMock(return_value=batch)) as generation_call:
+        await generate_canonical_signals(team_id=1, system_prompt="s", user_prompt="u")
+
+    kwargs = generation_call.call_args.kwargs
+    assert kwargs["ai_product"] == "signals_eval"
+    assert kwargs["stage"] == "eval_signal_generation"

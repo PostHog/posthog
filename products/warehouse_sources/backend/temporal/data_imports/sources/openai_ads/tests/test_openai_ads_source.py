@@ -129,6 +129,54 @@ class TestNonRetryableErrors:
         assert not any(key in other_error for key in non_retryable)
 
 
+class TestRetryableErrors:
+    @parameterized.expand(
+        [
+            ("server_error", "HTTP 500 for https://api.ads.openai.com/v1/campaigns"),
+            ("rate_limited", "HTTP 429 for https://api.ads.openai.com/v1/ad_account/insights"),
+            (
+                "connection_error",
+                "Connection error (ConnectionError) for https://api.ads.openai.com/v1/ad_groups",
+            ),
+            (
+                "timeout",
+                "Request timed out (ReadTimeout) for https://api.ads.openai.com/v1/ads",
+            ),
+            (
+                "malformed_json",
+                "Malformed JSON response from https://api.ads.openai.com/v1/campaigns: Expecting value: line 1 column 1 (char 0)",
+            ),
+            (
+                "body_reported_server_error",
+                "400 Client Error: Bad Request for url: https://api.ads.openai.com/v1/ads?ad_group_id=adgrp_123&limit=500&order=asc | api error: code=server_error",
+            ),
+        ]
+    )
+    def test_exhausted_transient_failures_are_recognized(self, _name: str, observed_error: str) -> None:
+        retryable = OpenAIAdsSource().get_retryable_errors()
+        assert any(pattern in observed_error for pattern in retryable)
+
+    @parameterized.expand(
+        [
+            (
+                "unauthorized",
+                "401 Client Error: Unauthorized for url: https://api.ads.openai.com/v1/campaigns",
+            ),
+            (
+                "not_found",
+                "404 Client Error: Not Found for url: https://api.ads.openai.com/v1/campaigns/123",
+            ),
+            (
+                "genuine_bad_request",
+                "400 Client Error: Bad Request for url: https://api.ads.openai.com/v1/campaigns | api error: code=invalid_request_error",
+            ),
+        ]
+    )
+    def test_credential_and_client_errors_are_not_misclassified(self, _name: str, other_error: str) -> None:
+        retryable = OpenAIAdsSource().get_retryable_errors()
+        assert not any(pattern in other_error for pattern in retryable)
+
+
 class TestDocumentedTables:
     def test_canonical_descriptions_cover_every_endpoint(self) -> None:
         # The docs' Supported tables section keys canonical entries by endpoint name — a drifted

@@ -15,6 +15,21 @@ VALID_PNG_BYTES = (
     b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR\x00\x00\x00\x01\x00\x00\x00\x01\x08\x02\x00\x00\x00\x90wS\xde"
     b"\x00\x00\x00\x0cIDATx\x9cc```\x00\x00\x00\x04\x00\x01\xf6\x178U\x00\x00\x00\x00IEND\xaeB`\x82"
 )
+GRANTED_FILE_SCOPES = ["chat:write", "files:read", "files:write"]
+
+
+def fake_slack_team(slack_scopes: list[str] | None = GRANTED_FILE_SCOPES) -> MagicMock:
+    """A team whose install granted the file scopes. None means an install predating scope records."""
+    team = MagicMock()
+    team.id = 1
+    team.conversations_settings = {"slack_scopes": slack_scopes} if slack_scopes is not None else {}
+    return team
+
+
+def fake_slack_client() -> MagicMock:
+    client = MagicMock()
+    client.token = "xoxb-token"
+    return client
 
 
 class TestSlackImageIngest(SimpleTestCase):
@@ -24,16 +39,46 @@ class TestSlackImageIngest(SimpleTestCase):
         assert image_bytes is None
         mock_build_opener.assert_not_called()
 
+    @parameterized.expand(
+        [
+            ("sign_in_page_for_a_pdf", "text/html; charset=utf-8", "application/pdf", None),
+            ("sign_in_page_for_an_image", "text/html", "image/png", None),
+            ("genuine_html_attachment", "text/html", "text/html", b"<html>report</html>"),
+            ("matching_content_type", "application/pdf", "application/pdf", b"%PDF-1.4 fake content"),
+        ]
+    )
+    @patch("products.conversations.backend.slack.build_opener")
+    def test_download_rejects_slack_sign_in_page(
+        self,
+        _label: str,
+        content_type: str,
+        expected_mimetype: str,
+        expected_bytes: bytes | None,
+        mock_build_opener: MagicMock,
+    ) -> None:
+        body = expected_bytes or b"<html>Sign in to Slack</html>"
+        fake_response = MagicMock()
+        fake_response.getcode.return_value = 200
+        fake_response.headers = {"Content-Type": content_type}
+        fake_response.read.return_value = body
+        mock_build_opener.return_value.open.return_value.__enter__.return_value = fake_response
+
+        payload = _download_slack_image_bytes(
+            "https://files.slack.com/files-pri/T/F/report.pdf",
+            "xoxb-token",
+            expected_mimetype=expected_mimetype,
+        )
+
+        assert payload == expected_bytes
+
     @patch("products.conversations.backend.slack.save_file_to_uploaded_media")
     @patch("products.conversations.backend.slack._download_slack_image_bytes")
     def test_extract_slack_files_copies_to_uploaded_media(self, mock_download: MagicMock, mock_save: MagicMock) -> None:
         mock_download.return_value = VALID_PNG_BYTES
         mock_save.return_value = "https://app.posthog.com/uploaded_media/abc"
 
-        fake_team = MagicMock()
-        fake_team.id = 1
-        fake_client = MagicMock()
-        fake_client.token = "xoxb-token"
+        fake_team = fake_slack_team()
+        fake_client = fake_slack_client()
 
         files = [
             {
@@ -50,16 +95,28 @@ class TestSlackImageIngest(SimpleTestCase):
         mock_download.assert_called_once()
         mock_save.assert_called_once()
 
+    @parameterized.expand(
+        [
+            ("with_permalink", "https://acme.slack.com/files/U1/F123/test.jpg", True),
+            ("with_untrusted_permalink", "https://phish.example.com/files/U1/F123/test.jpg", False),
+            ("without_permalink", None, False),
+        ]
+    )
     @patch("products.conversations.backend.slack.save_file_to_uploaded_media")
     @patch("products.conversations.backend.slack._download_slack_image_bytes")
-    def test_extract_slack_files_skips_failed_downloads(self, mock_download: MagicMock, mock_save: MagicMock) -> None:
+    def test_extract_slack_files_falls_back_to_slack_link_when_download_fails(
+        self,
+        _label: str,
+        permalink: str | None,
+        expects_link: bool,
+        mock_download: MagicMock,
+        mock_save: MagicMock,
+    ) -> None:
         mock_download.return_value = None
-        fake_team = MagicMock()
-        fake_team.id = 1
-        fake_client = MagicMock()
-        fake_client.token = "xoxb-token"
+        fake_team = fake_slack_team()
+        fake_client = fake_slack_client()
 
-        files = [
+        files: list[dict] = [
             {
                 "id": "F123",
                 "mimetype": "image/jpeg",
@@ -67,10 +124,55 @@ class TestSlackImageIngest(SimpleTestCase):
                 "url_private_download": "https://files.slack.com/files-pri/T/F/test.jpg",
             }
         ]
-        images = extract_slack_files(files, fake_team, fake_client)
+        if permalink:
+            files[0]["permalink"] = permalink
+        attachments = extract_slack_files(files, fake_team, fake_client)
+        split = split_slack_attachments(attachments)
 
-        assert images == []
         mock_save.assert_not_called()
+        # Nothing is re-hosted, so nothing can be inlined
+        assert split.images == []
+        if expects_link:
+            # Rendered as a link instead of vanishing from the ticket
+            assert split.files == [
+                {"url": permalink, "name": "test.jpg", "mimetype": "image/jpeg", "unavailable": True}
+            ]
+        else:
+            assert split.files == []
+
+    @parameterized.expand(
+        [
+            ("install_predating_scope_records", None),
+            ("install_without_files_read", ["chat:write", "files:write"]),
+        ]
+    )
+    @patch("products.conversations.backend.slack.save_file_to_uploaded_media")
+    @patch("products.conversations.backend.slack._download_slack_image_bytes")
+    def test_extract_slack_files_does_not_download_without_files_read(
+        self,
+        _label: str,
+        slack_scopes: list[str] | None,
+        mock_download: MagicMock,
+        mock_save: MagicMock,
+    ) -> None:
+        # A text/html attachment is the case content-type checks can't screen: Slack's sign-in page
+        # and the real file are both HTML, so an under-scoped install must not fetch at all.
+        permalink = "https://acme.slack.com/files/U1/F123/report.html"
+        files = [
+            {
+                "id": "F123",
+                "mimetype": "text/html",
+                "name": "report.html",
+                "url_private_download": "https://files.slack.com/files-pri/T/F/report.html",
+                "permalink": permalink,
+            }
+        ]
+
+        attachments = extract_slack_files(files, fake_slack_team(slack_scopes), fake_slack_client())
+
+        mock_download.assert_not_called()
+        mock_save.assert_not_called()
+        assert attachments == [{"url": permalink, "name": "report.html", "mimetype": "text/html", "unavailable": True}]
 
     @patch("products.conversations.backend.slack.save_file_to_uploaded_media")
     @patch("products.conversations.backend.slack._download_slack_image_bytes")
@@ -78,10 +180,8 @@ class TestSlackImageIngest(SimpleTestCase):
         self, mock_download: MagicMock, mock_save: MagicMock
     ) -> None:
         mock_download.return_value = b"not-an-image"
-        fake_team = MagicMock()
-        fake_team.id = 1
-        fake_client = MagicMock()
-        fake_client.token = "xoxb-token"
+        fake_team = fake_slack_team()
+        fake_client = fake_slack_client()
 
         files = [
             {
@@ -102,10 +202,8 @@ class TestSlackImageIngest(SimpleTestCase):
         mock_download.return_value = b"%PDF-1.4 fake content"
         mock_save.return_value = "https://app.posthog.com/uploaded_media/pdf"
 
-        fake_team = MagicMock()
-        fake_team.id = 1
-        fake_client = MagicMock()
-        fake_client.token = "xoxb-token"
+        fake_team = fake_slack_team()
+        fake_client = fake_slack_client()
 
         files = [
             {
@@ -116,12 +214,12 @@ class TestSlackImageIngest(SimpleTestCase):
             }
         ]
         attachments = extract_slack_files(files, fake_team, fake_client)
-        images, file_attachments = split_slack_attachments(attachments)
+        split = split_slack_attachments(attachments)
 
-        assert images == []
-        assert len(file_attachments) == 1
-        assert file_attachments[0]["mimetype"] == "application/pdf"
-        assert file_attachments[0]["name"] == "invoice.pdf"
+        assert split.images == []
+        assert len(split.files) == 1
+        assert split.files[0]["mimetype"] == "application/pdf"
+        assert split.files[0]["name"] == "invoice.pdf"
         # Non-image bytes are stored without image validation
         assert mock_save.call_args.kwargs["validate_images"] is False
 
@@ -133,10 +231,8 @@ class TestSlackImageIngest(SimpleTestCase):
         mock_download.return_value = b"%PDF-1.4 fake content"
         mock_save.return_value = "https://app.posthog.com/uploaded_media/pdf"
 
-        fake_team = MagicMock()
-        fake_team.id = 1
-        fake_client = MagicMock()
-        fake_client.token = "xoxb-token"
+        fake_team = fake_slack_team()
+        fake_client = fake_slack_client()
 
         files = [
             {

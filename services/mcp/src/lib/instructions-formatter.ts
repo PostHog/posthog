@@ -1,5 +1,7 @@
 import type { GroupType } from '@/api/client'
+import { MCP_INSTRUCTIONS_CHAR_BUDGET } from '@/lib/constants'
 import {
+    buildAvailableToolsBlock,
     buildDefinedGroupsBlock,
     buildQueryToolsBlock,
     buildToolDomainsBlock,
@@ -10,6 +12,7 @@ import {
 import { formatPrompt } from '@/lib/utils'
 import AGENT_FEEDBACK from '@/templates/sections/agent-feedback.md'
 import BASIC_FUNCTIONALITY from '@/templates/sections/basic-functionality.md'
+import CATALOG_TRUST_DISCOVERY from '@/templates/sections/catalog-trust-discovery.md'
 import CLI_DATA_DISCOVERY from '@/templates/sections/cli-data-discovery.md'
 import CLI_ERROR_HANDLING from '@/templates/sections/cli-error-handling.md'
 import CLI_EXAMPLES_CLAUDE from '@/templates/sections/cli-examples-claude.md'
@@ -23,12 +26,13 @@ import ENV_CONTEXT from '@/templates/sections/env-context.md'
 import EXAMPLES from '@/templates/sections/examples.md'
 import EXEC_LEARN from '@/templates/sections/exec-learn.md'
 import EXEC_TOOL_BLURB from '@/templates/sections/exec-tool-blurb.md'
+import METRIC_DISCOVERY_COMPACT from '@/templates/sections/metric-discovery-compact.md'
 import METRIC_DISCOVERY from '@/templates/sections/metric-discovery.md'
 import RETRIEVING_DATA from '@/templates/sections/retrieving-data.md'
 import SCHEMA_WORKFLOW from '@/templates/sections/schema-workflow.md'
 import TOOL_SEARCH from '@/templates/sections/tool-search.md'
 import URL_PATTERNS from '@/templates/sections/url-patterns.md'
-import type { ExecHelpEntry } from '@/tools/exec-help'
+import { type ExecHelpEntry, LEARN_COMMAND_LINE } from '@/tools/exec-help'
 
 export interface InstructionsContext {
     guidelines: string
@@ -59,9 +63,10 @@ export class InstructionsFormatter {
             [
                 BASIC_FUNCTIONALITY,
                 TOOL_SEARCH,
+                ...(ctx.dataCatalogEnabled ? [METRIC_DISCOVERY] : []),
                 RETRIEVING_DATA,
                 SCHEMA_WORKFLOW,
-                ...(ctx.dataCatalogEnabled ? [METRIC_DISCOVERY] : []),
+                ...(ctx.dataCatalogEnabled ? [CATALOG_TRUST_DISCOVERY] : []),
                 ENV_CONTEXT,
                 URL_PATTERNS,
                 AGENT_FEEDBACK,
@@ -72,11 +77,30 @@ export class InstructionsFormatter {
         )
     }
 
-    /** Build the compact `instructions` payload for single-exec clients (~2KB budget).
-     *  The bulk of the system prompt lives on the exec tool's `command` parameter
-     *  description (`buildExecCommandReference`) — this is just env + tool index. */
+    /** Build the compact `instructions` payload for single-exec clients. Everything
+     *  but the tool-domain index — env context included — lives on the exec tool's
+     *  `command` parameter description (`buildExecCommandReference`), because this
+     *  payload is hard-capped at {@link MCP_INSTRUCTIONS_CHAR_BUDGET} by Claude Code
+     *  and the command description is not.
+     *
+     *  Rendered optimistically, then re-rendered against the measured overflow if it
+     *  doesn't fit — the index is the only part that can shrink. Measuring the overflow
+     *  rather than the surround keeps the arithmetic exact: both renders carry a
+     *  non-empty index, so they share a byte-identical surround, and shrinking the index
+     *  by N shrinks the payload by exactly N. (Sizing an index-less render instead
+     *  overshoots, because `formatPrompt` trims the trailing separator the real payload
+     *  keeps.) Enforced by the budget test in `instructions-formatter-snapshot.test.ts`. */
     buildExecInstructions(ctx: InstructionsContext): string {
-        return this.compose([COMPACT_INSTRUCTIONS], ctx, { compact: true })
+        const rendered = this.compose([COMPACT_INSTRUCTIONS], ctx, { compact: true })
+        const overflow = rendered.length - MCP_INSTRUCTIONS_CHAR_BUDGET
+        if (overflow <= 0) {
+            return rendered
+        }
+        const domains = buildToolDomainsCompact(ctx.tools ?? [])
+        return this.compose([COMPACT_INSTRUCTIONS], ctx, {
+            compact: true,
+            toolDomainsMaxChars: domains.length - overflow,
+        })
     }
 
     /** Build the top-level description of the `posthog:exec` tool. */
@@ -96,10 +120,16 @@ export class InstructionsFormatter {
                 kind: 'guide',
                 title: 'Analytics',
                 description: ctx.dataCatalogEnabled
-                    ? 'Query or analyze PostHog data, events, and governed metrics (including "what metrics do we have?").'
+                    ? 'Query or analyze PostHog data; governed metrics, certified tables, and verified joins live in the catalog.'
                     : 'Query or analyze PostHog data, metrics, and events.',
                 content: this.compose(
-                    [RETRIEVING_DATA, SCHEMA_WORKFLOW, ...(ctx.dataCatalogEnabled ? [METRIC_DISCOVERY] : []), EXAMPLES],
+                    [
+                        ...(ctx.dataCatalogEnabled ? [METRIC_DISCOVERY] : []),
+                        RETRIEVING_DATA,
+                        SCHEMA_WORKFLOW,
+                        ...(ctx.dataCatalogEnabled ? [CATALOG_TRUST_DISCOVERY] : []),
+                        EXAMPLES,
+                    ],
                     ctx,
                     { compact: false }
                 ),
@@ -149,6 +179,7 @@ export class InstructionsFormatter {
             [
                 CLI_SYNTAX,
                 helpSection,
+                ...(ctx.dataCatalogEnabled ? [METRIC_DISCOVERY_COMPACT] : []),
                 CLI_SCHEMA_DRILLDOWN,
                 CLI_DATA_DISCOVERY,
                 CLI_EXAMPLES_CLAUDE,
@@ -162,7 +193,7 @@ export class InstructionsFormatter {
             {
                 compact: false,
                 compactToolDomains: true,
-                extraCommands: 'learn <topic...> - load one or more learning topics\n',
+                extraCommands: LEARN_COMMAND_LINE,
             }
         )
     }
@@ -188,6 +219,7 @@ export class InstructionsFormatter {
     ): string {
         const sections = [
             CLI_SYNTAX,
+            ...(ctx.dataCatalogEnabled ? [METRIC_DISCOVERY] : []),
             CLI_SCHEMA_DRILLDOWN,
             CLI_DATA_DISCOVERY,
             CLI_EXAMPLES,
@@ -197,7 +229,7 @@ export class InstructionsFormatter {
             TOOL_SEARCH,
             RETRIEVING_DATA,
             SCHEMA_WORKFLOW,
-            ...(ctx.dataCatalogEnabled ? [METRIC_DISCOVERY] : []),
+            ...(ctx.dataCatalogEnabled ? [CATALOG_TRUST_DISCOVERY] : []),
             ENV_CONTEXT,
             URL_PATTERNS,
             AGENT_FEEDBACK,
@@ -220,15 +252,24 @@ export class InstructionsFormatter {
     private compose(
         sections: string[],
         ctx: InstructionsContext,
-        opts: { compact: boolean; compactToolDomains?: boolean; extraCommands?: string }
+        opts: {
+            compact: boolean
+            compactToolDomains?: boolean
+            extraCommands?: string
+            /** Character budget for the domain index; it collapses sub-families to fit. */
+            toolDomainsMaxChars?: number
+        }
     ): string {
         const renderToolDomains =
-            opts.compact || opts.compactToolDomains ? buildToolDomainsCompact : buildToolDomainsBlock
+            opts.compact || opts.compactToolDomains
+                ? (tools: ToolInfo[]) => buildToolDomainsCompact(tools, opts.toolDomainsMaxChars)
+                : buildToolDomainsBlock
         // `{query_tools}` only appears in non-compact sections (the exec command
         // reference and tools-mode instructions); compact mode surfaces queries
         // via the single `query` tool domain instead.
         const vars = {
             guidelines: ctx.guidelines.trim(),
+            available_tools: buildAvailableToolsBlock(ctx.renderUiEnabled),
             defined_groups: buildDefinedGroupsBlock(ctx.groupTypes),
             metadata: ctx.metadata?.trim() ?? '',
             tool_domains: ctx.tools ? renderToolDomains(ctx.tools) : '',

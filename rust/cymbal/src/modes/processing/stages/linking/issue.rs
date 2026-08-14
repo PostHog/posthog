@@ -3,14 +3,14 @@ use std::sync::Arc;
 use chrono::{DateTime, Utc};
 use common_types::format::parse_datetime_assuming_utc;
 use sqlx::{Acquire, PgConnection};
-use tracing::warn;
+use tracing::debug;
 use uuid::Uuid;
 
 use crate::{
     app_context::AppContext,
     error::UnhandledError,
     issue_resolution::{
-        send_fingerprint_issue_state, send_issue_created_notification,
+        infer_issue_severity, send_fingerprint_issue_state, send_issue_created_notification,
         send_issue_reopened_notification, Issue, IssueFingerprintOverride,
     },
     metric_consts::{ISSUE_CREATED, ISSUE_LINKER_OPERATOR},
@@ -42,8 +42,9 @@ impl IssueLinker {
             .map(str::to_string)
             .unwrap_or_else(|| input.exception_list()[0].exception_message.clone());
 
+        // Debug: a bad client timestamp is SDK/user data quality, handled by falling back.
         let event_timestamp = parse_datetime_assuming_utc(input.timestamp()).unwrap_or_else(|e| {
-            warn!(
+            debug!(
                 event = input.uuid().to_string(),
                 "Failed to get event timestamp, using current time, error: {:?}", e
             );
@@ -195,7 +196,7 @@ async fn load_and_maybe_reopen(
     // Reopened — mirror the side effects from `resolve_issue`'s fast-path reopen branch.
     let event_timestamp =
         parse_datetime_assuming_utc(event_properties.timestamp()).unwrap_or_else(|e| {
-            warn!(
+            debug!(
                 event = event_properties.uuid().to_string(),
                 "Failed to get event timestamp, using current time, error: {:?}", e
             );
@@ -223,6 +224,7 @@ async fn load_and_maybe_reopen(
         &issue,
         assignment,
         processed_properties,
+        event_properties.uuid(),
         &event_timestamp,
     )
     .await?;
@@ -270,6 +272,7 @@ async fn resolve_issue(
                 &issue,
                 assignment,
                 processed_properties,
+                event_properties.uuid(),
                 &event_timestamp,
             )
             .await?;
@@ -288,6 +291,10 @@ async fn resolve_issue(
         team_id,
         name.to_string(),
         description.to_string(),
+        infer_issue_severity(
+            event_properties.exception_level(),
+            event_properties.exception_handled(),
+        ),
         &mut *txn,
     )
     .await?;
@@ -346,6 +353,7 @@ async fn resolve_issue(
                 &issue,
                 assignment,
                 processed_properties,
+                event_properties.uuid(),
                 &event_timestamp,
             )
             .await?;

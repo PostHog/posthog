@@ -23,6 +23,7 @@ from temporalio.common import RetryPolicy
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.oauth import PosthogMcpScopes
 
+from products.tasks.backend.constants import DEV_STACK_IMAGE_NAME
 from products.tasks.backend.error_telemetry import truncate_error_message
 from products.tasks.backend.logic.services.sandbox import is_public_sandbox_repo
 from products.tasks.backend.temporal.constants import (
@@ -102,6 +103,7 @@ from products.tasks.backend.temporal.process_task.activities.update_task_run_sta
     update_task_run_status,
 )
 from products.tasks.backend.temporal.process_task.credential_refresh import (
+    TASK_ROWS_GONE_ERROR_MESSAGE,
     CredentialRefreshExitReason,
     run_credential_refresh_loop,
 )
@@ -139,6 +141,8 @@ SHUTDOWN_REJECTION_DETAIL = "child_shutting_down"
 # to drive CI-vs-user-message metrics.
 FOLLOWUP_SOURCE_USER = "user"
 FOLLOWUP_SOURCE_CI = "ci"
+
+_DESKTOP_BOOTSTRAP_ACTIVITY_TIMEOUT = timedelta(minutes=20)
 
 
 @dataclass
@@ -462,7 +466,8 @@ class ExecuteSandboxWorkflow(PostHogWorkflow):
             self._posthog_mcp_scopes = input.posthog_mcp_scopes
 
             await self._update_task_run_status("in_progress")
-            await self._emit_progress("sandbox", "in_progress", "Setting up sandbox", "setup")
+            sandbox_label = "Restoring sandbox" if self.context.is_snapshot_resume else "Setting up sandbox"
+            await self._emit_progress("sandbox", "in_progress", sandbox_label, "setup")
             await self._track_workflow_event(
                 "task_run_started",
                 {
@@ -1094,28 +1099,46 @@ class ExecuteSandboxWorkflow(PostHogWorkflow):
         can_clone_without_integration = is_public_sandbox_repo(prepared.repository)
         has_clone_credentials = self.context.has_github_credentials or can_clone_without_integration
 
-        will_clone = bool(prepared.repository and not used_snapshot and has_clone_credentials)
-        will_checkout = bool(prepared.repository and prepared.branch and has_clone_credentials)
+        repositories_to_clone = [] if used_snapshot or not has_clone_credentials else self.context.repositories
+        will_clone = bool(repositories_to_clone)
+        checkout_repository = self.context.repositories[0] if len(self.context.repositories) == 1 else None
+        will_checkout = bool(checkout_repository and prepared.branch and has_clone_credentials)
+
+        def prepares_desktop(repository: str) -> bool:
+            return self.context.custom_image_name == DEV_STACK_IMAGE_NAME and repository.casefold() == "posthog/posthog"
 
         if will_clone:
             await self._emit_progress("clone", "in_progress", "Cloning repository", "setup")
-            await workflow.execute_activity(
-                clone_repository_in_sandbox,
-                CloneRepositoryInSandboxInput(
-                    context=self.context,
-                    sandbox_id=created.sandbox_id,
-                    repository=prepared.repository,
-                    github_token=prepared.github_token,
-                    shallow_clone=prepared.shallow_clone,
-                ),
-                start_to_close_timeout=timedelta(minutes=5),
-                retry_policy=RetryPolicy(maximum_attempts=3),
+            await asyncio.gather(
+                *(
+                    workflow.execute_activity(
+                        clone_repository_in_sandbox,
+                        CloneRepositoryInSandboxInput(
+                            context=self.context,
+                            sandbox_id=created.sandbox_id,
+                            repository=repository,
+                            github_token=prepared.github_token,
+                            shallow_clone=prepared.shallow_clone,
+                        ),
+                        start_to_close_timeout=(
+                            _DESKTOP_BOOTSTRAP_ACTIVITY_TIMEOUT
+                            if prepares_desktop(repository)
+                            else timedelta(minutes=5)
+                        ),
+                        retry_policy=RetryPolicy(maximum_attempts=3),
+                    )
+                    for repository in repositories_to_clone
+                )
             )
-            await self._emit_progress("clone", "completed", "Cloned repository", "setup")
+            clone_label = "Cloned repository" if len(repositories_to_clone) == 1 else "Cloned repositories"
+            await self._emit_progress("clone", "completed", clone_label, "setup")
 
         state = self.context.state or {}
         is_resume = bool(state.get("resume_from_run_id") or state.get("handoff_resumed"))
         if will_checkout and not is_resume:
+            assert checkout_repository is not None
+            assert prepared.branch is not None
+            prepares_repository_desktop = prepares_desktop(checkout_repository)
             branch_label_active = f"Checking out branch {prepared.branch}"
             branch_label_done = f"Checked out branch {prepared.branch}"
             await self._emit_progress("checkout", "in_progress", branch_label_active, "setup")
@@ -1124,13 +1147,15 @@ class ExecuteSandboxWorkflow(PostHogWorkflow):
                 CheckoutBranchInSandboxInput(
                     context=self.context,
                     sandbox_id=created.sandbox_id,
-                    repository=prepared.repository,
+                    repository=checkout_repository,
                     branch=prepared.branch,
                     github_token=prepared.github_token,
                     shallow_clone=prepared.shallow_clone,
                     used_snapshot=used_snapshot,
                 ),
-                start_to_close_timeout=timedelta(minutes=5),
+                start_to_close_timeout=(
+                    _DESKTOP_BOOTSTRAP_ACTIVITY_TIMEOUT if prepares_repository_desktop else timedelta(minutes=5)
+                ),
                 retry_policy=RetryPolicy(maximum_attempts=3),
             )
             await self._emit_progress("checkout", "completed", branch_label_done, "setup")
@@ -1304,17 +1329,28 @@ class ExecuteSandboxWorkflow(PostHogWorkflow):
         )
 
     async def _maybe_record_terminal_status(self) -> None:
-        # TaskRun stays in_progress on successful completion *and* on
-        # inactivity timeout — the run is always followable, so neither
-        # path is terminal. Only an explicit failure or cancellation
-        # propagated through complete_task transitions out of in_progress;
-        # the except blocks in run() cover the other terminal paths.
+        # An interactive run stays in_progress on successful completion *and* on
+        # inactivity timeout — it is always followable, so neither path is
+        # terminal. Only an explicit failure or cancellation propagated through
+        # complete_task transitions it out; the except blocks in run() cover the
+        # other terminal paths.
         if self._task_completed and self._completion_status in {"failed", "cancelled"}:
             await self._update_task_run_status(
                 self._completion_status,
                 error_message=self._completion_error,
                 error_type=self._completion_error_type,
             )
+            return
+
+        # A background run (loop / automated) is one-shot and unattended: nothing
+        # sends a follow-up, so its natural end (agent idle timeout or a
+        # successful complete_task) is terminal. Mark it completed so it doesn't
+        # sit in_progress forever after the sandbox is reclaimed. Adding this
+        # activity is replay-safe without a patch gate: it runs only on the
+        # terminal path, which no in-flight execution has passed (reaching it
+        # completes the workflow).
+        if self._context and self._context.mode != "interactive":
+            await self._update_task_run_status("completed")
 
     async def _run_credential_refresh_until_sandbox_gone(self, sandbox_id: str) -> None:
         exit_reason = await run_credential_refresh_loop(self.context, sandbox_id)
@@ -1331,6 +1367,23 @@ class ExecuteSandboxWorkflow(PostHogWorkflow):
                 run_id=self.context.run_id,
                 sandbox_id=sandbox_id,
             )
+        elif exit_reason == CredentialRefreshExitReason.TASK_GONE:
+            workflow.logger.warning(
+                "execute_sandbox_task_rows_gone_detected",
+                run_id=self.context.run_id,
+                sandbox_id=sandbox_id,
+            )
+            # Ends the main loop through the sandbox-gone event so the workflow winds down
+            # instead of waiting on signals that can never arrive. Recording failure here is
+            # what makes the end visible: an interactive run is exempt from the terminal
+            # status write on its normal completion path, so without this it would report
+            # success for a run whose rows no longer exist. The write itself then fails
+            # non-retryably, since those rows are gone, which fails the workflow in both
+            # modes rather than only for background runs.
+            self._completion_status = "failed"
+            self._completion_error = TASK_ROWS_GONE_ERROR_MESSAGE
+            self._completion_error_type = "TaskRunDeletedError"
+            self._sandbox_gone = True
 
     def _mark_sandbox_gone(self) -> None:
         self._task_completed = True
@@ -1344,7 +1397,7 @@ class ExecuteSandboxWorkflow(PostHogWorkflow):
         agent_server_output: StartAgentServerOutput,
         sandbox_id: str | None = None,
     ) -> None:
-        await workflow.execute_activity(
+        sandbox_gone = await workflow.execute_activity(
             relay_sandbox_events,
             RelaySandboxEventsInput(
                 run_id=self.context.run_id,
@@ -1375,6 +1428,8 @@ class ExecuteSandboxWorkflow(PostHogWorkflow):
             ),
             cancellation_type=workflow.ActivityCancellationType.TRY_CANCEL,
         )
+        if sandbox_gone and not self._task_completed:
+            self._sandbox_gone = True
 
     @staticmethod
     async def _cancel_relay(relay_task: "asyncio.Task[None]") -> None:

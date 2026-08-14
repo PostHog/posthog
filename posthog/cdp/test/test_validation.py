@@ -1,5 +1,6 @@
 import json
 
+import pytest
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, QueryMatchingTest
 
 from parameterized import parameterized
@@ -15,6 +16,8 @@ from posthog.cdp.validation import (
     compile_hog,
     generate_template_bytecode,
 )
+
+from products.messaging.backend.api.design_validation import validate_design
 
 from common.hogvm.python.operation import HOGQL_BYTECODE_VERSION
 
@@ -374,6 +377,125 @@ class TestHogFunctionValidation(ClickhouseTestMixin, APIBaseTest, QueryMatchingT
         assert validated["A"].get("bytecode") is None
         assert validated["A"].get("transpiled") is None
         assert validated["A"].get("value") == "{inputs.X} + A"
+
+    @parameterized.expand(
+        [
+            ("string_input", "string", "Hey {{ person.properties.name }}"),
+            (
+                "email_object_input",
+                "native_email",
+                {
+                    "to": "{{ person.properties.email }}",
+                    "from": "hi@posthog.com",
+                    "subject": "Hello",
+                    "html": "<p>hi</p>",
+                },
+            ),
+        ]
+    )
+    def test_liquid_syntax_in_hog_templated_input_names_the_expected_syntax(self, _name, item_type, value):
+        # Liquid-style {{ ... }} in a hog-templated field is the dominant authoring mistake
+        # behind template errors, and the transpiler's own message ("Placeholders are not
+        # allowed in this context") never names it - agents bisect blind on it. The error
+        # must state the expected single-curly syntax and call out Liquid.
+        inputs_schema = [{"key": "field", "type": item_type, "required": True}]
+        inputs = {"field": {"value": value}}
+
+        with pytest.raises(ValidationError) as ctx:
+            validate_inputs(inputs_schema, inputs)
+        message = str(ctx.value.detail)
+        assert "{person.properties.email}" in message
+        assert "Liquid" in message
+
+    def test_liquid_templated_input_still_accepts_liquid_syntax(self):
+        inputs_schema = [{"key": "field", "type": "string", "required": True, "templating": "liquid"}]
+        inputs = {"field": {"value": "Hey {{ person.properties.name }}"}}
+
+        validated = validate_inputs(inputs_schema, inputs)
+        assert validated["field"]["value"] == "Hey {{ person.properties.name }}"
+
+    @parameterized.expand([("email",), ("native_email",)])
+    def test_html_only_email_value_gets_design_wrapping_the_html(self, item_type):
+        inputs_schema = [{"key": "email", "type": item_type, "required": True, "templating": "liquid"}]
+        html = "<html><body><p>Hello</p></body></html>"
+        value = {"from": "hi@posthog.com", "to": "a@b.com", "subject": "hi", "html": html, "text": "Hello"}
+
+        validated = validate_inputs(inputs_schema, {"email": {"value": value}})
+
+        result = validated["email"]["value"]
+        assert result["html"] == html
+        contents = result["design"]["body"]["rows"][0]["columns"][0]["contents"]
+        assert len(contents) == 1
+        assert contents[0]["type"] == "html"
+        assert contents[0]["values"]["html"] == html
+        assert validate_design(result["design"]) == []
+
+    @parameterized.expand(
+        [
+            (
+                "existing_design_untouched",
+                {
+                    "from": "hi@posthog.com",
+                    "to": "a@b.com",
+                    "subject": "hi",
+                    "html": "<p>hi</p>",
+                    "design": {"body": {"rows": []}},
+                },
+                {"body": {"rows": []}},
+            ),
+            (
+                "text_only_email_gets_no_design",
+                {"from": "hi@posthog.com", "to": "a@b.com", "subject": "hi", "text": "hi"},
+                None,
+            ),
+        ]
+    )
+    def test_email_value_wrap_no_ops(self, _name, value, expected_design):
+        inputs_schema = [{"key": "email", "type": "native_email", "required": True, "templating": "liquid"}]
+
+        validated = validate_inputs(inputs_schema, {"email": {"value": value}})
+
+        assert validated["email"]["value"].get("design") == expected_design
+
+    def test_html_only_email_wrap_is_deterministic(self):
+        # Callers resend the same html-only value on every save; a fresh design each time would
+        # register as a content change in revision and draft-diff equality checks.
+        inputs_schema = [{"key": "email", "type": "native_email", "required": True, "templating": "liquid"}]
+        value = {"from": "hi@posthog.com", "to": "a@b.com", "subject": "hi", "html": "<p>Hello</p>"}
+
+        first = validate_inputs(inputs_schema, {"email": {"value": dict(value)}})["email"]["value"]["design"]
+        second = validate_inputs(inputs_schema, {"email": {"value": dict(value)}})["email"]["value"]["design"]
+
+        assert first == second
+
+    @parameterized.expand(
+        [
+            (
+                "single_missing_key_keeps_the_familiar_message",
+                {"to": "a@b.com", "subject": "hi", "html": "<p>hi</p>"},
+                "Missing value for 'from'.",
+            ),
+            (
+                "multiple_missing_keys_reported_at_once",
+                {"to": "a@b.com"},
+                "Missing values for 'from', 'subject', either 'text' or 'html'.",
+            ),
+            (
+                "body_alternatives_named_together",
+                {"from": "hi@posthog.com", "to": "a@b.com", "subject": "hi"},
+                "Missing value for either 'text' or 'html'.",
+            ),
+        ]
+    )
+    def test_email_input_reports_all_missing_keys_in_one_error(self, _name, value, expected):
+        # Email objects are typically authored programmatically; raising on the first absent
+        # key forces a validate round trip per key, so every missing key is named at once.
+        inputs_schema = [{"key": "email", "type": "native_email", "required": True}]
+        inputs = {"email": {"value": value}}
+
+        with pytest.raises(ValidationError) as ctx:
+            validate_inputs(inputs_schema, inputs)
+        assert expected in str(ctx.value.detail)
 
     @parameterized.expand(
         [

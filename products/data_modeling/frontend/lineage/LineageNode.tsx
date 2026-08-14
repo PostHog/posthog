@@ -33,8 +33,6 @@ export type LineageNodeShape = Pick<
 export interface LineageNodeState {
     isCurrent?: boolean
     isRunning?: boolean
-    /** Dimmed when a search is active and this node is not a match */
-    isDimmed?: boolean
     /** Ringed when a search or type filter highlights this node */
     isHighlighted?: boolean
 }
@@ -85,6 +83,7 @@ function StatusDot({ status }: { status?: DataModelingJobStatus }): JSX.Element 
                     status === 'Running' && 'bg-warning',
                     status === 'Failed' && 'bg-danger',
                     status === 'Cancelled' && 'bg-warning',
+                    status === 'Skipped' && 'bg-muted',
                     !status && 'bg-surface-primary'
                 )}
             />
@@ -194,7 +193,6 @@ export function LineageNode({ data }: { data: LineageNodeData }): JSX.Element {
             )}
             // eslint-disable-next-line react/forbid-dom-props
             style={{
-                opacity: state.isDimmed ? 0.5 : 1,
                 borderColor: state.isCurrent ? color : undefined,
             }}
             onMouseEnter={handleMouseEnter}

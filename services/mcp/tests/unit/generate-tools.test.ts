@@ -360,6 +360,52 @@ describe('generateToolCode with input_schema', () => {
         expect(result.code).toMatchSnapshot()
     })
 
+    it('applies list enrichment without inserting a path slash before a query-string prefix', () => {
+        const config: ToolConfig = {
+            operation: 'things_list',
+            enabled: true,
+            input_schema: 'ThingListSchema',
+            list: true,
+            enrich_url: '?tab=alerts&alert_id={id}',
+        }
+        const resolved = makeResolved({ method: 'GET' })
+
+        const result = generateToolCode(
+            'things-list',
+            config,
+            resolved,
+            defaultCategory,
+            makeSpec(),
+            new Set<string>(),
+            stubGetQuerySchema
+        )
+
+        expect(result.code).toContain('`/things?tab=alerts&alert_id=${item.id}`')
+    })
+
+    it('applies list enrichment without inserting a path slash before a fragment prefix', () => {
+        const config: ToolConfig = {
+            operation: 'things_list',
+            enabled: true,
+            input_schema: 'ThingListSchema',
+            list: true,
+            enrich_url: '#tab-{id}',
+        }
+        const resolved = makeResolved({ method: 'GET' })
+
+        const result = generateToolCode(
+            'things-list',
+            config,
+            resolved,
+            defaultCategory,
+            makeSpec(),
+            new Set<string>(),
+            stubGetQuerySchema
+        )
+
+        expect(result.code).toContain('`/things#tab-${item.id}`')
+    })
+
     it('extends the custom schema with a selectable `fields` param and narrows the response', () => {
         const config: ToolConfig = {
             operation: 'things_list',
@@ -987,6 +1033,91 @@ describe('rename_params', () => {
         expect(result.code).toContain('params.property_key !== undefined')
         expect(result.code).toContain('body["$unset"] = params.property_key')
         expect(result.code).not.toContain('params.$unset')
+    })
+
+    it('keeps the path param when the renamed body field shares its name', () => {
+        // The body part is merged over the path part, so a writable body field that shares a
+        // path param's name collapses into one input: the URL and the new value become the same
+        // string, and the resource can never be renamed. Renaming must drop only the body copy.
+        const config: ToolConfig = {
+            operation: 'things_partial_update',
+            enabled: true,
+            rename_params: { name: 'new_name' },
+        }
+        const resolved = makeResolved({
+            method: 'PATCH',
+            path: '/api/projects/{project_id}/things/{name}/',
+            operation: {
+                operationId: 'things_partial_update',
+                parameters: [{ name: 'name', in: 'path', required: true, schema: { type: 'string' } }],
+                requestBody: {
+                    content: {
+                        'application/json': {
+                            schema: {
+                                properties: {
+                                    name: { type: 'string' },
+                                },
+                            },
+                        },
+                    },
+                },
+            },
+        })
+
+        const composed = composeToolSchema(config, resolved, makeSpec(), stubGetQuerySchema)
+        expect(composed.schemaExpr).toContain("ThingsPartialUpdateBody.omit({ 'name': true })")
+        expect(composed.schemaExpr).not.toContain("ThingsPartialUpdateParams.omit({ 'name': true })")
+        expect(composed.renamedFields).toEqual({ new_name: 'name' })
+
+        const generated = generateToolCode(
+            'things-partial-update',
+            config,
+            resolved,
+            defaultCategory,
+            makeSpec(),
+            new Set<string>(),
+            stubGetQuerySchema
+        )
+        expect(generated.code).toContain('body["name"] = params.new_name')
+        expect(generated.code).toContain('String(params.name)')
+    })
+})
+
+describe('param_overrides aliases', () => {
+    it('wraps the composed schema with normalizeParamAliases and imports the helper', () => {
+        const config: ToolConfig = {
+            operation: 'things_retrieve',
+            enabled: true,
+            param_overrides: {
+                id: { aliases: ['thingId', 'thing_id'] },
+            },
+        }
+        const resolved = makeResolved({
+            method: 'GET',
+            path: '/api/projects/{project_id}/things/{id}/',
+            operation: {
+                operationId: 'things_retrieve',
+                parameters: [
+                    { name: 'project_id', in: 'path', required: true, schema: { type: 'string' } },
+                    { name: 'id', in: 'path', required: true, schema: { type: 'integer' } },
+                ],
+            },
+        })
+
+        const result = generateToolCode(
+            'things-get',
+            config,
+            resolved,
+            defaultCategory,
+            makeSpec(),
+            new Set<string>(),
+            stubGetQuerySchema
+        )
+
+        expect(result.castHelperImports.has('normalizeParamAliases')).toBe(true)
+        expect(result.code).toContain(
+            "const ThingsGetSchema = z.preprocess(normalizeParamAliases({ id: ['thingId', 'thing_id'] }), ThingsRetrieveParams.omit({ project_id: true }))"
+        )
     })
 })
 
@@ -1966,6 +2097,32 @@ describe('generateToolCode with confirmed_action', () => {
         expect(result.code).not.toContain(
             'const params = __guard.verifiedArgs\n        const projectId = await context.stateManager.getProjectId()'
         )
+    })
+
+    it('resolves an omitted state-fallback id and signs it into the confirmed args (cross-org replay guard)', () => {
+        // When the target id is optional with a state fallback, prepare must
+        // resolve the active org/project to a concrete value and sign it, so a
+        // switch-organization between prepare and execute can't retarget the
+        // confirmed action at a different entity where the user is also an admin.
+        const config: ToolConfig = {
+            ...makeConfirmedConfig(),
+            param_overrides: {
+                id: { optional: true, fallback: 'orgId', description: 'Organization ID.' },
+            },
+        }
+        const result = generateToolCode(
+            'organization-enforce-2fa-update',
+            config,
+            makePatchResolved(),
+            defaultCategory,
+            makeSpec(),
+            new Set<string>(),
+            stubGetQuerySchema
+        )
+        expect(result.code).toContain('const id = params.id ?? await context.stateManager.getOrgID()')
+        expect(result.code).toContain('args: { ...params, id }')
+        // The unresolved args object must not be what gets signed.
+        expect(result.code).not.toContain('args: params,')
     })
 })
 

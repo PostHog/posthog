@@ -129,6 +129,8 @@ describe('InsightDisplayConfig', () => {
                         'Color customization by',
                         'Y-axis unit',
                         'Y-axis scale',
+                        'Y-axis range',
+                        'Line style',
                         'Statistical analysis',
                         'Axis labels',
                     ],
@@ -162,7 +164,15 @@ describe('InsightDisplayConfig', () => {
                 'trends area graph',
                 makeTrendsQuery(ChartDisplayType.ActionsAreaGraph),
                 {
-                    sections: ['Display', 'Y-axis unit', 'Y-axis scale', 'Statistical analysis', 'Axis labels'],
+                    sections: [
+                        'Display',
+                        'Y-axis unit',
+                        'Y-axis scale',
+                        'Y-axis range',
+                        'Line style',
+                        'Statistical analysis',
+                        'Axis labels',
+                    ],
                     displayItems: [
                         'Show values on series',
                         'Show as % of total',
@@ -187,6 +197,7 @@ describe('InsightDisplayConfig', () => {
                     displayItems: [
                         'Show values on series',
                         'Show as % of total',
+                        'Show names on slices',
                         'Show total below chart',
                         // In-chart legend toggle + position select ("Bottom" is the prospective default)
                         'Show legendBottom',
@@ -222,7 +233,7 @@ describe('InsightDisplayConfig', () => {
                 'retention',
                 makeRetentionQuery(),
                 {
-                    sections: ['Display', 'On dashboards', 'Cohort labels start at'],
+                    sections: ['Display', 'Line style', 'On dashboards', 'Cohort labels start at'],
                     displayItems: ['Show trend lines'],
                 },
             ],
@@ -230,7 +241,7 @@ describe('InsightDisplayConfig', () => {
                 'stickiness',
                 makeStickinessQuery(),
                 {
-                    sections: ['Display'],
+                    sections: ['Display', 'Line style'],
                     displayItems: ['Show values on series', 'Show multiple Y-axes', 'Show legendBottom'],
                 },
             ],

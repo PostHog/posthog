@@ -1,4 +1,4 @@
-import { NodeKind } from '~/queries/schema/schema-general'
+import { AccountsTableQuery, NodeKind } from '~/queries/schema/schema-general'
 
 import { QueryFeature, getQueryFeatures } from './queryFeatures'
 
@@ -29,6 +29,31 @@ describe('getQueryFeatures', () => {
             if (features.has(QueryFeature.columnConfigurator)) {
                 expect(features.has(QueryFeature.displayResponseError)).toBe(true)
             }
+        })
+    })
+
+    describe('resultIsArrayOfArrays', () => {
+        it('uses keyed rendering for Accounts table rows', () => {
+            const query: AccountsTableQuery = { kind: NodeKind.AccountsTableQuery, columns: [], filters: [] }
+            const features = getQueryFeatures(query)
+
+            expect(features.has(QueryFeature.resultIsArrayOfArrays)).toBe(false)
+        })
+    })
+
+    describe('testAccountFilters', () => {
+        // The persons list is a source-less ActorsQuery and must expose the toggle. An ActorsQuery
+        // with an insight source uses that source's own toggle instead, so it must not.
+        it.each([
+            ['source-less ActorsQuery (persons list)', { kind: NodeKind.ActorsQuery }, true],
+            [
+                'ActorsQuery with an insight source',
+                { kind: NodeKind.ActorsQuery, source: { kind: NodeKind.InsightActorsQuery } },
+                false,
+            ],
+        ])('%s testAccountFilters enabled = %s', (_, query, expected) => {
+            const features = getQueryFeatures(query as any)
+            expect(features.has(QueryFeature.testAccountFilters)).toBe(expected)
         })
     })
 })

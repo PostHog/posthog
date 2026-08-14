@@ -3,7 +3,11 @@ from unittest import mock
 
 from posthog.schema import ReleaseStatus, SourceFieldInputConfig
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.source import PostgresSource
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import error_message_matches
+from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.source import (
+    _HOST_UNREACHABLE_ERROR,
+    PostgresSource,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.supabase.source import SupabaseSource
 
 
@@ -47,17 +51,36 @@ def test_supabase_host_field_points_at_the_pooler():
         "  db.abcdefgh.supabase.co  ",
     ],
 )
-def test_direct_host_failure_surfaces_ipv4_addon_hint(host):
+def test_direct_host_unreachable_surfaces_ipv4_addon_hint(host):
     # The direct host is the only one that supports logical replication (CDC), so we let the
-    # connection attempt run; on failure we explain the IPv4 add-on requirement.
+    # connection attempt run; an unreachable host is the IPv6 case, so explain the IPv4 add-on.
     config = mock.MagicMock(host=host)
 
-    with mock.patch.object(PostgresSource, "validate_credentials", return_value=(False, "could not connect")):
+    with mock.patch.object(PostgresSource, "validate_credentials", return_value=(False, _HOST_UNREACHABLE_ERROR)):
         success, error = SupabaseSource().validate_credentials(config, team_id=1)
 
     assert success is False
     assert error is not None
     assert "ipv4 add-on" in error.lower()
+
+
+@pytest.mark.parametrize(
+    "postgres_error",
+    [
+        "Invalid user or password",
+        "Database does not exist",
+    ],
+)
+def test_direct_host_non_reachability_error_is_not_masked(postgres_error):
+    # A clear failure like a bad password must reach the user unchanged — overwriting it with the
+    # IPv4 hint would tell someone whose add-on is already enabled to fix a non-existent problem.
+    config = mock.MagicMock(host="db.abcdefghijklmnop.supabase.co")
+
+    with mock.patch.object(PostgresSource, "validate_credentials", return_value=(False, postgres_error)):
+        success, error = SupabaseSource().validate_credentials(config, team_id=1)
+
+    assert success is False
+    assert error == postgres_error
 
 
 @pytest.mark.parametrize(
@@ -122,3 +145,32 @@ def test_non_direct_host_failure_uses_postgres_error(host):
 
     assert success is False
     assert error == "postgres error"
+
+
+def _resolve_friendly_error(source: SupabaseSource, raw_error: str) -> str | None:
+    # Mirrors external_data_job.update_external_data_job_model: first matching key wins.
+    for pattern, friendly in source.get_non_retryable_errors().items():
+        if error_message_matches(raw_error, [pattern]):
+            return friendly
+    return None
+
+
+@pytest.mark.parametrize(
+    "raw_error,expect_message",
+    [
+        # Retention dropped the dated realtime.messages partition — actionable message, not the
+        # inherited generic "does not exist" (which resolves to None / the raw driver string).
+        ('relation "realtime.messages_2020_01_01" does not exist', True),
+        # A regular missing table must still fall through to the generic (None) mapping, so the
+        # realtime key stays specific and doesn't swallow every "does not exist".
+        ('relation "public.orders" does not exist', False),
+    ],
+)
+def test_expired_realtime_partition_gets_actionable_message(raw_error, expect_message):
+    friendly = _resolve_friendly_error(SupabaseSource(), raw_error)
+
+    if expect_message:
+        assert friendly is not None
+        assert "realtime.messages" in friendly
+    else:
+        assert friendly is None

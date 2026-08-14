@@ -1711,6 +1711,7 @@ export interface AssistantInsightVizNode {
  * - `ActionsStackedBar` — bar chart stacked by a series breakdown column.
  * - `ActionsAreaGraph` — area chart. Requires at least two columns, including one numeric column.
  * - `TwoDimensionalHeatmap` — 2D heatmap. Requires an X column, a Y column, and a numeric value column.
+ * - `ScatterPlot` — scatter plot of one measure against another. Requires two numeric columns, one per axis.
  */
 export type AssistantDataVisualizationDisplayType =
     | ChartDisplayType.ActionsTable
@@ -1721,6 +1722,7 @@ export type AssistantDataVisualizationDisplayType =
     | ChartDisplayType.ActionsStackedBar
     | ChartDisplayType.ActionsAreaGraph
     | ChartDisplayType.TwoDimensionalHeatmap
+    | ChartDisplayType.ScatterPlot
 
 export interface AssistantDataVisualizationAxisDisplaySettings {
     /** Which Y axis this numeric series should use. Use `right` for a secondary Y axis. */
@@ -1816,6 +1818,8 @@ export interface AssistantDataVisualizationChartSettings {
     showValuesOnSeries?: boolean
     /** Replace null aggregation results with zero. */
     showNullsAsZero?: boolean
+    /** Show a total summing all Y series. Applies to line, bar, and area charts. */
+    showTotalRow?: boolean
 }
 
 export interface AssistantDataVisualizationTableSettings {
@@ -1823,8 +1827,6 @@ export interface AssistantDataVisualizationTableSettings {
     columns?: AssistantDataVisualizationAxis[]
     /** Column names to pin to the left of the table. */
     pinnedColumns?: string[]
-    /** Show a total row at the bottom of the table. */
-    showTotalRow?: boolean
     /** Transpose rows and columns. */
     transpose?: boolean
 }

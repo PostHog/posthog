@@ -31,7 +31,8 @@ EVAL_ACTIVITY_TYPES = {
     "emit_evaluation_event_activity",
     "emit_internal_telemetry_activity",
     "update_key_state_activity",
-    "emit_eval_signal_activity",
+    # check_trace_settled_activity is deliberately excluded: its expected trace_not_settled
+    # failures would otherwise count as activity errors.
 }
 
 EVAL_WORKFLOW_TYPES = {
@@ -91,7 +92,12 @@ def increment_errors(error_type: str, *, provider: str | None = None) -> None:
 
 
 def increment_user_errors(error_type: str, *, provider: str | None = None) -> None:
-    """Track terminal user-actionable eval errors separately from system failures."""
+    """Track user-actionable eval errors separately from system failures.
+
+    Filter on `error_type` rather than alerting on this counter's total: most values are terminal
+    errors that disable the evaluation and so stay rare, but `hog_input_error` is per-unit and can
+    outnumber them by orders of magnitude without anything being broken.
+    """
     if not activity.in_activity() and not workflow.in_workflow():
         return
     attrs: dict[str, str | int | float | bool] = {"error_type": error_type}
@@ -102,10 +108,28 @@ def increment_user_errors(error_type: str, *, provider: str | None = None) -> No
     counter.add(1)
 
 
-def increment_eval_signal_outcome(outcome: str) -> None:
-    """Track eval signal activity outcomes (skipped_config_disabled, skipped_org_not_approved, skipped_low_significance, emitted, summarization_failed)."""
-    meter = get_metric_meter({"outcome": outcome})
-    counter = meter.create_counter("llma_eval_signal_outcome", "Eval signal activity outcome distribution")
+def increment_payload_budget(outcome: str, target: str) -> None:
+    """Track payload-budget outcomes per target.
+
+    `over_budget_not_enforced` is the trace signal: it says the unit would have been skipped had
+    trace been enforcing, which is the data needed before it can be.
+    """
+    if not activity.in_activity() and not workflow.in_workflow():
+        return
+    meter = get_metric_meter({"outcome": outcome, "target": target})
+    counter = meter.create_counter("llma_eval_payload_budget", "Evaluation payload budget outcomes")
+    counter.add(1)
+
+
+def increment_settle_poll(outcome: str, target: str = "trace") -> None:
+    """Track settle-poll activity outcomes (not_visible/not_settled/settled) per target.
+
+    Safe to call outside Temporal context (no-ops), matching `increment_errors`.
+    """
+    if not activity.in_activity() and not workflow.in_workflow():
+        return
+    meter = get_metric_meter({"outcome": outcome, "target": target})
+    counter = meter.create_counter("llma_eval_settle_polls", "Settle poll outcomes")
     counter.add(1)
 
 
@@ -117,17 +141,19 @@ def increment_tokens(token_type: str, count: int) -> None:
 
 
 def increment_emit_event_outcome(outcome: str) -> None:
-    """Track $ai_evaluation event emission outcomes (success/failed).
+    """Track $ai_evaluation event emission outcomes (success/failed/dropped_billing_limited).
 
     Distinguishes Activity 4 failures from other workflow failures so we can
-    measure and alert on dropped eval events specifically.
+    measure and alert on dropped eval events specifically. `dropped_billing_limited`
+    is an expected billing condition, not a system failure, so it's kept out of
+    the `failed` bucket the error-rate alert watches.
     """
     if not activity.in_activity() and not workflow.in_workflow():
         return
     meter = get_metric_meter({"outcome": outcome})
     counter = meter.create_counter(
         "llma_eval_emit_event_outcome",
-        "Outcome of $ai_evaluation event emission (success/failed)",
+        "Outcome of $ai_evaluation event emission (success/failed/dropped_billing_limited)",
     )
     counter.add(1)
 

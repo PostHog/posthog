@@ -2,6 +2,18 @@ import { z } from 'zod'
 
 import { CyclotronInputMappingSchema, CyclotronInputSchema, CyclotronJobInputSchemaTypeSchema } from './cyclotron'
 
+const HogFlowOutputVariableSchema = z.object({
+    key: z.string(),
+    result_path: z.string().optional().nullable(), // The path within the action result to store, e.g. 'response.user.id'
+    spread: z.boolean().optional().nullable(), // When true, spread object result into multiple variables as {key}_{property}
+    label: z.string().optional().nullable(), // Display label for the auto-created workflow variable
+})
+
+// Rows written before the API coerced bare key strings — normalize at read so one legacy value
+// can't make the whole flow row unparseable. The annotated return type keeps the union's output
+// type identical to the object schema's, so downstream field access still narrows.
+const legacyStringOutputVariable = z.string().transform((key): z.infer<typeof HogFlowOutputVariableSchema> => ({ key }))
+
 const _commonActionFields = {
     id: z.string(),
     name: z.string(),
@@ -12,20 +24,9 @@ const _commonActionFields = {
     filters: z.any(), // TODO: Correct to the right type
     output_variable: z // The Hogflow-level variable to store the output of this action into
         .union([
-            z.object({
-                key: z.string(),
-                result_path: z.string().optional().nullable(), // The path within the action result to store, e.g. 'response.user.id'
-                spread: z.boolean().optional().nullable(), // When true, spread object result into multiple variables as {key}_{property}
-                label: z.string().optional().nullable(), // Display label for the auto-created workflow variable
-            }),
-            z.array(
-                z.object({
-                    key: z.string(),
-                    result_path: z.string().optional().nullable(),
-                    spread: z.boolean().optional().nullable(),
-                    label: z.string().optional().nullable(),
-                })
-            ),
+            HogFlowOutputVariableSchema,
+            z.array(z.union([HogFlowOutputVariableSchema, legacyStringOutputVariable])),
+            legacyStringOutputVariable,
         ])
         .optional()
         .nullable(),
@@ -64,7 +65,13 @@ const HogFlowTriggerSchema = z.discriminatedUnion('type', [
     z.object({
         type: z.literal('batch'),
         filters: z.object({
+            // 'accounts' fans out one run per customer analytics account instead of per person
+            audience_type: z.enum(['persons', 'accounts']).optional(),
             properties: z.array(z.any()),
+            filter_test_accounts: z.boolean().optional(),
+            tag_names: z.array(z.string()).optional(),
+            assigned_to_user_ids: z.array(z.number()).optional(),
+            all_roles_unassigned: z.boolean().optional(),
         }),
     }),
     z.object({
@@ -175,6 +182,9 @@ export const HogFlowActionSchema = z.discriminatedUnion('type', [
         config: z.object({
             message_category_id: z.string().optional(),
             message_category_type: z.enum(['marketing', 'transactional']).optional(),
+            // When false, no open pixel is injected, links are not rewritten, and the send uses the
+            // untracked SES configuration set. Absent/true means tracked (existing behavior).
+            tracking_enabled: z.boolean().optional(),
             template_uuid: z.string().optional(), // May be used later to specify a specific template version
             template_id: z.literal('template-email'),
             inputs: z.record(z.string(), CyclotronInputSchema),
@@ -273,6 +283,10 @@ export const HogFlowSchema = z.object({
         'exit_only_at_end',
     ]),
     actions: z.array(HogFlowActionSchema),
+    // Secret function inputs, split out of `actions` and stored Fernet-encrypted at rest, keyed by
+    // action id then input key. Decrypted by the manager and merged back into `action.config.inputs`
+    // before execution; never present on the plaintext `actions` blob.
+    encrypted_inputs: z.record(z.string(), z.record(z.string(), CyclotronInputSchema)).optional().nullable(),
     abort_action: z.string().optional(),
     edges: z.array(HogFlowEdgeSchema),
     variables: z.array(CyclotronJobInputSchemaTypeSchema).optional().nullable(),

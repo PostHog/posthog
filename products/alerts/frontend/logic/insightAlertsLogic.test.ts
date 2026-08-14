@@ -7,7 +7,7 @@ import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 
 import { NodeKind } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
-import { ChartDisplayType, InsightLogicProps, InsightShortId } from '~/types'
+import { ChartDisplayType, HogFunctionType, InsightLogicProps, InsightShortId } from '~/types'
 
 import type { AlertType } from '../types'
 import {
@@ -44,14 +44,17 @@ const METRICS_QUERY = {
 
 describe('insightAlertsLogic', () => {
     let listSpy: jest.SpyInstance
+    let hogFunctionsListSpy: jest.SpyInstance
 
     beforeEach(() => {
         initKeaTests()
         listSpy = jest.spyOn(api.alerts, 'list').mockResolvedValue({ results: [], count: 0 })
+        hogFunctionsListSpy = jest.spyOn(api.hogFunctions, 'list').mockResolvedValue({ results: [], count: 0 })
     })
 
     afterEach(() => {
         listSpy.mockRestore()
+        hogFunctionsListSpy.mockRestore()
     })
 
     function mountInsightStack(insightLogicProps: InsightLogicProps): void {
@@ -60,7 +63,8 @@ describe('insightAlertsLogic', () => {
         insightVizDataLogic(insightLogicProps).mount()
     }
 
-    it('does not hydrate from empty insight.alerts or fetch on mount when deferInitialAlertsLoad is true', async () => {
+    it('hydrates inline insight.alerts on a deferred mount without alerts or destination-count requests', async () => {
+        const inlineAlerts = [{ id: 'alert-a', name: 'Inline' }] as AlertType[]
         const insightLogicProps: InsightLogicProps = {
             dashboardItemId: Insight42,
             dashboardId: 1,
@@ -68,7 +72,31 @@ describe('insightAlertsLogic', () => {
                 ...createEmptyInsight(Insight42),
                 id: 42,
                 query: API_QUERY,
-                alerts: [],
+                alerts: inlineAlerts,
+            },
+        }
+        mountInsightStack(insightLogicProps)
+
+        const alertsLogic = insightAlertsLogic({
+            insightId: 42,
+            insightLogicProps,
+            deferInitialAlertsLoad: true,
+        })
+        alertsLogic.mount()
+
+        await expectLogic(alertsLogic).toFinishAllListeners().toMatchValues({ alerts: inlineAlerts })
+        expect(listSpy).not.toHaveBeenCalled()
+        expect(hogFunctionsListSpy).not.toHaveBeenCalled()
+    })
+
+    it('does not fetch on a deferred mount when the cached insight has no alerts field', async () => {
+        const insightLogicProps: InsightLogicProps = {
+            dashboardItemId: Insight42,
+            dashboardId: 1,
+            cachedInsight: {
+                ...createEmptyInsight(Insight42),
+                id: 42,
+                query: API_QUERY,
             },
         }
         mountInsightStack(insightLogicProps)
@@ -217,6 +245,53 @@ describe('insightAlertsLogic', () => {
         }).toMatchValues({
             alerts: [expect.objectContaining({ id: 'keep' })],
         })
+    })
+
+    it('loads destination counts for all alerts in one request', async () => {
+        const insightLogicProps: InsightLogicProps = {
+            dashboardItemId: Insight42,
+            dashboardId: 1,
+            cachedInsight: { ...createEmptyInsight(Insight42), id: 42, query: API_QUERY, alerts: [] },
+        }
+        mountInsightStack(insightLogicProps)
+        hogFunctionsListSpy.mockResolvedValue({
+            count: 3,
+            results: [
+                { filters: { properties: [{ key: 'alert_id', value: 'alert-a' }] } },
+                { filters: { properties: [{ key: 'alert_id', value: 'alert-a' }] } },
+                { filters: { properties: [{ key: 'alert_id', value: 'alert-b' }] } },
+            ] as HogFunctionType[],
+        })
+        const alertsLogic = insightAlertsLogic({ insightId: 42, insightLogicProps, deferInitialAlertsLoad: true })
+        alertsLogic.mount()
+        const alerts = [{ id: 'alert-a' }, { id: 'alert-b' }] as AlertType[]
+
+        await expectLogic(alertsLogic, () => alertsLogic.actions.loadAlertsSuccess(alerts))
+            .toFinishAllListeners()
+            .toMatchValues({ alertDestinationCounts: { 'alert-a': 2, 'alert-b': 1 } })
+
+        expect(hogFunctionsListSpy).toHaveBeenCalledTimes(1)
+    })
+
+    it('refreshes destination counts after an alert is saved', async () => {
+        const insightLogicProps: InsightLogicProps = {
+            dashboardItemId: Insight42,
+            dashboardId: 1,
+            cachedInsight: { ...createEmptyInsight(Insight42), id: 42, query: API_QUERY, alerts: [] },
+        }
+        mountInsightStack(insightLogicProps)
+        hogFunctionsListSpy.mockResolvedValue({
+            count: 1,
+            results: [{ filters: { properties: [{ key: 'alert_id', value: 'alert-a' }] } }] as HogFunctionType[],
+        })
+        const alertsLogic = insightAlertsLogic({ insightId: 42, insightLogicProps, deferInitialAlertsLoad: true })
+        alertsLogic.mount()
+
+        await expectLogic(alertsLogic, () => alertsLogic.actions.upsertAlert({ id: 'alert-a' } as AlertType))
+            .toFinishAllListeners()
+            .toMatchValues({ alertDestinationCounts: { 'alert-a': 1 } })
+
+        expect(hogFunctionsListSpy).toHaveBeenCalledTimes(1)
     })
 })
 

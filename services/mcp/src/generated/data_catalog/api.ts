@@ -3,7 +3,7 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 10 enabled ops
+ * PostHog API - MCP 11 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
@@ -15,9 +15,11 @@ export const DataCatalogCertificationsCreateParams = /* @__PURE__ */ zod.object(
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
+
+export const dataCatalogCertificationsCreateBodyProposedStatusDefault = `certified`
 
 export const DataCatalogCertificationsCreateBody = /* @__PURE__ */ zod
     .object({
@@ -26,6 +28,13 @@ export const DataCatalogCertificationsCreateBody = /* @__PURE__ */ zod
         table_name: zod.string().optional().describe('Table name; 409 with candidates if ambiguous.'),
         view_name: zod.string().optional().describe('View name; 409 with candidates if ambiguous.'),
         notes: zod.string().optional().describe('Why this mark exists.'),
+        proposed_status: zod
+            .enum(['certified', 'deprecated'])
+            .describe('\* `certified` - certified\n\* `deprecated` - deprecated')
+            .default(dataCatalogCertificationsCreateBodyProposedStatusDefault)
+            .describe(
+                "Intent of the proposal: 'certified' to propose trusting this source, 'deprecated' to propose avoiding it (e.g. a stale or wrong source).\n\n\* `certified` - certified\n\* `deprecated` - deprecated"
+            ),
     })
     .describe('Input for proposing a certification: address the target by id or (convenience) by name.')
 
@@ -37,7 +46,7 @@ export const DataCatalogCertificationsCertifyCreateParams = /* @__PURE__ */ zod.
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
 
@@ -49,7 +58,7 @@ export const DataCatalogCertificationsDeprecateCreateParams = /* @__PURE__ */ zo
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
 
@@ -60,14 +69,16 @@ export const DataCatalogMetricsCreateParams = /* @__PURE__ */ zod.object({
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
 
 export const dataCatalogMetricsCreateBodyNameMax = 128
 
-export const dataCatalogMetricsCreateBodyNameRegExp = new RegExp('^[A-Za-z][A-Za-z0-9_]*$')
+export const dataCatalogMetricsCreateBodyNameRegExp = new RegExp('^[A-Za-z][A-Za-z0-9_]\*$')
 export const dataCatalogMetricsCreateBodyDisplayNameMax = 255
+
+export const dataCatalogMetricsCreateBodyDescriptionMax = 1000
 
 export const dataCatalogMetricsCreateBodyUnitMax = 64
 
@@ -83,13 +94,20 @@ export const DataCatalogMetricsCreateBody = /* @__PURE__ */ zod.object({
         .string()
         .max(dataCatalogMetricsCreateBodyNameMax)
         .regex(dataCatalogMetricsCreateBodyNameRegExp)
-        .describe('Identifier-safe run handle, unique per team and reserved forever. Write-once.'),
+        .describe(
+            "Identifier-safe run handle, unique among the team's live metrics. Renaming or deleting a metric frees its name for reuse, and anything referencing the old name (SQL over information_schema.metrics, run URLs, links) stops resolving."
+        ),
     display_name: zod
         .string()
         .max(dataCatalogMetricsCreateBodyDisplayNameMax)
         .optional()
         .describe('Human-friendly label. Mutable, unlike name.'),
-    description: zod.string().describe('What the metric means and how to interpret it.'),
+    description: zod
+        .string()
+        .max(dataCatalogMetricsCreateBodyDescriptionMax)
+        .describe(
+            "What the metric means and what it serves, in 1-3 short sentences: the business meaning plus any load-bearing inclusions\/exclusions or grain. Never narrate or restate the query - the definition carries the mechanics; put rationale for query choices in 'reasoning'."
+        ),
     unit: zod
         .string()
         .max(dataCatalogMetricsCreateBodyUnitMax)
@@ -121,21 +139,23 @@ export const DataCatalogMetricsCreateBody = /* @__PURE__ */ zod.object({
 })
 
 /**
- * CRUD for catalog metrics, addressed by their reserved ``name`` (e.g. /metrics/mrr/).
+ * CRUD for catalog metrics, addressed by their ``name`` (e.g. /metrics/mrr/).
  */
 export const DataCatalogMetricsPartialUpdateParams = /* @__PURE__ */ zod.object({
     name: zod.string(),
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
 
 export const dataCatalogMetricsPartialUpdateBodyNameMax = 128
 
-export const dataCatalogMetricsPartialUpdateBodyNameRegExp = new RegExp('^[A-Za-z][A-Za-z0-9_]*$')
+export const dataCatalogMetricsPartialUpdateBodyNameRegExp = new RegExp('^[A-Za-z][A-Za-z0-9_]\*$')
 export const dataCatalogMetricsPartialUpdateBodyDisplayNameMax = 255
+
+export const dataCatalogMetricsPartialUpdateBodyDescriptionMax = 1000
 
 export const dataCatalogMetricsPartialUpdateBodyUnitMax = 64
 
@@ -152,13 +172,21 @@ export const DataCatalogMetricsPartialUpdateBody = /* @__PURE__ */ zod.object({
         .max(dataCatalogMetricsPartialUpdateBodyNameMax)
         .regex(dataCatalogMetricsPartialUpdateBodyNameRegExp)
         .optional()
-        .describe('Identifier-safe run handle, unique per team and reserved forever. Write-once.'),
+        .describe(
+            "Identifier-safe run handle, unique among the team's live metrics. Renaming or deleting a metric frees its name for reuse, and anything referencing the old name (SQL over information_schema.metrics, run URLs, links) stops resolving."
+        ),
     display_name: zod
         .string()
         .max(dataCatalogMetricsPartialUpdateBodyDisplayNameMax)
         .optional()
         .describe('Human-friendly label. Mutable, unlike name.'),
-    description: zod.string().optional().describe('What the metric means and how to interpret it.'),
+    description: zod
+        .string()
+        .max(dataCatalogMetricsPartialUpdateBodyDescriptionMax)
+        .optional()
+        .describe(
+            "What the metric means and what it serves, in 1-3 short sentences: the business meaning plus any load-bearing inclusions\/exclusions or grain. Never narrate or restate the query - the definition carries the mechanics; put rationale for query choices in 'reasoning'."
+        ),
     unit: zod
         .string()
         .max(dataCatalogMetricsPartialUpdateBodyUnitMax)
@@ -197,7 +225,19 @@ export const DataCatalogMetricsApproveCreateParams = /* @__PURE__ */ zod.object(
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+/**
+ * Re-snapshot the linked insight's current query into the definition.
+ */
+export const DataCatalogMetricsRefreshFromInsightCreateParams = /* @__PURE__ */ zod.object({
+    name: zod.string(),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
 
@@ -209,7 +249,7 @@ export const DataCatalogMetricsRunCreateParams = /* @__PURE__ */ zod.object({
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
 
@@ -218,7 +258,7 @@ export const DataCatalogMetricsRunCreateQueryParams = /* @__PURE__ */ zod.object
         .enum(['blocking', 'async', 'lazy_async', 'force_blocking', 'force_async', 'force_cache'])
         .optional()
         .describe(
-            'Cache/execution behavior, same semantics as /query/. Omit to serve a fresh cache hit and calculate blocking when stale.\n\n* `blocking` - blocking\n* `async` - async\n* `lazy_async` - lazy_async\n* `force_blocking` - force_blocking\n* `force_async` - force_async\n* `force_cache` - force_cache'
+            'Cache\/execution behavior, same semantics as \/query\/. Omit to serve a fresh cache hit and calculate blocking when stale.\n\n\* `blocking` - blocking\n\* `async` - async\n\* `lazy_async` - lazy_async\n\* `force_blocking` - force_blocking\n\* `force_async` - force_async\n\* `force_cache` - force_cache'
         ),
 })
 
@@ -234,11 +274,11 @@ export const DataCatalogMetricsRunCreateBody = /* @__PURE__ */ zod
         interval: zod
             .enum(['second', 'minute', 'hour', 'day', 'week', 'month', 'quarter', 'year'])
             .describe(
-                '* `second` - second\n* `minute` - minute\n* `hour` - hour\n* `day` - day\n* `week` - week\n* `month` - month\n* `quarter` - quarter\n* `year` - year'
+                '\* `second` - second\n\* `minute` - minute\n\* `hour` - hour\n\* `day` - day\n\* `week` - week\n\* `month` - month\n\* `quarter` - quarter\n\* `year` - year'
             )
             .optional()
             .describe(
-                'Override the bucket interval. Rejected for HogQLQuery metrics.\n\n* `second` - second\n* `minute` - minute\n* `hour` - hour\n* `day` - day\n* `week` - week\n* `month` - month\n* `quarter` - quarter\n* `year` - year'
+                'Override the bucket interval. Rejected for HogQLQuery metrics.\n\n\* `second` - second\n\* `minute` - minute\n\* `hour` - hour\n\* `day` - day\n\* `week` - week\n\* `month` - month\n\* `quarter` - quarter\n\* `year` - year'
             ),
         query_id: zod.string().optional().describe('Client-supplied id to correlate or cancel the run.'),
     })
@@ -251,7 +291,7 @@ export const DataCatalogRelationshipProposalsCreateParams = /* @__PURE__ */ zod.
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
 
@@ -308,7 +348,7 @@ export const DataCatalogRelationshipProposalsAcceptCreateParams = /* @__PURE__ *
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
 
@@ -320,7 +360,7 @@ export const DataCatalogRelationshipProposalsRejectCreateParams = /* @__PURE__ *
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
 

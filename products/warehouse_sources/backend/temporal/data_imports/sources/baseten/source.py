@@ -9,10 +9,6 @@ from posthog.schema import (
     SourceFieldInputConfigType,
 )
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import (
-    SourceInputs,
-    SourceResponse,
-)
 from products.warehouse_sources.backend.temporal.data_imports.sources.baseten.baseten import (
     BasetenResumeConfig,
     baseten_source,
@@ -32,6 +28,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.sch
     SourceSchema,
     build_endpoint_schemas,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.baseten import (
     BasetenSourceConfig,
 )
@@ -98,6 +95,7 @@ Create an API key in your [Baseten workspace settings](https://app.baseten.co/se
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         # Baseten exposes no server-side "updated since" filter on any entity list endpoint, so every
         # table syncs as a full refresh (no incremental fields).
@@ -109,7 +107,11 @@ Create an API key in your [Baseten workspace settings](https://app.baseten.co/se
         )
 
     def validate_credentials(
-        self, config: BasetenSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: BasetenSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         if validate_baseten_credentials(config.api_key):
             return True, None

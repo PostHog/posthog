@@ -38,8 +38,8 @@
 #     see the permissions note below) and `deploy` (trusted, brings the box up)
 #     run IN PARALLEL. deploy no longer waits on the dist: it restores + mounts +
 #     migrates immediately, and only blocks on build-frontend right at the end,
-#     to swap the finished dist in before it posts "ready". Cuts wall-clock from
-#     ~9.5 min (serial) to ~6 (the FE build hides under the longer bring-up).
+#     to swap the finished dist in before it posts "ready". Cuts wall-clock:
+#     the FE build hides under the longer bring-up.
 #   - teardown on PR close + the daily stale-sweep: pr-closed.yml (box + pen) +
 #     hogbox-preview-cleanup.yml's cron. The GitHub Deployment/environment
 #     (preview-pr-<n>) is reaped by pr-cleanup.yml's existing deployment cleanup.
@@ -114,6 +114,11 @@ jobs:
     # unlabeled-cancel trap: a no-op event runs only this job, never touches the
     # `preview`/`teardown` concurrency group, so it can't cancel an active build.
     decide:
+        # A preview for the queue's branch would outlive it by minutes, so the
+        # answer is always "do nothing" — skip before spending the API calls.
+        # Downstream jobs key off `needs.decide.outputs.build`, which is empty
+        # when this skips, so they stay skipped too.
+        if: ${{ !startsWith(github.head_ref, 'trunk-merge/') }}
         name: '[Optional] decide eligibility'
         runs-on: ubuntu-24.04
         timeout-minutes: 5
@@ -277,7 +282,7 @@ jobs:
     # the other forever). The group therefore lives on `deploy`/`teardown` ONLY.
     # ACCEPTED COST: a superseded push cancels the newer run's deploy (via the
     # group), but this run's build-frontend is NOT cancelable, so it may run to
-    # completion wasted (~3.5 min of runner time). No correctness impact — its
+    # completion wasted (runner time only). No correctness impact — its
     # artifact is namespaced to its own run_id, so a stale build can't leak into
     # the winning run's swap.
     # Hard-fails on purpose: it runs PR code, and deploy reads its conclusion to tell
@@ -322,13 +327,21 @@ jobs:
                       }
 
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              with:
+                  # A dispatched run would otherwise check out master (the dispatch ref)
+                  # and ship master's SPA as the "PR frontend" — dispatch is the only
+                  # preview path for draft/bot-authored PRs. The PR head is safe here:
+                  # the fork guard above has already hard-failed non-same-repo numbers,
+                  # and this job runs without credentials. pull_request events keep the
+                  # default merge-ref behavior (empty ref).
+                  ref: ${{ github.event_name == 'workflow_dispatch' && format('refs/pull/{0}/head', env.PR) || '' }}
 
             # --- Frontend: only build it when the PR actually touches it --------
             # The golden serves the :master SPA; mounting the backend doesn't
             # change the frontend. So for FE-touching PRs, build the PR's
             # frontend here (the canonical Dockerfile build) and hand the dist to
             # the tool, which lays it in + re-runs collectstatic in-box. Non-FE
-            # PRs skip all of this and keep the ~1-min preview.
+            # PRs skip all of this and keep the fast preview.
             - name: Detect frontend changes
               id: fe
               uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7.1.0
@@ -392,8 +405,8 @@ jobs:
     # healthy does deploy block on build-frontend (the "Wait for the PR frontend"
     # step polls this run's jobs), then swap the finished dist in BEFORE posting
     # "ready" — a reviewer must never open a green link and get :master's
-    # frontend for their frontend PR. The FE build (~3m27s) hides entirely under
-    # the longer bring-up (~6m), so the pipeline is bring-up-bound, not their sum.
+    # frontend for their frontend PR. The FE build hides entirely under the
+    # longer bring-up, so the pipeline is bring-up-bound, not their sum.
     #
     # FAIL-OPEN, so infra failures leave this job green: success()/failure() are
     # meaningless here, the `outcome` step is the verdict. The fork guard is exempt —
@@ -442,6 +455,15 @@ jobs:
                               `not ${base}. Manual dispatch only runs same-repo PRs — fork code must never run ` +
                               `with the hogland token in scope.`);
                       }
+
+            # Shared t0 for the stage breadcrumbs. Bring-up and the frontend swap
+            # are separate tool processes, so each timed from its own start and
+            # their `+NNNs` lines couldn't be read as one timeline. Anchoring both
+            # here makes the whole job one clock. Computed in a step rather than
+            # a job-level env because no `github` context field is reliably epoch
+            # seconds, and a non-numeric value silently falls back to per-process.
+            - name: Anchor preview stage timings
+              run: echo "HOGBOX_PREVIEW_T0=$(date +%s)" >> "$GITHUB_ENV"
 
             # Trusted checkout: the tool code that runs with HOG_TOKEN comes from
             # the default branch, never the PR.

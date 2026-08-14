@@ -5,7 +5,7 @@ import { LemonButton, LemonSelect, LemonTable, LemonTag, Spinner, lemonToast } f
 import { LemonTableColumns } from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
-import { downloadExportedAsset, exportedAssetBlob } from 'lib/components/ExportButton/exporter'
+import { exportedAssetBlob } from 'lib/components/ExportButton/exporter'
 import { exportsLogic } from 'lib/components/ExportButton/exportsLogic'
 import { getExportDisabledReason, getExportPendingLabel } from 'lib/components/ExportButton/exportStatus'
 import { takeScreenshotLogic } from 'lib/components/TakeScreenshot/takeScreenshotLogic'
@@ -29,7 +29,7 @@ export const scene: SceneExport = {
 
 function ExportActions({ asset }: { asset: ExportedAssetType }): JSX.Element {
     const { freshUndownloadedExports } = useValues(exportsLogic)
-    const { removeFresh } = useActions(exportsLogic)
+    const { downloadExport } = useActions(exportsLogic)
     const { setBlob } = useActions(takeScreenshotLogic({ screenshotKey: 'exports' }))
 
     const isNotDownloaded = freshUndownloadedExports.some((fresh) => fresh.id === asset.id)
@@ -83,10 +83,7 @@ function ExportActions({ asset }: { asset: ExportedAssetType }): JSX.Element {
                     type={isNotDownloaded ? 'primary' : 'secondary'}
                     data-attr="export-download"
                     disabledReason={disabledReason}
-                    onClick={() => {
-                        removeFresh(asset)
-                        void downloadExportedAsset(asset)
-                    }}
+                    onClick={() => downloadExport(asset)}
                     sideIcon={
                         stillCalculating ? (
                             <Spinner />

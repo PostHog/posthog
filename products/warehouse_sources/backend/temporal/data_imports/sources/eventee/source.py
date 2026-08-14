@@ -9,10 +9,6 @@ from posthog.schema import (
     SourceFieldInputConfigType,
 )
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import (
-    SourceInputs,
-    SourceResponse,
-)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, SimpleSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
@@ -22,6 +18,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.sch
     SourceSchema,
     build_endpoint_schemas,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.eventee.eventee import (
     eventee_source,
     validate_credentials as validate_eventee_credentials,
@@ -100,6 +97,7 @@ All Eventee tables are full refresh only — the API exposes no incremental sync
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         # Every endpoint is a snapshot with no server-side timestamp filter, so all are full refresh
         # only (no incremental/append) — INCREMENTAL_FIELDS is empty, so build_endpoint_schemas
@@ -112,7 +110,11 @@ All Eventee tables are full refresh only — the API exposes no incremental sync
         )
 
     def validate_credentials(
-        self, config: EventeeSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: EventeeSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         if validate_eventee_credentials(config.api_key):
             return True, None

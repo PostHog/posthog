@@ -6,7 +6,7 @@
 # All other fields (title, description, enrich_url, etc.) are yours to configure.
 category: Conversations
 feature: conversations
-url_prefix: /conversations/tickets
+url_prefix: /support/tickets
 ui_apps: {}
 tools:
     conversations-tickets-ai-feedback-create:
@@ -20,9 +20,6 @@ tools:
         enabled: false
     conversations-tickets-compose-create:
         operation: conversations_tickets_compose_create
-        enabled: false
-    conversations-tickets-create:
-        operation: conversations_tickets_create
         enabled: false
     conversations-tickets-destroy:
         operation: conversations_tickets_destroy
@@ -41,11 +38,15 @@ tools:
             idempotent: true
         list: true
         title: List support tickets
-        description: >
+        description:
             List support tickets in the project. Supports filtering by status (new, open, pending, on_hold, resolved),
-            priority (low, medium, high, critical), channel_source (widget, email, slack), assignee, date range, and
-            search. Results are paginated and ordered by updated_at descending by default. Returns ticket metadata
-            including status, priority, message counts, and timestamps.
+            priority (low, medium, high, critical), channel_source (widget, email, slack), assignee, tags, SLA state, AI
+            triage result, date range, and search. To work with a saved ticket view, pass its short_id as the `view`
+            parameter (find it via conversations-views-list); the view's saved filters are applied server-side, and any
+            filter parameter passed explicitly overrides the view's value for that dimension. Results are paginated and
+            ordered by updated_at descending by default. Returns ticket metadata including status, priority, message
+            counts, and timestamps. Use conversations-tickets-retrieve for one ticket's full details and
+            conversations-tickets-messages-retrieve for its message thread.
         response:
             include:
                 - id
@@ -75,6 +76,39 @@ tools:
             from the response envelope. Includes all messages from the customer, team members, and AI, as well as
             private internal notes. Each message contains author_type, author_name, content, and an is_private flag
             indicating internal notes.
+    conversations-tickets-notes-destroy:
+        operation: conversations_tickets_notes_destroy
+        enabled: true
+        scopes:
+            - ticket:write
+        annotations:
+            readOnly: false
+            destructive: true
+            idempotent: true
+        title: Delete private note
+        description: >
+            Soft-delete a private note on a support ticket. Only private notes authored by the calling user can be
+            deleted. Customer-facing replies cannot be deleted. Message IDs come from
+            conversations-tickets-messages-retrieve. Deleting another user's note or an AI-authored note returns 403
+            with error_type not_note_author. Deleting a public reply returns 400 with error_type not_private_note. A
+            missing or already-deleted note returns 404 with error_type note_not_found.
+    conversations-tickets-notes-partial-update:
+        operation: conversations_tickets_notes_partial_update
+        enabled: true
+        scopes:
+            - ticket:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: false
+        title: Update private note
+        description: >
+            Update a private note on a support ticket. Only private notes authored by the calling user can be edited.
+            Customer-facing replies cannot be edited. Message IDs come from conversations-tickets-messages-retrieve.
+            Editing another user's note or an AI-authored note returns 403 with error_type not_note_author. Editing a
+            public reply returns 400 with error_type not_private_note. A missing or deleted note returns 404 with
+            error_type note_not_found. Each successful update increments the note's version. Omit rich_content to clear
+            previous TipTap JSON so the thread falls back to the markdown message.
     conversations-tickets-reply-create:
         operation: conversations_tickets_reply_create
         enabled: true
@@ -103,6 +137,11 @@ tools:
         description: >
             Get a specific support ticket by ID or ticket number. Returns full ticket details including status,
             priority, assignee, message count, channel info, person data, and session context.
+        agent_note:
+            The PostHog Assistant may have investigated this ticket and written self-driving reports into the Inbox. To
+            surface them, call inbox-reports-list with source_id set to this ticket's `id` and
+            source_product=conversations (add include_all_statuses=true to include dismissed ones). Those reports hold
+            the investigation and findings; the ticket's own messages do not.
         response:
             include:
                 - id
@@ -166,10 +205,11 @@ tools:
             idempotent: true
         list: true
         title: List saved ticket views
-        description: >
+        description:
             List the saved ticket views in the project. Each view is a named, saved set of ticket filters — for example
             the per-team views named "Team <name>". Returns each view's short_id and name; a view opens in the app at
-            /support/tickets?view=<short_id>.
+            /support/tickets?view=<short_id>. To get the tickets a view contains, pass its short_id as the `view`
+            parameter of conversations-tickets-list.
         response:
             include:
                 - short_id
