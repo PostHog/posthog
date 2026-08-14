@@ -72,7 +72,16 @@ async function hogqlPreview(
     source,
     render: "auto",
   });
-  return fromChartData(data, "No result");
+  const preview = fromChartData(data, "No result");
+  if (data.type === "series" && preview.spark) {
+    return {
+      ...preview,
+      facts: [
+        `${data.labels.length} rows · ${data.series.length + 1} columns`,
+      ],
+    };
+  }
+  return preview;
 }
 
 async function insightPreview(

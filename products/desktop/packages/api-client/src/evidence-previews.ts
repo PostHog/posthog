@@ -265,6 +265,13 @@ export function shapeRecordingPreview(
   if (recording.start_time) parts.push(formatDay(recording.start_time));
 
   const facts: string[] = [];
+  if (
+    typeof recording.active_seconds === "number" &&
+    recording.active_seconds >= 60 &&
+    recording.active_seconds < recording.recording_duration
+  ) {
+    facts.push(`${Math.round(recording.active_seconds / 60)} min active`);
+  }
   if (typeof recording.click_count === "number" && recording.click_count > 0) {
     facts.push(count(recording.click_count, "click"));
   }
@@ -297,7 +304,6 @@ export function shapeDashboardPreview(
   if (Array.isArray(dashboard.tiles)) {
     facts.push(count(dashboard.tiles.length, "tile"));
   }
-  if (dashboard.pinned) facts.push("Pinned");
   return {
     title: dashboard.name || "Untitled dashboard",
     detail: dashboard.description || undefined,
