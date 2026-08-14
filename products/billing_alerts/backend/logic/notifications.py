@@ -6,6 +6,8 @@ from datetime import datetime
 from django.db import transaction
 from django.utils import timezone
 
+import structlog
+
 from posthog.kafka_client.client import ProduceResult
 
 from products.alerts.backend.destinations import (
@@ -33,6 +35,8 @@ from products.billing_alerts.backend.logic.state_machine import (
     prepare_billing_alert_failure,
 )
 from products.billing_alerts.backend.models import BillingAlertConfiguration, BillingAlertEvent
+
+logger = structlog.get_logger(__name__)
 
 NOTIFICATION_FLUSH_TIMEOUT_SECONDS = 10
 
@@ -186,6 +190,16 @@ def commit_pending_billing_alert_dispatches(
             produce_result = None
             if dispatch.event_name is not None:
                 destination_ids, has_configured_destinations = _destination_ids(dispatch.check.event)
+                if has_configured_destinations and not destination_ids:
+                    # The alert has destinations, but no group carries the full set of required
+                    # events (e.g. one per-kind HogFunction was deleted or disabled out of band).
+                    # We deliberately do not dispatch a partial group; surface it so a silently
+                    # non-delivering alert is observable instead of looking like "no destinations".
+                    logger.warning(
+                        "Billing alert has configured destinations but no complete delivery group; skipping dispatch",
+                        alert_id=str(dispatch.check.event.alert_id),
+                        event_name=dispatch.event_name,
+                    )
                 if destination_ids or not has_configured_destinations:
                     produce_result = produce_alert_internal_event(
                         team_id=dispatch.check.event.alert.execution_team_id,

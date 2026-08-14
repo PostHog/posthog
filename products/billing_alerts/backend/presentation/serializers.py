@@ -334,9 +334,12 @@ class BillingAlertConfigurationSerializer(serializers.ModelSerializer):
 
     def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
         current = self.instance
+        # On create there is no instance, so fall back to the model default rather than
+        # RELATIVE_INCREASE: an omitted threshold_type should validate as what actually
+        # gets persisted (ABSOLUTE_VALUE), not trip the "absolute value only" rejection below.
         threshold_type = attrs.get(
             "threshold_type",
-            current.threshold_type if current else BillingAlertConfiguration.ThresholdType.RELATIVE_INCREASE,
+            current.threshold_type if current else BillingAlertConfiguration.ThresholdType.ABSOLUTE_VALUE,
         )
         threshold_percentage = attrs.get(
             "threshold_percentage",
