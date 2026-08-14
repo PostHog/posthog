@@ -18,6 +18,7 @@ from posthog.hogql import ast
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.query_tagging import Feature, Product, tags_context
+from posthog.dataclasses import frozen
 from posthog.models.team.team import Team
 from posthog.sync import database_sync_to_async
 
@@ -63,7 +64,7 @@ class UnmatchedUtmSample:
     suggested_integration: NativeIntegration | None
 
 
-@dataclass
+@frozen
 class AttributionHealthEntry:
     integration_key: NativeIntegration
     display_name: str
@@ -210,7 +211,7 @@ async def get_attribution_health(
     )
 
 
-@dataclass
+@frozen
 class _UtmRow:
     raw_utm_source: str
     event_count: int
@@ -223,7 +224,8 @@ class _UtmRow:
     tagged_medium_count: int = 0
 
 
-@dataclass
+# Mutable by design: one instance per integration, summed across the utm rows.
+@dataclass(frozen=False)
 class _IntegrationAccumulator:
     key: NativeIntegration
     matched_count: int = 0
