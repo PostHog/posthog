@@ -15,9 +15,12 @@ from posthog.schema import AlertState
 from products.alerts.backend.models.alert import AlertCheck, AlertConfiguration, InvestigationStatus
 
 # Hourly and slower alerts get an investigation per firing check. The guard only has to
-# separate a retried or concurrent evaluation of the same check — those land seconds
-# apart — from the next scheduled check an hour or more later.
-INVESTIGATION_COOLDOWN = timedelta(minutes=5)
+# separate a retried or concurrent evaluation of the same fire from the next scheduled
+# check an hour or more later, so it must outlive `evaluate_alert`'s retry window: a
+# worker that dies after committing its AlertCheck writes a second one on retry, up to
+# `activity_schedule_to_close` later. `test_cooldown_outlives_the_evaluation_retry_window`
+# holds this above that budget.
+INVESTIGATION_COOLDOWN = timedelta(minutes=15)
 
 # Sub-hourly alerts (real time, every 15 minutes) can fire many times an hour and each
 # investigation is a full agent run, so they stay on an hourly leash instead.
@@ -50,8 +53,13 @@ def claim_investigation_slot(alert: AlertConfiguration, alert_check: AlertCheck)
     """Try to claim the cooldown slot for `alert` and return True on success.
 
     On success, marks `alert_check.investigation_status = PENDING`. On failure
-    (a recent investigation is RUNNING/DONE/PENDING within the cooldown window),
-    marks it SKIPPED and returns False so flappy alerts don't pile up.
+    (a recent investigation was attempted within the cooldown window), marks it
+    SKIPPED and returns False so flappy alerts don't pile up.
+
+    FAILED counts as an attempt: the investigation workflow already retries its own
+    activity, so a failure that outlived those retries is a persistent one, and letting
+    the next check re-attempt immediately would spend the leash on a loop. SKIPPED does
+    not count — no investigation ran, so nothing was spent.
 
     Caller must run this inside a transaction so the read-then-write is atomic.
     """
@@ -63,6 +71,7 @@ def claim_investigation_slot(alert: AlertConfiguration, alert_check: AlertCheck)
             InvestigationStatus.RUNNING,
             InvestigationStatus.DONE,
             InvestigationStatus.PENDING,
+            InvestigationStatus.FAILED,
         ],
     ).exclude(id=alert_check.id)
     if recent.exists():

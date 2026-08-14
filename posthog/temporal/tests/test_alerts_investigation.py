@@ -14,7 +14,12 @@ from parameterized import parameterized
 
 from posthog.schema import AlertCalculationInterval, AlertState
 
-from posthog.temporal.alerts.investigation import claim_investigation_slot, should_trigger_investigation
+from posthog.temporal.alerts.investigation import (
+    claim_investigation_slot,
+    investigation_cooldown,
+    should_trigger_investigation,
+)
+from posthog.temporal.alerts.retry_policy import alert_timeouts
 
 from products.alerts.backend.models.alert import AlertCheck, AlertConfiguration, InvestigationStatus
 from products.product_analytics.backend.models.insight import Insight
@@ -91,7 +96,7 @@ class TestClaimInvestigationSlot(BaseTest):
 
     @parameterized.expand(
         [
-            ("daily", AlertCalculationInterval.DAILY, timedelta(minutes=10)),
+            ("daily", AlertCalculationInterval.DAILY, timedelta(hours=24)),
             # Hourly checks land just under an hour apart (each run starts a second or
             # two earlier than the last), so a flat one-hour cooldown would swallow every
             # re-fire and leave its notification un-investigated.
@@ -141,9 +146,12 @@ class TestClaimInvestigationSlot(BaseTest):
             ("running", InvestigationStatus.RUNNING),
             ("done", InvestigationStatus.DONE),
             ("pending", InvestigationStatus.PENDING),
+            # A persistent failure would otherwise re-launch a full agent run on every
+            # check, since every firing check is now eligible.
+            ("failed", InvestigationStatus.FAILED),
         ]
     )
-    def test_cooldown_blocks_for_active_statuses(self, _name: str, blocking_status: str) -> None:
+    def test_cooldown_blocks_for_attempted_investigations(self, _name: str, blocking_status: str) -> None:
         now = datetime(2026, 4, 30, 10, 0, tzinfo=UTC)
         with freeze_time(now - timedelta(minutes=1)):
             self._make_check(investigation_status=blocking_status)
@@ -152,17 +160,26 @@ class TestClaimInvestigationSlot(BaseTest):
             new_check = self._make_check()
             assert not claim_investigation_slot(self.alert, new_check)
 
-    @parameterized.expand(
-        [
-            ("skipped", InvestigationStatus.SKIPPED),
-            ("failed", InvestigationStatus.FAILED),
-        ]
-    )
-    def test_cooldown_ignores_terminal_failure_statuses(self, _name: str, terminal_status: str) -> None:
+    def test_cooldown_ignores_a_skipped_check(self) -> None:
+        # SKIPPED means no investigation ran, so it must not hold the leash it never took.
         now = datetime(2026, 4, 30, 10, 0, tzinfo=UTC)
         with freeze_time(now - timedelta(minutes=1)):
-            self._make_check(investigation_status=terminal_status)
+            self._make_check(investigation_status=InvestigationStatus.SKIPPED)
 
         with freeze_time(now):
             new_check = self._make_check()
             assert claim_investigation_slot(self.alert, new_check)
+
+    @parameterized.expand(
+        [
+            ("hourly", AlertCalculationInterval.HOURLY),
+            ("real_time", AlertCalculationInterval.REAL_TIME),
+        ]
+    )
+    def test_cooldown_outlives_the_evaluation_retry_window(self, _name: str, interval: str) -> None:
+        # evaluate_alert commits its AlertCheck before the activity reports completion, so a
+        # worker that dies in between writes a second check on retry — up to
+        # activity_schedule_to_close later. The cooldown has to outlast that budget or the
+        # retry claims a second investigation for the same fire.
+        self.alert.calculation_interval = interval
+        assert investigation_cooldown(self.alert) > alert_timeouts(interval).activity_schedule_to_close
