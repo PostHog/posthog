@@ -92,6 +92,12 @@ from products.notebooks.backend.sql_v2_serializers import (
     NotebookSQLV2StateResponseSerializer,
 )
 from products.notebooks.backend.sql_v2_state import build_notebook_cell_state
+from products.notebooks.backend.sql_v2_variables import (
+    NotebookVariableError,
+    build_notebook_variables,
+    python_variable_bindings,
+    substitute_text_variables,
+)
 from products.notebooks.backend.temporal.client import start_sql_v2_run_workflow
 from products.notebooks.backend.temporal.sql_v2 import SQLV2RunInput
 from products.tasks.backend.facade.exceptions import SandboxProvisionError
@@ -1225,6 +1231,9 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
                     cross_engine_error.format(name=name) if spec["node_id"] in other_engine_nodes else None
                 ),
             )
+        # The notebook's variables as of this run. A SQL node has them bound into its code
+        # below; a python node carries them to the kernel, which binds them as globals.
+        variables = build_notebook_variables(serializer.validated_data.get("variables") or [], self.team.timezone_info)
         try:
             if node_type == "python":
                 # A python node stores its code as-is; referenced frames become kernel inputs,
@@ -1232,15 +1241,16 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
                 run_code, inputs = code, resolve_python_node_inputs(code, refs)
             elif send_raw_query:
                 # Raw SQL is the connection's own dialect, so the HogQL parser can't read it and
-                # there is nothing to inline: it reaches the engine exactly as written.
-                run_code, inputs = code, []
+                # there is nothing to inline: variable values go in as escaped literals, and the
+                # rest reaches the engine exactly as written.
+                run_code, inputs = substitute_text_variables(code, variables), []
             else:
                 # A SQL node pushes to ClickHouse — unless it references a local frame, which
                 # reroutes it to the sandbox's DuckDB (Journey 5).
-                node_type, run_code, inputs = resolve_sql_node_run(code, refs)
+                node_type, run_code, inputs = resolve_sql_node_run(code, refs, variables)
         # ExposedHogQLError: with refs present the user's own code is parsed at dispatch, so a
         # plain typo raises here — it's a bad query (400 with the parse message), not a 500.
-        except (SQLV2ReferenceError, ExposedHogQLError) as e:
+        except (SQLV2ReferenceError, NotebookVariableError, ExposedHogQLError) as e:
             return Response({"detail": str(e)}, status=400)
 
         run = NotebookNodeRun.objects.create(
@@ -1273,6 +1283,9 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
                         node_type=node_type,
                         output_name=output_name,
                         inputs=inputs,
+                        # Only a python node reads these in the kernel; a duckdb run already
+                        # has its values substituted into the SQL.
+                        variables=python_variable_bindings(variables) if node_type == "python" else {},
                     )
                 )
         except Exception:

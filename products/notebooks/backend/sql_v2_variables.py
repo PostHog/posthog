@@ -1,0 +1,230 @@
+"""Notebook-level variables: bind their values into a cell's code at dispatch.
+
+A notebook declares variables in a `<Variables>` markdown block. A SQL cell reads one as a
+bare ``{name}`` placeholder; a Python cell reads it as a plain global (bound in the kernel,
+see `sandbox/kernel/bootstrap.py`, not here).
+
+Substitution happens once at dispatch, like reference inlining, so the run stores a
+self-contained query and paging re-queries it without re-resolving anything.
+
+Which substitution runs depends on the lane the run took, because only one of them has a
+HogQL AST to work with:
+
+* the **hogql** lane parses the query and swaps each placeholder for an ``ast.Constant``, so
+  the value is never spliced into SQL text;
+* the **duckdb** lane and a **raw connection** query are the engine's own dialect, which the
+  HogQL parser cannot read — those get a textual substitution, and the value is rendered as
+  an escaped SQL literal (`_sql_literal`) rather than pasted in raw.
+"""
+
+import re
+from datetime import date, datetime
+from difflib import get_close_matches
+from typing import Any
+from zoneinfo import ZoneInfo
+
+from posthog.hogql import ast
+from posthog.hogql.context import HogQLContext
+from posthog.hogql.parser import parse_select
+from posthog.hogql.printer import print_prepared_ast
+from posthog.hogql.variables import is_relative_date_value
+from posthog.hogql.visitor import CloningVisitor
+
+from posthog.dataclasses import frozen
+from posthog.utils import relative_date_parse
+
+# HogQL injects its own `{filters}` placeholder into notebook queries, so a variable could never
+# take that name. Left untouched here rather than reported as undeclared.
+RESERVED_VARIABLE_NAMES = frozenset({"filters"})
+
+NotebookVariableValue = str | int | float | bool | datetime | date | None
+
+
+class NotebookVariableError(Exception):
+    """A cell reads a `{name}` that the notebook does not declare. User-facing."""
+
+
+@frozen
+class NotebookVariable:
+    """One declared variable, with its value already coerced to a Python scalar."""
+
+    name: str
+    value: NotebookVariableValue
+
+
+# Bare `{name}`; a dotted chain (`{variables.x}`, `{filters.y}`) is somebody else's placeholder.
+_BARE_PLACEHOLDER = re.compile(r"\{([A-Za-z_][A-Za-z0-9_]*)\}")
+# String literals and comments, blanked before the textual scan so a `'{country}'` inside a
+# literal is neither substituted nor reported as undeclared. Mirrors the routing scan in
+# sql_v2_references.
+_SQL_LITERALS_AND_COMMENTS = re.compile(r"'(?:[^'\\]|\\.|'')*'|--[^\n]*|/\*.*?\*/", re.DOTALL)
+
+
+def _undeclared_error(name: str, declared: list[str]) -> NotebookVariableError:
+    if not declared:
+        return NotebookVariableError(
+            f"'{{{name}}}' is not a notebook variable. Add a Variables block to declare {name}."
+        )
+    suggestions = get_close_matches(name, declared, n=3, cutoff=0.6)
+    if suggestions:
+        return NotebookVariableError(
+            f"'{{{name}}}' is not a notebook variable. Did you mean: {', '.join(suggestions)}?"
+        )
+    return NotebookVariableError(
+        f"'{{{name}}}' is not a notebook variable. This notebook declares: {', '.join(sorted(declared))}."
+    )
+
+
+class _ReplaceNotebookVariables(CloningVisitor):
+    """Swap each `{name}` placeholder for the declared variable's value as a constant."""
+
+    def __init__(self, values: dict[str, NotebookVariableValue]) -> None:
+        super().__init__()
+        self.values = values
+        self.replaced: set[str] = set()
+
+    def visit_placeholder(self, node: ast.Placeholder) -> ast.Expr:
+        chain = node.chain
+        # Only a bare single-segment placeholder is a notebook variable. Anything else —
+        # `{filters}`, a dotted chain, an expression placeholder — belongs to another
+        # resolver and must reach it untouched.
+        if not chain or len(chain) != 1 or not isinstance(chain[0], str):
+            return super().visit_placeholder(node)
+
+        name = chain[0]
+        if name in RESERVED_VARIABLE_NAMES:
+            return super().visit_placeholder(node)
+        if name not in self.values:
+            raise _undeclared_error(name, list(self.values))
+
+        self.replaced.add(name)
+        return ast.Constant(value=self.values[name], start=node.start, end=node.end)
+
+
+def substitute_hogql_variables(code: str, variables: list[NotebookVariable]) -> str:
+    """Bind notebook variables into a HogQL query, via the AST.
+
+    Returns `code` untouched when it reads no `{name}` placeholder, so a query without
+    variables is byte-for-byte what the user wrote. Raises NotebookVariableError when the
+    query reads a name the notebook does not declare, and lets the parser's own error
+    surface for a malformed query.
+    """
+    if not _BARE_PLACEHOLDER.search(code):
+        return code
+
+    values = {variable.name: variable.value for variable in variables}
+    query = parse_select(code)
+    visitor = _ReplaceNotebookVariables(values)
+    substituted = visitor.visit(query)
+    if not visitor.replaced:
+        # Only `{filters}` (or another resolver's placeholder) was present — nothing of ours
+        # changed, so don't reprint and reformat the user's query for no reason.
+        return code
+    return print_prepared_ast(substituted, context=HogQLContext(team_id=None), dialect="hogql")
+
+
+def _sql_literal(value: NotebookVariableValue) -> str:
+    """Render a value as a SQL literal for an engine whose dialect we cannot parse.
+
+    Single-quote doubling is the SQL-standard string escape and is accepted by every engine
+    behind a direct connection, as well as by DuckDB. Numbers and booleans need no quoting;
+    dates go as quoted strings, which every engine casts on comparison.
+    """
+    if value is None:
+        return "NULL"
+    # Checked before int: bool is a subclass of it.
+    if isinstance(value, bool):
+        return "TRUE" if value else "FALSE"
+    if isinstance(value, (int, float)):
+        return str(value)
+    if isinstance(value, datetime):
+        return _quoted(value.isoformat(sep=" "))
+    if isinstance(value, date):
+        return _quoted(value.isoformat())
+    return _quoted(str(value))
+
+
+def _quoted(text: str) -> str:
+    return "'" + text.replace("'", "''") + "'"
+
+
+def substitute_text_variables(code: str, variables: list[NotebookVariable]) -> str:
+    """Bind notebook variables into non-HogQL SQL (DuckDB, or a raw connection query).
+
+    There is no AST for these dialects, so each `{name}` becomes an escaped literal. Names
+    inside string literals and comments are left alone, matching the reference scan.
+    """
+    if not _BARE_PLACEHOLDER.search(code):
+        return code
+
+    values = {variable.name: variable.value for variable in variables}
+    # Blanked copy used only to decide which matches are real; offsets line up with `code`
+    # because the substitution preserves length.
+    scannable = _SQL_LITERALS_AND_COMMENTS.sub(lambda match: " " * len(match.group(0)), code)
+    substitutable = {match.start() for match in _BARE_PLACEHOLDER.finditer(scannable)}
+
+    for match in _BARE_PLACEHOLDER.finditer(scannable):
+        name = match.group(1)
+        if name not in RESERVED_VARIABLE_NAMES and name not in values:
+            raise _undeclared_error(name, list(values))
+
+    def replace(match: re.Match[str]) -> str:
+        name = match.group(1)
+        if match.start() not in substitutable or name in RESERVED_VARIABLE_NAMES or name not in values:
+            return match.group(0)
+        return _sql_literal(values[name])
+
+    return _BARE_PLACEHOLDER.sub(replace, code)
+
+
+def build_notebook_variables(items: list[dict[str, Any]], timezone_info: ZoneInfo) -> list[NotebookVariable]:
+    """Coerce the run request's declarations into variables with Python scalar values.
+
+    Duplicates keep the first declaration, matching what the editor treats as the valid one.
+    """
+    variables: list[NotebookVariable] = []
+    seen: set[str] = set()
+    for item in items:
+        name = str(item.get("name") or "").strip()
+        if not name or name in seen or name in RESERVED_VARIABLE_NAMES:
+            continue
+        seen.add(name)
+        variables.append(
+            NotebookVariable(name=name, value=_coerce_value(item.get("type"), item.get("value"), timezone_info))
+        )
+    return variables
+
+
+def _coerce_value(variable_type: Any, value: Any, timezone_info: ZoneInfo) -> NotebookVariableValue:
+    if value is None:
+        return None
+    if variable_type == "number":
+        if isinstance(value, bool):
+            return None
+        if isinstance(value, (int, float)):
+            return value
+        try:
+            return float(str(value)) if "." in str(value) else int(str(value))
+        except ValueError:
+            return None
+    if variable_type == "boolean":
+        return value if isinstance(value, bool) else str(value).strip().lower() == "true"
+    if variable_type == "date":
+        text = str(value).strip()
+        # A relative value ("-7d", "mStart") is resolved against the team's timezone, exactly as
+        # an insight's date variable is; an absolute date stays a string the engine casts.
+        return relative_date_parse(text, timezone_info) if is_relative_date_value(text) else text
+    return str(value)
+
+
+def python_variable_bindings(variables: list[NotebookVariable]) -> dict[str, Any]:
+    """The name -> value map a Python cell gets bound into its kernel namespace.
+
+    Dates go over as ISO strings: the payload is JSON on its way to the sandbox, and a
+    string the user can parse beats a silently dropped value.
+    """
+    return {
+        variable.name: variable.value.isoformat() if isinstance(variable.value, datetime | date) else variable.value
+        for variable in variables
+        if variable.name
+    }

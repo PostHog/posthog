@@ -111,6 +111,15 @@ For each run, the server sends the kernel a single execute request — `_ph.run_
 
 Python node execution uses `get_ipython().run_cell(code)` inside a capture context: full IPython semantics (last-expression value, tracebacks), stdout/stderr capture, and matplotlib figures arrive as `display_data` PNG — straight into `envelope.media`.
 
+### Notebook variables
+
+A notebook's `<Variables>` block declares named values the whole document shares. They reach a run by lane, and only one of the two lanes involves the kernel:
+
+- a **SQL** node has each `{name}` bound at dispatch (`sql_v2_variables.py`), so the sandbox never sees a placeholder — the ClickHouse lane substitutes through the HogQL AST, while the DuckDB and raw-connection lanes get escaped SQL literals because their dialect has no AST here;
+- a **Python** node carries the values on `node.variables` and the kernel binds them into the user namespace before `run_cell`, ahead of input registration, so a dataframe still wins a name collision.
+
+Variables are rebound every run: the block is the authority on what a name holds, so a value a previous cell assigned must not survive into the next one.
+
 ## Local DuckDB (capability 4)
 
 **DuckDB nodes always execute inside the kernel process.** This is forced by DuckDB's replacement scans: `duckdb.sql("select * from my_pandas_df")` only resolves `my_pandas_df` if the frame lives in the same process. Since DuckDB nodes exist precisely to query local frames (decision 3), they run where the frames are.

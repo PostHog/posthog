@@ -28,6 +28,25 @@ class NotebookSQLV2RefSerializer(serializers.Serializer):
     )
 
 
+class NotebookSQLV2VariableSerializer(serializers.Serializer):
+    name = serializers.CharField(
+        help_text="Identifier the cell reads: `{name}` in a SQL cell, a plain global in a Python cell."
+    )
+    # CharField, not ChoiceField: a `type` enum collides with other generated enums under
+    # --fail-on-warn (same precedent as the status fields below).
+    type = serializers.CharField(
+        help_text="How to coerce the value: 'string', 'number', 'boolean', or 'date'. Unknown types read as 'string'."
+    )
+    value = serializers.JSONField(
+        required=False,
+        allow_null=True,
+        help_text=(
+            "The variable's current value. A 'date' accepts an absolute date or a relative "
+            "expression ('-7d', 'mStart'), resolved against the project timezone."
+        ),
+    )
+
+
 class NotebookSQLV2RunRequestSerializer(serializers.Serializer):
     node_id = serializers.CharField(help_text="ProseMirror node id of the SQLV2 node being run.")
     node_type = serializers.ChoiceField(
@@ -60,6 +79,16 @@ class NotebookSQLV2RunRequestSerializer(serializers.Serializer):
             "Available upstream nodes, keyed by dataframe name. A SQL node inlines referenced hogql "
             "refs as CTEs — unless it references a local ref, which reroutes the run to the sandbox's "
             "DuckDB; a python node materializes the hogql refs its code reads as pandas frames."
+        ),
+    )
+    variables = NotebookSQLV2VariableSerializer(
+        many=True,
+        required=False,
+        default=list,
+        help_text=(
+            "Notebook-level variables in scope for this run. A SQL node has each `{name}` bound to "
+            "its value before dispatch; a Python node gets them as globals in the kernel namespace. "
+            "A SQL node reading a `{name}` that is absent here fails the dispatch."
         ),
     )
     connection_id = serializers.UUIDField(

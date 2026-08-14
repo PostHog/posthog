@@ -4888,6 +4888,7 @@ const api = {
                 node_id: string
                 code: string
                 refs?: Record<string, { node_id: string; kind: 'hogql' | 'local' }>
+                variables?: { name: string; type: 'string' | 'number' | 'boolean' | 'date'; value: unknown }[]
                 node_type?: 'hogql' | 'python'
                 output_name?: string
                 connection_id?: string | null

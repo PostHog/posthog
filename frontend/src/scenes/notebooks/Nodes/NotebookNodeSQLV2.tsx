@@ -161,6 +161,7 @@ const Component = ({
         pageLoading,
         operationBlockReason,
         isStale,
+        staleReason,
         isChainRunning,
         staleDownstreamCount,
         pendingKernelStart,
@@ -244,7 +245,7 @@ const Component = ({
             >
                 {isStale ? (
                     <div className="shrink-0" onClick={(event) => event.stopPropagation()}>
-                        <NotebookStaleCellBanner />
+                        <NotebookStaleCellBanner reason={staleReason ?? undefined} />
                     </div>
                 ) : staleDownstreamCount > 0 && !isChainRunning ? (
                     <div className="shrink-0" onClick={(event) => event.stopPropagation()}>

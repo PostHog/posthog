@@ -339,3 +339,50 @@ class TestKernelSessionRunNode(SimpleTestCase):
         envelope = self._run("3 + 3")
 
         self.assertLessEqual(len(json.dumps(envelope["frames"])), 300_000)
+
+
+class TestKernelSessionNotebookVariables(SimpleTestCase):
+    def setUp(self):
+        self._dir = tempfile.TemporaryDirectory()
+        self.addCleanup(self._dir.cleanup)
+        self.session = KernelSession(data_dir=self._dir.name)
+
+    def _run(self, code: str, variables=None, inputs=None) -> dict:
+        return self.session.run_node(
+            {
+                "node": {"type": "python", "code": code, "output_name": None, "variables": variables or {}},
+                "inputs": inputs or [],
+            }
+        )
+
+    def test_variables_are_readable_as_globals(self):
+        envelope = self._run("print(f'{country}-{lookback_days}')", {"country": "US", "lookback_days": 30})
+        self.assertEqual(envelope["status"], "ok")
+        self.assertIn("US-30", envelope["stdout"])
+
+    def test_a_rebound_variable_is_reset_on_the_next_run(self):
+        # The Variables block is the authority: a value one cell assigned must not leak into the
+        # next run, or the notebook silently disagrees with what the block shows.
+        self._run("country = 'DE'", {"country": "US"})
+        envelope = self._run("print(country)", {"country": "US"})
+        self.assertIn("US", envelope["stdout"])
+
+    def test_an_input_frame_wins_a_name_collision(self):
+        # The notebook forbids the collision, but a shadowed variable degrades better than a
+        # dataframe that vanished from under the code that reads it.
+        path = os.path.join(self._dir.name, "frames", "shared.arrow")
+        table = pa.table({"a": [1]})
+        with pa.OSFile(path, "wb") as sink:
+            with pa.ipc.new_file(sink, table.schema) as writer:
+                writer.write_table(table)
+        envelope = self._run(
+            "print(type(shared).__name__)",
+            {"shared": "not-a-frame"},
+            [{"name": "shared", "kind": "hogql", "path": path}],
+        )
+        self.assertIn("DataFrame", envelope["stdout"])
+
+    def test_a_run_without_variables_is_unaffected(self):
+        envelope = self._run("print('no variables here')")
+        self.assertEqual(envelope["status"], "ok")
+        self.assertIn("no variables here", envelope["stdout"])

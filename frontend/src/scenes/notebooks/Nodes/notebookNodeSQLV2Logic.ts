@@ -18,9 +18,18 @@ import { JSONContent } from 'lib/components/RichContentEditor/types'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 
 import { notebookKernelInfoLogic } from '../Notebook/notebookKernelInfoLogic'
-import { NotebookNodeRunTerminalStatus, notebookNodeStalenessLogic } from '../Notebook/notebookNodeStalenessLogic'
+import {
+    NotebookNodeRunTerminalStatus,
+    NotebookStaleReason,
+    notebookNodeStalenessLogic,
+} from '../Notebook/notebookNodeStalenessLogic'
 import { NotebookOperation, notebookOperationsLogic } from '../Notebook/notebookOperationsLogic'
 import { notebookSettingsLogic } from '../Notebook/notebookSettingsLogic'
+import {
+    collectNotebookVariables,
+    getNotebookVariableConflictNames,
+    getRunnableNotebookVariables,
+} from '../Notebook/notebookVariables'
 import { NotebookNodeType } from '../types'
 import {
     buildNotebookDependencyGraph,
@@ -116,13 +125,14 @@ export interface notebookNodeSQLV2LogicValues {
     isChainRunning: boolean // notebookNodeStalenessLogic
     lastRunNodeId: string | null // notebookNodeStalenessLogic
     lastRunStaleDownstreamNodeIds: string[] // notebookNodeStalenessLogic
-    staleNodeIds: Record<string, true> // notebookNodeStalenessLogic
+    staleNodeIds: Record<string, NotebookStaleReason> // notebookNodeStalenessLogic
     activeOperation: NotebookOperation | null // notebookOperationsLogic
     isBusy: boolean // notebookOperationsLogic
     directRows: NotebookNodeSQLV2DirectRows | null
     isInterrupting: boolean
     isRunning: boolean
     isStale: boolean
+    staleReason: NotebookStaleReason | null
     operationBlockReason: string | null
     page: number
     pageLoading: boolean
@@ -230,7 +240,8 @@ export interface notebookNodeSQLV2LogicMeta {
     key: string
     __keaTypeGenInternalSelectorTypes: {
         operationBlockReason: (activeOperation: NotebookOperation | null) => string | null
-        isStale: (staleNodeIds: Record<string, true>) => boolean
+        isStale: (staleNodeIds: Record<string, NotebookStaleReason>) => boolean
+        staleReason: (staleNodeIds: Record<string, NotebookStaleReason>) => NotebookStaleReason | null
         staleDownstreamCount: (lastRunNodeId: string | null, lastRunStaleDownstreamNodeIds: string[]) => number
     }
 }
@@ -495,12 +506,23 @@ export const notebookNodeSQLV2Logic = kea<notebookNodeSQLV2LogicType>([
                         lemonToast.info('Starting a compute sandbox. The cell will run once it’s ready.')
                     }
                 }
+                // Read from the live document rather than the caller: every run path (Run button,
+                // Cmd+Enter, chain dispatch) needs the same notebook-level values, and only the
+                // declarations that pass validation are safe to bind.
+                const runContent = props.getContent?.() ?? null
+                const variables = getRunnableNotebookVariables(
+                    collectNotebookVariables(runContent),
+                    getNotebookVariableConflictNames(runContent)
+                )
                 actions.startOperation(runOperation)
                 try {
                     const { run_id } = await api.notebooks.sqlV2Run(props.notebookShortId, {
                         node_id: props.nodeId,
                         code,
                         refs,
+                        // Omitted when the notebook declares none, so an unchanged notebook's
+                        // run body stays byte-identical to before.
+                        ...(variables.length ? { variables } : {}),
                         node_type: opts.nodeType,
                         output_name: opts.outputName,
                         // Omitted entirely for a PostHog cell — the backend's defaults say the same
@@ -685,7 +707,13 @@ export const notebookNodeSQLV2Logic = kea<notebookNodeSQLV2LogicType>([
         // An upstream cell's run landed after this cell last ran (Journey 10).
         isStale: [
             (s) => [s.staleNodeIds],
-            (staleNodeIds: Record<string, true>): boolean => !!staleNodeIds[props.nodeId],
+            (staleNodeIds: Record<string, NotebookStaleReason>): boolean => !!staleNodeIds[props.nodeId],
+        ],
+        // What made it stale, so the banner names the actual cause.
+        staleReason: [
+            (s) => [s.staleNodeIds],
+            (staleNodeIds: Record<string, NotebookStaleReason>): NotebookStaleReason | null =>
+                staleNodeIds[props.nodeId] ?? null,
         ],
         // Non-zero only on the cell whose run most recently landed: how many of its
         // downstream cells are still stale. Drives the "run downstream cells" button.

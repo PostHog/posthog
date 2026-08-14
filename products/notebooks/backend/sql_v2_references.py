@@ -30,6 +30,11 @@ from posthog.hogql.printer import print_prepared_ast
 from posthog.hogql.visitor import TraversingVisitor
 
 from products.notebooks.backend.python_analysis import analyze_python_globals
+from products.notebooks.backend.sql_v2_variables import (
+    NotebookVariable,
+    substitute_hogql_variables,
+    substitute_text_variables,
+)
 
 # String literals ('' or backslash escapes) and comments, for the routing fallback to blank
 # out before scanning: a frame name mentioned in a literal or comment must not trigger DuckDB
@@ -270,7 +275,9 @@ def resolve_python_node_inputs(code: str, refs: dict[str, SQLV2Ref]) -> list[dic
     return inputs
 
 
-def resolve_sql_node_run(code: str, refs: dict[str, SQLV2Ref]) -> tuple[str, str, list[dict[str, Any]]]:
+def resolve_sql_node_run(
+    code: str, refs: dict[str, SQLV2Ref], variables: list[NotebookVariable] | None = None
+) -> tuple[str, str, list[dict[str, Any]]]:
     """Route a SQL node run to its engine; return (node_type, run_code, inputs).
 
     The routing rule from the journey walkthroughs (decision 1): a query whose referenced
@@ -280,9 +287,15 @@ def resolve_sql_node_run(code: str, refs: dict[str, SQLV2Ref]) -> tuple[str, str
     `("duckdb", code_as_written, inputs)`, where inputs materialize the HogQL refs it also
     reads (Journey 5: the join forces `df2` into the sandbox) and assert the local ones.
 
+    Notebook variables are bound per lane, once the lane is known: the ClickHouse query gets
+    AST substitution, while the DuckDB query is that engine's dialect and gets escaped
+    literals instead (see sql_v2_variables). Raises NotebookVariableError when the query reads
+    an undeclared `{name}`.
+
     Raises SQLV2ReferenceError for unrunnable refs, and lets the HogQL parser's own error
     surface for a malformed query that doesn't touch any local frame.
     """
+    variables = variables or []
     local_names = {name for name, ref in refs.items() if name and ref.kind == "local"}
     hogql_refs = {name: ref for name, ref in refs.items() if name and ref.kind == "hogql"}
     hogql_codes = {name: None if ref.unavailable_reason else ref.last_run_code for name, ref in hogql_refs.items()}
@@ -306,7 +319,14 @@ def resolve_sql_node_run(code: str, refs: dict[str, SQLV2Ref]) -> tuple[str, str
         referenced_hogql = found - local_names
 
     if not referenced_locals:
-        return "hogql", resolve_sql_v2_references(code, hogql_codes, unavailable), []
+        # Variables bind before inlining: the CTE merge prints its AST, and the printer rejects a
+        # placeholder that is still unresolved by then. An inlined definition never carries one —
+        # it is a previous run's stored code, which was substituted the same way at its own dispatch.
+        return (
+            "hogql",
+            resolve_sql_v2_references(substitute_hogql_variables(code, variables), hogql_codes, unavailable),
+            [],
+        )
 
     inputs: list[dict[str, Any]] = []
     for name in sorted(referenced_locals | referenced_hogql):
@@ -314,4 +334,4 @@ def resolve_sql_node_run(code: str, refs: dict[str, SQLV2Ref]) -> tuple[str, str
             inputs.append({"name": name, "kind": "local"})
         else:
             inputs.append(_hogql_input(name, hogql_refs[name]))
-    return "duckdb", code, inputs
+    return "duckdb", substitute_text_variables(code, variables), inputs

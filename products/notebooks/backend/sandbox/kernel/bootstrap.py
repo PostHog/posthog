@@ -309,6 +309,9 @@ class KernelSession:
         node = payload.get("node") or {}
         node_type = str(node.get("type") or "python")
         preview_rows = int(payload.get("page_limit") or _DEFAULT_PREVIEW_ROWS)
+        # Before the inputs, so a dataframe still wins a name collision: the notebook forbids one,
+        # but a shadowed variable degrades better than a join that can't find its frame.
+        self._bind_variables(node.get("variables") or {})
         try:
             self._register_inputs(payload.get("inputs") or [], node_type=node_type)
         except Exception as exc:  # noqa: BLE001 — a bad input must still produce an envelope
@@ -382,6 +385,16 @@ class KernelSession:
             media=media,
             result_id=result_id,
         )
+
+    def _bind_variables(self, variables: dict[str, Any]) -> None:
+        """Bind the notebook's variables as globals, fresh on every run.
+
+        Rebinding each run is the point: the Variables block is the authority on what a name
+        holds, so a value a previous cell happened to assign must not survive into this one.
+        """
+        for name, value in variables.items():
+            if isinstance(name, str) and name.isidentifier():
+                self.shell.user_ns[name] = value
 
     def _register_inputs(self, inputs: list[dict[str, Any]], node_type: str) -> None:
         bind_pandas = node_type == "python"
