@@ -1,6 +1,7 @@
 import json
 
 from posthog.test.base import BaseTest
+from unittest.mock import patch
 
 from django.core.management import call_command
 from django.core.management.base import CommandError
@@ -9,6 +10,7 @@ from parameterized import parameterized
 
 from posthog.models import Team
 
+from products.workflows.backend.management.commands import rewrite_email_asset_url
 from products.workflows.backend.models.hog_flow.hog_flow import HogFlow
 
 OLD = "https://assets.example.com/projects/0/banner.png"
@@ -55,6 +57,48 @@ class TestRewriteEmailAssetUrl(BaseTest):
     def test_refuses_a_from_url_contained_in_the_to_url(self) -> None:
         with self.assertRaises(CommandError):
             call_command("rewrite_email_asset_url", "--from-url", OLD, "--to-url", f"{OLD}?v=2", "--team-id", "1")
+
+    @parameterized.expand([("zero", "0"), ("negative", "-1")])
+    def test_refuses_a_batch_size_below_one(self, _name: str, batch_size: str) -> None:
+        # 0 raises inside range() mid-run; a negative step skips every row while reporting success.
+        with self.assertRaises(CommandError):
+            call_command(
+                "rewrite_email_asset_url",
+                "--from-url",
+                OLD,
+                "--to-url",
+                NEW,
+                "--team-id",
+                "1",
+                "--batch-size",
+                batch_size,
+            )
+
+    def test_a_failed_row_fails_the_command_and_leaves_the_rest_rewritten(self) -> None:
+        # A caller reading only the exit code would otherwise treat a partial rewrite as complete.
+        good = self._flow(self.team, "good")
+        bad = self._flow(self.team, "bad")
+
+        real_rewrite = rewrite_email_asset_url.rewrite_blob
+
+        def fail_for_bad(blob: object, from_url: str, to_url: str) -> tuple[object, int]:
+            if isinstance(blob, list) and blob and blob[0].get("id") == "boom":
+                raise ValueError("rewrite exploded")
+            return real_rewrite(blob, from_url, to_url)
+
+        bad.actions[0]["id"] = "boom"
+        bad.save(update_fields=["actions"])
+
+        with patch.object(rewrite_email_asset_url, "rewrite_blob", fail_for_bad):
+            with self.assertRaises(CommandError):
+                call_command(
+                    "rewrite_email_asset_url", "--from-url", OLD, "--to-url", NEW, "--team-id", str(self.team.id)
+                )
+
+        good.refresh_from_db()
+        bad.refresh_from_db()
+        assert NEW in json.dumps(good.actions)
+        assert OLD in json.dumps(bad.actions)
 
     def test_rewrites_only_the_named_team(self) -> None:
         mine = self._flow(self.team, "mine")

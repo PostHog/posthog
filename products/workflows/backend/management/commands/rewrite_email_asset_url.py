@@ -115,6 +115,10 @@ class Command(BaseCommand):
         unknown = set(targets) - set(TARGETS)
         if unknown:
             raise CommandError(f"Unknown target(s): {', '.join(sorted(unknown))}. Valid: {', '.join(TARGETS)}")
+        # 0 makes range() raise mid-run and a negative step yields no batches at all, which reads as
+        # a clean "nothing to do" while every matched row keeps the old URL.
+        if options["batch_size"] < 1:
+            raise CommandError("--batch-size must be 1 or more")
 
         if dry_run:
             self.stdout.write(self.style.WARNING("DRY RUN - no writes"))
@@ -135,6 +139,11 @@ class Command(BaseCommand):
             f"{totals.occurrences} occurrence(s). Scanned {totals.rows_scanned}. Errors: {totals.errors}"
         )
         self.stdout.write(self.style.SUCCESS(summary) if not totals.errors else self.style.ERROR(summary))
+
+        # Exit non-zero on a partial run. Rows that failed still carry the old URL, and a caller that
+        # only reads the exit code would otherwise treat the rewrite as complete.
+        if totals.errors:
+            raise CommandError(f"{totals.errors} row(s) failed to rewrite - see the errors above and re-run")
 
     def _process_target(self, target: str, from_url: str, to_url: str, options: dict[str, Any]) -> RewriteCounts:
         model, field_timestamps = TARGETS[target]
