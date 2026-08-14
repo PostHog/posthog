@@ -271,6 +271,8 @@ export function HogInvocations({
         personPropertiesById,
         sparkline,
         sparklineLoading,
+        cancellingInvocationIds,
+        cancellingAll,
     } = useValues(logic)
     const {
         loadMore,
@@ -487,6 +489,7 @@ export function HogInvocations({
                             size="xsmall"
                             type="secondary"
                             status="danger"
+                            loading={cancellingInvocationIds.includes(row.invocation_id)}
                             onClick={() => {
                                 LemonDialog.open({
                                     title: 'Cancel this run?',
@@ -634,6 +637,7 @@ export function HogInvocations({
                             type="secondary"
                             status="danger"
                             icon={<IconX />}
+                            loading={cancellingAll}
                             onClick={() => {
                                 LemonDialog.open({
                                     title: 'Cancel all in-flight runs?',
