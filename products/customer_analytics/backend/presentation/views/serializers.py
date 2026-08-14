@@ -29,7 +29,6 @@ from posthog.api.shared import UserBasicSerializer
 from posthog.models import OrganizationMembership
 
 from products.customer_analytics.backend.facade.api import (
-    AccountEmailThreadDetail,
     AccountEmailThreadMessage,
     AccountEmailThreadSummary,
     EmailThreadAddress,
@@ -890,19 +889,6 @@ class AccountEmailThreadMessageSerializer(DataclassSerializer):
             "direction",
             "content",
         ]
-
-
-class AccountEmailThreadDetailSerializer(AccountEmailThreadSerializer):
-    messages = AccountEmailThreadMessageSerializer(
-        many=True,
-        read_only=True,
-        help_text="Messages ordered by their source timestamp.",
-    )
-
-    class Meta:
-        dataclass = AccountEmailThreadDetail
-        ref_name = "AccountEmailThreadDetail"
-        fields = [*AccountEmailThreadSerializer.Meta.fields, "messages"]
 
 
 class CalendarSyncStatusSerializer(DataclassSerializer):

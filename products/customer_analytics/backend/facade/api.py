@@ -73,7 +73,6 @@ from posthog.models.tagged_item import TaggedItem
 from posthog.models.team import Team
 
 from products.conversations.backend.facade.api import (
-    AccountEmailThreadDetail as AccountEmailThreadDetail,
     AccountEmailThreadMessage as AccountEmailThreadMessage,
     AccountEmailThreadSummary as AccountEmailThreadSummary,
     EmailThreadAddress as EmailThreadAddress,
@@ -81,7 +80,7 @@ from products.conversations.backend.facade.api import (
     SupportSlackChannelsUnavailable,
     SupportSlackNotConfigured,
     TicketSummary as TicketSummary,
-    get_account_email_thread,
+    list_account_email_thread_messages,
     list_account_email_threads,
     list_account_tickets,
     trigger_immediate_channel_summary,
@@ -3486,17 +3485,20 @@ def get_account_email_threads(
     return list_account_email_threads(team_id, account_id, offset=offset, limit=limit)
 
 
-def get_account_email_thread_detail(
+def get_account_email_thread_messages(
     team_id: int,
     account_id: str,
     thread_id: str,
     user_access_control: "UserAccessControl",
-) -> AccountEmailThreadDetail | None:
+    *,
+    offset: int = 0,
+    limit: int = 50,
+) -> tuple[list[AccountEmailThreadMessage], int] | None:
     if get_accessible_account_id(team_id, account_id, user_access_control) is None:
         return None
     if not user_access_control.check_access_level_for_resource("ticket", "viewer"):
         raise ResourceForbiddenError()
-    return get_account_email_thread(team_id, account_id, thread_id)
+    return list_account_email_thread_messages(team_id, account_id, thread_id, offset=offset, limit=limit)
 
 
 def list_calendar_sync_statuses(team_id: int) -> list[contracts.CalendarSyncStatus]:

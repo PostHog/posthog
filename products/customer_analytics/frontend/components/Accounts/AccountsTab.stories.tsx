@@ -423,21 +423,17 @@ export const RowExpandedEmailThreads: Story = {
                 [ACCOUNT_RETRIEVE_ENDPOINT]: ACCOUNT_WITH_LINKS,
                 [ACCOUNT_NOTEBOOKS_ENDPOINT]: { count: 0, next: null, previous: null, results: [] },
                 [ACCOUNT_EMAIL_THREAD_DETAIL_ENDPOINT]: {
-                    id: '11111111-1111-1111-1111-111111111111',
-                    subject: 'Renewal planning',
-                    preview: 'I shared the revised timeline with the team.',
-                    first_message_at: '2026-05-20T09:00:00Z',
-                    last_message_at: '2026-05-20T11:30:00Z',
-                    message_count: 2,
-                    participants: [{ email: 'buyer@example.com', display_name: 'Example buyer', kind: 'customer' }],
-                    messages: [
+                    count: 2,
+                    next: null,
+                    previous: null,
+                    results: [
                         {
                             id: '22222222-2222-2222-2222-222222222222',
                             sent_at: '2026-05-20T09:00:00Z',
                             sender: { name: 'Example buyer', email: 'buyer@example.com' },
                             to_recipients: [{ name: 'Alice Anderson', email: 'alice@posthog.com' }],
                             cc_recipients: [],
-                            sender_authenticated: true,
+                            sender_authenticated: false,
                             direction: 'inbound',
                             content: 'Could you send the updated renewal timeline?',
                         },
@@ -455,7 +451,7 @@ export const RowExpandedEmailThreads: Story = {
                 },
             },
             post: {
-                [QUERY_ENDPOINT]: mockAccountsQuery(SINGLE_ROW),
+                [QUERY_ENDPOINT]: mockAccountsTableQuery(SINGLE_ROW),
             },
         }),
     ],

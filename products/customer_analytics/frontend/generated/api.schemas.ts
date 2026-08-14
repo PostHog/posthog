@@ -558,29 +558,13 @@ export interface AccountEmailThreadMessageApi {
     readonly content: string
 }
 
-export interface AccountEmailThreadDetailApi {
-    /** UUID of the captured email thread. */
-    readonly id: string
-    /** Email thread subject. */
-    readonly subject: string
-    /** Plain-text preview of the latest captured message. */
-    readonly preview: string
-    /**
-     * Source timestamp of the first captured message.
-     * @nullable
-     */
-    readonly first_message_at: string | null
-    /**
-     * Source timestamp of the latest captured message.
-     * @nullable
-     */
-    readonly last_message_at: string | null
-    /** Number of captured messages in the thread. */
-    readonly message_count: number
-    /** Participants included in the email thread. */
-    readonly participants: readonly AccountEmailThreadParticipantApi[]
-    /** Messages ordered by their source timestamp. */
-    readonly messages: readonly AccountEmailThreadMessageApi[]
+export interface PaginatedAccountEmailThreadMessageListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: AccountEmailThreadMessageApi[]
 }
 
 /**
@@ -2120,6 +2104,17 @@ export type AccountsRelationshipsListParams = {
 }
 
 export type AccountsEmailThreadsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+}
+
+export type AccountsEmailThreadMessagesListParams = {
     /**
      * Number of results to return per page.
      */

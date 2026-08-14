@@ -26,7 +26,6 @@ from posthog.temporal.common.client import sync_connect
 
 from products.conversations.backend.channel_summary_ids import build_channel_summary_workflow_id
 from products.conversations.backend.facade.types import (
-    AccountEmailThreadDetail as AccountEmailThreadDetail,
     AccountEmailThreadMessage as AccountEmailThreadMessage,
     AccountEmailThreadSummary as AccountEmailThreadSummary,
     EmailThreadAccountLinkInput as EmailThreadAccountLinkInput,
@@ -385,12 +384,14 @@ def _email_thread_addresses(value: object) -> list[EmailThreadAddress]:
     return addresses
 
 
-def get_account_email_thread(
+def list_account_email_thread_messages(
     team_id: int,
     account_id: str,
     thread_id: str,
-) -> AccountEmailThreadDetail | None:
-    participants: QuerySet[EmailThreadParticipant] = EmailThreadParticipant.objects.for_team(team_id).order_by("email")
+    *,
+    offset: int = 0,
+    limit: int = 50,
+) -> tuple[list[AccountEmailThreadMessage], int] | None:
     thread = (
         EmailThread.objects.for_team(team_id)
         .filter(
@@ -398,7 +399,6 @@ def get_account_email_thread(
             account_links__team_id=team_id,
             account_links__account_id=account_id,
         )
-        .prefetch_related(Prefetch("participants", queryset=participants, to_attr="facade_participants"))
         .first()
     )
     if thread is None:
@@ -410,16 +410,9 @@ def get_account_email_thread(
         .select_related("comment")
         .order_by("sent_at", "id")
     )
-    summary = _account_email_thread_summary(thread)
-    return AccountEmailThreadDetail(
-        id=summary.id,
-        subject=summary.subject,
-        preview=summary.preview,
-        first_message_at=summary.first_message_at,
-        last_message_at=summary.last_message_at,
-        message_count=summary.message_count,
-        participants=summary.participants,
-        messages=[
+    count = messages.count()
+    return (
+        [
             AccountEmailThreadMessage(
                 id=str(message.id),
                 sent_at=message.sent_at,
@@ -430,6 +423,7 @@ def get_account_email_thread(
                 direction=message.direction,
                 content=message.comment.content or "",
             )
-            for message in messages
+            for message in messages[offset : offset + limit]
         ],
+        count,
     )

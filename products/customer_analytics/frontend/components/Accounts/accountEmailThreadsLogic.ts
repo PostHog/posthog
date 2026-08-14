@@ -5,15 +5,16 @@ import posthog from 'posthog-js'
 import { teamLogic } from 'scenes/teamLogic'
 
 import {
+    accountsEmailThreadMessagesList,
     accountsEmailThreadsList,
-    accountsEmailThreadsRetrieve,
 } from 'products/customer_analytics/frontend/generated/api'
 import type {
     AccountEmailThreadApi,
-    AccountEmailThreadDetailApi,
+    PaginatedAccountEmailThreadMessageListApi,
 } from 'products/customer_analytics/frontend/generated/api.schemas'
 
 export const PAGE_SIZE = 10
+export const MESSAGE_PAGE_SIZE = 50
 
 export interface AccountEmailThreadsLogicProps {
     accountId: string
@@ -33,7 +34,8 @@ export interface accountEmailThreadsLogicValues {
     expandedThreadId: string | null
     page: number
     threadDetailErrors: Record<string, boolean>
-    threadDetails: Record<string, AccountEmailThreadDetailApi>
+    threadDetailPages: Record<string, number>
+    threadDetails: Record<string, PaginatedAccountEmailThreadMessageListApi>
     threadDetailsLoading: Record<string, boolean>
     threadsResult: AccountEmailThreadsResult
     threadsResultLoading: boolean
@@ -52,9 +54,9 @@ export interface accountEmailThreadsLogicActions {
     }
     loadThreadDetailSuccess: (
         threadId: string,
-        detail: AccountEmailThreadDetailApi
+        detail: PaginatedAccountEmailThreadMessageListApi
     ) => {
-        detail: AccountEmailThreadDetailApi
+        detail: PaginatedAccountEmailThreadMessageListApi
         threadId: string
     }
     loadThreads: () => any
@@ -77,6 +79,13 @@ export interface accountEmailThreadsLogicActions {
     }
     setPage: (page: number) => {
         page: number
+    }
+    setThreadDetailPage: (
+        threadId: string,
+        page: number
+    ) => {
+        page: number
+        threadId: string
     }
 }
 
@@ -104,8 +113,12 @@ export const accountEmailThreadsLogic = kea<accountEmailThreadsLogicType>([
         openThread: (threadId: string) => ({ threadId }),
         closeThread: (threadId: string) => ({ threadId }),
         loadThreadDetail: (threadId: string) => ({ threadId }),
-        loadThreadDetailSuccess: (threadId: string, detail: AccountEmailThreadDetailApi) => ({ threadId, detail }),
+        loadThreadDetailSuccess: (threadId: string, detail: PaginatedAccountEmailThreadMessageListApi) => ({
+            threadId,
+            detail,
+        }),
         loadThreadDetailFailure: (threadId: string) => ({ threadId }),
+        setThreadDetailPage: (threadId: string, page: number) => ({ threadId, page }),
     }),
     loaders(({ props, values }) => ({
         threadsResult: [
@@ -148,9 +161,16 @@ export const accountEmailThreadsLogic = kea<accountEmailThreadsLogicType>([
             },
         ],
         threadDetails: [
-            {} as Record<string, AccountEmailThreadDetailApi>,
+            {} as Record<string, PaginatedAccountEmailThreadMessageListApi>,
             {
                 loadThreadDetailSuccess: (state, { threadId, detail }) => ({ ...state, [threadId]: detail }),
+            },
+        ],
+        threadDetailPages: [
+            {} as Record<string, number>,
+            {
+                openThread: (state, { threadId }) => (state[threadId] ? state : { ...state, [threadId]: 1 }),
+                setThreadDetailPage: (state, { threadId, page }) => ({ ...state, [threadId]: page }),
             },
         ],
         threadDetailsLoading: [
@@ -177,20 +197,29 @@ export const accountEmailThreadsLogic = kea<accountEmailThreadsLogicType>([
                 actions.loadThreadDetail(threadId)
             }
         },
-        loadThreadDetail: async ({ threadId }) => {
+        setThreadDetailPage: ({ threadId }) => actions.loadThreadDetail(threadId),
+        loadThreadDetail: async ({ threadId }, breakpoint) => {
+            let detail: PaginatedAccountEmailThreadMessageListApi
             try {
-                const detail = await accountsEmailThreadsRetrieve(
+                const page = values.threadDetailPages[threadId] ?? 1
+                detail = await accountsEmailThreadMessagesList(
                     String(values.currentTeamId),
                     props.accountId,
-                    threadId
+                    threadId,
+                    {
+                        limit: MESSAGE_PAGE_SIZE,
+                        offset: (page - 1) * MESSAGE_PAGE_SIZE,
+                    }
                 )
-                actions.loadThreadDetailSuccess(threadId, detail)
             } catch (error) {
                 posthog.captureException(error as Error, {
                     scope: 'accountEmailThreadsLogic.loadThreadDetail',
                 })
                 actions.loadThreadDetailFailure(threadId)
+                return
             }
+            breakpoint()
+            actions.loadThreadDetailSuccess(threadId, detail)
         },
     })),
     afterMount(({ actions }) => {

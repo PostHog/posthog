@@ -4,24 +4,24 @@ import posthog from 'posthog-js'
 import { initKeaTests } from '~/test/init'
 
 import {
+    accountsEmailThreadMessagesList,
     accountsEmailThreadsList,
-    accountsEmailThreadsRetrieve,
 } from 'products/customer_analytics/frontend/generated/api'
 import type {
     AccountEmailThreadApi,
-    AccountEmailThreadDetailApi,
+    PaginatedAccountEmailThreadMessageListApi,
 } from 'products/customer_analytics/frontend/generated/api.schemas'
 
-import { accountEmailThreadsLogic, PAGE_SIZE } from './accountEmailThreadsLogic'
+import { accountEmailThreadsLogic, MESSAGE_PAGE_SIZE, PAGE_SIZE } from './accountEmailThreadsLogic'
 
 jest.mock('products/customer_analytics/frontend/generated/api', () => ({
     ...jest.requireActual('products/customer_analytics/frontend/generated/api'),
+    accountsEmailThreadMessagesList: jest.fn(),
     accountsEmailThreadsList: jest.fn(),
-    accountsEmailThreadsRetrieve: jest.fn(),
 }))
 
 const mockList = accountsEmailThreadsList as jest.MockedFunction<typeof accountsEmailThreadsList>
-const mockRetrieve = accountsEmailThreadsRetrieve as jest.MockedFunction<typeof accountsEmailThreadsRetrieve>
+const mockMessageList = accountsEmailThreadMessagesList as jest.MockedFunction<typeof accountsEmailThreadMessagesList>
 
 const thread = {
     id: '11111111-1111-1111-1111-111111111111',
@@ -34,8 +34,10 @@ const thread = {
 } as AccountEmailThreadApi
 
 const detail = {
-    ...thread,
-    messages: [
+    count: 1,
+    next: null,
+    previous: null,
+    results: [
         {
             id: '22222222-2222-2222-2222-222222222222',
             sent_at: '2026-08-01T10:00:00Z',
@@ -47,7 +49,7 @@ const detail = {
             content: 'Message body',
         },
     ],
-} as AccountEmailThreadDetailApi
+} as PaginatedAccountEmailThreadMessageListApi
 
 describe('accountEmailThreadsLogic', () => {
     let logic: ReturnType<typeof accountEmailThreadsLogic.build>
@@ -70,17 +72,28 @@ describe('accountEmailThreadsLogic', () => {
     }
 
     it('paginates summaries and loads message detail only when a thread opens', async () => {
-        mockRetrieve.mockResolvedValue(detail)
+        mockMessageList.mockResolvedValue(detail)
         await mount()
 
-        expect(mockRetrieve).not.toHaveBeenCalled()
+        expect(mockMessageList).not.toHaveBeenCalled()
         await expectLogic(logic, () => logic.actions.openThread(thread.id)).toFinishAllListeners()
         expect(logic.values.threadDetails[thread.id]).toEqual(detail)
-        expect(mockRetrieve).toHaveBeenCalledTimes(1)
+        expect(mockMessageList).toHaveBeenCalledTimes(1)
+        expect(mockMessageList).toHaveBeenLastCalledWith(expect.any(String), 'acc-1', thread.id, {
+            limit: MESSAGE_PAGE_SIZE,
+            offset: 0,
+        })
+
+        await expectLogic(logic, () => logic.actions.setThreadDetailPage(thread.id, 2)).toFinishAllListeners()
+        expect(mockMessageList).toHaveBeenCalledTimes(2)
+        expect(mockMessageList).toHaveBeenLastCalledWith(expect.any(String), 'acc-1', thread.id, {
+            limit: MESSAGE_PAGE_SIZE,
+            offset: MESSAGE_PAGE_SIZE,
+        })
 
         logic.actions.closeThread(thread.id)
         await expectLogic(logic, () => logic.actions.openThread(thread.id)).toFinishAllListeners()
-        expect(mockRetrieve).toHaveBeenCalledTimes(1)
+        expect(mockMessageList).toHaveBeenCalledTimes(2)
 
         await expectLogic(logic, () => logic.actions.setPage(2)).toFinishAllListeners()
         expect(mockList).toHaveBeenLastCalledWith(expect.any(String), 'acc-1', {
@@ -90,7 +103,7 @@ describe('accountEmailThreadsLogic', () => {
     })
 
     it('records a detail error instead of leaving the expanded row loading', async () => {
-        mockRetrieve.mockRejectedValue(new Error('network'))
+        mockMessageList.mockRejectedValue(new Error('network'))
         await mount()
 
         await expectLogic(logic, () => logic.actions.openThread(thread.id)).toFinishAllListeners()

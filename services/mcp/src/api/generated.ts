@@ -417,31 +417,6 @@ export namespace Schemas {
       readonly content: string;
     }
 
-    export interface AccountEmailThreadDetail {
-      /** UUID of the captured email thread. */
-      readonly id: string;
-      /** Email thread subject. */
-      readonly subject: string;
-      /** Plain-text preview of the latest captured message. */
-      readonly preview: string;
-      /**
-         * Source timestamp of the first captured message.
-         * @nullable
-         */
-      readonly first_message_at: string | null;
-      /**
-         * Source timestamp of the latest captured message.
-         * @nullable
-         */
-      readonly last_message_at: string | null;
-      /** Number of captured messages in the thread. */
-      readonly message_count: number;
-      /** Participants included in the email thread. */
-      readonly participants: readonly AccountEmailThreadParticipant[];
-      /** Messages ordered by their source timestamp. */
-      readonly messages: readonly AccountEmailThreadMessage[];
-    }
-
     /**
      * * `engineering` - Engineering
      * * `data` - Data
@@ -48351,6 +48326,15 @@ export namespace Schemas {
       results: AccountEmailThread[];
     }
 
+    export interface PaginatedAccountEmailThreadMessageList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: AccountEmailThreadMessage[];
+    }
+
     export interface PaginatedAccountList {
       count: number;
       /** @nullable */
@@ -82279,6 +82263,17 @@ export namespace Schemas {
     };
 
     export type AccountsEmailThreadsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
+
+    export type AccountsEmailThreadMessagesListParams = {
     /**
      * Number of results to return per page.
      */

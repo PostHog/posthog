@@ -25,6 +25,7 @@ from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, extend_sche
 from rest_framework import mixins, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import PermissionDenied, ValidationError
+from rest_framework.pagination import LimitOffsetPagination
 from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.throttling import UserRateThrottle
@@ -50,7 +51,7 @@ from products.customer_analytics.backend.facade import api, contracts
 from products.customer_analytics.backend.facade.constants import CUSTOMER_ANALYTICS_FEATURE_REQUESTS_FLAG
 from products.customer_analytics.backend.presentation.views.serializers import (
     AccountChannelSummarySerializer,
-    AccountEmailThreadDetailSerializer,
+    AccountEmailThreadMessageSerializer,
     AccountEmailThreadSerializer,
     AccountNotebookSerializer,
     AccountNoteSerializer,
@@ -1286,33 +1287,46 @@ class AccountViewSet(
         return self._paginate_via_facade(request, fetch, AccountEmailThreadSerializer)
 
     @extend_schema(
+        operation_id="accounts_email_thread_messages_list",
         parameters=[_ACCOUNT_ID_PARAM],
-        responses={200: AccountEmailThreadDetailSerializer},
+        responses={200: AccountEmailThreadMessageSerializer(many=True)},
     )
     @action(
         methods=["GET"],
         detail=True,
         url_path=r"email_threads/(?P<thread_id>[^/.]+)",
         url_name="email-thread-detail",
-        pagination_class=None,
     )
     def email_thread(self, request: Request, thread_id: str, *args, **kwargs) -> Response:
         try:
             parsed_thread_id = str(UUID(thread_id))
         except ValueError:
             return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
+
+        paginator = cast(LimitOffsetPagination, self.paginator)
+        limit = paginator.get_limit(request)
+        offset = paginator.get_offset(request)
         try:
-            thread = api.get_account_email_thread_detail(
+            result = api.get_account_email_thread_messages(
                 self.team_id,
                 self.kwargs["pk"],
                 parsed_thread_id,
                 self.user_access_control,
+                offset=offset,
+                limit=limit,
             )
         except api.ResourceForbiddenError:
             raise PermissionDenied()
-        if thread is None:
+        if result is None:
             return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
-        return Response(AccountEmailThreadDetailSerializer(instance=thread).data)
+
+        messages, count = result
+        paginator.request = request
+        paginator.limit = limit
+        paginator.offset = offset
+        paginator.count = count
+        serializer = AccountEmailThreadMessageSerializer(instance=messages, many=True)
+        return paginator.get_paginated_response(serializer.data)
 
     @extend_schema(
         parameters=[

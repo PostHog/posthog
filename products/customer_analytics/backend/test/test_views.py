@@ -2832,7 +2832,7 @@ class TestAccountEmailThreadViewSet(APIBaseTest):
             )
         self.endpoint = f"/api/environments/{self.team.id}/accounts/{self.account.id}/email_threads/"
 
-    def test_list_keeps_messages_out_and_detail_orders_them_by_source_time(self):
+    def test_list_keeps_messages_out_and_detail_paginates_by_source_time(self):
         list_response = self.client.get(self.endpoint)
 
         self.assertEqual(status.HTTP_200_OK, list_response.status_code, list_response.json())
@@ -2843,12 +2843,20 @@ class TestAccountEmailThreadViewSet(APIBaseTest):
         self.assertEqual(summary["message_count"], 2)
         self.assertNotIn("messages", summary)
 
-        detail_response = self.client.get(f"{self.endpoint}{self.thread.id}/")
+        detail_response = self.client.get(f"{self.endpoint}{self.thread.id}/?limit=1&offset=0")
 
         self.assertEqual(status.HTTP_200_OK, detail_response.status_code, detail_response.json())
+        self.assertEqual(detail_response.json()["count"], 2)
         self.assertEqual(
-            [message["content"] for message in detail_response.json()["messages"]],
-            ["Message 2", "Message 1"],
+            [message["content"] for message in detail_response.json()["results"]],
+            ["Message 2"],
+        )
+
+        second_page_response = self.client.get(f"{self.endpoint}{self.thread.id}/?limit=1&offset=1")
+        self.assertEqual(status.HTTP_200_OK, second_page_response.status_code, second_page_response.json())
+        self.assertEqual(
+            [message["content"] for message in second_page_response.json()["results"]],
+            ["Message 1"],
         )
         self.assertEqual(status.HTTP_404_NOT_FOUND, self.client.get(f"{self.endpoint}not-a-uuid/").status_code)
 

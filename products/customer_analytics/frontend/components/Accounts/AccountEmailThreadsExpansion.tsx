@@ -1,18 +1,19 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonCard, LemonSkeleton, LemonTable, LemonTableColumns, LemonTag } from '@posthog/lemon-ui'
+import { LemonCard, LemonSkeleton, LemonTable, LemonTableColumns, LemonTag, Tooltip } from '@posthog/lemon-ui'
 
 import { BigLeaguesHog } from 'lib/components/hedgehogs'
 import { TZLabel } from 'lib/components/TZLabel'
+import { PaginationControl } from 'lib/lemon-ui/PaginationControl'
 
 import type {
     AccountEmailThreadApi,
-    AccountEmailThreadDetailApi,
     AccountEmailThreadMessageApi,
     AccountEmailThreadParticipantApi,
+    PaginatedAccountEmailThreadMessageListApi,
 } from 'products/customer_analytics/frontend/generated/api.schemas'
 
-import { accountEmailThreadsLogic, NOT_LOADED, PAGE_SIZE } from './accountEmailThreadsLogic'
+import { accountEmailThreadsLogic, MESSAGE_PAGE_SIZE, NOT_LOADED, PAGE_SIZE } from './accountEmailThreadsLogic'
 
 const COLLAPSED_PARTICIPANT_COUNT = 3
 
@@ -74,6 +75,11 @@ function EmailMessage({ message }: { message: AccountEmailThreadMessageApi }): J
                     ) : null}
                 </div>
                 <div className="flex items-center gap-2 shrink-0">
+                    {message.direction === 'inbound' && !message.sender_authenticated ? (
+                        <Tooltip title="PostHog couldn't verify this sender's domain. Check the sender before sharing account details.">
+                            <LemonTag type="warning">Unverified sender</LemonTag>
+                        </Tooltip>
+                    ) : null}
                     <LemonTag type={message.direction === 'outbound' ? 'primary' : 'default'}>
                         {message.direction === 'outbound' ? 'Outgoing' : 'Incoming'}
                     </LemonTag>
@@ -87,8 +93,10 @@ function EmailMessage({ message }: { message: AccountEmailThreadMessageApi }): J
 
 function ThreadDetail({ accountId, threadId }: { accountId: string; threadId: string }): JSX.Element {
     const logic = accountEmailThreadsLogic({ accountId })
-    const { threadDetails, threadDetailsLoading, threadDetailErrors } = useValues(logic)
-    const detail: AccountEmailThreadDetailApi | undefined = threadDetails[threadId]
+    const { threadDetails, threadDetailsLoading, threadDetailErrors, threadDetailPages } = useValues(logic)
+    const { setThreadDetailPage } = useActions(logic)
+    const detail: PaginatedAccountEmailThreadMessageListApi | undefined = threadDetails[threadId]
+    const page = threadDetailPages[threadId] ?? 1
 
     if (threadDetailsLoading[threadId] || (!detail && !threadDetailErrors[threadId])) {
         return <LemonSkeleton className="h-40 w-full" />
@@ -106,9 +114,20 @@ function ThreadDetail({ accountId, threadId }: { accountId: string; threadId: st
     }
     return (
         <div className="flex flex-col gap-2 py-2" data-attr="account-email-thread-detail">
-            {detail.messages.map((message) => (
+            {detail.results.map((message) => (
                 <EmailMessage key={message.id} message={message} />
             ))}
+            <PaginationControl
+                pagination={{ controlled: true, pageSize: MESSAGE_PAGE_SIZE }}
+                currentPage={page}
+                setCurrentPage={(newPage) => setThreadDetailPage(threadId, newPage)}
+                pageCount={Math.max(1, Math.ceil(detail.count / MESSAGE_PAGE_SIZE))}
+                dataSourcePage={detail.results}
+                entryCount={detail.count}
+                currentStartIndex={(page - 1) * MESSAGE_PAGE_SIZE}
+                currentEndIndex={(page - 1) * MESSAGE_PAGE_SIZE + detail.results.length}
+                nouns={['message', 'messages']}
+            />
         </div>
     )
 }
@@ -118,7 +137,7 @@ export function AccountEmailThreadsExpansion({ accountId }: { accountId: string 
     const { threadsResult, threadsResultLoading, page, expandedThreadId } = useValues(logic)
     const { setPage, openThread, closeThread } = useActions(logic)
 
-    if (threadsResult === NOT_LOADED) {
+    if (threadsResult === NOT_LOADED || threadsResultLoading) {
         return <LemonSkeleton className="h-64 w-full" />
     }
 
@@ -131,7 +150,7 @@ export function AccountEmailThreadsExpansion({ accountId }: { accountId: string 
             />
         )
     }
-    if (count === 0 && !threadsResultLoading) {
+    if (count === 0) {
         return (
             <EmailThreadsEmptyState
                 title="No email threads yet"
@@ -183,7 +202,6 @@ export function AccountEmailThreadsExpansion({ accountId }: { accountId: string 
             dataSource={threads ?? []}
             columns={columns}
             rowKey="id"
-            loading={threadsResultLoading}
             tableLayout="fixed"
             pagination={{
                 controlled: true,
