@@ -111,19 +111,23 @@ export const accountEmailThreadsLogic = kea<accountEmailThreadsLogicType>([
         threadsResult: [
             NOT_LOADED,
             {
-                loadThreads: async (): Promise<AccountEmailThreadsResult> => {
+                loadThreads: async (_, breakpoint): Promise<AccountEmailThreadsResult> => {
+                    let response: Awaited<ReturnType<typeof accountsEmailThreadsList>>
                     try {
-                        const response = await accountsEmailThreadsList(String(values.currentTeamId), props.accountId, {
+                        response = await accountsEmailThreadsList(String(values.currentTeamId), props.accountId, {
                             limit: PAGE_SIZE,
                             offset: (values.page - 1) * PAGE_SIZE,
                         })
-                        return { threads: [...response.results], count: response.count }
                     } catch (error) {
                         posthog.captureException(error as Error, {
                             scope: 'accountEmailThreadsLogic.loadThreads',
                         })
                         return { threads: null, count: 0, loadFailed: true }
                     }
+                    // Abort if a newer page load started while this request was in flight, so a slow
+                    // earlier page cannot resolve last and overwrite the page the user is now on.
+                    breakpoint()
+                    return { threads: [...response.results], count: response.count }
                 },
             },
         ],
