@@ -68,7 +68,7 @@ export interface scannerEditorSceneLogicActions {
 export interface scannerEditorSceneLogicMeta {
     __keaTypeGenInternalSelectorTypes: {
         isNew: (scannerId: string) => boolean
-        visibleSteps: (isNew: boolean) => readonly ScannerEditorStep[]
+        visibleSteps: () => readonly ScannerEditorStep[]
         breadcrumbs: (scannerId: string, isNew: boolean) => Breadcrumb[]
     }
 }
@@ -109,12 +109,9 @@ export const scannerEditorSceneLogic = kea<scannerEditorSceneLogicType>([
 
     selectors({
         isNew: [(s) => [s.scannerId], (scannerId: string): boolean => scannerId === 'new'],
-        visibleSteps: [
-            (s) => [s.isNew],
-            (isNew: boolean): readonly ScannerEditorStep[] =>
-                // The template picker only exists for a new scanner; every other step always shows.
-                SCANNER_EDITOR_STEPS.filter((step) => isNew || step !== 'template'),
-        ],
+        // Every step stays in the sequence so the numbering reads the same when creating and when editing.
+        // Template is unreachable for a saved scanner, so the stepper renders it disabled rather than dropping it.
+        visibleSteps: [() => [], (): readonly ScannerEditorStep[] => SCANNER_EDITOR_STEPS],
         breadcrumbs: [
             (s) => [s.scannerId, s.isNew],
             (scannerId: string, isNew: boolean): Breadcrumb[] => {

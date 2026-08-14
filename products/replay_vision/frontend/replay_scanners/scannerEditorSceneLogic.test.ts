@@ -79,10 +79,10 @@ describe('scannerEditorSceneLogic', () => {
             })
         })
 
-        it('hides only the template step for an existing scanner', async () => {
+        it('keeps every step for an existing scanner, so the numbering matches creation', async () => {
             router.actions.push(urls.replayVisionScannerConfigure('abc-123'))
             await expectLogic(logic).toMatchValues({
-                visibleSteps: ['configure', 'triggers', 'budget'],
+                visibleSteps: ['template', 'configure', 'triggers', 'budget'],
             })
         })
     })
