@@ -1,9 +1,10 @@
 # Canvas (Website space) — patterns
 
 Conventions for the channel-scoped Website space: channels and canvases. A canvas
-is an agent-authored single-file React app rendered in a sandboxed iframe. Read
-this before changing breadcrumbs, canvas naming, or the canvas generation harness.
-The root `AGENTS.md` architecture rules still apply.
+is an agent-authored browser app rendered in a sandboxed iframe. Read this before
+changing breadcrumbs, canvas naming, or the canvas generation harness. For the
+runtime itself — the render paths, the `ph.*` bridge, the build pipeline — read the
+`canvas-runtime` skill. The root `AGENTS.md` architecture rules still apply.
 
 ## Components & styling
 
