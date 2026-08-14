@@ -162,6 +162,13 @@ DUPLICATE_CARD_OVERLAP = 0.8
 # measures how long the session is rather than what it shows, and raw totals hand every card the
 # same longest session. Only the ranking is bounded; the reason still prints the true count.
 HIGHLIGHT_COUNT_DAMPING = 3
+# A session at or past this many of one friction signal, without a single rage click, is a client
+# stuck in an error loop or automation, not a person to watch, so it is never offered as a
+# highlight. It stays on its cards' playlists. A rage click exempts the session because it is the
+# one signal only a person produces: as of August 2026, production sessions past this bound with a
+# rage click show a median 23 active minutes across several distinct errors (a person suffering
+# through them), while those without show under a minute of activity and one error repeating.
+MAX_HIGHLIGHT_SIGNAL_COUNT = 100
 # Recording candidates fetched per card before replay existence is checked, and how many survive
 # onto the card. The margin absorbs sessions that were never recorded without a second round trip.
 MAX_CARD_RECORDING_CANDIDATES = 60
@@ -395,6 +402,14 @@ class ExperimentWatchResult:
     # into the ceiling. A count sitting on the cap is a floor, and printed as a plain number beside
     # an event name it reads as a measurement of that event.
     max_card_recordings: int
+    # How many cards the duplicate-recording-set rule removed from this viewer's shelf, reported
+    # so the shelf-loaded telemetry can say how often DUPLICATE_CARD_OVERLAP fires on real shelves
+    # before anyone tunes it.
+    dropped_duplicate_cards: int
+    # Whether this viewer's per-recording access filter removed anything. Both of these are set in
+    # `finalize_watch_cards` rather than here, because the shelf is cached across viewers and the
+    # duplicate cut runs on the shelf a viewer actually gets.
+    recordings_excluded_by_access: bool
     too_early: bool
 
 
@@ -423,14 +438,23 @@ def finalize_watch_cards(result: ExperimentWatchResult, accessible_session_ids: 
     """
     accessible = set(accessible_session_ids)
     cards = []
+    excluded_any = False
     for card in result.cards:
         session_ids = [session_id for session_id in card.session_ids if session_id in accessible]
+        if len(session_ids) < len(card.session_ids):
+            excluded_any = True
         if session_ids:
             highlights = [highlight for highlight in card.highlights if highlight.session_id in accessible]
             cards.append(
                 replace(card, recording_count=len(session_ids), session_ids=session_ids, highlights=highlights)
             )
-    return replace(result, cards=_assign_highlights(_drop_duplicate_recording_sets(cards)))
+    deduped = _drop_duplicate_recording_sets(cards)
+    return replace(
+        result,
+        cards=_assign_highlights(deduped),
+        dropped_duplicate_cards=len(cards) - len(deduped),
+        recordings_excluded_by_access=excluded_any,
+    )
 
 
 def get_experiment_session_event_deltas(team: Team, user: User, experiment: Experiment) -> ExperimentWatchResult:
@@ -598,6 +622,9 @@ def get_experiment_session_event_deltas(team: Team, user: User, experiment: Expe
         events_truncated=scan.events_truncated,
         min_arm_persons=MIN_ARM_PERSONS,
         max_card_recordings=MAX_CARD_RECORDINGS,
+        # Both settled per viewer in `finalize_watch_cards`; the cached shelf carries placeholders.
+        dropped_duplicate_cards=0,
+        recordings_excluded_by_access=False,
         too_early=too_early,
     )
     safe_cache_set(cache_key, result, timeout=DELTA_CACHE_TTL)
@@ -741,7 +768,7 @@ def _cache_key(
     # applied on read. One viewer's scan then serves every viewer whose restrictions match, which
     # on the heaviest read in this family is the difference between paying it once per team per
     # TTL and once per viewer.
-    return f"experiment_session_event_deltas_v7_{team.pk}_{experiment.pk}_{digest}"
+    return f"experiment_session_event_deltas_v8_{team.pk}_{experiment.pk}_{digest}"
 
 
 def _metric_event_names(metrics: list[MetricEventSource]) -> set[str]:
@@ -1580,6 +1607,14 @@ def _rank_highlights(
             for event, singular in HIGHLIGHT_SIGNALS
             if recording.signals[event] > 0
         ]
+        # A broken session tops every card it backs: damping caps what its counts are worth, but it
+        # still wins ties on carrying every kind of signal, so it is kept off the highlights
+        # entirely rather than merely held back. A rage click vouches for the session: loops don't
+        # rage click, and a person grinding through this much friction is worth featuring.
+        if recording.signals["$rageclick"] == 0 and any(
+            count >= MAX_HIGHLIGHT_SIGNAL_COUNT for count, _singular in present
+        ):
+            continue
         # Every signal the session carries, in the shelf's own priority order rather than by size,
         # so two recordings' reasons stay comparable at a glance.
         phrases = [pluralize(count, singular) for count, singular in present]
