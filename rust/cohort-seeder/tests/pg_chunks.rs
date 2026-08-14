@@ -854,6 +854,48 @@ async fn runs_with_exhausted_chunks_selects_only_capped_failures() -> Result<()>
     .await
 }
 
+/// The reported chunk and error come from one row. Aggregating them independently pairs the lowest
+/// chunk id with some other chunk's error, sending the operator to read a row that never failed
+/// that way.
+#[tokio::test]
+async fn exhausted_chunk_and_error_are_read_off_the_same_row() -> Result<()> {
+    with_db(|pool| async move {
+        let seeding_run =
+            insert_run(&pool, 2, "team_enablement", "seeding", true, empty_pinned()).await?;
+        let store = PgChunkStore::new(pool.clone());
+        ensure!(planned_count(store.plan_chunks(seeding_run, [100, 101], ONE_BAND).await?)? == 2);
+        let attempts5 = MaxAttempts::new(5)?;
+
+        // Ordered so the lowest-id chunk carries the *higher* error text: an independent
+        // `min(last_error)` would then hand back the other chunk's error.
+        let mut chunk_ids: Vec<Uuid> =
+            sqlx::query_scalar("SELECT id FROM cohort_backfill_chunks WHERE run_id = $1")
+                .bind(seeding_run)
+                .fetch_all(&pool)
+                .await?;
+        chunk_ids.sort();
+        for (chunk_id, error) in chunk_ids.iter().zip(["zzz lowest id", "aaa highest id"]) {
+            sqlx::query(
+                "UPDATE cohort_backfill_chunks SET status = 'failed', attempts = 5, last_error = $2 WHERE id = $1",
+            )
+            .bind(chunk_id)
+            .bind(error)
+            .execute(&pool)
+            .await?;
+        }
+
+        let exhausted = store
+            .runs_with_exhausted_chunks(&[seeding_run], attempts5)
+            .await?;
+        ensure!(exhausted.len() == 1);
+        ensure!(exhausted[0].exhausted == 2, "both capped chunks counted");
+        ensure!(exhausted[0].chunk_id == chunk_ids[0].to_string());
+        ensure!(exhausted[0].last_error == "zzz lowest id");
+        Ok(())
+    })
+    .await
+}
+
 /// Failing a run whose chunk exhausted its retries stops the run dead: a still-pending sibling is no
 /// longer claimable, a live sibling's heartbeat is refused, and a second failure is a no-op rather
 /// than a double-count. Without it the run sits in `seeding` forever holding its cohort's slot.

@@ -11,13 +11,15 @@ Deliberately not folded into ``finalize_backfill_runs``: that returns early whil
 still dark.
 """
 
-from dataclasses import dataclass, field
+from dataclasses import field
 from datetime import timedelta
 
 from django.db.models import Count, Min
 from django.utils import timezone as django_timezone
 
 from prometheus_client import Gauge
+
+from posthog.dataclasses import frozen
 
 from products.cohorts.backend.models.backfill import (
     ACTIVE_COHORT_BACKFILL_RUN_STATUSES,
@@ -28,11 +30,13 @@ from products.cohorts.backend.models.backfill import (
     CohortBackfillRunStatus,
 )
 
-# `livemax` rather than `max`: with `max`, a value written by a celery process that has since died
-# stays in the multiprocess directory forever and pins the gauge — and so the alert — at its last
-# reading. `livemax` drops dead processes' samples. (`finalize.py`'s HELD_RUNS_GAUGE still uses
-# `max` and carries the same latent issue.)
-_MULTIPROCESS_MODE = "livemax"
+# Each pass is a whole-fleet snapshot, so the newest reading is the only correct one. `max` keeps a
+# value written by a celery process that has since died, pinning the gauge — and so the alert — at
+# its last reading forever; `livemax` drops the dead process but still reports the largest sample
+# among the live ones, so a stale high reading from a worker that has not run the task since
+# outranks the fresh zero from the worker that did. `livemostrecent` takes the latest write.
+# (`finalize.py`'s HELD_RUNS_GAUGE still uses `max` and carries the same latent issue.)
+_MULTIPROCESS_MODE = "livemostrecent"
 
 RUNS_ACTIVE_GAUGE = Gauge(
     "posthog_cohort_backfill_runs_active",
@@ -74,7 +78,7 @@ TERMINAL_COHORT_BACKFILL_RUN_STATUSES = (
 _KINDS = tuple(CohortBackfillKind)
 
 
-@dataclass
+@frozen
 class ObservationPass:
     """One pass's readings, returned so tests can assert without scraping the registry."""
 

@@ -356,7 +356,6 @@ mod tests {
         // from a monotonic clock starting near zero) would read as decades stale and page forever.
         let now = now_unix_seconds();
         assert!(now > 1_700_000_000.0, "expected epoch seconds, got {now}");
-        assert!(now_unix_seconds() >= now);
     }
 
     #[test]

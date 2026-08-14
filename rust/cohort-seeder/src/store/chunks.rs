@@ -335,13 +335,14 @@ impl PgChunkStore {
         let run_ids = run_ids.iter().map(|run_id| run_id.0).collect::<Vec<_>>();
         let rows = sqlx::query_as::<_, ExhaustedRunRow>(
             r#"
-            SELECT run_id,
-                   count(*) AS exhausted,
-                   min(id::text) AS chunk_id,
-                   min(last_error) AS last_error
+            SELECT DISTINCT ON (run_id)
+                   run_id,
+                   count(*) OVER (PARTITION BY run_id) AS exhausted,
+                   id::text AS chunk_id,
+                   last_error
             FROM cohort_backfill_chunks
             WHERE run_id = ANY($1) AND status = $2 AND attempts >= $3
-            GROUP BY run_id
+            ORDER BY run_id, id
             "#,
         )
         .bind(run_ids)
@@ -702,6 +703,8 @@ pub struct ExhaustedRun {
     /// One of the exhausted chunks, for the operator-facing error text. Which one is arbitrary but
     /// stable (lowest id) — the point is a concrete row to go read, not a complete list.
     pub chunk_id: String,
+    /// That same chunk's error, never another one's: an operator handed chunk A with chunk B's
+    /// failure text reads the wrong row.
     pub last_error: String,
 }
 
