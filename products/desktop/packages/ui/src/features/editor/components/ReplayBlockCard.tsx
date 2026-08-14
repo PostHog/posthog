@@ -9,31 +9,24 @@ import { fetchEvidencePreview } from "../evidencePreview";
 import { useEvidenceUrl } from "./EvidenceRefChip";
 
 /**
- * Full-size card for `<replay id="..." display="block"/>`: the recording's
- * identity and activity, plus an in-chat player.
+ * Watchable session replay in agent messages.
  *
  * The player uses PostHog's shared-embed surface, which requires link sharing
  * on the recording. Loading it is always click-driven, and when sharing is
  * off, turning it on is consent-gated: it makes the recording viewable by
  * anyone with the link.
  */
-export function ReplayBlockCard({
-  spec,
-}: {
-  spec: Extract<ChartBlockSpec, { mode: "replay" }>;
-}) {
-  const client = useOptionalAuthenticatedClient();
-  const openUrl = useEvidenceUrl("replay", spec.sessionId);
 
-  const metadata = useAuthenticatedQuery(
-    ["evidence-preview", "replay", spec.sessionId],
-    (apiClient) =>
-      fetchEvidencePreview(apiClient, { kind: "replay", id: spec.sessionId }),
-    { staleTime: 5 * 60 * 1000, refetchOnWindowFocus: false, retry: 1 },
-  );
+/**
+ * The click-driven player area shared by the replay block card and the
+ * replay hover card: "Watch here", the consent step when link sharing is
+ * off, and the embedded shared player once available.
+ */
+export function ReplayPlayerArea({ sessionId }: { sessionId: string }) {
+  const client = useOptionalAuthenticatedClient();
   const sharing = useAuthenticatedQuery(
-    ["replay-embed", spec.sessionId],
-    (apiClient) => apiClient.getRecordingEmbedInfo(spec.sessionId),
+    ["replay-embed", sessionId],
+    (apiClient) => apiClient.getRecordingEmbedInfo(sessionId),
     { staleTime: 5 * 60 * 1000, refetchOnWindowFocus: false, retry: 1 },
   );
 
@@ -55,7 +48,7 @@ export function ReplayBlockCard({
     setEnabling(true);
     setEnableFailed(false);
     try {
-      const info = await client.getRecordingEmbedInfo(spec.sessionId, {
+      const info = await client.getRecordingEmbedInfo(sessionId, {
         enable: true,
       });
       if (info.embedUrl) {
@@ -70,6 +63,84 @@ export function ReplayBlockCard({
       setEnabling(false);
     }
   };
+
+  if (embedUrl) {
+    return (
+      <iframe
+        src={embedUrl}
+        title="Session replay player"
+        allowFullScreen
+        className="aspect-video w-full rounded-(--radius-1) border-0 bg-(--gray-2)"
+        data-testid="replay-player"
+      />
+    );
+  }
+  if (confirming) {
+    return (
+      <div className="flex flex-col gap-2 rounded-(--radius-1) bg-(--gray-a2) p-3">
+        <span className="text-[12px] text-gray-11">
+          Watching in the chat turns on link sharing for this recording. Anyone
+          with the link can view it.
+        </span>
+        {enableFailed && (
+          <span className="text-[12px] text-(--red-11)">
+            Couldn't turn on sharing. Open the recording in PostHog instead.
+          </span>
+        )}
+        <div className="flex items-center gap-2">
+          <Button
+            type="button"
+            size="1"
+            loading={enabling}
+            disabled={!client || enabling}
+            onClick={() => void enableAndWatch()}
+          >
+            Enable sharing and watch
+          </Button>
+          <Button
+            type="button"
+            variant="soft"
+            color="gray"
+            size="1"
+            disabled={enabling}
+            onClick={() => setConfirming(false)}
+          >
+            Cancel
+          </Button>
+        </div>
+      </div>
+    );
+  }
+  return (
+    <div className="flex items-center justify-center rounded-(--radius-1) bg-(--gray-a2) py-8">
+      <Button
+        type="button"
+        variant="soft"
+        color="gray"
+        size="1"
+        disabled={sharing.isPending && !sharing.isError}
+        onClick={watch}
+      >
+        <PlayIcon size={12} />
+        Watch here
+      </Button>
+    </div>
+  );
+}
+
+export function ReplayBlockCard({
+  spec,
+}: {
+  spec: Extract<ChartBlockSpec, { mode: "replay" }>;
+}) {
+  const openUrl = useEvidenceUrl("replay", spec.sessionId);
+
+  const metadata = useAuthenticatedQuery(
+    ["evidence-preview", "replay", spec.sessionId],
+    (apiClient) =>
+      fetchEvidencePreview(apiClient, { kind: "replay", id: spec.sessionId }),
+    { staleTime: 5 * 60 * 1000, refetchOnWindowFocus: false, retry: 1 },
+  );
 
   const preview = metadata.data ?? null;
   const title = spec.title ?? preview?.title ?? "Session replay";
@@ -115,62 +186,7 @@ export function ReplayBlockCard({
           ))}
         </div>
       )}
-      {embedUrl ? (
-        <iframe
-          src={embedUrl}
-          title="Session replay player"
-          allowFullScreen
-          className="aspect-video w-full rounded-(--radius-1) border-0 bg-(--gray-2)"
-          data-testid="replay-player"
-        />
-      ) : confirming ? (
-        <div className="flex flex-col gap-2 rounded-(--radius-1) bg-(--gray-a2) p-3">
-          <span className="text-[12px] text-gray-11">
-            Watching in the chat turns on link sharing for this recording.
-            Anyone with the link can view it.
-          </span>
-          {enableFailed && (
-            <span className="text-(--red-11) text-[12px]">
-              Couldn't turn on sharing. Open the recording in PostHog instead.
-            </span>
-          )}
-          <div className="flex items-center gap-2">
-            <Button
-              type="button"
-              size="1"
-              loading={enabling}
-              disabled={!client || enabling}
-              onClick={() => void enableAndWatch()}
-            >
-              Enable sharing and watch
-            </Button>
-            <Button
-              type="button"
-              variant="soft"
-              color="gray"
-              size="1"
-              disabled={enabling}
-              onClick={() => setConfirming(false)}
-            >
-              Cancel
-            </Button>
-          </div>
-        </div>
-      ) : (
-        <div className="flex items-center justify-center rounded-(--radius-1) bg-(--gray-a2) py-8">
-          <Button
-            type="button"
-            variant="soft"
-            color="gray"
-            size="1"
-            disabled={sharing.isPending && !sharing.isError}
-            onClick={watch}
-          >
-            <PlayIcon size={12} />
-            Watch here
-          </Button>
-        </div>
-      )}
+      <ReplayPlayerArea sessionId={spec.sessionId} />
       {spec.caption && (
         <figcaption className="m-0 text-[11px] text-gray-10">
           {spec.caption}
