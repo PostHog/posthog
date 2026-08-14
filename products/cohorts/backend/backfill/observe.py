@@ -13,6 +13,7 @@ still dark.
 
 from dataclasses import field
 from datetime import timedelta
+from typing import Final
 
 from django.db.models import Count, Min
 from django.utils import timezone as django_timezone
@@ -36,7 +37,8 @@ from products.cohorts.backend.models.backfill import (
 # among the live ones, so a stale high reading from a worker that has not run the task since
 # outranks the fresh zero from the worker that did. `livemostrecent` takes the latest write.
 # (`finalize.py`'s HELD_RUNS_GAUGE still uses `max` and carries the same latent issue.)
-_MULTIPROCESS_MODE = "livemostrecent"
+# `Final` so the literal type survives: `Gauge` takes a `Literal[...]`, which a plain `str` fails.
+_MULTIPROCESS_MODE: Final = "livemostrecent"
 
 RUNS_ACTIVE_GAUGE = Gauge(
     "posthog_cohort_backfill_runs_active",

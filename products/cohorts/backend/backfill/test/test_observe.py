@@ -1,4 +1,4 @@
-from datetime import timedelta
+from datetime import datetime, timedelta
 
 from posthog.test.base import BaseTest
 
@@ -27,8 +27,8 @@ class TestBackfillObservation(BaseTest):
         *,
         status: str = CohortBackfillRunStatus.SEEDING,
         kind: str = CohortBackfillKind.BEHAVIORAL,
-        created_at: object | None = None,
-        finished_at: object | None = None,
+        created_at: datetime | None = None,
+        finished_at: datetime | None = None,
         team: Team | None = None,
     ) -> CohortBackfillRun:
         team_id = (team or self.team).id
