@@ -1,3 +1,4 @@
+from dataclasses import dataclass
 from typing import cast
 from urllib.parse import parse_qsl
 
@@ -150,6 +151,13 @@ def consume_authorize_state(token: str, *, user_id: int | None = None) -> GitHub
     return state
 
 
+@dataclass(frozen=True, kw_only=True, slots=True)
+class ConsumedAuthorizeState:
+    state_token: str
+    next_url: str
+    team_id: int | None
+
+
 def consume_github_authorize_state(
     request: Request,
     state_raw: str | None,
@@ -157,7 +165,7 @@ def consume_github_authorize_state(
     setup_action: str = "",
     code: str | None = None,
     installation_id: str | None = None,
-) -> tuple[str, str, int | None]:
+) -> ConsumedAuthorizeState:
     user_id = authenticated_user_id(request)
     pending_token = cache.get(unified_authorize_pending_cache_key(user_id))
     cached = cache.get(unified_authorize_cache_key(str(pending_token))) if pending_token else None
@@ -192,4 +200,4 @@ def consume_github_authorize_state(
 
     cache.delete(unified_authorize_cache_key(expected_token))
     cache.delete(unified_authorize_pending_cache_key(user_id))
-    return expected_token, param_next or cached_next, team_id
+    return ConsumedAuthorizeState(state_token=expected_token, next_url=param_next or cached_next, team_id=team_id)
