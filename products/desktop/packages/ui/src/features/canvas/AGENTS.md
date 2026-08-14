@@ -2,9 +2,8 @@
 
 Conventions for the channel-scoped Website space: channels and canvases. A canvas
 is an agent-authored browser app rendered in a sandboxed iframe. Read this before
-changing breadcrumbs, canvas naming, or the canvas generation harness. For the
-runtime itself — the render paths, the `ph.*` bridge, the build pipeline — read the
-`canvas-runtime` skill. The root `AGENTS.md` architecture rules still apply.
+changing breadcrumbs, canvas naming, or the canvas generation harness. The root
+`AGENTS.md` architecture rules still apply.
 
 ## Components & styling
 
@@ -227,6 +226,19 @@ runtime itself — the render paths, the `ph.*` bridge, the build pipeline — r
   output is the published build's artifact, served from the isolated artifact
   origin. See `@posthog/core/canvas/dashboardsService.ts` and
   `dashboardSchemas.ts` for the record/source/version shapes.
+- **Two components render a canvas, and `FreeformCanvasView` picks between
+  them.** A build's artifact renders in `BuiltCanvas`; a canvas with no
+  successful build yet falls back to the head project's single
+  `CANVAS_COMPONENT_PATH` file in the `FreeformCanvas` srcDoc sandbox (which
+  transpiles in-browser and resolves imports off esm.sh). Both go through the
+  same `canvasHostMessageRouter`, so protocol and guard changes belong there
+  rather than in either host.
+- **Capabilities gate viewers, not authors.** `assertCanvasCapability` runs only
+  in `BuiltCanvas`, against the manifest frozen into that build. The edit path is
+  deliberately full-access — the author is running their own code against their
+  own session — so the asymmetry is the design, not a gap to close. See the
+  two-tier security model in `docs/CANVAS-FREEFORM-REACT-PLAN.md` before changing
+  what either tier may reach.
 
 ## Channel sidebar preloading
 
