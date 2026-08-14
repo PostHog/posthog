@@ -32,6 +32,29 @@ export function scannerListEmptyStateVariant(flagValue: unknown): ScannerListEmp
         : null
 }
 
+// Accessing the flag on kea's featureFlags proxy is what reports experiment exposure, so the read
+// must stay behind every guard: exposure has to cover exactly the users who saw the empty state.
+// Usage-tab visitors, renders before flags load (a stale read would log control and stick for the
+// page view), and projects with scanners all resolve to null without touching the flag.
+export function computeScannerListEmptyStateVariant({
+    onScannersTab,
+    receivedFeatureFlags,
+    scannerStatsLoading,
+    scannerTotal,
+    featureFlags,
+}: {
+    onScannersTab: boolean
+    receivedFeatureFlags: boolean
+    scannerStatsLoading: boolean
+    scannerTotal: number | undefined
+    featureFlags: Record<string, unknown>
+}): ScannerListEmptyStateVariant | null {
+    if (!onScannersTab || !receivedFeatureFlags || scannerStatsLoading || scannerTotal !== 0) {
+        return null
+    }
+    return scannerListEmptyStateVariant(featureFlags[FEATURE_FLAGS.REPLAY_VISION_EMPTY_STATE_EXPERIMENT])
+}
+
 const DOCS_LINK = (
     <Link
         to="https://posthog.com/docs/replay-vision?utm_medium=in-product&utm_campaign=empty-state-docs-link"
@@ -42,11 +65,25 @@ const DOCS_LINK = (
     </Link>
 )
 
+// The consent popover doesn't close on outside click, so the arm tracks which single AI entry
+// point requested consent; opening one closes the rest instead of stacking popovers.
+interface ConsentSlot {
+    activeGate: string | null
+    setActiveGate: (gateId: string | null) => void
+}
+
 // Unlike the picker page, this surface is reachable before the organization has approved AI data
 // processing, so every AI entry point interposes the consent popover before its draft starts.
-function ConsentGate({ children }: { children: (gate: (proceed: () => void) => void) => JSX.Element }): JSX.Element {
+function ConsentGate({
+    gateId,
+    slot,
+    children,
+}: {
+    gateId: string
+    slot: ConsentSlot
+    children: (gate: (proceed: () => void) => void) => JSX.Element
+}): JSX.Element {
     const { dataProcessingAccepted } = useValues(aiConsentLogic)
-    const [consentRequested, setConsentRequested] = useState(false)
     const pendingStart = useRef<(() => void) | null>(null)
 
     return (
@@ -55,13 +92,13 @@ function ConsentGate({ children }: { children: (gate: (proceed: () => void) => v
             showArrow
             ignoreDismissal
             hideTrainingDisclaimer
-            hidden={!consentRequested}
+            hidden={slot.activeGate !== gateId}
             onApprove={() => {
-                setConsentRequested(false)
+                slot.setActiveGate(null)
                 pendingStart.current?.()
                 pendingStart.current = null
             }}
-            onDismiss={() => setConsentRequested(false)}
+            onDismiss={() => slot.setActiveGate(null)}
         >
             {children((proceed) => {
                 if (dataProcessingAccepted) {
@@ -69,30 +106,43 @@ function ConsentGate({ children }: { children: (gate: (proceed: () => void) => v
                     return
                 }
                 pendingStart.current = proceed
-                setConsentRequested(true)
+                slot.setActiveGate(gateId)
             })}
         </AIConsentPopoverWrapper>
     )
 }
 
-function ConsentGatedTemplateCard({ template }: { template: ScannerTemplate | 'blank' }): JSX.Element {
-    return <ConsentGate>{(gate) => <TemplateCard template={template} gateStart={gate} />}</ConsentGate>
+function ConsentGatedTemplateCard({
+    template,
+    slot,
+}: {
+    template: ScannerTemplate | 'blank'
+    slot: ConsentSlot
+}): JSX.Element {
+    const gateId = template === 'blank' ? 'template-blank' : `template-${template.key}`
+    return (
+        <ConsentGate gateId={gateId} slot={slot}>
+            {(gate) => <TemplateCard template={template} gateStart={gate} />}
+        </ConsentGate>
+    )
 }
 
 // Without the goal-draft flag the backend rejects the draft call, so the box only renders with it on.
-function GatedGoalDraft({ className }: { className?: string }): JSX.Element | null {
+function GatedGoalDraft({ className, slot }: { className?: string; slot: ConsentSlot }): JSX.Element | null {
     const { featureFlags } = useValues(featureFlagLogic)
     if (!featureFlags[FEATURE_FLAGS.REPLAY_VISION_GOAL_DRAFT]) {
         return null
     }
     return (
         <div className={className}>
-            <ConsentGate>{(gate) => <ScannerGoalDraft gateSubmit={gate} />}</ConsentGate>
+            <ConsentGate gateId="goal-draft" slot={slot}>
+                {(gate) => <ScannerGoalDraft gateSubmit={gate} />}
+            </ConsentGate>
         </div>
     )
 }
 
-function TemplatesEmptyState(): JSX.Element {
+function TemplatesEmptyState({ slot }: { slot: ConsentSlot }): JSX.Element {
     return (
         <div className="flex flex-col gap-6 pt-2" data-attr="vision-empty-state-templates">
             <div className="flex flex-col gap-2 text-center max-w-160 mx-auto">
@@ -104,11 +154,11 @@ function TemplatesEmptyState(): JSX.Element {
             </div>
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
                 {defaultScannerTemplates.map((template) => (
-                    <ConsentGatedTemplateCard key={template.key} template={template} />
+                    <ConsentGatedTemplateCard key={template.key} template={template} slot={slot} />
                 ))}
-                <ConsentGatedTemplateCard template="blank" />
+                <ConsentGatedTemplateCard template="blank" slot={slot} />
             </div>
-            <GatedGoalDraft className="w-full max-w-160 mx-auto" />
+            <GatedGoalDraft className="w-full max-w-160 mx-auto" slot={slot} />
             <div className="text-center">{DOCS_LINK}</div>
         </div>
     )
@@ -121,8 +171,8 @@ interface ExampleObservation {
     text: string
 }
 
-// Invented results for the three default templates, so the examples match what the create flow
-// offers next. Static by design: this panel is an illustration, not data.
+// Invented results covering three of the scanner types (a score, a tag, a summary), so the
+// examples match what the create flow offers next. Static by design: an illustration, not data.
 const EXAMPLE_OBSERVATIONS: ExampleObservation[] = [
     {
         scannerType: 'scorer',
@@ -144,7 +194,7 @@ const EXAMPLE_OBSERVATIONS: ExampleObservation[] = [
     },
 ]
 
-function ExampleObservationsEmptyState(): JSX.Element {
+function ExampleObservationsEmptyState({ slot }: { slot: ConsentSlot }): JSX.Element {
     return (
         <div
             className="flex flex-col md:flex-row gap-8 md:gap-12 pt-2 max-w-320 items-start"
@@ -162,10 +212,12 @@ function ExampleObservationsEmptyState(): JSX.Element {
                         acceptedLabel="Create your first scanner"
                         dataAttr="vision-scanner-create-empty"
                         size="medium"
+                        consentRequested={slot.activeGate === 'create-button'}
+                        onConsentRequestedChange={(requested) => slot.setActiveGate(requested ? 'create-button' : null)}
                     />
                     {DOCS_LINK}
                 </div>
-                <GatedGoalDraft className="mt-2" />
+                <GatedGoalDraft className="mt-2" slot={slot} />
             </div>
             <div className="flex flex-col gap-3 flex-1 w-full max-w-160">
                 <span className="text-muted text-xs font-semibold uppercase tracking-wide">Example results</span>
@@ -192,5 +244,7 @@ function ExampleObservationsEmptyState(): JSX.Element {
 }
 
 export function ScannerListEmptyState({ variant }: { variant: ScannerListEmptyStateVariant }): JSX.Element {
-    return variant === 'templates' ? <TemplatesEmptyState /> : <ExampleObservationsEmptyState />
+    const [activeGate, setActiveGate] = useState<string | null>(null)
+    const slot: ConsentSlot = { activeGate, setActiveGate }
+    return variant === 'templates' ? <TemplatesEmptyState slot={slot} /> : <ExampleObservationsEmptyState slot={slot} />
 }

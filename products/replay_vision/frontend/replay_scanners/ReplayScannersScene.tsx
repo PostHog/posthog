@@ -19,7 +19,6 @@ import {
 import { pngHoggie } from 'lib/brand/hoggies'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
@@ -40,7 +39,7 @@ import { visionQuotaLogic } from '../logics/visionQuotaLogic'
 import { getReplayVisionDeleteDisabledReason, getReplayVisionEditDisabledReason } from '../utils/accessControl'
 import { creditsToUsd, formatCreditCount } from '../utils/credits'
 import { CreateScannerButton } from './components/CreateScannerButton'
-import { ScannerListEmptyState, scannerListEmptyStateVariant } from './components/ScannerListEmptyState'
+import { ScannerListEmptyState, computeScannerListEmptyStateVariant } from './components/ScannerListEmptyState'
 import { VisionMetrics } from './components/VisionMetrics'
 import { VisionUsageTab } from './components/VisionUsageTab'
 import { type ScannersSorting, SCANNERS_PAGE_SIZE, replayScannersLogic } from './replayScannersLogic'
@@ -85,15 +84,15 @@ export function ReplayScannersScene(): JSX.Element {
     const { push } = useActions(router)
     const { searchParams } = useValues(router)
     const { showUsd } = useValues(visionQuotaLogic)
-    const { featureFlags } = useValues(featureFlagLogic)
+    const { featureFlags, receivedFeatureFlags } = useValues(featureFlagLogic)
 
-    // The stats total covers the whole project, so this means "never created a scanner", not a
-    // filtered-empty list. Reading the flag reports experiment exposure, which is why the read
-    // only happens once stats confirm the empty state actually applies.
-    const emptyStateVariant =
-        !scannerStatsLoading && scannerStats?.total === 0
-            ? scannerListEmptyStateVariant(featureFlags[FEATURE_FLAGS.REPLAY_VISION_EMPTY_STATE_EXPERIMENT])
-            : null
+    const emptyStateVariant = computeScannerListEmptyStateVariant({
+        onScannersTab: searchParams.tab !== 'usage',
+        receivedFeatureFlags,
+        scannerStatsLoading,
+        scannerTotal: scannerStats?.total,
+        featureFlags,
+    })
 
     const columns: LemonTableColumns<ReplayScanner> = [
         {
