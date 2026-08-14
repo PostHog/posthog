@@ -1,13 +1,13 @@
 """
-Metric-event breakdown injection for experiment funnel queries.
+Metric-event breakdown injection for experiment queries.
 
 Unlike ``BreakdownInjector`` (which attributes the breakdown value from the
 exposure event), this injector reads the breakdown property off the *metric*
-event and attributes it across funnel steps using the metric's configured
-``breakdownAttributionType`` — aligning experiment funnel breakdowns with how
-insights funnels behave.
+event. Funnels attribute across steps using the metric's configured
+``breakdownAttributionType``; mean metrics attribute first-touch. This aligns
+experiment breakdowns with how insights behave.
 
-Scope: funnel metrics only. This is a standalone class (it does not subclass
+Scope: funnel and mean metrics. This is a standalone class (it does not subclass
 ``BreakdownInjector``); the old injector is removed once all metric types
 migrate to metric-event breakdowns.
 """
@@ -287,9 +287,12 @@ class MetricBreakdownInjector:
         Reads the breakdown property off the *metric event* (in ``metric_events``) and
         attributes each user to a single bucket via **first-touch** — ``argMin`` over the
         metric event timestamp. Mean has no attribution modes (unlike funnels), so the
-        breakdown is always taken from the user's first qualifying metric event. The
-        per-user conversion window is already enforced by the ``entity_metrics`` join, so
-        no extra condition is needed on the ``argMin``.
+        breakdown is always taken from the user's first qualifying metric event.
+
+        Known limitation: with CUPED the ``entity_metrics`` join widens to (conversion window
+        OR pre-exposure lookback), so ``argMin`` can attribute the breakdown from an event that
+        happened before exposure. Attribution here does not add its own exposure-time guard; a
+        follow-up should exclude pre-window events from the attribution when CUPED is enabled.
 
         ``final_cte_name`` is ``entity_metrics`` for the plain query or
         ``winsorized_entity_metrics`` for the winsorized query; winsorization needs the
