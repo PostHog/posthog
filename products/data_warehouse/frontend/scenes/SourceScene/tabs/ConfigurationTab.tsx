@@ -2,9 +2,10 @@ import { BindLogic, useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 import { useEffect, useState } from 'react'
 
-import { LemonButton, LemonDivider, LemonInputSelect, LemonSkeleton, LemonSwitch } from '@posthog/lemon-ui'
+import { LemonButton, LemonDivider, LemonInputSelect, LemonSelect, LemonSkeleton, LemonSwitch } from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
+import { dayjs } from 'lib/dayjs'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { urls } from 'scenes/urls'
 
@@ -52,6 +53,7 @@ function UpdateSourceConnectionFormContainer(): JSX.Element {
         setSourceConfigValue(['description'], source.description ?? '')
         setSourceConfigValue(['auto_sync_new_schemas'], source.auto_sync_new_schemas ?? false)
         setSourceConfigValue(['auto_sync_schema_patterns'], source.auto_sync_schema_patterns ?? [])
+        setSourceConfigValue(['api_version'], source.api_version ?? null)
         setJobInputs({
             ...buildKeaFormDefaultFromSourceDetails({ [source.source_type]: sourceFieldConfig })['payload'],
             ...source.job_inputs,
@@ -64,6 +66,7 @@ function UpdateSourceConnectionFormContainer(): JSX.Element {
         source?.prefix,
         source?.description,
         source?.auto_sync_new_schemas,
+        source?.api_version,
         setSourceConfigValue,
         // oxlint-disable-next-line exhaustive-deps
         JSON.stringify(source?.auto_sync_schema_patterns ?? []),
@@ -93,6 +96,65 @@ function UpdateSourceConnectionFormContainer(): JSX.Element {
                     initialAccessMethod={source.access_method ?? 'warehouse'}
                     setSourceConfigValue={setSourceConfigValue}
                 />
+                {/* Upgrade-only: shown when a newer version than the current pin exists ("newer" is
+                    positional — supported_api_versions is declared oldest→newest), or when the pin
+                    was retired from the supported list (so the source can still be moved off it).
+                    An unpinned source follows the default and upgrades with it, so there's nothing
+                    to offer. */}
+                {(() => {
+                    const supported = source.supported_api_versions ?? []
+                    if (!source.api_version) {
+                        return null
+                    }
+                    const pinIndex = supported.indexOf(source.api_version)
+                    const pinRetired = pinIndex === -1
+                    const upgradeTargets = pinRetired ? supported : supported.slice(pinIndex + 1)
+                    if (upgradeTargets.length === 0) {
+                        return null
+                    }
+                    const options = upgradeTargets.map((version) => {
+                        // Deprecated versions stay selectable so a source stuck behind one can still
+                        // move off its own, but they must never look like an equal choice.
+                        const deprecation = source.deprecated_api_versions?.find(
+                            (candidate) => candidate.version === version
+                        )
+                        return {
+                            value: version,
+                            label: deprecation
+                                ? `${version} (deprecated${
+                                      deprecation.sunset_at
+                                          ? `, stops working ${dayjs(deprecation.sunset_at).format('LL')}`
+                                          : ''
+                                  })`
+                                : version,
+                        }
+                    })
+                    // The current pin is not an upgrade target, but the select must be able to
+                    // represent it. Retired pins get flagged as such.
+                    options.unshift({
+                        value: source.api_version,
+                        label: pinRetired ? `${source.api_version} (no longer supported)` : source.api_version,
+                    })
+                    return (
+                        <>
+                            <LemonDivider className="my-4" />
+                            <LemonField
+                                name="api_version"
+                                label="API version"
+                                help="The vendor API version this source syncs with. Upgrading changes the data the vendor returns, so a full resync is recommended afterwards, and downgrading back is not possible. Any sync running now will be cancelled. Tables with their own version override are unaffected."
+                            >
+                                {({ value, onChange }) => (
+                                    <LemonSelect
+                                        data-attr="source-api-version"
+                                        value={value ?? null}
+                                        onChange={onChange}
+                                        options={options}
+                                    />
+                                )}
+                            </LemonField>
+                        </>
+                    )
+                })()}
                 {source.access_method !== 'direct' && (
                     <>
                         <LemonDivider className="my-4" />
