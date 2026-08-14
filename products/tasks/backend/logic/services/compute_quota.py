@@ -2,11 +2,18 @@ import logging
 
 from django.conf import settings
 
+from posthog.models import Team
+
 from products.tasks.backend.metrics import observe_compute_quota_check
 from products.tasks.backend.models import Task, TaskClientProvenance
 
 COMPUTE_QUOTA_DENIAL_CODE = "posthog_code_billing_limit_exceeded"
+ORGANIZATION_DEACTIVATED_DENIAL_CODE = "organization_deactivated"
 logger = logging.getLogger(__name__)
+
+
+def organization_deactivated(team_id: int) -> bool:
+    return Team.objects.filter(id=team_id, organization__is_active=False).exists()
 
 
 def is_task_billable_compute(task: Task) -> bool:
@@ -36,6 +43,9 @@ def is_billable_compute(
 
 
 def is_compute_quota_exhausted(task: Task) -> bool:
+    if organization_deactivated(task.team_id):
+        observe_compute_quota_check("checked_blocked")
+        return True
     if not getattr(settings, "TASKS_COMPUTE_QUOTA_ENFORCEMENT_ENABLED", False):
         return False
     if not is_task_billable_compute(task):

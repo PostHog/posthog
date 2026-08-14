@@ -980,14 +980,17 @@ class TestQuotaLimiting(BaseTest):
 
     def test_update_org_billing_quotas_invalidates_llm_gateway_quota_cache(self) -> None:
         gateway_redis_url = "redis://llm-gateway-redis-test/"
+        # Per-resource entries carry the gateway's credential-fingerprint suffix; the
+        # billing bit is keyed per team (see _redis_key/_billing_key in quota_resolver).
         cache_keys = [
-            f"quota:posthog_code_credits:team:{self.team.id}",
-            f"quota:ai_credits:team:{self.team.id}",
+            f"quota:posthog_code_credits:team:{self.team.id}:credential:abc123",
+            f"quota:ai_credits:team:{self.team.id}:credential:def456",
             f"quota:code_usage_billing:team:{self.team.id}",
         ]
+        other_team_key = f"quota:posthog_code_credits:team:{self.team.id + 1}:credential:abc123"
         with self.settings(LLM_GATEWAY_REDIS_URL=gateway_redis_url):
             gateway_redis = get_client(gateway_redis_url)
-            gateway_redis.mset(dict.fromkeys(cache_keys, "stale"))
+            gateway_redis.mset(dict.fromkeys([*cache_keys, other_team_key], "stale"))
             # Seed the central Redis too: eviction must target the gateway's own
             # instance, not the default client (which would silently no-op in prod).
             self.redis_client.mset(dict.fromkeys(cache_keys, "central"))
@@ -999,6 +1002,7 @@ class TestQuotaLimiting(BaseTest):
             update_org_billing_quotas(self.organization)
 
             assert gateway_redis.mget(cache_keys) == [None] * len(cache_keys)
+            assert gateway_redis.get(other_team_key) == b"stale"
             assert self.redis_client.mget(cache_keys) == [b"central"] * len(cache_keys)
         self.redis_client.delete(*cache_keys)
 

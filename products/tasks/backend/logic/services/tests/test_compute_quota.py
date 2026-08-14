@@ -37,6 +37,13 @@ class TestComputeQuota:
         assert not is_compute_quota_exhausted(self.task())
         limited.assert_not_called()
 
+    @override_settings(TASKS_COMPUTE_QUOTA_ENFORCEMENT_ENABLED=False)
+    def test_deactivated_org_blocks_even_with_enforcement_off(self):
+        self.team.organization.is_active = False
+        self.team.organization.save()
+
+        assert is_compute_quota_exhausted(self.task())
+
     @override_settings(TASKS_COMPUTE_QUOTA_ENFORCEMENT_ENABLED=True)
     @patch("products.tasks.backend.logic.services.compute_quota._is_posthog_code_quota_limited")
     def test_combined_posthog_code_quota_controls_billable_task(self, limited):

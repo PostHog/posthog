@@ -43,8 +43,9 @@ BILLING_PROVIDER_WEBHOOK_SIGNATURE_HEADER = "X-PostHog-Billing-Provider-Signatur
 BILLING_PROVIDER_WEBHOOK_TIMESTAMP_HEADER = "X-PostHog-Billing-Provider-Timestamp"
 BILLING_PROVIDER_WEBHOOK_SIGNATURE_VERSION = "sha256"
 
-# is_not_active_reason sentinel so the sync only undoes its own deactivations, never a manual admin disable.
-BILLING_DEACTIVATED_REASON = "Deactivated by billing sync (customer.deactivated)"
+# Matched by equality so the sync only undoes its own deactivations, never a manual admin
+# disable. User-visible: rendered after "Your organization has been deactivated." in the app.
+BILLING_DEACTIVATED_REASON = "Deactivated by PostHog billing. Contact support if you think this is a mistake."
 
 
 class BillingAPIErrorCodes(Enum):
@@ -471,13 +472,13 @@ class BillingManager:
         """
         Ensure the relevant organization details are up-to-date locally
         """
-        org_modified = False
+        modified_fields: set[str] = set()
 
         data = billing_status["customer"]
 
         if data.get("customer_id") and organization.customer_id != data["customer_id"]:
             organization.customer_id = data["customer_id"]
-            org_modified = True
+            modified_fields.add("customer_id")
 
         should_update_org_billing_quotas = False
 
@@ -516,7 +517,7 @@ class BillingManager:
             usage_changed = set_org_usage_summary(organization, new_usage=usage_info)
 
             if usage_changed:
-                org_modified = True
+                modified_fields.add("usage")
 
             should_update_org_billing_quotas = usage_changed or had_quota_limiting_markers
 
@@ -535,16 +536,17 @@ class BillingManager:
             previous_retention_months = organization_events_retention_months(organization)
             organization.available_product_features = data["available_product_features"]
             events_retention_changed = organization_events_retention_months(organization) != previous_retention_months
-            org_modified = True
+            modified_fields.add("available_product_features")
 
         never_drop_data = cast(bool | None, data.get("never_drop_data"))
         if never_drop_data != organization.never_drop_data:
             organization.never_drop_data = never_drop_data
-            org_modified = True
+            modified_fields.add("never_drop_data")
 
         # Missing key is a no-op: a partial billing response must not flip an org's active state.
-        # Compare-and-set updates, not the full-row save below, so a concurrent sync holding a
-        # stale snapshot cannot revert the flip.
+        # Compare-and-set updates, not the full-row save below, so these writes cannot revert a
+        # concurrent flip (the trailing save's stale-snapshot race predates this and covers all
+        # synced fields).
         deactivated = cast(bool | None, data.get("deactivated"))
         deactivation_flipped = False
         if deactivated is True:
@@ -593,10 +595,12 @@ class BillingManager:
             }
             if updated_customer_trust_scores != current_customer_trust_scores:
                 organization.customer_trust_scores = updated_customer_trust_scores
-                org_modified = True
+                modified_fields.add("customer_trust_scores")
 
-        if org_modified:
-            organization.save()
+        # Field-scoped so a stale in-memory snapshot can never write back is_active /
+        # is_not_active_reason over a concurrent deactivation flip.
+        if modified_fields:
+            organization.save(update_fields=[*modified_fields, "updated_at"])
 
         if events_retention_changed:
             reconcile_organization_events_retention(organization)

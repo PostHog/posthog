@@ -660,22 +660,23 @@ def invalidate_llm_gateway_quota_cache(team_ids: Iterable[int]) -> None:
     takes effect immediately instead of after the gateway's five-minute cache TTL.
 
     The gateway caches in its own Redis (`settings.LLM_GATEWAY_REDIS_URL`, not the
-    central instance) and key shapes mirror `llm_gateway/services/quota_resolver.py`.
+    central instance) and key shapes mirror `llm_gateway/services/quota_resolver.py`:
+    the billing bit is keyed per team, but per-resource entries carry a credential
+    fingerprint suffix, so those can only be found by scan, not exact delete.
     Best-effort by design: the gateway TTL already bounds staleness, so a failure
     here must not fail the billing update that just committed.
     """
-    cache_keys = [
-        key
-        for team_id in team_ids
-        for key in (
-            f"quota:code_usage_billing:team:{team_id}",
-            *(f"quota:{resource.value}:team:{team_id}" for resource in QuotaResource),
-        )
-    ]
-    if not cache_keys:
+    id_set = {int(team_id) for team_id in team_ids}
+    if not id_set:
         return
     try:
-        get_client(settings.LLM_GATEWAY_REDIS_URL).delete(*cache_keys)
+        client = get_client(settings.LLM_GATEWAY_REDIS_URL)
+        cache_keys: list[str | bytes] = [f"quota:code_usage_billing:team:{team_id}" for team_id in id_set]
+        team_markers = {f":team:{team_id}:credential:".encode() for team_id in id_set}
+        for key in client.scan_iter(match="quota:*:team:*:credential:*", count=1000):
+            if any(marker in key for marker in team_markers):
+                cache_keys.append(key)
+        client.delete(*cache_keys)
     except Exception as e:
         capture_exception(e)
 

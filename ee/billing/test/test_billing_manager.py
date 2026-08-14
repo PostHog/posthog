@@ -376,17 +376,18 @@ class TestBillingManager(BaseTest):
 
     def test_update_org_details_ignores_empty_feature_list(self):
         """A partial or error-path billing response must not downgrade the org or reset retention."""
-        organization = self.organization
-        organization.available_product_features = [{"key": "logs_retention_30d", "name": "30-day logs retention"}]
-        organization.save()
-        self.team.logs_settings = {"retention_days": 30}
-        self.team.save()
-
+        # License first: its post_save re-syncs every org's features, which would overwrite the
+        # fixture list below.
         license = super(LicenseManager, cast(LicenseManager, License.objects)).create(
             key="key123::key123",
             plan="enterprise",
             valid_until=datetime.datetime(2038, 1, 19, 3, 14, 7),
         )
+        organization = self.organization
+        organization.available_product_features = [{"key": "logs_retention_30d", "name": "30-day logs retention"}]
+        organization.save()
+        self.team.logs_settings = {"retention_days": 30}
+        self.team.save()
 
         billing_status: dict[str, Any] = {"customer": {"available_product_features": []}}
 

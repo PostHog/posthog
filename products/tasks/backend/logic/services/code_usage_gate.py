@@ -8,11 +8,15 @@ import requests
 from rest_framework import status
 from rest_framework.response import Response
 
-from posthog.models import OAuthAccessToken, Team
+from posthog.models import OAuthAccessToken
 from posthog.temporal.oauth import create_oauth_access_token_for_user
 from posthog.utils import get_instance_region
 
-from products.tasks.backend.logic.services.compute_quota import COMPUTE_QUOTA_DENIAL_CODE
+from products.tasks.backend.logic.services.compute_quota import (
+    COMPUTE_QUOTA_DENIAL_CODE,
+    ORGANIZATION_DEACTIVATED_DENIAL_CODE,
+    organization_deactivated,
+)
 from products.tasks.backend.metrics import observe_code_usage_gate_check
 from products.tasks.backend.presentation.serializers import TaskRunErrorResponseSerializer
 
@@ -137,33 +141,24 @@ def rate_limit_error_payload(usage: CodeUsageStatus) -> dict[str, Any]:
     return payload
 
 
-def organization_deactivated(team_id: int) -> bool:
-    return Team.objects.filter(id=team_id, organization__is_active=False).exists()
-
-
-def organization_deactivated_response() -> Response:
+def _billing_limit_response(code: str, error: str) -> Response:
     return Response(
-        TaskRunErrorResponseSerializer(
-            {
-                "type": "billing_limit",
-                "code": "organization_deactivated",
-                "error": "Your organization has been deactivated. Contact PostHog support if you think this is a mistake.",
-            }
-        ).data,
+        TaskRunErrorResponseSerializer({"type": "billing_limit", "code": code, "error": error}).data,
         status=status.HTTP_429_TOO_MANY_REQUESTS,
     )
 
 
+def organization_deactivated_response() -> Response:
+    return _billing_limit_response(
+        ORGANIZATION_DEACTIVATED_DENIAL_CODE,
+        "Your organization has been deactivated. Contact PostHog support if you think this is a mistake.",
+    )
+
+
 def compute_quota_limit_response() -> Response:
-    return Response(
-        TaskRunErrorResponseSerializer(
-            {
-                "type": "billing_limit",
-                "code": COMPUTE_QUOTA_DENIAL_CODE,
-                "error": "Your organization reached its PostHog Desktop usage limit.",
-            }
-        ).data,
-        status=status.HTTP_429_TOO_MANY_REQUESTS,
+    return _billing_limit_response(
+        COMPUTE_QUOTA_DENIAL_CODE,
+        "Your organization reached its PostHog Desktop usage limit.",
     )
 
 
