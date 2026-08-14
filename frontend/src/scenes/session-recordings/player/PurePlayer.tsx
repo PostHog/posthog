@@ -27,6 +27,7 @@ import { ClipOverlay } from './controller/ClipRecording'
 import { PlayerController } from './controller/PlayerController'
 import { PlayerMetaBar } from './player-meta/PlayerMetaBar'
 import { PlayerFrame } from './PlayerFrame'
+import { PlayerFrameErrorBoundary } from './PlayerFrameErrorBoundary'
 import { PlayerFrameMetaOverlay } from './PlayerFrameMetaOverlay'
 import { PlayerFrameOverlay } from './PlayerFrameOverlay'
 import { playerSettingsLogic } from './playerSettingsLogic'
@@ -374,7 +375,9 @@ export function PurePlayer({ noMeta = false, noBorder = false }: PurePlayerProps
                                         draggable={draggable && !isCommenting}
                                         {...elementProps}
                                     >
-                                        <PlayerFrame />
+                                        <PlayerFrameErrorBoundary sessionRecordingId={sessionRecordingId}>
+                                            <PlayerFrame />
+                                        </PlayerFrameErrorBoundary>
                                         {!hidePlayerElements ? (
                                             <>
                                                 <PlayerFrameOverlay />

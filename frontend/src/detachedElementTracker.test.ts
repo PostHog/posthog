@@ -58,6 +58,15 @@ describe('mapToTopN', () => {
             limit: 0,
             expected: {},
         },
+        {
+            label: 'undefined component key does not throw on the tie-break comparator',
+            map: new Map<string, number>([
+                ['div', 100],
+                [undefined as unknown as string, 100],
+            ]),
+            limit: 10,
+            expected: { div: 100, undefined: 100 },
+        },
     ])('$label', ({ map, limit, expected }) => {
         expect(mapToTopN(map, limit)).toEqual(expected)
     })
