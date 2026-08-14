@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  channelDisplayLabel,
   normalizeChannelName,
   normalizeChannelNameInput,
   validateChannelName,
@@ -23,6 +24,18 @@ describe("normalizeChannelName", () => {
     );
 
     expect(normalized).toBe("my-new-space");
+  });
+});
+
+describe("channelDisplayLabel", () => {
+  it.each([
+    ["me", undefined, "personal"],
+    ["personal", undefined, "personal"],
+    ["personal", "personal" as const, "personal"],
+    ["personal", "public" as const, "#personal"],
+    ["engineering", "public" as const, "#engineering"],
+  ])("formats %j (%s) as %j", (name, channelType, expected) => {
+    expect(channelDisplayLabel(name, channelType)).toBe(expected);
   });
 });
 
