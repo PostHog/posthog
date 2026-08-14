@@ -3546,10 +3546,10 @@ def signal_task_run_user_message(
     from products.tasks.backend.exceptions import (
         ComputeBillingLimitError,  # noqa: PLC0415 — keep temporalio off the api import path
     )
-    from products.tasks.backend.logic.services.compute_quota import is_compute_quota_exhausted  # noqa: PLC0415
+    from products.tasks.backend.logic.services.compute_quota import get_compute_quota_denial_reason  # noqa: PLC0415
 
-    if is_compute_quota_exhausted(run.task):
-        raise ComputeBillingLimitError({"team_id": team_id, "task_id": str(task_id), "run_id": str(run_id)})
+    if reason := get_compute_quota_denial_reason(run.task):
+        raise ComputeBillingLimitError({"team_id": team_id, "task_id": str(task_id), "run_id": str(run_id)}, reason)
     try:
         context = {"actor_slack_user_id": actor_slack_user_id} if actor_slack_user_id else None
         signal_task_followup_message(
@@ -4756,11 +4756,13 @@ def create_task(
             from products.tasks.backend.exceptions import (
                 ComputeBillingLimitError,  # noqa: PLC0415 — keep temporalio off the api import path
             )
-            from products.tasks.backend.logic.services.compute_quota import is_compute_quota_exhausted  # noqa: PLC0415
+            from products.tasks.backend.logic.services.compute_quota import (  # noqa: PLC0415
+                get_compute_quota_denial_reason,
+            )
 
-            if is_compute_quota_exhausted(warm_task):
+            if reason := get_compute_quota_denial_reason(warm_task):
                 raise ComputeBillingLimitError(
-                    {"team_id": team_id, "task_id": str(warm_task.id), "run_id": str(warm_run.id)}
+                    {"team_id": team_id, "task_id": str(warm_task.id), "run_id": str(warm_run.id)}, reason
                 )
             description = (validated_data.get("description") or "").strip()
             update_fields: list[str] = []
@@ -7220,15 +7222,22 @@ def post_comment_thread_update(*, team_id: int, comment_id: UUID) -> None:
 
 
 def _announce_agent_artifact_uploads(run: TaskRun, new_entries: list[dict], manifest: list[dict]) -> None:
-    """Manifest entries carry no version, so an announcement counts same-named entries:
-    re-uploading a file reads as a revision of it, the way the artifacts list groups
-    versions. The artifact_id dedup absorbs a retried upload."""
-    new_ids = {entry.get("id") for entry in new_entries}
+    """Announce files the agent delivered as task outputs.
+
+    The manifest also holds internal state such as git handoff checkpoints and skill
+    bundles. Those files support the run but are not deliverables for the timeline.
+    Manifest entries carry no version, so same-named output entries determine whether
+    an upload created or revised a file. The artifact id deduplicates retried uploads.
+    """
+    output_entries = [entry for entry in new_entries if entry.get("type") == "output"]
+    new_output_ids = {entry.get("id") for entry in output_entries}
     announced_in_batch: dict[str, int] = {}
-    for entry in new_entries:
+    for entry in output_entries:
         name = entry.get("name")
         prior_versions = sum(
-            1 for other in manifest if other.get("name") == name and other.get("id") not in new_ids
+            1
+            for other in manifest
+            if other.get("type") == "output" and other.get("name") == name and other.get("id") not in new_output_ids
         ) + announced_in_batch.get(name or "", 0)
         announced_in_batch[name or ""] = announced_in_batch.get(name or "", 0) + 1
         post_artifact_thread_update(
@@ -7381,6 +7390,19 @@ def post_canvas_error_thread_update(
         return "skipped"
 
 
+def _canvas_fix_denial_outcome(reason: str) -> str:
+    """Map a compute-quota denial to a canvas fix outcome.
+
+    Deactivation and quota exhaustion need different copy: a retry clears a spent
+    quota but never a deactivation.
+    """
+    from products.tasks.backend.logic.services.compute_quota import (  # noqa: PLC0415
+        ORGANIZATION_DEACTIVATED_DENIAL_CODE,
+    )
+
+    return "organization_deactivated" if reason == ORGANIZATION_DEACTIVATED_DENIAL_CODE else "quota_exhausted"
+
+
 def request_canvas_fix(task_id: str | UUID, team_id: int, *, prompt: str, acting_user_id: int | None) -> str:
     """Wake a task's agent to fix a canvas: signal the live run, else seed a fresh run with ``prompt``.
 
@@ -7392,12 +7414,12 @@ def request_canvas_fix(task_id: str | UUID, team_id: int, *, prompt: str, acting
     create the run inside the transaction and dispatch its processing workflow
     on commit with ``skip_user_check``.
     Returns ``signaled`` / ``new_run`` / ``already_queued`` / ``not_found`` /
-    ``forbidden`` / ``quota_exhausted``.
+    ``forbidden`` / ``quota_exhausted`` / ``organization_deactivated``.
     """
     from products.tasks.backend.exceptions import (
         ComputeBillingLimitError,  # noqa: PLC0415 — keep temporalio off the api import path
     )
-    from products.tasks.backend.logic.services.compute_quota import is_compute_quota_exhausted  # noqa: PLC0415
+    from products.tasks.backend.logic.services.compute_quota import get_compute_quota_denial_reason  # noqa: PLC0415
 
     with transaction.atomic():
         # of=("self",): FOR UPDATE cannot span the nullable created_by join.
@@ -7411,8 +7433,8 @@ def request_canvas_fix(task_id: str | UUID, team_id: int, *, prompt: str, acting
             return "not_found"
         if acting_user_id is None or task.created_by_id != acting_user_id:
             return "forbidden"
-        if is_compute_quota_exhausted(task):
-            return "quota_exhausted"
+        if reason := get_compute_quota_denial_reason(task):
+            return _canvas_fix_denial_outcome(reason)
         run = task.latest_run
         if run is not None and not run.is_terminal:
             try:
@@ -7420,8 +7442,8 @@ def request_canvas_fix(task_id: str | UUID, team_id: int, *, prompt: str, acting
                     run.id, task.id, team_id, content=prompt, artifact_ids=[], actor_user_id=acting_user_id
                 ):
                     return "signaled"
-            except ComputeBillingLimitError:
-                return "quota_exhausted"
+            except ComputeBillingLimitError as error:
+                return _canvas_fix_denial_outcome(error.reason)
             if run.status == TaskRun.Status.QUEUED and (run.state or {}).get("pending_user_message"):
                 # A queued, prompt-seeded run whose workflow hasn't registered yet
                 # is a fix run a just-committed request dispatched (creation is

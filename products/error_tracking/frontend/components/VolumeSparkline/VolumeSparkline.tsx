@@ -116,7 +116,7 @@ export function VolumeSparkline({
             barCornerRadius: LAYOUTS[layout].barCornerRadius,
             bandPadding: LAYOUTS[layout].bandPadding,
             margins: resolveMargins(layout, eventLabelReserve),
-            valueDomain: [0, maxValue],
+            valueDomain: { min: 0, max: maxValue },
             xAxis: { hide: xAxis !== 'full', tickFormatter },
             yAxis: { hide: true },
             showAxisLines: { x: showAxis, y: false },
