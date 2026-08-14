@@ -105,6 +105,21 @@ export interface materializationJobsLogicActions {
         dataModelingJobs: CountedPaginatedResponse<DataModelingJob>
         payload?: any
     }
+    loadIncrementalCheck: () => any
+    loadIncrementalCheckFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    loadIncrementalCheckSuccess: (
+        incrementalCheck: DataWarehouseSavedQueryIncrementalCheck | null,
+        payload?: any
+    ) => {
+        incrementalCheck: DataWarehouseSavedQueryIncrementalCheck | null
+        payload?: any
+    }
     loadOlderDataModelingJobs: () => any
     loadOlderDataModelingJobsFailure: (
         error: string,
@@ -133,21 +148,6 @@ export interface materializationJobsLogicActions {
         payload?: any
     ) => {
         savedQuery: DataWarehouseSavedQuery | null
-        payload?: any
-    }
-    loadIncrementalCheck: () => any
-    loadIncrementalCheckFailure: (
-        error: string,
-        errorObject?: any
-    ) => {
-        error: string
-        errorObject?: any
-    }
-    loadIncrementalCheckSuccess: (
-        incrementalCheck: DataWarehouseSavedQueryIncrementalCheck | null,
-        payload?: any
-    ) => {
-        incrementalCheck: DataWarehouseSavedQueryIncrementalCheck | null
         payload?: any
     }
     resumeMaterialization: () => {
