@@ -97,6 +97,11 @@ class CanvasAction:
     destructive: bool
     payload_serializer: type[serializers.Serializer]
     execute: Callable[[int, int, "Canvas", dict[str, Any]], dict[str, Any]]
+    # API scopes a scoped credential (personal API key, OAuth token) must hold
+    # to invoke this verb — the target resource's write scope, so canvas:write
+    # alone never grants writes to other resources. Session users carry no
+    # scopes and are unaffected.
+    required_scopes: tuple[str, ...]
 
 
 CANVAS_ACTIONS: dict[str, CanvasAction] = {
@@ -108,6 +113,7 @@ CANVAS_ACTIONS: dict[str, CanvasAction] = {
             destructive=False,
             payload_serializer=AnnotationCreatePayloadSerializer,
             execute=_create_annotation,
+            required_scopes=("annotation:write",),
         ),
         CanvasAction(
             verb="tasks.create",
@@ -115,6 +121,7 @@ CANVAS_ACTIONS: dict[str, CanvasAction] = {
             destructive=False,
             payload_serializer=TaskCreatePayloadSerializer,
             execute=_create_task,
+            required_scopes=("task:write",),
         ),
     ]
 }

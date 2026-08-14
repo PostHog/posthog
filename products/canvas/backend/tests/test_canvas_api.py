@@ -13,8 +13,10 @@ from rest_framework.test import APIClient
 
 from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication
+from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.scoping import team_scope
 from posthog.models.user import User
+from posthog.models.utils import generate_random_token_personal, hash_key_value
 from posthog.temporal.oauth import ARRAY_APP_CLIENT_ID_DEV
 
 from products.annotations.backend.models.annotation import Annotation
@@ -1198,6 +1200,21 @@ class TestCanvasState(CanvasAPIBaseTest):
         own_view = {(e["scope"], e["key"]): e["value"] for e in self._entries(canvas_id)}
         assert own_view == {("shared", "board"): {"columns": 3}, ("user", "draft"): "mine"}
 
+    def test_state_reads_only_declared_scopes(self):
+        canvas_id = self._state_canvas()
+        assert self._set_state(canvas_id, "shared", "board", 1).status_code == status.HTTP_200_OK
+        assert self._set_state(canvas_id, "user", "draft", 2).status_code == status.HTTP_200_OK
+
+        # Narrowing the declaration on a later publish must also stop reads of
+        # entries written under the previously declared scope.
+        narrowed = {
+            "posthog": {"insights": [], "inlineQueries": False, "captureEvents": [], "state": ["shared"]},
+            "network": {"origins": []},
+        }
+        assert self._publish(canvas_id, project=self._project(capabilities=narrowed)).status_code == status.HTTP_200_OK
+
+        assert [(e["scope"], e["key"]) for e in self._entries(canvas_id)] == [("shared", "board")]
+
     def test_set_state_requires_the_scope_to_be_declared(self):
         canvas_id = self._state_canvas(scopes=("user",))
 
@@ -1489,6 +1506,30 @@ class TestCanvasActions(CanvasAPIBaseTest):
             {"verb": verb, "payload": payload},
             format="json",
         )
+
+    @parameterized.expand(
+        [
+            # canvas:write alone is not consent to write other resources.
+            ("canvas_scope_only", ["canvas:write"], status.HTTP_403_FORBIDDEN),
+            ("target_scope_held", ["canvas:write", "task:write"], status.HTTP_200_OK),
+        ]
+    )
+    def test_scoped_keys_need_the_verbs_target_scope(self, _name, scopes, expected_status):
+        canvas_id = self._actions_canvas()
+        raw_key = generate_random_token_personal()
+        PersonalAPIKey.objects.create(
+            label="canvas-actions", user=self.user, secure_value=hash_key_value(raw_key), scopes=scopes
+        )
+        self.client.logout()
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/canvases/{canvas_id}/actions/invoke/",
+            {"verb": "tasks.create", "payload": {"title": "Scoped", "description": ""}},
+            format="json",
+            HTTP_AUTHORIZATION=f"Bearer {raw_key}",
+        )
+
+        assert response.status_code == expected_status, response.json()
 
     def test_tasks_create_files_a_task_in_the_canvas_channel_as_the_viewer(self):
         canvas_id = self._actions_canvas()

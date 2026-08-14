@@ -3,6 +3,7 @@ from typing import Any, cast
 from uuid import UUID
 
 from django.core.exceptions import ValidationError as DjangoValidationError
+from django.db import transaction
 from django.db.models import Q, QuerySet
 from django.utils import timezone
 
@@ -169,11 +170,25 @@ class CanvasViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     ]
 
     def get_throttles(self) -> list[BaseThrottle]:
+        # On top of the defaults, not instead of them: the per-canvas key must
+        # not let a caller rotate canvases past the project-wide limits.
         if self.action == "set_state":
-            return [CanvasStateWriteThrottle()]
+            return [*super().get_throttles(), CanvasStateWriteThrottle()]
         if self.action == "invoke_action":
-            return [CanvasActionInvokeThrottle()]
+            return [*super().get_throttles(), CanvasActionInvokeThrottle()]
         return super().get_throttles()
+
+    def dangerously_get_required_scopes(self, request: Request, view: Any) -> list[str] | None:
+        # Invoking a verb writes the target resource, so a scoped credential
+        # must hold that resource's scope — canvas:write alone is not consent
+        # to create tasks or annotations.
+        if getattr(view, "action", None) != "invoke_action":
+            return None
+        verb = request.data.get("verb") if isinstance(request.data, dict) else None
+        entry = CANVAS_ACTIONS.get(verb) if isinstance(verb, str) else None
+        if entry is None:
+            return None
+        return ["canvas:write", *entry.required_scopes]
 
     _CREATOR_ONLY_ACTIONS = {
         "partial_update",
@@ -1166,9 +1181,14 @@ class CanvasViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         user = self._state_actor(request)
         if user is None:
             return _state_rejection()
+        # Reads honor the same reviewed boundary as writes: a canvas only sees
+        # the scopes its head version declares, so narrowing capabilities also
+        # stops reads of previously written entries.
+        version = canvas.current_source_version
+        declared = declared_state_scopes(version.capabilities if version else None)
         entries = (
             CanvasState.objects.for_team(self.team_id)
-            .filter(canvas=canvas)
+            .filter(canvas=canvas, scope__in=declared)
             .filter(Q(scope=CanvasState.SCOPE_SHARED, user__isnull=True) | Q(scope=CanvasState.SCOPE_USER, user=user))
         )
         scope = request.query_params.get("scope")
@@ -1228,18 +1248,22 @@ class CanvasViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 },
                 status=status.HTTP_400_BAD_REQUEST,
             )
-        if not existing.exists():
-            if scoped.count() >= CANVAS_STATE_MAX_KEYS_PER_SCOPE:
-                return Response(
-                    {
-                        "detail": f"A canvas may hold at most {CANVAS_STATE_MAX_KEYS_PER_SCOPE} state keys per scope. "
-                        "Delete keys (set them to null) or consolidate values."
-                    },
-                    status=status.HTTP_400_BAD_REQUEST,
-                )
-        entry, _ = CanvasState.objects.for_team(self.team_id).update_or_create(
-            team_id=self.team_id, canvas=canvas, scope=scope, user=owner, key=key, defaults={"value": value}
-        )
+        with transaction.atomic():
+            # The canvas row is the mutex for the key-count check: without it,
+            # concurrent new-key writes both observe space and overshoot the cap.
+            Canvas.objects.for_team(self.team_id).select_for_update().get(pk=canvas.pk)
+            if not existing.exists():
+                if scoped.count() >= CANVAS_STATE_MAX_KEYS_PER_SCOPE:
+                    return Response(
+                        {
+                            "detail": f"A canvas may hold at most {CANVAS_STATE_MAX_KEYS_PER_SCOPE} state keys "
+                            "per scope. Delete keys (set them to null) or consolidate values."
+                        },
+                        status=status.HTTP_400_BAD_REQUEST,
+                    )
+            entry, _ = CanvasState.objects.for_team(self.team_id).update_or_create(
+                team_id=self.team_id, canvas=canvas, scope=scope, user=owner, key=key, defaults={"value": value}
+            )
         return Response(CanvasStateEntrySerializer(entry).data)
 
     def _log_canvas_activity(self, canvas: Canvas, activity: str, detail: Detail) -> None:
