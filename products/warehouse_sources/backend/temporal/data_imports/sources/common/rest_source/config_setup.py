@@ -6,6 +6,7 @@ from collections.abc import Callable
 from copy import copy
 from typing import Any, NamedTuple, Optional, cast
 
+import structlog
 from requests import Response
 
 from .auth import APIKeyAuth, AuthConfigBase, BearerTokenAuth, HttpBasicAuth, OAuth2Auth
@@ -37,6 +38,9 @@ from .typing import (
 from .utils import exclude_keys
 
 logger = logging.getLogger(__name__)
+# The module's stdlib logger predates structured logging here and stays for the existing
+# call sites; new events that need queryable fields use this one.
+structured_logger = structlog.get_logger(__name__)
 
 PAGINATOR_MAP: dict[PaginatorType, type[BasePaginator] | None] = {
     "json_response": JSONResponsePaginator,
@@ -386,15 +390,25 @@ def _handle_response_actions(response: Response, actions: list[ResponseAction]) 
 
 def _create_response_actions_hook(
     response_actions: list[ResponseAction],
+    resource_name: str | None = None,
 ) -> Callable[[Response, Any, Any], None]:
     def response_actions_hook(response: Response, *args: Any, **kwargs: Any) -> None:
         matched = _handle_response_actions(response, response_actions)
         action_type = matched.get("action") if matched else None
 
         if action_type == "ignore":
+            # Structured, and carrying the resource, so an ignored response is countable per
+            # schema. A fan-out child over a warehouse parent injects a `404 -> ignore` for
+            # parents the vendor has since dropped, and counting those against the reader's
+            # `fanout_parent_rows_streamed` is how snapshot drift gets measured.
             # Use response.text, not response.json(): an ignored response (e.g. a 404) often has an
             # empty or non-JSON body, and parsing it here would raise before the ignore takes effect.
-            logger.info(f"Ignoring response with code {response.status_code} and content '{response.text[:500]}'.")
+            structured_logger.info(
+                "data_imports.response_action_ignored",
+                resource=resource_name,
+                status_code=response.status_code,
+                content=response.text[:500],
+            )
             raise IgnoreResponseException
 
         # Re-issue the request. This is how a source classifies an HTTP-200 body-level error
@@ -418,9 +432,10 @@ def _create_response_actions_hook(
 
 def create_response_hooks(
     response_actions: Optional[list[ResponseAction]],
+    resource_name: Optional[str] = None,
 ) -> Optional[dict[str, Any]]:
     if response_actions:
-        return {"response": [_create_response_actions_hook(response_actions)]}
+        return {"response": [_create_response_actions_hook(response_actions, resource_name)]}
     return None
 
 

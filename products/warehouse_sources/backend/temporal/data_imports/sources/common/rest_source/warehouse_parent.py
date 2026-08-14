@@ -227,7 +227,7 @@ def iter_parent_pages_from_warehouse(
     parent_name: str,
     columns: list[str],
     page_size: int,
-    schema_name: str | None = None,
+    schema_name: str,
 ) -> Iterator[list[dict[str, Any]]]:
     """Yield fan-out parent rows from the parent schema's already-synced Delta table.
 
@@ -262,25 +262,35 @@ def iter_parent_pages_from_warehouse(
     dataset = delta_table.to_pyarrow_dataset()
 
     rows_streamed = 0
-    page: list[dict[str, Any]] = []
-    for batch in dataset.to_batches(columns=projected, batch_size=page_size):
-        for row in batch.to_pylist():
-            page.append({api_name: row.get(physical) for api_name, physical in physical_by_api_name.items()})
-            rows_streamed += 1
-            if len(page) >= page_size:
-                yield page
-                page = []
-    if page:
-        yield page
-
-    # The snapshot only grows for an incremental parent, while the vendor's own listing drops
-    # rows past its retention. This count against the child's stale-parent skips is how we tell
-    # whether the fan-out set has drifted above what the API would return — see the reuse
-    # follow-up in the plan.
-    logger.info(
-        "data_imports.fanout_parent_rows_streamed",
-        schema=schema_name,
-        parent=parent_name,
-        rows=rows_streamed,
-        version=table.version,
-    )
+    completed = False
+    try:
+        page: list[dict[str, Any]] = []
+        for batch in dataset.to_batches(columns=projected, batch_size=page_size):
+            for row in batch.to_pylist():
+                page.append({api_name: row.get(physical) for api_name, physical in physical_by_api_name.items()})
+                rows_streamed += 1
+                if len(page) >= page_size:
+                    yield page
+                    page = []
+        if page:
+            yield page
+        completed = True
+    finally:
+        # In a `finally` because a consumer can stop early: a resumable child checkpoints
+        # mid-fan-out, and the pipeline's iterator cleanup closes this generator, which raises
+        # GeneratorExit at the `yield` above. Logging after the loop would lose those runs
+        # entirely, and `completed` marks the count as partial so a short scan isn't read as
+        # a shrinking snapshot.
+        #
+        # The snapshot only grows for an incremental parent, while the vendor's own listing
+        # drops rows past its retention. This count against the child's ignored stale-parent
+        # responses is how we tell whether the fan-out set has drifted above what the API
+        # would return — see the reuse follow-up in the plan.
+        logger.info(
+            "data_imports.fanout_parent_rows_streamed",
+            schema=schema_name,
+            parent=parent_name,
+            rows=rows_streamed,
+            version=table.version,
+            completed=completed,
+        )
