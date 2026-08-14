@@ -1,0 +1,130 @@
+{
+    "strategy": "union_find_compressed",
+    "supports_current_contract": false,
+    "git_sha": "e5cd3a6c",
+    "pg_version": "16.13 (Ubuntu 16.13-0ubuntu0.24.04.1)",
+    "args": {
+        "strategy": "union_find_compressed",
+        "cases": "chain",
+        "sizes": "1",
+        "reps": 2,
+        "concurrency": 1,
+        "contention": "none",
+        "chain_depth": 1000,
+        "preload": 50000,
+        "out": "results/union_find_compressed-chain1k-iter4.json"
+    },
+    "phases": [
+        {
+            "case": "chain",
+            "size": 1,
+            "reps": 2,
+            "concurrency": 1,
+            "contention": "none",
+            "depth_max": 1000,
+            "steps": [
+                {
+                    "depth": 1,
+                    "merge_p50_ms": 8.502,
+                    "merge_p95_ms": 14.578,
+                    "read_p50_ms": 0.2469,
+                    "read_p95_ms": 0.9153,
+                    "read_root_p50_ms": 0.2418,
+                    "wal_bytes_per_op": 4232,
+                    "msgs_per_op": 3.0
+                },
+                {
+                    "depth": 2,
+                    "merge_p50_ms": 5.098,
+                    "merge_p95_ms": 7.096,
+                    "read_p50_ms": 0.1945,
+                    "read_p95_ms": 0.3207,
+                    "read_root_p50_ms": 0.2282,
+                    "wal_bytes_per_op": 1116,
+                    "msgs_per_op": 3.0
+                },
+                {
+                    "depth": 5,
+                    "merge_p50_ms": 3.445,
+                    "merge_p95_ms": 4.85,
+                    "read_p50_ms": 0.2207,
+                    "read_p95_ms": 0.3491,
+                    "read_root_p50_ms": 0.2028,
+                    "wal_bytes_per_op": 2051,
+                    "msgs_per_op": 3.0
+                },
+                {
+                    "depth": 10,
+                    "merge_p50_ms": 2.722,
+                    "merge_p95_ms": 4.36,
+                    "read_p50_ms": 0.2084,
+                    "read_p95_ms": 0.3281,
+                    "read_root_p50_ms": 0.1939,
+                    "wal_bytes_per_op": 3679,
+                    "msgs_per_op": 3.0
+                },
+                {
+                    "depth": 20,
+                    "merge_p50_ms": 3.358,
+                    "merge_p95_ms": 4.778,
+                    "read_p50_ms": 0.2633,
+                    "read_p95_ms": 0.4444,
+                    "read_root_p50_ms": 0.2366,
+                    "wal_bytes_per_op": 7636,
+                    "msgs_per_op": 3.0
+                },
+                {
+                    "depth": 50,
+                    "merge_p50_ms": 4.007,
+                    "merge_p95_ms": 5.335,
+                    "read_p50_ms": 0.2231,
+                    "read_p95_ms": 0.3436,
+                    "read_root_p50_ms": 0.1822,
+                    "wal_bytes_per_op": 17719,
+                    "msgs_per_op": 3.0
+                },
+                {
+                    "depth": 100,
+                    "merge_p50_ms": 5.686,
+                    "merge_p95_ms": 9.108,
+                    "read_p50_ms": 0.213,
+                    "read_p95_ms": 0.4055,
+                    "read_root_p50_ms": 0.2193,
+                    "wal_bytes_per_op": 38803,
+                    "msgs_per_op": 3.0
+                },
+                {
+                    "depth": 200,
+                    "merge_p50_ms": 12.857,
+                    "merge_p95_ms": 23.004,
+                    "read_p50_ms": 0.2397,
+                    "read_p95_ms": 0.6618,
+                    "read_root_p50_ms": 0.3187,
+                    "wal_bytes_per_op": 77687,
+                    "msgs_per_op": 3.0
+                },
+                {
+                    "depth": 500,
+                    "merge_p50_ms": 54.04,
+                    "merge_p95_ms": 128.311,
+                    "read_p50_ms": 0.2204,
+                    "read_p95_ms": 1.8206,
+                    "read_root_p50_ms": 0.211,
+                    "wal_bytes_per_op": 182151,
+                    "msgs_per_op": 3.0
+                },
+                {
+                    "depth": 1000,
+                    "merge_p50_ms": 191.265,
+                    "merge_p95_ms": 427.94,
+                    "read_p50_ms": 0.2415,
+                    "read_p95_ms": 3.8773,
+                    "read_root_p50_ms": 0.1965,
+                    "wal_bytes_per_op": 387113,
+                    "msgs_per_op": 3.0
+                }
+            ],
+            "oracle_checks": 20
+        }
+    ]
+}

@@ -90,3 +90,27 @@ Chain, 1000 ids/person, 5 chains, per step:
 1. `hybrid` small-merge threshold (the size-1 regression stands: ~2x WAL vs baseline).
 2. Star-contention chain: thousands of sources into one survivor which is then re-merged — worst case for the compression UPDATE's child fan-out; needs measuring before trusting eager compression unconditionally.
 3. Person-table growth accounting: merged rows are never deleted; a reaper/squash-style background job (re-home mappings lazily, then drop the pointer row) restores today's steady-state storage and can be priced with the same harness.
+
+## Iteration 4 — deep chains: the tax curves to depth 10 000
+
+Chain workload rerun with log-spaced checkpoints (1 id per person, 2 chains, preload 50k persons).
+The union-find root walk moved server-side first (one recursive query + lock the root), replacing per-hop client round trips.
+Results: `results/union_find-chain10k-iter4.json`, `results/union_find_compressed-chain1k-iter4.json`, `results/current-chain1k-iter4.json`.
+
+| depth  | union_find merge p50 | union_find deep-read p50 | compressed merge p50        | compressed read p50 | current merge p50           | current read p50 |
+| ------ | -------------------- | ------------------------ | --------------------------- | ------------------- | --------------------------- | ---------------- |
+| 10     | 2.5 ms               | 0.24 ms                  | 2.7 ms                      | 0.21 ms             | 2.3 ms                      | 0.19 ms          |
+| 100    | 3.1 ms               | 0.50 ms                  | 5.7 ms                      | 0.21 ms             | 5.3 ms                      | 0.20 ms          |
+| 1 000  | 8.7 ms               | 3.96 ms                  | 191.3 ms                    | 0.24 ms             | 135.6 ms                    | 0.18 ms          |
+| 10 000 | 54.3 ms              | 30.5 ms                  | – (quadratic, capped at 1k) | –                   | – (quadratic, capped at 1k) | –                |
+
+Root reads (ids owned by the survivor) stay 0.2–0.9 ms for every strategy at every depth.
+
+**Observations**
+
+- Uncompressed union-find taxes are linear and gentle but unbounded: ~3 µs/hop on reads (30.5 ms at depth 10k), ~5 µs/hop on the merge's root walk (54 ms at depth 10k). WAL stays flat (~1 KB) at any depth.
+- Eager compression buys flat reads (0.2 ms at every depth) by paying O(children) writes per merge — and a pure chain makes that quadratic: 191 ms/step at depth 1000, _worse than `current`_ (135 ms/step). Eager compression is the wrong unconditional default.
+- `current` under chains re-moves the accumulated mappings each step: same quadratic blowup (135 ms/step, 342 KB WAL/step at depth 1000), which is the production status quo for repeat-merge teams today.
+- The chain shape is adversarial for eager-fixup strategies and the status quo alike; only lazy indirection survives it — at a bounded, linear read tax.
+
+**Decision**: neither always-eager nor never-compress wins alone. The production shape is lazy/amortized: keep the O(1) pointer merge, bound depth with compaction that is either piggybacked on merge walks (re-point the walked path) or a background sweep of nodes deeper than a threshold. Reads on replicas cannot compress, so the bound must come from the write side. Next: `union_find_lazy` with walk-path compression + depth-triggered background compaction, measured on both the chain and star workloads.
