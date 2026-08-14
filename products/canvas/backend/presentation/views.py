@@ -893,7 +893,10 @@ class CanvasViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             429: OpenApiResponse(description="The team's compute quota is exhausted; retry later."),
         },
     )
-    @action(methods=["POST"], detail=True)
+    # task:write as well: the dispatched fix run executes with the creator's
+    # credentials, so canvas:write alone must not be able to start or steer it —
+    # consistent with the task-run endpoints themselves.
+    @action(methods=["POST"], detail=True, required_scopes=["canvas:write", "task:write"])
     def request_fix(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         """Wake the canvas's authoring agent to fix a failing build or runtime error.
 
@@ -945,6 +948,13 @@ class CanvasViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             return Response(
                 {"detail": "The authoring task for this canvas no longer exists."},
                 status=status.HTTP_409_CONFLICT,
+            )
+        if outcome == "organization_deactivated":
+            return Response(
+                {
+                    "detail": "Your organization has been deactivated. Contact PostHog support if you think this is a mistake."
+                },
+                status=status.HTTP_429_TOO_MANY_REQUESTS,
             )
         if outcome == "quota_exhausted":
             return Response(

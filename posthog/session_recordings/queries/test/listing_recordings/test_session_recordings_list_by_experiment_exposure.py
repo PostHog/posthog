@@ -3,6 +3,7 @@ from datetime import UTC, datetime, timedelta
 
 from freezegun import freeze_time
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, flush_persons_and_events
+from unittest.mock import patch
 
 from parameterized import parameterized
 from rest_framework.exceptions import PermissionDenied, ValidationError
@@ -13,6 +14,7 @@ from posthog.clickhouse.client import sync_execute
 from posthog.constants import AvailableFeature
 from posthog.models import User
 from posthog.models.personal_api_key import PersonalAPIKey
+from posthog.models.team.extensions import get_or_create_team_extension
 from posthog.models.utils import generate_random_token_personal, hash_key_value
 from posthog.rbac.user_access_control import UserAccessControlError
 from posthog.session_recordings.models.session_recording import SessionRecording
@@ -28,7 +30,10 @@ from posthog.session_recordings.session_recording_api import list_recordings_fro
 from posthog.session_recordings.sql.session_replay_event_sql import TRUNCATE_SESSION_REPLAY_EVENTS_TABLE_SQL
 from posthog.test.persons import create_person
 
+from products.analytics_platform.backend.lazy_computation.lazy_computation_executor import LazyComputationResult
+from products.experiments.backend.hogql_queries.experiment_exposure_query_builder import ExposureQueryBuilder
 from products.experiments.backend.models.experiment import Experiment
+from products.experiments.backend.models.team_experiments_config import TeamExperimentsConfig
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 
 from ee.models.rbac.access_control import AccessControl
@@ -111,6 +116,11 @@ class TestSessionRecordingsListByExperimentExposure(ClickhouseTestMixin, APIBase
 
     def _assert_query_matches_session_ids(self, query: dict, expected: list[str]) -> None:
         assert_query_matches_session_ids(team=self.team, query=query, expected=expected, user=self.user)
+
+    def _enable_precomputation(self) -> None:
+        config = get_or_create_team_extension(self.team, TeamExperimentsConfig)
+        config.experiment_precomputation_enabled = True
+        config.save()
 
     def test_filters_to_sessions_of_exposed_persons_ending_at_or_after_first_exposure(self) -> None:
         experiment = self._create_experiment()
@@ -443,6 +453,101 @@ class TestSessionRecordingsListByExperimentExposure(ClickhouseTestMixin, APIBase
         )
 
         assert [recording.session_id for recording in result.recordings] == ["session-of-exposed"]
+
+    def test_precomputing_teams_read_exposures_from_the_preaggregated_table(self) -> None:
+        # The default start_date is 34 hours before the frozen now, past the minimum
+        # precompute runtime, so the preaggregated read is the required path here.
+        self._enable_precomputation()
+        experiment = self._create_experiment()
+        create_person(team=self.team, distinct_ids=["exposed-user"])
+        create_person(team=self.team, distinct_ids=["other-user"])
+        exposure_time = BASE_TIME + timedelta(hours=2)
+        self._create_exposure_event("exposed-user", exposure_time, "test")
+        flush_persons_and_events()
+
+        session_start = exposure_time + timedelta(hours=1)
+        self._produce_recording(
+            "exposed-user", "session-of-exposed", session_start, session_start + timedelta(minutes=10)
+        )
+        self._produce_recording("exposed-user", "session-ended-before", BASE_TIME, BASE_TIME + timedelta(minutes=30))
+        self._produce_recording(
+            "other-user", "session-of-unexposed", session_start, session_start + timedelta(minutes=10)
+        )
+
+        # The live scan raising proves the population came from the preaggregated table; the
+        # ensure-side insert builds from its own query template, so it is unaffected. Broken
+        # job-id threading would silently fall back to the events scan precomputation exists
+        # to avoid, which is exactly what this catches.
+        with patch.object(
+            ExposureQueryBuilder,
+            "_build_exposure_select_query",
+            side_effect=AssertionError("live exposure scan used despite precomputation"),
+        ):
+            self._assert_query_matches_session_ids(
+                {"experiment_exposure": {"experiment_id": experiment.id}},
+                ["session-of-exposed"],
+            )
+
+    def test_rejects_instead_of_scanning_live_when_the_preaggregated_read_is_unavailable(self) -> None:
+        self._enable_precomputation()
+        experiment = self._create_experiment()
+
+        # On precomputing teams the live scan is the query that cannot complete, so an
+        # unavailable preaggregated read must refuse rather than fall back to it.
+        with patch(
+            "products.experiments.backend.replay_linkage.ensure_precomputed",
+            return_value=LazyComputationResult(ready=False, job_ids=[]),
+        ):
+            with self.assertRaises(ValidationError) as error_context:
+                filter_recordings_by(
+                    team=self.team,
+                    recordings_filter={"experiment_exposure": {"experiment_id": experiment.id}},
+                    user=self.user,
+                )
+        self.assertIn("still being computed", str(error_context.exception.detail))
+
+    def test_rejects_activation_mode_on_precomputing_teams(self) -> None:
+        self._enable_precomputation()
+        experiment = self._create_experiment(
+            exposure_criteria={
+                "activation_config": {
+                    "kind": "ExperimentEventExposureConfig",
+                    "event": "task_completed",
+                    "properties": [],
+                }
+            }
+        )
+
+        with self.assertRaises(ValidationError) as error_context:
+            filter_recordings_by(
+                team=self.team,
+                recordings_filter={"experiment_exposure": {"experiment_id": experiment.id}},
+                user=self.user,
+            )
+        self.assertIn("activation event", str(error_context.exception.detail))
+
+    def test_young_experiments_scan_live_even_on_precomputing_teams(self) -> None:
+        # Started 6 hours before the frozen now, under the 12-hour precompute minimum. The
+        # fail-fast guard must not reach these: their scan window is hours wide, and the
+        # current-day cache TTL would hide fresh exposures right when users watch the tab.
+        self._enable_precomputation()
+        experiment = self._create_experiment(start_date=BASE_TIME + timedelta(hours=4))
+        create_person(team=self.team, distinct_ids=["exposed-user"])
+        exposure_time = BASE_TIME + timedelta(hours=5)
+        self._create_exposure_event("exposed-user", exposure_time, "test")
+        flush_persons_and_events()
+
+        session_start = exposure_time + timedelta(hours=1)
+        self._produce_recording(
+            "exposed-user", "session-of-exposed", session_start, session_start + timedelta(minutes=10)
+        )
+
+        with patch("products.experiments.backend.replay_linkage.ensure_precomputed") as ensure_mock:
+            self._assert_query_matches_session_ids(
+                {"experiment_exposure": {"experiment_id": experiment.id}},
+                ["session-of-exposed"],
+            )
+        ensure_mock.assert_not_called()
 
     def _create_denied_experiment_and_viewer(self) -> tuple[Experiment, User]:
         self.organization.available_product_features = [

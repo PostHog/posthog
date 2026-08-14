@@ -1,5 +1,5 @@
 from datetime import UTC, datetime, timedelta
-from typing import Any, Literal, Union, cast
+from typing import TYPE_CHECKING, Any, Literal, Optional, Union, cast
 
 import structlog
 from dateutil.relativedelta import relativedelta
@@ -38,6 +38,9 @@ from posthog.session_recordings.queries.utils import (
     test_account_scoped_query,
 )
 from posthog.types import AnyPropertyFilter
+
+if TYPE_CHECKING:
+    from products.experiments.backend.facade.replay import ExperimentExposureLinkage
 
 logger = structlog.get_logger(__name__)
 tracer = trace.get_tracer(__name__)
@@ -214,9 +217,14 @@ class SessionRecordingListFromQuery(SessionRecordingsListingBaseQuery):
         self._extra_having_predicates = extra_having_predicates or []
         self._session_ids_to_exclude = session_ids_to_exclude
         self._skip_negative_blocklists = skip_negative_blocklists
+        self._experiment_exposure_linkage: Optional[ExperimentExposureLinkage] = None
 
     @tracer.start_as_current_span("SessionRecordingListFromQuery.run")
     def run(self) -> SessionRecordingQueryResult:
+        # Resolved before query construction: the resolution validates the experiment and can
+        # run preaggregation-job bookkeeping and synchronous ClickHouse inserts, which is run
+        # work, not AST building.
+        self._resolve_experiment_exposure()
         query = self.get_query()
 
         with tracer.start_as_current_span("SessionRecordingListFromQuery.paginate"):
@@ -298,6 +306,34 @@ class SessionRecordingListFromQuery(SessionRecordingsListingBaseQuery):
         ]
         return parsed_query
 
+    def _resolve_experiment_exposure(self) -> None:
+        """Resolve the experiment-exposure linkage once per query instance.
+
+        run() resolves eagerly, but composition callers (to_query(), the replay-vision
+        candidate query) consume get_query() without run(), so _join_experiment_exposure
+        resolves too; the cached linkage keeps the resolution from running twice.
+        """
+        if self._query.experiment_exposure is None or self._experiment_exposure_linkage is not None:
+            return
+        # Deferred: the experiments facade package imports posthog.api on init, which
+        # circles back into this module through the replay-deletion temporal activities.
+        from products.experiments.backend.facade.replay import (  # noqa: PLC0415
+            resolve_exposure_linkage,
+            validate_experiment_exposure_access,
+        )
+
+        try:
+            validate_experiment_exposure_access(self._team, self._user, self._query.experiment_exposure.experiment_id)
+        except UserAccessControlError as error:
+            # Only the /query pipeline renders UserAccessControlError; on the recordings API
+            # it would surface as a 500, so translate to what DRF renders as a 403.
+            raise PermissionDenied(str(error))
+        self._experiment_exposure_linkage = resolve_exposure_linkage(
+            self._team,
+            experiment_id=self._query.experiment_exposure.experiment_id,
+            variant=self._query.experiment_exposure.variant,
+        )
+
     def _join_experiment_exposure(self, parsed_query: ast.SelectQuery) -> None:
         """Restrict the list to sessions of persons exposed to the queried experiment.
 
@@ -312,18 +348,10 @@ class SessionRecordingListFromQuery(SessionRecordingsListingBaseQuery):
         """
         # Deferred: the experiments facade package imports posthog.api on init, which
         # circles back into this module through the replay-deletion temporal activities.
-        from products.experiments.backend.facade.replay import (  # noqa: PLC0415
-            exposed_distinct_ids_select,
-            validate_experiment_exposure_access,
-        )
+        from products.experiments.backend.facade.replay import exposed_distinct_ids_select  # noqa: PLC0415
 
-        assert self._query.experiment_exposure is not None
-        try:
-            validate_experiment_exposure_access(self._team, self._user, self._query.experiment_exposure.experiment_id)
-        except UserAccessControlError as error:
-            # Only the /query pipeline renders UserAccessControlError; on the recordings API
-            # it would surface as a 500, so translate to what DRF renders as a 403.
-            raise PermissionDenied(str(error))
+        self._resolve_experiment_exposure()
+        assert self._experiment_exposure_linkage is not None
         join = parsed_query.select_from
         assert join is not None
         while join.next_join is not None:
@@ -332,11 +360,7 @@ class SessionRecordingListFromQuery(SessionRecordingsListingBaseQuery):
             # GLOBAL: the subquery scans events over the whole experiment window; without it,
             # every shard of the sharded replay table re-evaluates that scan independently.
             join_type="GLOBAL INNER JOIN",
-            table=exposed_distinct_ids_select(
-                self._team,
-                experiment_id=self._query.experiment_exposure.experiment_id,
-                variant=self._query.experiment_exposure.variant,
-            ),
+            table=exposed_distinct_ids_select(self._experiment_exposure_linkage),
             alias="exposure",
             constraint=ast.JoinConstraint(
                 expr=ast.CompareOperation(
