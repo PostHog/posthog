@@ -2934,13 +2934,13 @@ class HogFlowViewSet(
         # while everything keeps sending if the CDP call fails.
         self._cancel_invocations_until_done(hog_flow, {"parent_run_id": str(batch_job.id)})
 
-        # The resolver may have finished the run between the flag write and here; a terminal
-        # status absorbs (internal_update_batch_job_status ignores late writes), so re-check
-        # rather than clobbering a genuine completion.
+        # Flip to cancelled with one conditional UPDATE: the terminal exclusion makes this a
+        # no-op if the resolver committed a completion during the CDP call, closing the
+        # lost-write window the previous refresh-then-save had between its read and its write.
+        HogFlowBatchJob.objects.filter(id=batch_job.id, team=self.team).exclude(status__in=terminal).update(
+            status=HogFlowBatchJob.State.CANCELLED, updated_at=timezone.now()
+        )
         batch_job.refresh_from_db()
-        if batch_job.status not in terminal:
-            batch_job.status = HogFlowBatchJob.State.CANCELLED
-            batch_job.save(update_fields=["status", "updated_at"])
 
         self._report_workflow_action("hog_flow_batch_job_cancelled", hog_flow, {"batch_job_id": str(batch_job.id)})
         return Response(HogFlowBatchJobSerializer(batch_job).data)
