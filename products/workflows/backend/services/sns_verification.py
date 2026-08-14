@@ -29,10 +29,13 @@ _CERT_PATH_RE = re.compile(r"^/SimpleNotificationService-[A-Za-z0-9]{8,64}\.pem$
 _CERT_CACHE_SECONDS = 60 * 60
 _CERT_FAILURE_CACHE_SECONDS = 60
 _FETCH_TIMEOUT_SECONDS = 5
-# SNS rotates its signing cert rarely, so steady state is one fetch an hour and a low ceiling costs
-# nothing legitimate. It bounds what a flood of varied cert URLs can make us do: over budget we fail
-# closed, and the sweep still reconciles the state the dropped events would have carried.
-_MAX_CERT_FETCHES_PER_MINUTE = 10
+# Bounds what a flood of varied cert URLs can make us do: over budget we fail closed. The budget
+# covers only URLs that have never verified a message, so exhausting it cannot stop the certificate
+# a real topic signs with from being refreshed — see _fetch_signing_cert.
+_MAX_UNKNOWN_CERT_FETCHES_PER_MINUTE = 10
+# A cert URL that has verified a message came from SNS, so it stays trusted well past the rotation
+# interval and its refetch is never rationed.
+_KNOWN_CERT_URL_SECONDS = 60 * 60 * 24 * 30
 _FETCH_FAILED = "failed"
 
 # Per https://docs.aws.amazon.com/sns/latest/dg/sns-verify-signature-of-message.html the string to
@@ -65,27 +68,40 @@ def is_valid_sns_cert_url(url: str | None) -> bool:
     return is_valid_sns_url(url) and bool(_CERT_PATH_RE.match(urlparse(url or "").path))
 
 
-def _claim_cert_fetch_slot() -> bool:
+def _url_digest(cert_url: str) -> str:
+    # Hashed: the URL's path is caller-supplied and unbounded, and cache backends reject or mangle
+    # over-long keys.
+    return hashlib.sha256(cert_url.encode()).hexdigest()
+
+
+def _claim_unknown_cert_fetch_slot() -> bool:
     # One counter shared across web workers, so the ceiling holds for the deployment rather than
     # per process.
     bucket_key = f"sns_cert_fetch_budget_{int(time.time()) // 60}"
     cache.add(bucket_key, 0, 120)
     try:
-        return cache.incr(bucket_key) <= _MAX_CERT_FETCHES_PER_MINUTE
+        return cache.incr(bucket_key) <= _MAX_UNKNOWN_CERT_FETCHES_PER_MINUTE
     except ValueError:
         # The bucket expired between the add and the incr, so this is effectively a fresh minute.
         return True
 
 
+def remember_verified_cert_url(cert_url: str) -> None:
+    """Record that this URL served a certificate that verified a message, exempting its refetches."""
+    cache.set(f"sns_known_cert_url_{_url_digest(cert_url)}", True, _KNOWN_CERT_URL_SECONDS)
+
+
 def _fetch_signing_cert(cert_url: str) -> bytes | None:
-    # Hashed: the URL's path is caller-supplied and unbounded, and cache backends reject or mangle
-    # over-long keys.
-    cache_key = f"sns_signing_cert_{hashlib.sha256(cert_url.encode()).hexdigest()}"
+    cache_key = f"sns_signing_cert_{_url_digest(cert_url)}"
     cached = cache.get(cache_key)
     if cached is not None:
         return None if cached == _FETCH_FAILED else cached
-    if not _claim_cert_fetch_slot():
-        logger.warning("Skipped SNS signing certificate fetch, per-minute budget exhausted")
+    # Only novel URLs are rationed. Rationing every fetch would hand an attacker an outage: spend the
+    # budget on well-shaped junk URLs each minute, and the real certificate could not be refreshed
+    # once its hour expired.
+    is_known = cache.get(f"sns_known_cert_url_{_url_digest(cert_url)}") is not None
+    if not is_known and not _claim_unknown_cert_fetch_slot():
+        logger.warning("Skipped SNS signing certificate fetch, per-minute budget for new URLs exhausted")
         return None
     try:
         response = requests.get(cert_url, timeout=_FETCH_TIMEOUT_SECONDS)
@@ -150,6 +166,7 @@ def verify_sns_message(message: dict[str, Any]) -> bool:
         if not isinstance(public_key, RSAPublicKey):
             return False
         public_key.verify(signature, string_to_sign.encode(), padding.PKCS1v15(), hashes.SHA256())
+        remember_verified_cert_url(cert_url)
         return True
     except InvalidSignature:
         return False

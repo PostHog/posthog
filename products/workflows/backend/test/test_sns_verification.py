@@ -16,10 +16,11 @@ from cryptography.x509.oid import NameOID
 from parameterized import parameterized
 
 from products.workflows.backend.services.sns_verification import (
-    _MAX_CERT_FETCHES_PER_MINUTE,
+    _MAX_UNKNOWN_CERT_FETCHES_PER_MINUTE,
     _fetch_signing_cert,
     is_valid_sns_cert_url,
     is_valid_sns_url,
+    remember_verified_cert_url,
     verify_sns_message,
 )
 
@@ -138,15 +139,40 @@ class TestSigningCertFetch(SimpleTestCase):
 
         assert get.call_count == 1
 
-    def test_fetching_stops_once_the_minute_budget_is_spent(self) -> None:
-        urls = [
-            f"https://sns.us-east-1.amazonaws.com/SimpleNotificationService-{index:032x}.pem"
-            for index in range(_MAX_CERT_FETCHES_PER_MINUTE + 3)
-        ]
+    def _spend_the_budget(self) -> None:
+        with patch("products.workflows.backend.services.sns_verification.requests.get") as get:
+            get.return_value.content = _CERT_PEM
+            for index in range(_MAX_UNKNOWN_CERT_FETCHES_PER_MINUTE):
+                _fetch_signing_cert(f"https://sns.us-east-1.amazonaws.com/SimpleNotificationService-{index:032x}.pem")
+
+    def test_fetching_a_new_url_stops_once_the_minute_budget_is_spent(self) -> None:
+        self._spend_the_budget()
 
         with patch("products.workflows.backend.services.sns_verification.requests.get") as get:
             get.return_value.content = _CERT_PEM
-            fetched = [_fetch_signing_cert(url) for url in urls]
+            assert _fetch_signing_cert(_CERT_URL) is None
 
-        assert get.call_count == _MAX_CERT_FETCHES_PER_MINUTE
-        assert fetched[_MAX_CERT_FETCHES_PER_MINUTE:] == [None, None, None]
+        assert get.call_count == 0
+
+    def test_a_url_that_has_verified_before_is_refetched_even_with_the_budget_spent(self) -> None:
+        # Otherwise junk URLs could spend the budget every minute and starve the real certificate's
+        # hourly refresh, taking the webhook down for as long as the flood lasted.
+        remember_verified_cert_url(_CERT_URL)
+        self._spend_the_budget()
+
+        with patch("products.workflows.backend.services.sns_verification.requests.get") as get:
+            get.return_value.content = _CERT_PEM
+            assert _fetch_signing_cert(_CERT_URL) == _CERT_PEM
+
+        assert get.call_count == 1
+
+    def test_a_verified_message_marks_its_cert_url_known(self) -> None:
+        with patch("products.workflows.backend.services.sns_verification._fetch_signing_cert", return_value=_CERT_PEM):
+            assert verify_sns_message(_signed_notification()) is True
+
+        self._spend_the_budget()
+        with patch("products.workflows.backend.services.sns_verification.requests.get") as get:
+            get.return_value.content = _CERT_PEM
+            assert _fetch_signing_cert(_CERT_URL) == _CERT_PEM
+
+        assert get.call_count == 1
