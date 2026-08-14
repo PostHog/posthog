@@ -22,6 +22,7 @@ from posthog.models.team.team import Team
 from posthog.models.user import User
 
 from ee.billing.billing_manager import (
+    BILLING_DEACTIVATED_REASON,
     BILLING_PROVIDER_WEBHOOK_SIGNATURE_HEADER,
     BILLING_PROVIDER_WEBHOOK_SIGNATURE_VERSION,
     BILLING_PROVIDER_WEBHOOK_TIMESTAMP_HEADER,
@@ -397,6 +398,44 @@ class TestBillingManager(BaseTest):
             {"key": "logs_retention_30d", "name": "30-day logs retention"}
         ]
         assert self.team.logs_settings == {"retention_days": 30}
+
+    @parameterized.expand(
+        [
+            ("deactivates", True, True, None, False, BILLING_DEACTIVATED_REASON),
+            ("keeps_manual_disable_on_deactivate", True, False, "Spam", False, "Spam"),
+            ("reactivates_own_deactivation", False, False, BILLING_DEACTIVATED_REASON, True, None),
+            ("keeps_manual_disable_on_reactivate", False, False, "Spam", False, "Spam"),
+            ("missing_key_is_noop", None, False, BILLING_DEACTIVATED_REASON, False, BILLING_DEACTIVATED_REASON),
+        ]
+    )
+    def test_update_org_details_syncs_billing_deactivation(
+        self,
+        _name: str,
+        deactivated: bool | None,
+        initial_is_active: bool,
+        initial_reason: str | None,
+        expected_is_active: bool,
+        expected_reason: str | None,
+    ):
+        organization = self.organization
+        organization.is_active = initial_is_active
+        organization.is_not_active_reason = initial_reason
+        organization.save()
+
+        license = super(LicenseManager, cast(LicenseManager, License.objects)).create(
+            key="key123::key123",
+            plan="enterprise",
+            valid_until=datetime.datetime(2038, 1, 19, 3, 14, 7),
+        )
+
+        customer: dict[str, Any] = {} if deactivated is None else {"deactivated": deactivated}
+        billing_status: dict[str, Any] = {"customer": customer}
+
+        BillingManager(license).update_org_details(organization, cast(BillingStatus, billing_status))
+
+        organization.refresh_from_db()
+        assert organization.is_active is expected_is_active
+        assert organization.is_not_active_reason == expected_reason
 
     @patch("ee.billing.billing_manager.requests.get")
     def test_update_available_product_features_resets_revoked_logs_retention(self, mock_get: MagicMock):

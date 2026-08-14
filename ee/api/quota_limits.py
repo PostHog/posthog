@@ -25,7 +25,11 @@ from ee.billing.quota_limiting import INFORMATIONAL_USAGE_RESOURCES, QuotaResour
 
 class QuotaResourceLimitSerializer(serializers.Serializer):
     limited = serializers.BooleanField(
-        help_text="True when the team is currently over its quota for this resource and limits are in effect.",
+        help_text=(
+            "True when the team is currently over its quota for this resource and limits are in "
+            "effect, or when the organization has been deactivated (every enforceable resource "
+            "reads as limited then)."
+        ),
     )
     usage = serializers.FloatField(
         allow_null=True,
@@ -74,7 +78,8 @@ class QuotaLimitsResponseSerializer(serializers.Serializer):
             "Whether the team's organization pays for PostHog Desktop usage: billing grants the "
             "`posthog_code_usage` product feature only on the Desktop usage product's paid plan, "
             "synced into the organization's available features. Consumers gate paid-tier Desktop "
-            "behavior on this; an org unknown to billing reads as not paying."
+            "behavior on this; an org unknown to billing reads as not paying. Always false for "
+            "deactivated organizations."
         ),
     )
 
@@ -98,6 +103,7 @@ class QuotaLimitsViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     )
     def list(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         org_usage = self.team.organization.usage or {}
+        org_deactivated = self.team.organization.is_active is False
         # Fresh read on purpose: the gateway re-caches this answer for minutes, so serving
         # the 30s per-worker memo here would re-poison a just-invalidated gateway entry.
         limited_resources = get_fresh_team_limited_resources(self.team.api_token)
@@ -105,7 +111,7 @@ class QuotaLimitsViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         for resource in QuotaResource:
             summary = org_usage.get(resource.value) or {}
             limited[resource.value] = {
-                "limited": limited_resources[resource],
+                "limited": org_deactivated or limited_resources[resource],
                 "usage": _resource_usage(summary),
                 "limit": summary.get("limit"),
             }
@@ -118,9 +124,8 @@ class QuotaLimitsViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         data = QuotaLimitsResponseSerializer(
             {
                 "limited": limited,
-                "code_usage_billing_active": self.team.organization.is_feature_available(
-                    AvailableFeature.POSTHOG_CODE_USAGE
-                ),
+                "code_usage_billing_active": not org_deactivated
+                and self.team.organization.is_feature_available(AvailableFeature.POSTHOG_CODE_USAGE),
             }
         ).data
         return Response(data)

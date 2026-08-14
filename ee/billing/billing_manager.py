@@ -39,6 +39,9 @@ BILLING_PROVIDER_WEBHOOK_SIGNATURE_HEADER = "X-PostHog-Billing-Provider-Signatur
 BILLING_PROVIDER_WEBHOOK_TIMESTAMP_HEADER = "X-PostHog-Billing-Provider-Timestamp"
 BILLING_PROVIDER_WEBHOOK_SIGNATURE_VERSION = "sha256"
 
+# is_not_active_reason sentinel so the sync only undoes its own deactivations, never a manual admin disable.
+BILLING_DEACTIVATED_REASON = "Deactivated in billing"
+
 
 class BillingAPIErrorCodes(Enum):
     OPEN_INVOICES_ERROR = "open_invoices_error"
@@ -533,6 +536,21 @@ class BillingManager:
         never_drop_data = cast(bool | None, data.get("never_drop_data"))
         if never_drop_data != organization.never_drop_data:
             organization.never_drop_data = never_drop_data
+            org_modified = True
+
+        # Missing key is a no-op: a partial billing response must not flip an org's active state.
+        deactivated = cast(bool | None, data.get("deactivated"))
+        if deactivated is True and organization.is_active is not False:
+            organization.is_active = False
+            organization.is_not_active_reason = BILLING_DEACTIVATED_REASON
+            org_modified = True
+        elif (
+            deactivated is False
+            and organization.is_active is False
+            and organization.is_not_active_reason == BILLING_DEACTIVATED_REASON
+        ):
+            organization.is_active = True
+            organization.is_not_active_reason = None
             org_modified = True
 
         customer_trust_scores = data.get("customer_trust_scores", {})

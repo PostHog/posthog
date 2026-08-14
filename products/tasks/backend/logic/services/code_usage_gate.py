@@ -8,7 +8,7 @@ import requests
 from rest_framework import status
 from rest_framework.response import Response
 
-from posthog.models import OAuthAccessToken
+from posthog.models import OAuthAccessToken, Team
 from posthog.temporal.oauth import create_oauth_access_token_for_user
 from posthog.utils import get_instance_region
 
@@ -137,6 +137,23 @@ def rate_limit_error_payload(usage: CodeUsageStatus) -> dict[str, Any]:
     return payload
 
 
+def organization_deactivated(team_id: int) -> bool:
+    return Team.objects.filter(id=team_id, organization__is_active=False).exists()
+
+
+def organization_deactivated_response() -> Response:
+    return Response(
+        TaskRunErrorResponseSerializer(
+            {
+                "type": "billing_limit",
+                "code": "organization_deactivated",
+                "error": "Your organization has been deactivated. Contact PostHog support if you think this is a mistake.",
+            }
+        ).data,
+        status=status.HTTP_429_TOO_MANY_REQUESTS,
+    )
+
+
 def compute_quota_limit_response() -> Response:
     return Response(
         TaskRunErrorResponseSerializer(
@@ -156,8 +173,13 @@ def usage_limit_response(user, team_id: int) -> Response | None:
     Since Desktop moved to usage-based billing, this is the whole cost control on cloud runs —
     no waitlist check is involved. Fails open when the gateway can't be reached, so every check
     is counted by outcome (`checked_allowed` / `checked_blocked` / `fail_open`) and a degraded
-    gateway silently removing the backstop is visible, not just logged.
+    gateway silently removing the backstop is visible, not just logged. Deactivated organizations
+    are blocked locally first, so that block holds even when the gateway check fails open.
     """
+    if organization_deactivated(team_id):
+        observe_code_usage_gate_check(outcome="org_deactivated")
+        return organization_deactivated_response()
+
     usage = get_posthog_code_usage(user, team_id)
     if usage is None:
         observe_code_usage_gate_check(outcome="fail_open")

@@ -58,6 +58,23 @@ class TestQuotaLimitsAPI(APIBaseTest):
         # Org holds no billing-granted Desktop usage feature -> reads as not paying
         self.assertIs(data["code_usage_billing_active"], False)
 
+    def test_deactivated_org_reads_limited_and_unbilled(self) -> None:
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.POSTHOG_CODE_USAGE, "name": "PostHog Desktop usage billing"}
+        ]
+        self.organization.is_active = False
+        self.organization.save()
+
+        response = self.client.get(self._url())
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        data = response.json()
+        for resource in QuotaResource:
+            self.assertIs(data["limited"][resource.value]["limited"], True)
+        for field in INFORMATIONAL_USAGE_RESOURCES:
+            self.assertIs(data["limited"][field]["limited"], False)
+        self.assertIs(data["code_usage_billing_active"], False)
+
     def test_reports_code_usage_billing_state(self) -> None:
         # The LLM gateway keys posthog_code per-user cap bypass and model gating
         # on this field - dropping it (or resolving the wrong org) silently
