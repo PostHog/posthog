@@ -99,7 +99,7 @@ export function LogsAlertList(): JSX.Element {
             render: (_, alert) => (
                 <LogsAlertStateIndicator
                     state={alert.state}
-                    enabled={alert.enabled ?? true}
+                    enabled={alert.enabled === true}
                     firstEnabledAt={alert.first_enabled_at}
                     lastErrorMessage={alert.last_error_message}
                     snoozeUntil={alert.snooze_until}
@@ -192,7 +192,7 @@ export function LogsAlertList(): JSX.Element {
             dataIndex: 'enabled',
             render: (_, alert) => (
                 <LemonSwitch
-                    checked={alert.enabled ?? true}
+                    checked={alert.enabled === true}
                     onChange={() => toggleAlertEnabled(alert)}
                     disabledReason={
                         alert.state === LogsAlertConfigurationStateEnumApi.Broken
@@ -209,13 +209,13 @@ export function LogsAlertList(): JSX.Element {
                 const isResetting = resettingAlertIds.has(alert.id)
                 const isSnoozing = snoozingAlertIds.has(alert.id)
                 let snoozeMenuItem: LemonMenuItems[number] | false = false
-                if ((alert.enabled ?? true) && alert.state === LogsAlertConfigurationStateEnumApi.Snoozed) {
+                if (alert.enabled === true && alert.state === LogsAlertConfigurationStateEnumApi.Snoozed) {
                     snoozeMenuItem = {
                         label: isSnoozing ? 'Unsnoozing…' : 'Unsnooze',
                         disabledReason: isSnoozing ? 'Updating snooze' : undefined,
                         onClick: () => unsnoozeAlert(alert.id),
                     }
-                } else if (alert.enabled ?? true) {
+                } else if (alert.enabled === true) {
                     snoozeMenuItem = {
                         label: isSnoozing ? 'Snoozing…' : 'Snooze',
                         disabledReason: isSnoozing ? 'Updating snooze' : undefined,
