@@ -38,6 +38,12 @@ describe("resolveRightPanelSide", () => {
       isReviewOpen: true,
       expected: "changes",
     },
+    {
+      name: "a review closed from elsewhere closes the panel it was showing in",
+      stored: "changes",
+      isReviewOpen: false,
+      expected: null,
+    },
   ])("$name", ({ stored, isReviewOpen, expected }) => {
     expect(resolveRightPanelSide({ stored, isReviewOpen })).toBe(expected);
   });

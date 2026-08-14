@@ -44,6 +44,12 @@ export function resolveRightPanelSide({
   isReviewOpen: boolean;
 }): RightPanelSide | null {
   if (isReviewOpen) return "changes";
+  // The review mode has the last word on Changes in both directions. Whoever
+  // closes a review closes it from wherever they are (the footer's diff chip,
+  // the review shortcut) without touching the panel's own memory, and a panel
+  // that kept showing Changes there would draw its title over a review that
+  // has dropped its queries.
+  if (stored === "changes") return null;
   if (stored !== undefined) return stored;
   return DEFAULT_RIGHT_PANEL_SIDE;
 }

@@ -30,6 +30,10 @@ interface ResizableSidebarProps {
   // Floor for drag-resize. Defaults to SIDEBAR_MIN_WIDTH; callers whose chrome
   // needs more room can raise it.
   minWidth?: number;
+  // What the column keeps while closed. Zero collapses it away, which is what
+  // a sidebar wants; a caller that pins chrome over this column gives that
+  // chrome's width, so the content pane never reaches under it.
+  collapsedWidth?: number;
   // Enables drag-to-close/reopen. Without it, dragging just clamps at min.
   setOpen?: (open: boolean) => void;
   // While closed, the panel can "peek" — slide out over the content as a
@@ -51,6 +55,7 @@ export const ResizableSidebar: React.FC<ResizableSidebarProps> = ({
   setIsResizing,
   side,
   minWidth = SIDEBAR_MIN_WIDTH,
+  collapsedWidth = 0,
   setOpen,
   peek = false,
   onPeekEnter,
@@ -204,7 +209,9 @@ export const ResizableSidebar: React.FC<ResizableSidebarProps> = ({
   const isLeft = side === "left";
   // Closed = overlay mode: the box collapses to 0 width but the panel stays
   // mounted as an absolutely positioned layer that peek slides in and out.
-  const isOverlay = !open;
+  // A column that keeps a width while closed stays docked: there is no edge to
+  // peek out from, and its caller draws in the space it holds.
+  const isOverlay = !open && collapsedWidth === 0;
   const overlayVisible = isOverlay && peek;
 
   // While the panel slides, the resize handle sweeps under a stationary
@@ -236,9 +243,9 @@ export const ResizableSidebar: React.FC<ResizableSidebarProps> = ({
     <Box
       ref={boxRef}
       style={{
-        width: open ? `${width}px` : "0",
-        minWidth: open ? `${width}px` : "0",
-        maxWidth: open ? `${width}px` : "0",
+        width: open ? `${width}px` : `${collapsedWidth}px`,
+        minWidth: open ? `${width}px` : `${collapsedWidth}px`,
+        maxWidth: open ? `${width}px` : `${collapsedWidth}px`,
         // Suppress only while dragging the docked sidebar so it tracks the
         // pointer frame-for-frame; a drag-to-close (open flips false mid-drag)
         // re-enables it so the collapse animates instead of jump-cutting.

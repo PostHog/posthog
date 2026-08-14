@@ -54,10 +54,13 @@ const SIDE_ORDER: readonly RightPanelSide[] = [
 ];
 
 /**
- * The room the switcher takes at the right of the panel's header row, so the
- * title stops short of it. It covers SIDE_ORDER at icon-sm, and grows with it.
+ * The room the switcher takes at the right of the row. The panel's header
+ * leaves it free for the title, and the closed column keeps it rather than
+ * collapsing away, so the buttons never come to rest over the content pane's
+ * own chrome, which puts its split and close controls in the same corner.
+ * It covers SIDE_ORDER at icon-sm, and grows with it.
  */
-const SWITCHER_WIDTH_PX = 108;
+const SWITCHER_WIDTH_PX = 112;
 
 /** The task the right panel talks about: the one on the current route. */
 function useRightPanelTask(taskId: string): Task | null {
@@ -220,6 +223,7 @@ function SessionRightPanel({ taskId }: { taskId: string }) {
         setIsResizing={setIsResizing}
         side="right"
         minWidth={RIGHT_PANEL_MIN_WIDTH}
+        collapsedWidth={SWITCHER_WIDTH_PX}
         setOpen={setOpen}
       >
         <div
@@ -260,7 +264,10 @@ function SessionRightPanel({ taskId }: { taskId: string }) {
           panel comes and goes under them. It has to outrank the panel's closed
           layer, which sweeps across this corner at z-50 on the way out; the
           row's own `isolate` keeps that rank from reaching the app's overlays. */}
-      <div className="absolute top-0 right-0 z-60 flex h-[32px] items-center pr-2">
+      <div
+        className="absolute top-0 right-0 z-60 flex h-[32px] items-center justify-end pr-2"
+        style={{ width: SWITCHER_WIDTH_PX }}
+      >
         <RightPanelButtons active={active} taskId={taskId} />
       </div>
     </>
