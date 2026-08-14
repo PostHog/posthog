@@ -150,7 +150,7 @@ export interface AlertCheck {
     investigation_notebook_short_id?: string | null
     notification_sent_at?: string | null
     notification_suppressed_by_agent?: boolean
-    deliveries?: AlertCheckDelivery[] | null
+    deliveries: AlertCheckDelivery[] | null
 }
 
 export interface AlertType extends AlertTypeBase {

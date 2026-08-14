@@ -60,7 +60,7 @@ export type DeliverySummary =
     | { kind: 'none' }
 
 export function summarizeDeliveries(
-    deliveries: AlertCheckDelivery[] | null | undefined,
+    deliveries: AlertCheckDelivery[] | null,
     targetsNotified: boolean
 ): DeliverySummary {
     const accepted = (deliveries ?? []).filter((delivery) => delivery.status === 'accepted')

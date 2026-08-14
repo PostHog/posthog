@@ -35,6 +35,7 @@ function makeChecks(values: number[]): AlertCheck[] {
         calculated_value: calculatedValue,
         state: AlertState.NOT_FIRING,
         targets_notified: false,
+        deliveries: null,
     }))
 }
 
