@@ -22,6 +22,7 @@ from posthog.schema import (
     ExperimentRatioMetric,
     ExperimentRetentionMetric,
     MultipleBreakdownType,
+    StartHandling,
     StepOrderValue,
 )
 
@@ -434,11 +435,13 @@ class MetricBreakdownInjector:
         """Inject breakdown columns into a retention query.
 
         Reads the breakdown off the **start event** (in ``start_events``) and attributes each
-        user first-touch via ``argMin`` over the start event timestamp. Retention is a ratio
-        ``retained / cohort``; the cohort (denominator) is defined by the start event and every
-        retained user has one, so the start event is the only attribution source that keeps the
-        per-bucket denominator well-defined. The completion event is NOT used for the breakdown —
-        non-retained users have no completion event, which would break the per-bucket denominator.
+        user from the start event that anchors their retention window: ``argMin`` (earliest) for
+        FIRST_SEEN start handling, ``argMax`` (latest) for LAST_SEEN, so the bucket comes from the
+        same event the window anchors on. Retention is a ratio ``retained / cohort``; the cohort
+        (denominator) is defined by the start event and every retained user has one, so the start
+        event is the only attribution source that keeps the per-bucket denominator well-defined.
+        The completion event is NOT used for the breakdown — non-retained users have no completion
+        event, which would break the per-bucket denominator.
 
         ``start_events`` groups by entity, so the breakdown is deduped per user inside it; the
         attributed value is then carried into ``entity_metrics``.
@@ -449,7 +452,12 @@ class MetricBreakdownInjector:
         aliases = self._get_breakdown_aliases()
         breakdown_exprs = self.build_breakdown_exprs(table_alias="")
 
-        # Read + first-touch attribute the breakdown off the start event, deduped per entity.
+        # Attribute from the start event that anchors the window: latest for LAST_SEEN, earliest
+        # otherwise, so the breakdown bucket matches the anchoring start event.
+        assert isinstance(self.metric, ExperimentRetentionMetric)
+        attribution_agg = "argMax" if self.metric.start_handling == StartHandling.LAST_SEEN else "argMin"
+
+        # Read + attribute the breakdown off the start event, deduped per entity.
         if query.ctes and "start_events" in query.ctes:
             start_events_cte = query.ctes["start_events"]
             if isinstance(start_events_cte, ast.CTE) and isinstance(start_events_cte.expr, ast.SelectQuery):
@@ -457,7 +465,7 @@ class MetricBreakdownInjector:
                     start_events_cte.expr.select.append(
                         ast.Alias(
                             alias=alias,
-                            expr=ast.Call(name="argMin", args=[expr, ast.Field(chain=["timestamp"])]),
+                            expr=ast.Call(name=attribution_agg, args=[expr, ast.Field(chain=["timestamp"])]),
                         )
                     )
 

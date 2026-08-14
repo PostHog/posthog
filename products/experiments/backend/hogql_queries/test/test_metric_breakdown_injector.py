@@ -122,14 +122,14 @@ def _dw_retention_metric():
     )
 
 
-def _retention_metric(breakdown_limit=None):
+def _retention_metric(breakdown_limit=None, start_handling=StartHandling.FIRST_SEEN):
     return ExperimentRetentionMetric(
         start_event=EventsNode(event="signed_up"),
         completion_event=EventsNode(event="returned"),
         retention_window_start=1,
         retention_window_end=7,
         retention_window_unit=FunnelConversionWindowTimeUnit.DAY,
-        start_handling=StartHandling.FIRST_SEEN,
+        start_handling=start_handling,
         breakdownFilter=BreakdownFilter(breakdowns=[Breakdown(property="$browser")], breakdown_limit=breakdown_limit),
     )
 
@@ -422,8 +422,17 @@ class TestMetricBreakdownInjectorRetention:
         assert isinstance(expr, ast.Field)
         assert expr.chain == ["start_events", "breakdown_value_1"]
 
-    def test_start_events_uses_argmin_over_start_timestamp(self):
-        metric = _retention_metric()
+    @parameterized.expand(
+        [
+            ("first_seen", StartHandling.FIRST_SEEN, "argMin"),
+            ("last_seen", StartHandling.LAST_SEEN, "argMax"),
+        ]
+    )
+    def test_start_events_attribution_matches_start_handling(self, _name, start_handling, expected_agg):
+        # The breakdown must come from the same start event the retention window anchors on:
+        # earliest for FIRST_SEEN, latest for LAST_SEEN. Using argMin for LAST_SEEN would bucket a
+        # user by a different event than the one that defines their window.
+        metric = _retention_metric(start_handling=start_handling)
         injector = MetricBreakdownInjector(metric.breakdownFilter.breakdowns, metric)
         query = _retention_query()
 
@@ -433,9 +442,8 @@ class TestMetricBreakdownInjectorRetention:
         se_cte = query.ctes["start_events"]
         assert isinstance(se_cte, ast.CTE) and isinstance(se_cte.expr, ast.SelectQuery)
         bd = next(c for c in se_cte.expr.select if isinstance(c, ast.Alias) and c.alias == "breakdown_value_1")
-        # start_events groups by entity, so the breakdown is deduped first-touch via argMin.
         assert isinstance(bd.expr, ast.Call)
-        assert bd.expr.name == "argMin"
+        assert bd.expr.name == expected_agg
         assert bd.expr.args[1] == ast.Field(chain=["timestamp"])
 
     def test_final_select_applies_top_n_other_limit(self):
