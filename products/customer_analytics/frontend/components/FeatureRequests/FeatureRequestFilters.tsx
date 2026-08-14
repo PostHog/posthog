@@ -7,11 +7,10 @@ import {
     IconFlag,
     IconFolder,
     IconRefresh,
-    IconSearch,
     IconSort,
     IconTarget,
 } from '@posthog/icons'
-import { LemonButton, LemonInput, LemonMenu, LemonMenuItems } from '@posthog/lemon-ui'
+import { LemonButton, LemonMenu, LemonMenuItems } from '@posthog/lemon-ui'
 
 import {
     FEATURE_REQUEST_ARCHIVE_OPTIONS,
@@ -23,7 +22,6 @@ import { featureRequestsLogic } from './featureRequestsLogic'
 
 export function FeatureRequestFilters(): JSX.Element {
     const {
-        searchQuery,
         statusFilter,
         priorityFilter,
         productAreaFilter,
@@ -36,7 +34,6 @@ export function FeatureRequestFilters(): JSX.Element {
         hasActiveFilters,
     } = useValues(featureRequestsLogic)
     const {
-        setSearchQuery,
         toggleStatusFilter,
         togglePriorityFilter,
         toggleProductAreaFilter,
@@ -103,93 +100,81 @@ export function FeatureRequestFilters(): JSX.Element {
     ]
 
     return (
-        <div className="flex items-center gap-2 flex-wrap w-full">
-            <LemonInput
-                className="min-w-56 max-w-[420px] [&_.LemonInput__input]:pr-4"
-                type="search"
-                value={searchQuery}
-                onChange={setSearchQuery}
-                placeholder="Search by title or description"
-                prefix={<IconSearch />}
-                size="small"
-                data-attr="feature-request-search"
-            />
-            <div className="flex flex-wrap items-center justify-end gap-2 ml-auto max-w-full">
-                <LemonMenu items={orderingItems} closeOnClickInside>
-                    <LemonButton type="secondary" size="small" icon={<IconSort />} sideIcon={<IconChevronDown />}>
-                        {FEATURE_REQUEST_ORDERING_OPTIONS.find((option) => option.value === requestOrdering)?.label}
-                    </LemonButton>
-                </LemonMenu>
-                <LemonMenu items={statusItems} closeOnClickInside={false}>
-                    <LemonButton
-                        type="secondary"
-                        size="small"
-                        icon={<IconTarget />}
-                        sideIcon={<IconChevronDown />}
-                        active={statusFilter.length > 0}
-                    >
-                        {statusFilter.length ? `Status · ${statusFilter.length}` : 'Status'}
-                    </LemonButton>
-                </LemonMenu>
-                <LemonMenu items={priorityItems} closeOnClickInside={false}>
-                    <LemonButton
-                        type="secondary"
-                        size="small"
-                        icon={<IconFlag />}
-                        sideIcon={<IconChevronDown />}
-                        active={priorityFilter.length > 0}
-                    >
-                        {priorityFilter.length ? `Priority · ${priorityFilter.length}` : 'Priority'}
-                    </LemonButton>
-                </LemonMenu>
-                <LemonMenu items={productAreaItems} closeOnClickInside={false}>
-                    <LemonButton
-                        type="secondary"
-                        size="small"
-                        icon={<IconFolder />}
-                        sideIcon={<IconChevronDown />}
-                        active={productAreaFilter.length > 0}
-                    >
-                        {productAreaFilter.length ? `Product area · ${productAreaFilter.length}` : 'Product area'}
-                    </LemonButton>
-                </LemonMenu>
-                <LemonMenu items={accountItems} closeOnClickInside={false}>
-                    <LemonButton
-                        type="secondary"
-                        size="small"
-                        icon={<IconBuilding />}
-                        sideIcon={<IconChevronDown />}
-                        active={accountFilter.length > 0}
-                    >
-                        {accountFilter.length ? `Account · ${accountFilter.length}` : 'Account'}
-                    </LemonButton>
-                </LemonMenu>
-                <LemonMenu items={archiveItems} closeOnClickInside>
-                    <LemonButton
-                        type="secondary"
-                        size="small"
-                        icon={<IconArchive />}
-                        sideIcon={<IconChevronDown />}
-                        active={archiveState !== 'active'}
-                    >
-                        {FEATURE_REQUEST_ARCHIVE_OPTIONS.find((option) => option.value === archiveState)?.label}
-                    </LemonButton>
-                </LemonMenu>
-                {hasActiveFilters && (
-                    <LemonButton type="tertiary" size="small" onClick={clearFilters}>
-                        Clear filters
-                    </LemonButton>
-                )}
+        <div className="flex flex-wrap items-center gap-2 w-full">
+            <LemonMenu items={orderingItems} closeOnClickInside>
+                <LemonButton type="secondary" size="small" icon={<IconSort />} sideIcon={<IconChevronDown />}>
+                    {FEATURE_REQUEST_ORDERING_OPTIONS.find((option) => option.value === requestOrdering)?.label}
+                </LemonButton>
+            </LemonMenu>
+            <LemonMenu items={statusItems} closeOnClickInside={false}>
                 <LemonButton
                     type="secondary"
                     size="small"
-                    icon={<IconRefresh />}
-                    loading={featureRequestsResponseLoading}
-                    tooltip="Refresh"
-                    aria-label="Refresh feature requests"
-                    onClick={loadFeatureRequests}
-                />
-            </div>
+                    icon={<IconTarget />}
+                    sideIcon={<IconChevronDown />}
+                    active={statusFilter.length > 0}
+                >
+                    {statusFilter.length ? `Status · ${statusFilter.length}` : 'Status'}
+                </LemonButton>
+            </LemonMenu>
+            <LemonMenu items={priorityItems} closeOnClickInside={false}>
+                <LemonButton
+                    type="secondary"
+                    size="small"
+                    icon={<IconFlag />}
+                    sideIcon={<IconChevronDown />}
+                    active={priorityFilter.length > 0}
+                >
+                    {priorityFilter.length ? `Priority · ${priorityFilter.length}` : 'Priority'}
+                </LemonButton>
+            </LemonMenu>
+            <LemonMenu items={productAreaItems} closeOnClickInside={false}>
+                <LemonButton
+                    type="secondary"
+                    size="small"
+                    icon={<IconFolder />}
+                    sideIcon={<IconChevronDown />}
+                    active={productAreaFilter.length > 0}
+                >
+                    {productAreaFilter.length ? `Product area · ${productAreaFilter.length}` : 'Product area'}
+                </LemonButton>
+            </LemonMenu>
+            <LemonMenu items={accountItems} closeOnClickInside={false}>
+                <LemonButton
+                    type="secondary"
+                    size="small"
+                    icon={<IconBuilding />}
+                    sideIcon={<IconChevronDown />}
+                    active={accountFilter.length > 0}
+                >
+                    {accountFilter.length ? `Account · ${accountFilter.length}` : 'Account'}
+                </LemonButton>
+            </LemonMenu>
+            <LemonMenu items={archiveItems} closeOnClickInside>
+                <LemonButton
+                    type="secondary"
+                    size="small"
+                    icon={<IconArchive />}
+                    sideIcon={<IconChevronDown />}
+                    active={archiveState !== 'active'}
+                >
+                    {FEATURE_REQUEST_ARCHIVE_OPTIONS.find((option) => option.value === archiveState)?.label}
+                </LemonButton>
+            </LemonMenu>
+            {hasActiveFilters && (
+                <LemonButton type="tertiary" size="small" onClick={clearFilters}>
+                    Clear filters
+                </LemonButton>
+            )}
+            <LemonButton
+                type="secondary"
+                size="small"
+                icon={<IconRefresh />}
+                loading={featureRequestsResponseLoading}
+                tooltip="Refresh"
+                aria-label="Refresh feature requests"
+                onClick={loadFeatureRequests}
+            />
         </div>
     )
 }

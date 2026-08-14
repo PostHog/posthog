@@ -1,7 +1,8 @@
 import { useActions, useValues } from 'kea'
 import { combineUrl } from 'kea-router'
 
-import { LemonBanner, LemonButton, LemonTable, LemonTableColumns, LemonTag, Link } from '@posthog/lemon-ui'
+import { IconSearch } from '@posthog/icons'
+import { LemonBanner, LemonButton, LemonInput, LemonTable, LemonTableColumns, LemonTag, Link } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
 import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
@@ -25,8 +26,9 @@ export function FeatureRequestList(): JSX.Element {
         featureRequestsPage,
         hasActiveFilters,
         listSearchParams,
+        searchQuery,
     } = useValues(featureRequestsLogic)
-    const { openCreateRequest, openProductAreas, setFeatureRequestsPage, loadFeatureRequests } =
+    const { openCreateRequest, openProductAreas, setFeatureRequestsPage, loadFeatureRequests, setSearchQuery } =
         useActions(featureRequestsLogic)
 
     const editorDisabledReason = getAccessControlDisabledReason(
@@ -89,28 +91,38 @@ export function FeatureRequestList(): JSX.Element {
 
     return (
         <div className="@container w-full flex flex-col gap-4 px-6 py-4">
-            <div className="flex flex-wrap items-center justify-between gap-2">
-                <FeatureRequestFilters />
-            </div>
-            <div className="flex items-center justify-end gap-2">
-                <LemonButton
-                    type="secondary"
+            <div className="flex flex-wrap items-center gap-2 w-full">
+                <LemonInput
+                    className="flex-1 min-w-56 max-w-[640px] [&_.LemonInput__input]:pr-4"
+                    type="search"
+                    value={searchQuery}
+                    onChange={setSearchQuery}
+                    placeholder="Search by title or description"
+                    prefix={<IconSearch />}
                     size="small"
-                    onClick={openProductAreas}
-                    disabledReason={managerDisabledReason}
-                >
-                    Manage product areas
-                </LemonButton>
-                <LemonButton
-                    type="primary"
-                    size="small"
-                    onClick={openCreateRequest}
-                    disabledReason={editorDisabledReason}
-                    data-attr="new-feature-request"
-                >
-                    New request
-                </LemonButton>
+                    data-attr="feature-request-search"
+                />
+                <div className="flex items-center gap-2 ml-auto">
+                    <LemonButton
+                        type="secondary"
+                        size="small"
+                        onClick={openProductAreas}
+                        disabledReason={managerDisabledReason}
+                    >
+                        Manage product areas
+                    </LemonButton>
+                    <LemonButton
+                        type="primary"
+                        size="small"
+                        onClick={openCreateRequest}
+                        disabledReason={editorDisabledReason}
+                        data-attr="new-feature-request"
+                    >
+                        New request
+                    </LemonButton>
+                </div>
             </div>
+            <FeatureRequestFilters />
             {featureRequestsError && (
                 <LemonBanner type="error" action={{ children: 'Try again', onClick: loadFeatureRequests }}>
                     {featureRequestsError}
