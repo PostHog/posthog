@@ -48,6 +48,10 @@
         "name": {
             "description": "The name of an issue.",
             "label": "Issue name"
+        },
+        "severity": {
+            "description": "The severity level assigned to an issue.",
+            "label": "Issue severity"
         }
     },
     "event_metadata": {

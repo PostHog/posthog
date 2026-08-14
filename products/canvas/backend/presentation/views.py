@@ -946,6 +946,13 @@ class CanvasViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 {"detail": "The authoring task for this canvas no longer exists."},
                 status=status.HTTP_409_CONFLICT,
             )
+        if outcome == "organization_deactivated":
+            return Response(
+                {
+                    "detail": "Your organization has been deactivated. Contact PostHog support if you think this is a mistake."
+                },
+                status=status.HTTP_429_TOO_MANY_REQUESTS,
+            )
         if outcome == "quota_exhausted":
             return Response(
                 {"detail": "The team's compute quota is exhausted; retry later."},
