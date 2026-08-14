@@ -1458,7 +1458,7 @@ export const hogInvocationsLogic = kea<hogInvocationsLogicType>([
                     }
                 }
                 actions.clearSelected()
-                // Canceled rows flip once the worker terminates them - poll briefly so the
+                // Canceled rows flip once the worker terminates them, so poll briefly and the
                 // status change surfaces without a manual refresh.
                 cache.forceRefreshUntil = Date.now() + FORCE_REFRESH_WINDOW_MS
                 actions.loadRuns(null)
@@ -1482,7 +1482,7 @@ export const hogInvocationsLogic = kea<hogInvocationsLogicType>([
                 } else {
                     lemonToast.info('No runs are in flight for this workflow.')
                 }
-                // Canceled rows flip once the worker terminates them - poll briefly so the
+                // Canceled rows flip once the worker terminates them, so poll briefly and the
                 // status change surfaces without a manual refresh.
                 cache.forceRefreshUntil = Date.now() + FORCE_REFRESH_WINDOW_MS
                 actions.loadRuns(null)

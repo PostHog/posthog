@@ -152,8 +152,8 @@ export type CyclotronV2CancelJobsResult = {
     // time pulled forward; rows held by a worker were flagged only and terminate
     // at their next release.
     marked: number
-    // In-flight rows matching the selector still unflagged - non-zero when the
-    // per-call chunk budget ran out or a row transitioned mid-call. Call again.
+    // In-flight rows matching the selector still unflagged, because the per-call
+    // chunk budget ran out or a row transitioned mid-call. Call again.
     remaining: number
     done: boolean
     // jobIds mode only: outcome per requested id, evaluated after this call's writes.

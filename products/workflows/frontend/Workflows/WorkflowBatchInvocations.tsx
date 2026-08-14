@@ -76,7 +76,7 @@ function BatchRunHeader({ job, hogFlowId }: { job: HogFlowBatchJob; hogFlowId: s
                             e.stopPropagation()
                             LemonDialog.open({
                                 title: 'Stop this batch run?',
-                                // The default dialog width spans the screen for two sentences.
+                                // The default dialog width spans the screen for two sentences of copy.
                                 maxWidth: '30rem',
                                 content:
                                     'Stops enrolling the remaining audience and cancels every run still in ' +

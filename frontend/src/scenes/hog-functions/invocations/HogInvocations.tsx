@@ -113,7 +113,7 @@ const INVOCATIONS_DATE_OPTIONS: DateMappingOption[] = [
     },
 ]
 
-// Confirm dialogs carry a sentence or two - the LemonDialog default spans the screen.
+// Confirm dialogs carry a sentence or two; the LemonDialog default spans the screen.
 const CONFIRM_DIALOG_MAX_WIDTH = '30rem'
 
 const tagTypeForStatus = (status: RunStatus): LemonTagProps['type'] => {
@@ -479,9 +479,8 @@ export function HogInvocations({
                 if (isRerunWrapperKind(row.function_kind)) {
                     return null
                 }
-                // One action per row, by status: an in-flight run can only be cancelled and a
-                // finished run can only be rerun. Cancel is workflows-only - hog function runs
-                // have no parked delays to stop, so their in-flight rows keep the disabled Rerun.
+                // Cancel is workflows-only because hog function runs have no parked delays to
+                // stop, so a hog function's in-flight rows keep the disabled Rerun instead.
                 if (functionKind === 'hog_flow' && row.status === 'running') {
                     return (
                         <LemonButton

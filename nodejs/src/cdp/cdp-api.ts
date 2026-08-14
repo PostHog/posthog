@@ -1115,7 +1115,7 @@ export class CdpApi {
     // this endpoint only marks rows and wakes parked ones. See CyclotronV2Manager.cancelJobs.
     //
     // Auth mirrors postHogFlowRescheduleParked: a per-call JWT minted by Django, pinned to this
-    // team + workflow, on its own audience - NOT the fleet-wide internal secret.
+    // team + workflow, on its own audience, never the fleet-wide internal secret.
     private postHogFlowCancelInvocations = async (req: ModifiedRequest, res: express.Response): Promise<any> => {
         try {
             if (!this.batchResolverProducer) {

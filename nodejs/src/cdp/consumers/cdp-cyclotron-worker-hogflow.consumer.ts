@@ -1,10 +1,9 @@
 import { DateTime } from 'luxon'
 
+import { HogFlow } from '~/cdp/schema/hogflow'
 import { instrumented } from '~/common/tracing/tracing-utils'
 import { logger } from '~/common/utils/logger'
 import { PluginsServerConfig } from '~/types'
-
-import { HogFlow } from '~/cdp/schema/hogflow'
 
 import { JobQueue } from '../services/job-queue/job-queue.interface'
 import { CyclotronJobInvocation, CyclotronJobInvocationHogFlow, CyclotronJobInvocationResult } from '../types'
@@ -36,7 +35,7 @@ export class CdpCyclotronWorkerHogFlow extends CdpCyclotronWorker {
 
     /**
      * Terminate an invocation as canceled through the normal result pipeline, so the
-     * terminal lifecycle row, app metric, and run log all land - a bare cyclotron
+     * terminal lifecycle row, app metric, and run log all land. A bare cyclotron
      * status flip would leave the run showing 'running' in the Invocations UI forever.
      */
     private buildCanceledResult(
@@ -48,7 +47,7 @@ export class CdpCyclotronWorkerHogFlow extends CdpCyclotronWorker {
         // workflow result by the presence of `hogFlow`; without it the terminal lifecycle row keys
         // as `hog_function`. Since `function_kind` is part of the ReplacingMergeTree key, that row
         // could never collapse the `running` row (written as `hog_flow`), leaving the run stuck at
-        // `running` in the Invocations tab - the exact bug this cancel path exists to fix.
+        // `running` in the Invocations tab, which is the exact bug this cancel path exists to fix.
         const invocation = hogFlow ? { ...item, hogFlow } : item
         const result = createInvocationResult(invocation, {}, { finished: true })
         result.canceled = true
@@ -74,7 +73,7 @@ export class CdpCyclotronWorkerHogFlow extends CdpCyclotronWorker {
             invocations.map(async (item) => {
                 // Checked first so a cancel-requested run terminates even when its flow or team has
                 // since been deleted. The flow lookup here is best-effort and only sets the
-                // terminal row's function_kind - a null flow (deleted) or a lookup error still
+                // terminal row's function_kind: a null flow (deleted) or a lookup error still
                 // cancels, so the "cancel works for deleted flows" guarantee is preserved.
                 if (item.cancelRequestedAt) {
                     const hogFlow = await this.hogFlowManager.getHogFlow(item.functionId).catch(() => null)
