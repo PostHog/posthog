@@ -66,9 +66,9 @@ describe('miniBreakdownsLogic', () => {
         }
         const selectedEventProperties = getSelectedEventBreakdownProperties(properties, false)
 
-        expect(buildBreakdownProperties(['account_tier'], selectedEventProperties)).toEqual([
+        expect(buildBreakdownProperties(selectedEventProperties)).toEqual([
             ...BREAKDOWN_PRESETS,
-            { property: 'account_tier', title: 'account_tier', removable: true },
+            { property: 'account_tier', title: 'account_tier' },
             { property: 'attempt', title: 'attempt' },
             { property: 'enabled', title: 'enabled' },
         ])
@@ -125,31 +125,41 @@ describe('miniBreakdownsLogic', () => {
         expect(breakdowns.values.selectedBreakdownProperty).toBeNull()
     })
 
-    it('adds custom properties to the breakdown query and allows removing them', async () => {
+    it('discards details returned for a property that was superseded', async () => {
         await expectLogic(breakdowns).toFinishAllListeners()
-
-        await expectLogic(breakdowns, () => {
-            breakdowns.actions.addBreakdownProperty('$current_url')
+        let resolveFirstRequest: (response: ErrorTrackingBreakdownsQueryResponse) => void = () => {}
+        let markFirstRequestStarted: () => void = () => {}
+        const firstRequestStarted = new Promise<void>((resolve) => {
+            markFirstRequestStarted = resolve
         })
-            .toDispatchActions(['addBreakdownProperty', 'loadResponse', 'loadResponseSuccess'])
-            .toFinishAllListeners()
+        const firstResponse: ErrorTrackingBreakdownsQueryResponse = {
+            results: { $browser: { values: [], total_count: 0 } },
+        }
+        const secondResponse: ErrorTrackingBreakdownsQueryResponse = {
+            results: { $device_type: { values: [], total_count: 0 } },
+        }
+        const queryMock = jest.mocked(api.query)
+        const existingCallCount = queryMock.mock.calls.length
+        queryMock
+            .mockImplementationOnce(
+                () =>
+                    new Promise((resolve) => {
+                        resolveFirstRequest = resolve
+                        markFirstRequestStarted()
+                    })
+            )
+            .mockResolvedValueOnce(secondResponse)
 
-        expect(breakdowns.values.breakdownProperties).toEqual([
-            ...BREAKDOWN_PRESETS,
-            { property: '$current_url', title: 'Current URL', removable: true },
-        ])
-        const latestQueryCall = jest.mocked(api.query).mock.calls.at(-1)
-        expect(latestQueryCall).not.toBeUndefined()
-        const latestBreakdownQuery = latestQueryCall?.[0] as ErrorTrackingBreakdownsQuery
-        expect(latestBreakdownQuery.breakdownProperties).toEqual([
-            ...BREAKDOWN_PRESETS.map(({ property }) => property),
-            '$current_url',
-        ])
-
+        breakdowns.actions.openBreakdownDetails(BREAKDOWN_PRESETS[0])
+        await firstRequestStarted
+        expect(queryMock.mock.calls).toHaveLength(existingCallCount + 1)
         await expectLogic(breakdowns, () => {
-            breakdowns.actions.removeBreakdownProperty('$current_url')
-        }).toFinishAllListeners()
+            breakdowns.actions.openBreakdownDetails(BREAKDOWN_PRESETS[1])
+        }).toDispatchActions(['loadBreakdownDetailsSuccess'])
+        expect(breakdowns.values.breakdownDetails).toEqual(secondResponse)
 
-        expect(breakdowns.values.breakdownProperties).toEqual(BREAKDOWN_PRESETS)
+        resolveFirstRequest(firstResponse)
+        await expectLogic(breakdowns).toFinishAllListeners()
+        expect(breakdowns.values.breakdownDetails).toEqual(secondResponse)
     })
 })

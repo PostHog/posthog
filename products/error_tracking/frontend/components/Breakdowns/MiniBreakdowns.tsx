@@ -1,11 +1,10 @@
-import { useActions, useValues } from 'kea'
+import { useValues } from 'kea'
 
-import { IconArrowLeft, IconListTree } from '@posthog/icons'
-import { Tooltip as LemonTooltip } from '@posthog/lemon-ui'
+import { IconListTree } from '@posthog/icons'
 
-import { Button, Heading, Text } from 'lib/ui/quill'
+import { Text } from 'lib/ui/quill'
 
-import { issueFilterPreviewLogic } from '../IssueFilterPreview/issueFilterPreviewLogic'
+import { IssueFilterPreviewHeader } from '../IssueFilterPreview/IssueFilterPreviewHeader'
 import { BreakdownDetailsDialog } from './BreakdownDetailsDialog'
 import { BreakdownsTileButton } from './BreakdownsTileButton'
 import { BREAKDOWN_PRESETS, BreakdownPreset } from './consts'
@@ -15,47 +14,12 @@ const BUILT_IN_PROPERTY_NAMES = new Set(BREAKDOWN_PRESETS.map(({ property }) => 
 
 export function MiniBreakdowns(): JSX.Element {
     const { breakdownProperties } = useValues(miniBreakdownsLogic)
-    const { activePreview, canUndoActivePreview } = useValues(issueFilterPreviewLogic)
-    const { resetAllFilters, undoActivePreview } = useActions(issueFilterPreviewLogic)
-    const canUndo = activePreview === 'properties' && canUndoActivePreview
     const builtInProperties = breakdownProperties.filter(({ property }) => BUILT_IN_PROPERTY_NAMES.has(property))
     const customProperties = breakdownProperties.filter(({ property }) => !BUILT_IN_PROPERTY_NAMES.has(property))
 
     return (
         <div className="flex flex-col">
-            <div className="sticky top-0 z-10 flex h-10 shrink-0 items-center justify-between border-b border-primary bg-[var(--background)] px-1.5">
-                <div className="flex items-center gap-1.5">
-                    <div className="flex size-6 shrink-0 items-center justify-center">
-                        {canUndo ? (
-                            <LemonTooltip title="Undo filter">
-                                <Button
-                                    variant="default"
-                                    size="icon-sm"
-                                    aria-label="Undo filter"
-                                    data-attr="error-tracking-undo-preview-filter"
-                                    onClick={undoActivePreview}
-                                >
-                                    <IconArrowLeft />
-                                </Button>
-                            </LemonTooltip>
-                        ) : (
-                            <LemonTooltip title="Reset all filters">
-                                <Button
-                                    variant="default"
-                                    size="icon-sm"
-                                    aria-label="Reset all filters"
-                                    data-attr="error-tracking-reset-all-filters"
-                                    onClick={resetAllFilters}
-                                >
-                                    <IconListTree />
-                                </Button>
-                            </LemonTooltip>
-                        )}
-                    </div>
-                    <Heading size="sm">Breakdown</Heading>
-                </div>
-                <div className="flex items-center gap-2" />
-            </div>
+            <IssueFilterPreviewHeader preview="properties" title="Breakdown" resetIcon={<IconListTree />} />
             <div className="grid content-start grid-cols-[fit-content(12rem)_minmax(0,1fr)] gap-y-px pb-6 pt-1">
                 <BreakdownPropertySection
                     id="built-in-breakdown-properties"

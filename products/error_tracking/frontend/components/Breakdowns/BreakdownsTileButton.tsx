@@ -1,4 +1,5 @@
 import { useActions, useValues } from 'kea'
+import posthog from 'posthog-js'
 
 import { Tooltip as LemonTooltip } from '@posthog/lemon-ui'
 
@@ -9,7 +10,7 @@ import { PropertyOperator } from '~/types'
 
 import { issueFilterPreviewLogic } from '../IssueFilterPreview/issueFilterPreviewLogic'
 import { BreakdownsStackedBar } from './BreakdownsStackedBar'
-import { BreakdownPreset } from './consts'
+import { BreakdownPreset, BreakdownsEvents } from './consts'
 import { miniBreakdownsLogic } from './miniBreakdownsLogic'
 
 interface BreakdownsTileButtonProps {
@@ -34,7 +35,10 @@ export function BreakdownsTileButton({ item: { title, property } }: BreakdownsTi
                         size="sm"
                         disabled={hasNoData}
                         className="h-[22px] w-full min-w-0 justify-end rounded-none border-r border-border ps-2.5 pe-2 text-right text-xs font-semibold"
-                        onClick={() => openBreakdownDetails({ property, title })}
+                        onClick={() => {
+                            openBreakdownDetails({ property, title })
+                            posthog.capture(BreakdownsEvents.MiniBreakdownsPropertySelected, { property })
+                        }}
                     >
                         <span className="truncate">{title}</span>
                     </Button>

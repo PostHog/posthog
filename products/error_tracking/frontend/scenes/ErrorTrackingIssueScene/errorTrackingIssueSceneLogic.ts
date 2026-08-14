@@ -713,9 +713,8 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
         },
         summary: {
             loadSummary: async (_, breakpoint) => {
-                // A reset dispatches several filter changes in one tick, and each triggers a
-                // summary reload. Debounce so only the final, fully-applied filter state hits
-                // ClickHouse and earlier in-flight responses are cancelled rather than racing.
+                // A reset dispatches several filter changes in one tick. Debounce them into one query,
+                // then discard its response if a newer load supersedes it while it is in flight.
                 await breakpoint(100)
                 const response = await api.query(
                     errorTrackingIssueQuery({
@@ -731,6 +730,7 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
                     }),
                     { refresh: 'blocking' }
                 )
+                breakpoint()
                 if (!response.results.length) {
                     return null
                 }

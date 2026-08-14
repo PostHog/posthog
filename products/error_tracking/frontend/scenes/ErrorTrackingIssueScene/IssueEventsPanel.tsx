@@ -1,20 +1,17 @@
 import { useActions, useValues } from 'kea'
 import { PropsWithChildren, useEffect, useRef } from 'react'
 
-import { IconRefresh } from '@posthog/icons'
-
 import { ErrorEventType } from 'lib/components/Errors/types'
-import { Button, Tooltip, TooltipContent, TooltipTrigger } from 'lib/ui/quill'
 
 import { eventsSourceLogic } from '../../components/EventsTable/eventsSourceLogic'
 import { EventsTable, EventsTableLoading } from '../../components/EventsTable/EventsTable'
 import { issueFilterPreviewLogic } from '../../components/IssueFilterPreview/issueFilterPreviewLogic'
-import { ErrorFilters } from '../../components/IssueFilters'
+import { IssueFilterPreviewPanel } from '../../components/IssueFilterPreview/IssueFilterPreviewPanel'
 import { getNextErrorTrackingDateRange } from '../../components/IssueFilters/DateRange'
 import { issueFiltersLogic } from '../../components/IssueFilters/issueFiltersLogic'
-import { Metadata } from '../../components/IssueMetadata'
 import { errorTrackingIssueSceneLogic } from './errorTrackingIssueSceneLogic'
 import { IssueEventsEmptyState } from './IssueEventsEmptyState'
+import { IssueEventsToolbar } from './IssueEventsToolbar'
 
 export function IssueEventsPanel(): JSX.Element {
     const { issueFingerprintsLoading } = useValues(errorTrackingIssueSceneLogic)
@@ -127,50 +124,10 @@ function IssueEventsLayout({
 }>): JSX.Element {
     return (
         <div className="flex h-full min-h-0 flex-col">
-            <Metadata className="flex min-h-0 flex-1 flex-col" onScrollNearEnd={onScrollNearEnd}>
-                <div className="sticky top-0 z-10 shrink-0 border-y border-primary bg-surface-primary py-2">
-                    <ErrorFilters.Root className="w-full">
-                        <ErrorFilters.FilterGroup
-                            iconOnly
-                            renderControls={({ filterPicker, activeFilters }) => (
-                                <div className="flex w-full flex-col gap-2">
-                                    <div className="hide-scrollbar w-full min-w-0 overflow-x-auto overflow-y-hidden overscroll-x-contain">
-                                        <div className="flex w-max min-w-full flex-nowrap items-center gap-2 px-2">
-                                            <Tooltip>
-                                                <TooltipTrigger
-                                                    render={
-                                                        <Button
-                                                            variant="outline"
-                                                            size="icon"
-                                                            loading={loading}
-                                                            aria-label="Reload exceptions"
-                                                            onClick={() => onReload?.()}
-                                                        />
-                                                    }
-                                                >
-                                                    <IconRefresh />
-                                                </TooltipTrigger>
-                                                <TooltipContent>Reload exceptions</TooltipContent>
-                                            </Tooltip>
-                                            <ErrorFilters.DateRange />
-                                            <ErrorFilters.Search
-                                                className="w-auto min-w-40 flex-1 shrink"
-                                                placeholder="Search exceptions"
-                                                endAddon={filterPicker}
-                                            />
-                                            <div className="shrink-0">
-                                                <ErrorFilters.InternalAccounts />
-                                            </div>
-                                        </div>
-                                    </div>
-                                    {activeFilters ? <div className="px-2">{activeFilters}</div> : null}
-                                </div>
-                            )}
-                        />
-                    </ErrorFilters.Root>
-                </div>
+            <IssueFilterPreviewPanel className="flex min-h-0 flex-1 flex-col" onScrollNearEnd={onScrollNearEnd}>
+                <IssueEventsToolbar loading={loading} onReload={onReload} />
                 {children}
-            </Metadata>
+            </IssueFilterPreviewPanel>
         </div>
     )
 }
