@@ -97,6 +97,13 @@ export interface onboardingLogicActions {
         billing: BillingType
         payload?: any
     } // billingLogic
+    reportOnboardingStarted: (
+        entrypoint: string,
+        properties?: import('lib/utils/eventUsageLogic').OnboardingEventProperties | undefined
+    ) => {
+        entrypoint: string
+        properties: import('lib/utils/eventUsageLogic').OnboardingEventProperties | undefined
+    } // eventUsageLogic
     openGlobalSetup: () => {
         value: true
     } // globalSetupLogic
@@ -257,6 +264,8 @@ export const onboardingLogic = kea<onboardingLogicType>([
             ['openSidePanel'],
             globalSetupLogic,
             ['openGlobalSetup'],
+            eventUsageLogic,
+            ['reportOnboardingStarted'],
         ],
     })),
     actions({
@@ -303,7 +312,7 @@ export const onboardingLogic = kea<onboardingLogicType>([
         onboardingStartedReported: [
             false,
             {
-                [eventUsageLogic.actionTypes.reportOnboardingStarted]: () => true,
+                reportOnboardingStarted: () => true,
             },
         ],
         product: [
@@ -960,7 +969,7 @@ export const onboardingLogic = kea<onboardingLogicType>([
             ) {
                 return
             }
-            eventUsageLogic.actions.reportOnboardingStarted('product_url')
+            actions.reportOnboardingStarted('product_url')
         },
         [featureFlagLogic.actionTypes.setFeatureFlags]: () => {
             actions.reportOnboardingStartedIfNeeded()
