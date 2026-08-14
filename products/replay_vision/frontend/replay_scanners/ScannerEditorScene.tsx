@@ -24,6 +24,7 @@ import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { tagsModel } from '~/models/tagsModel'
 import { ProductKey } from '~/queries/schema/schema-general'
 
+import { CreditPriceNote } from '../components/PricingLink'
 import { ReplayVisionFeedbackButton } from '../components/ReplayVisionFeedbackButton'
 import { getReplayVisionEditDisabledReason } from '../utils/accessControl'
 import { ScannerGoalDraft } from './components/ScannerGoalDraft'
@@ -75,7 +76,6 @@ const STEP_HEADERS: Record<
 
 export function ScannerEditorSceneComponent(): JSX.Element {
     const { scannerId, step, isNew, visibleSteps } = useValues(scannerEditorSceneLogic)
-    const { featureFlags } = useValues(featureFlagLogic)
 
     const scannerLogic = replayScannerLogic({ id: scannerId })
     useAttachedLogic(scannerLogic, scannerEditorSceneLogic)
@@ -160,7 +160,7 @@ export function ScannerEditorSceneComponent(): JSX.Element {
                                 </p>
                             </div>
                             <ScannerTemplatePicker />
-                            {featureFlags[FEATURE_FLAGS.REPLAY_VISION_GOAL_DRAFT] ? <ScannerGoalDraft /> : null}
+                            <ScannerGoalDraft />
                         </>
                     ) : (
                         <Form
@@ -324,10 +324,13 @@ function ConfigureStep(): JSX.Element {
                         options={getModelOptions(namingVariant)}
                     />
                 </LemonField>
+                {/* The price line stays outside the variant branch so every arm of the model-naming experiment
+                    shows it. Tier names give even less of a cost anchor than provider model names do. */}
                 <div className="text-xs text-muted">
                     {namingVariant
                         ? 'Higher tiers tend to produce higher-quality observations, but cost more per observation.'
-                        : 'Newer models tend to produce higher-quality observations, but cost more per observation.'}
+                        : 'Newer models tend to produce higher-quality observations, but cost more per observation.'}{' '}
+                    <CreditPriceNote dataAttr="vision-pricing-link-model-picker" />
                 </div>
             </div>
 

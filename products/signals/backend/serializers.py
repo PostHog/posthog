@@ -1,19 +1,14 @@
 import json
-import logging
 from collections.abc import Mapping
 from typing import cast
 
 from django.db.models import Q
 
-from asgiref.sync import async_to_sync
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import PolymorphicProxySerializer, extend_schema_field
-from opentelemetry import trace
-from opentelemetry.trace import Status, StatusCode
 from rest_framework import serializers
 
 from posthog.models import User
-from posthog.temporal.common.client import sync_connect
 
 from products.signals.backend import contracts
 from products.signals.backend.billing import REFUND_INELIGIBILITY_REASONS, refund_ineligibility_reason
@@ -31,9 +26,6 @@ from .models import (
 )
 from .report_charts import CHART_SIZES, MAX_CHART_CAPTION_LENGTH, MAX_CHART_ID_LENGTH, MAX_CHART_TITLE_LENGTH
 from .report_generation.resolve_reviewers import enrich_reviewer_dicts_with_org_members
-
-logger = logging.getLogger(__name__)
-tracer = trace.get_tracer(__name__)
 
 DEFAULT_SESSION_ANALYSIS_SAMPLE_RATE = 0.1
 
@@ -65,40 +57,11 @@ class SignalSourceConfigSerializer(serializers.ModelSerializer):
         read_only_fields = ["id", "created_at", "updated_at", "status"]
 
     def get_status(self, obj: SignalSourceConfig) -> str | None:
-        if obj.source_type == SignalSourceConfig.SourceType.SESSION_ANALYSIS_CLUSTER:
-            return self._get_session_analysis_status(obj.team_id)
-
         mapping = _DATA_IMPORT_SOURCE_MAP.get((obj.source_product, obj.source_type))
         if mapping is None:
             return None
         ext_source_type, schema_name = mapping
         return self._get_data_import_status(obj.team_id, ext_source_type, schema_name)
-
-    # Per-row Temporal RPC: serializing N source configs issues N of these on inbox load.
-    # The span surfaces that cost so the N+1 is visible per request in APM.
-    @tracer.start_as_current_span("signals.source_config.session_analysis_status")
-    def _get_session_analysis_status(self, team_id: int) -> str | None:
-        """ "running" iff any `summarize-session` workflow for this team is currently executing."""
-        query = f'PostHogTeamId = {team_id} AND WorkflowType = "summarize-session" AND ExecutionStatus = "Running"'
-
-        try:
-            temporal = sync_connect()
-
-            async def has_running() -> bool:
-                async for _ in temporal.list_workflows(query=query, page_size=1):
-                    return True
-                return False
-
-            if async_to_sync(has_running)():
-                return "running"
-        except Exception as e:
-            # The except swallows the error, so OTel won't auto-record it on the span — mark it
-            # failed explicitly, else an unreachable Temporal looks like a successful no-op in APM.
-            span = trace.get_current_span()
-            span.record_exception(e)
-            span.set_status(Status(StatusCode.ERROR))
-            logger.warning("Failed to list session summarization workflows: %s", e)
-        return None
 
     def _get_data_import_status(self, team_id: int, ext_source_type: str, schema_name: str) -> str | None:
         from products.warehouse_sources.backend.facade.models import ExternalDataSchema
