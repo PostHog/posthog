@@ -110,7 +110,7 @@ dependencies = [
     "pyod==2.0.7",
     "pyjwt~=2.12.1",
     "pymssql==2.3.5",
-    "pymysql==1.1.1",
+    "pymysql==1.1.2",
     "pymongo==4.13.2",
     "pyroscope-io~=0.8.8",
     "croniter~=6.0.0",
