@@ -470,6 +470,7 @@ class TestAccountViewSet(APIBaseTest):
         self.assertEqual(status.HTTP_201_CREATED, response.status_code, response.json())
         self.assertEqual(response.json()["churned_at"], "2026-08-01T12:30:00Z")
         account = Account.objects.unscoped().get(id=response.json()["id"])  # nosemgrep: idor-lookup-without-team
+        assert account.churned_at is not None
         self.assertEqual(account.churned_at.isoformat(), "2026-08-01T12:30:00+00:00")
 
     def test_list(self):

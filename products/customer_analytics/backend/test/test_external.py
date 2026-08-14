@@ -189,6 +189,7 @@ class TestExternalAccountAPI(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json()["churned_at"], "2026-08-02T09:00:00Z")
         self.account.refresh_from_db()
+        assert self.account.churned_at is not None
         self.assertEqual(self.account.churned_at.isoformat(), "2026-08-02T09:00:00+00:00")
 
         response = self._patch({"external_id": "acme-1", "churned_at": None})
