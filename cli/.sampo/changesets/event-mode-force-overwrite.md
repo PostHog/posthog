@@ -2,4 +2,4 @@
 cargo/posthog-cli: patch
 ---
 
-Overwrite changed symbol sets by default in `--release-mode event`, and stop deriving a release-independent content hash for them. The injected snippet carries the release id, so re-running against an existing dist for a new release changed the uploaded bytes under an unchanged chunk id. That was previously papered over by hashing each pair with the injection undone; the upload now sends the hash of the bytes it uploads and overwrites on a mismatch. Pass `--skip-on-conflict` to keep the stored symbol set instead.
+Derive the `--release-mode event` chunk id from the minified source alone, and overwrite a symbol set whose content changed instead of failing. Bundlers embed the original file in `sourcesContent`, so a comment-only edit rewrote the sourcemap and, with the map folded into the id, minted a new chunk for code that never changed. The content hash still covers source and map, so that edit re-uploads the chunk under its existing id. Pass `--skip-on-conflict` to keep the stored symbol set instead. Chunk ids injected by earlier versions change once on the next build, which re-uploads those chunks under their new ids.

@@ -149,7 +149,7 @@ pub fn upload(args: &Args, existing_release: Option<&Release>) -> Result<()> {
     }
     let empty_skipped = empty_pairs.len();
 
-    let uploads = prepare_uploads(valid_pairs)?;
+    let uploads = prepare_uploads(valid_pairs, args.release_mode)?;
 
     let file_count = uploads.len();
     let total_bytes: usize = uploads.iter().map(|u| u.data.len()).sum();
@@ -202,12 +202,15 @@ pub fn upload(args: &Args, existing_release: Option<&Release>) -> Result<()> {
 
 /// Build the upload payloads for `pairs`, at most one per chunk id. Event mode derives the id
 /// from content, so a hashless alias copied beside `app-<hash>.js` collides with its original.
-fn prepare_uploads(pairs: Vec<SourcePair>) -> Result<Vec<SymbolSetUpload>> {
+fn prepare_uploads(
+    pairs: Vec<SourcePair>,
+    release_mode: ReleaseMode,
+) -> Result<Vec<SymbolSetUpload>> {
     // Payload preparation (serialization + zstd compression) is CPU-bound,
     // so spread it across cores.
     let uploads = pairs
         .into_par_iter()
-        .map(SourcePair::into_upload)
+        .map(|pair| pair.into_upload(release_mode))
         .collect::<Result<Vec<SymbolSetUpload>>>()
         .context("While preparing files for upload")?;
 
@@ -257,7 +260,8 @@ mod tests {
         let chunk_ids: Vec<_> = injected.iter().map(|pair| pair.get_chunk_id()).collect();
         assert_eq!(chunk_ids[0], chunk_ids[1]);
 
-        let uploads = prepare_uploads(injected).expect("Failed to prepare uploads");
+        let uploads =
+            prepare_uploads(injected, ReleaseMode::Event).expect("Failed to prepare uploads");
         assert_eq!(uploads.len(), 1);
     }
 }

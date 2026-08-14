@@ -38,6 +38,11 @@ pub struct SymbolSetUpload {
     pub release_id: Option<String>,
 
     pub data: Vec<u8>,
+
+    /// Precomputed hash for the server's skip-identical-content check; `None` hashes `data`
+    /// as-is. Set this when `data` contains bytes that vary between builds of identical code
+    /// (e.g. an injected release id), so unchanged chunks still skip re-upload.
+    pub content_hash: Option<String>,
 }
 
 /// Coalesce uploads that share a chunk_id, keeping the first occurrence. Bulk start rejects a
@@ -201,6 +206,7 @@ pub fn upload_with_retry_and_concurrency(
                     chunk_id: s.chunk_id.clone(),
                     release_id: None,
                     data: s.data,
+                    content_hash: s.content_hash,
                 })
                 .collect();
             let res = upload_inner(
@@ -265,8 +271,16 @@ fn upload_inner(
         info!("Starting upload of batch {i}, {} symbol sets", batch.len());
         // Hash each payload once, across the pool — the same hash is sent in the
         // start request and used to confirm the upload when finishing.
-        let content_hashes: Vec<String> =
-            thread_pool.install(|| batch.par_iter().map(|u| content_hash([&u.data])).collect());
+        let content_hashes: Vec<String> = thread_pool.install(|| {
+            batch
+                .par_iter()
+                .map(|u| {
+                    u.content_hash
+                        .clone()
+                        .unwrap_or_else(|| content_hash([&u.data]))
+                })
+                .collect()
+        });
         let start_response = start_upload(batch, &content_hashes, force, skip_on_conflict)?;
 
         let id_map: HashMap<_, _> = batch
@@ -478,6 +492,7 @@ impl SymbolSetUpload {
             chunk_id: self.chunk_id.clone(),
             release_id: self.release_id.clone(),
             data: vec![],
+            content_hash: self.content_hash.clone(),
         }
     }
 }

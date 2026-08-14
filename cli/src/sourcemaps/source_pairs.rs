@@ -1,6 +1,10 @@
 use crate::{
     api::symbol_sets::SymbolSetUpload,
-    sourcemaps::content::{get_injected_release_id, MinifiedSourceFile, SourceMapFile},
+    sourcemaps::{
+        args::ReleaseMode,
+        content::{get_injected_release_id, MinifiedSourceFile, SourceMapFile},
+    },
+    utils::files::content_hash,
 };
 use anyhow::{anyhow, Context, Result};
 use posthog_symbol_data::{write_symbol_data, SourceAndMap};
@@ -122,17 +126,45 @@ pub fn read_pairs(
 }
 
 impl SourcePair {
-    /// Turn the pair into an upload payload, carrying the injected artifact exactly as it sits
-    /// on disk. The upload layer hashes those bytes for the server's skip-or-conflict decision.
-    pub fn into_upload(self) -> Result<SymbolSetUpload> {
+    /// Turn the pair into an upload payload. The payload always carries the injected artifact;
+    /// only the content hash depends on the mode.
+    ///
+    /// In event mode the hash is computed over the pair with the injection undone (snippet and
+    /// chunk-id comment removed, sourcemap adjustment reversed), because the injected bytes vary
+    /// while the chunk id does not: the embedded release id changes every release, and a chunk
+    /// injected before a release could be resolved carries a shorter snippet (and a differently
+    /// adjusted sourcemap) than the same chunk after a later run adds the release. The server
+    /// keys its skip-or-conflict decision on this hash per chunk id, so any injection-state
+    /// dependence turns an unchanged chunk into a `content_hash_mismatch` rejection.
+    ///
+    /// In symbol-set mode no hash is set and the upload layer hashes the raw payload, matching
+    /// the hashes the server already stores for previous uploads.
+    pub fn into_upload(mut self, release_mode: ReleaseMode) -> Result<SymbolSetUpload> {
         let chunk_id = self
             .get_chunk_id()
             .ok_or_else(|| anyhow!("Chunk ID not found"))?;
         let release_id = self.sourcemap.get_release_id();
+        let source_content = self.source.inner.content.clone();
+        let sourcemap_content = serde_json::to_string(&self.sourcemap.inner.content)?;
+
+        let content_hash = match release_mode {
+            ReleaseMode::Event => {
+                self.remove_chunk_id(chunk_id.clone())?;
+                let pristine_map = serde_json::to_string(&self.sourcemap.inner.content)?;
+                // JSON serialization never contains a raw NUL, so it unambiguously separates
+                // the parts (same framing as `stable_chunk_id`).
+                Some(content_hash([
+                    self.source.inner.content.as_bytes(),
+                    b"\0".as_slice(),
+                    pristine_map.as_bytes(),
+                ]))
+            }
+            ReleaseMode::SymbolSet => None,
+        };
 
         let data = SourceAndMap {
-            minified_source: self.source.inner.content,
-            sourcemap: serde_json::to_string(&self.sourcemap.inner.content)?,
+            minified_source: source_content,
+            sourcemap: sourcemap_content,
         };
 
         let data = write_symbol_data(data)?;
@@ -141,6 +173,7 @@ impl SourcePair {
             chunk_id,
             data,
             release_id,
+            content_hash,
         })
     }
 }
