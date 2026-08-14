@@ -240,14 +240,15 @@ export const PagePerformance = (): JSX.Element => {
     const {
         pageTableQuery,
         pageCandidates,
-        pageDataError,
-        pageDataLoading,
+        candidatesError,
+        candidatesLoading,
         overviewCards,
+        overviewError,
         overviewLoading,
         footerText,
         aiSectionQueries,
     } = useValues(pagePerformanceLogic)
-    const { loadPageData } = useActions(pagePerformanceLogic)
+    const { loadOverview, loadCandidates } = useActions(pagePerformanceLogic)
 
     const context = useMemo(
         (): QueryContext => ({
@@ -292,21 +293,31 @@ export const PagePerformance = (): JSX.Element => {
                 site. AI referrals are a lower bound: some assistants strip the referrer, so those visits land in
                 Direct.
             </LemonBanner>
-            <OverviewGrid
-                items={overviewCards}
-                loading={overviewLoading && overviewCards.length === 0}
-                numSkeletons={4}
-                labelFromKey={(key) => OVERVIEW_CARD_LABELS[key] ?? key}
-            />
+            {overviewError ? (
+                <LemonBanner type="error" className="mb-4" action={{ children: 'Try again', onClick: loadOverview }}>
+                    Could not load the summary metrics. Try again to reload.
+                </LemonBanner>
+            ) : (
+                <OverviewGrid
+                    items={overviewCards}
+                    loading={overviewLoading && overviewCards.length === 0}
+                    numSkeletons={4}
+                    labelFromKey={(key) => OVERVIEW_CARD_LABELS[key] ?? key}
+                />
+            )}
             <div className="border rounded bg-surface-primary flex flex-col mt-4">
                 <div className="flex items-baseline justify-between gap-2 px-3 pt-3">
                     <h3 className="font-semibold m-0">Pages ranked by visitors</h3>
                 </div>
-                {pageDataError ? (
-                    <LemonBanner type="error" className="m-3" action={{ children: 'Try again', onClick: loadPageData }}>
+                {candidatesError ? (
+                    <LemonBanner
+                        type="error"
+                        className="m-3"
+                        action={{ children: 'Try again', onClick: loadCandidates }}
+                    >
                         Could not load page performance. Try again to reload the leaderboard.
                     </LemonBanner>
-                ) : pageDataLoading && pageCandidates === null ? (
+                ) : candidatesLoading && pageCandidates === null ? (
                     <div className="flex items-center justify-center py-12">
                         <Spinner className="text-2xl" />
                     </div>

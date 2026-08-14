@@ -126,7 +126,6 @@ function FreeformEditControls({
           surface: "canvas",
           channel_id: channelId,
           dashboard_id: dashboardId,
-          kind: "freeform",
           success: true,
         }),
       )
@@ -136,7 +135,6 @@ function FreeformEditControls({
           surface: "canvas",
           channel_id: channelId,
           dashboard_id: dashboardId,
-          kind: "freeform",
           success: false,
         });
         toast.error(
@@ -167,7 +165,6 @@ function FreeformEditControls({
       surface: "canvas",
       channel_id: channelId,
       dashboard_id: dashboardId,
-      kind: "freeform",
     });
     void queryClient.invalidateQueries({ queryKey: [CANVAS_QUERY_KEY] });
     remountFrame(dashboardId);
@@ -266,7 +263,6 @@ function FreeformEditControls({
             surface: "canvas",
             channel_id: channelId,
             dashboard_id: dashboardId,
-            kind: "freeform",
             editing: !editing,
           });
           if (!editing) openChat();

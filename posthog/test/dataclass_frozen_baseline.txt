@@ -30,7 +30,6 @@
 1 posthog/hogql/functions/core.py
 1 posthog/hogql/observability.py
 1 posthog/hogql/printer/types.py
-1 posthog/hogql/query.py
 1 posthog/hogql/scripts/_diagnostic_common.py
 1 posthog/hogql/snowflake_connection_cache.py
 1 posthog/hogql/transforms/federated_join_merge.py
