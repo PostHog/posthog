@@ -206,3 +206,46 @@ class TestBillingAlertActivities(BaseTest):
             )
 
         assert BillingAlertEvent.objects.filter(claim__alert=alert).exists() is False
+
+    @freeze_time("2026-06-23T12:00:00Z")
+    @patch("products.billing_alerts.backend.temporal.activities.fetch_billing_data")
+    def test_transient_fetch_failure_commits_groups_already_prepared(self, mock_fetch_billing_data) -> None:
+        first_alert = self._alert(name="Spend alert")
+        second_alert = self._alert(name="Second spend alert", evaluation_delay_hours=7)
+        prepared_alert_ids: list[str] = []
+
+        def fetch_then_fail(alert, _organization, *, now):
+            if prepared_alert_ids:
+                raise RuntimeError("billing unavailable")
+            prepared_alert_ids.append(str(alert.id))
+            return _billing_response(100), 12
+
+        mock_fetch_billing_data.side_effect = fetch_then_fail
+
+        with (
+            patch(
+                "products.billing_alerts.backend.logic.notifications.produce_alert_internal_event",
+                return_value=MagicMock(),
+            ),
+            patch("products.billing_alerts.backend.logic.notifications.flush_alert_internal_events"),
+            patch(
+                "products.billing_alerts.backend.logic.notifications.alert_internal_event_delivered",
+                return_value=True,
+            ),
+            self.assertRaisesRegex(RuntimeError, "billing unavailable"),
+        ):
+            _evaluate_billing_alerts(
+                EvaluateBillingAlertBatchActivityInputs(alert_ids=[str(first_alert.id), str(second_alert.id)]),
+                activity_attempt=1,
+            )
+
+        prepared_id = prepared_alert_ids[0]
+        stranded_id = str(second_alert.id if prepared_id == str(first_alert.id) else first_alert.id)
+        prepared_claim = BillingAlertEvaluationClaim.objects.get(alert_id=prepared_id)
+
+        # The prepared group must be persisted rather than left leased, otherwise the Temporal
+        # retry sees EVALUATING with a live lease and skips it until the lease expires.
+        assert prepared_claim.status == BillingAlertEvaluationClaim.Status.COMPLETED
+        assert prepared_claim.lease_expires_at is None
+        assert BillingAlertEvent.objects.filter(claim__alert_id=prepared_id).exists() is True
+        assert BillingAlertEvent.objects.filter(claim__alert_id=stranded_id).exists() is False

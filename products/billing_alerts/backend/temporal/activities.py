@@ -137,6 +137,26 @@ def _record_group_failure(
     return pending_dispatches
 
 
+def _commit_before_activity_retry(pending_dispatches: list[PendingBillingAlertDispatch]) -> None:
+    """Persist work already prepared in this run before the activity re-raises.
+
+    Preparing a dispatch commits its claim as EVALUATING with a lease. If we let the activity fail
+    without committing, those claims stay leased, so the Temporal retry skips them as
+    already-running until the lease expires. A failure here must not mask the original error: the
+    caller is about to raise the one that actually matters.
+    """
+    if not pending_dispatches:
+        return
+    try:
+        commit_pending_billing_alert_dispatches(pending_dispatches)
+    except Exception as commit_error:
+        capture_exception(commit_error, {"feature": "billing_alerts"})
+        logger.exception(
+            "Billing alert partial commit before activity retry failed",
+            alert_ids=[str(dispatch.check.alert.id) for dispatch in pending_dispatches],
+        )
+
+
 def _evaluate_billing_alerts(
     inputs: EvaluateBillingAlertBatchActivityInputs,
     *,
@@ -169,6 +189,7 @@ def _evaluate_billing_alerts(
             billing_response, query_duration_ms = fetch_billing_data(first_alert, organization, now=now)
         except Exception as e:
             if activity_attempt < MAX_ACTIVITY_ATTEMPTS:
+                _commit_before_activity_retry(pending_dispatches)
                 raise
             pending_dispatches.extend(
                 _record_group_failure(
@@ -199,6 +220,7 @@ def _evaluate_billing_alerts(
             except Exception as dispatch_error:
                 capture_exception(dispatch_error, {"alert_id": str(alert.id), "feature": "billing_alerts"})
                 logger.exception("Billing alert evaluation preparation failed", alert_id=str(alert.id))
+                _commit_before_activity_retry(pending_dispatches)
                 raise
 
     commit_pending_billing_alert_dispatches(pending_dispatches)
@@ -209,7 +231,17 @@ async def discover_due_billing_alerts_activity() -> list[BillingAlertInfo]:
     @database_sync_to_async(thread_sensitive=False)
     def get_due_alerts() -> list[BillingAlertInfo]:
         now = datetime.now(UTC)
-        alerts = _due_billing_alerts_for_sweep(now)
+        alerts = list(_due_billing_alerts_for_sweep(now))
+        if len(alerts) >= MAX_DUE_BILLING_ALERTS_PER_TICK:
+            # The sweep is capped, so any remainder waits for the next tick. Billing alerts are
+            # time-sensitive, so make the truncation visible instead of silently deferring them.
+            total_due = due_billing_alerts_q(now).count()
+            logger.warning(
+                "Billing alert sweep hit its per-tick cap; deferring the remainder to the next tick",
+                cap=MAX_DUE_BILLING_ALERTS_PER_TICK,
+                total_due=total_due,
+                deferred=max(total_due - MAX_DUE_BILLING_ALERTS_PER_TICK, 0),
+            )
         # The key must match _group_key so the batch activity's per-group billing fetch lines up
         # with the workflow's batching.
         return [
