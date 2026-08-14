@@ -1750,3 +1750,48 @@ class TestGetFailedRuns:
         refs = await BatchQueue.get_failed_runs(conn, grace_seconds=0, lookback_seconds=86_400, limit=10)
 
         assert refs == []
+
+
+@pytest.mark.django_db(transaction=True)
+class TestWritesTolerateMissingSupersededColumn:
+    """Every dual-write must survive a schema that predates ``sourcebatch.superseded``.
+
+    Reproduces the deploy window where the dual-write code reached a worker before
+    the column migration: each of the three builders wrote ``superseded`` and so
+    raised UndefinedColumn against a queue DB that still lacked the column. Guards
+    against reintroducing an unconditional write to the column in any builder, or
+    dropping the fallback in either execute helper.
+    """
+
+    @pytest.mark.asyncio
+    async def test_all_dual_writes_tolerate_missing_column(self, conn, sync_conn):
+        status_batch = await _insert_batch(conn, run_uuid="run-status")
+        await _insert_batch(conn, run_uuid="run-fail")
+        await _insert_batch(conn, run_uuid="run-old", job_id="job-ss")
+
+        await conn.execute(f"ALTER TABLE {BATCH_TABLE} DROP COLUMN IF EXISTS superseded")
+        try:
+            # build_status_dual_write_sql
+            await BatchQueue.update_status(conn, batch_id=status_batch, job_state="executing")
+            # build_status_dual_write_unless_failed_sql
+            wrote = await BatchQueue.update_status_unless_failed(conn, batch_id=status_batch, job_state="succeeded")
+            # _bulk_fail_dual_write_sql, async helper
+            failed = await BatchQueue.fail_run(
+                conn, run_uuid="run-fail", team_id=1, schema_id="schema-1", reason="boom"
+            )
+            # _bulk_fail_dual_write_sql, sync helper
+            superseded = BatchQueue.supersede_other_runs(sync_conn, job_id="job-ss", current_run_uuid="run-new")
+        finally:
+            await conn.execute(
+                f"ALTER TABLE {BATCH_TABLE} ADD COLUMN IF NOT EXISTS superseded BOOLEAN NOT NULL DEFAULT FALSE"
+            )
+
+        assert wrote is True
+        assert failed == 1
+        assert superseded == 1
+        cur = await conn.execute(f"SELECT run_uuid, latest_state FROM {BATCH_TABLE} ORDER BY run_uuid")
+        assert {row[0]: row[1] for row in await cur.fetchall()} == {
+            "run-fail": "failed",
+            "run-old": "failed",
+            "run-status": "succeeded",
+        }
