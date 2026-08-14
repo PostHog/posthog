@@ -26,6 +26,8 @@ describe("canvasStateSetInput", () => {
     ["a plain object", { columns: 3, title: "board" }],
     ["an array", [1, 2, 3]],
   ])("accepts a %s value", (_label, value) => {
-    expect(canvasStateSetInput.safeParse({ ...base, value }).success).toBe(true);
+    expect(canvasStateSetInput.safeParse({ ...base, value }).success).toBe(
+      true,
+    );
   });
 });
