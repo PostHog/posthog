@@ -112,6 +112,10 @@ describe('replayScannerLogic', () => {
                 scanner_type: 'classifier',
                 scanner_config: { prompt: 'Classify the session by intent.', tags: ['browsing'], multi_label: false },
                 rationale: 'A classifier fits because you want the mix of visit intents.',
+                query: {
+                    kind: 'RecordingsQuery',
+                    events: [{ type: 'events', id: 'signed_up', name: 'signed_up', order: 0 }],
+                },
             }
             draftSpy.mockReturnValue([200, draft])
             router.actions.push(path)
@@ -128,6 +132,7 @@ describe('replayScannerLogic', () => {
                 description: draft.description,
                 scanner_type: draft.scanner_type,
                 scanner_config: draft.scanner_config,
+                query: draft.query,
             })
             // The test router prefixes paths with /project/:id, so match on the suffix.
             expect(router.values.location.pathname).toContain(urls.replayVisionScannerConfigure('new'))
