@@ -214,6 +214,9 @@ class ErrorTrackingBreakdownsQueryRunner(
             for prop in self.team.test_account_filters or []:
                 conditions.append(property_to_expr(prop, self.team))
 
+        if self.query.filterGroup:
+            conditions.append(property_to_expr(self.query.filterGroup, self.team))
+
         return ast.And(exprs=conditions)
 
     def _calculate(self):
