@@ -84,6 +84,11 @@ A `title` equal to the component's own label (e.g. code blocks default `title` t
 `EditComponent` is optional; if omitted, the component only has a view panel.
 Call `updateProps(partialProps)` from either component to update persisted markdown props.
 
+`ToolbarComponent` is optional and renders in the block's top row, in view mode as well as edit mode.
+The shell mounts it outside both panels, so it stays live while the block is collapsed and while the edit panel is closed.
+Use it for a control a reader needs with no editor on screen — a code cell's Run button is one.
+It receives `node`, the notebook's `notebookMode`, and `updateProps`.
+
 `exclusiveEditPanel` hides the view panel while the edit panel is open.
 Use it for expensive or stateful components that should not mount twice.
 

@@ -513,6 +513,7 @@ export function NotebookCodeSQLEditorSettings<T extends { code: string } & Noteb
     runQueryTooltip,
     onCancelQuery,
     cancelQueryLoading,
+    hideRunButton,
     persistConnection,
 }: NotebookNodeAttributeProperties<T> & {
     tabIdSuffix: string
@@ -524,6 +525,8 @@ export function NotebookCodeSQLEditorSettings<T extends { code: string } & Noteb
     /** With onRunQuery: flips the run button to Cancel while runQueryLoading. */
     onCancelQuery?: () => void
     cancelQueryLoading?: boolean
+    /** Drop the editor toolbar's run button, for cells that run from the notebook's own top row. */
+    hideRunButton?: boolean
     /** Store the picked connection on the cell. Only for cells whose run actually honors it. */
     persistConnection?: boolean
 }): JSX.Element {
@@ -582,6 +585,7 @@ export function NotebookCodeSQLEditorSettings<T extends { code: string } & Noteb
                 runQueryTooltip={runQueryTooltip}
                 onCancelQuery={onCancelQuery}
                 cancelQueryLoading={cancelQueryLoading}
+                hideRunButton={hideRunButton}
                 queryPaneDefaultHeight={EMBEDDED_SQL_EDITOR_EDIT_DEFAULT_HEIGHT}
             />
         </div>

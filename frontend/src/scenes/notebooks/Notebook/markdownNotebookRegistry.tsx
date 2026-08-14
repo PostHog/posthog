@@ -66,7 +66,7 @@ import {
     NotebookComponentRegistry,
     NotebookPropValue,
 } from 'lib/components/MarkdownNotebook/types'
-import { isNotebookPropValue, toSerializablePropValue } from 'lib/components/MarkdownNotebook/utils'
+import { getSerializableProps, isNotebookPropValue } from 'lib/components/MarkdownNotebook/utils'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { useUploadFiles } from 'lib/hooks/useUploadFiles'
 import { LemonFileInput } from 'lib/lemon-ui/LemonFileInput'
@@ -76,6 +76,7 @@ import { uuid } from 'lib/utils/dom'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 
 import { NODE_ICONS } from '../nodeIcons'
+import { NotebookCodeCellRunButton } from '../Nodes/components/NotebookCodeCellRunButton'
 import { NotebookNodeContext } from '../Nodes/NotebookNodeContext'
 import { notebookNodeLogic } from '../Nodes/notebookNodeLogic'
 import { getNotebookWidgetViewMenuItem } from '../notebookWidgetMenu'
@@ -237,6 +238,7 @@ export const MARKDOWN_NODE_DEFINITIONS: {
     category: string
     label?: string
     EditComponent?: NotebookComponentDefinition['EditComponent']
+    ToolbarComponent?: NotebookComponentDefinition['ToolbarComponent']
     exclusiveEditPanel?: boolean
     insertCommand?: NotebookComponentDefinition['insertCommand']
 }[] = [
@@ -254,6 +256,7 @@ export const MARKDOWN_NODE_DEFINITIONS: {
         tagName: 'PythonV2',
         category: 'Code',
         label: 'Python',
+        ToolbarComponent: NotebookCodeCellRunButton,
         insertCommand: {
             aliases: ['python', 'py'],
             defaultProps: () => ({
@@ -273,6 +276,7 @@ export const MARKDOWN_NODE_DEFINITIONS: {
         // The single SQL node once the legacy SQL cells are deprecated (they render but
         // are not insertable), so it reads as plain "SQL" in the insert menu.
         label: 'SQL',
+        ToolbarComponent: NotebookCodeCellRunButton,
         insertCommand: {
             // Sits in the menu's top group, where the built-in SQL command it replaces used to be,
             // so SQL stays where people already reach for it. Only the menu grouping moves; the
@@ -337,6 +341,7 @@ export const NOTEBOOK_MARKDOWN_REGISTRY: NotebookComponentRegistry = createMarkd
             defaultProps: () => getDefaultPropsForNodeType(nodeType),
             ViewComponent: RealNotebookNodeView,
             EditComponent: definition.EditComponent ?? RealNotebookNodeEdit,
+            ToolbarComponent: definition.ToolbarComponent,
             exclusiveEditPanel: definition.exclusiveEditPanel,
             editableTitle: options?.editableTitle,
             // Nodes with a Settings panel keep their filters toggle on read-only canvases
@@ -1132,20 +1137,6 @@ export function getSerializableAttributeInputValue(
     }
 
     return trimmedValue
-}
-
-export function getSerializableProps(attributes: Partial<NotebookNodeAttributes<any>>): NotebookComponentProps {
-    return Object.entries(attributes).reduce<NotebookComponentProps>((props, [key, value]) => {
-        // Normalize before validating, mirroring how the legacy notebook flow synced attributes.
-        // Otherwise isNotebookPropValue rejects an object with a single nested `undefined` property and—
-        // it gets ignored. e.g. a person-property filter's absent `label`/`group_type_index` inside
-        // `query.source.properties` — fails isNotebookPropValue and the whole `query` prop is dropped
-        const normalized = toSerializablePropValue(value)
-        if (normalized !== undefined && isNotebookPropValue(normalized)) {
-            props[key] = normalized
-        }
-        return props
-    }, {})
 }
 
 export function splitTagName(tagName: string): string {

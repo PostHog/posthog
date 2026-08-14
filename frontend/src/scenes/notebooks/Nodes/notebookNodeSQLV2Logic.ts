@@ -94,6 +94,14 @@ export interface RunQueryOptions {
     sendRawQuery?: boolean
 }
 
+// What an open editor holds right now, for the callers that can read it — the document only
+// catches up to a keystroke or a just-picked connection on a later render.
+export interface RunNodeOverrides {
+    code?: string
+    connectionId?: string | null
+    sendRawQuery?: boolean
+}
+
 export interface NotebookNodeSQLV2LogicProps {
     nodeId: string
     notebookShortId: string
@@ -180,6 +188,9 @@ export interface notebookNodeSQLV2LogicActions {
     }
     resetPaging: () => {
         value: true
+    }
+    runNode: (overrides?: RunNodeOverrides) => {
+        overrides: RunNodeOverrides
     }
     runQuery: (
         code: string,
@@ -272,6 +283,11 @@ export const notebookNodeSQLV2Logic = kea<notebookNodeSQLV2LogicType>([
             refs,
             opts,
         }),
+        // Run this cell the way its own Run button does, deriving the code, the refs and the run
+        // options from the live document rather than from the caller. The single entry point for
+        // every run trigger — the toolbar button, Cmd+Enter, a chain dispatch — so a cell runs the
+        // same way whether or not its editor is on screen.
+        runNode: (overrides: RunNodeOverrides = {}) => ({ overrides }),
         startPolling: (runId: string) => ({ runId }),
         pollResult: (runId: string) => ({ runId }),
         stopPolling: true,
@@ -529,23 +545,36 @@ export const notebookNodeSQLV2Logic = kea<notebookNodeSQLV2LogicType>([
                     actions.nodeRunFinished(props.nodeId, 'failed', null)
                 }
             },
-            // A chain-dispatched run (Journey 10): only the matching node acts; it rebuilds its
-            // code and refs from the live document, exactly like its own Run button would.
-            dispatchChainRun: ({ nodeId }) => {
-                if (nodeId !== props.nodeId) {
-                    return
-                }
+            runNode: ({ overrides }) => {
                 const content = props.getContent?.() ?? null
                 const self = content ? buildNotebookDependencyGraph(content).nodesById[props.nodeId] : null
                 if (!content || !self) {
+                    // A cell the document no longer holds can never report a result, so tell the
+                    // staleness chain now rather than leave it waiting on this node.
                     actions.nodeRunFinished(props.nodeId, 'failed', null)
                     return
                 }
+                // The graph's returnVariable is the disambiguated frame name (sql_df, sql_df_2, …)
+                // downstream cells reference, which is what a rerouted run has to bind.
                 const opts: RunQueryOptions =
                     self.nodeType === NotebookNodeType.PythonV2
                         ? { nodeType: 'python', outputName: self.returnVariable }
-                        : { connectionId: self.connectionId ?? null, sendRawQuery: !!self.sendRawQuery }
-                actions.runQuery(self.code ?? '', collectSqlV2Refs(content, props.nodeId), opts)
+                        : {
+                              outputName: self.returnVariable,
+                              connectionId:
+                                  overrides.connectionId !== undefined
+                                      ? overrides.connectionId
+                                      : (self.connectionId ?? null),
+                              sendRawQuery: overrides.sendRawQuery ?? !!self.sendRawQuery,
+                          }
+                actions.runQuery(overrides.code ?? self.code ?? '', collectSqlV2Refs(content, props.nodeId), opts)
+            },
+            // A chain-dispatched run (Journey 10): only the matching node acts, and it runs itself
+            // exactly as its own Run button would.
+            dispatchChainRun: ({ nodeId }) => {
+                if (nodeId === props.nodeId) {
+                    actions.runNode()
+                }
             },
             startPolling: ({ runId }) => {
                 // Idempotent re-register: also covers a remount resuming a persisted in-flight run.

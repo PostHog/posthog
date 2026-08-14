@@ -321,6 +321,22 @@ export function toSerializablePropValue(value: unknown): NotebookPropValue | und
     return JSON.parse(serialized) as NotebookPropValue
 }
 
+// Project a set of node attributes onto the props a component block can carry, dropping the keys
+// whose values markdown can't represent.
+export function getSerializableProps<T extends object>(attributes: T): NotebookComponentProps {
+    return Object.entries(attributes).reduce<NotebookComponentProps>((props, [key, value]) => {
+        // Normalize before validating, mirroring how the legacy notebook flow synced attributes.
+        // Otherwise isNotebookPropValue rejects an object with a single nested `undefined` property and—
+        // it gets ignored. e.g. a person-property filter's absent `label`/`group_type_index` inside
+        // `query.source.properties` — fails isNotebookPropValue and the whole `query` prop is dropped
+        const normalized = toSerializablePropValue(value)
+        if (normalized !== undefined && isNotebookPropValue(normalized)) {
+            props[key] = normalized
+        }
+        return props
+    }, {})
+}
+
 function sortProps(props: NotebookComponentProps): NotebookComponentProps {
     return Object.keys(props)
         .sort()

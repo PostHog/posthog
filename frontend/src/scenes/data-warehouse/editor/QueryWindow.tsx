@@ -59,6 +59,9 @@ interface QueryWindowProps {
     /** With onRunQuery: flips the button to Cancel while runQueryLoading, mirroring the native cancel. */
     onCancelQuery?: () => void
     cancelQueryLoading?: boolean
+    /** Drop the toolbar's run button, for hosts that offer the run affordance themselves
+     * (a notebook code cell runs from the cell's top row). Cmd+Enter still runs. */
+    hideRunButton?: boolean
     onShareTab?: () => void
     /** Whether the query pane's code editor may grab focus on mount. Defaults to true. */
     autoFocusQueryPane?: boolean
@@ -78,6 +81,7 @@ export function QueryWindow({
     runQueryTooltip,
     onCancelQuery,
     cancelQueryLoading,
+    hideRunButton,
     onShareTab,
     autoFocusQueryPane,
 }: QueryWindowProps): JSX.Element {
@@ -274,19 +278,21 @@ export function QueryWindow({
                                 size="small"
                             />
                         ) : null}
-                        <RunButton
-                            onRunQuery={onRunQuery}
-                            runQueryLoading={runQueryLoading}
-                            runQueryDisabledReason={
-                                runQueryDisabledReason ??
-                                (showBIEditor && !biConfig.source
-                                    ? 'Drag a field into the BI editor before running'
-                                    : undefined)
-                            }
-                            runQueryTooltip={runQueryTooltip}
-                            onCancelQuery={onCancelQuery}
-                            cancelQueryLoading={cancelQueryLoading}
-                        />
+                        {hideRunButton ? null : (
+                            <RunButton
+                                onRunQuery={onRunQuery}
+                                runQueryLoading={runQueryLoading}
+                                runQueryDisabledReason={
+                                    runQueryDisabledReason ??
+                                    (showBIEditor && !biConfig.source
+                                        ? 'Drag a field into the BI editor before running'
+                                        : undefined)
+                                }
+                                runQueryTooltip={runQueryTooltip}
+                                onCancelQuery={onCancelQuery}
+                                cancelQueryLoading={cancelQueryLoading}
+                            />
+                        )}
                         <CollapsedConnectionSelector tabId={tabId} mode={mode} />
                         {!showBIEditor ? <LemonDivider vertical /> : null}
                         {!showBIEditor ? (
