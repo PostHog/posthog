@@ -4,12 +4,14 @@ from django.urls import path, re_path
 
 from .email_events import email_inbound_handler
 from .email_settings import (
+    EmailConfirmForwardingView,
     EmailConnectView,
     EmailDisconnectView,
     EmailSendTestView,
     EmailSetDefaultView,
     EmailStatusView,
     EmailVerifyDomainView,
+    EmailVerifyForwardingView,
 )
 from .external import ExternalTicketView
 from .github_setup import (
@@ -57,6 +59,16 @@ urlpatterns = [
     re_path(r"^v1/email/inbound/?$", email_inbound_handler, name="email-inbound"),
     re_path(r"^v1/email/status/?$", EmailStatusView.as_view(), name="email-status"),
     re_path(r"^v1/email/connect/?$", EmailConnectView.as_view(), name="email-connect"),
+    re_path(
+        r"^v1/email/confirm-forwarding/?$",
+        EmailConfirmForwardingView.as_view(),
+        name="email-confirm-forwarding",
+    ),
+    re_path(
+        r"^v1/email/verify-forwarding/?$",
+        EmailVerifyForwardingView.as_view(),
+        name="email-verify-forwarding",
+    ),
     re_path(r"^v1/email/disconnect/?$", EmailDisconnectView.as_view(), name="email-disconnect"),
     re_path(r"^v1/email/set-default/?$", EmailSetDefaultView.as_view(), name="email-set-default"),
     re_path(r"^v1/email/verify-domain/?$", EmailVerifyDomainView.as_view(), name="email-verify-domain"),

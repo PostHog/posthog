@@ -44,7 +44,17 @@ class ScannerModel(models.TextChoices):
 
     GEMINI_3_5_FLASH_LITE = "gemini-3.5-flash-lite", "Gemini 3.5 Flash Lite"
     GEMINI_3_FLASH_PREVIEW = "gemini-3-flash-preview", "Gemini 3 Flash"
-    GEMINI_3_6_FLASH = "gemini-3.6-flash", "Gemini 3.6 Flash"
+    GEMINI_3_7_FLASH = "gemini-3.7-flash", "Gemini 3.7 Flash"
+
+
+class ScannerOrigin(models.TextChoices):
+    """Where a scanner's config came from, and therefore what the row is allowed to do."""
+
+    # Saved by a user: named, editable, listed, and swept on a schedule.
+    CONFIGURED = "configured", "Configured"
+    # Minted from a config passed inline to a one-off scan (see `inline_scan.py`). Never swept,
+    # never listed, not editable, and reaped once it has nothing to show.
+    INLINE = "inline", "Inline"
 
 
 def initial_watermark() -> "datetime":
@@ -54,11 +64,30 @@ def initial_watermark() -> "datetime":
     return timezone.now() - SETTLE_INTERVAL
 
 
+class ReplayScannerManager(models.Manager["ReplayScanner"]):
+    """Fail-closed: `objects` is configured-only, so a new call site can't leak inline scanners.
+
+    Anything that presents, counts, edits, or sweeps a team's scanners wants exactly this. Reading
+    observations back is the one thing that doesn't; go through `scanner_access` for that rather than
+    naming `all_origins` yourself.
+    """
+
+    def get_queryset(self) -> "models.QuerySet[ReplayScanner]":
+        return super().get_queryset().filter(origin=ScannerOrigin.CONFIGURED)
+
+
 class ReplayScanner(UUIDModel):
     """A configured probe that gets applied to completed session recordings (see README)."""
 
+    objects = ReplayScannerManager()
+    all_origins = models.Manager()
+
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+")
-    name = models.CharField(max_length=255, help_text="Human-readable name. Unique within the team.")
+    name = models.CharField(
+        max_length=255,
+        blank=True,
+        help_text="Human-readable name, unique within the team. Empty for inline scanners, which aren't named.",
+    )
     description = models.TextField(
         blank=True,
         default="",
@@ -92,6 +121,21 @@ class ReplayScanner(UUIDModel):
     )
     emits_signals = models.BooleanField(default=False)
 
+    origin = models.CharField(
+        max_length=16,
+        choices=ScannerOrigin.choices,
+        default=ScannerOrigin.CONFIGURED,
+        db_default=ScannerOrigin.CONFIGURED,
+        help_text="Whether a user saved this scanner or an inline scan minted it. See `ScannerOrigin`.",
+    )
+    inline_key = models.CharField(
+        max_length=64,
+        blank=True,
+        default="",
+        db_default="",
+        help_text="Config fingerprint an inline scan resolves by. Empty for configured scanners.",
+    )
+
     scanner_version = models.PositiveIntegerField(
         default=1,
         help_text="Increments on every config-changing save. Observations snapshot the version that produced them.",
@@ -106,6 +150,30 @@ class ReplayScanner(UUIDModel):
         default="",
         db_default="",
         help_text="Keyset tiebreaker; set when the last batch saturated so the next sweep resumes past session_end ties.",
+    )
+    last_deep_swept_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text="Watermark for the periodic full-events-lookback catch-up sweep; null until the first regular sweep initializes it.",
+    )
+    sweep_read_bytes_by_hour = models.JSONField(
+        null=True,
+        blank=True,
+        help_text="ClickHouse read bytes per hour bucket (ISO hour -> bytes), maintained by the read-metering workflow; drives the sweep throttle.",
+    )
+    sweep_throttle_factor_override = models.PositiveSmallIntegerField(
+        null=True,
+        blank=True,
+        help_text="Manual cadence-stretch multiplier; overrides the computed read-budget throttle. 1 disables throttling; null means automatic.",
+    )
+
+    # Shape: ScannerExperimentTargetingSerializer. Stored because the compiled `query` speaks flag
+    # keys, so the experiment association isn't recoverable from it. Not version-tracked; scanning
+    # never reads it.
+    experiment_targeting = models.JSONField(
+        null=True,
+        blank=True,
+        help_text="The experiment this scanner's targeting watches, if any.",
     )
 
     # Shape: feedback_themes.build_feedback_themes. Not version-tracked: themes describe the
@@ -127,20 +195,70 @@ class ReplayScanner(UUIDModel):
         help_text="When the estimate was last computed. Refreshed on config saves and by the sweep when stale.",
     )
 
+    # Not "monthly": this resets with the org's billing period, which is only a calendar month
+    # until billing syncs a real one. See quota.current_period_bounds.
+    credit_limit = models.PositiveIntegerField(
+        null=True,
+        blank=True,
+        validators=[MinValueValidator(1)],
+        help_text="Optional cap on this scanner's own credit spend per billing period. Null means no scanner-level cap.",
+    )
+    limit_notified_period_start = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text="Billing period start this scanner was last reported as having reached its credit limit. Keeps the notification to one per period.",
+    )
+
     created_at = models.DateTimeField(auto_now_add=True)
     created_by = models.ForeignKey("posthog.User", on_delete=models.SET_NULL, null=True, blank=True, related_name="+")
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
+        # FK traversal and cascades must still see inline scanners; only `objects` is fail-closed.
+        base_manager_name = "all_origins"
         constraints = [
-            models.UniqueConstraint(fields=["team", "name"], name="replay_scanner_unique_team_name"),
+            # Names are a configured-scanner concept; inline rows have none, and several unnamed
+            # rows per team must be allowed to coexist.
+            models.UniqueConstraint(
+                fields=["team", "name"],
+                condition=models.Q(origin=ScannerOrigin.CONFIGURED),
+                name="replay_scanner_unique_configured_team_name",
+            ),
+            # One inline scanner per team per config, so asking the same question twice reuses the
+            # observations it already has instead of minting a scanner per request.
+            models.UniqueConstraint(
+                fields=["team", "inline_key"],
+                condition=models.Q(origin=ScannerOrigin.INLINE),
+                name="replay_scanner_unique_team_inline_key",
+            ),
+            # The discriminator and the fingerprint have to agree, or `configured()` and the inline
+            # lookup would disagree about the same row.
+            models.CheckConstraint(
+                condition=(
+                    models.Q(origin=ScannerOrigin.CONFIGURED, inline_key="")
+                    | (models.Q(origin=ScannerOrigin.INLINE) & ~models.Q(inline_key=""))
+                ),
+                name="replay_scanner_inline_key_matches_origin",
+            ),
             models.CheckConstraint(
                 condition=models.Q(sampling_rate__gte=0.0) & models.Q(sampling_rate__lte=1.0),
                 name="replay_scanner_sampling_rate_range",
             ),
+            # A stray 0 would read as "block every observation" to the quota check, and be
+            # indistinguishable from an unset cap. NULL stays valid: it means no scanner-level cap.
+            models.CheckConstraint(
+                condition=models.Q(credit_limit__isnull=True) | models.Q(credit_limit__gte=1),
+                name="replay_scanner_credit_limit_positive",
+            ),
         ]
         indexes = [
             models.Index(fields=["team", "enabled"], name="rl_team_enabled_idx"),
+            # Serves the reaper's scan for inline scanners that never produced an observation.
+            models.Index(
+                fields=["created_at"],
+                name="rl_inline_created_idx",
+                condition=models.Q(origin=ScannerOrigin.INLINE),
+            ),
         ]
 
     _VERSION_TRACKED_FIELDS = (
@@ -169,13 +287,27 @@ class ReplayScanner(UUIDModel):
             # SELECT FOR UPDATE so concurrent saves can't both bump scanner_version from the same baseline.
             with transaction.atomic():
                 old = (
+                    # By-pk, so it must resolve whatever origin the row is; `objects` would miss inline rows.
                     type(self)
-                    .objects.select_for_update()
+                    .all_origins.select_for_update()
                     .filter(pk=self.pk)
-                    .only("scanner_version", "enabled", *relevant)
+                    .only(
+                        "scanner_version",
+                        "enabled",
+                        "last_swept_at",
+                        "last_seen_session_id",
+                        "limit_notified_period_start",
+                        *relevant,
+                    )
                     .first()
                 )
                 if old is not None:
+                    if update_fields is None:
+                        # The sweep writes these via targeted updates; a stale full save must not
+                        # clobber a concurrent sweep's watermark or notification stamp.
+                        self.last_swept_at = old.last_swept_at
+                        self.last_seen_session_id = old.last_seen_session_id
+                        self.limit_notified_period_start = old.limit_notified_period_start
                     changed = {f for f in relevant if getattr(old, f) != getattr(self, f)}
                     extra_fields = []
                     if changed:
@@ -188,7 +320,10 @@ class ReplayScanner(UUIDModel):
                         # Re-enabling restarts the sweep from now — don't backfill (and bill) the disabled gap.
                         self.last_swept_at = initial_watermark()
                         self.last_seen_session_id = ""
-                        extra_fields.extend(["last_swept_at", "last_seen_session_id"])
+                        # The deep pass sweeps from this watermark up to the fast one, so leaving it
+                        # behind would make its first window span the whole disabled gap.
+                        self.last_deep_swept_at = self.last_swept_at
+                        extra_fields.extend(["last_swept_at", "last_seen_session_id", "last_deep_swept_at"])
                     if update_fields is not None and extra_fields:
                         kwargs["update_fields"] = [*update_fields, *extra_fields]
                 super().save(*args, **kwargs)

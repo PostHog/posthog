@@ -16,7 +16,6 @@ import type { BillingSectionId } from './billing/types'
 import { DataPipelinesNewSceneKind } from './data-pipelines/DataPipelinesNewScene'
 import { OutputTab } from './data-warehouse/editor/outputPaneLogic'
 import type { HogFunctionSceneTab } from './hog-functions/HogFunctionScene'
-import type { InboxTabKey } from './inbox/types'
 import type { ModelsSceneTab } from './models/modelsSceneLogic'
 import type { SettingId, SettingLevelId, SettingSectionId } from './settings/types'
 
@@ -258,6 +257,7 @@ export const urls = {
     codeCanvasLink: (channelId: string, dashboardId: string): string => `/code/canvas/${channelId}/${dashboardId}`,
     codeChannelLink: (channelId: string, taskId?: string): string =>
         `/code/channel/${channelId}${taskId ? `/tasks/${taskId}` : ''}`,
+    codeTaskLink: (taskId: string): string => `/code/task/${taskId}`,
     integration: (slug: string): string => `/integrations/${slug}`,
     integrationsRedirect: (kind: string): string => `/integrations/${kind}/callback`,
     stripeConfirmInstall: (): string => '/integrations/stripe/confirm-install',
@@ -284,13 +284,6 @@ export const urls = {
     debugHog: (): string => '/debug/hog',
 
     moveToPostHogCloud: (): string => '/move-to-cloud',
-    heatmaps: (params?: string): string =>
-        `/heatmaps${params ? `?${params.startsWith('?') ? params.slice(1) : params}` : ''}`,
-    heatmapNew: (params?: string): string =>
-        `/heatmaps/new${params ? `?${params.startsWith('?') ? params.slice(1) : params}` : ''}`,
-    heatmapRecording: (params?: string): string =>
-        `/heatmaps/recording${params ? `?${params.startsWith('?') ? params.slice(1) : params}` : ''}`,
-    heatmap: (id: string | number): string => `/heatmaps/${id}`,
     links: (params?: string): string =>
         `/links${params ? `?${params.startsWith('?') ? params.slice(1) : params}` : ''}`,
     link: (id: string): string => `/link/${id}`,
@@ -323,21 +316,8 @@ export const urls = {
         presetKinds && presetKinds.length > 0
             ? `/health/alerts?preset_kinds=${encodeURIComponent(presetKinds.join(','))}`
             : '/health/alerts',
-    // Inbox 2.0 tab-first routing: /inbox, /inbox/<tab>, /inbox/<tab>/<reportId>.
-    inbox: (tab?: InboxTabKey | ':tab'): string => `/inbox${tab ? `/${tab}` : ''}`,
-    inboxReport: (tab: InboxTabKey | ':tab', reportId: string | ':reportId'): string => `/inbox/${tab}/${reportId}`,
-    // Scout detail surface, full-width over the inbox list (the fleet section lives in the Configuration tab).
-    // An optional finding id deep-links straight to one emitted finding (best-effort: only resolves while
-    // that finding is still in the scout's recent runs window).
-    inboxScout: (skillName: string | ':skillName', findingId?: string | ':findingId'): string => {
-        const segment = findingId ? `/${findingId === ':findingId' ? findingId : encodeURIComponent(findingId)}` : ''
-        return `/inbox/scouts/${skillName}${segment}`
-    },
-    // Scout fleet memory (scratchpad) browse/search surface, reached from the fleet-memory callout.
-    inboxScratchpad: (): string => '/inbox/scouts/scratchpad',
-    // Cross-fleet findings browse/search surface, reached from the scout-findings callout.
-    inboxFindings: (): string => '/inbox/scouts/findings',
     webAnalyticsBotAnalytics: (): string => '/web/bots',
+    webAnalyticsPagePerformance: (): string => '/web/page-performance',
     webAnalyticsHealth: (): string => '/web/health',
     webAnalyticsRecap: (): string => '/web/recap',
     pipelineStatus: (): string => '/health/pipeline-status',

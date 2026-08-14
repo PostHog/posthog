@@ -7,8 +7,8 @@ import { expect, test, PlaywrightWorkspaceSetupResult } from '../utils/workspace
 async function goToSavedSqlInsight(page: Page, insightShortId: InsightShortId): Promise<void> {
     await page.goto(`/sql#insight=${insightShortId}`, { waitUntil: 'domcontentloaded' })
     await expect(page).toHaveURL(/\/sql#.*insight=/)
-    await expect(page.getByRole('button', { name: 'Update insight' })).toBeVisible({ timeout: 30_000 })
     await expect(page.locator('.DataVisualization canvas').last()).toBeVisible({ timeout: 60_000 })
+    await expect(page.getByRole('button', { name: 'Update insight' })).toBeVisible({ timeout: 30_000 })
 }
 
 test.describe('SQL editor axis labels', () => {

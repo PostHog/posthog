@@ -23,6 +23,11 @@ pub const FRAME_CACHE_MISSES: &str = "cymbal_frame_cache_misses";
 pub const FRAME_DB_HITS: &str = "cymbal_frame_db_hits";
 pub const FRAME_DB_MISSES: &str = "cymbal_frame_db_misses";
 pub const FRAME_NOT_RESOLVED: &str = "cymbal_frame_not_resolved";
+pub const RELEASE_ID_CACHE_HITS: &str = "cymbal_release_id_cache_hits";
+pub const RELEASE_ID_CACHE_MISSES: &str = "cymbal_release_id_cache_misses";
+// Which source produced an event's release, labeled by `source`:
+// "release_id" / "mobile_hash" / "symbol_set" / "none".
+pub const EVENT_RELEASE_RESOLUTION: &str = "cymbal_event_release_resolution";
 // Client-expanded native inline groups, labeled by outcome: "replaced" when the
 // server expansion of the group's address superseded the client frames, "kept"
 // when resolution failed and the client expansion passed through.
@@ -127,9 +132,9 @@ pub const RATE_LIMIT_METRIC_EMIT: &str = "cymbal_error_tracking_rate_limiter_met
 pub const SPIKE_ALERT_STAGE: &str = "cymbal_spike_detection_time";
 
 // Operators
-pub const FRAME_RESOLVER_OPERATOR: &str = "cymbal_frame_batch_time";
-pub const EXCEPTION_RESOLVER_OPERATOR: &str = "cymbal_exception_exception_resolver_operator";
 pub const LEGACY_ORDER_RESOLVER_OPERATOR: &str = "cymbal_exception_legacy_order_resolver_operator";
+pub const EVENT_RELEASE_RESOLVER_OPERATOR: &str =
+    "cymbal_exception_event_release_resolver_operator";
 pub const LEGACY_ORDER_RESOLVE_FAILED: &str = "cymbal_exception_legacy_order_resolve_failed";
 pub const FINGERPRINT_LEGACY_VERSION_USED: &str = "cymbal_fingerprint_legacy_version_used";
 pub const ISSUE_LINKER_OPERATOR: &str = "cymbal_exception_issue_linker_operator";
@@ -147,7 +152,6 @@ pub const BYPASS_RULES_DISABLED: &str = "cymbal_bypass_rules_disabled";
 // fixed enums rather than free-form messages.
 pub const REMOTE_RESOLUTION_REQUESTS: &str = "cymbal_remote_resolution_requests_total";
 pub const REMOTE_RESOLUTION_LATENCY: &str = "cymbal_remote_resolution_latency_ms";
-pub const REMOTE_RESOLUTION_SAMPLING: &str = "cymbal_remote_resolution_sampling_total";
 pub const REMOTE_RESOLUTION_POOL_SIZE: &str = "cymbal_remote_resolution_pool_size";
 pub const REMOTE_RESOLUTION_ENDPOINTS_BY_STATE: &str =
     "cymbal_remote_resolution_endpoints_by_state";
