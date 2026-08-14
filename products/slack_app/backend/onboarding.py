@@ -129,21 +129,30 @@ def _sources_blocks(integration: Integration) -> list[dict]:
     )
 
     sources = onboarding_sources(integration.team_id)
+    tickable = [source for source in sources if source.togglable]
     options = [
         {
             "text": {"type": "mrkdwn", "text": f"*{source.label}*: {source.description}"},
             "value": source.key,
         }
-        for source in sources
+        for source in tickable
     ]
     checkboxes: dict = {"type": "checkboxes", "action_id": INBOX_SOURCES_CHECKBOXES_ACTION, "options": options}
-    initial = [option for option, source in zip(options, sources) if source.enabled]
+    initial = [option for option, source in zip(options, tickable) if source.enabled]
     if initial:
         checkboxes["initial_options"] = initial
-    return [
+    blocks = [
         _section("*2. Choose what I watch* :eyes:\nTick the signals I should monitor and investigate."),
         {"type": "actions", "block_id": f"{INBOX_SOURCES_BLOCK_PREFIX}:{integration.id}", "elements": [checkboxes]},
     ]
+    # Sources set up elsewhere have no checkbox, so say what's already watching. Without this the
+    # step reads as done with nothing ticked.
+    elsewhere = [source.label for source in sources if not source.togglable and source.enabled]
+    if elsewhere:
+        blocks.append(
+            {"type": "context", "elements": [{"type": "mrkdwn", "text": f"Already watching: {', '.join(elsewhere)}"}]}
+        )
+    return blocks
 
 
 def _channel_blocks(integration: Integration, slack: SlackIntegration, *, done: bool) -> list[dict]:

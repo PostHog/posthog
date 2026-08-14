@@ -85,8 +85,22 @@ function createHarness() {
   const deps = {
     store,
     log: noopLog,
-    notifyPromptComplete,
-    notifyPermissionRequest: vi.fn(),
+    notifyAgentSession: (notification: {
+      kind: string;
+      taskTitle: string;
+      taskId: string;
+      stopReason?: string;
+      durationMs?: number;
+    }) => {
+      if (notification.kind === "turn_completed") {
+        notifyPromptComplete(
+          notification.taskTitle,
+          notification.stopReason,
+          notification.taskId,
+          notification.durationMs,
+        );
+      }
+    },
     enqueueSpeech: vi.fn(),
     taskViewedApi: { markActivity: vi.fn() },
     getPersistedConfigOptions: () => undefined,

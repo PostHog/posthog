@@ -91,6 +91,12 @@ TASKS_CONTINUE_AS_NEW_ENABLED: bool = get_from_env(
     type_cast=str_to_bool,
 )
 
+TASKS_COMPUTE_QUOTA_ENFORCEMENT_ENABLED: bool = get_from_env(
+    "TASKS_COMPUTE_QUOTA_ENFORCEMENT_ENABLED",
+    False,
+    type_cast=str_to_bool,
+)
+
 # Event-count threshold for the above; 0 relies on Temporal's is_continue_as_new_suggested().
 TASKS_CONTINUE_AS_NEW_HISTORY_THRESHOLD: int = get_from_env(
     "TASKS_CONTINUE_AS_NEW_HISTORY_THRESHOLD", 4000, type_cast=int
@@ -101,6 +107,13 @@ TASKS_CONTINUE_AS_NEW_HISTORY_THRESHOLD: int = get_from_env(
 # set, the CI-follow-up floor is also bypassed so the timer actually fires
 # fast.
 TASKS_INACTIVITY_TIMEOUT_SECONDS: int = get_from_env("TASKS_INACTIVITY_TIMEOUT_SECONDS", 0, type_cast=int)
+
+# Hard wall-clock cap on a process_task run, measured from the start of the
+# continue_as_new chain and never reset by heartbeats, so it bounds total run time even
+# while a wedged agent keeps heartbeating. Interactive sessions are exempt at the call
+# site. Set low (e.g. 60) for local testing; 0 or negative disables the cap entirely,
+# matching TASKS_INACTIVITY_TIMEOUT_SECONDS above.
+TASKS_MAX_RUN_DURATION_SECONDS: int = get_from_env("TASKS_MAX_RUN_DURATION_SECONDS", 3 * 60 * 60, type_cast=int)
 
 # Override the delay before the first in-sandbox credential refresh (default 20
 # minutes). Set this low (e.g. 30) for local testing so the refresh loop fires
@@ -196,6 +209,11 @@ ERROR_TRACKING_TASK_QUEUE = _set_temporal_task_queue("error-tracking-task-queue"
 ERROR_TRACKING_LIFECYCLE_TASK_QUEUE = _set_temporal_task_queue("error-tracking-lifecycle-task-queue")
 EVENT_SCREENSHOTS_TASK_QUEUE = _set_temporal_task_queue("event-screenshots-task-queue")
 LOGS_ALERTING_TASK_QUEUE = _set_temporal_task_queue("logs-alerting-task-queue")
+# Dedicated queue: the tick becomes the scan-heavy rollup writer, and it must not
+# share pods with the latency-sensitive alerting workers.
+LOGS_VOLUME_TICK_TASK_QUEUE = _set_temporal_task_queue(
+    os.getenv("LOGS_VOLUME_TICK_TASK_QUEUE", "logs-volume-tick-task-queue")
+)
 RASTERIZATION_TASK_QUEUE = "rasterization-task-queue"  # Not collapsed in dev — separate Node.js worker process
 
 # Error tracking

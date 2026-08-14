@@ -28,6 +28,14 @@ export interface WizardInstallOptionsProps {
      * so offering it there would queue a run that can never succeed.
      */
     offerCloudRun?: boolean
+    /**
+     * Treat a persisted cloud run as absent. A run queued on another step only executes the base
+     * integration program, so a dedicated-program step must keep showing its own command instead
+     * of the run's progress.
+     */
+    ignoreActiveCloudRun?: boolean
+    /** Replaces the default framework badge row. */
+    badges?: React.ReactNode
 }
 
 /**
@@ -42,10 +50,13 @@ export function WizardInstallOptions({
     onQueued,
     onModeSelected,
     offerCloudRun = true,
+    ignoreActiveCloudRun = false,
+    badges: badgesOverride,
 }: WizardInstallOptionsProps): JSX.Element {
     const cloudRunEnabled = useFeatureFlag('ONBOARDING_WIZARD_CLOUD_RUN', 'test')
     const { isCloudOrDev } = useWizardCommand()
-    const { activeCloudRun } = useValues(activeCloudRunLogic)
+    const { activeCloudRun: persistedCloudRun } = useValues(activeCloudRunLogic)
+    const activeCloudRun = ignoreActiveCloudRun ? null : persistedCloudRun
     const { clearActiveCloudRun } = useActions(activeCloudRunLogic)
     const [mode, setMode] = useState<WizardInstallMode>('cloud')
 
@@ -65,11 +76,7 @@ export function WizardInstallOptions({
 
     // The frameworks are the same whichever way (and in whichever variant) the wizard runs, so the
     // badge list rides with the options everywhere. Self-hosted gets no wizard, so no badges either.
-    const badges = isCloudOrDev && (
-        <div className="pb-2">
-            <WizardFrameworkBadges />
-        </div>
-    )
+    const badges = isCloudOrDev && <div className="pb-2">{badgesOverride ?? <WizardFrameworkBadges />}</div>
 
     if (!offerCloud) {
         // A persisted run outlives the experiment arm: keep rendering its progress (with the local

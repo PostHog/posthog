@@ -14,9 +14,75 @@ ERROR_SEVERITIES = {"error", "fatal"}
 # clustering, so templates stay readable ("<ip>", "<num>") instead of fragmenting into
 # one cluster per distinct value. Order matters — Drain applies these in sequence, so
 # more-specific patterns (uuid, ip, hex) run before the catch-all number mask.
+# Suffixes that make a dotted token a hostname. Deliberately a fixed list rather than
+# "any trailing alphabetic label": dotted module paths, logger names, and source files
+# ("products.logs.backend", "django_structlog.celery.receivers", "Handler.cpp") are
+# otherwise indistinguishable from an FQDN, and masking those eats real literal content.
+_HOST_SUFFIXES = (
+    "ai",
+    "app",
+    "bot",
+    "cloud",
+    "co",
+    "com",
+    "de",
+    "dev",
+    "eu",
+    "fr",
+    "gg",
+    "internal",
+    "io",
+    "jp",
+    "local",
+    "me",
+    "net",
+    "nl",
+    "org",
+    "sh",
+    "so",
+    "tv",
+    "uk",
+    "us",
+    "xyz",
+)
+_HOST_LABEL = r"[a-zA-Z0-9](?:[a-zA-Z0-9-]*[a-zA-Z0-9])?"
+# The repeat is bounded to hold down backtracking, not to enforce a DNS limit. Under an
+# unbounded repeat, a dotted run that ends in a non-suffix ("a.a.a.<...>.invalid") makes the
+# engine retry the whole suffix alternation at every label boundary, from every start position
+# the run offers, so the cost grows with the square of the run's length. Every sampled row is
+# masked, and only LOGS_PATTERNS_BODY_TRUNCATE bounds how long a run can get, so a body built
+# out of single-character labels turns into real CPU. A dotted run with more labels than this
+# masks its tail and keeps its head literal, which no real hostname is long enough to reach.
+_HOST_MAX_LABELS_BEFORE_SUFFIX = 8
+_HOST_PATTERN = rf"\b(?:{_HOST_LABEL}\.){{1,{_HOST_MAX_LABELS_BEFORE_SUFFIX}}}(?:{'|'.join(_HOST_SUFFIXES)})\b"
+
 _MASKING_INSTRUCTIONS = [
+    # Timestamp must precede the number catch-all: \b never matches between a digit and
+    # a letter, so "12T08" and "397557Z" in ISO-8601 bodies would survive \b\d+\b intact.
+    MaskingInstruction(r"\b\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}:\d{2}(?:[.,]\d+)?(?:Z|[+-]\d{2}:?\d{2})?", "timestamp"),
+    # klog / glog headers ("I0812 15:41:23.951822") carry no year and no separators, so the
+    # ISO pattern misses them and the date survives as a literal. The severity letter stays
+    # outside the mask, since it is content rather than a variable. The form gets its own
+    # placeholder: folded into <timestamp>, every ISO pivot would also accept a bare
+    # "NNNN HH:MM:SS" pair, such as a count followed by a time of day.
+    MaskingInstruction(r"(?<=\b[IWEF])\d{4} \d{2}:\d{2}:\d{2}(?:\.\d+)?", "klogtime"),
     MaskingInstruction(r"\b[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}\b", "uuid"),
-    MaskingInstruction(r"\b\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}\b", "ip"),
+    # A dotted quad after "<letter>/" is a version, not an address ("Chrome/139.0.0.0"), and
+    # a \b-bounded match claims it as an <ip>. The guard keys on the letter so an address in
+    # a URL, which follows "//" or ":", still masks. The "." guards keep the mask off the
+    # tail and head of a longer dotted run such as "1.2.3.4.5", and only a "." that carries
+    # on the run blocks the match, so a sentence-final address still masks.
+    MaskingInstruction(r"(?<![A-Za-z]/)(?<![\w.])\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}(?!\w)(?!\.\d)", "ip"),
+    # Dotted version numbers ("Chrome/139.0.0.0", "HTTP/1.1") otherwise split into one <num>
+    # per part, which buries the literal content of a user-agent or protocol template. The
+    # "/" is required: it separates a version from a plain decimal such as "duration=1.5".
+    # The part count is unbounded so a longer release such as "build/1.2.3.4.5" collapses
+    # whole, instead of leaving a "<version>.<num>" tail on a template of its own.
+    # Runs after ip so an address in a URL is already masked and cannot look like a version.
+    MaskingInstruction(r"(?<=/)\d+(?:\.\d+)+", "version"),
+    # Host runs after ip (a dotted quad has no alphabetic suffix, so it stays an <ip>) and
+    # before hex, which would otherwise claim a long hex-looking label.
+    MaskingInstruction(_HOST_PATTERN, "host"),
     MaskingInstruction(r"\b0x[0-9a-fA-F]+\b", "hex"),
     MaskingInstruction(r"\b[0-9a-fA-F]{16,}\b", "hex"),
     MaskingInstruction(r"\b\d+\b", "num"),
@@ -31,8 +97,14 @@ _WHITESPACE_RE = re.compile(r"\s+")
 _PLACEHOLDER_PATTERNS = {
     "<*>": r"\S+",
     "<num>": r"\d+",
+    "<timestamp>": r"\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}:\d{2}(?:[.,]\d+)?(?:Z|[+-]\d{2}:?\d{2})?",
+    "<klogtime>": r"\d{4} \d{2}:\d{2}:\d{2}(?:\.\d+)?",
     "<uuid>": r"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}",
     "<ip>": r"\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}",
+    "<version>": r"\d+(?:\.\d+)+",
+    # Reuses the masking pattern so the pivot cannot claim dotted code paths the mask
+    # deliberately left literal. \b is RE2-safe; only lookaround is not.
+    "<host>": _HOST_PATTERN,
     "<hex>": r"(?:0x[0-9a-fA-F]+|[0-9a-fA-F]{16,})",
 }
 _PLACEHOLDER_RE = re.compile("|".join(re.escape(p) for p in _PLACEHOLDER_PATTERNS))
@@ -61,6 +133,9 @@ class LogSample:
     severity_text: str
     service_name: str
     timestamp: dt.datetime
+    # Set on the examples the miner keeps, when `body` covers only a prefix of the raw line.
+    # compile_match_regex drops its end anchor for those.
+    truncated: bool = False
 
 
 @dataclass
@@ -92,16 +167,34 @@ class _Accumulator:
     first_seen: dt.datetime
     last_seen: dt.datetime
     count: int = 0
+    # Cluster-level, because `examples` is deduped and capped: a truncated sample can be
+    # dropped before it lands there, and the end anchor must still come off.
+    truncated: bool = False
     examples: list[LogSample] = field(default_factory=list)
     services: list[str] = field(default_factory=list)
     bucket_counts: list[int] = field(default_factory=list)
     severity_counts: dict[str, int] = field(default_factory=dict)
 
 
-def _prepare_body(body: str, truncate: int) -> str:
+@dataclass(frozen=True)
+class _PreparedBody:
+    text: str
+    truncated: bool
+
+
+def _prepare_body(body: str, truncate: int) -> _PreparedBody:
     # Collapse newlines / whitespace runs so multi-line bodies (stack traces) mine as a
     # single line, then bound length to keep Drain's parse tree and memory in check.
-    return _WHITESPACE_RE.sub(" ", body).strip()[:truncate]
+    collapsed = _WHITESPACE_RE.sub(" ", body).strip()
+    if len(collapsed) <= truncate:
+        return _PreparedBody(collapsed, truncated=False)
+    # Cut back to the last space inside the cap. Drain splits on whitespace, so a mid-word
+    # cut hands it a fragment ("(Macinto") that it treats as a literal token, and one long
+    # statement then fragments into a cluster per distinct cut point. A body with no space
+    # inside the cap has no boundary to cut at, so it still cuts hard.
+    head = collapsed[:truncate]
+    boundary = head.rfind(" ")
+    return _PreparedBody(head[:boundary] if boundary > 0 else head, truncated=True)
 
 
 def _build_miner(sim_th: float, depth: int, max_clusters: int) -> tuple[LogMasker, Drain]:
@@ -152,15 +245,18 @@ def pattern_fingerprint(template: str) -> str:
     return "\x00".join(literals) if literals else template
 
 
-def compile_match_regex(template: str, examples: list[LogSample], truncate: int) -> str | None:
+def compile_match_regex(template: str, examples: list[LogSample], *, truncated: bool | None = None) -> str | None:
     """Compile a mined template into an RE2-safe regex over raw log bodies, self-validated
     against the pattern's own examples.
 
     Returns None rather than an unvalidated predicate: Drain refines templates as rows merge,
     so an early-stored example can diverge from the final template — and a filter that
     silently matches the wrong logs is worse than no filter. Anchored at the start (leading
-    whitespace was stripped before mining); the end anchor is dropped when any example hit
-    the mining truncation cap, since the template then only covers a prefix of the raw line.
+    whitespace was stripped before mining); the end anchor is dropped when the cluster held a
+    truncated body, since the template then only covers a prefix of the raw line.
+
+    Pass `truncated` from the cluster. Falling back to the retained examples under-reports it,
+    because dedup and the example cap can both drop the truncated body.
     """
     if not examples:
         return None
@@ -176,7 +272,8 @@ def compile_match_regex(template: str, examples: list[LogSample], truncate: int)
         pos = match.end()
     parts.append(_escape_literal(template[pos:]))
 
-    truncated = any(len(example.body) >= truncate for example in examples)
+    if truncated is None:
+        truncated = any(example.truncated for example in examples)
     candidate = r"^\s*" + "".join(parts) + ("" if truncated else r"\s*$")
 
     try:
@@ -236,7 +333,7 @@ def mine_patterns(
 
     for sample in samples:
         prepared = _prepare_body(sample.body, truncate)
-        cluster, _change_type = drain.add_log_message(masker.mask(prepared))
+        cluster, _change_type = drain.add_log_message(masker.mask(prepared.text))
         cluster_id = cluster.cluster_id
 
         acc = accumulators.get(cluster_id)
@@ -257,15 +354,17 @@ def mine_patterns(
                 acc.last_seen = sample.timestamp
 
         acc.count += 1
+        acc.truncated = acc.truncated or prepared.truncated
         severity = sample.severity_text.lower()
         acc.severity_counts[severity] = acc.severity_counts.get(severity, 0) + 1
-        if len(acc.examples) < max_examples and all(e.body != prepared for e in acc.examples):
+        if len(acc.examples) < max_examples and all(e.body != prepared.text for e in acc.examples):
             acc.examples.append(
                 LogSample(
-                    body=prepared,
+                    body=prepared.text,
                     severity_text=sample.severity_text,
                     service_name=sample.service_name,
                     timestamp=sample.timestamp,
+                    truncated=prepared.truncated,
                 )
             )
         if sample.service_name not in acc.services and len(acc.services) < max_services:
@@ -288,7 +387,7 @@ def mine_patterns(
             services=acc.services,
             bucket_counts=acc.bucket_counts,
             severity_counts=acc.severity_counts,
-            match_regex=compile_match_regex(acc.template, acc.examples, truncate),
+            match_regex=compile_match_regex(acc.template, acc.examples, truncated=acc.truncated),
             match_literal=extract_match_literal(acc.template),
         )
         for acc in accumulators.values()
