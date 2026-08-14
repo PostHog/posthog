@@ -433,6 +433,8 @@ class AlertCheck(UUIDTModel):
     created_at = models.DateTimeField(auto_now_add=True)
     calculated_value = models.FloatField(null=True, blank=True)
     condition = models.JSONField(default=dict)  # Snapshot of the condition at the time of the check
+    # {} = no delivery. For legacy reasons "users" holds email addresses only;
+    # "destinations" holds the other channels' receipts (see AlertDelivery).
     targets_notified = models.JSONField(default=dict)
     error = models.JSONField(null=True, blank=True)
 
@@ -478,6 +480,12 @@ class AlertCheck(UUIDTModel):
 
     def __str__(self) -> str:
         return f"AlertCheck for {self.alert_configuration.name} at {self.created_at}"
+
+    @property
+    def has_delivery_receipts(self) -> bool:
+        """True when this row was written by record_alert_delivery (which always sets
+        the "destinations" key); legacy rows only carry configured recipients."""
+        return "destinations" in (self.targets_notified or {})
 
     @classmethod
     def clean_up_old_checks(cls) -> int:

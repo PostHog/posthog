@@ -1,6 +1,7 @@
 import { useDroppable } from "@dnd-kit/react";
 import { Plus, SquareSplitHorizontalIcon, X } from "@phosphor-icons/react";
 import { useHostTRPCClient } from "@posthog/host-router/react";
+import { CONTENT_CHROME_RIGHT_VAR } from "@posthog/ui/features/navigation/rightPanelSide";
 import { PanelDropZones } from "@posthog/ui/features/panels/components/PanelDropZones";
 import type { SplitDirection } from "@posthog/ui/features/panels/panelLayoutStore";
 import type { PanelContent } from "@posthog/ui/features/panels/panelTypes";
@@ -191,6 +192,7 @@ export const TabbedPanel: React.FC<TabbedPanelProps> = ({
           <Flex
             ref={tabBarRef}
             className="scrollbar-overlay absolute top-0 right-0 left-0 h-[36px] items-start"
+            style={{ right: `var(${CONTENT_CHROME_RIGHT_VAR}, 0px)` }}
           >
             {content.tabs.map((tab, index) => (
               <PanelTab
@@ -240,6 +242,7 @@ export const TabbedPanel: React.FC<TabbedPanelProps> = ({
             <Flex
               align="center"
               className="absolute top-0 right-0 h-[32px] border-b border-b-(--gray-6) border-l border-l-(--gray-6) bg-(--color-background)"
+              style={{ right: `var(${CONTENT_CHROME_RIGHT_VAR}, 0px)` }}
             >
               {rightContent}
               {onClosePanel && (

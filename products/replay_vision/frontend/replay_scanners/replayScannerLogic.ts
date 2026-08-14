@@ -525,6 +525,9 @@ export interface replayScannerLogicActions {
     scannerSaved: (scanner: ScannerFormValues) => {
         scanner: ScannerFormValues
     }
+    scannerWatermarkRefreshed: (scanner: ReplayScanner) => {
+        scanner: ReplayScanner
+    }
     setChartDateRange: (
         dateFrom: string | null,
         dateTo: string | null
@@ -704,6 +707,9 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
         loadScanner: true,
         loadScannerSuccess: (scanner: ScannerFormValues) => ({ scanner }),
         loadScannerFailure: true,
+        // Background refetches use this instead of loadScannerSuccess, which also resets the form,
+        // originalScanner, and submitIntent, and can refire the observation loads.
+        scannerWatermarkRefreshed: (scanner: ReplayScanner) => ({ scanner }),
         setExperimentContext: (context: ExperimentScannerContext | null) => ({ context }),
         setExperimentVariantKeys: (variantKeys: string[]) => ({ variantKeys }),
         detachExperimentContext: true,
@@ -847,8 +853,9 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                         const response = await visionScannersCreate(String(teamId), scannerToApiBody(body))
                         actions.scannerSaved(scanner)
                         router.actions.replace(urls.replayVision(response.id))
-                        // First results are minutes away on the schedule — hand off to the instant on-demand tab.
-                        lemonToast.success('Scanner created', {
+                        // First scheduled results are minutes away, so the copy matches the Overview's
+                        // pending panel and the button hands off to the instant on-demand tab.
+                        lemonToast.success('Scanner created. First scan in progress.', {
                             button: {
                                 label: 'Scan a recording now',
                                 action: () => router.actions.push(`${urls.replayVision(response.id)}?tab=on-demand`),
@@ -977,6 +984,11 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                 saveAffectedCohortFailure: () => null,
             },
         ],
+        scanner: {
+            // Only the sweep watermark lands, so a background refresh can't clobber unsaved form edits.
+            scannerWatermarkRefreshed: (state: ReplayScanner, { scanner }: { scanner: ReplayScanner }) =>
+                state ? { ...state, last_swept_at: scanner.last_swept_at } : scanner,
+        },
         experimentContext: [
             null as ExperimentScannerContext | null,
             {
@@ -1577,8 +1589,13 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                     return
                 }
                 // The model call can take a while; if the user picked a template or navigated away
-                // meanwhile, their newer state wins and the stale draft is dropped.
-                if (!router.values.location.pathname.endsWith(urls.replayVisionScannerTemplate('new'))) {
+                // meanwhile, their newer state wins and the stale draft is dropped. The box lives on
+                // the template step and the zero-scanner empty state, so both count as still there.
+                const pathname = router.values.location.pathname
+                if (
+                    !pathname.endsWith(urls.replayVisionScannerTemplate('new')) &&
+                    !pathname.endsWith(urls.replayVision())
+                ) {
                     return
                 }
                 actions.resetScanner(newScanner())
