@@ -887,6 +887,18 @@ export const logsViewerDataLogic = kea<logsViewerDataLogicType>([
                     {} as Record<string, number[]>
                 )
 
+                // A key with no rows in the newest buckets stops accumulating early, so its array is
+                // shorter than `dates`. Quill's `Series.data` contract requires `data.length ===
+                // labels.length` — a ragged array desyncs bar positions and, worse, throws off
+                // `stroke.partial.fromIndex`'s clamp against `series.data.length` (the last *complete*
+                // bar for that key can get clamped onto and rendered as still-ingesting).
+                const padToDatesLength = (values: number[]): number[] => {
+                    while (values.length < dates.length) {
+                        values.push(0)
+                    }
+                    return values
+                }
+
                 // The endpoint folds everything past its top-N into one bucket under a sentinel key.
                 // Left as-is that sorts to the front (it starts with '$') and draws as a breakdown
                 // value literally named "$$_posthog_breakdown_other_$$".
@@ -895,7 +907,7 @@ export const logsViewerDataLogic = kea<logsViewerDataLogicType>([
                     .sort(([a], [b]) => a.localeCompare(b))
                     .map(([name, values], index) => ({
                         name,
-                        values: values as number[],
+                        values: padToDatesLength(values as number[]),
                         color:
                             sparklineBreakdownBy === 'service'
                                 ? dataColorVars[index % dataColorVars.length]
@@ -911,7 +923,11 @@ export const logsViewerDataLogic = kea<logsViewerDataLogicType>([
                 const otherValues = accumulated[OTHER_BREAKDOWN_VALUE]
                 if (otherValues) {
                     // Last and muted, so it reads as an aggregate rather than as another breakdown value.
-                    data.push({ name: OTHER_BREAKDOWN_LABEL, values: otherValues as number[], color: 'muted' })
+                    data.push({
+                        name: OTHER_BREAKDOWN_LABEL,
+                        values: padToDatesLength(otherValues as number[]),
+                        color: 'muted',
+                    })
                 }
 
                 return { data, dates }

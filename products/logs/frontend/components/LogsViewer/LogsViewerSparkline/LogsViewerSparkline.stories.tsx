@@ -62,7 +62,6 @@ export default meta
 
 type Story = StoryObj<typeof LogsSparkline>
 
-/** What the logs viewer renders above the row list: stacked volume per severity over time. */
 export const VolumeBySeverity: Story = {}
 
 /** The trailing buckets past the ingestion checkpoint hatch, so a partial bar does not read as a drop. */

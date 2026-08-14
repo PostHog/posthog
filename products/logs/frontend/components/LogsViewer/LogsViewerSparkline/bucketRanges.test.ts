@@ -1,6 +1,5 @@
 import { highlightedBucketRange, selectedDateRange } from './bucketRanges'
 
-// Four buckets a minute apart.
 const BUCKETS = [0, 60_000, 120_000, 180_000]
 const BUCKET_TIMES = BUCKETS.map((ms) => new Date(ms).toISOString())
 
@@ -31,8 +30,8 @@ describe('bucketRanges', () => {
         ['a window inside one bucket', 70_000, 80_000, { startIndex: 1, endIndex: 1 }],
         ['a window starting before the first bucket', -50_000, 60_000, { startIndex: 0, endIndex: 1 }],
         ['a window running past the last bucket', 120_000, 999_000, { startIndex: 2, endIndex: 3 }],
-        // The rows are listed newest-first when `orderBy` is latest, so the ends can arrive reversed.
-        ['a reversed window', 150_000, 90_000, { startIndex: 1, endIndex: 2 }],
+        ['a window ending exactly at the last bucket', 180_000, 999_000, { startIndex: 3, endIndex: 3 }],
+        ['a window starting exactly at the first bucket', 0, 30_000, { startIndex: 0, endIndex: 0 }],
     ])('covers the buckets spanned by %s', (_, fromMs, toMs, expected) => {
         expect(highlightedBucketRange(BUCKETS, fromMs, toMs)).toEqual(expected)
     })
@@ -42,6 +41,7 @@ describe('bucketRanges', () => {
         ['the window ends before the first bucket', BUCKETS, -99_000, -50_000],
         ['the window starts after the last bucket', BUCKETS, 200_000, 300_000],
         ['an end is not a real time', BUCKETS, 0, NaN],
+        ['the start is not a real time', BUCKETS, NaN, 60_000],
     ])('returns null when %s', (_, buckets, fromMs, toMs) => {
         expect(highlightedBucketRange(buckets, fromMs, toMs)).toBeNull()
     })

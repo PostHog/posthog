@@ -203,8 +203,16 @@ describe('logsViewerDataLogic', () => {
                     { time: '2024-01-01T00:01:00Z', severity: 'error', count: 3 },
                 ],
                 // Raw bucket times, not display strings: the chart's time axis formats the ticks and
-                // the tooltip header itself.
-                { dates: ['2024-01-01T00:00:00Z', '2024-01-01T00:01:00Z'], data: expect.any(Array) },
+                // the tooltip header itself. Series sort alphabetically ('error' before 'info') and
+                // each is zero-padded to `dates.length`, so 'info' (no rows in the second bucket) is
+                // `[5, 0]`, not the ragged `[5]`.
+                {
+                    dates: ['2024-01-01T00:00:00Z', '2024-01-01T00:01:00Z'],
+                    data: [
+                        expect.objectContaining({ name: 'error', values: [0, 3] }),
+                        expect.objectContaining({ name: 'info', values: [5, 0] }),
+                    ],
+                },
             ],
         ])('returns correct data when sparkline is %s', async (_, sparklineInput, expected) => {
             logic.actions.setSparkline(sparklineInput as any[] | null)
