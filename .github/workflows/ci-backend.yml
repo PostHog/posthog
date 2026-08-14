@@ -884,7 +884,15 @@ jobs:
     # A status function is required to inspect dependency results after failures.
     # Use !cancelled(), not always(), so superseded matrix jobs still receive cancellation.
     turbo-tests:
-        needs: [changes, turbo-discover, prime-schema-cache, detect-snapshot-mode, build-product-test-matrix, get_clickhouse_versions]
+        needs:
+            [
+                changes,
+                turbo-discover,
+                prime-schema-cache,
+                detect-snapshot-mode,
+                build-product-test-matrix,
+                get_clickhouse_versions,
+            ]
         if: >-
             !cancelled() &&
             (github.event.pull_request.draft != true ||
