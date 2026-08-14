@@ -347,6 +347,21 @@ describe('replayScannerLogic', () => {
             expect(createSpy).not.toHaveBeenCalled()
             expect(router.values.location.pathname).toContain('/replay-vision/new/configure')
         })
+
+        it('submitting the final step creates the scanner, lands on it, and announces the first scan', async () => {
+            const success = jest.spyOn(lemonToast, 'success')
+            router.actions.push('/replay-vision/new/self-driving')
+            scannerEditorSceneLogic.actions.setStep('self_driving')
+            logic.actions.setScannerValues({ name: 'Test scanner', scanner_config: { prompt: 'Q?' } })
+            await expectLogic(logic, () => logic.actions.submitScanner()).toFinishAllListeners()
+            expect(createSpy).toHaveBeenCalledTimes(1)
+            expect(router.values.location.pathname).toContain('/replay-vision/created-scanner')
+            // The toast must tell the same story as the Overview's first-scan pending panel.
+            expect(success).toHaveBeenCalledWith(
+                'Scanner created. First scan in progress.',
+                expect.objectContaining({ button: expect.objectContaining({ label: 'Scan a recording now' }) })
+            )
+        })
     })
 
     describe('new scanner draft', () => {
@@ -1047,6 +1062,23 @@ describe('replayScannerLogic', () => {
             await expectLogic(logic, () => logic.actions.setScannerValues({ name: 'Edited' })).toMatchValues({
                 hasUnsavedChanges: true,
             })
+        })
+    })
+
+    describe('scannerWatermarkRefreshed', () => {
+        // Guards the background watermark refresh against regressing to the full loadScannerSuccess
+        // path, which resets the form from the server and refires the observation loads.
+        it('advances the sweep watermark without resetting form edits or reloading observations', async () => {
+            logic.actions.loadScannerSuccess({ ...logic.values.scanner!, id: 'abc', name: 'Loaded' })
+            logic.actions.setScannerValues({ name: 'Edited' })
+
+            const refreshed = { ...logic.values.scanner!, name: 'Loaded', last_swept_at: '2026-08-13T10:00:00Z' }
+            // toDispatchActions moves the history pointer past the setup's own setScannerValues first.
+            await expectLogic(logic, () => logic.actions.scannerWatermarkRefreshed(refreshed))
+                .toDispatchActions(['scannerWatermarkRefreshed'])
+                .toNotHaveDispatchedActions(['setScannerValues', 'loadObservations', 'loadObservationStats'])
+            expect(logic.values.scanner?.name).toBe('Edited')
+            expect(logic.values.scanner?.last_swept_at).toBe('2026-08-13T10:00:00Z')
         })
     })
 
