@@ -539,8 +539,11 @@ class DeltaBatchConsumerAdapter:
         conn: psycopg.AsyncConnection[Any],
         *,
         batches: list[PendingBatch],
-    ) -> set[str]:
-        return await BatchQueue.filter_still_claimable(conn, batches=batches)
+        retry_backoff_base_seconds: int,
+    ) -> dict[str, int]:
+        return await BatchQueue.filter_still_claimable(
+            conn, batches=batches, retry_backoff_base_seconds=retry_backoff_base_seconds
+        )
 
     async def should_process_batch(
         self,

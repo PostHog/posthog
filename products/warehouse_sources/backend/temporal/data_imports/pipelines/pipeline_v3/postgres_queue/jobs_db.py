@@ -293,6 +293,30 @@ FAIL_RUN_SCOPED_SQL = _bulk_fail_dual_write_sql(
 )
 
 
+def claimable_state_predicate(alias: str) -> str:
+    """The state gate a batch must pass to be worked on, parameterized on ``backoff``.
+
+    Shared by the claim and by the re-validation that runs after it, and it must stay
+    shared: the re-validation exists to re-apply the claim's own rules against committed
+    data, so any drift between the two silently admits batches the claim itself would
+    have rejected. A ``waiting_retry`` whose backoff has not elapsed is the case that
+    bites — accepting it there skips the retry delay entirely.
+
+    'pending' means no status row yet; 'waiting' is deliberately not claimable.
+    """
+    return f"""
+        (
+            {alias}.latest_state = 'pending'
+            OR (
+                {alias}.latest_state = 'waiting_retry'
+                AND {alias}.state_changed_at <= now() - make_interval(
+                    secs => %(backoff)s * GREATEST({alias}.latest_attempt, 1)
+                )
+            )
+        )
+    """
+
+
 def _state_claim_candidates_sql(sync_type_scope: str = "") -> str:
     """Claimable-batch candidates read from the denormalized state columns.
 
@@ -325,15 +349,7 @@ def _state_claim_candidates_sql(sync_type_scope: str = "") -> str:
         WHERE
             b.created_at > now() - interval '{CLAIM_ELIGIBILITY_INTERVAL}'
             {sync_type_scope}
-            AND (
-                b.latest_state = 'pending'
-                OR (
-                    b.latest_state = 'waiting_retry'
-                    AND b.state_changed_at <= now() - make_interval(
-                        secs => %(backoff)s * GREATEST(b.latest_attempt, 1)
-                    )
-                )
-            )
+            AND {claimable_state_predicate("b")}
             AND NOT EXISTS (
                 SELECT 1
                 FROM {BATCH_TABLE} b_prev
@@ -1319,8 +1335,9 @@ class BatchQueue:
         conn: psycopg.AsyncConnection[Any],
         *,
         batches: list[PendingBatch],
-    ) -> set[str]:
-        """Of ``batches``, the ids whose state is *currently* still claimable.
+        retry_backoff_base_seconds: int,
+    ) -> dict[str, int]:
+        """Of ``batches``, the ids still claimable now, mapped to their current attempt.
 
         ``get_unprocessed_and_lock`` reads its candidates under the statement's snapshot
         (taken when the poll begins), but resolves the lease ``ON CONFLICT DO UPDATE``
@@ -1335,21 +1352,26 @@ class BatchQueue:
         ``FOR UPDATE`` there would re-check each row against its latest version, but
         Postgres rejects ``FOR UPDATE`` alongside the window function the per-team
         fairness ordering needs.
+
+        ``latest_attempt`` rides back with the id because the caller's copy is from the
+        same stale snapshot. A batch that failed and went to ``waiting_retry`` during the
+        poll would otherwise be retried under its pre-failure attempt number, so the
+        counter never climbs and ``max_attempts`` never retires a batch that always fails.
         """
         if not batches:
-            return set()
+            return {}
         ids = [b.id for b in batches]
         async with conn.cursor() as cur:
             await cur.execute(
                 f"""
-                SELECT id FROM {BATCH_TABLE}
+                SELECT id, latest_attempt FROM {BATCH_TABLE}
                 WHERE id = ANY(%(ids)s::uuid[])
                   AND created_at > now() - interval '{PARTITION_PRUNING_INTERVAL}'
-                  AND latest_state IN ('pending', 'waiting_retry')
+                  AND {claimable_state_predicate(BATCH_TABLE)}
                 """,
-                {"ids": ids},
+                {"ids": ids, "backoff": retry_backoff_base_seconds},
             )
-            return {str(row[0]) for row in await cur.fetchall()}
+            return {str(row[0]): row[1] for row in await cur.fetchall()}
 
     @staticmethod
     async def unlock_for_batches(

@@ -6,7 +6,7 @@ import signal
 import asyncio
 from collections import defaultdict
 from collections.abc import Callable, Coroutine
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import datetime
 from typing import Any, Protocol
 from uuid import uuid4
@@ -285,11 +285,13 @@ class BatchConsumerAdapter(Protocol):
         conn: psycopg.AsyncConnection[Any],
         *,
         batches: list[PendingBatch],
-    ) -> set[str]:
-        """Of ``batches``, the ids still claimable according to committed state.
+        retry_backoff_base_seconds: int,
+    ) -> dict[str, int]:
+        """Of ``batches``, the ids still claimable now, mapped to their current attempt.
 
         The poll's candidate list can be stale by however long the poll ran, so the
         engine re-validates it once the group lease is held and before any work starts.
+        Implementations must re-apply the same gate the claim used, backoff included.
         """
         ...
 
@@ -708,15 +710,27 @@ class BatchConsumer:
         batch twice is what the loader's own idempotency check already absorbs.
         """
         try:
-            claimable = await self._adapter.filter_still_claimable(group_conn, batches=batches)
+            claimable = await self._adapter.filter_still_claimable(
+                group_conn,
+                batches=batches,
+                retry_backoff_base_seconds=self._config.retry_backoff_base_seconds,
+            )
         except Exception as e:
             logger.exception(self._event("stale_claim_filter_failed"), team_id=team_id, schema_id=schema_id)
             capture_exception(e)
             return batches
 
-        # str() both sides: PendingBatch.id is annotated str but psycopg hands back UUID
-        # objects for the uuid column, and a UUID never matches a str in a set.
-        fresh = [b for b in batches if str(b.id) in claimable]
+        fresh: list[PendingBatch] = []
+        for batch in batches:
+            # str() both sides: PendingBatch.id is annotated str but psycopg hands back
+            # UUID objects for the uuid column, and a UUID never matches a str key.
+            attempt = claimable.get(str(batch.id))
+            if attempt is None:
+                continue
+            # The poll's attempt is from the same stale snapshot; a failure during the poll
+            # already bumped it. Retrying under the old number would keep max_attempts out
+            # of reach for a batch that fails every time.
+            fresh.append(batch if attempt == batch.latest_attempt else replace(batch, latest_attempt=attempt))
         dropped = len(batches) - len(fresh)
         if dropped:
             logger.info(

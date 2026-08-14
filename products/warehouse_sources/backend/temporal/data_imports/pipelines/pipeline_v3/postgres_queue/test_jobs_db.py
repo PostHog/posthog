@@ -1482,9 +1482,37 @@ class TestClaimGates:
         if job_state is not None:
             await BatchQueue.update_status(conn, batch_id=bid, job_state=job_state, attempt=1)
 
-        fresh = await BatchQueue.filter_still_claimable(conn, batches=claimed)
+        fresh = await BatchQueue.filter_still_claimable(conn, batches=claimed, retry_backoff_base_seconds=0)
 
         assert (bid in fresh) is still_claimable
+
+    @pytest.mark.asyncio
+    async def test_filter_still_claimable_holds_waiting_retry_inside_its_backoff(self, conn):
+        # A batch that failed *during* the poll is waiting_retry with a fresh
+        # state_changed_at. Re-validating on state alone would admit it and skip the
+        # retry delay the claim would have enforced.
+        bid = await _insert_batch(conn)
+        claimed = await _claim(conn)
+        await BatchQueue.update_status(conn, batch_id=bid, job_state="waiting_retry", attempt=1)
+
+        held = await BatchQueue.filter_still_claimable(conn, batches=claimed, retry_backoff_base_seconds=3600)
+        elapsed = await BatchQueue.filter_still_claimable(conn, batches=claimed, retry_backoff_base_seconds=0)
+
+        assert bid not in held
+        assert bid in elapsed
+
+    @pytest.mark.asyncio
+    async def test_filter_still_claimable_returns_the_current_attempt(self, conn):
+        # The caller's attempt is from the stale snapshot. Retrying under it would leave
+        # the counter flat, so a batch that fails every time never reaches max_attempts.
+        bid = await _insert_batch(conn)
+        claimed = await _claim(conn)
+        assert claimed[0].latest_attempt == 0
+        await BatchQueue.update_status(conn, batch_id=bid, job_state="waiting_retry", attempt=2)
+
+        fresh = await BatchQueue.filter_still_claimable(conn, batches=claimed, retry_backoff_base_seconds=0)
+
+        assert fresh[bid] == 2
 
     @pytest.mark.asyncio
     async def test_claim_applies_every_gate_at_once(self, conn):

@@ -107,7 +107,7 @@ def _all_claims_still_fresh():
     with patch(
         "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer.BatchQueue.filter_still_claimable",
         new_callable=AsyncMock,
-        side_effect=lambda _conn, *, batches: {b.id for b in batches},
+        side_effect=lambda _conn, *, batches, retry_backoff_base_seconds: {b.id: b.latest_attempt for b in batches},
     ):
         yield
 
@@ -320,7 +320,7 @@ class TestProcessGroup:
             patch(
                 "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer.BatchQueue.filter_still_claimable",
                 new_callable=AsyncMock,
-                return_value={batches[0].id, batches[2].id},
+                return_value={batches[0].id: 0, batches[2].id: 0},
             ),
             patch(
                 "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer.BatchQueue.update_status_unless_failed",
@@ -343,6 +343,47 @@ class TestProcessGroup:
         # The lease is derived from the batch list, so it must still be released off the
         # full claim — filtering it down to the fresh ones strands the group for a full TTL.
         assert mock_unlock.call_args.kwargs["batches"] == batches
+
+    @pytest.mark.asyncio
+    async def test_retries_under_the_attempt_written_during_the_poll(self):
+        # A batch that failed while the poll was still running comes back carrying its
+        # pre-failure attempt. Retrying under that number leaves the counter flat, so a
+        # batch that fails every time never reaches max_attempts and retries forever.
+        consumer = _make_consumer(max_attempts=3)
+        attempts: list[int] = []
+
+        async def track_status(conn, *, batch_id, job_state, attempt, **kwargs):
+            attempts.append(attempt)
+            return True
+
+        consumer._process_batch = AsyncMock()
+        batch = _make_batch(latest_attempt=0)
+
+        with (
+            patch(
+                "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer.BatchQueue.filter_still_claimable",
+                new_callable=AsyncMock,
+                return_value={batch.id: 2},
+            ),
+            patch(
+                "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer.BatchQueue.update_status_unless_failed",
+                side_effect=track_status,
+            ),
+            patch(
+                "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer.BatchQueue.unlock_for_batches",
+                new_callable=AsyncMock,
+            ),
+            patch(
+                "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer.BatchQueue.verify_advisory_lock",
+                new_callable=AsyncMock,
+                return_value=True,
+            ),
+            patch.object(consumer, "_connect", new_callable=AsyncMock, return_value=_make_healthy_conn()),
+        ):
+            await consumer._process_group((1, "schema-1"), [batch])
+
+        # 2 committed attempts + this one, not the stale 0 + 1.
+        assert attempts == [3, 3]
 
     @pytest.mark.asyncio
     async def test_unlocks_even_on_error(self):
