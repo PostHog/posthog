@@ -132,6 +132,46 @@ def resolve_skill_owner_user_uuids(team: Team, skill_name: str) -> list[str]:
     ]
 
 
+def resolve_scout_acting_user_id(team: Team, skill_name: str) -> int | None:
+    """User id a scout run acts as, which is also where its AI spend is attributed.
+
+    The version-history creator (earliest version row with a known author) wins: they wrote the
+    prompt the run executes, so acting as them mirrors how user-triggered runs act as the
+    triggering user. The explicit owner set (`LLMSkillOwner`, seed-creator first) is only the
+    fallback for skills with no attributable version author, such as a pristine canonical scout
+    whose seeded versions are all system-authored. Owners are deliberately not preferred: any
+    skill editor can rewrite the owner list, so owner-first ordering would let an editor choose
+    which teammate's identity the run mints (the same escalation
+    `auto_start._resolve_autostart_assignee` excludes owner-provenance reviewers for).
+
+    Both paths restrict to `team.all_users_with_access()` (active members only), because the run
+    mints a sandbox token as this user. Returns None when neither path resolves a member; the
+    runner then falls back to the team-level default (`resolve_acting_user_id_for_team`).
+    """
+    creator_id = (
+        LLMSkill.objects.filter(
+            team=team,
+            name=skill_name,
+            deleted=False,
+            created_by__isnull=False,
+            created_by__in=team.all_users_with_access(),
+        )
+        .order_by("created_at", "id")
+        .values_list("created_by_id", flat=True)
+        .first()
+    )
+    if creator_id is not None:
+        return creator_id
+    return (
+        # canonical=True → exact environment team, matching how LLMSkill is scoped (see LLMSkillOwner).
+        LLMSkillOwner.objects.for_team(team.id, canonical=True)
+        .filter(skill_name=skill_name, user__in=team.all_users_with_access())
+        .order_by("created_at", "id")
+        .values_list("user_id", flat=True)
+        .first()
+    )
+
+
 def _skill_has_owner_rows(team: Team, skill_name: str) -> bool:
     """Whether the logical skill has any owner rows at all — including owners who lost access.
 
