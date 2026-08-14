@@ -4,6 +4,10 @@ import { PosthogJwtAudience } from './jwt-utils'
 import { ScopedServiceJwt } from './scoped-service-jwt'
 
 const AUDIENCE = PosthogJwtAudience.WORKFLOWS_RESCHEDULE_PARKED
+const TEST_KEY = 'test-key'
+const NEW_KEY = 'new-key'
+const OLD_KEY = 'old-key'
+const CONTRACT_KEY = 'contract-key'
 
 describe('ScopedServiceJwt', () => {
     describe('provisioning', () => {
@@ -21,7 +25,7 @@ describe('ScopedServiceJwt', () => {
 
     describe('mint and verify', () => {
         it('round-trips claims and enforces the audience', () => {
-            const scoped = new ScopedServiceJwt(AUDIENCE, 'test-key')
+            const scoped = new ScopedServiceJwt(AUDIENCE, TEST_KEY)
 
             const claims = scoped.verify(scoped.mint({ team_id: 42, ticket_id: 'abc' }))
 
@@ -29,28 +33,28 @@ describe('ScopedServiceJwt', () => {
             expect(claims.ticket_id).toBe('abc')
             expect(claims.aud).toBe(AUDIENCE)
 
-            const otherAudience = new ScopedServiceJwt(PosthogJwtAudience.SUBSCRIPTION_PREFERENCES, 'test-key')
+            const otherAudience = new ScopedServiceJwt(PosthogJwtAudience.SUBSCRIPTION_PREFERENCES, TEST_KEY)
             expect(() => otherAudience.verify(scoped.mint({ team_id: 42 }))).toThrow(/audience/)
         })
 
         it('signs with the newest key while still verifying tokens from the old key', () => {
-            const oldOnly = new ScopedServiceJwt(AUDIENCE, 'old-key')
-            const rotated = new ScopedServiceJwt(AUDIENCE, 'new-key,old-key')
+            const oldOnly = new ScopedServiceJwt(AUDIENCE, OLD_KEY)
+            const rotated = new ScopedServiceJwt(AUDIENCE, `${NEW_KEY},${OLD_KEY}`)
 
             expect(rotated.verify(oldOnly.mint({ team_id: 1 })).team_id).toBe(1)
             // A token minted post-rotation must be signed with the new key, or dropping the
             // old key from the list would invalidate fresh tokens.
-            expect(jwt.verify(rotated.mint({ team_id: 1 }), 'new-key', { audience: AUDIENCE })).toBeTruthy()
+            expect(jwt.verify(rotated.mint({ team_id: 1 }), NEW_KEY, { audience: AUDIENCE })).toBeTruthy()
         })
 
         it('trims whitespace around keys to match the Python side', () => {
-            const scoped = new ScopedServiceJwt(AUDIENCE, ' new-key , old-key ')
-            expect(jwt.verify(scoped.mint({ team_id: 1 }), 'new-key', { audience: AUDIENCE })).toBeTruthy()
+            const scoped = new ScopedServiceJwt(AUDIENCE, ` ${NEW_KEY} , ${OLD_KEY} `)
+            expect(jwt.verify(scoped.mint({ team_id: 1 }), NEW_KEY, { audience: AUDIENCE })).toBeTruthy()
         })
 
         it('rejects a token signed with a different HMAC algorithm even under the right key', () => {
-            const scoped = new ScopedServiceJwt(AUDIENCE, 'test-key')
-            const forged = jwt.sign({ team_id: 1 }, 'test-key', {
+            const scoped = new ScopedServiceJwt(AUDIENCE, TEST_KEY)
+            const forged = jwt.sign({ team_id: 1 }, TEST_KEY, {
                 algorithm: 'HS512',
                 audience: AUDIENCE,
                 expiresIn: '5m',
@@ -59,7 +63,7 @@ describe('ScopedServiceJwt', () => {
         })
 
         it('applies the shared 5 minute default ttl', () => {
-            const scoped = new ScopedServiceJwt(AUDIENCE, 'test-key')
+            const scoped = new ScopedServiceJwt(AUDIENCE, TEST_KEY)
             const claims = scoped.verify(scoped.mint({ team_id: 1 }))
             expect(claims.exp! - claims.iat!).toBe(5 * 60)
         })
@@ -69,13 +73,13 @@ describe('ScopedServiceJwt', () => {
         it('accepts a token built the way the Python minter builds them', () => {
             // Signed with the raw audience literal and the claim names the Python side emits
             // (HS256, flat claims, team_id), so drift in either side's contract breaks this.
-            const token = jwt.sign({ team_id: 123 }, 'contract-key', {
+            const token = jwt.sign({ team_id: 123 }, CONTRACT_KEY, {
                 algorithm: 'HS256',
                 audience: 'posthog:workflows:reschedule_parked',
                 expiresIn: '5m',
             })
 
-            const claims = new ScopedServiceJwt(AUDIENCE, 'contract-key').verify(token)
+            const claims = new ScopedServiceJwt(AUDIENCE, CONTRACT_KEY).verify(token)
             expect(claims.team_id).toBe(123)
         })
     })
