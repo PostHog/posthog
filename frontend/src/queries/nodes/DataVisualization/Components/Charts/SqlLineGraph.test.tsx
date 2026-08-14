@@ -306,7 +306,11 @@ describe('SqlLineGraph', () => {
 
         it.each([
             { name: 'clicking a legend item isolates that series', additive: false, expectedRows: ['b'] },
-            { name: 'meta-clicking a legend item hides just that series', additive: true, expectedRows: ['a'] },
+            {
+                name: 'meta-clicking a legend item hides just that series',
+                additive: true,
+                expectedRows: ['a'],
+            },
         ])('$name', async ({ additive, expectedRows }) => {
             const { container } = renderLine(
                 { yAxis: [{ column: 'a' }, { column: 'b' }], showLegend: true },

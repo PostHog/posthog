@@ -48,8 +48,6 @@ class SignalSourceConfig(UUIDModel):
     # other configs and are deliberately absent).
     class SourceType(models.TextChoices):
         SESSION_ANALYSIS_CLUSTER = "session_analysis_cluster", "Session analysis cluster"
-        # Legacy per-result source type retained for stored configs and historical signal payloads.
-        EVALUATION = "evaluation", "Evaluation"
         EVALUATION_REPORT = "evaluation_report", "Evaluation report"
         ISSUE = "issue", "Issue"
         TICKET = "ticket", "Ticket"
@@ -81,9 +79,7 @@ class SignalSourceConfig(UUIDModel):
         """Check whether a given signal source is enabled for a team.
 
         Scout findings are on by default (see below). For everything else, the team must have a
-        SignalSourceConfig row with enabled=True. AI observability evaluation signals additionally
-        carry a per-evaluation allowlist in the config row, enforced upstream in the llma evals
-        workflows — the row check here is the team-level gate.
+        SignalSourceConfig row with enabled=True.
         """
         # Replay Vision scanners are self-authorizing: the scanner's `emits_signals` flag is the
         # per-source config, so there's no separate SignalSourceConfig row to gate against.

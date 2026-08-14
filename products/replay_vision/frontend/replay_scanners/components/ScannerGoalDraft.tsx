@@ -7,9 +7,15 @@ import { LemonButton, LemonTextArea } from '@posthog/lemon-ui'
 import { getReplayVisionEditDisabledReason } from '../../utils/accessControl'
 import { replayScannerLogic } from '../replayScannerLogic'
 
-/** "Tell PostHog AI what you want to accomplish" box on the template step: drafts a full scanner
- * from the stated goal and drops the user into the configure step to review it. */
-export function ScannerGoalDraft(): JSX.Element {
+/** "Tell PostHog AI what you want to accomplish" box on the template step and the zero-scanner
+ * empty state: drafts a full scanner from the stated goal and drops the user into the details
+ * step to review it. */
+export function ScannerGoalDraft({
+    gateSubmit,
+}: {
+    // Lets pre-consent surfaces interpose the AI consent popover before the draft request fires.
+    gateSubmit?: (proceed: () => void) => void
+}): JSX.Element {
     const textAreaRef = useRef<HTMLTextAreaElement>(null)
     const logic = replayScannerLogic({ id: 'new' })
     const { goalDraftInput, goalDraftLoading } = useValues(logic)
@@ -19,8 +25,14 @@ export function ScannerGoalDraft(): JSX.Element {
     const editDisabledReason = getReplayVisionEditDisabledReason()
 
     const handleSubmit = (): void => {
-        if (!editDisabledReason && goalDraftInput.trim() && !goalDraftLoading) {
-            draftScannerFromGoal(goalDraftInput.trim())
+        if (editDisabledReason || !goalDraftInput.trim() || goalDraftLoading) {
+            return
+        }
+        const proceed = (): void => draftScannerFromGoal(goalDraftInput.trim())
+        if (gateSubmit) {
+            gateSubmit(proceed)
+        } else {
+            proceed()
         }
     }
 
@@ -28,9 +40,7 @@ export function ScannerGoalDraft(): JSX.Element {
         <div className="space-y-6">
             <div className="flex items-center gap-4">
                 <div className="flex-1 border-t border-border" />
-                <span className="text-xs text-tertiary uppercase tracking-wide">
-                    or tell PostHog AI what you want to accomplish
-                </span>
+                <span className="text-xs text-tertiary uppercase tracking-wide">or describe what you want to find</span>
                 <div className="flex-1 border-t border-border" />
             </div>
 
