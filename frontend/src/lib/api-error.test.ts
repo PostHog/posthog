@@ -61,8 +61,10 @@ describe('api-error', () => {
         it.each([
             // The empty-bodied gateway timeout that the insight-save flows must swallow rather than rethrow.
             ['a 503 with no body (detail null)', new ApiError(undefined, 503), true],
-            ['a 500', new ApiError('boom', 500), true],
-            ['a 599', new ApiError(undefined, 599), true],
+            ['a 502 bad gateway', new ApiError(undefined, 502), true],
+            ['a 504 gateway timeout', new ApiError(undefined, 504), true],
+            ['a 500 application error', new ApiError('boom', 500), false],
+            ['a 599', new ApiError(undefined, 599), false],
             ['a 400 validation error', new ApiError('bad', 400), false],
             ['a 403', new ApiError('nope', 403), false],
             ['a 429 rate limit', new ApiError('slow down', 429), false],
