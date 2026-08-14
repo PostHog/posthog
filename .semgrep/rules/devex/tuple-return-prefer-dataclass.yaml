@@ -26,10 +26,11 @@ rules:
       message: |
           This returns a tuple whose elements can be silently swapped at the
           call site (two share a type) or must be read positionally (3+
-          elements). Prefer a frozen dataclass with named fields:
-          `@dataclass(frozen=True, kw_only=True)`. See the Python bullets in
-          the Code Style section of AGENTS.md. Pre-existing findings are
-          grandfathered; only newly-introduced ones block CI.
+          elements). Prefer a frozen dataclass with named fields: `@frozen`
+          from `posthog.dataclasses` (frozen, kw_only, slots by default). See
+          the Python bullets in the Code Style section of AGENTS.md.
+          Pre-existing findings are grandfathered; only newly-introduced ones
+          block CI.
       languages: [python]
       severity: WARNING
       metadata:
