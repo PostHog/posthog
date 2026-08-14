@@ -349,6 +349,43 @@ function isMetaSnapshotWithResolution(snapshot: eventWithTime): snapshot is Meta
     return typeof data.width === 'number' && typeof data.height === 'number'
 }
 
+export function findResolution(
+    snapshotsByWindowId: Record<number, eventWithTime[]>,
+    windowId: number | undefined,
+    currentTimestamp: number | undefined
+): { width: number; height: number } | null {
+    if (!currentTimestamp) {
+        return null
+    }
+    const currentWindowSnapshots = windowId !== undefined ? (snapshotsByWindowId[windowId] ?? []) : []
+
+    const lastMetaBefore = (snapshots: eventWithTime[], before?: number): MetaSnapshotWithResolution | null => {
+        const index = findLastIndex(
+            snapshots,
+            (s: eventWithTime) => (before === undefined || s.timestamp < before) && isMetaSnapshotWithResolution(s)
+        )
+        return index === -1 ? null : (snapshots[index] as MetaSnapshotWithResolution)
+    }
+
+    // Prefer the meta snapshot at the playhead so the resolution matches the current frame.
+    // A late first full snapshot leaves none before the playhead, or none in this window.
+    // In that case fall back to any meta snapshot, the current window first, then any window.
+    // This keeps the frame scaled instead of leaving it unscaled.
+    const snapshot =
+        lastMetaBefore(currentWindowSnapshots, currentTimestamp) ??
+        lastMetaBefore(currentWindowSnapshots) ??
+        Object.values(snapshotsByWindowId)
+            .map((snapshots) => lastMetaBefore(snapshots ?? []))
+            .find((s): s is MetaSnapshotWithResolution => s !== null) ??
+        null
+
+    if (!snapshot) {
+        return null
+    }
+
+    return { width: snapshot.data.width, height: snapshot.data.height }
+}
+
 const updatePlayerTimeTracking = (
     current: PlayerTimeTracking,
     newState: PlayerTimeTracking['state'],
@@ -1930,33 +1967,14 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 currentTimestamp: number | undefined,
                 currentSegment: RecordingSegment | null
             ): { width: number; height: number } | null => {
-                // Find snapshot to pull resolution from
-                if (!currentTimestamp) {
-                    return null
-                }
-                const windowId = currentSegment?.windowId
-                const snapshots = windowId !== undefined ? (sessionPlayerData.snapshotsByWindowId[windowId] ?? []) : []
-
-                const currIndex = findLastIndex(
-                    snapshots,
-                    (s: eventWithTime) => s.timestamp < currentTimestamp && isMetaSnapshotWithResolution(s)
+                const resolution = findResolution(
+                    sessionPlayerData.snapshotsByWindowId,
+                    currentSegment?.windowId,
+                    currentTimestamp
                 )
 
-                if (currIndex === -1) {
-                    return null
-                }
-                const snapshot = snapshots[currIndex]
-                if (!isMetaSnapshotWithResolution(snapshot)) {
-                    return null
-                }
-
-                const resolution = {
-                    width: snapshot.data.width,
-                    height: snapshot.data.height,
-                }
-
                 // For video export: expose resolution via global variable
-                if (typeof window !== 'undefined') {
+                if (resolution && typeof window !== 'undefined') {
                     ;(window as any).__POSTHOG_RESOLUTION__ = resolution
                 }
 

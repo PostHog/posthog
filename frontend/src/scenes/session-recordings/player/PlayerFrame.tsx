@@ -27,11 +27,22 @@ export const PlayerFrame = (): JSX.Element => {
             // never fires for a recording whose first full snapshot arrived late. Fall back
             // to the recording's known resolution so the frame still scales to its container.
             const dimensions = replayDimensions ?? resolution ?? undefined
+            const wrapper = player?.replayer?.wrapper
 
-            if (!dimensions || !frameRef?.current?.parentElement || !player?.replayer || !player?.replayer.wrapper) {
+            if (!frameRef?.current?.parentElement || !player?.replayer || !wrapper) {
                 return
             }
 
+            if (!dimensions) {
+                // No dimensions are known yet. Without a scale transform, the recorded viewport
+                // paints at 1:1. The Chrome compositing behavior noted below then makes it spill
+                // outside the frame clip and hide the player controls. So keep the frame hidden
+                // until real dimensions arrive. The scaled path below reveals it again.
+                wrapper.style.visibility = 'hidden'
+                return
+            }
+
+            wrapper.style.visibility = ''
             replayDimensionRef.current = dimensions
 
             const parentDimensions = frameRef.current.parentElement.getBoundingClientRect()

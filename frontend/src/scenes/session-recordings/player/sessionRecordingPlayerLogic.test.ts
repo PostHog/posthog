@@ -25,7 +25,12 @@ import {
     recordingMetaJson,
     setupSessionRecordingTest,
 } from './__mocks__/test-setup'
-import { findNewEvents, findSegmentForTimestamp, stripRrwebScriptShims } from './sessionRecordingPlayerLogic'
+import {
+    findNewEvents,
+    findResolution,
+    findSegmentForTimestamp,
+    stripRrwebScriptShims,
+} from './sessionRecordingPlayerLogic'
 import { markLoaded } from './snapshot-store/test-utils'
 import { snapshotDataLogic } from './snapshotDataLogic'
 import { deleteRecording as deleteRecordingMock } from './utils/playerUtils'
@@ -228,6 +233,35 @@ describe('findSegmentForTimestamp', () => {
         expect(result?.windowId).toBe(undefined)
         expect(result?.startTimestamp).toBe(3000)
         expect(result?.endTimestamp).toBe(2001)
+    })
+})
+
+describe('findResolution', () => {
+    const meta = (timestamp: number, width: number, height: number): eventWithTime =>
+        ({ timestamp, type: EventType.Meta, data: { width, height } }) as unknown as eventWithTime
+
+    it('returns null without a current timestamp', () => {
+        expect(findResolution({ 1: [meta(100, 800, 600)] }, 1, undefined)).toBeNull()
+    })
+
+    it('returns null when no window has a meta snapshot', () => {
+        expect(findResolution({ 1: [makeEvent(100), makeEvent(200)] }, 1, 150)).toBeNull()
+    })
+
+    it('prefers the meta snapshot in effect at the playhead', () => {
+        const snapshots = { 1: [meta(100, 800, 600), meta(300, 1024, 768)] }
+        expect(findResolution(snapshots, 1, 200)).toEqual({ width: 800, height: 600 })
+    })
+
+    it('falls back to a later meta snapshot in the current window when none precedes the playhead', () => {
+        // Late full snapshot: the only meta in this window arrives after the playhead.
+        const snapshots = { 1: [meta(500, 1024, 768)] }
+        expect(findResolution(snapshots, 1, 100)).toEqual({ width: 1024, height: 768 })
+    })
+
+    it('falls back to a meta snapshot in another window when the current window has none', () => {
+        const snapshots = { 1: [makeEvent(100)], 2: [meta(50, 640, 480)] }
+        expect(findResolution(snapshots, 1, 200)).toEqual({ width: 640, height: 480 })
     })
 })
 
