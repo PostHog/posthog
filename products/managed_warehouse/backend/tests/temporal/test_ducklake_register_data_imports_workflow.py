@@ -690,7 +690,7 @@ async def test_workflow_records_end_to_end_duration_after_gate(monkeypatch):
         for call in execute_activity.await_args_list
         if call.args[0] is copy_and_register_ducklake_data_imports_activity
     )
-    assert registration_call.kwargs["start_to_close_timeout"] == dt.timedelta(hours=1)
+    assert registration_call.kwargs["start_to_close_timeout"] == dt.timedelta(hours=4)
     assert registration_call.kwargs["retry_policy"].maximum_attempts == 1
     assert _recorded_source_job_statuses(execute_activity) == [
         registration_module.ManagedWarehouseSourceJobStatus.RUNNING,
@@ -901,40 +901,20 @@ def _recorded_source_job_statuses(execute_activity: AsyncMock) -> list[ManagedWa
     ]
 
 
-def _workflow_id(prepared_queryable_folder: str) -> str:
-    return build_register_data_imports_workflow_id(
-        team_id=473662,
-        schema_id="019ef5df-e4c7-0000-b543-8ef7f13b5f15",
-        job_id="019fb012-26e7-0000-2959-704b254131bd",
-        prepared_queryable_folder=prepared_queryable_folder,
-    )
+def test_workflow_id_is_stable_for_one_schema():
+    schema_id = "019ef5df-e4c7-0000-b543-8ef7f13b5f15"
 
-
-@parameterized.expand(
-    [
-        (
-            "timestamped",
-            "customer_balance_transaction__query_1785365519_02076d94",
-            "customer_balance_transaction__query_1785365530_d3277966",
-        ),
-        (
-            "untimestamped",
-            "customer_balance_transaction__query",
-            "customer_balance_transaction__query_legacy",
-        ),
-    ]
-)
-def test_workflow_id_differs_per_prepared_generation(_name, earlier_folder, later_folder):
-    earlier = _workflow_id(earlier_folder)
-    later = _workflow_id(later_folder)
-
-    assert earlier != later
-
-
-def test_workflow_id_is_stable_for_one_prepared_generation():
-    folder = "customer_balance_transaction__query_1785365530_d3277966"
-
-    first = _workflow_id(folder)
-    second = _workflow_id(folder)
+    first = build_register_data_imports_workflow_id(team_id=473662, schema_id=schema_id)
+    second = build_register_data_imports_workflow_id(team_id=473662, schema_id=schema_id)
 
     assert first == second
+    assert first == f"ducklake-register-data-imports-473662-{schema_id}"
+
+
+def test_workflow_id_differs_across_schemas():
+    team_id = 473662
+
+    first = build_register_data_imports_workflow_id(team_id=team_id, schema_id="019ef5df-e4c7-0000-b543-8ef7f13b5f15")
+    second = build_register_data_imports_workflow_id(team_id=team_id, schema_id="019ef5df-e4c8-0000-b543-8ef7f13b5f16")
+
+    assert first != second
