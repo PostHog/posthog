@@ -8044,7 +8044,30 @@ class TrendsFilter(BaseModel):
     )
     xAxisLabel: str | None = Field(default=None, description="Custom label rendered under the X axis.")
     yAxisLabel: str | None = Field(default=None, description="Custom label rendered alongside the Y axis.")
+    yAxisMax: float | None = Field(
+        default=None,
+        description=(
+            "Pins the top of the y-axis; unset means automatic. Ignored in the same"
+            " cases as `yAxisStartAtZero`, and when `yAxisMin` is not below it."
+        ),
+    )
+    yAxisMin: float | None = Field(
+        default=None,
+        description=(
+            "Pins the bottom of the y-axis; unset means automatic. Ignored in the same"
+            " cases as `yAxisStartAtZero`, while it is on, and when not below"
+            " `yAxisMax`."
+        ),
+    )
     yAxisScaleType: YAxisScaleType | None = YAxisScaleType.LINEAR
+    yAxisStartAtZero: bool | None = Field(
+        default=True,
+        description=(
+            "Y-axis baseline. When false the axis floats to the data range instead of"
+            " starting at zero. Ignored on bar displays (bars always draw from zero),"
+            " on a logarithmic scale, and while showing percentages."
+        ),
+    )
 
 
 class TrendsQueryResponse(BaseModel):
