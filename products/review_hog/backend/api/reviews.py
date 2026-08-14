@@ -181,7 +181,7 @@ class ReviewRecentReviewSerializer(serializers.Serializer):
     )
     published = serializers.BooleanField(help_text="Whether a review has been published back to GitHub.")
     in_progress = serializers.BooleanField(
-        help_text="Whether a run is on this report right now — a review turn or a resolution run "
+        help_text="Whether a run is on this report right now: a review turn or a resolution run "
         "(activity within the last 30 minutes)."
     )
     progress = ReviewProgressSerializer(

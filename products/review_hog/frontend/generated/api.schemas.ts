@@ -174,7 +174,7 @@ export interface ReviewRecentReviewApi {
     last_run_at: string | null
     /** Whether a review has been published back to GitHub. */
     published: boolean
-    /** Whether a run is on this report right now — a review turn or a resolution run (activity within the last 30 minutes). */
+    /** Whether a run is on this report right now: a review turn or a resolution run (activity within the last 30 minutes). */
     in_progress: boolean
     /** The in-flight review turn's stage and counters; null unless a review turn is running (a resolving report carries `resolution` instead). */
     progress: ReviewProgressApi | null
@@ -389,7 +389,7 @@ export interface ReviewDetailApi {
     last_run_at: string | null
     /** Whether a review has been published back to GitHub. */
     published: boolean
-    /** Whether a run is on this report right now — a review turn or a resolution run (activity within the last 30 minutes). */
+    /** Whether a run is on this report right now: a review turn or a resolution run (activity within the last 30 minutes). */
     in_progress: boolean
     /** The in-flight review turn's stage and counters; null unless a review turn is running (a resolving report carries `resolution` instead). */
     progress: ReviewProgressApi | null
