@@ -72,9 +72,9 @@ export interface scannerDigestLogicValues {
     promotableSummaries: VisionActionApi[]
     promoting: boolean
     runInProgress: boolean
-    runningNow: boolean
     runPreview: RunPreviewResponseApi | null
     runPreviewLoading: boolean
+    runningNow: boolean
     selectedTierCap: number
     shouldPoll: boolean
     summarizingPeriod: boolean
@@ -127,9 +127,6 @@ export interface scannerDigestLogicActions {
     openPeriodModal: () => {
         value: true
     }
-    setCoverageTier: (tier: CoverageTierKey) => {
-        tier: CoverageTierKey
-    }
     promoteDigest: (actionId: string) => {
         actionId: string
     }
@@ -144,6 +141,9 @@ export interface scannerDigestLogicActions {
     }
     runNowDone: () => {
         value: true
+    }
+    setCoverageTier: (tier: CoverageTierKey) => {
+        tier: CoverageTierKey
     }
     setPeriodRange: (
         dateFrom: string | null,
@@ -172,8 +172,8 @@ export interface scannerDigestLogicMeta {
     __keaTypeGenInternalSelectorTypes: {
         digest: (visionActions: VisionActionApi[]) => VisionActionApi | null
         promotableSummaries: (visionActions: VisionActionApi[]) => VisionActionApi[]
-        selectedTierCap: (runPreview: RunPreviewResponseApi | null, coverageTier: CoverageTierKey) => number
         shouldPoll: (runInProgress: boolean, pollUntil: number) => boolean
+        selectedTierCap: (runPreview: RunPreviewResponseApi | null, coverageTier: CoverageTierKey) => number
     }
 }
 
