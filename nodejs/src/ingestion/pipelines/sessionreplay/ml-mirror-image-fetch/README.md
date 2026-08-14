@@ -39,6 +39,7 @@ domain's partition.
 | Pass deadline                           | one pass                                          | 20 seconds |
 | Pass wall time, worst case              | one pass                                          | 30 seconds |
 | Domains tracked                         | pod                                               | 20000      |
+| Crawl history entry                     | one URL, one team                                 | 30 days    |
 
 Every back queue runs at the same time. This is how the pod reaches its limit rather than a
 fairness rule: one domain holds at most 6 requests, so about 50 domains must be active together to
@@ -84,7 +85,8 @@ Each of these is numbered so a test can name the one it covers.
 11. Every message carries a hop budget. A republish and a retry each spend one. A redirect that
     stays on the same domain is bounded separately, by the redirect limit of one fetch, so a chain
     is bounded by the two limits together rather than by the budget alone.
-12. When the budget reaches zero, the lane writes the crawl history and stops.
+12. A URL can spend its whole hop budget without an answer. The lane then makes no further attempt
+    on it, and writes it to the crawl history under rule 24.
 13. Only a transient failure spends a hop on a retry: a timeout, a connection error, HTTP 429, HTTP
     503, or a refusal by the host budget. HTTP 404 and HTTP 403 are answers.
 14. A retry is a publish to a delay topic. The lane does not sleep and try again in place.
@@ -107,7 +109,9 @@ Each of these is numbered so a test can name the one it covers.
 23. A message that does not parse is counted and dropped. There is no dead letter topic: the lane
     cannot record what it cannot read, and replaying it helps nobody until the format disagreement
     is fixed.
-24. A URL the lane gives up on goes into the crawl history, so it does not come back.
+24. The lane writes a URL to the crawl history when it has an answer for that URL. An answer is a
+    fetched image, a refusal such as a 404 or a 403, or a hop budget the URL spent in full. The lane
+    does not fetch that URL again while the entry lives.
 
 **Keeping one record uncommitted means restarting the pod.** Kafka commits one offset for each
 partition, and that offset is a high water mark. Committing it commits every record below it, so a
