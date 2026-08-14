@@ -895,26 +895,6 @@ _RELATIONSHIP_PROPOSALS_DESCRIPTION = (
 )
 
 
-def _references_denied_table(referenced_table_names: Optional[list[str]], denied: set[str]) -> bool:
-    """Whether any of a metric's referenced tables is in the caller's denied set.
-
-    `referenced_table_names` stores the surface identifier the author typed (bare `charges` or dotted
-    `stripe.charges`, any case), while `_denied_tables` holds a mix of bare names, lowercased
-    qualified warehouse keys, and `system.<name>`. Match case-insensitively and by leaf so a
-    qualified reference to a bare-denied table (or the reverse) still trips the denial — err toward
-    hiding rather than leaking a metric whose source the caller cannot read.
-    """
-    if not denied or not referenced_table_names:
-        return False
-    denied_norm = {name.lower() for name in denied}
-    denied_norm |= {name.rsplit(".", 1)[-1] for name in denied_norm}
-    for name in referenced_table_names:
-        normalized = name.lower()
-        if normalized in denied_norm or normalized.rsplit(".", 1)[-1] in denied_norm:
-            return True
-    return False
-
-
 def _can_read_catalog(context: "HogQLContext") -> bool:
     """Whether the caller has data_catalog read access, mirroring the REST viewset's resource gate.
 
@@ -943,7 +923,7 @@ def _catalog_metrics(context: "HogQLContext", allowed: Optional[frozenset[str]])
         return []
     # Deferred + facade-only imports: keep the product's (heavy) query-runner deps off this schema
     # module's import path, and respect the data_catalog isolation boundary.
-    from products.data_catalog.backend.facade.api import compute_drift  # noqa: PLC0415
+    from products.data_catalog.backend.facade.api import compute_drift, references_denied_table  # noqa: PLC0415
     from products.data_catalog.backend.facade.models import Metric  # noqa: PLC0415
 
     try:
@@ -957,7 +937,7 @@ def _catalog_metrics(context: "HogQLContext", allowed: Optional[frozenset[str]])
         drift = compute_drift(metrics)
         rows: list[list[Any]] = []
         for metric in metrics:
-            if _references_denied_table(metric.referenced_table_names, denied):
+            if references_denied_table(metric.referenced_table_names, denied):
                 continue
             rows.append(
                 [
@@ -1044,8 +1024,11 @@ def _catalog_certifications(context: "HogQLContext", allowed: Optional[frozenset
 
 
 def _catalog_table_visible(context: "HogQLContext", table_name: str) -> bool:
+    # Deferred + facade-only, as in _catalog_metrics: keep the product off this module's import path.
+    from products.data_catalog.backend.facade.api import references_denied_table  # noqa: PLC0415
+
     database = context.database
-    if database is None or _references_denied_table([table_name], database._denied_tables):
+    if database is None or references_denied_table([table_name], database._denied_tables):
         return False
     try:
         return database.has_table(table_name) and database.get_table(table_name) is not None

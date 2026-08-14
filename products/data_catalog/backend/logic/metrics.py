@@ -36,6 +36,7 @@ from .analytics import (
 from .drift import canonical_query_hash, compute_drift, effective_insight_query, fetch_insight
 from .exceptions import MetricDrifted, SourceInsightUnavailable
 from .validation import validate_description, validate_metric_definition
+from .visibility import references_denied_table
 
 if TYPE_CHECKING:
     from rest_framework.request import Request
@@ -392,7 +393,9 @@ def metrics_for_team(team: Team) -> QuerySet[Metric]:
     return Metric.objects.for_team(team.id).filter(deleted=False).order_by("-created_at")
 
 
-def approved_metric_names_for_team(team: Team, user: Optional[User]) -> list[str]:
+def approved_metric_names_for_team(
+    team: Team, user: Optional[User], *, denied_tables: Optional[set[str]] = None
+) -> list[str]:
     """Names of the team's approved, non-drifted metrics, sorted, as the given caller may see them.
 
     Team scoping alone would be broader than the `system.information_schema.metrics` read this
@@ -400,13 +403,27 @@ def approved_metric_names_for_team(team: Team, user: Optional[User]) -> list[str
     access, so a caller denied the resource must not receive the names here either. A ``user`` of
     None is a trusted system/agent caller, as in ``_require_insight_viewer_access``.
 
-    Definitions are deliberately not part of the result, so the per-metric denied-table filtering the
-    information_schema loader applies has nothing to hide here.
+    ``denied_tables`` is the caller's ``HogQLDatabase._denied_tables``. Pass it whenever the caller
+    has a database to hand: the same metrics that loader hides are hidden here, so the two surfaces
+    cannot disagree about which metrics a caller may know exist. ``None`` means the caller has no
+    database context and applies no table filter, which is only safe for a trusted system caller.
+
+    Only the columns this needs are loaded. The listing is names, so a large catalog must not drag
+    every description, definition and reasoning blob out of Postgres on a hot path.
     """
     if user is not None and not UserAccessControl(user=user, team=team).check_access_level_for_resource(
         "data_catalog", "viewer"
     ):
         return []
-    approved = list(metrics_for_team(team).filter(status=MetricStatus.APPROVED).order_by("name"))
+    approved = list(
+        metrics_for_team(team)
+        .filter(status=MetricStatus.APPROVED)
+        .only("id", "name", "team_id", "referenced_table_names", "source_insight_short_id", "source_insight_query_hash")
+        .order_by("name")
+    )
+    if denied_tables:
+        approved = [
+            metric for metric in approved if not references_denied_table(metric.referenced_table_names, denied_tables)
+        ]
     drifted = compute_drift(approved)
     return [metric.name for metric in approved if not drifted[metric.id]]

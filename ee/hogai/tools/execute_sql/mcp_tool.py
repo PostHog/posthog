@@ -142,7 +142,10 @@ class ExecuteSQLMCPTool(HogQLOutputParserMixin, MCPTool[ExecuteSQLMCPToolArgs]):
     def _approved_metric_names(self, query: str) -> list[str]:
         if _only_reads_information_schema(query) or not is_data_catalog_enabled(self._team):
             return []
-        return approved_metric_names_for_team(self._team, self._user)
+        # The caller's denied tables, so this listing hides exactly what the caller's own
+        # `system.information_schema.metrics` query hides. Validation already built and memoized
+        # this database, so reading it back costs nothing.
+        return approved_metric_names_for_team(self._team, self._user, denied_tables=self._get_database()._denied_tables)
 
     async def _maybe_unknown_table_suggestion(self, validation_message: str) -> str | None:
         """When a query fails on an unknown table, say where that table actually is.

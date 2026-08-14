@@ -26,6 +26,7 @@ from ..logic.metrics import (
 )
 from ..logic.relationships import accept_proposal, propose_relationship, reject_proposal, relationships_for_team
 from ..logic.validation import validate_metric_definition
+from ..logic.visibility import references_denied_table
 from .models import Metric, RelationshipProposal, TableCertification
 
 __all__ = [
@@ -42,6 +43,7 @@ __all__ = [
     "metrics_for_team",
     "propose_certification",
     "propose_relationship",
+    "references_denied_table",
     "refresh_metric_from_insight",
     "reject_proposal",
     "relationships_for_team",

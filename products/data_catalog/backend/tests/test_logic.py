@@ -534,6 +534,33 @@ class TestApprovedMetricSummaries(BaseTest):
 
         assert approved_metric_names_for_team(self.team, self.user) == ["mrr"]
 
+    @parameterized.expand(
+        [
+            ("bare_name", {"charges"}),
+            ("qualified_name", {"stripe.charges"}),
+            ("different_case", {"Charges"}),
+        ]
+    )
+    def test_a_metric_on_a_denied_table_is_withheld(self, _name: str, denied: set[str]) -> None:
+        # The same metric `system.information_schema.metrics` hides from this caller. If the two
+        # surfaces disagree, the listing leaks the name of a metric the caller cannot query.
+        on_denied_table = upsert_metric(
+            team=self.team,
+            user=self.user,
+            name="revenue_from_charges",
+            description="d",
+            definition={"kind": "HogQLQuery", "query": "select count() from events"},
+        )
+        Metric.objects.for_team(self.team.id).filter(pk=on_denied_table.pk).update(
+            referenced_table_names=["stripe.charges"]
+        )
+        approve_metric(on_denied_table, self.user)
+        elsewhere = upsert_metric(team=self.team, user=self.user, name="mrr", description="d", definition=_HOGQL_A)
+        approve_metric(elsewhere, self.user)
+
+        assert approved_metric_names_for_team(self.team, self.user, denied_tables=denied) == ["mrr"]
+        assert approved_metric_names_for_team(self.team, self.user) == ["mrr", "revenue_from_charges"]
+
     def test_names_are_withheld_from_a_caller_without_data_catalog_access(self) -> None:
         approved = upsert_metric(team=self.team, user=self.user, name="mrr", description="d", definition=_HOGQL_A)
         approve_metric(approved, self.user)

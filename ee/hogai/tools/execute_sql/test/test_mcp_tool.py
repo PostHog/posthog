@@ -11,6 +11,7 @@ from posthog.schema import HogQLNotice, HogQLQuery
 from posthog.models import EventDefinition
 
 from products.data_catalog.backend.facade.api import approve_metric, upsert_metric
+from products.data_catalog.backend.facade.models import Metric
 from products.product_analytics.backend.models.insight import Insight
 
 from ee.hogai.tool_errors import MaxToolRetryableError
@@ -21,6 +22,10 @@ from ee.hogai.tools.execute_sql.mcp_tool import (
     _prepend_taxonomy_warnings,
     _sanitize_warning_line,
 )
+
+
+def _put_metric_on_table(team_id: int, name: str, table: str) -> None:
+    Metric.objects.for_team(team_id).filter(name=name).update(referenced_table_names=[table])
 
 
 class TestExecuteSQLMCPTool(ClickhouseTestMixin, NonAtomicBaseTest):
@@ -241,6 +246,23 @@ class TestExecuteSQLMCPTool(ClickhouseTestMixin, NonAtomicBaseTest):
             return_value=catalog_enabled,
         ):
             content = await self.tool.execute(ExecuteSQLMCPToolArgs(query=query))
+
+        self.assertNotIn("canonical_metrics", content)
+
+    async def test_a_metric_on_a_table_the_caller_is_denied_is_not_listed(self):
+        # End to end: the listing must hide what this caller's own information_schema.metrics query
+        # hides, so the tool has to reach the denied set the validation database already computed.
+        await self._approve_mrr_metric()
+        await sync_to_async(_put_metric_on_table)(self.team.id, "mrr", "stripe.charges")
+        _create_event(team=self.team, distinct_id="user1", event="test_event")
+
+        # Seed the denial on the real database the tool builds and memoizes, rather than faking one:
+        # validation resolves tables through that same instance.
+        database = await sync_to_async(self.tool._get_database)()
+        database._denied_tables.add("stripe.charges")
+
+        with patch("ee.hogai.tools.execute_sql.mcp_tool.is_data_catalog_enabled", return_value=True):
+            content = await self.tool.execute(ExecuteSQLMCPToolArgs(query="SELECT count() FROM events"))
 
         self.assertNotIn("canonical_metrics", content)
 
