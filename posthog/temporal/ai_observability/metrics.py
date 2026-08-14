@@ -31,7 +31,6 @@ EVAL_ACTIVITY_TYPES = {
     "emit_evaluation_event_activity",
     "emit_internal_telemetry_activity",
     "update_key_state_activity",
-    "emit_eval_signal_activity",
     # check_trace_settled_activity is deliberately excluded: its expected trace_not_settled
     # failures would otherwise count as activity errors.
 }
@@ -131,13 +130,6 @@ def increment_settle_poll(outcome: str, target: str = "trace") -> None:
         return
     meter = get_metric_meter({"outcome": outcome, "target": target})
     counter = meter.create_counter("llma_eval_settle_polls", "Settle poll outcomes")
-    counter.add(1)
-
-
-def increment_eval_signal_outcome(outcome: str) -> None:
-    """Track eval signal activity outcomes (skipped_config_disabled, skipped_org_not_approved, skipped_low_significance, emitted, summarization_failed)."""
-    meter = get_metric_meter({"outcome": outcome})
-    counter = meter.create_counter("llma_eval_signal_outcome", "Eval signal activity outcome distribution")
     counter.add(1)
 
 

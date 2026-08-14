@@ -50860,7 +50860,6 @@ export namespace Schemas {
 
     /**
      * * `session_analysis_cluster` - Session analysis cluster
-     * * `evaluation` - Evaluation
      * * `evaluation_report` - Evaluation report
      * * `issue` - Issue
      * * `ticket` - Ticket
@@ -50883,7 +50882,6 @@ export namespace Schemas {
 
     export const SignalSourceConfigSourceTypeEnum = {
       SessionAnalysisCluster: 'session_analysis_cluster',
-      Evaluation: 'evaluation',
       EvaluationReport: 'evaluation_report',
       Issue: 'issue',
       Ticket: 'ticket',
