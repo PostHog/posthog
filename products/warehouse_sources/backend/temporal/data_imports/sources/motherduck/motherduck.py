@@ -94,18 +94,11 @@ MOTHERDUCK_ERROR_CLASSES = {
 # Rows materialized per Arrow batch. Bounds resident memory: DuckDB shares this process.
 DEFAULT_MOTHERDUCK_FETCH_SIZE = 5_000
 
-# Everything DuckDB persists on disk goes under one writable base. The worker's real home
-# (`~/.duckdb`) is unwritable in a locked-down container, and opening an `md:` connection
-# auto-installs the `motherduck` extension, which otherwise tries to create `~/.duckdb` and
-# fails with `IOException: Failed to create directory "/root/.duckdb": Permission denied`.
 _DUCKDB_HOME = os.path.join(tempfile.gettempdir(), "posthog-duckdb-home")
 
-# DuckDB otherwise sizes itself against the whole host (80% of RAM, one thread per core), which is
-# the wrong budget for a library sharing a worker with the rest of the import pipeline.
-#
-# `home_directory` on its own is not enough: it does not move the extension and secret stores,
-# which default to `~/.duckdb/extensions` and `~/.duckdb/stored_secrets`. Those get their own
-# explicit overrides so extension autoload never touches the real home.
+# DuckDB otherwise sizes itself against the whole host, the wrong budget for a library sharing this
+# worker. The extension and secret stores need their own overrides: `home_directory` doesn't move
+# them, so extension autoload would try to create the unwritable `~/.duckdb` in the worker.
 DUCKDB_LOCAL_CONFIG: dict[str, Any] = {
     "memory_limit": "2GB",
     "threads": 2,
@@ -148,8 +141,6 @@ def connect(access_token: str, database: Optional[str] = None, *, read_only: boo
     write statement engine-side regardless of what the token is granted.
     """
     connection_string = build_motherduck_connection_string(database, access_token)
-    # Make sure the writable base exists before DuckDB reaches for it; extension autoload runs as
-    # the connection opens, and a missing parent turns into the same directory-creation failure.
     os.makedirs(_DUCKDB_HOME, exist_ok=True)
     log_connection_open(db_host=MOTHERDUCK_SERVICE_HOST, via="vendor_https")
     try:

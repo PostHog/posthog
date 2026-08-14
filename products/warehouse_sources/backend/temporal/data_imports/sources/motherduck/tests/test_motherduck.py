@@ -177,10 +177,8 @@ class TestMotherDuck:
         mock_connect.return_value.execute.assert_not_called()
 
     def test_connect_redirects_extension_and_secret_storage_off_the_home_directory(self):
-        # Regression: DuckDB defaults extension/secrets storage to `~/.duckdb` and `home_directory`
-        # alone does not move it, which raised `IOException: Failed to create directory
-        # "/root/.duckdb": Permission denied` in a worker container where the real home isn't
-        # writable. The extension and secret stores need their own explicit overrides.
+        # Regression: `home_directory` alone leaves extension/secret storage at `~/.duckdb`, which
+        # raised `Failed to create directory "/root/.duckdb": Permission denied` in the worker.
         for key in ("home_directory", "extension_directory", "secret_directory"):
             directory = DUCKDB_LOCAL_CONFIG[key]
             os.makedirs(directory, exist_ok=True)
