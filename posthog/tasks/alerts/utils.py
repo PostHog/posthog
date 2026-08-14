@@ -144,7 +144,11 @@ def next_check_at_after_schedule_restriction_change(alert: AlertConfiguration) -
 
 
 def trigger_alert_hog_functions(alert: AlertConfiguration, properties: dict) -> list[AlertDelivery]:
-    """Trigger all HogFunctions linked to the alert as notification destinations by producing an internal event."""
+    """Trigger all HogFunctions linked to the alert as notification destinations by producing an internal event.
+
+    Empty means nothing was accepted, which includes having no destinations configured —
+    so a caller branching on truthiness must have counted with the same allowed_event_ids.
+    """
 
     logger.info(
         "Triggering internal event for alert destinations/hog functions",
