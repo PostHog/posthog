@@ -13,9 +13,17 @@ on:
     push:
         branches:
             - master
+    schedule:
+        - cron: '17 3,15 * * *' # Twice daily, offset from common hour boundaries
+    workflow_dispatch:
+        inputs:
+            test_drift_notification:
+                description: 'Send a test drift notification after the sweep'
+                type: boolean
+                default: false
 
 concurrency:
-    group: ${{ github.workflow }}-${{ github.head_ref || github.ref }}
+    group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.head_ref || github.ref }}
     cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 permissions:
@@ -50,7 +58,7 @@ jobs:
             # diff the filter reports, so it fires even when the PR also has code changes.
             frontend: >-
                 ${{
-                    github.event_name == 'push'
+                    github.event_name != 'pull_request'
                     || (steps.filter.outputs.frontend == 'true'
                         && steps.exclude.outputs.outside_node_product_workspaces == 'true'
                         && fromJSON(steps.filter.outputs.frontend_count || '0')
@@ -83,7 +91,7 @@ jobs:
                   private-key: ${{ secrets.GH_APP_POSTHOG_PATHS_FILTER_PRIVATE_KEY }}
             - uses: ./.github/actions/paths-filter
               id: filter
-              if: github.event_name != 'push' # Run all tests on master push
+              if: github.event_name == 'pull_request' # Only PRs need path filtering
               with:
                   token: ${{ steps.app-token.outputs.token || github.token }}
                   filters: |
@@ -149,11 +157,11 @@ jobs:
             # above is inline YAML — paths-filter takes one or the other. The exclude-only
             # filter is true only when some changed file lives OUTSIDE every excluded dir.
             - name: Derive Node-only product workspace exclusions
-              if: github.event_name != 'push'
+              if: github.event_name == 'pull_request'
               run: bin/frontend-exclude-filter > "$RUNNER_TEMP/frontend-exclude.yml"
             - uses: ./.github/actions/paths-filter
               id: exclude
-              if: github.event_name != 'push'
+              if: github.event_name == 'pull_request'
               with:
                   token: ${{ steps.app-token.outputs.token || github.token }}
                   filters: ${{ runner.temp }}/frontend-exclude.yml
@@ -306,7 +314,7 @@ jobs:
             && needs.changes.outputs.frontend == 'true'
             && needs.build-storybook.result == 'success'
             && needs.select-stories.outputs.should_run != 'false'
-            && (github.event.pull_request.head.repo.full_name == github.repository || github.event_name == 'push')
+            && (github.event.pull_request.head.repo.full_name == github.repository || github.event_name != 'pull_request')
         outputs:
             run_id: ${{ steps.create.outputs.run_id }}
         steps:
@@ -362,13 +370,13 @@ jobs:
                   VR_BRANCH: ${{ github.event.pull_request.head.ref || github.ref_name }}
                   VR_COMMIT: ${{ github.event.pull_request.head.sha || github.sha }}
                   VR_PR: ${{ github.event.pull_request.number }}
-                  # PRs are gating ("review"); master pushes are tracking-only ("observe") since
-                  # there's no PR to approve and we don't want master runs to block or prompt for approval.
+                  # PRs are gating ("review"); non-PR runs are tracking-only ("observe") since
+                  # there's no PR to approve or update the baseline from.
                   # trunk-merge/** is observe for the same reason: the queue's PR is ephemeral, so a
                   # diff there has no reviewer and no approval path. Master baseline drift would
                   # otherwise block every PR behind it on a diff none of their authors can resolve.
                   # The run is still created, so merge-time drift stays visible in Visual Review.
-                  VR_PURPOSE: ${{ (github.event_name == 'push' || needs.changes.outputs.merge_queue == 'true') && 'observe' || 'review' }}
+                  VR_PURPOSE: ${{ (github.event_name != 'pull_request' || needs.changes.outputs.merge_queue == 'true') && 'observe' || 'review' }}
                   # Selective storybook runs only render a subset of stories. Without --partial,
                   # VR would flag every untouched baseline identifier as removed.
                   VR_PARTIAL: ${{ needs.select-stories.outputs.mode == 'selective' && '--partial' || '' }}
@@ -735,6 +743,8 @@ jobs:
         runs-on: ubuntu-latest
         timeout-minutes: 15
         needs: [changes, visual-regression, vr-setup]
+        outputs:
+            drift: ${{ steps.complete.outputs.drift }}
         # Intentional always(), not !cancelled(): this job finalizes external state,
         # so a run cancelled after the matrix succeeded must still complete the VR
         # run rather than leave its commit status stuck pending. It also stops the
@@ -788,10 +798,11 @@ jobs:
               run: cd vr-cli/products/visual_review/cli && npm ci && npm run build
 
             - name: Complete Visual Review run
+              id: complete
               env:
                   VR_TOKEN: ${{ secrets.VR_API_TOKEN }}
-                  # Master pushes and merge-queue branches create the run with --purpose observe
-                  # (tracking-only), because neither has a PR whose reviewer could approve a diff.
+                  # Master pushes and merge-queue branches observe drift without gating.
+                  # Scheduled and manual sweeps also observe, but fail so their drift is loud.
                   VR_OBSERVE: ${{ github.event_name == 'push' || needs.changes.outputs.merge_queue == 'true' }}
               run: |
                   status=0
@@ -803,11 +814,82 @@ jobs:
                   # `vr run complete` exits 1 for unresolved visual changes and 2 when the CLI
                   # itself failed (auth, network, timeout, backend processing). Only the former
                   # is expected on an observe run, so exit 2 still reds CI everywhere.
+                  echo "drift=$([ "$status" -eq 1 ] && echo true || echo false)" >> "$GITHUB_OUTPUT"
                   if [ "$status" -eq 1 ] && [ "$VR_OBSERVE" = 'true' ]; then
                       echo "Observe run: visual changes recorded, not gating."
                       exit 0
                   fi
                   exit "$status"
+
+    notify-sweep-drift:
+        name: Notify likely authors of visual drift
+        needs: [vr-complete]
+        runs-on: ubuntu-latest
+        timeout-minutes: 5
+        if: >-
+            always()
+            && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch')
+            && (needs.vr-complete.outputs.drift == 'true' || inputs.test_drift_notification == true)
+        steps:
+            - name: Find likely authors and notify Slack
+              uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8.0.0
+              env:
+                  SLACK_BOT_TOKEN: ${{ secrets.SLACK_DEVEX_BOT_TOKEN }}
+                  SLACK_CHANNEL: 'C09ADEV3AJD'
+                  IS_TEST: ${{ inputs.test_drift_notification == true }}
+              with:
+                  script: |
+                      const since = new Date(Date.now() - 13 * 60 * 60 * 1000).toISOString()
+                      const commits = await github.paginate(github.rest.repos.listCommits, {
+                        ...context.repo,
+                        sha: 'master',
+                        since,
+                        per_page: 100,
+                      })
+                      const authors = new Set()
+                      for (const commit of commits) {
+                        const login = commit.author?.login
+                        if (!login || commit.author?.type === 'Bot') continue
+                        authors.add(login)
+                      }
+
+                      const notify = []
+                      for (const login of authors) {
+                        const { data: user } = await github.rest.users.getByUsername({ username: login })
+                        const email = user.email || ''
+                        if (email && !email.endsWith('@users.noreply.github.com')) {
+                          const lookup = await fetch('https://slack.com/api/users.lookupByEmail', {
+                            method: 'POST',
+                            headers: {
+                              authorization: `Bearer ${process.env.SLACK_BOT_TOKEN}`,
+                              'content-type': 'application/x-www-form-urlencoded',
+                            },
+                            body: new URLSearchParams({ email }),
+                          }).then((response) => response.json())
+                          if (lookup.ok) {
+                            notify.push(`<@${lookup.user.id}>`)
+                            continue
+                          }
+                        }
+                        notify.push(`<https://github.com/${login}|@${login}>`)
+                      }
+
+                      const testPrefix = process.env.IS_TEST === 'true' ? 'Test alert: ' : ''
+                      const runUrl = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`
+                      const likelyAuthors = notify.length ? notify.join(' ') : 'No recent human commit authors found.'
+                      const response = await fetch('https://slack.com/api/chat.postMessage', {
+                        method: 'POST',
+                        headers: {
+                          authorization: `Bearer ${process.env.SLACK_BOT_TOKEN}`,
+                          'content-type': 'application/json; charset=utf-8',
+                        },
+                        body: JSON.stringify({
+                          channel: process.env.SLACK_CHANNEL,
+                          text: `🤖 ${testPrefix}the Storybook full sweep found visual drift. ${runUrl}\nLikely authors from recent master commits: ${likelyAuthors}`,
+                          unfurl_links: false,
+                        }),
+                      }).then((result) => result.json())
+                      if (!response.ok) core.setFailed(`Slack notification failed: ${response.error}`)
 
     calculate-running-time:
         name: Calculate running time
