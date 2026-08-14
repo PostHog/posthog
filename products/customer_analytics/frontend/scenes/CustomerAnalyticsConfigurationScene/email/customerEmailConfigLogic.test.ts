@@ -120,6 +120,39 @@ describe('customerEmailConfigLogic', () => {
         expect(logic.values.verificationAwaitingChannelIds).toEqual([])
     })
 
+    it('does not overlap status refreshes', async () => {
+        let runPoll = (): void => {}
+        jest.spyOn(window, 'setInterval').mockImplementation((handler: TimerHandler): number => {
+            if (typeof handler === 'function') {
+                runPoll = handler
+            }
+            return 1
+        })
+        getSpy.mockResolvedValue({ configs: [channel] })
+        createSpy.mockResolvedValue({ ok: true })
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+        logic.actions.verifyForwarding(channel.id)
+        await expectLogic(logic).toFinishAllListeners()
+
+        const completedRequestCount = getSpy.mock.calls.length
+        let resolveRefresh!: (value: { configs: CustomerEmailChannel[] }) => void
+        getSpy.mockReturnValueOnce(
+            new Promise<{ configs: CustomerEmailChannel[] }>((resolve) => {
+                resolveRefresh = resolve
+            })
+        )
+        logic.actions.loadChannels(false)
+
+        expect(logic.values.channelsLoading).toBe(true)
+        runPoll()
+        expect(getSpy).toHaveBeenCalledTimes(completedRequestCount + 1)
+
+        resolveRefresh({ configs: [channel] })
+        await expectLogic(logic).toFinishAllListeners()
+        expect(logic.values.channelsLoading).toBe(false)
+    })
+
     it('resets verification loading when sending the challenge fails', async () => {
         getSpy.mockResolvedValue({ configs: [channel] })
         createSpy.mockRejectedValue(new Error('queue unavailable'))

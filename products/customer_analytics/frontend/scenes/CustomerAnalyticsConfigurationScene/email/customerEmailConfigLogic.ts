@@ -323,6 +323,9 @@ export const customerEmailConfigLogic = kea<customerEmailConfigLogicType>([
                 let pollAttempts = 0
                 cache.disposables.add(() => {
                     const intervalId = window.setInterval(() => {
+                        if (values.channelsLoading) {
+                            return
+                        }
                         pollAttempts += 1
                         if (pollAttempts > FORWARDING_VERIFICATION_POLL_ATTEMPTS) {
                             cache.disposables.dispose(forwardingVerificationPollKey(channelId))
