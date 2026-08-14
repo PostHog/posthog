@@ -185,18 +185,17 @@ class Organization(ModelActivityMixin, UUIDTModel):
         BAYESIAN = "bayesian", "Bayesian"
         FREQUENTIST = "frequentist", "Frequentist"
 
-    class DeactivationReason:
-        """Canonical `is_not_active_reason` values for tooling-driven deactivations.
-
-        The field is otherwise free text shown to users, but naming the known causes keeps them
-        machine-distinguishable — e.g. a Desktop-abuse block vs. a finance unpaid-invoice block —
-        so one cause can be acted on without catching the others. The deactivation gates
-        themselves key only on `is_active`, so setting one of these is what marks *why*.
-        """
-
+    class DeactivationReason(models.TextChoices):
+        UNPAID_BALANCE = "Access revoked due to unpaid balance.", "Unpaid balance"
+        COMPLIANCE_REVIEW = "Access disabled for compliance review.", "Compliance review"
+        TERMS_OF_SERVICE_VIOLATION = (
+            "Access revoked due to terms of service violation.",
+            "Terms of service violation",
+        )
         DESKTOP_ABUSE = (
             "Your organization has been deactivated for suspected PostHog Desktop abuse. "
-            "Contact PostHog support if you think this is a mistake."
+            "Contact PostHog support if you think this is a mistake.",
+            "Desktop abuse",
         )
 
     members = models.ManyToManyField(
