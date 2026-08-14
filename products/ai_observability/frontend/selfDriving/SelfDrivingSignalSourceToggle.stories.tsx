@@ -9,34 +9,40 @@ export default meta
 
 const render = (args: SelfDrivingSignalSourceToggleProps): JSX.Element => <SelfDrivingSignalSourceToggle {...args} />
 
+const evalReportsArgs: SelfDrivingSignalSourceToggleProps = {
+    sourceName: 'AI observability',
+    signalNoun: 'evaluation report',
+    enabled: true,
+    toggling: false,
+    onChange: () => {},
+    'data-attr': 'self-driving-signal-source-story',
+}
+
 export const On: StoryObj<SelfDrivingSignalSourceToggleProps> = {
     render,
-    args: {
-        sourceName: 'AI observability',
-        signalNoun: 'evaluation report',
-        enabled: true,
-        toggling: false,
-        onChange: () => {},
-        'data-attr': 'self-driving-signal-source-story',
-    },
+    args: evalReportsArgs,
 }
 
 export const Off: StoryObj<SelfDrivingSignalSourceToggleProps> = {
     render,
     args: {
-        ...On.args,
+        ...evalReportsArgs,
         sourceName: 'Product analytics',
         signalNoun: 'anomaly investigation',
         enabled: false,
-    } as SelfDrivingSignalSourceToggleProps,
+    },
 }
 
 export const Toggling: StoryObj<SelfDrivingSignalSourceToggleProps> = {
     render,
-    args: { ...On.args, toggling: true } as SelfDrivingSignalSourceToggleProps,
+    args: { ...evalReportsArgs, toggling: true },
+    // The switch keeps a spinner while the write is in flight, which never settles in a story.
+    parameters: { testOptions: { waitForLoadersToDisappear: false } },
 }
 
 export const Loading: StoryObj<SelfDrivingSignalSourceToggleProps> = {
     render,
-    args: { ...On.args, enabled: null } as SelfDrivingSignalSourceToggleProps,
+    args: { ...evalReportsArgs, enabled: null },
+    // Same for the skeleton the switch shows until the signal source configs resolve.
+    parameters: { testOptions: { waitForLoadersToDisappear: false } },
 }
