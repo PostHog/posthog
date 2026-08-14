@@ -229,7 +229,7 @@ class TestPullRequestEndpointMapping(BaseTest):
             0,
             0,
             0,
-            [],
+            list[str](),
             0,
             0,
         )

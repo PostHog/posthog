@@ -64,12 +64,12 @@ def test_classify_states(
     master_hits: int,
     queue_hits: int,
     pr_hits: int,
-    age_hours: float,
-    span_hours: float,
+    age_hours: int,
+    span_hours: int,
     branches: int,
     latest_conclusion: str | None,
-    last_master_hit_age: float,
-    latest_completed_age: float | None,
+    last_master_hit_age: int,
+    latest_completed_age: int | None,
     expected: BrokenTestState,
 ) -> None:
     assert (
