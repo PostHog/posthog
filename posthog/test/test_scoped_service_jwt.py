@@ -1,3 +1,5 @@
+import json
+import base64
 from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
 from typing import Any, cast
@@ -36,9 +38,24 @@ class FleetScopedAuthentication(ScopedServiceJWTAuthentication):
     require_team = False
 
 
-def _raw_token(key: str, claims: dict, audience: str = PosthogJwtAudience.RECORDING_API.value) -> str:
+def _raw_token(
+    key: str, claims: dict, audience: str = PosthogJwtAudience.RECORDING_API.value, algorithm: str = "HS256"
+) -> str:
     payload = {"aud": audience, "exp": datetime.now(tz=UTC) + timedelta(minutes=5), **claims}
-    return pyjwt.encode(payload, key, algorithm="HS256")
+    return pyjwt.encode(payload, key, algorithm=algorithm)
+
+
+def _b64url(segment: dict) -> str:
+    return base64.urlsafe_b64encode(json.dumps(segment).encode()).rstrip(b"=").decode()
+
+
+# Assembled by hand because encoding alg=none through pyjwt would trip semgrep's none-alg audit
+# rules, and an attacker forging one would not use our signing helpers anyway.
+def _unsigned_alg_none_token(claims: dict, audience: str = PosthogJwtAudience.RECORDING_API.value) -> str:
+    exp = int((datetime.now(tz=UTC) + timedelta(minutes=5)).timestamp())
+    header = {"alg": "none", "typ": "JWT"}
+    payload = {"aud": audience, "exp": exp, **claims}
+    return f"{_b64url(header)}.{_b64url(payload)}."
 
 
 @override_settings(TEST_SCOPED_SERVICE_JWT_SECRET="new-key,old-key")
@@ -64,6 +81,16 @@ class TestScopedServiceJwtPurpose(APIBaseTest):
         token = OTHER_AUDIENCE_PURPOSE.mint({"team_id": 1})
         with pytest.raises(pyjwt.InvalidAudienceError):
             TEST_PURPOSE.verify(token)
+
+    @parameterized.expand(
+        [
+            ("alg_none_unsigned", lambda: _unsigned_alg_none_token({"team_id": 1})),
+            ("hs512_signed_with_correct_key", lambda: _raw_token("new-key", {"team_id": 1}, algorithm="HS512")),
+        ]
+    )
+    def test_tokens_not_signed_with_hs256_are_rejected(self, _name, make_token):
+        with pytest.raises(pyjwt.InvalidAlgorithmError):
+            TEST_PURPOSE.verify(make_token())
 
     @override_settings(TEST_SCOPED_SERVICE_JWT_SECRET=["list-new", "list-old"])
     def test_list_typed_settings_sign_with_first_and_verify_all(self):
