@@ -2918,7 +2918,9 @@ class HogFlowViewSet(
         hog_flow = self.get_object()
         try:
             batch_job = HogFlowBatchJob.objects.get(id=batch_job_id, hog_flow=hog_flow, team=self.team)
-        except HogFlowBatchJob.DoesNotExist:
+        except (HogFlowBatchJob.DoesNotExist, DjangoValidationError, ValueError):
+            # A non-UUID batch_job_id raises DjangoValidationError during query prep, before any
+            # SQL runs; surface it as 404 rather than a 500, matching internal_update_batch_job_status.
             raise exceptions.NotFound(f"Batch job {batch_job_id} not found")
 
         terminal = (

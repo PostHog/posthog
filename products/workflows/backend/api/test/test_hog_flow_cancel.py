@@ -146,3 +146,14 @@ class TestHogFlowCancelBatchJob(APIBaseTest):
 
         assert response.status_code == status.HTTP_404_NOT_FOUND
         mock_cancel.assert_not_called()
+
+    def test_cancel_malformed_batch_job_id_404s(self):
+        # A non-UUID id raises DjangoValidationError during query prep, before any SQL. Caught
+        # with DoesNotExist so it returns 404 rather than a 500 reported to error tracking.
+        with patch(CANCEL_PROXY) as mock_cancel:
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/hog_flows/{self.hog_flow.id}/batch_jobs/not-a-uuid/cancel/",
+            )
+
+        assert response.status_code == status.HTTP_404_NOT_FOUND
+        mock_cancel.assert_not_called()
