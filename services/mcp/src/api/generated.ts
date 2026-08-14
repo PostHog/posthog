@@ -9537,6 +9537,20 @@ export namespace Schemas {
       is_bot: boolean;
     }
 
+    /**
+     * * `project_setting` - project_setting
+     * * `local` - local
+     * * `unknown` - unknown
+     */
+    export type AutocaptureConfigurationEnum = typeof AutocaptureConfigurationEnum[keyof typeof AutocaptureConfigurationEnum];
+
+
+    export const AutocaptureConfigurationEnum = {
+      ProjectSetting: 'project_setting',
+      Local: 'local',
+      Unknown: 'unknown',
+    } as const;
+
     export type AutocompleteCompletionItemKind = typeof AutocompleteCompletionItemKind[keyof typeof AutocompleteCompletionItemKind];
 
 
@@ -25829,6 +25843,27 @@ export namespace Schemas {
       config?: ErrorTrackingListWidgetConfig;
     }
 
+    export interface ErrorTrackingObservedSDK {
+      /** SDK library observed on recent project events. */
+      library: string;
+      /**
+         * Number of recent events observed from this SDK library.
+         * @minimum 0
+         */
+      event_count: number;
+      /** Where exception autocapture is configured for this SDK.
+       *
+       * * `project_setting` - project_setting
+       * * `local` - local
+       * * `unknown` - unknown */
+      autocapture_configuration: AutocaptureConfigurationEnum;
+      /**
+         * SDK initialization option required for local exception autocapture, when known.
+         * @nullable
+         */
+      local_option: string | null;
+    }
+
     export interface ErrorTrackingRecommendation {
       /** Recommendation UUID. */
       id: string;
@@ -25951,6 +25986,60 @@ export namespace Schemas {
          * @nullable
          */
       per_issue_rate_limit_bucket_size_minutes?: number | null;
+    }
+
+    /**
+     * * `node_autocapture_requires_local_configuration` - node_autocapture_requires_local_configuration
+     */
+    export type WarningCodeEnum = typeof WarningCodeEnum[keyof typeof WarningCodeEnum];
+
+
+    export const WarningCodeEnum = {
+      NodeAutocaptureRequiresLocalConfiguration: 'node_autocapture_requires_local_configuration',
+    } as const;
+
+    export interface ErrorTrackingSetupWarning {
+      /** Stable identifier for the setup warning.
+       *
+       * * `node_autocapture_requires_local_configuration` - node_autocapture_requires_local_configuration */
+      warning_code: WarningCodeEnum;
+      /** Actionable explanation of the setup warning. */
+      message: string;
+    }
+
+    export interface ErrorTrackingSetupStatus {
+      /** Whether exception autocapture is enabled in the current project settings. */
+      project_autocapture_enabled: boolean;
+      /**
+         * Published exception autocapture value, or null when remote config is unavailable.
+         * @nullable
+         */
+      remote_config_autocapture_enabled: boolean | null;
+      /** Whether the project has any grouped error tracking issues. */
+      has_issues: boolean;
+      /** Whether recent event ingestion data was available for this diagnostic. */
+      recent_data_available: boolean;
+      /**
+         * Number of days covered by recent event and SDK observations.
+         * @minimum 1
+         */
+      recent_period_days: number;
+      /**
+         * Total events received during the recent period, or null when recent data is unavailable.
+         * @minimum 0
+         * @nullable
+         */
+      recent_event_count: number | null;
+      /**
+         * Exception events received during the recent period, or null when recent data is unavailable.
+         * @minimum 0
+         * @nullable
+         */
+      recent_exception_count: number | null;
+      /** SDK libraries observed on events during the recent period. */
+      observed_sdks: ErrorTrackingObservedSDK[];
+      /** Setup warnings supported by observed project data. */
+      warnings: ErrorTrackingSetupWarning[];
     }
 
     export interface ErrorTrackingSignalExtra {

@@ -48,6 +48,7 @@ import type {
     ErrorTrackingReleaseUpdateRequestApi,
     ErrorTrackingReleasesListParams,
     ErrorTrackingSettingsApi,
+    ErrorTrackingSetupStatusApi,
     ErrorTrackingSpikeDetectionConfigApi,
     ErrorTrackingSpikeEventsListParams,
     ErrorTrackingStackFrameApi,
@@ -1242,6 +1243,20 @@ export const errorTrackingSettingsRetrieveSettingsRetrieve = async (
     options?: RequestInit
 ): Promise<ErrorTrackingSettingsApi> => {
     return apiMutator<ErrorTrackingSettingsApi>(getErrorTrackingSettingsRetrieveSettingsRetrieveUrl(projectId), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getErrorTrackingSettingsSetupStatusRetrieveUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/error_tracking/settings/setup_status/`
+}
+
+export const errorTrackingSettingsSetupStatusRetrieve = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<ErrorTrackingSetupStatusApi> => {
+    return apiMutator<ErrorTrackingSetupStatusApi>(getErrorTrackingSettingsSetupStatusRetrieveUrl(projectId), {
         ...options,
         method: 'GET',
     })

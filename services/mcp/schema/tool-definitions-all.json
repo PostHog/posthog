@@ -3051,6 +3051,20 @@
             "readOnlyHint": false
         }
     },
+    "error-tracking-setup-status": {
+        "description": "Check whether the current project is configured for error tracking and receiving exception events. Returns the project autocapture setting, published remote config, grouped issue existence, recent event and exception counts, observed SDKs, and actionable warnings. Local SDK initialization cannot be observed directly, so use warnings and observed event data without claiming that a local option is enabled or disabled.",
+        "category": "Error tracking",
+        "feature": "error_tracking",
+        "summary": "Diagnose error tracking setup",
+        "title": "Diagnose error tracking setup",
+        "required_scopes": ["error_tracking:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
     "error-tracking-suppression-rules-create": {
         "description": "Create an error tracking suppression rule for the current project. WARNING: matching errors are suppressed indefinitely — dropped at ingestion and will not appear as issues until the rule is disabled or deleted. Scope `filters` tightly to the exact exception type, message, URL, or properties you want gone. Do NOT create match-all rules (omitting `filters`) or broad rules — they silently swallow unrelated errors and cause data loss that is hard to detect after the fact. If unsure, set `sampling_rate` below `1.0` so only a fraction of matches are dropped (e.g. `0.5` drops half) rather than all of them. Confirm with the user before creating any rule that could match more than one distinct error.",
         "category": "Error tracking",

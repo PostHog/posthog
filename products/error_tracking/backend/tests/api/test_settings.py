@@ -1,4 +1,5 @@
 from posthog.test.base import APIBaseTest
+from unittest.mock import patch
 
 from parameterized import parameterized
 from rest_framework import status
@@ -6,6 +7,7 @@ from rest_framework import status
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.utils import generate_random_token_personal, hash_key_value
 
+from products.error_tracking.backend.facade import contracts
 from products.error_tracking.backend.models import ErrorTrackingSettings
 
 
@@ -88,6 +90,57 @@ class TestErrorTrackingSettingsAPI(APIBaseTest):
             HTTP_AUTHORIZATION=f"Bearer {value}",
         )
         self.assertEqual(response.status_code, expected_status)
+
+    @parameterized.expand(
+        [
+            ("read_scope", ["error_tracking:read"], status.HTTP_200_OK),
+            ("write_scope_satisfies_read", ["error_tracking:write"], status.HTTP_200_OK),
+            ("wrong_scope", ["insight:read"], status.HTTP_403_FORBIDDEN),
+        ]
+    )
+    def test_setup_status_personal_api_key_scopes(self, _name, scopes, expected_status):
+        setup_status = contracts.ErrorTrackingSetupStatus(
+            project_autocapture_enabled=True,
+            remote_config_autocapture_enabled=True,
+            has_issues=False,
+            recent_data_available=True,
+            recent_period_days=7,
+            recent_event_count=12,
+            recent_exception_count=0,
+            observed_sdks=[
+                contracts.ErrorTrackingObservedSDK(
+                    library="posthog-node",
+                    event_count=12,
+                    autocapture_configuration="local",
+                    local_option="enableExceptionAutocapture",
+                )
+            ],
+            warnings=[
+                contracts.ErrorTrackingSetupWarning(
+                    code="node_autocapture_requires_local_configuration",
+                    message="Configure exception autocapture in the Node SDK initialization.",
+                )
+            ],
+        )
+        value = self._personal_api_key(scopes)
+        self.client.logout()
+
+        with patch(
+            "products.error_tracking.backend.presentation.views.settings.error_tracking_setup.get_error_tracking_setup_status",
+            return_value=setup_status,
+        ):
+            response = self.client.get(
+                f"{self._base_url()}/setup_status/",
+                HTTP_AUTHORIZATION=f"Bearer {value}",
+            )
+
+        self.assertEqual(response.status_code, expected_status)
+        if expected_status == status.HTTP_200_OK:
+            self.assertEqual(response.json()["recent_exception_count"], 0)
+            self.assertEqual(
+                response.json()["warnings"][0]["warning_code"],
+                "node_autocapture_requires_local_configuration",
+            )
 
     @parameterized.expand(
         [

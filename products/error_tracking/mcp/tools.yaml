@@ -404,6 +404,22 @@ tools:
             `*_rate_limit_value` to null to remove that limit. WARNING: exception events above a rate limit are dropped
             at ingestion and cannot be recovered. Lowering a limit silently discards volume — confirm the threshold with
             the user before reducing it.
+    error-tracking-setup-status:
+        operation: error_tracking_settings_setup_status_retrieve
+        enabled: true
+        scopes:
+            - error_tracking:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Diagnose error tracking setup
+        description: >
+            Check whether the current project is configured for error tracking and receiving exception events. Returns
+            the project autocapture setting, published remote config, grouped issue existence, recent event and
+            exception counts, observed SDKs, and actionable warnings. Local SDK initialization cannot be observed
+            directly, so use warnings and observed event data without claiming that a local option is enabled or
+            disabled.
     error-tracking-spike-detection-config-list:
         operation: error_tracking_spike_detection_config_list
         enabled: false

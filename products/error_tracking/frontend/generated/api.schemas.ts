@@ -1499,6 +1499,94 @@ export interface ErrorTrackingSettingsApi {
     per_issue_rate_limit_bucket_size_minutes?: number | null
 }
 
+/**
+ * * `project_setting` - project_setting
+ * * `local` - local
+ * * `unknown` - unknown
+ */
+export type AutocaptureConfigurationEnumApi =
+    (typeof AutocaptureConfigurationEnumApi)[keyof typeof AutocaptureConfigurationEnumApi]
+
+export const AutocaptureConfigurationEnumApi = {
+    ProjectSetting: 'project_setting',
+    Local: 'local',
+    Unknown: 'unknown',
+} as const
+
+export interface ErrorTrackingObservedSDKApi {
+    /** SDK library observed on recent project events. */
+    library: string
+    /**
+     * Number of recent events observed from this SDK library.
+     * @minimum 0
+     */
+    event_count: number
+    /** Where exception autocapture is configured for this SDK.
+     *
+     * * `project_setting` - project_setting
+     * * `local` - local
+     * * `unknown` - unknown */
+    autocapture_configuration: AutocaptureConfigurationEnumApi
+    /**
+     * SDK initialization option required for local exception autocapture, when known.
+     * @nullable
+     */
+    local_option: string | null
+}
+
+/**
+ * * `node_autocapture_requires_local_configuration` - node_autocapture_requires_local_configuration
+ */
+export type WarningCodeEnumApi = (typeof WarningCodeEnumApi)[keyof typeof WarningCodeEnumApi]
+
+export const WarningCodeEnumApi = {
+    NodeAutocaptureRequiresLocalConfiguration: 'node_autocapture_requires_local_configuration',
+} as const
+
+export interface ErrorTrackingSetupWarningApi {
+    /** Stable identifier for the setup warning.
+     *
+     * * `node_autocapture_requires_local_configuration` - node_autocapture_requires_local_configuration */
+    warning_code: WarningCodeEnumApi
+    /** Actionable explanation of the setup warning. */
+    message: string
+}
+
+export interface ErrorTrackingSetupStatusApi {
+    /** Whether exception autocapture is enabled in the current project settings. */
+    project_autocapture_enabled: boolean
+    /**
+     * Published exception autocapture value, or null when remote config is unavailable.
+     * @nullable
+     */
+    remote_config_autocapture_enabled: boolean | null
+    /** Whether the project has any grouped error tracking issues. */
+    has_issues: boolean
+    /** Whether recent event ingestion data was available for this diagnostic. */
+    recent_data_available: boolean
+    /**
+     * Number of days covered by recent event and SDK observations.
+     * @minimum 1
+     */
+    recent_period_days: number
+    /**
+     * Total events received during the recent period, or null when recent data is unavailable.
+     * @minimum 0
+     * @nullable
+     */
+    recent_event_count: number | null
+    /**
+     * Exception events received during the recent period, or null when recent data is unavailable.
+     * @minimum 0
+     * @nullable
+     */
+    recent_exception_count: number | null
+    /** SDK libraries observed on events during the recent period. */
+    observed_sdks: ErrorTrackingObservedSDKApi[]
+    /** Setup warnings supported by observed project data. */
+    warnings: ErrorTrackingSetupWarningApi[]
+}
+
 export interface PatchedErrorTrackingSettingsApi {
     /**
      * Maximum number of exception events ingested per bucket for the entire project. Null removes the limit.
