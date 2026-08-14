@@ -61,7 +61,7 @@ class TestMakeDuckgresConninfoWithServiceCredential:
         conninfo = make_duckgres_conninfo(
             7,
             organization_id="org-1",
-            service_credential=_credential("minted-plaintext"),
+            service_credential=_credential("minted-plaintext", credential_id="svc_0123456789abcdef01234567"),
             application_name="ducklake-register",
         )
 
