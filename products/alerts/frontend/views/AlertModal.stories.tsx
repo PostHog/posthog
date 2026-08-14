@@ -93,6 +93,8 @@ trendsAlert.checks![trendsAlert.checks!.length - 1].deliveries = [
     { channel: 'email', target: 'alerts@example.com', status: 'accepted' },
     { channel: 'hog_function', target: 'Eng alerts', template: 'slack', status: 'accepted' },
 ]
+// A check recorded before delivery receipts existed: "Yes" with the legacy note, no receipt list.
+trendsAlert.checks![trendsAlert.checks!.length - 2].targets_notified = true
 
 const funnelAlert = makeAlert({
     id: 'alert-funnel',
