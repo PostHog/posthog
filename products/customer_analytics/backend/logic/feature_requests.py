@@ -217,16 +217,19 @@ def _redact_history_account(value: object, accessible_account_ids: set[UUID]) ->
 def _redact_inaccessible_history_accounts(
     changes: list[contracts.FeatureRequestHistoryChange], accessible_account_ids: set[UUID]
 ) -> list[contracts.FeatureRequestHistoryChange]:
-    return [
-        {
-            **change,
-            "before": _redact_history_account(change["before"], accessible_account_ids),
-            "after": _redact_history_account(change["after"], accessible_account_ids),
-        }
-        if change["field"] == "account"
-        else change
-        for change in changes
-    ]
+    redacted_changes: list[contracts.FeatureRequestHistoryChange] = []
+    for change in changes:
+        if change["field"] == "account":
+            redacted_changes.append(
+                contracts.FeatureRequestHistoryChange(
+                    field=change["field"],
+                    before=_redact_history_account(change["before"], accessible_account_ids),
+                    after=_redact_history_account(change["after"], accessible_account_ids),
+                )
+            )
+        else:
+            redacted_changes.append(change)
+    return redacted_changes
 
 
 def _product_area_snapshots(product_areas: list[FeatureRequestProductArea]) -> list[dict[str, str]]:

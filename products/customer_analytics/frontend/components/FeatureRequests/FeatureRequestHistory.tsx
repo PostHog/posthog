@@ -105,12 +105,7 @@ function describeChange(change: FeatureRequestHistoryChangeApi, isInitial: boole
         return scalarChange('Priority', priorityName(change.before), priorityName(change.after), isInitial)
     }
     if (change.field === 'account') {
-        return scalarChange(
-            'Account',
-            accountSnapshotName(change.before),
-            accountSnapshotName(change.after),
-            isInitial
-        )
+        return scalarChange('Account', accountSnapshotName(change.before), accountSnapshotName(change.after), isInitial)
     }
     if (change.field === 'product_areas') {
         const before = relationSnapshots(change.before)
