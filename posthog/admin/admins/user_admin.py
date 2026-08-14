@@ -11,8 +11,9 @@ from django.contrib.auth.forms import (
     UserChangeForm as DjangoUserChangeForm,
 )
 from django.core.exceptions import ValidationError
-from django.db.models import CASCADE
+from django.db.models import CASCADE, PROTECT, RESTRICT
 from django.db.models.deletion import get_candidate_relations_to_delete
+from django.db.models.fields.related import ForeignObject
 from django.db.models.fields.reverse_related import ForeignObjectRel
 from django.http import HttpRequest, HttpResponseRedirect
 from django.urls import reverse
@@ -32,7 +33,8 @@ from posthog.admin.inlines.user_social_auth_inline import UserSocialAuthInline
 from posthog.api.authentication import password_reset_token_generator
 from posthog.api.email_verification import EmailVerifier
 from posthog.api.two_factor_reset import TwoFactorResetVerifier
-from posthog.helpers.impersonation import is_impersonated
+from posthog.dataclasses import frozen
+from posthog.helpers.impersonation import get_impersonated_user, is_impersonated
 from posthog.models import User
 from posthog.models.activity_logging.activity_log import (
     ActivityContextBase,
@@ -68,6 +70,12 @@ class UserDeletionActivityContext(ActivityContextBase):
     # The item_id of the log entry points at a row that no longer exists, so the address the
     # account was deleted under is the only thing that identifies it afterwards.
     email: str
+
+
+@frozen
+class _CascadeSummary:
+    counts: dict[str, str]
+    protected: list[str]
 
 
 def _deletion_reason(request: HttpRequest) -> str:
@@ -314,12 +322,23 @@ class UserAdmin(DjangoUserAdmin):
         return super().change_view(request, object_id, form_url, extra_context)
 
     def has_delete_permission(self, request, obj=None):
+        if self._is_acting_as(request, obj):
+            return False
+        return super().has_delete_permission(request, obj)
+
+    def _is_acting_as(self, request: HttpRequest, obj: User | None) -> bool:
         # Deleting the account you're acting as would end the session mid-request, and the
         # deletion's own activity log entries record the actor by foreign key, which the cascade
         # would take out from under them.
-        if obj is not None and obj.pk == request.user.pk:
+        if obj is None:
             return False
-        return super().has_delete_permission(request, obj)
+        if obj.pk == request.user.pk:
+            return True
+        # On `/admin/` paths `AdminImpersonationMiddleware` swaps `request.user` back to the staff
+        # operator, so the impersonated account passes the check above while its session is the one
+        # the delete would break. `get_impersonated_user` reads the session instead of `request.user`.
+        impersonated = get_impersonated_user(request)
+        return impersonated is not None and obj.pk == impersonated.pk
 
     def get_actions(self, request):
         actions = super().get_actions(request)
@@ -334,22 +353,28 @@ class UserAdmin(DjangoUserAdmin):
         # file tree entries) reach into the millions on a long-lived account, so both the
         # confirmation page and the POST that re-collects them time out before anything is deleted.
         # A capped count per relation answers the same question for the operator in bounded work.
-        return [], self._cascade_summary(objs), set(), []
+        summary = self._cascade_summary(objs)
+        return [], summary.counts, set(), summary.protected
 
-    def _cascade_summary(self, objs: list[User]) -> dict[str, str]:
+    def _cascade_summary(self, objs: list[User]) -> _CascadeSummary:
         counts: list[tuple[str, int]] = []
+        protected: list[str] = []
         # The same relations Django's own collector walks. `User._meta.related_objects` drops the
         # ones declared with `related_name="+"`, which still cascade and include some of the
         # highest-volume tables, so the summary would understate what gets deleted.
         relations = cast(Iterable[ForeignObjectRel], get_candidate_relations_to_delete(User._meta))
         for related in relations:
             field = related.field
-            if field.remote_field.on_delete is not CASCADE:
-                continue
             related_model = field.model
             # Auto-created through models (groups, permissions) are noise next to the fields that
             # already show them on the change form.
             if related_model._meta.auto_created:
+                continue
+            on_delete = field.remote_field.on_delete
+            if on_delete in (PROTECT, RESTRICT):
+                protected.extend(self._protected_rows(field, objs))
+                continue
+            if on_delete is not CASCADE:
                 continue
             count = (
                 # nosemgrep: orm-field-injection -- field.name comes from User._meta, never a request
@@ -364,7 +389,26 @@ class UserAdmin(DjangoUserAdmin):
         summary = {str(User._meta.verbose_name_plural): str(len(objs))}
         for label, count in counts:
             summary[label] = f"{DELETION_SUMMARY_COUNT_CAP}+" if count > DELETION_SUMMARY_COUNT_CAP else str(count)
-        return summary
+        return _CascadeSummary(counts=summary, protected=protected)
+
+    def _protected_rows(self, field: ForeignObject, objs: list[User]) -> list[str]:
+        # Django refuses a delete that a PROTECT or RESTRICT relation blocks by raising from inside
+        # the delete itself, which here would be after the confirmation page has already accepted
+        # the reason. Returning the rows as `protected` instead makes the admin render its own
+        # blocked page and withhold the confirm button. RESTRICT is included even though Django
+        # clears it when the same row also cascades away through another relation: refusing a delete
+        # that could have gone through is recoverable, and a failure part-way through a delete is not.
+        related_model = field.model
+        rows = list(
+            # nosemgrep: orm-field-injection -- field.name comes from User._meta, never a request
+            related_model._base_manager.filter(**{f"{field.name}__in": objs}).order_by()[
+                : DELETION_SUMMARY_COUNT_CAP + 1
+            ]
+        )
+        labels = [f"{related_model._meta.verbose_name}: {row}" for row in rows[:DELETION_SUMMARY_COUNT_CAP]]
+        if len(rows) > DELETION_SUMMARY_COUNT_CAP:
+            labels.append(f"More {related_model._meta.verbose_name_plural}, not listed here")
+        return labels
 
     def delete_view(self, request, object_id, extra_context=None):
         if request.method == "POST" and not _deletion_reason(request):

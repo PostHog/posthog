@@ -7,10 +7,13 @@ from unittest.mock import patch
 from django.conf import settings
 from django.contrib.admin.models import DELETION, LogEntry
 from django.contrib.admin.sites import AdminSite
-from django.contrib.auth import SESSION_KEY
+from django.contrib.auth import BACKEND_SESSION_KEY, SESSION_KEY
 from django.contrib.messages.storage.fallback import FallbackStorage
+from django.db.models import PROTECT
 from django.test import RequestFactory
 from django.urls import reverse
+
+from loginas import settings as la_settings
 
 from posthog.admin.admins.user_admin import UserAdmin, UserChangeForm
 from posthog.models import OrganizationMembership, User
@@ -221,6 +224,35 @@ class TestUserAdminDeletion(BaseTest):
 
         self.assertFalse(self.admin.has_delete_permission(request, self.user))
         self.assertTrue(self.admin.has_delete_permission(request, self.target))
+
+    def test_staff_cannot_delete_the_account_they_are_impersonating(self):
+        # AdminImpersonationMiddleware swaps `request.user` back to the staff operator on /admin/
+        # paths, so a check against `request.user` alone lets the impersonated account through.
+        request = self._request()
+        request.session = {
+            la_settings.USER_SESSION_FLAG: "signed-original-user",
+            SESSION_KEY: str(self.target.pk),
+            BACKEND_SESSION_KEY: "django.contrib.auth.backends.ModelBackend",
+        }
+
+        self.assertFalse(self.admin.has_delete_permission(request, self.target))
+
+    def test_a_protected_relation_blocks_the_delete_instead_of_failing_part_way_through(self):
+        # No relation to User is PROTECT or RESTRICT today. When one lands, reporting no protected
+        # objects would let the confirmation page take the reason and then raise ProtectedError from
+        # inside the delete, with part of the cascade already gone.
+        membership_user_field = OrganizationMembership._meta.get_field("user")
+        target_id = self.target.pk
+
+        with patch.object(membership_user_field.remote_field, "on_delete", PROTECT):
+            _, _, _, protected = self.admin.get_deleted_objects([self.target], self._request(method="get"))
+            self.admin.delete_view(
+                self._request(data={"post": "yes", "deletion_reason": "Duplicate account"}),
+                str(target_id),
+            )
+
+        self.assertEqual(len(protected), 1)
+        self.assertTrue(User.objects.filter(pk=target_id).exists())
 
     def test_bulk_delete_action_is_unavailable(self):
         self.assertNotIn("delete_selected", self.admin.get_actions(self._request(method="get")))
