@@ -1,4 +1,5 @@
-import { Button } from "@posthog/quill";
+import { Button, Switch } from "@posthog/quill";
+import { ANALYTICS_EVENTS } from "@posthog/shared";
 import {
   SettingsCard,
   SettingsCardRow,
@@ -6,31 +7,53 @@ import {
 } from "@posthog/ui/features/settings/components/SettingsCard";
 import {
   resetTeachingTips,
+  setTeachingTipsEnabled,
   useRetiredTipCount,
+  useTipsEnabled,
 } from "@posthog/ui/primitives/TeachingTip";
 import { toast } from "@posthog/ui/primitives/toast";
+import { track } from "@posthog/ui/shell/analytics";
 
 /**
- * Puts back the tips someone turned off. Without this, "Don't show again" is
- * the only control a tip has and it cannot be undone.
+ * The switch over every tip, and a way back from the ones already answered.
  *
  * It sits with notifications rather than with appearance: both are the app
- * interrupting someone, and this is the page a person opens to stop that.
+ * interrupting someone, and notifications is the page a person opens to stop
+ * that.
  */
 export function TipsSection() {
+  const enabled = useTipsEnabled();
   const retiredCount = useRetiredTipCount();
+
   return (
-    <SettingsSection
-      label="Tips"
-      description="Tips point out a part of the app the first time it matters."
-    >
+    <SettingsSection label="Tips">
       <SettingsCard>
         <SettingsCardRow
-          label="Tips you've turned off"
+          label="Tips"
+          description="Point out a part of the app the first time it matters"
+        >
+          <Switch
+            size="sm"
+            checked={enabled}
+            onCheckedChange={(checked) => {
+              track(ANALYTICS_EVENTS.SETTING_CHANGED, {
+                setting_name: "teaching_tips",
+                new_value: checked,
+                old_value: enabled,
+              });
+              setTeachingTipsEnabled(checked);
+            }}
+          />
+        </SettingsCardRow>
+
+        <SettingsCardRow
+          label="Reset tips"
           description={
             retiredCount === 0
-              ? "You haven't turned any off."
-              : `${retiredCount === 1 ? "1 tip" : `${retiredCount} tips`} won't be shown again.`
+              ? "You haven't dismissed any for good"
+              : retiredCount === 1
+                ? "Show the one you've dismissed for good"
+                : `Show the ${retiredCount} you've dismissed for good`
           }
         >
           <Button
@@ -42,7 +65,7 @@ export function TipsSection() {
               toast.success("Tips are back on");
             }}
           >
-            Show tips again
+            Reset
           </Button>
         </SettingsCardRow>
       </SettingsCard>

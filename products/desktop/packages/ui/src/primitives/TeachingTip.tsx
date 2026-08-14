@@ -16,26 +16,36 @@ interface TeachingTipStore {
   /** Tips this person has retired, by id. Persisted: "don't show again" has to
    *  outlive the window it was clicked in. */
   retired: Record<string, boolean | undefined>;
+  /** Whether tips are offered at all. One switch over every lesson, separate
+   *  from the per-lesson `retired` answers, so turning them back on restores
+   *  whatever was left un-retired rather than everything. */
+  enabled: boolean;
   /** Whether the persisted answer has arrived. Nothing is taught before it, or
    *  every restart would flash the tips someone already retired. */
   hydrated: boolean;
   retire: (id: string) => void;
   reset: () => void;
+  setEnabled: (enabled: boolean) => void;
 }
 
 const useTeachingTipStore = create<TeachingTipStore>()(
   persist(
     (set) => ({
       retired: {},
+      enabled: true,
       hydrated: false,
       retire: (id) =>
         set((state) => ({ retired: { ...state.retired, [id]: true } })),
       reset: () => set({ retired: {} }),
+      setEnabled: (enabled) => set({ enabled }),
     }),
     {
       name: "teaching-tips",
       storage: electronStorage,
-      partialize: (state) => ({ retired: state.retired }),
+      partialize: (state) => ({
+        retired: state.retired,
+        enabled: state.enabled,
+      }),
       // Also on a failed read: a store that can't answer should stop holding
       // its tips back rather than silence them forever.
       onRehydrateStorage: () => () =>
@@ -82,6 +92,16 @@ export function resetTeachingTips(): void {
   useTeachingTipStore.getState().reset();
 }
 
+/** Turn every tip on or off, the one answer that outranks the per-tip ones. */
+export function setTeachingTipsEnabled(enabled: boolean): void {
+  useTeachingTipStore.getState().setEnabled(enabled);
+}
+
+/** Whether tips are offered, for the setting that shows the switch. */
+export function useTipsEnabled(): boolean {
+  return useTeachingTipStore((state) => state.enabled);
+}
+
 /** How many tips this person has turned off, for a surface that offers them back. */
 export function useRetiredTipCount(): number {
   return useTeachingTipStore(
@@ -121,6 +141,7 @@ export function TeachingTip({
   children: ReactNode;
 }) {
   const retired = useTeachingTipStore((state) => state.retired[id]);
+  const enabled = useTeachingTipStore((state) => state.enabled);
   const hydrated = useTeachingTipStore((state) => state.hydrated);
   const retire = useTeachingTipStore((state) => state.retire);
   // Put away for this moment. Dismissing is the caller's next moment, not the
@@ -132,7 +153,7 @@ export function TeachingTip({
     setOffered(open);
     if (open) setHidden(false);
   }
-  const showing = open && hydrated && !retired && !hidden;
+  const showing = open && enabled && hydrated && !retired && !hidden;
 
   return (
     <Popover
