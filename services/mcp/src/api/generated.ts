@@ -26381,6 +26381,8 @@ export namespace Schemas {
       scanner_config: unknown;
       /** Why the draft picked this scanner type and configuration, addressed to the user. */
       rationale: string;
+      /** RecordingsQuery narrowing which sessions get scanned; null when the draft targets every session. */
+      query: unknown;
     }
 
     export interface DraftStatusResponse {

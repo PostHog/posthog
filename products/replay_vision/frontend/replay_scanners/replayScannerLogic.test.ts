@@ -112,6 +112,10 @@ describe('replayScannerLogic', () => {
                 scanner_type: 'classifier',
                 scanner_config: { prompt: 'Classify the session by intent.', tags: ['browsing'], multi_label: false },
                 rationale: 'A classifier fits because you want the mix of visit intents.',
+                query: {
+                    kind: 'RecordingsQuery',
+                    events: [{ id: 'checkout_started', name: 'checkout_started', type: 'events' }],
+                },
             }
             draftSpy.mockReturnValue([200, draft])
             router.actions.push(path)
@@ -128,6 +132,9 @@ describe('replayScannerLogic', () => {
                 description: draft.description,
                 scanner_type: draft.scanner_type,
                 scanner_config: draft.scanner_config,
+                // A drafted session filter must survive into the form; dropping it silently widens
+                // the scanner to every session.
+                query: draft.query,
             })
             // The test router prefixes paths with /project/:id, so match on the suffix.
             expect(router.values.location.pathname).toContain(urls.replayVisionScannerConfigure('new'))
@@ -136,6 +143,27 @@ describe('replayScannerLogic', () => {
             expect(logic.values.goalDraft?.rationale).toEqual(draft.rationale)
             logic.actions.startFromTemplate(null)
             expect(logic.values.goalDraft).toBeNull()
+        })
+
+        it('keeps the default query (every session) when the draft has no session filter', async () => {
+            draftSpy.mockReturnValue([
+                200,
+                {
+                    name: 'Overview',
+                    description: 'Summarizes sessions.',
+                    scanner_type: 'summarizer',
+                    scanner_config: { prompt: 'Summarize the session.' },
+                    rationale: '',
+                    query: null,
+                },
+            ])
+            router.actions.push(urls.replayVisionScannerTemplate('new'))
+
+            await expectLogic(logic, () =>
+                logic.actions.draftScannerFromGoal('what are users doing?')
+            ).toFinishAllListeners()
+
+            expect(logic.values.scanner?.query).toEqual({ kind: 'RecordingsQuery' })
         })
 
         it('drops a stale draft when the user has left the template step mid-request', async () => {

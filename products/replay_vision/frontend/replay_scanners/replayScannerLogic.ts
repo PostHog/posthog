@@ -29,6 +29,7 @@ import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { SIDE_PANEL_CONTEXT_KEY, SidePanelSceneContext } from '~/layout/navigation-3000/sidepanel/types'
+import type { RecordingsQuery } from '~/queries/schema/schema-general'
 
 import {
     visionScannersAffectedCohortCreate,
@@ -1606,6 +1607,9 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                     description: goalDraft.description,
                     scanner_type: goalDraft.scanner_type as ScannerType,
                     scanner_config: goalDraft.scanner_config as ScannerConfig,
+                    // A drafted session filter narrows which recordings get scanned; without one the
+                    // newScanner() default (every session) stands.
+                    ...(goalDraft.query ? { query: goalDraft.query as RecordingsQuery } : {}),
                 })
                 router.actions.push(urls.replayVisionScannerConfigure('new'))
             },

@@ -10,6 +10,7 @@ re-validates everything on save.
 """
 
 import uuid
+from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Any, Literal
 
@@ -57,6 +58,10 @@ _MAX_OUTPUT_TOKENS = 4096
 # Bounds on assembled context so a scanner-heavy team can't blow up the prompt.
 _MAX_EXISTING_SCANNERS = 15
 _SCANNER_GIST_CHARS = 200
+# Filters combine with AND on the recordings query, so a couple of well-chosen ones is the ceiling;
+# more just zeroes out the match set.
+_MAX_FILTER_SCREENS = 1
+_MAX_FILTER_EVENTS = 2
 
 
 class DraftError(Exception):
@@ -90,6 +95,21 @@ class _LlmDraft(BaseModel):
     length: Literal["short", "medium", "long"] = Field(
         default="medium", description="Summarizer only: how long each summary should be."
     )
+    allow_inconclusive: bool = Field(
+        default=False,
+        description="Monitor only: let the scanner answer inconclusive when a recording doesn't contain "
+        "enough evidence to decide. Turn on when many sessions won't reach the flow the question is about.",
+    )
+    filter_screens: list[str] = Field(
+        default_factory=list,
+        description="Screens/paths a session must have visited to be worth scanning, copied verbatim from "
+        "the briefing's screens list; empty when the goal concerns all sessions.",
+    )
+    filter_events: list[str] = Field(
+        default_factory=list,
+        description="Events a session must contain to be worth scanning, copied verbatim from the "
+        "briefing's custom events list; empty when the goal concerns all sessions.",
+    )
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -101,6 +121,8 @@ class ScannerDraft:
     scanner_type: str
     scanner_config: dict[str, Any]
     rationale: str
+    # RecordingsQuery narrowing which sessions get scanned; None means every session.
+    query: dict[str, Any] | None
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -188,8 +210,16 @@ Pick the single type that best fits the goal, then draft the scanner:
     separately via `scale_min`/`scale_max`.
   - summarizer prompts say what the summary should focus on.
 - Fill only the fields relevant to the chosen type; leave the rest at their defaults.
+- For monitors: set allow_inconclusive to true when many sessions won't even reach the flow the question
+  is about (e.g. a checkout question when most sessions never open checkout), so those sessions aren't
+  forced into a no.
 - For classifiers: 4-8 lowercase snake_case tags that are distinct, non-overlapping categories along the
   dimension. No vague catch-alls ("other", "misc").
+- filter_screens / filter_events: when the goal targets one specific flow, screen, or feature, narrow which
+  sessions get scanned: up to 1 screen and up to 2 events a session must include, each copied EXACTLY from
+  the briefing's screens and custom events lists (anything not in those lists is discarded). The filters
+  AND together, so only combine a screen and an event when sessions genuinely have both. Leave both empty
+  when the goal spans all sessions or no listed entry clearly matches the flow.
 - rationale: one or two sentences, addressed to the user, explaining why the chosen type and settings fit
   their goal (e.g. why a classifier rather than a scorer, or what the scale's endpoints capture). It is
   shown next to the draft in the creation wizard; plain language, and don't restate the config itself.
@@ -288,7 +318,7 @@ def draft_scanner_from_goal(
         company=company,
     )
     parsed = _generate(user_content=user_content, team_id=team.id, distinct_id=str(user.uuid))
-    return _finalize(parsed)
+    return _finalize(parsed, allowed_screens=taxonomy.screens, allowed_events=taxonomy.events)
 
 
 def _generate(*, user_content: str, team_id: int, distinct_id: str) -> _LlmDraft:
@@ -342,7 +372,32 @@ def _generate(*, user_content: str, team_id: int, distinct_id: str) -> _LlmDraft
         raise DraftError("invalid response") from e
 
 
-def _finalize(parsed: _LlmDraft) -> ScannerDraft:
+def _grounded(proposed: list[str], allowed: Sequence[str], cap: int) -> list[str]:
+    """Keep only filter values that exist verbatim in the taxonomy the model was shown: a filter the
+    product never emits would silently match zero sessions, so a hallucinated one must not survive."""
+    allowed_set = set(allowed)
+    return list(dict.fromkeys(v for raw in proposed if (v := raw.strip()) in allowed_set))[:cap]
+
+
+def _filters_query(screens: list[str], events: list[str]) -> dict[str, Any] | None:
+    if not screens and not events:
+        return None
+    query: dict[str, Any] = {"kind": "RecordingsQuery"}
+    if screens:
+        # The shape the replay filter UI produces: visited_page matches the recording's all_urls,
+        # so it catches the screen even when no event fired there.
+        query["properties"] = [
+            {"type": "recording", "key": "visited_page", "value": [screen], "operator": "icontains"}
+            for screen in screens
+        ]
+    if events:
+        query["events"] = [{"id": event, "name": event, "type": "events"} for event in events]
+    return query
+
+
+def _finalize(
+    parsed: _LlmDraft, *, allowed_screens: Sequence[str] = (), allowed_events: Sequence[str] = ()
+) -> ScannerDraft:
     """Normalize the model output into a draft the wizard form (and later the create endpoint) will accept."""
     name = parsed.name.strip()[:_MAX_NAME_LENGTH]
     prompt = parsed.prompt.strip()[:_MAX_PROMPT_LENGTH]
@@ -350,7 +405,11 @@ def _finalize(parsed: _LlmDraft) -> ScannerDraft:
         raise DraftError("draft missing name or prompt")
 
     scanner_config: dict[str, Any] = {"prompt": prompt}
-    if parsed.scanner_type == "classifier":
+    if parsed.scanner_type == "monitor":
+        # Only carried when on, mirroring the wizard toggle's off-by-default.
+        if parsed.allow_inconclusive:
+            scanner_config["allow_inconclusive"] = True
+    elif parsed.scanner_type == "classifier":
         # Order-preserving dedup of slugified tags, dropping anything that slugs to empty.
         tags = list(dict.fromkeys(s for t in parsed.tags if (s := slugify_tag(t))))[:_MAX_DRAFT_TAGS]
         scanner_config["tags"] = tags
@@ -384,4 +443,8 @@ def _finalize(parsed: _LlmDraft) -> ScannerDraft:
         scanner_type=parsed.scanner_type,
         scanner_config=scanner_config,
         rationale=parsed.rationale.strip()[:_MAX_RATIONALE_LENGTH],
+        query=_filters_query(
+            _grounded(parsed.filter_screens, allowed_screens, _MAX_FILTER_SCREENS),
+            _grounded(parsed.filter_events, allowed_events, _MAX_FILTER_EVENTS),
+        ),
     )
