@@ -172,12 +172,16 @@ export function TeachingTip({
           <ArrowGlyph />
         </BaseUIPopover.Arrow>
         <p className="text-[13px]">{message}</p>
-        <div className="flex justify-end gap-1">
+        {/* Left aligned, so the primary action starts on the same edge as the
+            sentence above it. */}
+        <div className="flex justify-start gap-1">
+          {/* "Got it" is the lesson landing, so it retires the tip; "Dismiss"
+              only clears this one. Settings puts back anything retired here. */}
+          <Button size="sm" variant="primary" onClick={() => retire(id)}>
+            Got it
+          </Button>
           <Button size="sm" onClick={() => setHidden(true)}>
             Dismiss
-          </Button>
-          <Button size="sm" variant="primary" onClick={() => retire(id)}>
-            Don't show again
           </Button>
         </div>
       </PopoverContent>
