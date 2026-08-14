@@ -376,25 +376,6 @@ const errorTrackingSettingsGet = (): ToolBase<
     },
 })
 
-const ErrorTrackingSetupStatusSchema = z.object({})
-
-const errorTrackingSetupStatus = (): ToolBase<
-    typeof ErrorTrackingSetupStatusSchema,
-    Schemas.ErrorTrackingSetupStatus
-> => ({
-    name: 'error-tracking-setup-status',
-    schema: ErrorTrackingSetupStatusSchema,
-    // eslint-disable-next-line no-unused-vars
-    handler: async (context: Context, params: z.infer<typeof ErrorTrackingSetupStatusSchema>) => {
-        const projectId = await context.stateManager.getProjectId()
-        const result = await context.api.request<Schemas.ErrorTrackingSetupStatus>({
-            method: 'GET',
-            path: `/api/projects/${encodeURIComponent(String(projectId))}/error_tracking/settings/setup_status/`,
-        })
-        return result
-    },
-})
-
 const ErrorTrackingSettingsUpdateSchema = ErrorTrackingSettingsUpdateSettingsPartialUpdateBody
 
 const errorTrackingSettingsUpdate = (): ToolBase<
@@ -422,6 +403,25 @@ const errorTrackingSettingsUpdate = (): ToolBase<
             method: 'PATCH',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/error_tracking/settings/update_settings/`,
             body,
+        })
+        return result
+    },
+})
+
+const ErrorTrackingSetupStatusSchema = z.object({})
+
+const errorTrackingSetupStatus = (): ToolBase<
+    typeof ErrorTrackingSetupStatusSchema,
+    Schemas.ErrorTrackingSetupStatus
+> => ({
+    name: 'error-tracking-setup-status',
+    schema: ErrorTrackingSetupStatusSchema,
+    // eslint-disable-next-line no-unused-vars
+    handler: async (context: Context, params: z.infer<typeof ErrorTrackingSetupStatusSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.ErrorTrackingSetupStatus>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/error_tracking/settings/setup_status/`,
         })
         return result
     },
@@ -795,8 +795,8 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'error-tracking-issues-split-create': errorTrackingIssuesSplitCreate,
     'error-tracking-recommendations-list': errorTrackingRecommendationsList,
     'error-tracking-settings-get': errorTrackingSettingsGet,
-    'error-tracking-setup-status': errorTrackingSetupStatus,
     'error-tracking-settings-update': errorTrackingSettingsUpdate,
+    'error-tracking-setup-status': errorTrackingSetupStatus,
     'error-tracking-suppression-rules-create': errorTrackingSuppressionRulesCreate,
     'error-tracking-suppression-rules-list': errorTrackingSuppressionRulesList,
     'error-tracking-suppression-rules-update': errorTrackingSuppressionRulesUpdate,
