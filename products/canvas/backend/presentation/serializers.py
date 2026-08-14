@@ -7,7 +7,7 @@ from rest_framework import serializers
 from posthog.api.shared import UserBasicSerializer
 
 from products.canvas.backend.contract import canvas_sdk_version, contract_limits
-from products.canvas.backend.models import Canvas
+from products.canvas.backend.models import Canvas, CanvasState
 
 # Base64 expands 3 source bytes into 4 characters (padded); size the asset field
 # from the contract's total-source cap rather than restating the number.
@@ -132,6 +132,28 @@ class CanvasPostHogCapabilitiesSerializer(serializers.Serializer):
     insights = serializers.ListField(child=serializers.CharField(max_length=128), max_length=100)
     inlineQueries = serializers.BooleanField()
     captureEvents = serializers.ListField(child=serializers.CharField(max_length=200), max_length=100)
+    # Optional so projects published before the state store exist unchanged.
+    state = serializers.ListField(
+        child=serializers.ChoiceField(choices=CanvasState.SCOPES),
+        required=False,
+        default=list,
+        max_length=2,
+        help_text=(
+            "State scopes the canvas may use via ph.state: 'user' (private to each viewer) "
+            "and/or 'shared' (one value per canvas, team-visible)."
+        ),
+    )
+    # Optional so projects published before the action registry exist unchanged.
+    actions = serializers.ListField(
+        child=serializers.CharField(max_length=64),
+        required=False,
+        default=list,
+        max_length=32,
+        help_text=(
+            "Registered action verbs the canvas may invoke via ph.actions (e.g. 'annotations.create', "
+            "'tasks.create'). Each executes as the viewer; declaring one shows it in the promote review."
+        ),
+    )
 
 
 class CanvasNetworkCapabilitiesSerializer(serializers.Serializer):
@@ -179,7 +201,7 @@ class CanvasSourceProjectSerializer(serializers.Serializer):
     capabilities = CanvasCapabilitiesSerializer(
         required=False,
         default=lambda: {
-            "posthog": {"insights": [], "inlineQueries": False, "captureEvents": []},
+            "posthog": {"insights": [], "inlineQueries": False, "captureEvents": [], "state": [], "actions": []},
             "network": {"origins": []},
         },
         help_text=(
@@ -557,6 +579,88 @@ class CanvasCapabilityWideningSerializer(serializers.Serializer):
     network_origins_added = serializers.ListField(
         child=serializers.CharField(),
         help_text="Network origins the draft newly declares it may reach.",
+    )
+    state_scopes_added = serializers.ListField(
+        child=serializers.CharField(),
+        help_text="State scopes (user, shared) the draft newly declares for ph.state.",
+    )
+    actions_added = serializers.ListField(
+        child=serializers.CharField(),
+        help_text="Action verbs the draft newly declares it may invoke via ph.actions.",
+    )
+
+
+class CanvasActionDefinitionSerializer(serializers.Serializer):
+    """One registered action verb, as the host renders it before invoking."""
+
+    verb = serializers.CharField(help_text="The verb's registry name, e.g. 'annotations.create'.")
+    summary = serializers.CharField(help_text="One line naming what invoking the verb does.")
+    destructive = serializers.BooleanField(
+        help_text="True when the verb deletes or disables something; the host must confirm with the viewer first."
+    )
+    usage = serializers.CharField(
+        help_text="Authoring docs for the verb: payload and result shape, behavior, and the confirmation copy it warrants."
+    )
+
+
+class CanvasActionsResponseSerializer(serializers.Serializer):
+    """The action registry: every verb a canvas may declare and invoke."""
+
+    actions = CanvasActionDefinitionSerializer(many=True, help_text="Registered verbs, sorted by name.")
+
+
+class CanvasActionInvokeSerializer(serializers.Serializer):
+    """Payload for invoking one action verb."""
+
+    verb = serializers.CharField(max_length=64, help_text="Registered verb to invoke, e.g. 'tasks.create'.")
+    payload = serializers.DictField(
+        required=False,
+        default=dict,
+        help_text="Verb-specific arguments, validated against the verb's payload schema.",
+    )
+
+
+class CanvasActionResultSerializer(serializers.Serializer):
+    """Result of one action invocation."""
+
+    verb = serializers.CharField(help_text="The verb that executed.")
+    result = serializers.DictField(
+        help_text="Verb-specific result, e.g. {'task_id': ...} for tasks.create.",
+    )
+
+
+class CanvasStateEntrySerializer(serializers.Serializer):
+    """One key of a canvas's runtime key-value state (the ph.state store)."""
+
+    scope = serializers.ChoiceField(
+        choices=CanvasState.SCOPES,
+        help_text="user: private to the viewer who wrote it. shared: one value per canvas, visible to every viewer.",
+    )
+    key = serializers.CharField(max_length=200, help_text="The entry's key, unique within its scope.")
+    value = serializers.JSONField(help_text="The stored JSON value.")
+    updated_at = serializers.DateTimeField(help_text="When the entry was last written.")
+
+
+class CanvasStateResponseSerializer(serializers.Serializer):
+    """The canvas state readable by the caller."""
+
+    entries = CanvasStateEntrySerializer(
+        many=True,
+        help_text="The canvas's shared entries plus the caller's own user-scoped entries.",
+    )
+
+
+class CanvasStateSetSerializer(serializers.Serializer):
+    """Payload for writing (or deleting) one key of a canvas's runtime state."""
+
+    scope = serializers.ChoiceField(
+        choices=CanvasState.SCOPES,
+        help_text="Scope to write into; the canvas must declare it in capabilities.posthog.state.",
+    )
+    key = serializers.CharField(max_length=200, help_text="Key to write, unique within its scope.")
+    value = serializers.JSONField(
+        allow_null=True,
+        help_text="JSON value to store (at most 64 KB serialized), or null to delete the key.",
     )
 
 
