@@ -18,8 +18,8 @@ from products.warehouse_sources.backend.facade.models import (
     ExternalDataSchema,
     ExternalDataSource,
 )
-from products.warehouse_sources.backend.facade.types import ExternalDataSourceType
 from products.warehouse_sources.backend.facade.testing import WarehouseAccessControlTestMixin
+from products.warehouse_sources.backend.facade.types import ExternalDataSourceType
 
 try:
     from ee.models.rbac.access_control import AccessControl

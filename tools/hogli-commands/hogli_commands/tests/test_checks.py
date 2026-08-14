@@ -9,6 +9,7 @@ import pytest
 
 from hogli_commands.product import gh as gh_module
 from hogli_commands.product.checks import (
+    BackendPackageMarkerCheck,
     CheckContext,
     FileFolderConflictsCheck,
     IsolationChainCheck,
@@ -1856,3 +1857,48 @@ class TestPackageJsonScriptsWiringWithheld:
         _add_facade_reexport(ctx)
         result = check.run(ctx)
         assert not any("must not have" in i or "remove 'backend:contract-check'" in i for i in result.issues)
+
+
+class TestBackendPackageMarker:
+    check = BackendPackageMarkerCheck()
+
+    def _product(self, tmp_path: Path, *, markers: list[str], trees: list[str]) -> CheckContext:
+        ctx = _make_product(tmp_path, isolated=True)
+        for tree in trees:
+            (ctx.backend_dir / tree).mkdir(parents=True, exist_ok=True)
+            (ctx.backend_dir / tree / "views.py").write_text("x = 1\n")
+        for marker in markers:
+            (ctx.backend_dir / marker / "__init__.py").write_text("")
+        return ctx
+
+    @pytest.mark.parametrize(
+        "markers, expected",
+        [
+            # every level marked -> grimp reaches the whole contract surface
+            ([".", "facade", "presentation", "presentation/views"], set()),
+            # backend/ alone is not enough: grimp stops at the first unmarked level, so
+            # everything below is dropped and the contract passes for code it never saw
+            ([".", "facade", "presentation"], {"backend/presentation/views/"}),
+            ([".", "facade"], {"backend/presentation/", "backend/presentation/views/"}),
+            # missing at the root hides the entire backend
+            (["facade", "presentation", "presentation/views"], {"backend/"}),
+        ],
+    )
+    def test_missing_markers_on_contract_paths(self, tmp_path: Path, markers: list[str], expected: set[str]) -> None:
+        ctx = self._product(tmp_path, markers=markers, trees=["presentation", "presentation/views"])
+        assert set(self.check._missing_markers(ctx)) == expected
+
+    def test_directories_outside_the_contract_trees_are_left_alone(self, tmp_path: Path) -> None:
+        # test dirs and generated trees are namespace packages on purpose — flagging them would
+        # mean thousands of pointless files, and no contract targets them
+        ctx = self._product(tmp_path, markers=[".", "facade"], trees=[])
+        (ctx.backend_dir / "temporal" / "sources" / "stripe").mkdir(parents=True)
+        (ctx.backend_dir / "temporal" / "sources" / "stripe" / "source.py").write_text("x = 1\n")
+        (ctx.backend_dir / "tests").mkdir()
+        (ctx.backend_dir / "tests" / "test_thing.py").write_text("x = 1\n")
+        assert self.check._missing_markers(ctx) == []
+
+    def test_empty_directories_need_no_marker(self, tmp_path: Path) -> None:
+        ctx = self._product(tmp_path, markers=[".", "facade"], trees=[])
+        (ctx.backend_dir / "facade" / "empty").mkdir()
+        assert self.check._missing_markers(ctx) == []

@@ -1,15 +1,21 @@
-"""DRF serializers for stamphog."""
+"""DRF serializers for stamphog.
+
+Every serializer here reads and writes facade contracts, never ORM models — the presentation
+layer reaches product data only through ``facade.api``. Field-level help text is the source of
+the generated OpenAPI schema, so it stays on the serializer rather than moving to the contract.
+"""
 
 from typing import Any
 
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import extend_schema_field, extend_schema_serializer
 from rest_framework import serializers
+from rest_framework_dataclasses.serializers import DataclassSerializer
 
 from posthog.models.integration import Integration
 
-from ..facade.enums import ChannelResolutionSource, DigestRunStatus, ReviewRunStatus, ReviewVerdict
-from ..models import DigestChannel, DigestRun, PullRequest, ReviewRun, StamphogRepoConfig
+from ..facade import contracts
+from ..facade.enums import ChannelResolutionSource, DigestRunStatus, ReviewMode, ReviewRunStatus, ReviewVerdict
 
 
 class _GateResultSummarySerializer(serializers.Serializer):
@@ -38,7 +44,7 @@ class _ReviewOutputSummarySerializer(serializers.Serializer):
 
     The raw ``output`` blob also holds the reviewer's stdout, the full PR payload, changed-file patches,
     and default-branch policy file contents — repository content a project member without repo access
-    must never read over the API. Only these derived, content-free fields are exposed.
+    must never read. Only these derived, content-free fields are exposed.
     """
 
     stamphog_version = serializers.CharField(
@@ -53,7 +59,8 @@ class _ReviewOutputSummarySerializer(serializers.Serializer):
     )
 
 
-class StamphogRepoConfigSerializer(serializers.ModelSerializer):
+@extend_schema_serializer(component_name="StamphogRepoConfig")
+class StamphogRepoConfigSerializer(DataclassSerializer):
     def get_fields(self) -> dict[str, serializers.Field]:
         fields = super().get_fields()
         # provider + repository are the config's identity: they resolve inbound webhooks and anchor
@@ -64,6 +71,15 @@ class StamphogRepoConfigSerializer(serializers.ModelSerializer):
             fields["provider"].read_only = True
             fields["repository"].read_only = True
         return fields
+
+    review_mode = serializers.ChoiceField(
+        choices=[(m.value, m.value) for m in ReviewMode],
+        read_only=True,
+        help_text=(
+            "When reviews run: 'all' reviews every pull request (the default); 'label' reviews "
+            "only pull requests carrying the trigger label, mirroring the Action's opt-in flow."
+        ),
+    )
 
     def validate_trigger_label(self, value: str) -> str:
         value = value.strip()
@@ -88,7 +104,7 @@ class StamphogRepoConfigSerializer(serializers.ModelSerializer):
         return attrs
 
     class Meta:
-        model = StamphogRepoConfig
+        dataclass = contracts.RepoConfigDTO
         fields = [
             "id",
             "provider",
@@ -125,13 +141,6 @@ class StamphogRepoConfigSerializer(serializers.ModelSerializer):
                 "help_text": (
                     "Whether merged PRs on this repo are captured for the daily Slack digest. Requires "
                     "'enabled', since the digest reports what stamphog approved."
-                ),
-            },
-            "review_mode": {
-                "required": False,
-                "help_text": (
-                    "When reviews run: 'all' reviews every pull request (the default); 'label' reviews "
-                    "only pull requests carrying the trigger label, mirroring the Action's opt-in flow."
                 ),
             },
             "trigger_label": {
@@ -248,18 +257,25 @@ class StamphogSyncInstallationResponseSerializer(serializers.Serializer):
 
 
 @extend_schema_serializer(component_name="StamphogPullRequest")
-class PullRequestSerializer(serializers.ModelSerializer):
+class PullRequestSerializer(DataclassSerializer):
     repository = serializers.CharField(
-        source="repo_config.repository",
         read_only=True,
         help_text="Full name of the repository this pull request belongs to.",
+    )
+    digest_run = serializers.UUIDField(
+        source="digest_run_id",
+        read_only=True,
+        allow_null=True,
+        help_text="ID of the digest run that reported this merged PR, if any.",
     )
     merged = serializers.SerializerMethodField(
         help_text="Whether this pull request has merged (merged_at is set).",
     )
 
     class Meta:
-        model = PullRequest
+        dataclass = contracts.PullRequestDTO
+        # body_excerpt is deliberately absent: it reproduces pull request body text, repository
+        # content a project member without GitHub repo access must not read over the API.
         fields = [
             "id",
             "repository",
@@ -279,7 +295,23 @@ class PullRequestSerializer(serializers.ModelSerializer):
             "created_at",
             "updated_at",
         ]
-        read_only_fields = fields
+        # Only the fields NOT declared above (see ReviewRunSerializer).
+        read_only_fields = [
+            "id",
+            "pr_number",
+            "title",
+            "author_login",
+            "pr_url",
+            "head_branch",
+            "merged_at",
+            "merge_commit_sha",
+            "additions",
+            "deletions",
+            "changed_files",
+            "audience_key",
+            "created_at",
+            "updated_at",
+        ]
         extra_kwargs = {
             "pr_number": {"help_text": "Pull request number on GitHub."},
             "title": {"help_text": "Pull request title, refreshed on every relevant webhook delivery."},
@@ -294,39 +326,35 @@ class PullRequestSerializer(serializers.ModelSerializer):
             "audience_key": {
                 "help_text": "Digest bucket this merged PR belongs to; blank unless it was digest-eligible."
             },
-            "digest_run": {"help_text": "ID of the digest run that reported this merged PR, if any."},
             "created_at": {"help_text": "When this pull request was first captured."},
             "updated_at": {"help_text": "When this pull request was last updated."},
         }
 
     @extend_schema_field(OpenApiTypes.BOOL)
-    def get_merged(self, obj: PullRequest) -> bool:
+    def get_merged(self, obj: contracts.PullRequestDTO) -> bool:
         return obj.merged_at is not None
 
 
-class ReviewRunSerializer(serializers.ModelSerializer):
+@extend_schema_serializer(component_name="ReviewRun")
+class ReviewRunSerializer(DataclassSerializer):
     pull_request = serializers.UUIDField(
         source="pull_request_id",
         read_only=True,
         help_text="ID of the pull request this review run belongs to.",
     )
     repository = serializers.CharField(
-        source="pull_request.repo_config.repository",
         read_only=True,
         help_text="Full name of the repository this review run belongs to.",
     )
     pr_number = serializers.IntegerField(
-        source="pull_request.pr_number",
         read_only=True,
         help_text="Pull request number on GitHub.",
     )
     pr_url = serializers.CharField(
-        source="pull_request.pr_url",
         read_only=True,
         help_text="Full URL to the pull request on GitHub.",
     )
     head_branch = serializers.CharField(
-        source="pull_request.head_branch",
         read_only=True,
         help_text="Branch name of the PR head.",
     )
@@ -357,7 +385,7 @@ class ReviewRunSerializer(serializers.ModelSerializer):
     )
 
     @extend_schema_field(_ReviewOutputSummarySerializer)
-    def get_output(self, obj: ReviewRun) -> dict[str, object]:
+    def get_output(self, obj: contracts.ReviewRunDTO) -> dict[str, object]:
         # Explicit allowlist: never echo reviewer_raw / pr / files / policy_files out of the API.
         raw = obj.output or {}
         summary: dict[str, object] = {}
@@ -368,7 +396,7 @@ class ReviewRunSerializer(serializers.ModelSerializer):
         return summary
 
     @extend_schema_field(_GateResultSummarySerializer)
-    def get_gate_result(self, obj: ReviewRun) -> dict[str, object]:
+    def get_gate_result(self, obj: contracts.ReviewRunDTO) -> dict[str, object]:
         # Explicit allowlist: never echo the gates / classification / policy sub-objects, which carry
         # changed-file paths and policy scopes.
         raw = obj.gate_result or {}
@@ -380,7 +408,7 @@ class ReviewRunSerializer(serializers.ModelSerializer):
         return summary
 
     class Meta:
-        model = ReviewRun
+        dataclass = contracts.ReviewRunDTO
         fields = [
             "id",
             "pull_request",
@@ -399,7 +427,9 @@ class ReviewRunSerializer(serializers.ModelSerializer):
             "updated_at",
             "completed_at",
         ]
-        read_only_fields = fields
+        # Only the fields NOT declared above: DataclassSerializer rejects a field that is both
+        # explicitly declared and named here.
+        read_only_fields = ["id", "head_sha", "delivery_id", "error", "created_at", "updated_at", "completed_at"]
         extra_kwargs = {
             "head_sha": {"help_text": "Commit SHA of the PR head at the time this run started."},
             "delivery_id": {"help_text": "GitHub webhook delivery ID that triggered this run, used for deduplication."},
@@ -410,7 +440,8 @@ class ReviewRunSerializer(serializers.ModelSerializer):
         }
 
 
-class DigestChannelSerializer(serializers.ModelSerializer):
+@extend_schema_serializer(component_name="DigestChannel")
+class DigestChannelSerializer(DataclassSerializer):
     def get_fields(self) -> dict[str, serializers.Field]:
         fields = super().get_fields()
         # audience_key is the bucket this channel is bound to. Editing it on an existing row re-points
@@ -435,7 +466,7 @@ class DigestChannelSerializer(serializers.ModelSerializer):
     )
 
     class Meta:
-        model = DigestChannel
+        dataclass = contracts.DigestChannelDTO
         fields = [
             "id",
             "audience_key",
@@ -479,18 +510,24 @@ class DigestChannelSerializer(serializers.ModelSerializer):
         return value
 
 
-class DigestRunSerializer(serializers.ModelSerializer):
+@extend_schema_serializer(component_name="DigestRun")
+class DigestRunSerializer(DataclassSerializer):
     status = serializers.ChoiceField(
         choices=[(s.value, s.name) for s in DigestRunStatus],
         read_only=True,
         help_text="Current state of the digest run (pending, completed, failed).",
+    )
+    digest_channel = serializers.UUIDField(
+        source="digest_channel_id",
+        read_only=True,
+        help_text="ID of the digest channel this run belongs to.",
     )
     # The rendered summary is deliberately NOT exposed here: it's generated from each PR's body_excerpt,
     # so it reproduces repository content a project member without GitHub repo access must not read. It
     # lives only in the Slack post (whose audience already has channel access).
 
     class Meta:
-        model = DigestRun
+        dataclass = contracts.DigestRunDTO
         fields = [
             "id",
             "digest_channel",
@@ -501,12 +538,104 @@ class DigestRunSerializer(serializers.ModelSerializer):
             "created_at",
             "posted_at",
         ]
-        read_only_fields = fields
+        # Only the fields NOT declared above (see ReviewRunSerializer).
+        read_only_fields = ["id", "pr_count", "slack_message_ts", "error", "created_at", "posted_at"]
         extra_kwargs = {
-            "digest_channel": {"help_text": "ID of the digest channel this run belongs to."},
             "pr_count": {"help_text": "Number of merged PRs included in the posted digest."},
             "slack_message_ts": {"help_text": "Slack message timestamp of the posted digest, if posted."},
             "error": {"help_text": "Error message if the run failed, blank otherwise."},
             "created_at": {"help_text": "When the digest run was created."},
             "posted_at": {"help_text": "When the digest was posted to Slack, if it was."},
         }
+
+
+class StamphogRepoConfigWriteSerializer(serializers.Serializer):
+    """Input shape for creating/updating a repo config.
+
+    Separate from the read serializer because the contract is an output shape: it carries a
+    required id, which a create request has no way to supply. Same split as visual_review's
+    input serializers.
+
+    installation_id is deliberately absent: it may only ever be set by the verified
+    sync_installation flow, which proves the caller owns the installation before binding it. A
+    client-supplied value on this path is ignored, so a manually created config carries no
+    installation and simply won't resolve webhooks until synced.
+    """
+
+    provider = serializers.CharField(
+        required=False, help_text="SCM provider this config talks to. Defaults to 'github'."
+    )
+    repository = serializers.CharField(help_text="Repository full name, e.g. 'PostHog/posthog'.")
+    enabled = serializers.BooleanField(
+        required=False, help_text="Whether stamphog actively reviews pull requests for this repo."
+    )
+    digest_enabled = serializers.BooleanField(
+        required=False, help_text="Whether merged PRs on this repo are captured for the daily Slack digest."
+    )
+    review_mode = serializers.ChoiceField(
+        choices=[(m.value, m.value) for m in ReviewMode],
+        required=False,
+        help_text=(
+            "When reviews run: 'all' reviews every pull request (the default); 'label' reviews "
+            "only pull requests carrying the trigger label, mirroring the Action's opt-in flow."
+        ),
+    )
+    trigger_label = serializers.CharField(
+        required=False,
+        help_text=("Pull request label that triggers a review when review_mode is 'label'. Defaults to 'stamphog'."),
+    )
+
+    def __init__(self, *args, partial_update: bool = False, **kwargs) -> None:
+        super().__init__(*args, **kwargs)
+        if partial_update:
+            # provider + repository are the config's identity: they resolve inbound webhooks and anchor
+            # every PullRequest/ReviewRun FK. Editing them on an existing row would reroute that history
+            # to a different repo and stop the original repo's webhooks from resolving, so on update
+            # they are dropped rather than applied.
+            self.fields.pop("provider")
+            self.fields.pop("repository")
+
+    def validate_trigger_label(self, value: str) -> str:
+        value = value.strip()
+        if not value:
+            raise serializers.ValidationError("Trigger label cannot be blank.")
+        return value
+
+
+class DigestChannelWriteSerializer(serializers.Serializer):
+    """Input shape for creating/updating a digest channel (see the repo-config write serializer)."""
+
+    audience_key = serializers.CharField(
+        help_text=(
+            "Opaque digest bucket this channel receives, e.g. 'repo:PostHog/posthog'. Immutable "
+            "after creation — it anchors the audience and its opt-out tombstone."
+        )
+    )
+    slack_integration_id = serializers.IntegerField(
+        help_text="ID of the team's Slack integration used to post the digest."
+    )
+    slack_channel_id = serializers.CharField(help_text="Slack channel ID to post the digest to, e.g. 'C012AB3CD'.")
+    slack_channel_name = serializers.CharField(
+        required=False, allow_blank=True, help_text="Human-readable Slack channel name, for display only."
+    )
+    enabled = serializers.BooleanField(
+        required=False, help_text="Whether this channel is included in the daily digest fan-out."
+    )
+
+    def __init__(self, *args, partial_update: bool = False, **kwargs) -> None:
+        super().__init__(*args, **kwargs)
+        if partial_update:
+            # audience_key is the bucket this channel is bound to. Editing it on an existing row
+            # re-points the channel at a different audience — and can effectively re-open an audience a
+            # human opted out of, since the disabled tombstone row keying off the old audience_key would
+            # no longer match. Create-only, so it is dropped on update.
+            self.fields.pop("audience_key")
+
+    def validate_slack_integration_id(self, value: int) -> int:
+        # The integration must belong to the requesting team and be a Slack integration — otherwise a
+        # team could point a digest at another team's Slack workspace.
+        team_id = self.context["team_id"]
+        exists = Integration.objects.filter(id=value, team_id=team_id, kind="slack").exists()
+        if not exists:
+            raise serializers.ValidationError("No Slack integration with this ID exists for this team.")
+        return value
