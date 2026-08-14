@@ -50,12 +50,6 @@ function LogsAlertEditModalContent({
     const { snoozingAlertIds } = useValues(logsAlertingLogic)
     const { deleteAlert, snoozeAlertUntil, toggleAlertEnabled, unsnoozeAlert } = useActions(logsAlertingLogic)
     const nameError = alertFormErrors.name as string | undefined
-    let snoozeDisabledReason: string | undefined
-    if (!(alert.enabled ?? true)) {
-        snoozeDisabledReason = 'Only enabled alerts can be snoozed'
-    } else if (snoozingAlertIds.has(alert.id)) {
-        snoozeDisabledReason = 'Updating snooze'
-    }
     const filterParts: string[] = []
     if (alertForm.severityLevels.length > 0) {
         filterParts.push(`${alertForm.severityLevels.join(', ')} logs`)
@@ -100,12 +94,14 @@ function LogsAlertEditModalContent({
             >
                 Delete alert
             </LemonButton>
-            <SnoozeButton
-                onChange={(snoozeUntil) => snoozeAlertUntil(alert.id, snoozeUntil)}
-                onClear={(alert.enabled ?? true) && alert.snooze_until ? () => unsnoozeAlert(alert.id) : undefined}
-                value={alert.snooze_until}
-                disabledReason={snoozeDisabledReason}
-            />
+            {(alert.enabled ?? true) ? (
+                <SnoozeButton
+                    onChange={(snoozeUntil) => snoozeAlertUntil(alert.id, snoozeUntil)}
+                    onClear={alert.snooze_until ? () => unsnoozeAlert(alert.id) : undefined}
+                    value={alert.snooze_until}
+                    disabledReason={snoozingAlertIds.has(alert.id) ? 'Updating snooze' : undefined}
+                />
+            ) : null}
         </div>
     )
 

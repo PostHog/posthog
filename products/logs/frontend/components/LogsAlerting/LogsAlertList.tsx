@@ -208,16 +208,14 @@ export function LogsAlertList(): JSX.Element {
             render: (_, alert) => {
                 const isResetting = resettingAlertIds.has(alert.id)
                 const isSnoozing = snoozingAlertIds.has(alert.id)
-                let snoozeMenuItem: LemonMenuItems[number]
-                if (alert.state === LogsAlertConfigurationStateEnumApi.Snoozed) {
+                let snoozeMenuItem: LemonMenuItems[number] | false = false
+                if ((alert.enabled ?? true) && alert.state === LogsAlertConfigurationStateEnumApi.Snoozed) {
                     snoozeMenuItem = {
                         label: isSnoozing ? 'Unsnoozing…' : 'Unsnooze',
                         disabledReason: isSnoozing ? 'Updating snooze' : undefined,
                         onClick: () => unsnoozeAlert(alert.id),
                     }
-                } else if (!(alert.enabled ?? true)) {
-                    snoozeMenuItem = { label: 'Snooze', disabledReason: 'Only enabled alerts can be snoozed' }
-                } else {
+                } else if (alert.enabled ?? true) {
                     snoozeMenuItem = {
                         label: isSnoozing ? 'Snoozing…' : 'Snooze',
                         disabledReason: isSnoozing ? 'Updating snooze' : undefined,
