@@ -27,6 +27,7 @@ from posthog.hogql.property_planner import (
     PropertySourceKind,
     plan_property_comparison,
 )
+from posthog.hogql.type_system import ComparisonCompatibility, comparison_compatibility
 from posthog.hogql.visitor import TraversingVisitor, clone_expr
 
 from posthog.schema_enums import QueryIndexUsage
@@ -70,6 +71,8 @@ _OPERATOR_INDEXES: dict[ast.CompareOperationOp, frozenset[IndexKind]] = {
     ast.CompareOperationOp.LtEq: frozenset({IndexKind.MINMAX}),
     ast.CompareOperationOp.ILike: frozenset({IndexKind.NGRAM_LOWER, IndexKind.BLOOM_FILTER_LOWER}),
 }
+
+_COMPATIBLE_COMPARISONS = frozenset({ComparisonCompatibility.DEFINITELY_COMPATIBLE, ComparisonCompatibility.CHEAP_CAST})
 
 _COLUMN_SOURCE_KINDS = frozenset(
     {
@@ -198,6 +201,8 @@ def eligibility_from_plan(
     # problem that makes the printer wrap the column in a cast. A cast defeats every skip index on
     # that column, not just the minmax one.
     type_blocker = plan.minmax_blocker if plan.minmax_blocker != PropertyMinmaxBlocker.NO_MINMAX_INDEX else None
+    if type_blocker is not None and _set_members_match_source(plan):
+        type_blocker = None
     usable: tuple[IndexKind, ...] = () if type_blocker is not None else tuple(sorted(available & relevant))
 
     verdict = _verdict(
@@ -235,6 +240,34 @@ def eligibility_from_plan(
         fix=fix,
         start=start,
         end=end,
+    )
+
+
+def _set_members_match_source(plan: PropertyComparisonPlan) -> bool:
+    """Whether an IN compares the column against a set whose members all match how it is stored.
+
+    ``plan.minmax_blocker`` compares the property against the whole right-hand side, so an IN reads
+    as String-versus-Tuple and is reported as a type mismatch. The printer disagrees: it emits
+    ``has([...], column)`` with the column bare, and the skip index still applies. The mismatch that
+    matters for a set membership is between the column and the set's members.
+    """
+    if plan.operator not in (ast.CompareOperationOp.In, ast.CompareOperationOp.GlobalIn):
+        return False
+
+    value_type = plan.value_type
+    if isinstance(value_type, ast.TupleType):
+        member_types: list[ast.ConstantType] = list(value_type.item_types)
+    elif isinstance(value_type, ast.ArrayType):
+        member_types = [value_type.item_type]
+    else:
+        return False
+
+    if not member_types:
+        return False
+
+    return all(
+        comparison_compatibility(plan.access.source.physical_type, member_type) in _COMPATIBLE_COMPARISONS
+        for member_type in member_types
     )
 
 

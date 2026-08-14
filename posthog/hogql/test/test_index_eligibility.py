@@ -55,6 +55,7 @@ def _plan(
     restricted: bool = False,
     semantic_type: ast.ConstantType | None = None,
     physical_type: ast.ConstantType | None = None,
+    value_type: ast.ConstantType | None = None,
 ) -> PropertyComparisonPlan:
     source = PropertySourcePlan(
         kind=kind,
@@ -83,7 +84,7 @@ def _plan(
         access=access,
         property_side="left",
         operator=operator,
-        value_type=ast.StringType(nullable=True),
+        value_type=value_type or ast.StringType(nullable=True),
         semantic_compatibility=ComparisonCompatibility.DEFINITELY_COMPATIBLE,
         physical_compatibility=ComparisonCompatibility.DEFINITELY_COMPATIBLE,
         literal_conversion=PropertyLiteralConversion.NONE,
@@ -175,6 +176,30 @@ class TestIndexEligibilityVerdicts(SimpleTestCase):
                 "absent_index_is_not_a_type_blocker",
                 _plan(blocker=PropertyMinmaxBlocker.NO_MINMAX_INDEX),
                 PredicateIndexVerdict.UNINDEXED_JSON,
+                (),
+            ),
+            (
+                "in_against_matching_members_still_prunes",
+                _plan(
+                    operator=Op.In,
+                    kind=PropertySourceKind.MATERIALIZED_COLUMN,
+                    minmax=True,
+                    blocker=PropertyMinmaxBlocker.VALUE_TYPE_NOT_SOURCE_COMPATIBLE,
+                    value_type=ast.TupleType(item_types=[ast.StringType(), ast.StringType()]),
+                ),
+                PredicateIndexVerdict.INDEXED,
+                (IndexKind.MINMAX,),
+            ),
+            (
+                "in_against_mismatched_members_does_not",
+                _plan(
+                    operator=Op.In,
+                    kind=PropertySourceKind.MATERIALIZED_COLUMN,
+                    minmax=True,
+                    blocker=PropertyMinmaxBlocker.VALUE_TYPE_NOT_SOURCE_COMPATIBLE,
+                    value_type=ast.TupleType(item_types=[ast.IntegerType(), ast.IntegerType()]),
+                ),
+                PredicateIndexVerdict.BLOCKED,
                 (),
             ),
         ]
