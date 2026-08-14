@@ -4,14 +4,14 @@
 
 Dashboard query behavior can combine several layers of state.
 
-| Layer | Persisted | Scope |
-| --- | --- | --- |
-| Dashboard filters | Yes | Every compatible tile |
-| Dashboard variables | Yes | Every compatible tile |
-| Request filter override | No | One dashboard read or query request |
-| Request variable override | No | One dashboard read or query request |
-| Tile filter override | Yes | One insight tile |
-| Quick filters | Yes, by ID | Dashboard filter controls |
+| Layer                     | Persisted  | Scope                               |
+| ------------------------- | ---------- | ----------------------------------- |
+| Dashboard filters         | Yes        | Every compatible tile               |
+| Dashboard variables       | Yes        | Every compatible tile               |
+| Request filter override   | No         | One dashboard read or query request |
+| Request variable override | No         | One dashboard read or query request |
+| Tile filter override      | Yes        | One insight tile                    |
+| Quick filters             | Yes, by ID | Dashboard filter controls           |
 
 Before you change one layer, define its precedence with every other affected layer. Do not infer precedence from the UI.
 
@@ -27,13 +27,13 @@ Before you change one layer, define its precedence with every other affected lay
 
 ## Failure cases
 
-| Change | Check |
-| --- | --- |
-| New dashboard filter | Invalid property shape, old filter JSON, and shared rendering |
-| New variable | Missing value, invalid value, template substitution, and request-only override |
-| New quick filter | Missing ID, deleted ID, cross-team ID, and order preservation |
-| New tile override | Dashboard filter opt-out, tile-only filter, copy, duplicate, and template behavior |
-| New read path | Persisted output versus request-resolved output and shared-token behavior |
+| Change               | Check                                                                              |
+| -------------------- | ---------------------------------------------------------------------------------- |
+| New dashboard filter | Invalid property shape, old filter JSON, and shared rendering                      |
+| New variable         | Missing value, invalid value, template substitution, and request-only override     |
+| New quick filter     | Missing ID, deleted ID, cross-team ID, and order preservation                      |
+| New tile override    | Dashboard filter opt-out, tile-only filter, copy, duplicate, and template behavior |
+| New read path        | Persisted output versus request-resolved output and shared-token behavior          |
 
 ## Source files
 

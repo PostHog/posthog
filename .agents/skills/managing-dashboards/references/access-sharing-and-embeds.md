@@ -44,11 +44,11 @@ When a dashboard becomes shared, check existing tiles before you publish the sta
 
 ## Minimum test matrix
 
-| Actor or surface | Read | Mutate | Refresh |
-| --- | --- | --- | --- |
-| Project viewer | Allowed only when resource access permits | Denied | Only if the endpoint permits it |
-| Project editor | Allowed | Allowed within dashboard restrictions | Allowed |
-| Dashboard collaborator | Follow assigned privilege | Follow assigned privilege | Follow assigned privilege |
-| Public shared viewer | Safe read-only payload | Denied | Denied |
-| Embedded viewer | Follow host and resource access | Denied unless explicitly supported | Must stay bounded |
-| Export renderer | Render-safe payload | Denied | Denied |
+| Actor or surface       | Read                                      | Mutate                                | Refresh                         |
+| ---------------------- | ----------------------------------------- | ------------------------------------- | ------------------------------- |
+| Project viewer         | Allowed only when resource access permits | Denied                                | Only if the endpoint permits it |
+| Project editor         | Allowed                                   | Allowed within dashboard restrictions | Allowed                         |
+| Dashboard collaborator | Follow assigned privilege                 | Follow assigned privilege             | Follow assigned privilege       |
+| Public shared viewer   | Safe read-only payload                    | Denied                                | Denied                          |
+| Embedded viewer        | Follow host and resource access           | Denied unless explicitly supported    | Must stay bounded               |
+| Export renderer        | Render-safe payload                       | Denied                                | Denied                          |

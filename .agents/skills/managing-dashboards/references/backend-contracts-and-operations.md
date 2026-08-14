@@ -86,12 +86,12 @@ Dashboard changes are product events and audit events.
 
 ## Backend test matrix
 
-| Change | Test boundary |
-| --- | --- |
-| Persisted model field | Migration, serializer, OpenAPI, generated types, and MCP schema |
-| Create or delete | Team quota, soft delete, activity log, file-system sync, and restore |
-| Move, copy, or duplicate | Source and destination access, transaction rollback, and tile uniqueness |
-| Read endpoint | REST and stream behavior, shared sanitization, cache policy, and error payload |
-| Query endpoint | Scope, throttle, access method, cache outcome, cancellation, and partial failure |
-| Template or transfer | Old payload, source-specific reference, target team, and excluded derived fields |
-| Subscription path | Permission, duplicate delivery, cache loss, and notification failure |
+| Change                   | Test boundary                                                                    |
+| ------------------------ | -------------------------------------------------------------------------------- |
+| Persisted model field    | Migration, serializer, OpenAPI, generated types, and MCP schema                  |
+| Create or delete         | Team quota, soft delete, activity log, file-system sync, and restore             |
+| Move, copy, or duplicate | Source and destination access, transaction rollback, and tile uniqueness         |
+| Read endpoint            | REST and stream behavior, shared sanitization, cache policy, and error payload   |
+| Query endpoint           | Scope, throttle, access method, cache outcome, cancellation, and partial failure |
+| Template or transfer     | Old payload, source-specific reference, target team, and excluded derived fields |
+| Subscription path        | Permission, duplicate delivery, cache loss, and notification failure             |

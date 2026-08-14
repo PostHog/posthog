@@ -35,15 +35,15 @@ If the change affects a widget query, read `manage-dashboard-widgets`. Do not du
 
 Use representative fixtures or test helpers. Do not depend on production data.
 
-| Case | Expected result |
-| --- | --- |
-| Empty dashboard | Fast empty state. No tile query. |
-| One tile | Correct content and controls. |
-| Many insight tiles | Bounded requests, stable loading state, independent errors. |
-| Mixed tiles | Text and buttons do not enter query refresh paths. |
-| Slow or failed tile | Other tiles remain usable. Error is tile-scoped. |
-| Repeated refresh | No duplicate requests for the same refresh window. |
-| Navigation during refresh | Abort or ignore obsolete responses. |
+| Case                      | Expected result                                             |
+| ------------------------- | ----------------------------------------------------------- |
+| Empty dashboard           | Fast empty state. No tile query.                            |
+| One tile                  | Correct content and controls.                               |
+| Many insight tiles        | Bounded requests, stable loading state, independent errors. |
+| Mixed tiles               | Text and buttons do not enter query refresh paths.          |
+| Slow or failed tile       | Other tiles remain usable. Error is tile-scoped.            |
+| Repeated refresh          | No duplicate requests for the same refresh window.          |
+| Navigation during refresh | Abort or ignore obsolete responses.                         |
 
 ## Observability
 
@@ -62,4 +62,5 @@ hogli test products/dashboards/backend/api/test/test_run_widgets.py
 hogli test frontend/src/scenes/dashboard/dashboardLogic.test.ts
 hogli test frontend/src/scenes/dashboard/DashboardItems.test.tsx
 ```
+
 Also run focused tests for the changed API, sharing, template, or layout behavior.

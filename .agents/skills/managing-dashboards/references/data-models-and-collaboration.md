@@ -17,15 +17,15 @@ Define the rollout before you add the model or field.
 
 For each new relation, define one behavior for every operation.
 
-| Operation | Required decision |
-| --- | --- |
-| Delete parent | Cascade, set null, soft-delete, or reject |
-| Delete related resource | Cascade, clear relation, or reject |
-| Restore | Restore the relation, leave it absent, or report a conflict |
-| Duplicate | Copy, deep-copy, or reset |
-| Template | Serialize, substitute, or omit |
-| Project transfer | Copy, transform, or exclude |
-| Cross-team request | Reject before reading the relation |
+| Operation               | Required decision                                           |
+| ----------------------- | ----------------------------------------------------------- |
+| Delete parent           | Cascade, set null, soft-delete, or reject                   |
+| Delete related resource | Cascade, clear relation, or reject                          |
+| Restore                 | Restore the relation, leave it absent, or report a conflict |
+| Duplicate               | Copy, deep-copy, or reset                                   |
+| Template                | Serialize, substitute, or omit                              |
+| Project transfer        | Copy, transform, or exclude                                 |
+| Cross-team request      | Reject before reading the relation                          |
 
 Do not leave orphan handling to an implicit database default. Test every selected behavior.
 
@@ -68,11 +68,11 @@ Use `writing-user-facing-copy` for new labels, help text, empty states, and erro
 
 ## Test matrix
 
-| Risk | Test |
-| --- | --- |
-| Migration | Old row, new row, old payload, and backfill state |
-| Relation | Create, delete, restore, duplicate, template, and transfer |
-| Query shape | Detail, stream, list, export, and public share query count |
-| Collaboration | Concurrent mutation, stale write, optimistic rollback, and refresh race |
-| Accessibility | Keyboard action, focus movement, accessible name, and state |
-| Public content | Shared, embedded, export, and error payload |
+| Risk           | Test                                                                    |
+| -------------- | ----------------------------------------------------------------------- |
+| Migration      | Old row, new row, old payload, and backfill state                       |
+| Relation       | Create, delete, restore, duplicate, template, and transfer              |
+| Query shape    | Detail, stream, list, export, and public share query count              |
+| Collaboration  | Concurrent mutation, stale write, optimistic rollback, and refresh race |
+| Accessibility  | Keyboard action, focus movement, accessible name, and state             |
+| Public content | Shared, embedded, export, and error payload                             |

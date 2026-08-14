@@ -17,12 +17,12 @@ Use [`manage-dashboard-widgets`](../manage-dashboard-widgets/SKILL.md) for a new
 
 ## 1. Route the request
 
-| Request | Primary path |
-| --- | --- |
-| Dashboard metadata, tile lifecycle, filters, variables, refresh, list, or layout | This skill |
-| Public links, sharing settings, embeds, exports, or product-embedded dashboards | This skill |
-| Dashboard template creation, editing, scope, or copying | This skill |
-| New or changed `widget_type`, widget config, widget query, or WidgetCard | `manage-dashboard-widgets` |
+| Request                                                                          | Primary path               |
+| -------------------------------------------------------------------------------- | -------------------------- |
+| Dashboard metadata, tile lifecycle, filters, variables, refresh, list, or layout | This skill                 |
+| Public links, sharing settings, embeds, exports, or product-embedded dashboards  | This skill                 |
+| Dashboard template creation, editing, scope, or copying                          | This skill                 |
+| New or changed `widget_type`, widget config, widget query, or WidgetCard         | `manage-dashboard-widgets` |
 
 Before coding, decide the effect on each surface. Record `affected`, `unaffected`, or `not applicable`.
 
@@ -70,15 +70,15 @@ State these decisions before implementation.
 
 Use this checklist as a design gate. Read the linked reference when an item applies.
 
-| Area | Check |
-| --- | --- |
-| Access | [RBAC, sharing, and embeds](references/access-sharing-and-embeds.md) |
-| Filter state | [Filters, variables, and tile overrides](references/filters-variables-and-overrides.md) |
-| Data and scale | [Querying, caching, and scale](references/querying-caching-and-scale.md) |
-| Layout and templates | [Layout, responsive behavior, and templates](references/layout-responsive-and-templates.md) |
-| Backend and operations | [Backend contracts and operations](references/backend-contracts-and-operations.md) |
-| Feature lifecycle | [Feature lifecycle and rollout](references/feature-lifecycle-and-rollout.md) |
-| New state or relation | [Data models and collaboration](references/data-models-and-collaboration.md) |
+| Area                   | Check                                                                                       |
+| ---------------------- | ------------------------------------------------------------------------------------------- |
+| Access                 | [RBAC, sharing, and embeds](references/access-sharing-and-embeds.md)                        |
+| Filter state           | [Filters, variables, and tile overrides](references/filters-variables-and-overrides.md)     |
+| Data and scale         | [Querying, caching, and scale](references/querying-caching-and-scale.md)                    |
+| Layout and templates   | [Layout, responsive behavior, and templates](references/layout-responsive-and-templates.md) |
+| Backend and operations | [Backend contracts and operations](references/backend-contracts-and-operations.md)          |
+| Feature lifecycle      | [Feature lifecycle and rollout](references/feature-lifecycle-and-rollout.md)                |
+| New state or relation  | [Data models and collaboration](references/data-models-and-collaboration.md)                |
 
 ## 4. Implement across layers
 
@@ -112,26 +112,26 @@ Run the focused tests for each edited layer. Then run the relevant checks from [
 
 ## 6. Code map
 
-| Concern | Start here |
-| --- | --- |
-| Dashboard API, serializers, tile operations, insight and widget runners | `products/dashboards/backend/api/dashboard.py` |
-| Dashboard model and tile model | `products/dashboards/backend/models/dashboard.py`, `models/dashboard_tile.py` |
-| Sharing and collaborator routes | `products/dashboards/backend/routes.py` |
-| Templates | `products/dashboards/backend/api/dashboard_templates.py`, `models/dashboard_templates.py` |
-| Main scene, state, refresh, and layout persistence | `frontend/src/scenes/dashboard/Dashboard.tsx`, `dashboardLogic.tsx`, `DashboardItems.tsx` |
-| Layout geometry and tile size constraints | `frontend/src/scenes/dashboard/tileLayouts.ts`, `dashboardUtils.ts` |
-| Shared and export rendering | `frontend/src/exporter/scenes/ExporterDashboardScene.tsx`, `frontend/src/exporter/Exporter.tsx` |
-| Refresh defaults and shared safety clamp | `posthog/hogql_queries/refresh_policy.py` |
-| Resource transfer | `posthog/models/resource_transfer/visitors/dashboard.py`, `dashboard_tile.py`, `dashboard_widget.py` |
-| MCP tool definitions | `products/dashboards/mcp/tools.yaml` |
+| Concern                                                                 | Start here                                                                                           |
+| ----------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------- |
+| Dashboard API, serializers, tile operations, insight and widget runners | `products/dashboards/backend/api/dashboard.py`                                                       |
+| Dashboard model and tile model                                          | `products/dashboards/backend/models/dashboard.py`, `models/dashboard_tile.py`                        |
+| Sharing and collaborator routes                                         | `products/dashboards/backend/routes.py`                                                              |
+| Templates                                                               | `products/dashboards/backend/api/dashboard_templates.py`, `models/dashboard_templates.py`            |
+| Main scene, state, refresh, and layout persistence                      | `frontend/src/scenes/dashboard/Dashboard.tsx`, `dashboardLogic.tsx`, `DashboardItems.tsx`            |
+| Layout geometry and tile size constraints                               | `frontend/src/scenes/dashboard/tileLayouts.ts`, `dashboardUtils.ts`                                  |
+| Shared and export rendering                                             | `frontend/src/exporter/scenes/ExporterDashboardScene.tsx`, `frontend/src/exporter/Exporter.tsx`      |
+| Refresh defaults and shared safety clamp                                | `posthog/hogql_queries/refresh_policy.py`                                                            |
+| Resource transfer                                                       | `posthog/models/resource_transfer/visitors/dashboard.py`, `dashboard_tile.py`, `dashboard_widget.py` |
+| MCP tool definitions                                                    | `products/dashboards/mcp/tools.yaml`                                                                 |
 
 ## Companion skills
 
-| Skill | Use when |
-| --- | --- |
-| `manage-dashboard-widgets` | Change a `widget_type`, its config, query, catalog, or `WidgetCard` |
-| `django-migrations` | Change dashboard, tile, template, or widget schema |
-| `improving-drf-endpoints` | Change viewsets, serializer contracts, or OpenAPI output |
-| `adopting-generated-api-types` | Consume changed generated dashboard API types |
-| `writing-kea-logics` | Change `dashboardLogic` or another Kea logic |
-| `writing-tests` | Decide the lowest-cost regression test |
+| Skill                          | Use when                                                            |
+| ------------------------------ | ------------------------------------------------------------------- |
+| `manage-dashboard-widgets`     | Change a `widget_type`, its config, query, catalog, or `WidgetCard` |
+| `django-migrations`            | Change dashboard, tile, template, or widget schema                  |
+| `improving-drf-endpoints`      | Change viewsets, serializer contracts, or OpenAPI output            |
+| `adopting-generated-api-types` | Consume changed generated dashboard API types                       |
+| `writing-kea-logics`           | Change `dashboardLogic` or another Kea logic                        |
+| `writing-tests`                | Decide the lowest-cost regression test                              |

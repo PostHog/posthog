@@ -12,27 +12,27 @@
 
 Use `DashboardPlacement` as the frontend placement contract.
 
-| Placement | Required behavior |
-| --- | --- |
-| `Dashboard` | Full authenticated dashboard. Editing may be available. |
-| `ProjectHomepage` and `Builtin` | Dashboard content in another authenticated product surface. Check action visibility and available width. |
-| `Public` | Public share. Read-only. Do not expose authorship, folders, private configuration, or force-refresh actions. |
-| `Export` | Export rendering. Do not add interactive controls or assume a browser user session. |
-| `FeatureFlag` and `Group` | Embedded dashboard contexts. Check the host page, URL state, permissions, and refresh behavior. |
+| Placement                       | Required behavior                                                                                            |
+| ------------------------------- | ------------------------------------------------------------------------------------------------------------ |
+| `Dashboard`                     | Full authenticated dashboard. Editing may be available.                                                      |
+| `ProjectHomepage` and `Builtin` | Dashboard content in another authenticated product surface. Check action visibility and available width.     |
+| `Public`                        | Public share. Read-only. Do not expose authorship, folders, private configuration, or force-refresh actions. |
+| `Export`                        | Export rendering. Do not add interactive controls or assume a browser user session.                          |
+| `FeatureFlag` and `Group`       | Embedded dashboard contexts. Check the host page, URL state, permissions, and refresh behavior.              |
 
 Also check product-created unlisted dashboards. `Dashboard.CreationMode.UNLISTED` hides these from normal lists but does not remove dashboard rules.
 
 ## Ownership map
 
-| Area | Files |
-| --- | --- |
-| Models | `products/dashboards/backend/models/dashboard.py`, `dashboard_tile.py`, `dashboard_templates.py` |
-| Dashboard endpoints | `products/dashboards/backend/api/dashboard.py` |
-| Templates endpoint | `products/dashboards/backend/api/dashboard_templates.py` |
-| Product routes | `products/dashboards/backend/routes.py` |
-| Scene state | `frontend/src/scenes/dashboard/dashboardLogic.tsx` |
-| Main layout | `frontend/src/scenes/dashboard/DashboardItems.tsx`, `tileLayouts.ts` |
-| Shared/export host | `frontend/src/exporter/scenes/ExporterDashboardScene.tsx`, `frontend/src/exporter/Exporter.tsx` |
+| Area                | Files                                                                                            |
+| ------------------- | ------------------------------------------------------------------------------------------------ |
+| Models              | `products/dashboards/backend/models/dashboard.py`, `dashboard_tile.py`, `dashboard_templates.py` |
+| Dashboard endpoints | `products/dashboards/backend/api/dashboard.py`                                                   |
+| Templates endpoint  | `products/dashboards/backend/api/dashboard_templates.py`                                         |
+| Product routes      | `products/dashboards/backend/routes.py`                                                          |
+| Scene state         | `frontend/src/scenes/dashboard/dashboardLogic.tsx`                                               |
+| Main layout         | `frontend/src/scenes/dashboard/DashboardItems.tsx`, `tileLayouts.ts`                             |
+| Shared/export host  | `frontend/src/exporter/scenes/ExporterDashboardScene.tsx`, `frontend/src/exporter/Exporter.tsx`  |
 
 ## API contract changes
 
