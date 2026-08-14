@@ -22,7 +22,13 @@ Stdlib only (hashlib, csv, argparse) — no PostHog install required. distinct_i
 often emails; run this customer-side and paste back only the aggregate lines it prints.
 
     ./srm_check.py --selftest
-    ./srm_check.py --flag-key my-flag --variants control=50,test=50 --csv exposures.csv
+    ./srm_check.py --flag-key my-flag --variants-file variants.json --csv exposures.csv
+
+Prefer --variants-file: save the flag's `filters.multivariate.variants` array to a file and pass
+the path. Variant keys are only charset-validated in the PostHog UI, not by the API, so a key
+reaching you through a ticket can contain shell metacharacters or quotes — keep it out of the
+command line entirely rather than trying to quote it. --variants is the convenience form for keys
+you have already eyeballed.
 
 The CSV is the export query from the decisive test: a header row plus
 `distinct_id,recorded_variant` (override names with --id-col / --variant-col). The id column must
@@ -36,6 +42,7 @@ from __future__ import annotations
 import argparse
 import csv
 import hashlib
+import json
 import sys
 
 # 0xfffffffffffffff == 15 hex digits == LONG_SCALE in flag_matching_utils.rs
@@ -89,6 +96,27 @@ def parse_variants(spec: str) -> list[tuple[str, float]]:
             out.append((name.strip(), float(pct)))
         except ValueError:
             raise ValueError(f"bad --variants entry {part!r}; {pct!r} is not a number") from None
+    return out
+
+
+def load_variants_file(path: str) -> list[tuple[str, float]]:
+    """Read the flag's `filters.multivariate.variants` array straight from a file, preserving
+    stored order. Keeps variant keys off the command line — they are charset-validated only in
+    the UI, so a key arriving via the API can carry shell metacharacters or quotes.
+
+    Accepts the raw array, or the object that contains it (`multivariate`, or a whole flag)."""
+    with open(path) as fh:
+        blob = json.load(fh)
+    for step in ("filters", "multivariate", "variants"):
+        if isinstance(blob, dict) and step in blob:
+            blob = blob[step]
+    if not isinstance(blob, list) or not blob:
+        raise ValueError(f"{path}: expected a non-empty variants array, got {type(blob).__name__}")
+    out: list[tuple[str, float]] = []
+    for entry in blob:
+        if not isinstance(entry, dict) or "key" not in entry:
+            raise ValueError(f"{path}: each variant needs a 'key', got {entry!r}")
+        out.append((str(entry["key"]), float(entry.get("rollout_percentage", 0))))
     return out
 
 
@@ -204,6 +232,11 @@ def main(argv: list[str]) -> int:
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument("--selftest", action="store_true", help="replay golden hash vectors and exit")
     p.add_argument("--flag-key", help="feature flag key")
+    p.add_argument(
+        "--variants-file",
+        help="path to the flag's filters.multivariate.variants JSON (preferred: keeps untrusted "
+        "variant keys off the command line)",
+    )
     p.add_argument("--variants", help="stored-order variants, e.g. control=50,test=50")
     p.add_argument("--csv", help="CSV export from the decisive-test query")
     p.add_argument("--id-col", default="distinct_id", help="identifier column (default: distinct_id)")
@@ -212,11 +245,13 @@ def main(argv: list[str]) -> int:
 
     if args.selftest:
         return selftest()
-    if not (args.flag_key and args.variants and args.csv):
-        p.error("--flag-key, --variants and --csv are required (or use --selftest)")
+    if args.variants_file and args.variants:
+        p.error("pass --variants-file or --variants, not both")
+    if not (args.flag_key and (args.variants_file or args.variants) and args.csv):
+        p.error("--flag-key, --variants-file (or --variants) and --csv are required (or use --selftest)")
     try:
-        variants = parse_variants(args.variants)
-    except ValueError as e:
+        variants = load_variants_file(args.variants_file) if args.variants_file else parse_variants(args.variants)
+    except (OSError, ValueError, json.JSONDecodeError) as e:
         p.error(str(e))
     return run(args.flag_key, variants, args.csv, args.id_col, args.variant_col)
 

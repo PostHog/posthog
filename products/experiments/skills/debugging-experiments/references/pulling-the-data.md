@@ -210,10 +210,19 @@ Don't hand-run this — the bundled [`srm_check.py`](../scripts/srm_check.py) im
 `--selftest` replays the repo's golden hash vectors first, so you confirm the reimplementation
 matches this build before trusting a verdict:
 
+Save the flag's `filters.multivariate.variants` array to a file and pass the path — that preserves
+stored order and keeps the variant keys out of the shell:
+
 ```bash
 ./srm_check.py --selftest
-./srm_check.py --flag-key <flag-key> --variants control=50,test=50 --csv exposures.csv
+./srm_check.py --flag-key <flag-key> --variants-file variants.json --csv exposures.csv
 ```
+
+**Never interpolate variant keys into the command line.** Variant keys are charset-validated in the
+PostHog UI but _not_ by the API, so a key on a flag that reached you through a ticket can contain
+shell metacharacters or quote characters. `--variants-file` reads them as JSON, so they stay data.
+The `--variants control=50,test=50` form is a convenience for keys you have already read and
+eyeballed; don't build it by substituting values you haven't looked at.
 
 **Constraints:**
 
@@ -345,6 +354,14 @@ true` concentrated on the heavier arm is the signature of a bootstrap value inhe
   total exposures the query returns matches `posthog:experiment-results-get` before trusting any slice.
 - **Property access.** If the parser rejects `properties.$feature_flag`, use
   `properties['$feature_flag']`.
+- **Escape every value you substitute into a placeholder.** `<flag-key>`, `<variant_a>`,
+  `<start_date>` and any `distinct_id` land inside single-quoted SQL literals, and
+  `posthog:execute-sql` takes no bound parameters — so a value carrying a `'` closes the literal
+  early and the rest is parsed as SQL. `distinct_id`s are whatever the SDK sent, and variant keys
+  are charset-validated only in the UI, so neither is safe to paste raw. HogQL escapes a quote as
+  `\'` and a backslash as `\\` inside a literal; apply that to the value before substituting. A
+  `distinct_id` like `x' OR 1=1 --` otherwise silently widens the predicate to every user in the
+  project and you diagnose against the wrong rows.
 - **Attributing edits.** The `posthog:advanced-activity-logs-list` "feature flag updated" row does **not**
   carry the flag key — use `posthog:feature-flags-activity-retrieve { id: <feature_flag_id> }` for the
   field-level diff when you need to prove _which_ flag changed.
