@@ -3,6 +3,7 @@ import { loaders } from 'kea-loaders'
 import posthog from 'posthog-js'
 
 import api, { ApiError } from 'lib/api'
+import { isTransientServerError } from 'lib/api-error'
 import { dayjs } from 'lib/dayjs'
 import { sessionRecordingEventUsageLogic } from 'scenes/session-recordings/sessionRecordingEventUsageLogic'
 
@@ -168,8 +169,12 @@ export const sessionRecordingsListPropertiesLogic = kea<sessionRecordingsListPro
                     } catch (e) {
                         if (!extraSessionProperties.length) {
                             // These are supplementary columns on the recordings list. A backend blip shouldn't
-                            // toast, it should just leave this batch's rows without properties.
-                            posthog.captureException(e)
+                            // toast, it should just leave this batch's rows without properties. Skip capturing
+                            // 502/503/504s: they carry no actionable detail and, because ApiError bakes the
+                            // environment id into the message, each project would otherwise mint its own issue.
+                            if (!isTransientServerError(e)) {
+                                posthog.captureException(e)
+                            }
                             return values.recordingProperties
                         }
                         try {
@@ -178,7 +183,9 @@ export const sessionRecordingsListPropertiesLogic = kea<sessionRecordingsListPro
                                 QUERY_TAGS
                             )
                         } catch (fallbackError) {
-                            posthog.captureException(fallbackError)
+                            if (!isTransientServerError(fallbackError)) {
+                                posthog.captureException(fallbackError)
+                            }
                             return values.recordingProperties
                         }
                         // only a 400 (a pin missing from this project's session table) blacklists the pin set — transient errors retry next batch

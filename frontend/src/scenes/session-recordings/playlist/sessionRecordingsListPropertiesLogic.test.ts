@@ -1,4 +1,5 @@
 import { expectLogic } from 'kea-test-utils'
+import posthog from 'posthog-js'
 
 import { sessionRecordingPinnedPropertiesLogic } from 'scenes/session-recordings/player/player-meta/sessionRecordingPinnedPropertiesLogic'
 import { sessionRecordingsListPropertiesLogic } from 'scenes/session-recordings/playlist/sessionRecordingsListPropertiesLogic'
@@ -295,5 +296,22 @@ describe('sessionRecordingsListPropertiesLogic', () => {
 
         // an outage on both queries isn't a 400, so the pin set isn't blacklisted (it's retried next batch)
         expect(logic.values.unqueryableExtraProperties).toBeNull()
+    })
+
+    // A 502/503/504 from the query endpoint is transient overload, not a real defect. Capturing it minted a
+    // separate error-tracking issue per environment (ApiError bakes the environment id into the message).
+    it.each([
+        [503, false],
+        [500, true],
+    ])('captures the base-query failure only when it is not transient (status %s)', async (status, shouldCapture) => {
+        const captureSpy = jest.spyOn(posthog, 'captureException').mockImplementation(() => undefined as any)
+        useQueryMocks(() => [status, { detail: 'boom' }])
+
+        await expectLogic(logic, () => {
+            logic.actions.loadPropertiesForSessions(mockSessons)
+        }).toDispatchActions(['loadPropertiesForSessionsSuccess'])
+
+        expect(captureSpy).toHaveBeenCalledTimes(shouldCapture ? 1 : 0)
+        captureSpy.mockRestore()
     })
 })
