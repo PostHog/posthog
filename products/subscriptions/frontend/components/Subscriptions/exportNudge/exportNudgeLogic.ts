@@ -164,15 +164,15 @@ function subjectName(subject: ExportNudgeSubject): string | null {
 }
 
 /** Free-tier teams may only be offered a subscription while they have room under the cap. */
-function withinSubscriptionLimit(): ExportNudgeLookup['status'] {
+function subscriptionLimitStatus(): 'within' | 'exceeded' | 'unknown' {
     const { values } = mountedExportNudgeLogic()
     if (values.hasAvailableFeature(AvailableFeature.SUBSCRIPTIONS)) {
-        return 'eligible'
+        return 'within'
     }
     if (values.freeTierSubscriptionCount === null) {
         return 'unknown'
     }
-    return isFreeTierCreateAtLimit(values.freeTierSubscriptionCount) ? 'ineligible' : 'eligible'
+    return isFreeTierCreateAtLimit(values.freeTierSubscriptionCount) ? 'exceeded' : 'within'
 }
 
 /**
@@ -180,9 +180,9 @@ function withinSubscriptionLimit(): ExportNudgeLookup['status'] {
  * from the first frame. Stops short of the experiment flag, which is read when the nudge renders.
  */
 export function lookUpExportNudge(subject: ExportNudgeSubject): ExportNudgeLookup {
-    const limitStatus = withinSubscriptionLimit()
-    if (limitStatus !== 'eligible') {
-        return { status: limitStatus }
+    const limitStatus = subscriptionLimitStatus()
+    if (limitStatus !== 'within') {
+        return { status: limitStatus === 'unknown' ? 'unknown' : 'ineligible' }
     }
 
     const subscriptionCount = loadedSubscriptionCount(subject)
@@ -204,7 +204,7 @@ export async function resolveExportNudgeEligibility(subject: ExportNudgeSubject)
     if (!values.hasAvailableFeature(AvailableFeature.SUBSCRIPTIONS) && values.freeTierSubscriptionCount === null) {
         await asyncActions.loadFreeTierSubscriptionCount()
     }
-    if (withinSubscriptionLimit() !== 'eligible') {
+    if (subscriptionLimitStatus() !== 'within') {
         return null // an unknown count fails closed: don't offer what we can't confirm they can do
     }
 

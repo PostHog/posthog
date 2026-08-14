@@ -399,8 +399,32 @@ describe('exportsLogic', () => {
             logic.actions.loadExportsSuccess([{ ...rendering, has_content: true }])
             await flush()
 
-            expect(lemonToast.dismiss).toHaveBeenCalledWith(kickoffToastId)
+            // Settled in place, so the acknowledgement does not close and animate a second toast in.
+            expect(lemonToast.updateToSuccess).toHaveBeenCalledWith(
+                kickoffToastId,
+                'Export complete!',
+                expect.objectContaining({ button: expect.objectContaining({ label: 'Download' }) })
+            )
+            expect(lemonToast.success).not.toHaveBeenCalled()
+            expect(lemonToast.dismiss).not.toHaveBeenCalled()
+        })
+
+        it('raises a fresh toast when the kickoff toast is long gone', async () => {
+            // A render that takes minutes outlives its acknowledgement, and updating a dismissed id
+            // does nothing, so the completion has to raise a toast of its own.
+            jest.mocked(lemonToast.isActive).mockReturnValue(false)
+            const rendering = asset({ id: 43, export_format: ExporterFormat.MP4 })
+            jest.spyOn(api.exports, 'create').mockResolvedValue(rendering)
+
+            logic.actions.createExport({ exportData: { export_format: ExporterFormat.MP4 } })
+            await flush()
+            logic.actions.loadExportsSuccess([{ ...rendering, has_content: true }])
+            await flush()
+
             expect(jest.mocked(lemonToast.success).mock.calls).toHaveLength(1)
+            expect(jest.mocked(lemonToast.success).mock.calls[0][1]?.toastId).toEqual(
+                expect.stringContaining('export-complete-')
+            )
         })
 
         it('claims the offer once across the kickoff and completion toasts', async () => {
@@ -421,7 +445,9 @@ describe('exportsLogic', () => {
             expect(claimExportNudgeMessage).toHaveBeenCalledTimes(1)
             // The offer follows the export to the toast it finishes on, for anyone who did not
             // answer it while the render was running.
-            expect(jest.mocked(lemonToast.success).mock.calls[0][0]).toEqual('nudge:Export complete! +Download')
+            expect(jest.mocked(lemonToast.updateToSuccess).mock.calls.at(-1)![1]).toEqual(
+                'nudge:Export complete! +Download'
+            )
         })
 
         it('does not claim the nudge for an export that failed', async () => {

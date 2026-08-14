@@ -31,40 +31,38 @@ export function claimExportNudgeMessage(candidate: ExportNudgeCandidate): Export
 
     let accepted = false
     return (headline: string, action?: ToastButton) => {
-        if (accepted) {
-            // The offer is spent, but this message still owns the layout, so it keeps rendering the
-            // export's own action — otherwise a file waiting to be downloaded loses its button.
-            return action ? (
-                <span className="flex items-center gap-2 *:m-0!">
-                    <span className="grow overflow-hidden text-ellipsis">{headline}</span>
-                    <ToastActionButton button={action} />
-                </span>
-            ) : (
-                headline
-            )
+        // One layout either way. Following the offer only takes the offer away: this message still
+        // owns the row, so it keeps rendering the export's own action, and a file waiting to be
+        // downloaded does not lose its button.
+        if (accepted && !action) {
+            return headline
         }
         return (
             <span className="flex flex-col items-start gap-1.5 min-w-0">
                 <span>{headline}</span>
-                <span className="text-xs text-secondary leading-snug">
-                    Want this on a schedule? We can send you a copy of {subjectLabel(candidate)} every week.
-                </span>
+                {!accepted && (
+                    <span className="text-xs text-secondary leading-snug">
+                        Want this on a schedule? We can send you a copy of {subjectLabel(candidate)} every week.
+                    </span>
+                )}
                 {/* The toast body gives every button a horizontal margin, which would push this row
                     off the text above it and space the two buttons apart. */}
                 <span className="flex flex-wrap items-center gap-2 *:m-0!">
-                    <LemonButton
-                        type="primary"
-                        size="small"
-                        data-attr="export-nudge-toast-cta"
-                        onClick={() => {
-                            accepted = true
-                            openSubscriptionFromNudge(subscriptionTargetFor(candidate.subject), {
-                                via: SUBSCRIPTION_PREFILL_PARAMS.viaExport,
-                            })
-                        }}
-                    >
-                        Subscribe
-                    </LemonButton>
+                    {!accepted && (
+                        <LemonButton
+                            type="primary"
+                            size="small"
+                            data-attr="export-nudge-toast-cta"
+                            onClick={() => {
+                                accepted = true
+                                openSubscriptionFromNudge(subscriptionTargetFor(candidate.subject), {
+                                    via: SUBSCRIPTION_PREFILL_PARAMS.viaExport,
+                                })
+                            }}
+                        >
+                            Subscribe
+                        </LemonButton>
+                    )}
                     {action && <ToastActionButton button={action} />}
                 </span>
             </span>
