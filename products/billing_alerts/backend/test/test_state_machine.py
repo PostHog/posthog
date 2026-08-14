@@ -60,6 +60,23 @@ def test_failure_preserves_firing_state_and_counts_transient_errors() -> None:
     assert outcome.consecutive_failures == 1
 
 
+def test_transient_failure_with_attempts_remaining_does_not_advance_the_counter() -> None:
+    # The retry backoff reaches the fifth attempt roughly four hours in, so counting every retry
+    # of one evaluation date would let a single upstream outage disable the alert the same day.
+    outcome = evaluate_alert_failure(
+        _snapshot(state=AlertState.FIRING, consecutive_failures=4),
+        error_message="billing unavailable",
+        is_transient_error=True,
+        attempts_remaining=True,
+    )
+
+    assert outcome.consecutive_failures == 4
+    assert outcome.new_state == AlertState.FIRING
+    assert outcome.disable is False
+    # The attempt still reports as an error, so the retry stays visible to the user.
+    assert outcome.notification == NotificationAction.ERROR
+
+
 def test_fifth_failure_breaks_and_disables_alert_through_adapter() -> None:
     outcome = evaluate_alert_failure(
         _snapshot(state=AlertState.FIRING, consecutive_failures=4),

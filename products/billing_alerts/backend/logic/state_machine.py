@@ -136,12 +136,27 @@ def evaluate_alert_failure(
     *,
     error_message: str,
     is_transient_error: bool,
+    attempts_remaining: bool = False,
 ) -> AlertCheckOutcome:
-    return shared_evaluate_alert_failure(
+    outcome = shared_evaluate_alert_failure(
         snapshot,
         error_message=error_message,
         is_transient_error=is_transient_error,
         policy=BILLING_ALERT_POLICY,
+    )
+    if not (is_transient_error and attempts_remaining):
+        return outcome
+    # consecutive_failures escalates to BROKEN, which disables the alert, and it counts consecutive
+    # evaluation *dates*. The retry backoff reaches the fifth attempt about four hours in and
+    # MAX_CONSECUTIVE_FAILURES is five, so advancing it per attempt would let one upstream outage
+    # disable an alert within a single day. Hold the counter and the escalation while this date can
+    # still be retried; the error event and its notification are kept so the attempt stays visible.
+    return replace(
+        outcome,
+        new_state=snapshot.state,
+        consecutive_failures=snapshot.consecutive_failures,
+        disable=False,
+        notification=NotificationAction.ERROR,
     )
 
 
@@ -293,6 +308,9 @@ def _prepare_billing_alert_failure(
         snapshot,
         error_message=reason,
         is_transient_error=is_transient_error,
+        # Mirrors the retry gate in commit_billing_alert_check: while this evaluation date can
+        # still be retried, the day's failure has not settled and must not escalate.
+        attempts_remaining=claim.attempt_count < MAX_EVALUATION_ATTEMPTS and alert.enabled,
     )
     event = _new_event(
         alert,
