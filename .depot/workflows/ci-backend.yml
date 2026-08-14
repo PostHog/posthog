@@ -499,16 +499,18 @@ jobs:
             - name: Compute schema cache key from PR base
               id: schema-key
               if: github.event_name == 'pull_request'
+              env:
+                  PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
               run: |
-                  # HEAD is the synthetic merge commit. Its first parent is the exact
-                  # base revision whose migrations are present in the test checkout.
-                  BASE_SHA=$(git rev-parse HEAD^1 2>/dev/null || echo "")
-                  if [ -z "$BASE_SHA" ]; then
+                  # The event base is the exact master revision in the synthetic merge checkout.
+                  # Use it directly so cache compatibility does not depend on parent ordering.
+                  BASE_SHA="$PR_BASE_SHA"
+                  if [ -z "$BASE_SHA" ] || ! git cat-file -e "${BASE_SHA}^{commit}" 2>/dev/null; then
                       echo "key=" >> $GITHUB_OUTPUT
                       echo "migrations_key=" >> $GITHUB_OUTPUT
                       echo "base_sha=" >> $GITHUB_OUTPUT
                       echo "base_timestamp=" >> $GITHUB_OUTPUT
-                      echo "::notice::PR base not found — schema cache will be skipped"
+                      echo "::notice::PR event base is unavailable — schema cache will be skipped"
                       exit 0
                   fi
                   echo "base_sha=$BASE_SHA" >> $GITHUB_OUTPUT
