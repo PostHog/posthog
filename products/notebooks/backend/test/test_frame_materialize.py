@@ -32,9 +32,8 @@ _DISPATCH_TARGET = "products.notebooks.backend.temporal.client.start_frame_mater
 
 
 def _printed_sql(sql: str = "SELECT 1") -> frame_materialize._PrintedFrameSQL:
-    """A stub print result for tests that care about what happens after printing."""
     return frame_materialize._PrintedFrameSQL(
-        sql=sql, values={}, passes=1, print_seconds=0.0, describe_seconds=0.0, database_seconds=0.0
+        sql=sql, values={}, passes=1, print_seconds=0.0, describe_seconds=0.0, resolve_seconds=0.0
     )
 
 
@@ -495,3 +494,14 @@ class TestFrameMaterializePrintPasses(APIBaseTest):
 
         assert printed.passes == expected_passes
         assert ("toString" in printed.sql) is (expected_passes == 2)
+
+    def test_resolve_time_is_actually_recorded(self):
+        # The reported split reads leaf keys out of HogQLQueryExecutor's own timings, so a
+        # renamed or relocated span downgrades the field to a silent zero rather than an
+        # error — which is exactly how the first version of this shipped, reporting
+        # `create_hogql_database` that the executor never records on this path.
+        printed = frame_materialize._print_clickhouse_sql(
+            lambda _sql, _values: [("n", "UInt8")], self.team, self.user, "select 1 as n", output_format=None
+        )
+
+        assert printed.resolve_seconds > 0

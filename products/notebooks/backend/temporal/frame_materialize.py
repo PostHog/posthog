@@ -55,7 +55,6 @@ from posthog.hogql.constants import HogQLGlobalSettings, LimitContext
 from posthog.hogql.errors import ExposedHogQLError
 from posthog.hogql.parser import parse_select
 from posthog.hogql.query import HogQLQueryExecutor
-from posthog.hogql.timings import HogQLTimings
 
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.client.connection import (
@@ -377,9 +376,12 @@ class _GeneratedSQL:
     sql: str
     values: dict[str, object]
     seconds: float
-    # `create_hogql_database` as the executor itself measured it, so a slow print can be
-    # blamed on the schema build or on the parse/resolve/print around it, not just "printing".
-    database_seconds: float
+    # The executor's own split of that wall clock. Resolving is the step expected to dominate
+    # and the one a wrapper pass repeats in full, so it is worth separating from parsing and
+    # from emitting the string.
+    parse_seconds: float
+    resolve_seconds: float
+    print_ast_seconds: float
 
 
 def _generate_sql(
@@ -404,23 +406,26 @@ def _generate_sql(
     started = time.perf_counter()
     sql, context = executor.generate_clickhouse_sql()
     seconds = time.perf_counter() - started
+    recorded = executor.timings.to_dict()
     return _GeneratedSQL(
         sql=sql,
         values=context.values,
         seconds=seconds,
-        database_seconds=_hogql_database_seconds(executor.timings),
+        parse_seconds=_hogql_leaf_seconds(recorded, "query"),
+        resolve_seconds=_hogql_leaf_seconds(recorded, "prepare_ast_for_printing"),
+        print_ast_seconds=_hogql_leaf_seconds(recorded, "print_prepared_ast"),
     )
 
 
-def _hogql_database_seconds(timings: HogQLTimings) -> float:
-    """Sum every `create_hogql_database` span the executor recorded.
+def _hogql_leaf_seconds(recorded: dict[str, float], leaf: str) -> float:
+    """Sum every span the executor recorded under `leaf`.
 
-    The key is hierarchical (`./a/b/create_hogql_database`) and a query with subqueries
-    records more than one, so match on the leaf rather than a fixed path.
+    Keys are hierarchical (`./a/b/prepare_ast_for_printing`) and one print records the step
+    once per dialect, plus once more per subquery, so match the leaf rather than a fixed path.
+    Deliberately not `create_hogql_database`: the executor builds the schema itself before the
+    printer's guarded span, so that key is never recorded on this path and would read as 0.
     """
-    return sum(
-        seconds for key, seconds in timings.to_dict().items() if key.rsplit("/", 1)[-1] == "create_hogql_database"
-    )
+    return sum(seconds for key, seconds in recorded.items() if key.rsplit("/", 1)[-1] == leaf)
 
 
 _DescribeFn = Callable[[str, dict[str, object]], list[tuple[str, str]]]
@@ -497,7 +502,7 @@ class _PrintedFrameSQL:
     passes: int
     print_seconds: float
     describe_seconds: float
-    database_seconds: float
+    resolve_seconds: float
 
 
 def _print_clickhouse_sql(
@@ -527,7 +532,7 @@ def _print_clickhouse_sql(
             passes=2 if second else 1,
             print_seconds=plain.seconds + (second.seconds if second else 0.0),
             describe_seconds=describe_seconds,
-            database_seconds=plain.database_seconds + (second.database_seconds if second else 0.0),
+            resolve_seconds=plain.resolve_seconds + (second.resolve_seconds if second else 0.0),
         )
 
     if not any(function for _name, function in conversions):
@@ -1104,7 +1109,7 @@ def materialize_frame(inputs: FrameMaterializeInputs) -> str:
         print_seconds=round(printed.print_seconds, 3),
         print_passes=printed.passes,
         describe_seconds=round(printed.describe_seconds, 3),
-        database_seconds=round(printed.database_seconds, 3),
+        resolve_seconds=round(printed.resolve_seconds, 3),
         stat_seconds=round(stat_seconds, 3),
     )
     return key
