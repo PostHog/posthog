@@ -91,6 +91,11 @@ const counterHogflowMatcherWatchersRekeyed = new Counter({
     help: 'Conversion watchers repointed onto a merge survivor. Without this they would be addressed to a person no update will ever mention again.',
 })
 
+const counterHogflowMatcherWatchersSkipped = new Counter({
+    name: 'cdp_hogflow_matcher_watchers_skipped',
+    help: 'Watcher rows skipped because their pinned goal was missing or unreadable. Each one is a run that can never record a conversion.',
+})
+
 const counterHogflowMatcherWatchersEvaluated = new Counter({
     name: 'cdp_hogflow_matcher_watchers_evaluated',
     help: 'Conversion watcher rows loaded and evaluated against a batch.',

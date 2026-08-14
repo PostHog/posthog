@@ -108,6 +108,9 @@ interface QueryCall {
 class MatcherUnderTest extends CdpHogflowSubscriptionMatcherConsumer {
     public calls: QueryCall[] = []
     public findRows: MockRow[] = []
+    // Conversion watchers are a separate table with its own lookup; default empty so the wake-path
+    // fixtures below aren't also served to it.
+    public watcherRows: MockRow[] = []
     public wakeRows: MockRow[] = []
     public moveRows: MockRow[] = []
     public updateRowCount = 0
@@ -122,6 +125,16 @@ class MatcherUnderTest extends CdpHogflowSubscriptionMatcherConsumer {
                 return Promise.resolve({ rows: [], rowCount: 0 })
             }
             this.calls.push({ sql, params })
+            // Checked before the parked-job lookup: both select `id, team_id, function_id`.
+            if (sql.includes('FROM conversion_watchers')) {
+                return Promise.resolve({ rows: this.watcherRows, rowCount: this.watcherRows.length })
+            }
+            if (sql.startsWith('DELETE FROM conversion_watchers')) {
+                return Promise.resolve({
+                    rows: this.watcherRows.map((r: any) => ({ id: r.id })),
+                    rowCount: this.watcherRows.length,
+                })
+            }
             if (sql.includes('SELECT id, team_id, function_id')) {
                 return Promise.resolve({ rows: this.findRows, rowCount: this.findRows.length })
             }
@@ -204,7 +217,11 @@ describe('CdpHogflowSubscriptionMatcherConsumer', () => {
             await matcher.runWake([
                 makeGlobals({ person: undefined as any, event: { ...makeGlobals({}).event, distinct_id: '' } }),
             ])
-            expect(matcher.calls).toHaveLength(0)
+            // The watcher lookup still runs: a watcher's run may have finished long ago, so gating it
+            // on the team having a live actionable flow would restore the blind spot watchers remove.
+            expect(
+                matcher.calls.filter((c) => c.sql.includes('FROM cyclotron_jobs')).map((c) => c.sql)
+            ).toHaveLength(0)
         })
 
         it('passes both distinct_ids and person_ids to the lookup query', async () => {
@@ -217,7 +234,7 @@ describe('CdpHogflowSubscriptionMatcherConsumer', () => {
                     person: { id: 'person-uuid-2', properties: {}, name: '', url: '' },
                 }),
             ])
-            const lookup = matcher.calls.find((c) => c.sql.includes('SELECT id, team_id, function_id'))!
+            const lookup = matcher.calls.find((c) => c.sql.includes('FROM cyclotron_jobs') && c.sql.includes('SELECT id, team_id, function_id'))!
             expect(lookup).not.toBeUndefined()
             // Params are correlated (team, id) pairs: distinctTeamIds/distinctIds zip row-wise,
             // and personTeamIds/personIds zip row-wise. Both events are team 1.
@@ -234,7 +251,7 @@ describe('CdpHogflowSubscriptionMatcherConsumer', () => {
             // already scopes the results to hogflow jobs.
             matcher.setHogFlows({ 'flow-1': makeHogFlow({ id: 'flow-1' }) })
             await matcher.runWake([makeGlobals({})])
-            const lookup = matcher.calls.find((c) => c.sql.includes('SELECT id, team_id, function_id'))!
+            const lookup = matcher.calls.find((c) => c.sql.includes('FROM cyclotron_jobs') && c.sql.includes('SELECT id, team_id, function_id'))!
             expect(lookup).not.toBeUndefined()
             expect(lookup.sql).not.toContain('queue_name')
         })
@@ -279,7 +296,7 @@ describe('CdpHogflowSubscriptionMatcherConsumer', () => {
 
             // The correlated lookup params zip (team, distinct_id) row-wise: {(1,alice),(2,bob)}.
             // (1,bob) must not appear — that's the cross-team combination that doesn't exist.
-            const lookup = matcher.calls.find((c) => c.sql.includes('SELECT id, team_id, function_id'))!
+            const lookup = matcher.calls.find((c) => c.sql.includes('FROM cyclotron_jobs') && c.sql.includes('SELECT id, team_id, function_id'))!
             expect(lookup).not.toBeUndefined()
             const pairs = lookup.params[0].map((teamId: number, i: number) => `${teamId}:${lookup.params[1][i]}`)
             expect(pairs).toEqual(['1:alice', '2:bob'])
@@ -298,7 +315,7 @@ describe('CdpHogflowSubscriptionMatcherConsumer', () => {
                 'flow-2': makeHogFlow({ id: 'flow-2', waitUntil: false }),
             })
             await matcher.runWake([makeGlobals({})])
-            const lookup = matcher.calls.find((c) => c.sql.includes('SELECT id, team_id, function_id'))!
+            const lookup = matcher.calls.find((c) => c.sql.includes('FROM cyclotron_jobs') && c.sql.includes('SELECT id, team_id, function_id'))!
             expect(lookup).not.toBeUndefined()
             expect(lookup.params[4]).toEqual(['flow-1'])
         })
@@ -307,7 +324,7 @@ describe('CdpHogflowSubscriptionMatcherConsumer', () => {
             // Default: no hogflows configured → team has nothing the matcher could wake.
             // The cyclotron lookup must NOT fire.
             await matcher.runWake([makeGlobals({})])
-            expect(matcher.calls.find((c) => c.sql.includes('SELECT id, team_id, function_id'))).toBeUndefined()
+            expect(matcher.calls.find((c) => c.sql.includes('FROM cyclotron_jobs') && c.sql.includes('SELECT id, team_id, function_id'))).toBeUndefined()
         })
 
         it('wakes when the matching event is not the first event in the batch for a distinct_id', async () => {
@@ -1083,7 +1100,7 @@ describe('CdpHogflowSubscriptionMatcherConsumer', () => {
 
             await matcher.runWake([makeGlobals({})])
 
-            expect(matcher.calls.find((c) => c.sql.includes('SELECT id, team_id, function_id'))).not.toBeUndefined()
+            expect(matcher.calls.find((c) => c.sql.includes('FROM cyclotron_jobs') && c.sql.includes('SELECT id, team_id, function_id'))).not.toBeUndefined()
             expect(matcher.calls.find((c) => c.sql.startsWith('UPDATE cyclotron_jobs'))).toBeUndefined()
         })
 
