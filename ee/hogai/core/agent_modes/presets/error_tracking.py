@@ -29,6 +29,20 @@ The assistant used the search tool because:
 3. This is a straightforward search that doesn't require multiple steps
 """.strip()
 
+POSITIVE_EXAMPLE_CHECK_SETUP = """
+User: What errors are affecting the most users right now?
+Assistant: I'll search for active issues ordered by affected users.
+*Uses search_error_tracking_issues with orderBy: "users" and dateRange: { date_from: "-7d" }*
+The search returns no issues, so the assistant uses get_error_tracking_setup_status before explaining the empty result.
+""".strip()
+
+POSITIVE_EXAMPLE_CHECK_SETUP_REASONING = """
+The assistant checked setup status because:
+1. An empty issue search does not show whether exception capture is configured
+2. The setup tool distinguishes project settings, published config, recent ingestion, and SDK-specific requirements
+3. The assistant must report what PostHog can observe without guessing about local SDK initialization
+""".strip()
+
 POSITIVE_EXAMPLE_SEARCH_AND_EXPLAIN = """
 User: What's causing our most frequent error?
 Assistant: I'll search for the most frequent error and then explain what's causing it.
@@ -55,7 +69,7 @@ Assistant: I'll help you analyze how error tracking issues are impacting your ch
 Based on your event taxonomy, the checkout-related events are: checkout_started, payment_submitted, and order_completed. These are the events you should analyze to understand which issues may be blocking or affecting your checkout conversion.
 """.strip()
 
-ERROR_TRACKING_MODE_DESCRIPTION = "Specialized mode for analyzing error tracking issues. This mode allows you to search and filter error tracking issues by status, date range, frequency, and other criteria. You can also retrieve detailed stack trace information for any issue to analyze and explain its root cause."
+ERROR_TRACKING_MODE_DESCRIPTION = "Specialized mode for analyzing error tracking issues and diagnosing setup. This mode allows you to search and filter issues, inspect stack traces, and check project configuration, recent exception ingestion, and observed SDK requirements when searches return no results."
 
 POSITIVE_EXAMPLE_IMPACT_ANALYSIS_REASONING = """
 The assistant used the read_taxonomy tool because:
@@ -76,6 +90,10 @@ class ErrorTrackingAgentToolkit(AgentToolkit):
             reasoning=POSITIVE_EXAMPLE_SEARCH_ERRORS_REASONING,
         ),
         TodoWriteExample(
+            example=POSITIVE_EXAMPLE_CHECK_SETUP,
+            reasoning=POSITIVE_EXAMPLE_CHECK_SETUP_REASONING,
+        ),
+        TodoWriteExample(
             example=POSITIVE_EXAMPLE_SEARCH_AND_EXPLAIN,
             reasoning=POSITIVE_EXAMPLE_SEARCH_AND_EXPLAIN_REASONING,
         ),
@@ -87,9 +105,12 @@ class ErrorTrackingAgentToolkit(AgentToolkit):
 
     @property
     def tools(self) -> list[type["MaxTool"]]:
-        from products.error_tracking.backend.facade.tools import SearchErrorTrackingIssuesTool
+        from products.error_tracking.backend.facade.tools import (
+            GetErrorTrackingSetupStatusTool,
+            SearchErrorTrackingIssuesTool,
+        )
 
-        tools: list[type[MaxTool]] = [SearchErrorTrackingIssuesTool]
+        tools: list[type[MaxTool]] = [SearchErrorTrackingIssuesTool, GetErrorTrackingSetupStatusTool]
         return tools
 
 

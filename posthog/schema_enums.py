@@ -369,6 +369,7 @@ class AssistantTool(StrEnum):
     CREATE_MESSAGE_TEMPLATE = "create_message_template"
     FILTER_ERROR_TRACKING_ISSUES = "filter_error_tracking_issues"
     SEARCH_ERROR_TRACKING_ISSUES = "search_error_tracking_issues"
+    GET_ERROR_TRACKING_SETUP_STATUS = "get_error_tracking_setup_status"
     FIND_ERROR_TRACKING_IMPACTFUL_ISSUE_EVENT_LIST = "find_error_tracking_impactful_issue_event_list"
     EXPERIMENT_RESULTS_SUMMARY = "experiment_results_summary"
     EXPERIMENT_SESSION_REPLAYS_SUMMARY = "experiment_session_replays_summary"

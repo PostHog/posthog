@@ -11,6 +11,7 @@ facade boundary instead of producing a malformed payload further downstream.
 
 from dataclasses import field
 from datetime import datetime
+from typing import Literal
 from uuid import UUID
 
 from pydantic.dataclasses import dataclass
@@ -239,3 +240,30 @@ class ErrorTrackingRecommendation:
     dismissed_at: datetime | None
     created_at: datetime
     updated_at: datetime
+
+
+@dataclass(frozen=True)
+class ErrorTrackingObservedSDK:
+    library: str
+    event_count: int
+    autocapture_configuration: Literal["project_setting", "local", "unknown"]
+    local_option: str | None
+
+
+@dataclass(frozen=True)
+class ErrorTrackingSetupWarning:
+    code: Literal["node_autocapture_requires_local_configuration"]
+    message: str
+
+
+@dataclass(frozen=True)
+class ErrorTrackingSetupStatus:
+    project_autocapture_enabled: bool
+    remote_config_autocapture_enabled: bool | None
+    has_issues: bool
+    recent_data_available: bool
+    recent_period_days: int
+    recent_event_count: int | None
+    recent_exception_count: int | None
+    observed_sdks: list[ErrorTrackingObservedSDK]
+    warnings: list[ErrorTrackingSetupWarning]

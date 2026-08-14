@@ -7,6 +7,7 @@ from typing import Literal, Optional, cast
 from django.utils import timezone
 
 import structlog
+from asgiref.sync import sync_to_async
 from langchain_core.messages import HumanMessage, SystemMessage
 from posthoganalytics import capture_exception
 from pydantic import BaseModel, Field
@@ -23,6 +24,14 @@ from posthog.schema import (
     PropertyGroupFilterValue,
 )
 
+from posthog.rbac.user_access_control import AccessControlLevel
+from posthog.scopes import APIScopeObject
+
+from products.error_tracking.backend.facade import (
+    contracts as error_tracking_contracts,
+    setup as error_tracking_setup,
+)
+
 from ee.hogai.chat_agent.schema_generator.parsers import PydanticOutputParserException
 from ee.hogai.context.insight.query_executor import AssistantQueryExecutor
 from ee.hogai.llm import MaxChatOpenAI
@@ -37,6 +46,93 @@ from .prompts import (
 )
 
 logger = structlog.get_logger(__name__)
+
+
+class GetErrorTrackingSetupStatusArgs(BaseModel):
+    pass
+
+
+class GetErrorTrackingSetupStatusTool(MaxTool):
+    name: Literal["get_error_tracking_setup_status"] = "get_error_tracking_setup_status"
+    description: str = dedent("""
+        Inspect whether error tracking is configured and receiving data for the current project.
+
+        Use this tool when an issue search returns no results, or when the user asks whether error tracking is set up.
+        It reports the project exception autocapture setting, the published remote config, whether grouped issues exist,
+        recent event and exception counts, and recently observed SDKs. It also identifies SDKs that require local
+        exception autocapture configuration that PostHog cannot verify from event data.
+    """).strip()
+    args_schema: type[BaseModel] = GetErrorTrackingSetupStatusArgs
+
+    def get_required_resource_access(self) -> list[tuple[APIScopeObject, AccessControlLevel]]:
+        return [("error_tracking", "viewer")]
+
+    async def _arun_impl(self) -> tuple[str, dict[str, object]]:
+        status = await sync_to_async(error_tracking_setup.get_error_tracking_setup_status)(self._team)
+        return self._format_status(status), self._serialize_status(status)
+
+    @staticmethod
+    def _format_status(status: error_tracking_contracts.ErrorTrackingSetupStatus) -> str:
+        project_setting = "enabled" if status.project_autocapture_enabled else "disabled"
+        remote_setting = (
+            "enabled"
+            if status.remote_config_autocapture_enabled is True
+            else "disabled"
+            if status.remote_config_autocapture_enabled is False
+            else "unavailable"
+        )
+        lines = [
+            f"Project exception autocapture setting: {project_setting}.",
+            f"Published remote config: {remote_setting}.",
+            f"Grouped error tracking issues exist: {'yes' if status.has_issues else 'no'}.",
+        ]
+
+        if not status.recent_data_available:
+            lines.append(
+                "Recent event data could not be checked. Try again before drawing conclusions about ingestion."
+            )
+            return "\n".join(lines)
+
+        if status.recent_event_count == 0:
+            lines.append(f"No events were received in the last {status.recent_period_days} days.")
+        elif status.recent_exception_count == 0:
+            lines.append(f"No exception events were received in the last {status.recent_period_days} days.")
+        else:
+            lines.append(
+                f"Exception events received in the last {status.recent_period_days} days: "
+                f"{status.recent_exception_count}."
+            )
+
+        if status.observed_sdks:
+            observed = ", ".join(f"{sdk.library} ({sdk.event_count} events)" for sdk in status.observed_sdks)
+            lines.append(f"Observed SDKs in the last {status.recent_period_days} days: {observed}.")
+        else:
+            lines.append(f"No supported SDKs were observed in the last {status.recent_period_days} days.")
+
+        lines.extend(warning.message for warning in status.warnings)
+        return "\n".join(lines)
+
+    @staticmethod
+    def _serialize_status(status: error_tracking_contracts.ErrorTrackingSetupStatus) -> dict[str, object]:
+        return {
+            "project_autocapture_enabled": status.project_autocapture_enabled,
+            "remote_config_autocapture_enabled": status.remote_config_autocapture_enabled,
+            "has_issues": status.has_issues,
+            "recent_data_available": status.recent_data_available,
+            "recent_period_days": status.recent_period_days,
+            "recent_event_count": status.recent_event_count,
+            "recent_exception_count": status.recent_exception_count,
+            "observed_sdks": [
+                {
+                    "library": sdk.library,
+                    "event_count": sdk.event_count,
+                    "autocapture_configuration": sdk.autocapture_configuration,
+                    "local_option": sdk.local_option,
+                }
+                for sdk in status.observed_sdks
+            ],
+            "warnings": [{"code": warning.code, "message": warning.message} for warning in status.warnings],
+        }
 
 
 class UpdateIssueQueryArgs(BaseModel):
@@ -271,6 +367,7 @@ class SearchErrorTrackingIssuesTool(MaxTool):
 
         # What this tool returns:
         A formatted list of matching issues with their name, status, occurrence count, and other key metrics.
+        If no issues are returned, call `get_error_tracking_setup_status` before explaining why the result is empty.
         If more results are available, a cursor will be provided for pagination.
         All timestamps are in UTC timezone.
         """).strip()
@@ -381,7 +478,10 @@ class SearchErrorTrackingIssuesTool(MaxTool):
         """Format query results as text output."""
 
         if not results:
-            return "No issues found matching your criteria."
+            return (
+                "No issues found matching your criteria. Call `get_error_tracking_setup_status` before explaining "
+                "whether exception capture is configured or working."
+            )
 
         total_count = len(results)
         if total_count == 1:

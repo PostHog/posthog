@@ -714,6 +714,19 @@ export const TOOL_DEFINITIONS: Record<AssistantTool, ToolDefinition> = {
             return 'Searching issues...'
         },
     },
+    get_error_tracking_setup_status: {
+        name: 'Check error tracking setup',
+        description: 'Check error tracking configuration and recent exception ingestion',
+        product: Scene.ErrorTracking,
+        icon: iconForType('error_tracking'),
+        modes: [AgentMode.ErrorTracking],
+        displayFormatter: (toolCall) => {
+            if (toolCall.status === 'completed') {
+                return 'Checked error tracking setup'
+            }
+            return 'Checking error tracking setup...'
+        },
+    },
     find_error_tracking_impactful_issue_event_list: {
         name: 'Find impactful issues',
         description: 'Find impactful issues affecting your conversion, activation, or any other events',

@@ -7,6 +7,6 @@ importing this lazily (inside the registration call site) to avoid a circular
 import on the ``django.setup()`` path.
 """
 
-from products.error_tracking.backend.max_tools import SearchErrorTrackingIssuesTool
+from products.error_tracking.backend.max_tools import GetErrorTrackingSetupStatusTool, SearchErrorTrackingIssuesTool
 
-__all__ = ["SearchErrorTrackingIssuesTool"]
+__all__ = ["GetErrorTrackingSetupStatusTool", "SearchErrorTrackingIssuesTool"]

@@ -462,6 +462,7 @@ export type AssistantTool =
     | 'create_message_template'
     | 'filter_error_tracking_issues'
     | 'search_error_tracking_issues'
+    | 'get_error_tracking_setup_status'
     | 'find_error_tracking_impactful_issue_event_list'
     | 'experiment_results_summary'
     | 'experiment_session_replays_summary'
