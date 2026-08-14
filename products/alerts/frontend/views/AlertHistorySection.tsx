@@ -214,6 +214,9 @@ export function AlertHistorySection({
             align: 'right',
             render: (_value, check) => {
                 const summary = summarizeDeliveries(check.deliveries, check.targets_notified)
+                if (summary.kind === 'notified') {
+                    return 'Yes'
+                }
                 if (summary.kind === 'none') {
                     if (isFailedDelivery(check)) {
                         return (
@@ -231,12 +234,6 @@ export function AlertHistorySection({
                                 {summary.lines.map((line, i) => (
                                     <span key={i}>{line}</span>
                                 ))}
-                                {summary.kind === 'legacy' && (
-                                    <span>
-                                        Recorded before delivery receipts were added, so the exact destinations are not
-                                        known.
-                                    </span>
-                                )}
                             </div>
                         }
                     >

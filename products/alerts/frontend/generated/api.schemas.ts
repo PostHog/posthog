@@ -168,10 +168,13 @@ export interface AlertDeliveryApi {
      * @nullable
      */
     template?: string | null
-    /** Delivery status. 'accepted' for a confirmed send, 'unknown' for legacy checks recorded before delivery receipts existed. */
+    /** Delivery status. Always 'accepted', for a confirmed send. */
     status: string
-    /** When the delivery was recorded. Absent on legacy synthesized entries. */
-    at?: string
+    /**
+     * When the delivery was recorded.
+     * @nullable
+     */
+    at: string | null
     /** Ready-to-display description of the delivery, e.g. 'Email: a@example.com' or 'Slack #eng-alerts'. */
     display_label: string
 }
@@ -202,7 +205,7 @@ export interface AlertCheckApi {
     readonly notification_sent_at: string | null
     readonly notification_suppressed_by_agent: boolean
     /**
-     * Destinations that accepted this check's notification, one record per destination (channel, target, status, at). Synthesized with status 'unknown' for checks recorded before delivery receipts existed. Null when no delivery was recorded.
+     * Destinations that accepted this check's notification, one record per destination (channel, target, status, at). Null when no delivery receipt was recorded, which covers checks that notified nobody and checks predating delivery receipts.
      * @nullable
      */
     readonly deliveries: readonly AlertDeliveryApi[] | null

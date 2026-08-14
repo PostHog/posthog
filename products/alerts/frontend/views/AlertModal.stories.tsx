@@ -90,16 +90,23 @@ const trendsAlert = makeAlert({})
 // Shows the delivery details tooltip on the History tab's "Targets notified" cell.
 trendsAlert.checks![trendsAlert.checks!.length - 1].targets_notified = true
 trendsAlert.checks![trendsAlert.checks!.length - 1].deliveries = [
-    { channel: 'email', target: 'alerts@example.com', status: 'accepted', display_label: 'Email: alerts@example.com' },
+    {
+        channel: 'email',
+        target: 'alerts@example.com',
+        status: 'accepted',
+        at: '2026-07-16T14:00:00Z',
+        display_label: 'Email: alerts@example.com',
+    },
     {
         channel: 'hog_function',
         target: 'Slack #eng-alerts',
         template: 'slack',
         status: 'accepted',
+        at: '2026-07-16T14:00:00Z',
         display_label: 'Slack #eng-alerts',
     },
 ]
-// A check recorded before delivery receipts existed: "Yes" with the legacy note, no receipt list.
+// A check recorded before delivery receipts existed: a bare "Yes", no receipt list.
 trendsAlert.checks![trendsAlert.checks!.length - 2].targets_notified = true
 
 const funnelAlert = makeAlert({

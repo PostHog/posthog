@@ -520,16 +520,9 @@ class TestAlert(APIBaseTest, QueryMatchingTest):
                 True,
             ),
             (
-                "legacy_users_map_synthesized_as_unknown",
+                "row_predating_receipts_is_null_but_still_notified",
                 {"users": ["a@example.com"]},
-                [
-                    {
-                        "channel": "email",
-                        "target": "a@example.com",
-                        "status": "unknown",
-                        "display_label": "Email: a@example.com",
-                    }
-                ],
+                None,
                 True,
             ),
             (

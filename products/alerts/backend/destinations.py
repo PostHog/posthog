@@ -39,8 +39,8 @@ ALERT_INTERNAL_EVENT_DELIVERY_FAILURES = Counter(
 
 @dataclass(frozen=True, kw_only=True)
 class AlertDelivery:
-    """Receipt for one destination that accepted a send. `status` is an open set
-    ("accepted" now, "unknown" synthesized for legacy rows in the API)."""
+    """Receipt for one destination that accepted a send. `status` is an open set, so a
+    future transport can report an outcome other than "accepted"."""
 
     channel: str  # "email" | "hog_function"
     target: str  # email address or destination name

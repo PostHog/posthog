@@ -242,13 +242,8 @@ class AlertDeliverySerializer(serializers.Serializer):
         allow_null=True,
         help_text="Destination template: 'slack', 'discord', 'webhook', or 'teams'. Null for email.",
     )
-    status = serializers.CharField(
-        help_text="Delivery status. 'accepted' for a confirmed send, 'unknown' for legacy checks recorded "
-        "before delivery receipts existed."
-    )
-    at = serializers.DateTimeField(
-        required=False, help_text="When the delivery was recorded. Absent on legacy synthesized entries."
-    )
+    status = serializers.CharField(help_text="Delivery status. Always 'accepted', for a confirmed send.")
+    at = serializers.DateTimeField(allow_null=True, help_text="When the delivery was recorded.")
     display_label = serializers.CharField(
         help_text="Ready-to-display description of the delivery, e.g. 'Email: a@example.com' or 'Slack #eng-alerts'."
     )
@@ -262,8 +257,8 @@ class AlertCheckSerializer(serializers.ModelSerializer):
     deliveries = serializers.SerializerMethodField(
         allow_null=True,
         help_text="Destinations that accepted this check's notification, one record per destination "
-        "(channel, target, status, at). Synthesized with status 'unknown' for checks recorded "
-        "before delivery receipts existed. Null when no delivery was recorded.",
+        "(channel, target, status, at). Null when no delivery receipt was recorded, which covers "
+        "checks that notified nobody and checks predating delivery receipts.",
     )
 
     class Meta:
@@ -298,27 +293,21 @@ class AlertCheckSerializer(serializers.ModelSerializer):
 
     @extend_schema_field(AlertDeliverySerializer(many=True))
     def get_deliveries(self, instance: AlertCheck) -> list[dict[str, Any]] | None:
+        if not instance.has_delivery_receipts:
+            return None
         notified = instance.targets_notified or {}
-        users = notified.get("users") or []
-        if instance.has_delivery_receipts:
-            accepted_at = instance.notification_sent_at.isoformat() if instance.notification_sent_at else None
-            emails = [
-                {
-                    "channel": "email",
-                    "target": email,
-                    "status": "accepted",
-                    "at": accepted_at,
-                    "display_label": f"Email: {email}",
-                }
-                for email in users
-            ]
-            return emails + _destination_deliveries(notified.get("destinations") or [])
-        if users:
-            return [
-                {"channel": "email", "target": email, "status": "unknown", "display_label": f"Email: {email}"}
-                for email in users
-            ]
-        return None
+        accepted_at = instance.notification_sent_at.isoformat() if instance.notification_sent_at else None
+        emails = [
+            {
+                "channel": "email",
+                "target": email,
+                "status": "accepted",
+                "at": accepted_at,
+                "display_label": f"Email: {email}",
+            }
+            for email in notified.get("users") or []
+        ]
+        return emails + _destination_deliveries(notified.get("destinations") or [])
 
 
 class AlertSubscriptionSerializer(serializers.ModelSerializer):

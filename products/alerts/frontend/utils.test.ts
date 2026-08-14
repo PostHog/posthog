@@ -45,19 +45,22 @@ describe('alerts utils', () => {
 
     describe('summarizeDeliveries', () => {
         const accepted: AlertCheckDelivery[] = [
-            { channel: 'email', target: 'a@example.com', status: 'accepted', display_label: 'Email: a@example.com' },
+            {
+                channel: 'email',
+                target: 'a@example.com',
+                status: 'accepted',
+                at: '2026-08-11T00:00:00Z',
+                display_label: 'Email: a@example.com',
+            },
             {
                 channel: 'hog_function',
                 target: '#eng-alerts',
                 template: 'slack',
                 status: 'accepted',
+                at: '2026-08-11T00:00:00Z',
                 display_label: 'Slack #eng-alerts',
             },
         ]
-        const legacy: AlertCheckDelivery[] = [
-            { channel: 'email', target: 'a@example.com', status: 'unknown', display_label: 'Email: a@example.com' },
-        ]
-
         it('labels accepted receipts with their count and lines', () => {
             expect(summarizeDeliveries(accepted, true)).toEqual({
                 kind: 'delivered',
@@ -66,16 +69,8 @@ describe('alerts utils', () => {
             })
         })
 
-        it('marks unknown-only receipts as legacy with their targets', () => {
-            expect(summarizeDeliveries(legacy, true)).toEqual({
-                kind: 'legacy',
-                label: 'Yes',
-                lines: ['Email: a@example.com'],
-            })
-        })
-
-        it('marks legacy rows without receipts from the boolean alone', () => {
-            expect(summarizeDeliveries(null, true)).toEqual({ kind: 'legacy', label: 'Yes', lines: [] })
+        it('still reports a check without receipts as notified', () => {
+            expect(summarizeDeliveries(null, true)).toEqual({ kind: 'notified' })
         })
 
         it('returns none when nothing was recorded', () => {

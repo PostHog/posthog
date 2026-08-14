@@ -56,22 +56,19 @@ export function getAlertsTabs({
 
 export type DeliverySummary =
     | { kind: 'delivered'; label: string; lines: string[] }
-    | { kind: 'legacy'; label: string; lines: string[] }
+    | { kind: 'notified' }
     | { kind: 'none' }
 
 export function summarizeDeliveries(
     deliveries: AlertCheckDelivery[] | null | undefined,
     targetsNotified: boolean
 ): DeliverySummary {
-    const all = deliveries ?? []
-    const accepted = all.filter((delivery) => delivery.status === 'accepted')
+    const accepted = (deliveries ?? []).filter((delivery) => delivery.status === 'accepted')
     if (accepted.length > 0) {
         return { kind: 'delivered', label: `Yes · ${accepted.length}`, lines: accepted.map((d) => d.display_label) }
     }
-    if (all.length > 0 || targetsNotified) {
-        return { kind: 'legacy', label: 'Yes', lines: all.map((d) => d.display_label) }
-    }
-    return { kind: 'none' }
+    // Checks predating delivery receipts know only that something was notified, not what.
+    return targetsNotified ? { kind: 'notified' } : { kind: 'none' }
 }
 
 /** Whether an empty receipt list means a dispatch accepted nothing, rather than one never running. */
