@@ -208,8 +208,9 @@ export function AIObservabilitySelfDriving(): JSX.Element {
         isAnomalyInvestigationToggling,
         isEvalReportsToggling,
         sourceConfigs,
+        sourceConfigsLoadFailed,
     } = useValues(signalSourcesLogic)
-    const { toggleAnomalyInvestigation, toggleEvalReports } = useActions(signalSourcesLogic)
+    const { loadSourceConfigs, toggleAnomalyInvestigation, toggleEvalReports } = useActions(signalSourcesLogic)
 
     const aiObservabilityScouts = scoutConfigs?.filter(isAIObservabilityScout) ?? []
     const reportFor = (evaluation: EvaluationConfig): EvaluationReportApi | null =>
@@ -425,8 +426,10 @@ export function AIObservabilitySelfDriving(): JSX.Element {
                                     sourceName="AI observability"
                                     signalNoun="evaluation report"
                                     enabled={sourceConfigs === null ? null : !!evalReportsConfig?.enabled}
+                                    loadFailed={sourceConfigsLoadFailed}
                                     toggling={isEvalReportsToggling}
                                     onChange={toggleEvalReports}
+                                    onRetry={loadSourceConfigs}
                                     data-attr="self-driving-eval-reports-signal-source"
                                 />
                                 {!evaluationsLoadFailed &&
@@ -526,8 +529,10 @@ export function AIObservabilitySelfDriving(): JSX.Element {
                                     sourceName="Product analytics"
                                     signalNoun="anomaly investigation"
                                     enabled={sourceConfigs === null ? null : !!anomalyInvestigationConfig?.enabled}
+                                    loadFailed={sourceConfigsLoadFailed}
                                     toggling={isAnomalyInvestigationToggling}
                                     onChange={toggleAnomalyInvestigation}
+                                    onRetry={loadSourceConfigs}
                                     data-attr="self-driving-anomaly-investigation-signal-source"
                                 />
                                 {anomalyAlertInvestigationsLoading && anomalyAlertInvestigations === null ? (

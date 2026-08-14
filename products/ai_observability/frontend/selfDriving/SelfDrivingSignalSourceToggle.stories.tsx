@@ -13,8 +13,10 @@ const evalReportsArgs: SelfDrivingSignalSourceToggleProps = {
     sourceName: 'AI observability',
     signalNoun: 'evaluation report',
     enabled: true,
+    loadFailed: false,
     toggling: false,
     onChange: () => {},
+    onRetry: () => {},
     'data-attr': 'self-driving-signal-source-story',
 }
 
@@ -45,4 +47,9 @@ export const Loading: StoryObj<SelfDrivingSignalSourceToggleProps> = {
     args: { ...evalReportsArgs, enabled: null },
     // Same for the skeleton the switch shows until the signal source configs resolve.
     parameters: { testOptions: { waitForLoadersToDisappear: false } },
+}
+
+export const LoadFailed: StoryObj<SelfDrivingSignalSourceToggleProps> = {
+    render,
+    args: { ...evalReportsArgs, enabled: null, loadFailed: true },
 }

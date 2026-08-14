@@ -245,6 +245,7 @@ export interface signalSourcesLogicValues {
     sessionAnalysisConfig: SignalSourceConfig | null
     sessionAnalysisSetupOpen: boolean
     sourceConfigs: SignalSourceConfig[] | null
+    sourceConfigsLoadFailed: boolean
     sourceConfigsLoading: boolean
     sourcesModalOpen: boolean
     togglingSourceKeys: Set<string>
@@ -675,6 +676,14 @@ export const signalSourcesLogic = kea<signalSourcesLogicType>([
                 loadToolDataEvents: () => false,
                 loadToolDataEventsSuccess: () => false,
                 loadToolDataEventsFailure: () => true,
+            },
+        ],
+        sourceConfigsLoadFailed: [
+            false,
+            {
+                loadSourceConfigs: () => false,
+                loadSourceConfigsSuccess: () => false,
+                loadSourceConfigsFailure: () => true,
             },
         ],
         sourceConfigs: {
@@ -1150,6 +1159,17 @@ export const signalSourcesLogic = kea<signalSourcesLogicType>([
                     }
                     breakpoint()
                     actions.toggleSignalSourceSuccess(params)
+                    if (
+                        sourceProduct === SignalSourceProduct.LlmAnalytics &&
+                        sourceType === SignalSourceType.EvaluationReport
+                    ) {
+                        lemonToast.success(`AI observability signal source ${enabled ? 'enabled' : 'disabled'}`)
+                    } else if (
+                        sourceProduct === SignalSourceProduct.Analytics &&
+                        sourceType === SignalSourceType.AnomalyInvestigation
+                    ) {
+                        lemonToast.success(`Product analytics signal source ${enabled ? 'enabled' : 'disabled'}`)
+                    }
                     // Only a successful enable counts as a connection. First-time when there was no
                     // persisted (non-placeholder) config for this product/type before the toggle.
                     if (enabled) {
