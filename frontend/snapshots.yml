@@ -6119,7 +6119,7 @@ snapshots:
     scenes-app-experiments--experiment-with-multi-step-funnel-metric--dark:
         hash: v1.k794b7964.b59d17fc7aa41c9d54d50ebcad07ee995472e82d0509a99a3534f689402d8014.SWRehUneMfgPHvrdCTfEc6TWMR2LSyxma5jGOhO-iSA
     scenes-app-experiments--experiment-with-multi-step-funnel-metric--light:
-        hash: v1.k794b7964.0f81873b7b3e44139ef64b33d35aaa9c9857943789e7f88fe0dd8eb9d84b6125.0yFYuT8reEOckBG0v7K4CTlrcHgCWGlaDbiVhp7Euck
+        hash: v1.k794b7964.97d7402f9b51d0c2d446c61c0022bb257b60230ee9ef045fb98f9a6f6881021a.u-DOTSJ-2l7aMIVwI4CBomzduA0B_q6-6kfVwbLKl5M
     scenes-app-experiments--experiment-with-multiple-metrics--dark:
         hash: v1.k794b7964.935a9474cbc0ab0c65ece0051d8ebc3a88c8f40de3bb8a7a7621dbe1766a4105.2TXN7Cqx8Qd7XzXBjoaslAsm-r4qbXmG0Vlch8j6ph0
     scenes-app-experiments--experiment-with-multiple-metrics--light:
@@ -6583,7 +6583,7 @@ snapshots:
     scenes-app-insights-error-empty-states--query-server-error--dark:
         hash: v1.k794b7964.5e0a4f13fb00ef944649228004095f84fd1d859bd66cdd5ec9e25bd745d6828d.k4NYuOAkHqlOwwSIUSHJiywF8FxVwqlIbahs9NdgpF4
     scenes-app-insights-error-empty-states--query-server-error--light:
-        hash: v1.k794b7964.2b569e38b9188a1b6651645db04fc1861a1fbca67c8a36c59a717d949b3e9cb6.6wC07yLeoObvqkr-b3JIDgOLa-iqmpa8aO-eLLzWoEw
+        hash: v1.k794b7964.8cbd2901888aa723067ddea0dc2c6045628c0cb872438beca4e667592d25aaf6.4GmhzW21hmldOgELAwHy522bovvzkaq8b4i0NowPhb8
     scenes-app-insights-error-empty-states--server-error--dark:
         hash: v1.k794b7964.c78c9eaddad034d4747bccc025468e045b9e641e8f70daa75c428ac94def566c.WSvKXlMMIMORSx1W_7pTEH4AQMQUtr_4cSHSVfBGl_0
     scenes-app-insights-error-empty-states--server-error--light:
