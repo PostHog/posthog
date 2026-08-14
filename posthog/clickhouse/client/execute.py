@@ -207,6 +207,22 @@ def resolve_kill_switch_level(team_id: Optional[int]) -> KillSwitchLevel:
     return level
 
 
+def kill_switch_overrides(team_id: Optional[int], ch_user: ClickHouseUser = ClickHouseUser.DEFAULT) -> dict[str, int]:
+    """The ClickHouse setting ceilings the kill switch imposes right now, empty when it is off.
+
+    Public because not every path to ClickHouse goes through `sync_execute` — the notebook frame
+    materializer streams over raw HTTP and has to apply these itself. Merge with `min()` against
+    your own settings, and treat an unset setting as taking the ceiling: the kill switch only
+    ever tightens.
+    """
+    if TEST:
+        return {}
+    level = resolve_kill_switch_level(team_id)
+    if level == KillSwitchLevel.OFF or ch_user in _KILL_SWITCH_EXEMPT_USERS:
+        return {}
+    return dict(_KILL_SWITCH_SETTINGS[level])
+
+
 @lru_cache(maxsize=1)
 def default_settings() -> dict:
     # https://clickhouse.com/blog/clickhouse-fully-supports-joins-how-to-choose-the-right-algorithm-part5
@@ -387,8 +403,8 @@ def sync_execute(
     }
 
     kill_switch_level = KillSwitchLevel.OFF if TEST else resolve_kill_switch_level(team_id)
-    if kill_switch_level != KillSwitchLevel.OFF and ch_user not in _KILL_SWITCH_EXEMPT_USERS:
-        overrides = _KILL_SWITCH_SETTINGS[kill_switch_level]
+    overrides = kill_switch_overrides(team_id, ch_user)
+    if overrides:
         core_settings.update({k: min(core_settings.get(k, v), v) for k, v in overrides.items()})
         tags.kill_switch = kill_switch_level.value
 

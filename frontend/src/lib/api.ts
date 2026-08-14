@@ -21,7 +21,6 @@ import { SchemaPropertyGroup } from 'scenes/data-management/schema/schemaManagem
 import { MaxBillingContext } from 'scenes/max/maxBillingContextLogic'
 import { NotebookListItemType, NotebookNodeResource, NotebookType } from 'scenes/notebooks/types'
 import { RecordingComment } from 'scenes/session-recordings/player/inspector/playerInspectorLogic'
-import { SessionSummaryContent } from 'scenes/session-recordings/player/player-meta/types'
 import { LINK_PAGE_SIZE, SURVEY_PAGE_SIZE } from 'scenes/surveys/constants'
 
 import { getCurrentExporterData, isSharedView } from '~/exporter/exporterViewLogic'
@@ -193,7 +192,6 @@ import {
     SessionRecordingSnapshotResponse,
     SessionRecordingType,
     SessionRecordingUpdateType,
-    SessionSummaryResponse,
     SharingConfigurationType,
     SlackChannelType,
     SubscriptionType,
@@ -230,11 +228,6 @@ import type {
     ColumnConfigurationApi,
     PaginatedColumnConfigurationListApi,
 } from 'products/product_analytics/frontend/generated/api.schemas'
-import type {
-    SessionGroupSummaryListItemType,
-    SessionGroupSummaryType,
-    SessionSummariesConfig,
-} from 'products/session_summaries/frontend/types'
 import {
     SignalReport,
     SignalReportArtefact,
@@ -357,7 +350,7 @@ export function getCookie(name: string): string | null {
     return cookieValue
 }
 
-function isAbortError(error: unknown): boolean {
+export function isAbortError(error: unknown): boolean {
     return (error as { name?: string } | null)?.name === 'AbortError'
 }
 
@@ -782,10 +775,6 @@ export class ApiRequest {
 
     public logsSparkline(projectId?: ProjectType['id']): ApiRequest {
         return this.logs(projectId).addPathComponent('sparkline')
-    }
-
-    public logsServices(projectId?: ProjectType['id']): ApiRequest {
-        return this.logs(projectId).addPathComponent('services')
     }
 
     public logsHasLogs(projectId?: ProjectType['id']): ApiRequest {
@@ -2031,20 +2020,6 @@ export class ApiRequest {
         return this.environmentsDetail(teamId).addPathComponent('evaluation_runs')
     }
 
-    // Session summary
-    public sessionSummary(teamId?: TeamType['id']): ApiRequest {
-        return this.environmentsDetail(teamId).addPathComponent('session_summaries')
-    }
-
-    // Session group summaries
-    public sessionGroupSummaries(projectId?: ProjectType['id']): ApiRequest {
-        return this.projectsDetail(projectId).addPathComponent('session_group_summaries')
-    }
-
-    public sessionGroupSummary(id: string, projectId?: ProjectType['id']): ApiRequest {
-        return this.sessionGroupSummaries(projectId).addPathComponent(id)
-    }
-
     // Heatmap screenshots
     public heatmapScreenshots(teamId?: TeamType['id']): ApiRequest {
         return this.environmentsDetail(teamId).addPathComponent('heatmap_screenshots')
@@ -2851,29 +2826,6 @@ const api = {
         async sparkline({ query, signal }: { query: Omit<LogsQuery, 'kind'>; signal?: AbortSignal }): Promise<any[]> {
             return new ApiRequest().logsSparkline().create({ signal, data: { query } })
         },
-        async services({ query, signal }: { query: Omit<LogsQuery, 'kind'>; signal?: AbortSignal }): Promise<{
-            services: {
-                service_name: string
-                log_count: number
-                error_count: number
-                error_rate: number
-                volume_share_pct?: number
-                severity_breakdown?: {
-                    debug: number
-                    info: number
-                    warn: number
-                    error: number
-                }
-                active_rules?: { rule_id: string; rule_name: string; summary_string: string }[]
-            }[]
-            sparkline: { time: string; service_name: string; count: number }[]
-            summary?: {
-                top_services_count: number
-                top_services_volume_share_pct: number
-            }
-        }> {
-            return new ApiRequest().logsServices().create({ signal, data: { query } })
-        },
         async hasLogs(): Promise<boolean> {
             return new ApiRequest()
                 .logsHasLogs()
@@ -3653,7 +3605,9 @@ const api = {
     },
 
     organizationMembers: {
-        async list(params: ListOrganizationMembersParams = {}): Promise<PaginatedResponse<OrganizationMemberType>> {
+        async list(
+            params: ListOrganizationMembersParams = {}
+        ): Promise<CountedPaginatedResponse<OrganizationMemberType>> {
             return await new ApiRequest().organizationMembers().withQueryString(params).get()
         },
 
@@ -4561,22 +4515,6 @@ const api = {
             return await new ApiRequest().recording(recordingId).update({ data })
         },
 
-        async summarizeStream(
-            recordingId: SessionRecordingType['id'],
-            options?: ApiMethodOptions & { forceRestart?: boolean }
-        ): Promise<Response> {
-            const { forceRestart, ...apiOptions } = options ?? {}
-            return await api.createResponse(
-                new ApiRequest().recording(recordingId).withAction('summarize').assembleFullUrl(),
-                forceRestart ? { force_restart: true } : undefined,
-                apiOptions
-            )
-        },
-
-        async cancelSummarize(recordingId: SessionRecordingType['id']): Promise<{ cancelled: boolean }> {
-            return await new ApiRequest().recording(recordingId).withAction('summarize/cancel').create()
-        },
-
         async similarRecordings(recordingId: SessionRecordingType['id']): Promise<[string, number][]> {
             return await new ApiRequest().recording(recordingId).withAction('similar_sessions').get()
         },
@@ -5047,26 +4985,6 @@ const api = {
                 signal,
                 headers: lastEventId ? { 'Last-Event-ID': lastEventId } : undefined,
             })
-        },
-    },
-
-    sessionGroupSummaries: {
-        async get(id: string): Promise<SessionGroupSummaryType> {
-            return await new ApiRequest().sessionGroupSummary(id).get()
-        },
-        async list(
-            params: {
-                created_by?: string
-                search?: string
-                order?: string
-                limit?: number
-                offset?: number
-            } = {}
-        ): Promise<CountedPaginatedResponse<SessionGroupSummaryListItemType>> {
-            return await new ApiRequest().sessionGroupSummaries().withQueryString(toParams(params)).get()
-        },
-        async delete(id: string): Promise<void> {
-            return await new ApiRequest().sessionGroupSummary(id).delete()
         },
     },
 
@@ -7455,29 +7373,6 @@ const api = {
 
         async regenerate(id: number | string): Promise<HeatmapScreenshotType> {
             return await new ApiRequest().heatmapScreenshotSaved(id).withAction('regenerate').create()
-        },
-    },
-
-    sessionSummaries: {
-        async create(data: { session_ids: string[]; focus_area?: string }): Promise<SessionSummaryResponse> {
-            return await new ApiRequest().sessionSummary().withAction('create_session_summaries').create({ data })
-        },
-        async createIndividual(data: {
-            session_ids: string[]
-            focus_area?: string
-        }): Promise<Record<string, SessionSummaryContent>> {
-            return await new ApiRequest()
-                .sessionSummary()
-                .withAction('create_session_summaries_individually')
-                .create({ data })
-        },
-        config: {
-            async get(): Promise<SessionSummariesConfig> {
-                return await new ApiRequest().sessionSummary().withAction('config').get()
-            },
-            async update(data: Partial<SessionSummariesConfig>): Promise<SessionSummariesConfig> {
-                return await new ApiRequest().sessionSummary().withAction('config').update({ data })
-            },
         },
     },
 

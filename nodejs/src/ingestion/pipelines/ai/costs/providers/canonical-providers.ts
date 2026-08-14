@@ -1,5 +1,5 @@
 // Auto-generated from OpenRouter API - Do not edit manually
-// Generated at: 2026-08-12 20:13:03 UTC
+// Generated at: 2026-08-13 20:10:27 UTC
 
 export type CanonicalProvider =
     | 'default'
@@ -106,6 +106,7 @@ export type CanonicalProvider =
     | 'minimax-highspeed'
     | 'mistral'
     | 'modal-mxfp4'
+    | 'modal-nvfp4'
     | 'modelrun-fp4'
     | 'moonshotai-highspeed'
     | 'moonshotai-int4'
@@ -133,7 +134,7 @@ export type CanonicalProvider =
     | 'nvidia-bf16'
     | 'nvidia-nvfp4'
     | 'open-inference-bf16'
-    | 'open-inference-fp8'
+    | 'open-inference-fp4'
     | 'openai'
     | 'openai-default'
     | 'openai-default-flex'
@@ -153,7 +154,6 @@ export type CanonicalProvider =
     | 'reka-bf16'
     | 'reka-fp8'
     | 'relace-bf16'
-    | 'relace-fp4'
     | 'relace-fp8'
     | 'sail-research-fp4'
     | 'sail-research-fp8'
