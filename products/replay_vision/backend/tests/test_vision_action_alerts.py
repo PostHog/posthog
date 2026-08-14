@@ -33,7 +33,7 @@ class TestVisionActionAlerts(BaseTest):
             name=name,
             scanner_type=scanner_type,
             scanner_config={"prompt": "watch"},
-            model=ScannerModel.GEMINI_3_6_FLASH,
+            model=ScannerModel.GEMINI_3_7_FLASH,
         )
 
     def _observation(
