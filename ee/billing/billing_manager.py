@@ -464,13 +464,13 @@ class BillingManager:
         """
         Ensure the relevant organization details are up-to-date locally
         """
-        modified_fields: set[str] = set()
+        org_modified = False
 
         data = billing_status["customer"]
 
         if data.get("customer_id") and organization.customer_id != data["customer_id"]:
             organization.customer_id = data["customer_id"]
-            modified_fields.add("customer_id")
+            org_modified = True
 
         should_update_org_billing_quotas = False
 
@@ -509,7 +509,7 @@ class BillingManager:
             usage_changed = set_org_usage_summary(organization, new_usage=usage_info)
 
             if usage_changed:
-                modified_fields.add("usage")
+                org_modified = True
 
             should_update_org_billing_quotas = usage_changed or had_quota_limiting_markers
 
@@ -528,12 +528,12 @@ class BillingManager:
             previous_retention_months = organization_events_retention_months(organization)
             organization.available_product_features = data["available_product_features"]
             events_retention_changed = organization_events_retention_months(organization) != previous_retention_months
-            modified_fields.add("available_product_features")
+            org_modified = True
 
         never_drop_data = cast(bool | None, data.get("never_drop_data"))
         if never_drop_data != organization.never_drop_data:
             organization.never_drop_data = never_drop_data
-            modified_fields.add("never_drop_data")
+            org_modified = True
 
         customer_trust_scores = data.get("customer_trust_scores", {})
 
@@ -558,10 +558,10 @@ class BillingManager:
             }
             if updated_customer_trust_scores != current_customer_trust_scores:
                 organization.customer_trust_scores = updated_customer_trust_scores
-                modified_fields.add("customer_trust_scores")
+                org_modified = True
 
-        if modified_fields:
-            organization.save(update_fields=[*modified_fields, "updated_at"])
+        if org_modified:
+            organization.save()
 
         if events_retention_changed:
             reconcile_organization_events_retention(organization)

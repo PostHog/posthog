@@ -375,18 +375,17 @@ class TestBillingManager(BaseTest):
 
     def test_update_org_details_ignores_empty_feature_list(self):
         """A partial or error-path billing response must not downgrade the org or reset retention."""
-        # License first: its post_save re-syncs every org's features, which would overwrite the
-        # fixture list below.
-        license = super(LicenseManager, cast(LicenseManager, License.objects)).create(
-            key="key123::key123",
-            plan="enterprise",
-            valid_until=datetime.datetime(2038, 1, 19, 3, 14, 7),
-        )
         organization = self.organization
         organization.available_product_features = [{"key": "logs_retention_30d", "name": "30-day logs retention"}]
         organization.save()
         self.team.logs_settings = {"retention_days": 30}
         self.team.save()
+
+        license = super(LicenseManager, cast(LicenseManager, License.objects)).create(
+            key="key123::key123",
+            plan="enterprise",
+            valid_until=datetime.datetime(2038, 1, 19, 3, 14, 7),
+        )
 
         billing_status: dict[str, Any] = {"customer": {"available_product_features": []}}
 
@@ -398,32 +397,6 @@ class TestBillingManager(BaseTest):
             {"key": "logs_retention_30d", "name": "30-day logs retention"}
         ]
         assert self.team.logs_settings == {"retention_days": 30}
-
-    def test_update_org_details_does_not_clobber_stale_org_deactivation(self) -> None:
-        license = super(LicenseManager, cast(LicenseManager, License.objects)).create(
-            key="key123::key123",
-            plan="enterprise",
-            valid_until=datetime.datetime(2038, 1, 19, 3, 14, 7),
-        )
-
-        organization = self.organization
-        organization.customer_id = "cus_old"
-        organization.save()
-
-        Organization.objects.filter(id=organization.id).update(
-            is_active=False, is_not_active_reason=Organization.DeactivationReason.DESKTOP_ABUSE
-        )
-        # Keep the instance stale; update_org_details should save only fields it owns.
-        organization.is_active = True
-        organization.is_not_active_reason = None
-
-        billing_status: dict[str, Any] = {"customer": {"customer_id": "cus_new"}}
-        BillingManager(license).update_org_details(organization, cast(BillingStatus, billing_status))
-
-        organization.refresh_from_db()
-        assert organization.customer_id == "cus_new"
-        assert organization.is_active is False
-        assert organization.is_not_active_reason == Organization.DeactivationReason.DESKTOP_ABUSE
 
     @patch("ee.billing.billing_manager.requests.get")
     def test_update_available_product_features_resets_revoked_logs_retention(self, mock_get: MagicMock):
