@@ -24,12 +24,20 @@ with wf.unsafe.imports_passed_through():
         ["product", "task_queue"],
     )
 
+from posthog.temporal.common.errors import (
+    MAX_ERROR_MESSAGE_CHARS,
+    resolve_exception_class,
+    truncate_for_temporal_payload,
+    unwrap_temporal_cause,
+)
+
 from .activities import (
     BumpStuckCounterInput,
     build_rasterization_input,
     bump_stuck_counter_activity,
     clear_stuck_counter_activity,
     finalize_rasterization,
+    record_rasterization_failure,
 )
 from .types import (
     RASTERIZE_RENDER_MAX_ATTEMPTS,
@@ -38,7 +46,12 @@ from .types import (
     FinalizeRasterizationInput,
     RasterizationActivityOutput,
     RasterizeRecordingInputs,
+    RecordRasterizationFailureInput,
 )
+
+# Gates the failure-recording activity added to the except branch. In-flight executions recorded
+# their history without it, so replaying them against an unconditional call fails as non-determinism.
+_RECORD_FAILURE_PATCH = "rasterize-record-failure-2026-08"
 
 
 def _record_outcome(counter: Counter, inputs: RasterizeRecordingInputs) -> None:
@@ -63,10 +76,12 @@ class RasterizeRecordingWorkflow(PostHogWorkflow):
     async def run(self, inputs: RasterizeRecordingInputs) -> RasterizationActivityOutput:
         try:
             result = await self._run(inputs)
-        except Exception:
+        except Exception as exc:
             # Count runs, not attempts: only the final scheduled attempt is a failed run.
             if self._is_final_attempt():
                 _record_outcome(RASTERIZATION_FAILED_COUNTER, inputs)
+                if wf.patched(_RECORD_FAILURE_PATCH):
+                    await self._record_failure(inputs, exc)
             await self._maybe_bump_stuck_counter()
             raise
         await self._maybe_clear_stuck_counter()
@@ -79,6 +94,27 @@ class RasterizeRecordingWorkflow(PostHogWorkflow):
         retry_policy = info.retry_policy
         max_attempts = retry_policy.maximum_attempts if retry_policy else 1
         return max_attempts is not None and 0 < max_attempts <= info.attempt
+
+    async def _record_failure(self, inputs: RasterizeRecordingInputs, exc: BaseException) -> None:
+        """Write the renderer's own reason onto the asset before the workflow fails.
+
+        Swallows its own errors: losing the reason is worse than the render failing, but masking the
+        render's failure would be worse still.
+        """
+        cause = unwrap_temporal_cause(exc) or exc
+        try:
+            await wf.execute_activity(
+                record_rasterization_failure,
+                RecordRasterizationFailureInput(
+                    exported_asset_id=inputs.exported_asset_id,
+                    error_code=resolve_exception_class(exc),
+                    error_message=truncate_for_temporal_payload(str(cause), MAX_ERROR_MESSAGE_CHARS),
+                ),
+                start_to_close_timeout=dt.timedelta(seconds=30),
+                retry_policy=common.RetryPolicy(maximum_attempts=3),
+            )
+        except Exception as record_exc:
+            wf.logger.warning("rasterize.record_failure_failed", extra={"error": str(record_exc)})
 
     async def _maybe_bump_stuck_counter(self) -> None:
         info = wf.info()
