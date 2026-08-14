@@ -137,30 +137,40 @@ class TestApplySesTenantState(BaseTest):
 
         assert emails["suspended"].call_args.args[1] == PROVIDER_PAUSE_REASON_UNSPECIFIED
 
-    def test_finding_email_carries_the_provider_remediation_text_worst_first(self):
+    def _findings_sent_for(self, findings: list[dict[str, str]]) -> list[dict[str, str]]:
         self._seed("ENABLED", "NONE")
-
         with (
             patch(
                 "products.workflows.backend.services.ses_tenant_state.send_email_sending_reputation_finding"
             ) as finding,
             self.captureOnCommitCallbacks(execute=True),
         ):
-            apply_ses_tenant_state(
-                self.team.id,
-                sending_status="ENABLED",
-                reputation_impact="HIGH",
-                findings=[
-                    {"impact": "LOW", "description": "Clean up unengaged recipients"},
-                    {"impact": "HIGH", "description": "Remove hard-bouncing addresses"},
-                    {"impact": "HIGH", "description": ""},
-                ],
-            )
+            apply_ses_tenant_state(self.team.id, sending_status="ENABLED", reputation_impact="HIGH", findings=findings)
+        return finding.delay.call_args.args[3]
 
-        assert finding.delay.call_args.args[3] == [
-            {"impact": "HIGH", "description": "Remove hard-bouncing addresses"},
-            {"impact": "LOW", "description": "Clean up unengaged recipients"},
+    def test_finding_email_uses_our_wording_worst_first_and_drops_unknown_types(self):
+        sent = self._findings_sent_for(
+            [
+                {"finding_type": "DKIM", "impact": "LOW", "description": "Provider prose we do not show"},
+                {"finding_type": "BOUNCE", "impact": "HIGH", "description": ""},
+                {"finding_type": "A_TYPE_AWS_ADDED_LATER", "impact": "HIGH", "description": "Unmapped"},
+            ]
+        )
+
+        assert sent == [
+            {"impact": "HIGH", "description": "Stop sending to addresses that have bounced"},
+            {"impact": "LOW", "description": "Set up DKIM for your sending domain"},
         ]
+
+    def test_repeated_finding_type_is_collapsed_to_its_worst_impact(self):
+        sent = self._findings_sent_for(
+            [
+                {"finding_type": "DKIM", "impact": "LOW", "description": ""},
+                {"finding_type": "DKIM", "impact": "HIGH", "description": ""},
+            ]
+        )
+
+        assert sent == [{"impact": "HIGH", "description": "Set up DKIM for your sending domain"}]
 
 
 class TestSyncSesTenantState(BaseTest):

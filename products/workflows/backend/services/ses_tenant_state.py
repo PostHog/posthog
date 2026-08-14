@@ -29,6 +29,19 @@ _IMPACT_SEVERITY = {"": 0, "NONE": 0, "LOW": 1, "HIGH": 2}
 
 _MAX_FINDINGS_IN_EMAIL = 5
 
+# Our wording for each type AWS can raise (its RecommendationType enum). The provider's own
+# Description is its copy in its voice, and it arrives empty often enough to be unusable as-is.
+_FINDING_DESCRIPTIONS = {
+    "BOUNCE": "Stop sending to addresses that have bounced",
+    "COMPLAINT": "Too many recipients are marking these emails as spam",
+    "IP_LISTING": "A sending IP has been added to a blocklist",
+    "FEEDBACK_3P": "A mailbox provider has flagged your sending",
+    "DKIM": "Set up DKIM for your sending domain",
+    "SPF": "Set up SPF for your sending domain",
+    "DMARC": "Set up DMARC for your sending domain",
+    "BIMI": "Set up BIMI for your sending domain",
+}
+
 _STATE_FIELDS = ["ses_tenant_sending_status", "ses_tenant_reputation_impact", "ses_tenant_state_synced_at"]
 
 
@@ -116,19 +129,28 @@ def apply_ses_tenant_state(
 
 def _findings_for_email(findings: list[dict[str, Any]] | None) -> list[dict[str, str]]:
     """
-    AWS's own remediation text, worst first, trimmed to what fits an email. Carrying it in the
-    message keeps the email useful on its own: the Reputation tab is flag-gated, so a recipient
-    may not be able to open the link at all.
+    What the provider flagged, in our words, worst first, trimmed to what fits an email. Carrying
+    it in the message keeps the email useful on its own: the Reputation tab is flag-gated, so a
+    recipient may not be able to open the link at all.
     """
     if not findings:
         return []
-    described = [finding for finding in findings if finding.get("description")]
-    # Drop the undescribed ones before the cut, or a blank finding with a high impact takes a slot
-    # from one that has text to show.
-    ordered = sorted(described, key=lambda f: _IMPACT_SEVERITY.get(str(f.get("impact") or ""), 0), reverse=True)
+    # AWS can raise several recommendations of one type (DKIM for each domain, say), which would
+    # render as repeated identical lines now that the wording comes from the type. Keep the worst.
+    impact_by_type: dict[str, str] = {}
+    for finding in findings:
+        finding_type = str(finding.get("finding_type") or "")
+        if finding_type not in _FINDING_DESCRIPTIONS:
+            logger.warning("Omitting SES finding of unknown type from email", finding_type=finding_type)
+            continue
+        impact = str(finding.get("impact") or "")
+        known = impact_by_type.get(finding_type)
+        if known is None or _IMPACT_SEVERITY.get(impact, 0) > _IMPACT_SEVERITY.get(known, 0):
+            impact_by_type[finding_type] = impact
+    ordered = sorted(impact_by_type.items(), key=lambda item: _IMPACT_SEVERITY.get(item[1], 0), reverse=True)
     return [
-        {"impact": str(finding.get("impact") or ""), "description": str(finding.get("description") or "")}
-        for finding in ordered[:_MAX_FINDINGS_IN_EMAIL]
+        {"impact": impact, "description": _FINDING_DESCRIPTIONS[finding_type]}
+        for finding_type, impact in ordered[:_MAX_FINDINGS_IN_EMAIL]
     ]
 
 
