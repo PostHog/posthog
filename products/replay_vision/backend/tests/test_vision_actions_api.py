@@ -72,7 +72,7 @@ class _VisionActionAPITestCase(APIBaseTest):
             name=name,
             scanner_type=ScannerType.MONITOR,
             scanner_config={"prompt": "did the user check out?"},
-            model=ScannerModel.GEMINI_3_6_FLASH,
+            model=ScannerModel.GEMINI_3_7_FLASH,
         )
 
     def _create_slack_integration(self, team: Team | None = None) -> Integration:
@@ -111,7 +111,7 @@ class TestVisionActionViewSet(_VisionActionAPITestCase):
             inline_key="k",
             scanner_type=ScannerType.MONITOR,
             scanner_config={"prompt": "one-off"},
-            model=ScannerModel.GEMINI_3_6_FLASH,
+            model=ScannerModel.GEMINI_3_7_FLASH,
             enabled=False,
             sampling_rate=0.0,
         )

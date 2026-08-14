@@ -34,6 +34,7 @@ describe('newScanner', () => {
             enabled: true,
             sampling_rate: 1,
             description: '',
+            tags: [],
         })
     })
 

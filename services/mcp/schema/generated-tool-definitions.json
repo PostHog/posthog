@@ -1011,7 +1011,7 @@
         }
     },
     "canvas-create": {
-        "description": "Create a new, empty canvas in a channel. Returns the canvas's id and (null) `current_version_id`; give it source by publishing a project with canvas-publish-create. Only create a canvas when no existing one is the intended target — list them with canvas-list first.",
+        "description": "Create a new, empty canvas in a channel. Returns the canvas's id and (null) `current_version_id`; give it source by publishing a project with canvas-publish-create. Only create a canvas when no existing one is the intended target — list them with canvas-list first. The response's `url` is the canvas's only valid link — share it verbatim when pointing the user at the canvas; never construct a canvas URL yourself.",
         "category": "Canvas",
         "feature": "canvas",
         "summary": "Create canvas",
@@ -1067,7 +1067,7 @@
         }
     },
     "canvas-list": {
-        "description": "List the project's canvases (newest first), optionally scoped to one channel via `channel`. Use this to resolve which canvas a request refers to before reading or publishing source.",
+        "description": "List the project's canvases (newest first), optionally scoped to one channel via `channel`. Use this to resolve which canvas a request refers to before reading or publishing source. Each row's `url` is that canvas's only valid link — share it verbatim; never construct a canvas URL yourself.",
         "category": "Canvas",
         "feature": "canvas",
         "summary": "List canvases",

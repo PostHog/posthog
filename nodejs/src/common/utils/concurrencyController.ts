@@ -75,6 +75,11 @@ export class ConcurrencyController {
         this._concurrencyLimit = concurrencyLimit
     }
 
+    /** Functions running now. A queued one is not counted, because it holds nothing yet. */
+    public get running(): number {
+        return this._current.length
+    }
+
     /**
      * Run a function with a mutex. If the mutex is already running, the function will be queued and run when the mutex
      * is available.

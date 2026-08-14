@@ -183,6 +183,23 @@ class TestBuildRasterizationInput:
             with pytest.raises(ValueError, match="no session_recording_id"):
                 build_rasterization_input(100)
 
+    @parameterized.expand(
+        [
+            ("traversal", "../../2/recordings/other"),
+            ("slash", "abc/def"),
+            ("backslash", "abc\\def"),
+            ("percent_encoded", "%2e%2e%2f2"),
+            ("dot_segment", ".."),
+            ("trailing_newline", "abc\n"),
+        ]
+    )
+    def test_malformed_session_id_raises(self, _name, session_id):
+        asset = _make_asset(pk=101, export_context={"session_recording_id": session_id})
+        patches, _ = _patches(asset)
+        with patches[0], patches[1], patches[2], patches[3], patches[4]:
+            with pytest.raises(ValueError, match="malformed session_recording_id"):
+                build_rasterization_input(101)
+
     def test_timestamp_and_duration_mapped_to_offsets(self):
         asset = _make_asset(
             pk=50,

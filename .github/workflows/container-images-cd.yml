@@ -125,8 +125,16 @@ jobs:
                   labels: ${{ steps.docker-meta.outputs.labels }}
                   annotations: ${{ steps.docker-meta.outputs.annotations }}
                   platforms: linux/arm64,linux/amd64
+                  # The GITHUB_* args become the git metadata on the error tracking release the
+                  # sourcemap upload stage creates. That stage builds in a container with no .git
+                  # directory, so the workflow has to hand them in (see Dockerfile).
                   build-args: |
                       COMMIT_HASH=${{ github.sha }}
+                      GITHUB_ACTIONS=true
+                      GITHUB_SHA=${{ github.sha }}
+                      GITHUB_REF_NAME=${{ github.ref_name }}
+                      GITHUB_REPOSITORY=${{ github.repository }}
+                      GITHUB_SERVER_URL=${{ github.server_url }}
                   secrets: |
                       posthog_upload_sourcemaps_cli_api_key=${{ secrets.POSTHOG_UPLOAD_SOURCEMAPS_CLI_API_KEY }}
 
@@ -194,8 +202,16 @@ jobs:
                   labels: ${{ steps.docker-meta.outputs.labels }}
                   annotations: ${{ steps.docker-meta.outputs.annotations }}
                   platforms: linux/arm64,linux/amd64
+                  # The GITHUB_* args become the git metadata on the error tracking release the
+                  # sourcemap upload stage creates. That stage builds in a container with no .git
+                  # directory, so the workflow has to hand them in (see Dockerfile).
                   build-args: |
                       COMMIT_HASH=${{ github.sha }}
+                      GITHUB_ACTIONS=true
+                      GITHUB_SHA=${{ github.sha }}
+                      GITHUB_REF_NAME=${{ github.ref_name }}
+                      GITHUB_REPOSITORY=${{ github.repository }}
+                      GITHUB_SERVER_URL=${{ github.server_url }}
                   secrets: |
                       posthog_upload_sourcemaps_cli_api_key=${{ secrets.POSTHOG_UPLOAD_SOURCEMAPS_CLI_API_KEY }}
 

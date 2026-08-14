@@ -4,6 +4,7 @@ from typing import Any, Literal, Union, cast
 import structlog
 from dateutil.relativedelta import relativedelta
 from opentelemetry import trace
+from rest_framework.exceptions import PermissionDenied
 
 from posthog.schema import (
     HogQLQueryModifiers,
@@ -21,6 +22,7 @@ from posthog.hogql.property import property_to_expr
 from posthog.exceptions_capture import capture_exception
 from posthog.hogql_queries.insights.paginators import HogQLCursorPaginator, HogQLHasMorePaginator
 from posthog.models import Team, User
+from posthog.rbac.user_access_control import UserAccessControlError
 from posthog.session_recordings.models.metadata import ONGOING_SESSION_WINDOW_MINUTES
 from posthog.session_recordings.queries.sub_queries.base_query import SessionRecordingsListingBaseQuery
 from posthog.session_recordings.queries.sub_queries.cohort_subquery import CohortPropertyGroupsSubQuery
@@ -283,6 +285,9 @@ class SessionRecordingListFromQuery(SessionRecordingsListingBaseQuery):
         if isinstance(parsed_query, ast.SelectSetQuery):
             raise Exception("replay does not support SelectSetQuery")
 
+        if self._query.experiment_exposure is not None:
+            self._join_experiment_exposure(parsed_query)
+
         # Include session_id as a tie-breaker for stable cursor-based pagination
         parsed_query.order_by = [
             self._order_by_clause(),
@@ -292,6 +297,56 @@ class SessionRecordingListFromQuery(SessionRecordingsListingBaseQuery):
             ),
         ]
         return parsed_query
+
+    def _join_experiment_exposure(self, parsed_query: ast.SelectQuery) -> None:
+        """Restrict the list to sessions of persons exposed to the queried experiment.
+
+        The joined subquery carries at most one row per distinct id, so the join never
+        duplicates a session's rows; the INNER JOIN drops sessions of unexposed persons at
+        the row level. A session recorded under several persons' distinct ids keeps only the
+        exposed persons' rows, so its aggregates can shrink slightly; the session itself
+        still correctly matches. The companion "session ended at or after first exposure"
+        bound lives in `_having_predicates`, because end_time only exists after GROUP BY
+        and a row-level bound would drop a qualifying session's pre-exposure rows, skewing
+        start_time and the activity aggregates.
+        """
+        # Deferred: the experiments facade package imports posthog.api on init, which
+        # circles back into this module through the replay-deletion temporal activities.
+        from products.experiments.backend.facade.replay import (  # noqa: PLC0415
+            exposed_distinct_ids_select,
+            validate_experiment_exposure_access,
+        )
+
+        assert self._query.experiment_exposure is not None
+        try:
+            validate_experiment_exposure_access(self._team, self._user, self._query.experiment_exposure.experiment_id)
+        except UserAccessControlError as error:
+            # Only the /query pipeline renders UserAccessControlError; on the recordings API
+            # it would surface as a 500, so translate to what DRF renders as a 403.
+            raise PermissionDenied(str(error))
+        join = parsed_query.select_from
+        assert join is not None
+        while join.next_join is not None:
+            join = join.next_join
+        join.next_join = ast.JoinExpr(
+            # GLOBAL: the subquery scans events over the whole experiment window; without it,
+            # every shard of the sharded replay table re-evaluates that scan independently.
+            join_type="GLOBAL INNER JOIN",
+            table=exposed_distinct_ids_select(
+                self._team,
+                experiment_id=self._query.experiment_exposure.experiment_id,
+                variant=self._query.experiment_exposure.variant,
+            ),
+            alias="exposure",
+            constraint=ast.JoinConstraint(
+                expr=ast.CompareOperation(
+                    op=ast.CompareOperationOp.Eq,
+                    left=ast.Field(chain=["exposure", "distinct_id"]),
+                    right=ast.Field(chain=["s", "distinct_id"]),
+                ),
+                constraint_type="ON",
+            ),
+        )
 
     @tracer.start_as_current_span("SessionRecordingListFromQuery._order_by_clause")
     def _order_by_clause(self) -> ast.OrderExpr:
@@ -627,5 +682,16 @@ class SessionRecordingListFromQuery(SessionRecordingsListingBaseQuery):
             )
 
         exprs.extend(self._extra_having_predicates)
+
+        # See _join_experiment_exposure for why this bound lives in HAVING. min() is safe
+        # because the join carries at most one exposure row per distinct id.
+        if self._query.experiment_exposure is not None:
+            exprs.append(
+                ast.CompareOperation(
+                    op=ast.CompareOperationOp.GtEq,
+                    left=ast.Field(chain=["end_time"]),
+                    right=ast.Call(name="min", args=[ast.Field(chain=["exposure", "first_exposure_time"])]),
+                )
+            )
 
         return ast.And(exprs=exprs)
