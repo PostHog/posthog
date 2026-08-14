@@ -107,19 +107,27 @@ describe('stepDelayLogic', () => {
 
     // A key the builder cannot read back leaves the picker blank on reload, so the user's choice looks
     // lost and re-picking silently overwrites it. Property keys carry $, spaces and quotes in practice.
+    // An event property is `properties.x`, not `event.properties.x`: the expression is evaluated against
+    // the same globals as a filter, where `event` is the event's name. Getting this wrong resolves to
+    // nothing at run time and aborts the run instead of waiting.
     it.each([
         [{ source: 'person', key: 'expires_at' } as DelayProperty, 'person.properties.expires_at'],
-        [{ source: 'event', key: 'scheduled_at' } as DelayProperty, 'event.properties.scheduled_at'],
+        [{ source: 'event', key: 'scheduled_at' } as DelayProperty, 'properties.scheduled_at'],
         [{ source: 'person', key: '$trial_ends' } as DelayProperty, "person.properties['$trial_ends']"],
         [{ source: 'person', key: 'renews on' } as DelayProperty, "person.properties['renews on']"],
-        [{ source: 'event', key: "o'clock" } as DelayProperty, "event.properties['o\\'clock']"],
+        [{ source: 'event', key: "o'clock" } as DelayProperty, "properties['o\\'clock']"],
     ])('%o round trips through %p', (property, expression) => {
         expect(buildDelayExpression(property)).toBe(expression)
         expect(parseDelayExpression(expression)).toEqual(property)
     })
 
-    it('reads back no property for an expression the builder did not compose', () => {
-        expect(parseDelayExpression('toDateTime(person.properties.a) + toIntervalDay(1)')).toBeNull()
+    // Shown as a hand-written expression rather than a picked property, which is what invites the user to
+    // re-pick it. Reading it back as a property would present an unrunnable step as configured.
+    it.each([
+        ['a composed expression', 'toDateTime(person.properties.a) + toIntervalDay(1)'],
+        ['an event property written with the event prefix', 'event.properties.expires_at'],
+    ])('reads back no property for %s', (_label, expression) => {
+        expect(parseDelayExpression(expression)).toBeNull()
     })
 
     // The sign carries the direction. Losing it turns "a day before their trial ends" into a message

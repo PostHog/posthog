@@ -980,6 +980,8 @@ class HogFlowActionSerializer(serializers.Serializer):
             "expression evaluates to (an ISO string, unix seconds, or a date value all resolve to the "
             "same instant); offset is a signed duration shifting it ('-1d' a day before, '2h' two hours "
             "after). expression is compiled server-side, so any bytecode sent with it is discarded. "
+            "A person property is person.properties.<key>; an event property is properties.<key>, as the "
+            "'event.' prefix resolves to nothing and aborts the run. "
             "Optional sibling max_delay_duration (default 30d, same '<number><unit>' format) caps how "
             "far past the step's start the wait may run. "
             "conditional_branch: {conditions: [{filters}, ...]}. Index N matches the 'branch' edge with index:N. "

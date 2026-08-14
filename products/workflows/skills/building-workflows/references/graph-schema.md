@@ -185,7 +185,8 @@ A `delay` waits either a fixed span or until a date carried by the person or the
 - `max_delay_duration` caps how far past the step's start the wait may run (default `30d`, same duration rules as above). It exists so a far-future date cannot park a run indefinitely.
 - **Never send `bytecode`.** The server compiles the expression at save time and discards anything the client sent. A broken expression fails the save with the parse error.
 - The expression is re-read on **every wake**, not only on entry, so a date that moves while the run is parked is honored. A date that cannot be resolved aborts the run whatever `on_error` says, because a wait that cannot work out when to act has nothing safe to fall through to.
-- The builder writes `person.properties.<key>` or `event.properties.<key>` (bracketed when the key is not a bare identifier). Any other expression saves fine but shows in the editor as a read-only custom expression instead of a property pick.
+- A person property is `person.properties.<key>`; an **event property is `properties.<key>`, with no `event.` prefix**. The expression runs against the same globals as a filter, where `event` is the event's name, so `event.properties.<key>` resolves to nothing and aborts the run.
+- The builder writes those two shapes (bracketed when the key is not a bare identifier). Any other expression saves fine but shows in the editor as a read-only custom expression instead of a property pick.
 
 ## Conversion & exit condition
 

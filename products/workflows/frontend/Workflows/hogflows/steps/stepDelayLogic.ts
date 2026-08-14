@@ -12,8 +12,11 @@ const UNCONFIGURED_UNTIL_DESCRIPTION = 'Wait until a date on the person or event
 // A property key only reads back as `person.properties.foo` when it is a bare identifier. Anything
 // else (spaces, a leading $, punctuation) has to go through brackets to survive the round trip.
 const BARE_IDENTIFIER_REGEX = /^[A-Za-z_][A-Za-z0-9_]*$/
-const DOTTED_EXPRESSION_REGEX = /^(person|event)\.properties\.([A-Za-z_][A-Za-z0-9_]*)$/
-const BRACKETED_EXPRESSION_REGEX = /^(person|event)\.properties\['((?:[^'\\]|\\.)*)'\]$/
+// An event's own properties are `properties.foo`, with no prefix: the expression runs against the same
+// globals as a filter, where `event` is the event's name rather than an object. `event.properties.foo`
+// reads a field off that string, resolves to nothing, and aborts every run of the step.
+const DOTTED_EXPRESSION_REGEX = /^(?:(person)\.)?properties\.([A-Za-z_][A-Za-z0-9_]*)$/
+const BRACKETED_EXPRESSION_REGEX = /^(?:(person)\.)?properties\['((?:[^'\\]|\\.)*)'\]$/
 
 const UNIT_LABELS: Record<string, string> = {
     s: 'second',
@@ -49,21 +52,22 @@ export function getDelayMode(config: DelayActionConfig): DelayMode {
 }
 
 export function buildDelayExpression({ source, key }: DelayProperty): string {
+    const prefix = source === 'person' ? 'person.properties' : 'properties'
     if (BARE_IDENTIFIER_REGEX.test(key)) {
-        return `${source}.properties.${key}`
+        return `${prefix}.${key}`
     }
-    return `${source}.properties['${key.replace(/\\/g, '\\\\').replace(/'/g, "\\'")}']`
+    return `${prefix}['${key.replace(/\\/g, '\\\\').replace(/'/g, "\\'")}']`
 }
 
 /** Null for an expression the builder did not compose, e.g. hand-written SQL saved through the API. */
 export function parseDelayExpression(expression: string): DelayProperty | null {
     const dotted = expression.match(DOTTED_EXPRESSION_REGEX)
     if (dotted) {
-        return { source: dotted[1] as DelayPropertySource, key: dotted[2] }
+        return { source: dotted[1] === 'person' ? 'person' : 'event', key: dotted[2] }
     }
     const bracketed = expression.match(BRACKETED_EXPRESSION_REGEX)
     if (bracketed) {
-        return { source: bracketed[1] as DelayPropertySource, key: bracketed[2].replace(/\\(.)/g, '$1') }
+        return { source: bracketed[1] === 'person' ? 'person' : 'event', key: bracketed[2].replace(/\\(.)/g, '$1') }
     }
     return null
 }
