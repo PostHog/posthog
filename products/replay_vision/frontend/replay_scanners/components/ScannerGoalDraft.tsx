@@ -4,6 +4,7 @@ import { useRef } from 'react'
 import { IconArrowRight, IconSparkles } from '@posthog/icons'
 import { LemonButton, LemonTextArea } from '@posthog/lemon-ui'
 
+import { getReplayVisionEditDisabledReason } from '../../utils/accessControl'
 import { replayScannerLogic } from '../replayScannerLogic'
 
 /** "Tell PostHog AI what you want to accomplish" box on the template step and the zero-scanner
@@ -20,8 +21,11 @@ export function ScannerGoalDraft({
     const { goalDraftInput, goalDraftLoading } = useValues(logic)
     const { draftScannerFromGoal, setGoalDraftInput } = useActions(logic)
 
+    // Drafting creates a scanner, so it needs the same editor access as the rest of the wizard.
+    const editDisabledReason = getReplayVisionEditDisabledReason()
+
     const handleSubmit = (): void => {
-        if (!goalDraftInput.trim() || goalDraftLoading) {
+        if (editDisabledReason || !goalDraftInput.trim() || goalDraftLoading) {
             return
         }
         const proceed = (): void => draftScannerFromGoal(goalDraftInput.trim())
@@ -73,7 +77,8 @@ export function ScannerGoalDraft({
                             loading={goalDraftLoading}
                             onClick={handleSubmit}
                             disabledReason={
-                                !goalDraftInput.trim() ? 'Describe what the scanner should look for' : undefined
+                                editDisabledReason ??
+                                (!goalDraftInput.trim() ? 'Describe what the scanner should look for' : undefined)
                             }
                             data-attr="vision-goal-draft-submit"
                         >

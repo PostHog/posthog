@@ -5,7 +5,6 @@ import { IconOpenSidebar } from '@posthog/icons'
 import { LemonTag, Link } from '@posthog/lemon-ui'
 
 import { FEATURE_FLAGS } from 'lib/constants'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { aiConsentLogic } from 'scenes/settings/organization/aiConsentLogic'
 import { AIConsentPopoverWrapper } from 'scenes/settings/organization/AIConsentPopoverWrapper'
 
@@ -127,12 +126,7 @@ function ConsentGatedTemplateCard({
     )
 }
 
-// Without the goal-draft flag the backend rejects the draft call, so the box only renders with it on.
-function GatedGoalDraft({ className, slot }: { className?: string; slot: ConsentSlot }): JSX.Element | null {
-    const { featureFlags } = useValues(featureFlagLogic)
-    if (!featureFlags[FEATURE_FLAGS.REPLAY_VISION_GOAL_DRAFT]) {
-        return null
-    }
+function GatedGoalDraft({ className, slot }: { className?: string; slot: ConsentSlot }): JSX.Element {
     return (
         <div className={className}>
             <ConsentGate gateId="goal-draft" slot={slot}>

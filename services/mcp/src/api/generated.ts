@@ -21344,6 +21344,8 @@ export namespace Schemas {
      * * `Depot` - Depot
      * * `Schematic` - Schematic
      * * `Dokploy` - Dokploy
+     * * `Hootsuite` - Hootsuite
+     * * `WisprFlow` - WisprFlow
      */
     export type ExternalDataSourceTypeEnum = typeof ExternalDataSourceTypeEnum[keyof typeof ExternalDataSourceTypeEnum];
 
@@ -22644,6 +22646,8 @@ export namespace Schemas {
       Depot: 'Depot',
       Schematic: 'Schematic',
       Dokploy: 'Dokploy',
+      Hootsuite: 'Hootsuite',
+      WisprFlow: 'WisprFlow',
     } as const;
 
     /**
@@ -23957,7 +23961,9 @@ export namespace Schemas {
        * * `MSG91` - MSG91
        * * `Depot` - Depot
        * * `Schematic` - Schematic
-       * * `Dokploy` - Dokploy */
+       * * `Dokploy` - Dokploy
+       * * `Hootsuite` - Hootsuite
+       * * `WisprFlow` - WisprFlow */
       source_type: ExternalDataSourceTypeEnum;
     }
 
@@ -25959,7 +25965,9 @@ export namespace Schemas {
        * * `MSG91` - MSG91
        * * `Depot` - Depot
        * * `Schematic` - Schematic
-       * * `Dokploy` - Dokploy */
+       * * `Dokploy` - Dokploy
+       * * `Hootsuite` - Hootsuite
+       * * `WisprFlow` - WisprFlow */
       readonly source_type: ExternalDataSourceTypeEnum;
       /** Human-readable name to show in the picker (falls back to the source type). */
       readonly label: string;
@@ -28963,7 +28971,7 @@ export namespace Schemas {
     /**
      * * `gemini-3.5-flash-lite` - Gemini 3.5 Flash Lite
      * * `gemini-3-flash-preview` - Gemini 3 Flash
-     * * `gemini-3.6-flash` - Gemini 3.6 Flash
+     * * `gemini-3.7-flash` - Gemini 3.7 Flash
      */
     export type ScannerModelEnum = typeof ScannerModelEnum[keyof typeof ScannerModelEnum];
 
@@ -28971,7 +28979,7 @@ export namespace Schemas {
     export const ScannerModelEnum = {
       Gemini35FlashLite: 'gemini-3.5-flash-lite',
       Gemini3FlashPreview: 'gemini-3-flash-preview',
-      Gemini36Flash: 'gemini-3.6-flash',
+      Gemini37Flash: 'gemini-3.7-flash',
     } as const;
 
     /**
@@ -29001,7 +29009,7 @@ export namespace Schemas {
        *
        * * `gemini-3.5-flash-lite` - Gemini 3.5 Flash Lite
        * * `gemini-3-flash-preview` - Gemini 3 Flash
-       * * `gemini-3.6-flash` - Gemini 3.6 Flash */
+       * * `gemini-3.7-flash` - Gemini 3.7 Flash */
       model?: ScannerModelEnum;
     }
 
@@ -33753,7 +33761,9 @@ export namespace Schemas {
        * * `MSG91` - MSG91
        * * `Depot` - Depot
        * * `Schematic` - Schematic
-       * * `Dokploy` - Dokploy */
+       * * `Dokploy` - Dokploy
+       * * `Hootsuite` - Hootsuite
+       * * `WisprFlow` - WisprFlow */
       readonly source_type: ExternalDataSourceTypeEnum;
       /** 'direct' for pure live-query sources; 'warehouse' for synced sources with direct query enabled.
        *
@@ -35085,7 +35095,9 @@ export namespace Schemas {
        * * `MSG91` - MSG91
        * * `Depot` - Depot
        * * `Schematic` - Schematic
-       * * `Dokploy` - Dokploy */
+       * * `Dokploy` - Dokploy
+       * * `Hootsuite` - Hootsuite
+       * * `WisprFlow` - WisprFlow */
       source_type: ExternalDataSourceTypeEnum;
       /** Connection credentials and a 'schemas' array. Keys depend on source_type. */
       payload: ExternalDataSourceCreatePayload;
@@ -41091,7 +41103,7 @@ export namespace Schemas {
        *
        * * `gemini-3.5-flash-lite` - Gemini 3.5 Flash Lite
        * * `gemini-3-flash-preview` - Gemini 3 Flash
-       * * `gemini-3.6-flash` - Gemini 3.6 Flash */
+       * * `gemini-3.7-flash` - Gemini 3.7 Flash */
       model?: ScannerModelEnum;
     }
 
@@ -49751,7 +49763,7 @@ export namespace Schemas {
        *
        * * `gemini-3.5-flash-lite` - Gemini 3.5 Flash Lite
        * * `gemini-3-flash-preview` - Gemini 3 Flash
-       * * `gemini-3.6-flash` - Gemini 3.6 Flash */
+       * * `gemini-3.7-flash` - Gemini 3.7 Flash */
       model: ScannerModelEnum;
       /** When false, the reconciler removes the scanner's Temporal schedule. On-demand triggers still work. */
       enabled?: boolean;
@@ -58966,7 +58978,7 @@ export namespace Schemas {
        *
        * * `gemini-3.5-flash-lite` - Gemini 3.5 Flash Lite
        * * `gemini-3-flash-preview` - Gemini 3 Flash
-       * * `gemini-3.6-flash` - Gemini 3.6 Flash */
+       * * `gemini-3.7-flash` - Gemini 3.7 Flash */
       model?: ScannerModelEnum;
       /** When false, the reconciler removes the scanner's Temporal schedule. On-demand triggers still work. */
       enabled?: boolean;
@@ -66936,7 +66948,7 @@ export namespace Schemas {
     }
 
     export interface QuotaResourceLimit {
-      /** True when the team is currently over its quota for this resource and limits are in effect. */
+      /** True when the team is currently over its quota for this resource and limits are in effect. A deactivated organization additionally reads as limited on the two credit buckets `ai_credits` and `posthog_code_credits`, regardless of usage. */
       limited: boolean;
       /**
          * Units of this resource the organization has used so far this billing period, in the resource's native unit (credits for credit buckets). Null when billing hasn't synced usage for the resource.
@@ -66958,7 +66970,7 @@ export namespace Schemas {
     export interface QuotaLimitsResponse {
       /** Per-resource limit state for every `QuotaResource` value, e.g. `ai_credits`, `posthog_code_credits`. Also carries the informational Desktop component resources (`posthog_code_token_credits`, `sandbox_compute_credits`, `sandbox_compute_cpu_millicore_seconds`, `sandbox_compute_memory_mib_seconds`) with usage in their native units, a null limit, and `limited` always false — they are never quota-enforced; only the combined `posthog_code_credits` is. */
       limited: QuotaLimitsResponseLimited;
-      /** Whether the team's organization pays for PostHog Desktop usage: billing grants the `posthog_code_usage` product feature only on the Desktop usage product's paid plan, synced into the organization's available features. Consumers gate paid-tier Desktop behavior on this; an org unknown to billing reads as not paying. */
+      /** Whether the team's organization pays for PostHog Desktop usage: billing grants the `posthog_code_usage` product feature only on the Desktop usage product's paid plan, synced into the organization's available features. Consumers gate paid-tier Desktop behavior on this; an org unknown to billing reads as not paying. Always false for deactivated organizations. */
       code_usage_billing_active: boolean;
     }
 
@@ -71813,7 +71825,9 @@ export namespace Schemas {
        * * `MSG91` - MSG91
        * * `Depot` - Depot
        * * `Schematic` - Schematic
-       * * `Dokploy` - Dokploy */
+       * * `Dokploy` - Dokploy
+       * * `Hootsuite` - Hootsuite
+       * * `WisprFlow` - WisprFlow */
       source_type: ExternalDataSourceTypeEnum;
       /** Connection details as flat keys for the source_type — the same fields the create flow accepts (host, port, password, API key, …). Checked against a live connection before being stored. */
       payload: SourceCredentialCreatePayload;
@@ -73155,7 +73169,9 @@ export namespace Schemas {
        * * `MSG91` - MSG91
        * * `Depot` - Depot
        * * `Schematic` - Schematic
-       * * `Dokploy` - Dokploy */
+       * * `Dokploy` - Dokploy
+       * * `Hootsuite` - Hootsuite
+       * * `WisprFlow` - WisprFlow */
       source_type: ExternalDataSourceTypeEnum;
       /** Source config as flat keys. For source_type 'Custom': 'manifest_json' (a stringified RESTAPIConfig describing client.base_url, auth, and resources) plus the credential for the manifest's declared auth type — 'auth_token' (bearer), 'auth_api_key' (api_key), or 'auth_password' (http_basic). Secrets stay in these auth_* keys, never inline in the manifest. */
       payload?: SourcePreviewRequestPayload;
@@ -74487,7 +74503,9 @@ export namespace Schemas {
        * * `MSG91` - MSG91
        * * `Depot` - Depot
        * * `Schematic` - Schematic
-       * * `Dokploy` - Dokploy */
+       * * `Dokploy` - Dokploy
+       * * `Hootsuite` - Hootsuite
+       * * `WisprFlow` - WisprFlow */
       source_type: ExternalDataSourceTypeEnum;
       /** Connection details as flat keys for the source_type (discover required fields with the wizard tool). Prefer references over raw secrets: pass {'credential_id': <id>} referencing the connection details the user stored via the connect-link page (discover ids with the stored_credentials endpoint) — they are merged in server-side and deleted once consumed. An already-connected OAuth integration can be passed via its id key instead (e.g. {'hubspot_integration_id': 123}). For source_type 'Custom' (a user-defined REST API) the keys are 'manifest_json' (a stringified RESTAPIConfig describing client.base_url, auth, and resources) plus the credential for the auth type the manifest declares — 'auth_token' (bearer), 'auth_api_key' (api_key), or 'auth_password' (http_basic); keep secrets in these auth_* keys, never inline in the manifest. A 'schemas' array is NOT required — all discovered tables are enabled automatically with sensible sync defaults. */
       payload?: SourceSetupPayload;
