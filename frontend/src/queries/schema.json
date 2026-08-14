@@ -245,6 +245,7 @@
                 "external_id",
                 "created_at",
                 "updated_at",
+                "churned_at",
                 "stripe_customer_id",
                 "hubspot_deal_id",
                 "billing_id",
@@ -552,6 +553,10 @@
                         "$ref": "#/definitions/AccountsTableFilter"
                     },
                     "type": "array"
+                },
+                "includeChurned": {
+                    "description": "Include churned accounts. Churned accounts are hidden by default.",
+                    "type": "boolean"
                 },
                 "kind": {
                     "const": "AccountsTableQuery",

@@ -2811,6 +2811,7 @@ export enum AccountsTableAccountField {
     ExternalId = 'external_id',
     CreatedAt = 'created_at',
     UpdatedAt = 'updated_at',
+    ChurnedAt = 'churned_at',
     StripeCustomerId = 'stripe_customer_id',
     HubspotDealId = 'hubspot_deal_id',
     BillingId = 'billing_id',
@@ -3032,6 +3033,8 @@ export interface AccountsTableQueryResponse extends AnalyticsQueryResponseBase {
 
 export interface AccountsTableQuery extends DataNode<AccountsTableQueryResponse> {
     kind: NodeKind.AccountsTableQuery
+    /** Include churned accounts. Churned accounts are hidden by default. */
+    includeChurned?: boolean
     /** Columns to load for each account. Account identity fields are always returned. */
     columns: AccountsTableColumn[]
     /** Filters are combined with AND. Values within tag and assignment filters use OR. */
