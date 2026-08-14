@@ -4758,10 +4758,10 @@ snapshots:
         hash: v1.k794b7964.ea754a4783f7653247f127337c407a8cdd4a9c6bc3f1b908d8d00dd1a090b966.KQ3yKnRzi4l3ZeYVThZdmo4L6mAbxtNa2uQh7y-kGWA
     products-dashboards-dashboard-widgets-widget-types-error-tracking-top-issues--tile-filters-read-only--light:
         hash: v1.k794b7964.b2ca2efc52a9ccf56953159c66d3c8766acd1d3a17379d5faec45a4715ae24a9.fK76p7ZVcgvFJNcKJ5Ixy3YnBm_BcBSFnoytLS2jZdU
-    products-dashboards-dashboard-widgets-widget-types-error-tracking-top-issues-widget-settings--before-exception-ingestion--dark:
-        hash: v1.k794b7964.ee9bd78f705c05a89b8dffa7ce394b1af07b75a9597fd220c94d177b49def5bd.Ii4is9m845vi1gNJRW-Pdw93hMfdAEL_0UIj6lAOTvw
-    products-dashboards-dashboard-widgets-widget-types-error-tracking-top-issues-widget-settings--before-exception-ingestion--light:
-        hash: v1.k794b7964.b71412d69902241f7ec02efa87c138362522d5c7227c36a71e7f0dc0627d2a38.xiUrsbrXCMYmKv85SCzax7k6HNDzZsfKE5ZBhZBFPsI
+    ? products-dashboards-dashboard-widgets-widget-types-error-tracking-top-issues-widget-settings--before-exception-ingestion--dark
+    :   hash: v1.k794b7964.ee9bd78f705c05a89b8dffa7ce394b1af07b75a9597fd220c94d177b49def5bd.Ii4is9m845vi1gNJRW-Pdw93hMfdAEL_0UIj6lAOTvw
+    ? products-dashboards-dashboard-widgets-widget-types-error-tracking-top-issues-widget-settings--before-exception-ingestion--light
+    :   hash: v1.k794b7964.b71412d69902241f7ec02efa87c138362522d5c7227c36a71e7f0dc0627d2a38.xiUrsbrXCMYmKv85SCzax7k6HNDzZsfKE5ZBhZBFPsI
     products-dashboards-dashboard-widgets-widget-types-error-tracking-top-issues-widget-settings--default--dark:
         hash: v1.k794b7964.b1e0f5f542426e34dec73826f3135902a392c0c13dade4fec14037c615186b13.kbxxijyDI1SdvgdKwkRnIRLLgmsine5AYvOcD79DYsY
     products-dashboards-dashboard-widgets-widget-types-error-tracking-top-issues-widget-settings--default--light:
@@ -6411,9 +6411,9 @@ snapshots:
     scenes-app-inbox-scene--empty-with-many-scouts--light:
         hash: v1.k794b7964.4757fdc3e6603cc7752cffdf45421aa24d8551754e9b5cca04569ed5c9577a26.k0mDZb6DY2eTMFjNrG2mi_0Dbhcrho9A4MhjjH5KlCM
     scenes-app-inbox-scene--inbox--dark:
-        hash: v1.k794b7964.7ade0c95519de555691da00b03aaa9aeea1ba0c32762354222d23676099ea0da.OmzLebXW_1EJ-lRFDeh7flQ6cl3OqskJfVarjDu4FQc
+        hash: v1.k794b7964.6938f54b10a00b66cd90158043512d6b056ac3bf97e291fa5961529af56ba084.noXScllvtHLNl8e7c7bKckMTjf-O9lC0OuvKdUKVT7o
     scenes-app-inbox-scene--inbox--light:
-        hash: v1.k794b7964.cd4a9d438b8342df350fcc8de14e27707c460e73d08772f90fec51dcb346858d.pXZHp6MatJwXk0M_5UL2njnpvO02KcZWmTtPqoeaj6E
+        hash: v1.k794b7964.21ae4235f9bc3c8f39fc33259edc39f53e06baaeb37f679f3badd771b986b86a.AoPLxHhT6028ylYpVRlXQUVgqm6ckEBiLWWwCovU7DQ
     scenes-app-inbox-scene--installing-self-driving--dark:
         hash: v1.k794b7964.d2c648fd6ea8079c6746f4b5e979cac53dbd928dd06990c3bac2031eeaba12be.rCs94UBn0krUWBSp28BM_f7Jo4Smc85JTXR_iWzDjoY
     scenes-app-inbox-scene--installing-self-driving--light:
@@ -6533,11 +6533,11 @@ snapshots:
     scenes-app-insights-error-empty-states--query-server-error--dark:
         hash: v1.k794b7964.5e0a4f13fb00ef944649228004095f84fd1d859bd66cdd5ec9e25bd745d6828d.k4NYuOAkHqlOwwSIUSHJiywF8FxVwqlIbahs9NdgpF4
     scenes-app-insights-error-empty-states--query-server-error--light:
-        hash: v1.k794b7964.2b569e38b9188a1b6651645db04fc1861a1fbca67c8a36c59a717d949b3e9cb6.6wC07yLeoObvqkr-b3JIDgOLa-iqmpa8aO-eLLzWoEw
+        hash: v1.k794b7964.8cbd2901888aa723067ddea0dc2c6045628c0cb872438beca4e667592d25aaf6.4GmhzW21hmldOgELAwHy522bovvzkaq8b4i0NowPhb8
     scenes-app-insights-error-empty-states--server-error--dark:
         hash: v1.k794b7964.d4fc60a8e2dcacd414609ab296220b7d67381644f361e874c89790ad0166ac72.AvZwp_QBR6TzTD2jw9dj4M96gEsNdZ05GpMMfFp9RjQ
     scenes-app-insights-error-empty-states--server-error--light:
-        hash: v1.k794b7964.35ed59d2bdcc52c93c986a480bcc36b51913b32c3833fb5b5a16ca1ac3bb3e79.mJrsY5F5nRZ_wO8D937ymEISXRwiSmZpf0ImwObTMy8
+        hash: v1.k794b7964.bb0777668c8a93195ded9646fbf722dafda5dddc3c4ecbdf2a13c0840145eb5c.CgavarGmTMRPOb56B8h4TtRt6LkaLPgBWrjVidwoyeg
     scenes-app-insights-error-empty-states--validation-error--dark:
         hash: v1.k794b7964.855cdd3fac12fc2645b90ff17a8e0150f3cd4e4b646e92b9266e5261459d0d07.yF2PxdOOktpjWsHaPmDXsmLxgz5S3nhheVXgr1Xt1V0
     scenes-app-insights-error-empty-states--validation-error--light:
