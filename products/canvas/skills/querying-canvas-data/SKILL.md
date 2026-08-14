@@ -90,6 +90,42 @@ product — rather than every tile resolving the insight's saved default.
 - Values are typed by the variable's definition in PostHog (String / Number / Boolean / Date / List);
   pass the same shape the insight expects, and an array for a multi-select List variable.
 
+## Runtime memory — ph.state
+
+Durable key-value storage per canvas. Declare every scope you use in `capabilities.posthog.state`
+(`["user"]`, `["shared"]`, or both) — undeclared scopes fail validation and the host refuses them
+at runtime. Scope `"user"` (the default when no scope is passed) is private to each viewer;
+`"shared"` is one value per canvas, visible to the whole team.
+
+```tsx
+const draft = await ph.state.get("draft"); // user scope by default; null when unset
+await ph.state.set("draft", { text }); // JSON value, capped at 64 KB serialized
+await ph.state.set("draft", null); // null deletes the key
+await ph.state.set("board", { columns }, { scope: "shared" }); // team-visible
+const entries = await ph.state.list({ scope: "shared" }); // [{ scope, key, value, updatedAt }]
+```
+
+- Load state in an effect on mount and render a skeleton until it resolves; writes are
+  last-write-wins, so re-read (or trust your own write) rather than merging.
+- 256 keys per scope. Store big data in PostHog (insights, the warehouse) and reference it.
+- State is team-visible application data — never secrets, never viewer PII.
+
+## PostHog writes — ph.actions
+
+`ph.actions.invoke(verb, payload)` writes into PostHog as the viewer. Declare every verb in
+`capabilities.posthog.actions`; undeclared or unregistered verbs fail validation and the host
+refuses them at runtime. Invocations must be wired to an explicit user gesture (a button the
+viewer clicks) — the host rejects calls made on load or render.
+
+```tsx
+// Registered verbs today:
+await ph.actions.invoke("annotations.create", { content, date_marker }); // date_marker optional
+await ph.actions.invoke("tasks.create", { title, description }); // files into the canvas's channel as the viewer
+```
+
+Render the result or the thrown error visibly, and disable the button while the call is in
+flight — every invocation is a real PostHog write.
+
 ## Side effects
 
 - `ph.capture(event, properties?, distinctId?)` — analytics events for interactions
