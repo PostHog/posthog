@@ -33,7 +33,9 @@ class DemoCampaign:
     utm_campaign: str | None  # value events carry; None => use name.lower()
     utm_medium: str = "cpc"
     referring_domain: str = ""
-    click_id_property: str | None = None  # $gclid / $fbclid
+    # Unprefixed, matching what the SDK writes on the event. `$initial_gclid` is the
+    # person-scoped copy channel_type reads, and is derived from this one.
+    click_id_property: str | None = None  # gclid / fbclid
     signup_rate: float = 0.0
     purchase_rate: float = 0.0
     reported_conversion_rate: float = 0.02  # of clicks
@@ -55,6 +57,7 @@ class DemoFreeChannel:
     signup_rate: float = 0.03
     purchase_rate: float = 0.008
     utm_source_variants: dict[str, float] = field(default_factory=dict)
+    extra_properties: dict[str, str] = field(default_factory=dict)
     scenario: str = ""
 
 
@@ -86,7 +89,7 @@ CAMPAIGNS: tuple[DemoCampaign, ...] = (
         utm_source="google",
         utm_campaign="brand_search",
         referring_domain="google.com",
-        click_id_property="$gclid",
+        click_id_property="gclid",
         signup_rate=0.12,
         purchase_rate=0.035,
         reported_conversion_rate=0.05,
@@ -108,7 +111,7 @@ CAMPAIGNS: tuple[DemoCampaign, ...] = (
         utm_source="google",
         utm_campaign="generic_search",
         referring_domain="google.com",
-        click_id_property="$gclid",
+        click_id_property="gclid",
         signup_rate=0.015,
         purchase_rate=0.002,
         reported_conversion_rate=0.01,
@@ -141,7 +144,7 @@ CAMPAIGNS: tuple[DemoCampaign, ...] = (
         utm_source="google",
         utm_campaign="spring_sale_2026",
         referring_domain="google.com",
-        click_id_property="$gclid",
+        click_id_property="gclid",
         signup_rate=0.08,
         purchase_rate=0.02,
         utm_campaign_variants={"spring-sale-2026": 0.4},
@@ -249,7 +252,7 @@ CAMPAIGNS: tuple[DemoCampaign, ...] = (
         utm_campaign="prospecting_feed",
         utm_medium="paid-social",
         referring_domain="facebook.com",
-        click_id_property="$fbclid",
+        click_id_property="fbclid",
         signup_rate=0.05,
         purchase_rate=0.012,
         # The UTM audit only exact-matches the primary source (default aliases
@@ -628,6 +631,54 @@ FREE_CHANNELS: tuple[DemoFreeChannel, ...] = (
         signup_rate=0.1,
         purchase_rate=0.025,
         scenario="AI channel reached via utm_source=chatgpt (not just referrer)",
+    ),
+    # --- Organic traffic tagged with an ad platform's own name ---
+    # The canonical alias table maps these utm_source values to an ad platform, so on
+    # utm_source alone every one of them looks like an ad account the team forgot to
+    # connect. The medium is what says otherwise. Shapes taken from real project data.
+    DemoFreeChannel(
+        key="linkedin_organic",
+        daily_sessions=18,
+        referring_domain="linkedin.com",
+        utm_source="linkedin",
+        utm_medium="social",
+        utm_campaign="company_page_post",
+        signup_rate=0.04,
+        purchase_rate=0.007,
+        scenario="Organic company posts under utm_source=linkedin: connect_source must stay silent",
+    ),
+    DemoFreeChannel(
+        key="meta_page_organic",
+        daily_sessions=14,
+        referring_domain="facebook.com",
+        utm_source="facebook",
+        utm_medium="page_organic",
+        signup_rate=0.03,
+        purchase_rate=0.005,
+        scenario="Organic page posts under an alias of Meta Ads",
+    ),
+    DemoFreeChannel(
+        key="youtube_kol",
+        daily_sessions=10,
+        referring_domain="youtube.com",
+        utm_source="youtube",
+        utm_medium="kol",
+        utm_campaign="creator_collab",
+        signup_rate=0.05,
+        purchase_rate=0.009,
+        scenario="Influencer traffic under an alias of Google Ads, with a medium nobody classifies as paid",
+    ),
+    # gad_source without any utm_medium: auto-tagged Google Ads traffic is paid on the
+    # click id alone, so a medium-only rule would read this as organic.
+    DemoFreeChannel(
+        key="google_autotagged",
+        daily_sessions=12,
+        referring_domain="google.com",
+        utm_source="google",
+        signup_rate=0.06,
+        purchase_rate=0.015,
+        extra_properties={"gad_source": "1"},
+        scenario="Paid traffic carrying gad_source and no utm_medium",
     ),
 )
 

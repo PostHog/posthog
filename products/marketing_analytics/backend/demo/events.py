@@ -110,6 +110,7 @@ class MarketingEventGenerator:
                 properties["utm_medium"] = channel.utm_medium
             if channel.utm_campaign:
                 properties["utm_campaign"] = channel.utm_campaign
+            properties.update(channel.extra_properties)
             session_id = self._pageview(distinct_id, person_uuid, ts, properties)
             self._maybe_convert(
                 distinct_id,
