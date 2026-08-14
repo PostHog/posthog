@@ -6,13 +6,13 @@ import { urls } from 'scenes/urls'
 import { tagsModel } from '~/models/tagsModel'
 import { Breadcrumb } from '~/types'
 
-export type ScannerEditorStep = 'template' | 'configure' | 'triggers' | 'self_driving'
-export const SCANNER_EDITOR_STEPS: readonly ScannerEditorStep[] = ['template', 'configure', 'triggers', 'self_driving']
+export type ScannerEditorStep = 'template' | 'configure' | 'triggers' | 'budget'
+export const SCANNER_EDITOR_STEPS: readonly ScannerEditorStep[] = ['template', 'configure', 'triggers', 'budget']
 export const SCANNER_EDITOR_STEP_ORDER: Record<ScannerEditorStep, number> = {
     template: 0,
     configure: 1,
     triggers: 2,
-    self_driving: 3,
+    budget: 3,
 }
 
 /** Earliest step rendering an errored form field; must match which step component mounts which fields. */
@@ -26,7 +26,7 @@ export function firstErroredScannerStep(errors: {
         return 'configure'
     }
     if (errors.sampling_rate || errors.credit_limit) {
-        return 'triggers'
+        return 'budget'
     }
     return null
 }
@@ -39,8 +39,8 @@ export function scannerStepUrl(step: ScannerEditorStep, scannerId: string): stri
             return urls.replayVisionScannerConfigure(scannerId)
         case 'triggers':
             return urls.replayVisionScannerTriggers(scannerId)
-        case 'self_driving':
-            return urls.replayVisionScannerSelfDriving(scannerId)
+        case 'budget':
+            return urls.replayVisionScannerBudget(scannerId)
     }
 }
 
@@ -112,7 +112,7 @@ export const scannerEditorSceneLogic = kea<scannerEditorSceneLogicType>([
         visibleSteps: [
             (s) => [s.isNew],
             (isNew: boolean): readonly ScannerEditorStep[] =>
-                // The template picker only exists for a new scanner; every other step, self-driving included, always shows.
+                // The template picker only exists for a new scanner; every other step always shows.
                 SCANNER_EDITOR_STEPS.filter((step) => isNew || step !== 'template'),
         ],
         breadcrumbs: [
@@ -181,14 +181,18 @@ export const scannerEditorSceneLogic = kea<scannerEditorSceneLogicType>([
                 actions.setStep('triggers')
             }
         },
-        [urls.replayVisionScannerSelfDriving(':id')]: ({ id }) => {
+        [urls.replayVisionScannerBudget(':id')]: ({ id }) => {
             const scannerId = id || 'new'
             if (scannerId !== values.scannerId) {
                 actions.setScannerId(scannerId)
             }
-            if (values.step !== 'self_driving') {
-                actions.setStep('self_driving')
+            if (values.step !== 'budget') {
+                actions.setStep('budget')
             }
+        },
+        // The self-driving toggle moved onto the configure step; old links still resolve.
+        [urls.replayVisionScannerSelfDriving(':id')]: ({ id }) => {
+            router.actions.replace(urls.replayVisionScannerConfigure(id || 'new'))
         },
     })),
 

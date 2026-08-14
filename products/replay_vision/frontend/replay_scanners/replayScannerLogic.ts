@@ -2077,6 +2077,8 @@ function scannerEditorPaths(scannerId: string): string[] {
         urls.replayVisionScannerTemplate(scannerId),
         urls.replayVisionScannerConfigure(scannerId),
         urls.replayVisionScannerTriggers(scannerId),
+        urls.replayVisionScannerBudget(scannerId),
+        // Retired step: the redirect off it must not trip the unsaved-changes guard.
         urls.replayVisionScannerSelfDriving(scannerId),
     ]
 }

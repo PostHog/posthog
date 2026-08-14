@@ -11,8 +11,8 @@ describe('firstErroredScannerStep', () => {
     it.each([
         ['name error lands on configure', { name: 'Required' }, 'configure'],
         ['config error lands on configure', { scanner_config: { prompt: 'Required' } }, 'configure'],
-        ['sampling error lands on triggers', { sampling_rate: 'Out of range' }, 'triggers'],
-        ['credit limit error lands on triggers', { credit_limit: 'Enter a credit amount' }, 'triggers'],
+        ['sampling error lands on budget', { sampling_rate: 'Out of range' }, 'budget'],
+        ['credit limit error lands on budget', { credit_limit: 'Enter a credit amount' }, 'budget'],
         ['no errors maps nowhere', {}, null],
     ])('%s', (_label, errors, expected) => {
         expect(firstErroredScannerStep(errors)).toBe(expected)
@@ -75,14 +75,14 @@ describe('scannerEditorSceneLogic', () => {
         it('shows all four steps for a new scanner', async () => {
             router.actions.push(urls.replayVisionScannerConfigure('new'))
             await expectLogic(logic).toMatchValues({
-                visibleSteps: ['template', 'configure', 'triggers', 'self_driving'],
+                visibleSteps: ['template', 'configure', 'triggers', 'budget'],
             })
         })
 
         it('hides only the template step for an existing scanner', async () => {
             router.actions.push(urls.replayVisionScannerConfigure('abc-123'))
             await expectLogic(logic).toMatchValues({
-                visibleSteps: ['configure', 'triggers', 'self_driving'],
+                visibleSteps: ['configure', 'triggers', 'budget'],
             })
         })
     })

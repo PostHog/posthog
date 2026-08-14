@@ -8,8 +8,8 @@ import { SCANNER_EDITOR_STEP_ORDER, ScannerEditorStep } from './scannerEditorSce
 export const STEP_LABELS: Record<ScannerEditorStep, string> = {
     template: 'Template',
     configure: 'Configure',
-    triggers: 'Scan conditions',
-    self_driving: 'Self-driving',
+    triggers: 'Recordings',
+    budget: 'Budget',
 }
 
 interface ScannerEditorStepperProps {

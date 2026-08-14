@@ -590,6 +590,10 @@ export const ScannerEditorTriggers: StoryObj = {
     parameters: { pageUrl: urls.replayVisionScannerTriggers(summarizerScanner.id) },
 }
 
+export const ScannerEditorBudget: StoryObj = {
+    parameters: { pageUrl: urls.replayVisionScannerBudget(summarizerScanner.id) },
+}
+
 export const ActionEditorAlert: StoryObj = {
     parameters: {
         pageUrl: urls.replayVisionActionNew(summarizerScanner.id, 'alert'),
