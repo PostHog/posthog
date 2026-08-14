@@ -265,6 +265,9 @@ def _resolve_sandbox_github_token(
         )
         return github_token
 
+    if not has_repo and task.origin_product in (Task.OriginProduct.SIGNALS_CHAT, Task.OriginProduct.SIGNAL_REPORT):
+        return ""
+
     should_inject_github_token = ctx.has_github_credentials and (
         has_repo or ctx.github_user_integration_id is not None or ctx.github_integration_id is not None
     )
