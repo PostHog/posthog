@@ -1255,6 +1255,11 @@ class DraftScannerResponseSerializer(serializers.Serializer):
         allow_blank=True,
         help_text="Why the draft picked this scanner type and configuration, addressed to the user.",
     )
+    query = serializers.JSONField(
+        allow_null=True,
+        help_text="Drafted `RecordingsQuery` narrowing which sessions get scanned, holding one event filter "
+        "picked from the team's real events; null when no event clearly matched the goal.",
+    )
 
 
 class ScannerImpactSerializer(serializers.Serializer):
@@ -1988,6 +1993,7 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vi
                     "scanner_type": drafted.scanner_type,
                     "scanner_config": drafted.scanner_config,
                     "rationale": drafted.rationale,
+                    "query": drafted.query,
                 }
             ).data
         )
