@@ -61,12 +61,38 @@ describe("inlineArtifacts", () => {
       }),
       expected: PR_URL,
     },
-    // A run that reads or comments on a PR prints the same URL, and that PR is
-    // not something the run produced, so it gets no card.
+    // A run that reads, reviews or comments on a PR prints the same URL, and
+    // that PR is not something the run produced, so it gets no card.
     {
       name: "reading someone else's pull request",
       call: bashCall("gh pr view 82584 --json url", PR_URL),
       expected: null,
+    },
+    {
+      // `create_pull_request_review` contains the creation tool's whole name
+      // and answers with the url of the PR it reviewed.
+      name: "reviewing someone else's pull request over MCP",
+      call: bashCall("", `{"html_url":"${PR_URL}"}`, {
+        rawInput: { pullNumber: 82584, event: "COMMENT" },
+        _meta: posthogToolMeta({
+          toolName: "mcp__github__create_pull_request_review",
+          mcp: { server: "github", tool: "create_pull_request_review" },
+        }),
+      }),
+      expected: null,
+    },
+    {
+      name: "a command that only talks about creating one",
+      call: bashCall(
+        `gh pr comment 82584 --body "next time run gh pr create"`,
+        PR_URL,
+      ),
+      expected: null,
+    },
+    {
+      name: "a creation chained after a push",
+      call: bashCall("git push -u origin work && gh pr create --fill", PR_URL),
+      expected: PR_URL,
     },
     {
       name: "a creation still in flight",
