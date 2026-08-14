@@ -74,7 +74,7 @@ def _make_scanner(**overrides) -> ReplayScanner:
         "name": "t",
         "scanner_type": ScannerType.MONITOR,
         "scanner_config": {"prompt": "p"},
-        "model": ScannerModel.GEMINI_3_6_FLASH,
+        "model": ScannerModel.GEMINI_3_7_FLASH,
     }
     defaults.update(overrides)
     return ReplayScanner.objects.create(**defaults)
@@ -126,7 +126,7 @@ class TestBackfillQuotaCommitment:
             name="c",
             scanner_type=ScannerType.MONITOR,
             scanner_config={"prompt": "p"},
-            model=ScannerModel.GEMINI_3_6_FLASH,
+            model=ScannerModel.GEMINI_3_7_FLASH,
         )
         _make_backfill(cancelled_scanner, status=BackfillStatus.CANCELLED, total_count=100, credits_per_observation=5)
 
@@ -190,7 +190,7 @@ class TestCreateObservationForBackfill:
     def test_capped_retake_counts_as_in_flight_spend_for_the_next_admission(self) -> None:
         # The retake reserves fresh budget under the admission lock, so the next admission's budget
         # read must see it and refuse; missing it would overshoot the cap by the retaken row.
-        credits = observation_credits_for_model(ScannerModel.GEMINI_3_6_FLASH.value)
+        credits = observation_credits_for_model(ScannerModel.GEMINI_3_7_FLASH.value)
         scanner = _make_scanner(credit_limit=credits)
         backfill = _make_backfill(scanner)
         failed = ReplayObservation.objects.create(
@@ -513,7 +513,7 @@ class TestBackfillsApi(APIBaseTest):
             name="backfill-api-scanner",
             scanner_type=ScannerType.MONITOR,
             scanner_config={"prompt": "p"},
-            model=ScannerModel.GEMINI_3_6_FLASH,
+            model=ScannerModel.GEMINI_3_7_FLASH,
         )
         self.base_url = f"/api/projects/{self.team.id}/vision/scanners/{self.scanner.id}/backfills"
 

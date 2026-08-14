@@ -69,7 +69,33 @@ export type NativeSourceHierarchyStatus = {
 export enum MarketingAnalyticsTab {
     DASHBOARD = 'dashboard',
     ATTRIBUTION = 'attribution',
+    // Still the tab key when Setup's flag is off, which is everywhere until it rolls
+    // out. Removing it would change the URL and the header copy for every user of the
+    // audit — which is fully rolled out — for no gain.
     INTEGRATION_HEALTH = 'integration-health',
+    SETUP = 'setup',
+}
+
+/** Section within the Setup tab, synced to `?section=`. Declared here rather than
+ * alongside the components so the logic doesn't import from the scene, which imports
+ * the logic back. */
+export enum SetupSection {
+    SUGGESTIONS = 'suggestions',
+    SOURCES = 'sources',
+    CONVERSION_GOALS = 'conversion-goals',
+    UTM_MAPPING = 'utm-mapping',
+    INTEGRATION_HEALTH = 'integration-health',
+    ATTRIBUTION = 'attribution',
+    GENERAL = 'general',
+}
+
+export const DEFAULT_SETUP_SECTION = SetupSection.SUGGESTIONS
+
+/** Where a tab key lands once Setup absorbs it. Applied by the scene, which is what
+ * knows whether Setup is rendering — with its flag off `integration-health` is still a
+ * real tab and resolves on its own. */
+export const SETUP_ABSORBED_TABS: Partial<Record<MarketingAnalyticsTab, SetupSection>> = {
+    [MarketingAnalyticsTab.INTEGRATION_HEALTH]: SetupSection.INTEGRATION_HEALTH,
 }
 
 const EXTENDED_DRILL_DOWN_LEVELS = new Set<MarketingAnalyticsDrillDownLevel>([
@@ -279,6 +305,7 @@ export interface marketingAnalyticsLogicValues {
     nativeSources: ExternalDataSource[]
     nativeSourcesHierarchyStatus: NativeSourceHierarchyStatus[]
     overviewQuery: MarketingAnalyticsAggregatedQuery
+    setupSection: SetupSection
     tileColumnSelection: validColumnsForTiles
     uniqueConversionGoalName: string
     validExternalTables: ExternalTable[]
@@ -403,6 +430,9 @@ export interface marketingAnalyticsLogicActions {
     }
     setIntegrationFilter: (integrationFilter: IntegrationFilter) => {
         integrationFilter: IntegrationFilter
+    }
+    setSetupSection: (section: SetupSection) => {
+        section: SetupSection
     }
     setTileColumnSelection: (column: validColumnsForTiles) => {
         column: validColumnsForTiles
@@ -582,6 +612,7 @@ export const marketingAnalyticsLogic = kea<marketingAnalyticsLogicType>([
     })),
     actions({
         setActiveTab: (tab: MarketingAnalyticsTab) => ({ tab }),
+        setSetupSection: (section: SetupSection) => ({ section }),
 
         // Low-level state setters (used by listeners)
         setDraftConversionGoal: (goal: ConversionGoalFilter | null) => ({ goal }),
@@ -631,6 +662,12 @@ export const marketingAnalyticsLogic = kea<marketingAnalyticsLogicType>([
                 MarketingAnalyticsTab.DASHBOARD as MarketingAnalyticsTab,
                 {
                     setActiveTab: (_, { tab }) => tab,
+                },
+            ],
+            setupSection: [
+                DEFAULT_SETUP_SECTION as SetupSection,
+                {
+                    setSetupSection: (_, { section }) => section,
                 },
             ],
             initialized: [
@@ -1219,6 +1256,11 @@ export const marketingAnalyticsLogic = kea<marketingAnalyticsLogicType>([
                 searchParams.set('tab', values.activeTab)
             }
 
+            // Section is meaningless outside Setup, and the default is implied.
+            if (values.activeTab === MarketingAnalyticsTab.SETUP && values.setupSection !== DEFAULT_SETUP_SECTION) {
+                searchParams.set('section', values.setupSection)
+            }
+
             // Date filters
             if (values.dateFilter.dateFrom) {
                 searchParams.set('date_from', values.dateFilter.dateFrom)
@@ -1263,6 +1305,7 @@ export const marketingAnalyticsLogic = kea<marketingAnalyticsLogicType>([
 
         return {
             setActiveTab: buildUrl,
+            setSetupSection: buildUrl,
             setDates: buildUrl,
             setDateInterval: buildUrl,
             setDatesAndInterval: buildUrl,
@@ -1376,9 +1419,14 @@ export const marketingAnalyticsLogic = kea<marketingAnalyticsLogicType>([
         const searchParams = new URLSearchParams(window.location.search)
         const params: Parameters<typeof actions.syncFromUrl>[0] = {}
 
-        const tab = searchParams.get('tab') as MarketingAnalyticsTab | null
-        if (tab && Object.values(MarketingAnalyticsTab).includes(tab)) {
-            actions.setActiveTab(tab)
+        const rawTab = searchParams.get('tab')
+        if (rawTab && Object.values(MarketingAnalyticsTab).includes(rawTab as MarketingAnalyticsTab)) {
+            actions.setActiveTab(rawTab as MarketingAnalyticsTab)
+        }
+
+        const section = searchParams.get('section') as SetupSection | null
+        if (section && Object.values(SetupSection).includes(section)) {
+            actions.setSetupSection(section)
         }
 
         const dateFrom = searchParams.get('date_from')

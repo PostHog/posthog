@@ -45,6 +45,20 @@ _LAZY = {
     "compute_enrichment_hash": "logic.enrich_view_semantics",
     "enrichment_gates_pass": "logic.enrich_view_semantics",
     "enrich_view_semantics_sync": "logic.enrich_view_semantics",
+    "MAX_LOOKBACK_SECONDS": "logic.incremental",
+    "IncrementalConfig": "logic.incremental",
+    "IncrementalState": "logic.incremental",
+    "clear_incremental_state": "logic.incremental",
+    "definition_fingerprint": "logic.incremental",
+    "deserialize_watermark": "logic.incremental",
+    "get_incremental_config": "logic.incremental",
+    "get_incremental_state": "logic.incremental",
+    "set_incremental_state": "logic.incremental",
+    "window_start": "logic.incremental",
+    "IncrementalFilterError": "logic.incremental_filter",
+    "inject_incremental_filter": "logic.incremental_filter",
+    "EligibilityResult": "logic.incremental_eligibility",
+    "check_incremental_eligibility": "logic.incremental_eligibility",
 }
 
 __all__ = sorted(_LAZY)

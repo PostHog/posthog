@@ -1043,6 +1043,9 @@ importers:
       fflate:
         specifier: ^0.8.2
         version: 0.8.2
+      free-email-domains:
+        specifier: 1.9.90
+        version: 1.9.90
       frimousse:
         specifier: ^0.3.0
         version: 0.3.0(react@18.3.1)(typescript@6.0.3)
@@ -2155,8 +2158,8 @@ importers:
         specifier: workspace:^
         version: link:../tokens
       '@shadcn/react':
-        specifier: ^0.1.0
-        version: 0.1.0(@types/react@18.3.27)(react@18.3.1)
+        specifier: ^0.3.0
+        version: 0.3.0(@types/react@18.3.27)(react@18.3.1)
       class-variance-authority:
         specifier: ^0.7.1
         version: 0.7.1
@@ -11048,8 +11051,8 @@ packages:
     resolution: {integrity: sha512-YlEBwybUcOQ/KjMHDmof1vwweVnBtBxYlQp7DE3fOdtW4pqqdHWTnTntQs4VgYfxzjJYgtkd9LHlGtg8qy+JVQ==}
     engines: {node: '>=14.18'}
 
-  '@shadcn/react@0.1.0':
-    resolution: {integrity: sha512-6i67TEnqValsZY7e4exJ4rkHo2OdHXmDH152YulwSpuEUnTQYumHkXzFsaje7HB7GbMTWuI9x1Jn6sSduCYdeA==}
+  '@shadcn/react@0.3.0':
+    resolution: {integrity: sha512-iKN0NuYe850VDHlxEfvppFrpa7CMV3zArTHusXlaSmeFeQhohGbIqclv6WwPTs/44I8EkXQpcuRt6sXEVKkWqQ==}
     peerDependencies:
       '@types/react': 18.3.27
       react: 18.3.1
@@ -15932,6 +15935,10 @@ packages:
         optional: true
       react-dom:
         optional: true
+
+  free-email-domains@1.9.90:
+    resolution: {integrity: sha512-BZiEKZV3skIg/PIuPRWTgxt9jynucnOm93CvyjuzbSrH5dKZy+EB84kXUCNCJd46Q6qbztOF7qGtIg/h5piiFA==}
+    engines: {node: '>= 18'}
 
   fresh@0.5.2:
     resolution: {integrity: sha512-zJ2mQYM18rEFOudeV4GShTGIQ7RbzA7ozbU9I/XBpm7kqgMywgmylMwXHxZJmkVoYkna9d2pVXVXPdYTP9ej8Q==}
@@ -30607,7 +30614,7 @@ snapshots:
 
   '@sentry/core@8.55.2': {}
 
-  '@shadcn/react@0.1.0(@types/react@18.3.27)(react@18.3.1)':
+  '@shadcn/react@0.3.0(@types/react@18.3.27)(react@18.3.1)':
     optionalDependencies:
       '@types/react': 18.3.27
       react: 18.3.1
@@ -36556,6 +36563,8 @@ snapshots:
     optionalDependencies:
       react: 18.3.1
       react-dom: 18.3.1(react@18.3.1)
+
+  free-email-domains@1.9.90: {}
 
   fresh@0.5.2: {}
 
