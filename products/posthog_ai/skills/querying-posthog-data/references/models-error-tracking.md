@@ -8,7 +8,7 @@ Error tracking issues represent grouped exceptions captured by PostHog SDKs. Eac
 
 Column | Type | Nullable | Description
 `id` | uuid | NOT NULL | Primary key (UUID)
-`team_id` | integer | NOT NULL | PostHog project ID
+`team_id` | integer | NOT NULL | PostHog project ID; foreign key to `system.teams.id`
 `created_at` | timestamp with tz | NOT NULL | Creation timestamp
 `status` | varchar | NOT NULL | Issue status (see Status Values below)
 `severity` | varchar | NULL | Assigned severity: `low`, `medium`, `high`, or `critical`
@@ -51,7 +51,7 @@ Rows can also track missing symbol sets so future uploads know which stack frame
 
 Column | Type | Nullable | Description
 `id` | uuid | NOT NULL | Primary key (UUID)
-`team_id` | integer | NOT NULL | FK to `system.teams.id`
+`team_id` | integer | NOT NULL | PostHog project ID; foreign key to `system.teams.id`
 `ref` | text | NOT NULL | Symbol set reference matched from stack frames
 `release_id` | uuid | NULL | Associated error tracking release ID
 `created_at` | timestamp with tz | NOT NULL | Creation timestamp
