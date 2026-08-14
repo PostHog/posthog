@@ -107,7 +107,7 @@ Each of these is numbered so a test can name the one it covers.
 23. A message that does not parse is counted and dropped. There is no dead letter topic: the lane
     cannot record what it cannot read, and replaying it helps nobody until the format disagreement
     is fixed.
-24. A URL the lane gives up on goes into the crawl history, so it stops coming back.
+24. A URL the lane gives up on goes into the crawl history, so it does not come back.
 
 **Keeping one record uncommitted means restarting the pod.** Kafka commits one offset for each
 partition, and that offset is a high water mark. Committing it commits every record below it, so a
@@ -199,46 +199,49 @@ The ACL says nothing about ports, which is why rule 35 exists.
 ### robots.txt
 
 36. The lane reads robots.txt for the origin of a URL. An origin is a scheme, a host, and a port
-    together. One registrable domain holds many origins, so one answer does not cover them all.
-37. The lane caches a robots.txt answer for 24 hours. RFC 9309 sets that ceiling. A rule a site adds
-    today then takes effect tomorrow rather than in a month.
-38. A 404 or a 410 means the origin serves no robots.txt. The lane may fetch every URL on it.
-39. Any other 4xx means the origin refused the request, and the lane treats it as a disallow for the
-    whole origin. This covers 401, 403, and 451. RFC 9309 groups these with the codes that allow, so
-    this rule is stricter than the standard. An origin that refuses robots.txt usually refuses the
-    images as well, and each of those would return a forbidden outcome.
-40. A 429 is neither a refusal nor an answer. The origin asked for fewer requests. The lane treats it
-    as unreachable. Google makes the same exception.
+    together. One registrable domain holds many origins, so one answer does not cover every origin.
+37. The lane caches a robots.txt answer for 24 hours. RFC 9309 sets that ceiling. A site that adds a
+    rule today then blocks the lane tomorrow, rather than in a month.
+38. A 404 or a 410 means the origin serves no robots.txt. The lane may fetch every URL on that
+    origin.
+39. Any other 4xx means the origin refused the request. The lane reads that refusal as a disallow for
+    the whole origin. It covers 401, 403, and 451. RFC 9309 groups these codes with the codes that
+    allow, so this rule is stricter than the standard. An origin that refuses robots.txt usually
+    refuses the images too. The lane then records each image as forbidden.
+40. A 429 is neither a refusal nor an answer. The origin asks for fewer requests. The lane reads a
+    429 as unreachable. Google makes the same exception.
 41. A 5xx, a timeout, or a connection error means the origin is unreachable. The lane must then treat
-    every URL on that origin as disallowed. The lane holds the origin for one hour, and each further
-    failure doubles the hold. A URL held this way stays unrecorded, so it comes back.
-42. A cached answer may outlive its 24 hours while the origin is unreachable. RFC 9309 allows this. A
-    hold then uses the last answer the lane has, when it has one.
-43. A URL that robots.txt disallows is an answer. It goes into the crawl history, as a 404 does, so it
-    stops coming back.
-44. The lane matches its own product token and the `*` group. It also counts the URLs that the common
-    AI training tokens would have blocked. It acts on none of those counts, so phase 0 can measure
-    what the stricter reading would cost.
+    every URL on that origin as disallowed. The lane holds the origin for one hour. Each further
+    failure doubles the hold. The lane records no URL it holds this way, so each one comes back.
+42. A cached answer may stay in use past its 24 hours while the origin is unreachable. RFC 9309
+    allows this. If the lane holds an answer for that origin, the hold uses that answer.
+43. A URL that robots.txt disallows is an answer. The lane writes it to the crawl history, as it
+    writes a 404. The URL then does not come back.
+44. The lane matches its own product token and the `*` group. It also counts every URL that a common
+    AI training token disallows. It fetches those URLs and only counts them, so phase 0 measures the cost of
+    the stricter rule.
 
 ### Identity
 
-45. Every request carries the same user agent. It names one product token and a URL where an
-    operator can read what the lane does and how to refuse it.
-46. The user agent never names a browser. An operator who sees a browser string from a crawler reads
-    it as evasion rather than as an unverified bot, and evasion is the harder state to leave.
-47. Every request carries a Web Bot Auth signature, so an operator can verify the request came from
-    us without trusting the user agent. That is `Signature`, `Signature-Input` and `Signature-Agent`,
-    per RFC 9421.
-48. `Signature-Agent` names the origin that serves our public key, and that origin serves it at
-    `/.well-known/http-message-signatures-directory`.
-49. The signature omits what Cloudflare refuses: the `@query-params` and `@status` components, and
-    the `sf`, `bs`, `key`, `req` and `name` parameters. Every value is ASCII.
+45. Every request carries the same user agent. It names one product token and one URL. That URL tells
+    an operator what the lane does and how to refuse it.
+46. The user agent never names a browser. An operator who sees a browser name from a crawler reads it
+    as evasion rather than as an unverified bot. Cloudflare removes an operator from its verified list
+    for evasion. A removal is harder to reverse than a first application.
+47. Every request carries a Web Bot Auth signature. An operator can then verify that the request came
+    from the lane. The operator does not need to trust the user agent. The signature uses three headers, per RFC 9421:
+    `Signature`, `Signature-Input`, and `Signature-Agent`.
+48. `Signature-Agent` names the origin that serves the lane's public key. That origin serves the key
+    at `/.well-known/http-message-signatures-directory`.
+49. Cloudflare refuses some signature components and parameters. The signature omits them: the
+    `@query-params` and `@status` components, and the `sf`, `bs`, `key`, `req`, and `name` parameters.
+    Every value is ASCII.
 50. The `expires` parameter leaves the request enough time to reach the verifier.
 51. The private key reaches the pod from the secret store. It appears in no log, no metric, and no
     error message.
-52. The lane publishes no list of egress IP addresses. Its egress is shared with every other proxied
-    workload, so an operator who blocked it to refuse this lane would also block the webhook
-    delivery they asked for.
+52. The lane publishes no list of egress IP addresses. The lane shares its egress with every other
+    proxied workload. An operator who blocks those addresses to refuse the lane also blocks the
+    webhook delivery that operator asked for.
 
 ## How a message waits
 
