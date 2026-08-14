@@ -15,6 +15,7 @@ import {
     describeApiValidationError,
     describeExecCommand,
     describeValidationError,
+    type ExecCommandMeta,
     type ExecInnerCallProperties,
     type ExecToolOptions,
     formatInputValidationError,
@@ -154,6 +155,41 @@ describe('exec tool', () => {
             expect(result).toContain('id: 1')
             expect(result).toContain('name: test')
             expect(result).not.toBe(JSON.stringify({ id: 1, name: 'test', items: [{ a: 1 }, { a: 2 }] }))
+        })
+
+        it('appends the fix-task nudge and reports exposure when the flag is on', async () => {
+            const commandMetas: ExecCommandMeta[] = []
+            const issueTool = makeMockTool({
+                name: 'query-error-tracking-issue',
+                handler: async () => ({ id: 'issue-1', name: 'TypeError: x is not a function' }),
+            })
+            const exec = createExec([issueTool, makeMockTool({ name: 'tasks-create' })], undefined, {
+                featureFlags: { 'mcp-error-tracking-fix-nudge': true },
+                trackCommand: (meta) => commandMetas.push(meta),
+            })
+
+            const result = (await exec.handler(mockContext, {
+                command: 'call query-error-tracking-issue',
+            })) as string
+
+            expect(result).toContain('tasks-create')
+            expect(commandMetas.some((meta) => meta.mcp_fix_nudge_shown)).toBe(true)
+        })
+
+        it('leaves the result untouched when the fix task tool is not in the roster', async () => {
+            const issueTool = makeMockTool({
+                name: 'query-error-tracking-issue',
+                handler: async () => ({ id: 'issue-1', name: 'TypeError: x is not a function' }),
+            })
+            const exec = createExec([issueTool], undefined, {
+                featureFlags: { 'mcp-error-tracking-fix-nudge': true },
+            })
+
+            const result = (await exec.handler(mockContext, {
+                command: 'call query-error-tracking-issue',
+            })) as string
+
+            expect(result).not.toContain('tasks-create')
         })
 
         it('returns raw JSON when --json flag is passed in command', async () => {

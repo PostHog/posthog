@@ -18,6 +18,7 @@ import {
     findRecoverableApiError,
 } from '@/lib/errors'
 import { estimateTokens } from '@/lib/estimate-tokens'
+import { getFixTaskNudge } from '@/lib/fix-task-nudge'
 import { resolveGatewayTools } from '@/lib/gateway-tools'
 import { getPostHogClient } from '@/lib/posthog'
 import {
@@ -31,6 +32,7 @@ import {
 } from '@/tools/exec'
 import { EXECUTE_SQL_TOOL_NAME } from '@/tools/posthogAiTools/executeSql'
 import { createRenderUiTool } from '@/tools/render-ui'
+import { withAgentNote } from '@/tools/tool-utils'
 import type { Context, Tool, ZodObjectAny } from '@/tools/types'
 
 import {
@@ -235,7 +237,7 @@ export class ToolExecutor {
                 ? await state.reqCtx.safelyGetAnalyticsContext(state.context)
                 : undefined
 
-            const handlerResult = await tool.handler(state.context, validation.data)
+            let handlerResult = await tool.handler(state.context, validation.data)
 
             if (isContextSwitch) {
                 void state.reqCtx.trackContextSwitchEvent(tool.name, state.context, previousContext)
@@ -245,6 +247,18 @@ export class ToolExecutor {
             stop({ status: 'success' })
 
             const duration = Date.now() - startMs
+
+            // Attached to the handler result rather than the payload text so it reaches
+            // the agent on every serialization path, including `output_format=json`.
+            const fixTaskNudge = getFixTaskNudge({
+                toolName: tool.name,
+                handlerResult,
+                featureFlags: state.toolFeatureFlags,
+                availableTools: state.allTools,
+            })
+            if (fixTaskNudge) {
+                handlerResult = withAgentNote(handlerResult, fixTaskNudge)
+            }
 
             let response: ToolResultPayload
             if (isToolCallPayload(handlerResult)) {
@@ -272,6 +286,7 @@ export class ToolExecutor {
                 {
                     input_tokens: estimateTokens(validation.data),
                     output_tokens: estimateResponseTokens(response),
+                    ...(fixTaskNudge ? { mcp_fix_nudge_shown: true } : {}),
                 },
                 intentMeta,
                 this.servedToolDescription(tool.name, state)
@@ -517,6 +532,7 @@ export class ToolExecutor {
             {
                 isInlineExecUiHost: state.clientProfile.isInlineExecUiHost(),
                 helpCatalog: this.instructionsBuilder.buildExecHelpCatalog(state),
+                featureFlags: state.toolFeatureFlags,
                 ...(state.gatewayToolsEnabled ? { gatewayToolsProvider: () => this.gatewayToolsFor(state) } : {}),
                 // A verb-only report lands first; `search` then reports again with its query
                 // and counts. Merge so the richer report wins without losing the verb.

@@ -124,6 +124,28 @@ describe('ToolExecutor', () => {
             expect(result).not.toBeNull()
         })
 
+        it('appends the fix-task nudge to an issue result only when the flag is on', async () => {
+            const issueContext = {
+                api: {
+                    request: vi.fn().mockResolvedValue({ id: 'issue-1', name: 'TypeError: x is not a function' }),
+                    getProjectBaseUrl: () => 'https://us.posthog.com/project/1',
+                },
+                stateManager: { getProjectId: vi.fn().mockResolvedValue('1') },
+            }
+            const tools = [{ name: 'query-error-tracking-issue' }, { name: 'tasks-create' }]
+            const callIssueTool = async (toolFeatureFlags: Record<string, boolean> | undefined): Promise<any> =>
+                (await executor.handleToolCall(
+                    { name: 'query-error-tracking-issue', arguments: { issueId: 'issue-1' } },
+                    makeState(tools, { toolFeatureFlags, context: issueContext as any })
+                )) as any
+
+            const nudged = await callIssueTool({ 'mcp-error-tracking-fix-nudge': true })
+            expect(nudged.content[0].text).toContain('tasks-create')
+
+            const plain = await callIssueTool(undefined)
+            expect(plain.content[0].text).not.toContain('tasks-create')
+        })
+
         it('successfully calls a real tool from the catalog', async () => {
             const entries = catalog.getPreBuiltEntries()
             const userGet = entries.find((e) => e.name === 'user-get')

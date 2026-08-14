@@ -1,7 +1,13 @@
 import type { GroupType } from '@/api/client'
 import { hasScope } from '@/lib/api'
 import { MCPClientProfile } from '@/lib/client-detection'
-import { isCloudApi, isLocalApi, MCP_GATEWAY_FLAG, PRODUCT_DATA_CATALOG_FLAG } from '@/lib/constants'
+import {
+    isCloudApi,
+    isLocalApi,
+    MCP_ERROR_TRACKING_FIX_NUDGE_FLAG,
+    MCP_GATEWAY_FLAG,
+    PRODUCT_DATA_CATALOG_FLAG,
+} from '@/lib/constants'
 import { buildMCPAnalyticsGroups } from '@/lib/posthog/analytics'
 import {
     type EvaluatedFlags,
@@ -142,10 +148,18 @@ export class RequestStateResolver {
         ])
         const clientContext = getEffectiveMCPClientContext(requestContext, sessionContext)
 
-        // Neither of these gates a catalog tool, so the tool-definition scan can't discover
+        // None of these gates a catalog tool, so the tool-definition scan can't discover
         // them: PRODUCT_DATA_CATALOG_FLAG gates instructions content (the metric-discovery
-        // prompt section), MCP_GATEWAY_FLAG gates the third-party tools `exec` resolves.
-        const allFlagKeys = [...new Set([...getRequiredFeatureFlags(), PRODUCT_DATA_CATALOG_FLAG, MCP_GATEWAY_FLAG])]
+        // prompt section), MCP_GATEWAY_FLAG gates the third-party tools `exec` resolves,
+        // MCP_ERROR_TRACKING_FIX_NUDGE_FLAG gates the fix-task nudge on error tracking results.
+        const allFlagKeys = [
+            ...new Set([
+                ...getRequiredFeatureFlags(),
+                PRODUCT_DATA_CATALOG_FLAG,
+                MCP_GATEWAY_FLAG,
+                MCP_ERROR_TRACKING_FIX_NUDGE_FLAG,
+            ]),
+        ]
 
         const flagAnalyticsContext = await reqCtx.safelyGetAnalyticsContext(context)
         const flagGroups = flagAnalyticsContext ? buildMCPAnalyticsGroups(flagAnalyticsContext) : undefined

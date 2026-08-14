@@ -5,6 +5,8 @@ import { markExecPayload, buildToolResultPayload, estimateResponseTokens } from 
 import { isPostHogCodeConsumer } from '@/lib/client-detection'
 import { ExecCommandError, findRecoverableApiError, PostHogApiError, ToolInputValidationError } from '@/lib/errors'
 import { estimateTokens } from '@/lib/estimate-tokens'
+import { getFixTaskNudge } from '@/lib/fix-task-nudge'
+import type { EvaluatedFlags } from '@/lib/posthog/flags'
 import { formatResponse } from '@/lib/response'
 
 import type { ExecHelpCatalog } from './exec-help'
@@ -12,6 +14,7 @@ import { TOKEN_CHAR_LIMIT, listAvailablePaths, resolveSchemaPath, summarizeSchem
 import { GATEWAY_TOOL_SEPARATOR, isGatewayToolName } from '@/lib/gateway-tools'
 
 import { isRegexPattern, searchToolsRanked, searchToolsRegex } from './tool-search'
+import { withAgentNote } from './tool-utils'
 import type { ScopeGatedTool } from './toolDefinitions'
 import {
     POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY,
@@ -95,6 +98,8 @@ export interface ExecCommandMeta {
     exec_search_match_count?: number
     /** How many of those matches came from a connected third-party server. */
     exec_search_gateway_match_count?: number
+    /** Set when the fix-task nudge rode this call's result, so exposure is countable on `$mcp_tool_call`. */
+    mcp_fix_nudge_shown?: boolean
 }
 
 export type ExecCommandTracker = (meta: ExecCommandMeta) => void
@@ -118,6 +123,11 @@ export interface ExecToolOptions {
     gatewayToolsProvider?: () => Promise<Tool<ZodObjectAny>[]>
     /** Reports what the agent asked for, so non-`call` verbs stop being invisible. */
     trackCommand?: ExecCommandTracker
+    /**
+     * Per-request evaluated flags, for result shaping that must be killable without a
+     * deploy (currently the fix-task nudge). Absent means every gated behavior stays off.
+     */
+    featureFlags?: EvaluatedFlags
 }
 
 function makeExecSchema(commandReference: string): z.ZodObject<{ command: z.ZodString }> {
@@ -949,6 +959,19 @@ export function createExecTool(
                         result !== null &&
                         typeof result === 'object' &&
                         (result as Record<string, unknown>)[POSTHOG_INFORMATIONAL_RESPONSE_KEY] === true
+
+                    // Attached to the handler result rather than the serialized text so it
+                    // reaches the agent through every branch below (--json included).
+                    const fixTaskNudge = getFixTaskNudge({
+                        toolName: tool.name,
+                        handlerResult: result,
+                        featureFlags: options.featureFlags,
+                        availableTools: allTools,
+                    })
+                    if (fixTaskNudge) {
+                        result = withAgentNote(result, fixTaskNudge)
+                        options.trackCommand?.({ exec_verb: verb, mcp_fix_nudge_shown: true })
+                    }
 
                     if (useJson && isInformationalResponse && typeof formattedOverride === 'string') {
                         const outputText = JSON.stringify({ content: formattedOverride })

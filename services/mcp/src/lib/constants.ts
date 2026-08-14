@@ -35,3 +35,8 @@ export const PRODUCT_DATA_CATALOG_FLAG = 'product-data-catalog'
 // Gates reaching third-party MCP servers connected through the MCP gateway. Same flag as
 // the gateway's own UI in the main app, so a team gets the tools when it gets the gateway.
 export const MCP_GATEWAY_FLAG = 'mcp-gateway'
+
+// Gates the fix-task nudge appended to error tracking query tool results (see
+// lib/fix-task-nudge.ts). No tool declares it, so it must be joined into the
+// evaluated flag set explicitly.
+export const MCP_ERROR_TRACKING_FIX_NUDGE_FLAG = 'mcp-error-tracking-fix-nudge'
