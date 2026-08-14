@@ -730,7 +730,7 @@ export const mcpGatewayLogic = kea<mcpGatewayLogicType>([
             accountId: string,
             serverId: string,
             enabled: boolean,
-            scope: MCPAgentGrantScopeEnumApi = 'personal',
+            scope: MCPAgentGrantScopeEnumApi = 'team',
             policies?: ToolPolicyEntryApi[]
         ) => ({
             accountId,

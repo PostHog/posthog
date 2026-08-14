@@ -1442,6 +1442,25 @@ class TestCanvasErrorReports(CanvasAPIBaseTest):
         assert response.json()["dispatch_outcome"] == "already_queued"
         assert TaskRun.objects.filter(task=task).count() == 1
 
+    def test_scoped_keys_need_task_write_to_request_a_fix(self):
+        # The dispatched fix run executes with the creator's credentials, so a
+        # canvas:write-only token must not be able to start or steer it.
+        canvas_id, build_id, _task = self._authored_canvas()
+        raw_key = generate_random_token_personal()
+        PersonalAPIKey.objects.create(
+            label="canvas-fix", user=self.user, secure_value=hash_key_value(raw_key), scopes=["canvas:write"]
+        )
+        self.client.logout()
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/canvases/{canvas_id}/request_fix/",
+            {"build_id": build_id},
+            format="json",
+            HTTP_AUTHORIZATION=f"Bearer {raw_key}",
+        )
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN, response.json()
+
     def test_request_fix_rejects_sandbox_callers(self):
         # An agent dispatching fixes to itself is a paid-run loop; the wake is
         # human-initiated only.

@@ -179,6 +179,7 @@ rules:
                               |FeatureFlag
                               |FeatureRequest
                               |FeatureRequestAccountLink
+                              |FeatureRequestHistory
                               |FeatureRequestProductArea
                               |FeatureRequestProductAreaLink
                               |TeamExperimentsConfig
@@ -542,6 +543,7 @@ rules:
                         |FeatureFlag
                         |FeatureRequest
                         |FeatureRequestAccountLink
+                        |FeatureRequestHistory
                         |FeatureRequestProductArea
                         |FeatureRequestProductAreaLink
                         |TeamExperimentsConfig

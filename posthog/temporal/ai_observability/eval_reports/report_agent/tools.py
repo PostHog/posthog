@@ -65,6 +65,13 @@ logger = structlog.get_logger(__name__)
 # so they use bounded validation and always flow through AST constants instead.
 _UUID_RE = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$")
 
+# Detect UUID-shaped inline-code variants broadly because only an exact cited ID
+# in one pair of backticks becomes a code-span link in every report renderer.
+_BACKTICKED_UUID_RE = re.compile(
+    r"`+\s*([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\s*`+",
+    re.IGNORECASE,
+)
+
 _TARGET_ID_EXPRESSION = "coalesce(nullIf(properties.$ai_target_id, ''), properties.$ai_target_event_id)"
 _MAX_OPAQUE_ID_LENGTH = 255
 _MAX_TRACE_SAMPLE_IDS = 10
@@ -1463,6 +1470,19 @@ def set_title(
     return f"Title set: {clean!r}"
 
 
+def _unlinked_backticked_uuids(content: str, citations: list[Citation]) -> list[str]:
+    """Return backticked canonical UUIDs that will not be links in every report renderer."""
+    cited_ids = {citation.cited_id() for citation in citations}
+    unlinked: list[str] = []
+    for match in _BACKTICKED_UUID_RE.finditer(content):
+        uuid_value = match.group(1)
+        has_exact_citation = uuid_value in cited_ids
+        uses_linkable_wrapper = match.group(0) == f"`{uuid_value}`"
+        if not (has_exact_citation and uses_linkable_wrapper) and uuid_value not in unlinked:
+            unlinked.append(uuid_value)
+    return unlinked
+
+
 @tool
 def add_section(
     state: Annotated[dict, InjectedState],
@@ -1498,6 +1518,14 @@ def add_section(
         return (
             f"Error: maximum of {MAX_REPORT_SECTIONS} sections reached. "
             "Merge your content into existing sections rather than fragmenting further."
+        )
+    unlinked = _unlinked_backticked_uuids(clean_content, state["report"].citations)
+    if unlinked:
+        preview = ", ".join(f"`{uuid_value}`" for uuid_value in unlinked[:3])
+        return (
+            f"Error: the following backticked IDs will not render as citation links: {preview}. "
+            "Cite each generation, trace, or session with add_citation, then use one pair of backticks around the exact cited ID. "
+            "Run IDs from list_recent_report_runs cannot be cited. Name a prior run by its period and remove the backticks."
         )
     state["report"].sections.append(ReportSection(title=clean_title, content=clean_content))
     return f"Section {len(state['report'].sections)}/{MAX_REPORT_SECTIONS} added: {clean_title!r} ({len(clean_content)} chars)"

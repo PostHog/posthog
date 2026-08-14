@@ -1,6 +1,6 @@
 import '@testing-library/jest-dom'
 
-import { cleanup, render } from '@testing-library/react'
+import { cleanup, render, screen } from '@testing-library/react'
 import { BindLogic } from 'kea'
 
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -108,6 +108,15 @@ describe('DashboardHeader', () => {
         const { logic } = renderHeader({ dashboard: null, loading: true })
 
         expect(document.querySelector('.scene-title-section')).toBeInTheDocument()
+
+        logic.unmount()
+    })
+
+    it('keeps the dashboard name and description visible during a background load', () => {
+        const { logic } = renderHeader({ dashboard: MOCK_DASHBOARD, loading: true })
+
+        expect(screen.getByText('Test Dashboard')).toBeInTheDocument()
+        expect(screen.getByText('A test dashboard')).toBeInTheDocument()
 
         logic.unmount()
     })
