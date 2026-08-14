@@ -1031,6 +1031,7 @@ class CanvasViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         if build is None:
             raise NotFound("Build not found for this canvas.")
         return build
+
     def _state_actor(self, request: Request) -> User | None:
         """The viewer whose state is read or written; None rejects the call.
 
