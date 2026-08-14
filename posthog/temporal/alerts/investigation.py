@@ -14,12 +14,18 @@ from posthog.schema import AlertState
 
 from products.alerts.backend.models.alert import AlertCheck, AlertConfiguration, InvestigationStatus
 
-# Hourly and slower alerts get an investigation per firing check. The guard only has to
-# separate a retried or concurrent evaluation of the same fire from the next scheduled
-# check an hour or more later, so it must outlive `evaluate_alert`'s retry window: a
-# worker that dies after committing its AlertCheck writes a second one on retry, up to
-# `activity_schedule_to_close` later. `test_cooldown_outlives_the_evaluation_retry_window`
-# holds this above that budget.
+# Hourly and slower alerts get an investigation per firing check. The guard separates a
+# retried or concurrent evaluation of the same fire from the next scheduled check, so it
+# must outlive `evaluate_alert`'s retry window: a worker that dies after committing its
+# AlertCheck writes a second one on retry, up to `activity_schedule_to_close` later.
+# `test_cooldown_outlives_the_evaluation_retry_window` holds this above that budget.
+#
+# A wall clock can't separate the two cases perfectly. Hourly slots advance from the
+# previous `next_check_at`, not from completion (`products/alerts/backend/scheduling.py`),
+# so an alert evaluated more than an hour-minus-this-window late runs its next slot inside
+# the window and gets SKIPPED — which under gating notifies without a verdict. Widening
+# this value shrinks that headroom, narrowing it lets a hung-then-retried evaluation claim
+# twice. Fixing it properly needs slot identity on the check rather than a time window.
 INVESTIGATION_COOLDOWN = timedelta(minutes=15)
 
 # Sub-hourly alerts (real time, every 15 minutes) can fire many times an hour and each
