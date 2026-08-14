@@ -303,9 +303,10 @@ allows this. If the lane holds an answer for that origin, the hold uses that ans
 **8.11** A URL that robots.txt disallows is an answer. The lane writes it to the crawl history, as
 it writes a 404. The lane does not request that URL again while the entry lives.
 
-**8.12** The lane matches its own product token and the `*` group. It also counts every URL that a
-common AI training token disallows. It fetches those URLs and only counts them, so phase 0 measures
-the cost of the wider match.
+**8.12** The lane obeys the group that names its own product token. It obeys the `*` group only when
+no group names its token, because RFC 9309 makes `*` a fallback rather than a group to combine with
+a named one. It also counts every URL that a common AI training token disallows. It fetches those
+URLs and only counts them, so phase 0 measures the cost of the wider match.
 
 **8.13** A path pattern can carry `*`, which matches zero or more characters, and `$`, which matches
 the end of the path. The comparison is over octets. A percent-encoded octet is decoded before the
