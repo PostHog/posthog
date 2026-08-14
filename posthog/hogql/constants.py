@@ -66,6 +66,19 @@ EXCEPTION_STRING_ARRAY_PROPERTIES = frozenset(
     }
 )
 
+# Core event properties whose value is always numeric but is stored (and materialized) as a String.
+# Their per-project property definition can be missing or typed String, so a bare read reaches
+# ClickHouse as a String and breaks numeric aggregates like quantile(). HogQL always casts these to
+# Float, independent of the project's property definition. See the PropertySwapper transform.
+ALWAYS_NUMERIC_EVENT_PROPERTIES = frozenset(
+    {
+        "$web_vitals_LCP_value",
+        "$web_vitals_FCP_value",
+        "$web_vitals_INP_value",
+        "$web_vitals_CLS_value",
+    }
+)
+
 type HogQLDialect = Literal["hogql", "clickhouse", "postgres", "duckdb", "mysql", "snowflake", "redshift"]
 
 # All dialects that compile to an external SQL database queried directly (as opposed to

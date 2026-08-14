@@ -2,7 +2,7 @@ from datetime import datetime
 from typing import Literal, Optional
 
 from posthog.hogql import ast
-from posthog.hogql.constants import EXCEPTION_STRING_ARRAY_PROPERTIES
+from posthog.hogql.constants import ALWAYS_NUMERIC_EVENT_PROPERTIES, EXCEPTION_STRING_ARRAY_PROPERTIES
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.models import BooleanDatabaseField, DateTimeDatabaseField, StringJSONDatabaseField
 from posthog.hogql.database.s3_table import S3Table
@@ -698,7 +698,7 @@ class PropertySwapper(CloningVisitor):
                     if property_name in self.person_properties:
                         return self._convert_string_property_to_type(node, "person", property_name)
                 elif isinstance(resolved_table, EventsTable):
-                    if property_name in self.event_properties:
+                    if property_name in self.event_properties or property_name in ALWAYS_NUMERIC_EVENT_PROPERTIES:
                         return self._convert_string_property_to_type(node, "event", property_name)
         if isinstance(type, ast.PropertyType) and type.field_type.name == "person_properties" and len(type.chain) == 1:
             property_name = str(type.chain[0])
@@ -722,7 +722,10 @@ class PropertySwapper(CloningVisitor):
             "group": self.group_properties,
         }
         prop_info = properties_by_type[property_type].get(property_name, {})
-        field_type = "Float" if prop_info.get("type") == "Numeric" else prop_info.get("type") or "String"
+        if property_type == "event" and property_name in ALWAYS_NUMERIC_EVENT_PROPERTIES:
+            field_type = "Float"
+        else:
+            field_type = "Float" if prop_info.get("type") == "Numeric" else prop_info.get("type") or "String"
 
         # Add notice about the property type and materialization status
         self._add_property_notice(node, property_type, field_type, prop_info.get("dmat"))

@@ -720,6 +720,21 @@ class TestPropertyTypes(BaseTest):
 
     @parameterized.expand(
         [
+            ("LCP", "$web_vitals_LCP_value"),
+            ("FCP", "$web_vitals_FCP_value"),
+            ("INP", "$web_vitals_INP_value"),
+            ("CLS", "$web_vitals_CLS_value"),
+        ]
+    )
+    def test_web_vitals_value_cast_to_float_without_property_definition(self, _name: str, property_name: str):
+        # These web vitals values are stored as strings but always numeric. setUp defines no property
+        # definition for them, so a bare read would reach ClickHouse as a String and break quantile()
+        # with ILLEGAL_TYPE_OF_ARGUMENT. HogQL must cast them to Float regardless of the definition.
+        printed = self._print_select(f"select quantile(0.9)(properties.{property_name}) from events")
+        assert "accurateCastOrNull" in printed
+
+    @parameterized.expand(
+        [
             ("has", "has(properties.$exception_values, 'x')"),
             ("hasAny", "hasAny(properties.$exception_values, ['x'])"),
             ("hasAll", "hasAll(properties.$exception_values, ['x'])"),

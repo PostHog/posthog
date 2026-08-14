@@ -2020,24 +2020,28 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
         },
         "$web_vitals_FCP_value": {
             "label": "Web vitals FCP value",
+            "type": "Numeric",
         },
         "$web_vitals_LCP_event": {
             "label": "Web vitals LCP measure event details",
         },
         "$web_vitals_LCP_value": {
             "label": "Web vitals LCP value",
+            "type": "Numeric",
         },
         "$web_vitals_INP_event": {
             "label": "Web vitals INP measure event details",
         },
         "$web_vitals_INP_value": {
             "label": "Web vitals INP value",
+            "type": "Numeric",
         },
         "$web_vitals_CLS_event": {
             "label": "Web vitals CLS measure event details",
         },
         "$web_vitals_CLS_value": {
             "label": "Web vitals CLS value",
+            "type": "Numeric",
         },
         "$web_vitals_allowed_metrics": {
             "label": "Web vitals allowed metrics",
