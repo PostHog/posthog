@@ -32,6 +32,7 @@ use common_types::RawEvent;
 /// tokens and distinct ids, so each side gets a limiter keyed for its own.
 const V0_TOKEN: &str = "test_token";
 const V0_DISTINCT_ID: &str = "test_user";
+const V1_TOKEN: &str = "phc_test_token";
 const V1_HOT_KEY: &str = "phc_test_token:user-42";
 
 /// The lane an event landed on, independent of each path's test topic names.
@@ -54,6 +55,9 @@ struct Observed {
 struct Limits {
     /// The token:distinct_id is over the global rate limit window.
     globally_limited: bool,
+    /// The token is in the global rate limiter's exempt list, so the limiter is
+    /// skipped for the whole batch even when the key is over the window.
+    globally_exempt: bool,
     /// A burst limiter is armed. `burst` of 1 limits every event after the first.
     burst_limiter: bool,
     /// The burst limiter keeps partition keys, as prod-US is configured.
@@ -65,6 +69,7 @@ struct Limits {
 impl Limits {
     const NONE: Self = Self {
         globally_limited: false,
+        globally_exempt: false,
         burst_limiter: false,
         preserve_locality: false,
         force_limited: false,
@@ -126,9 +131,13 @@ async fn run_v0(limits: Limits, batch_size: usize, observe: usize) -> Observed {
         test_topics(),
     ));
     let global = limits.globally_limited.then(|| {
-        Arc::new(GlobalRateLimiter::mock_limiting(&[&format!(
-            "{V0_TOKEN}:{V0_DISTINCT_ID}"
-        )]))
+        let limiter =
+            GlobalRateLimiter::mock_limiting(&[&format!("{V0_TOKEN}:{V0_DISTINCT_ID}")]);
+        Arc::new(if limits.globally_exempt {
+            limiter.with_exempt_tokens(&[V0_TOKEN])
+        } else {
+            limiter
+        })
     });
 
     let now = DateTime::parse_from_rfc3339("2026-03-19T14:30:00Z")
@@ -184,8 +193,13 @@ async fn run_v1(limits: Limits, batch_size: usize, observe: usize) -> Observed {
         builder = builder.with_overflow_forced_key("phc_test_token");
     }
     if limits.globally_limited {
-        builder = builder
-            .with_global_rate_limiter(Arc::new(GlobalRateLimiter::mock_limiting(&[V1_HOT_KEY])));
+        let limiter = GlobalRateLimiter::mock_limiting(&[V1_HOT_KEY]);
+        let limiter = if limits.globally_exempt {
+            limiter.with_exempt_tokens(&[V1_TOKEN])
+        } else {
+            limiter
+        };
+        builder = builder.with_global_rate_limiter(Arc::new(limiter));
     }
     let ts = builder.build();
 
@@ -241,6 +255,13 @@ async fn run_v1(limits: Limits, batch_size: usize, observe: usize) -> Observed {
 #[case::globally_limited(
     Limits { globally_limited: true, ..Limits::NONE },
     Observed { lane: Lane::Overflow, has_key: false, person_processing_disabled: true }
+)]
+// An exempt token must come out identical to no_limits even though its key is
+// over the window: the limiter is skipped for the whole batch, so nothing takes
+// person processing away and nothing reroutes the event.
+#[case::globally_limited_but_token_exempt(
+    Limits { globally_limited: true, globally_exempt: true, ..Limits::NONE },
+    Observed { lane: Lane::Main, has_key: true, person_processing_disabled: false }
 )]
 #[case::globally_limited_and_burst_rate_limited(
     Limits { globally_limited: true, burst_limiter: true, ..Limits::NONE },

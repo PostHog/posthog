@@ -125,6 +125,7 @@ mod tests {
             redis_connection_timeout_ms: 5000,
             global_rate_limit_enabled: false,
             global_rate_limit_dry_run: false,
+            global_rate_limit_exempt_tokens_csv: None,
             global_rate_limit_window_interval_secs: 60,
             global_rate_limit_sync_interval_secs: 15,
             global_rate_limit_tick_interval_ms: 1000,

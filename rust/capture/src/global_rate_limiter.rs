@@ -383,7 +383,14 @@ impl GlobalRateLimiter {
         Self {
             limiter: Box::new(limiter),
             dry_run: false,
+            exempt_tokens: HashSet::new(),
         }
+    }
+
+    #[cfg(test)]
+    pub(crate) fn with_exempt_tokens(mut self, tokens: &[&str]) -> Self {
+        self.exempt_tokens = tokens.iter().copied().map(Arc::from).collect();
+        self
     }
 
     /// Test helper: build a real limiter with the hierarchical resolver and its
@@ -410,6 +417,7 @@ impl GlobalRateLimiter {
         Self {
             limiter: Box::new(limiter),
             dry_run: false,
+            exempt_tokens: HashSet::new(),
         }
     }
 
@@ -418,6 +426,7 @@ impl GlobalRateLimiter {
         Self {
             limiter: Box::new(limiter),
             dry_run: true,
+            exempt_tokens: HashSet::new(),
         }
     }
 
@@ -428,7 +437,6 @@ impl GlobalRateLimiter {
     #[cfg(test)]
     pub(crate) fn mock_limiting(limited_keys: &[&str]) -> Self {
         use async_trait::async_trait;
-        use std::collections::HashSet;
 
         struct MockLimitingLimiter {
             limited_keys: HashSet<String>,
@@ -892,5 +900,27 @@ mod tests {
             !limiter.is_custom_key("other_tok:any_user"),
             "unrelated token must not match"
         );
+    }
+
+    #[rstest]
+    #[case::single("tok_a", vec!["tok_a"])]
+    #[case::whitespace_around_entries(" tok_a , tok_b ", vec!["tok_a", "tok_b"])]
+    #[case::trailing_comma("tok_a,", vec!["tok_a"])]
+    #[case::blank_entries("tok_a,,  ,tok_b", vec!["tok_a", "tok_b"])]
+    #[case::empty("", vec![])]
+    fn test_parse_exempt_tokens(#[case] csv: &str, #[case] expected: Vec<&str>) {
+        let parsed = GlobalRateLimiter::parse_exempt_tokens(Some(&csv.to_string()));
+
+        let expected: HashSet<Arc<str>> = expected.into_iter().map(Arc::from).collect();
+        assert_eq!(parsed, expected);
+        assert!(
+            !parsed.contains(""),
+            "a blank entry must never become an exempt token, or a tokenless request would match"
+        );
+    }
+
+    #[test]
+    fn test_parse_exempt_tokens_unset() {
+        assert!(GlobalRateLimiter::parse_exempt_tokens(None).is_empty());
     }
 }
