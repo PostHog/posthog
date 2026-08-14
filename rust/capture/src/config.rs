@@ -124,6 +124,13 @@ pub struct Config {
     #[envconfig(default = "false")]
     pub global_rate_limit_dry_run: bool,
 
+    /// CSV of tokens that skip the global rate limiter entirely: no local cache
+    /// entry, no Redis read, no Redis write. Intended for tokens whose
+    /// distinct_id cardinality is high enough that a per-(token, distinct_id)
+    /// key is only ever seen once, so it can never approach the threshold while
+    /// still costing the limiter a cache miss and a Redis round trip per event.
+    pub global_rate_limit_exempt_tokens_csv: Option<String>,
+
     /// Sliding window interval to apply global rate limiting threshold to
     #[envconfig(default = "60")]
     pub global_rate_limit_window_interval_secs: u64,

@@ -475,7 +475,24 @@ async fn process_events_inner(
     // per-key counts are identical regardless of which pipeline serves the key.
     // Import is unaffected by both: the GRL never runs (guard below) and no
     // overflowable lane is reachable, so behavior is identical across paths.
-    if context.capture_mode.applies_global_rate_limit() {
+    // The token is constant across the batch, so an exemption resolves once here
+    // instead of once per event, and the whole limiter block below is skipped.
+    let grl_exempt_token = if context.capture_mode.applies_global_rate_limit() {
+        global_rate_limiter
+            .as_ref()
+            .and_then(|limiter| limiter.exempt_token(&context.token))
+    } else {
+        None
+    };
+    if let Some(ref token) = grl_exempt_token {
+        counter!(
+            "capture_global_rate_limiter_exempt_events_total",
+            "token" => token.clone(),
+        )
+        .increment(events.len() as u64);
+    }
+
+    if context.capture_mode.applies_global_rate_limit() && grl_exempt_token.is_none() {
         if let Some(ref limiter) = global_rate_limiter {
             let mut limited_distinct_ids: HashSet<&str> = HashSet::new();
             let mut limited_event_count: u64 = 0;

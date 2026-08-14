@@ -1,5 +1,5 @@
 use std::borrow::Cow;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -48,6 +48,9 @@ impl<'a> GlobalRateLimitKey<'a> {
 pub struct GlobalRateLimiter {
     limiter: Box<dyn CommonGlobalRateLimiter>,
     dry_run: bool,
+    /// Held as `Arc<str>` so a lookup can hand the caller an owned token to use
+    /// as a metric label without allocating per batch.
+    exempt_tokens: HashSet<Arc<str>>,
 }
 
 impl GlobalRateLimiter {
@@ -214,10 +217,44 @@ impl GlobalRateLimiter {
             info!("GlobalRateLimiter initialized in dry-run mode (evaluating but not enforcing)");
         }
 
+        let exempt_tokens =
+            Self::parse_exempt_tokens(config.global_rate_limit_exempt_tokens_csv.as_ref());
+        if !exempt_tokens.is_empty() {
+            info!(
+                count = exempt_tokens.len(),
+                "GlobalRateLimiter initialized with exempt tokens"
+            );
+        }
+
         Ok(Self {
             limiter: Box::new(limiter),
             dry_run,
+            exempt_tokens,
         })
+    }
+
+    /// Tokens the limiter skips entirely, from `GLOBAL_RATE_LIMIT_EXEMPT_TOKENS_CSV`.
+    /// Blank entries are dropped so a trailing comma or an empty variable does not
+    /// produce an empty-string token that would match a request with no token.
+    fn parse_exempt_tokens(csv: Option<&String>) -> HashSet<Arc<str>> {
+        csv.map(|raw| {
+            raw.split(',')
+                .map(str::trim)
+                .filter(|t| !t.is_empty())
+                .map(Arc::from)
+                .collect()
+        })
+        .unwrap_or_default()
+    }
+
+    /// Returns the interned token when it is exempt from rate limiting.
+    ///
+    /// Callers resolve this once per batch, before the per-event loop, because an
+    /// exempt token must skip `is_limited` entirely: that call enqueues a Redis
+    /// write before it even reads the cache, so a check made any deeper would
+    /// still pay the cost the exemption exists to avoid.
+    pub fn exempt_token(&self, token: &str) -> Option<Arc<str>> {
+        self.exempt_tokens.get(token).cloned()
     }
 
     /// Check if a key is rate limited. The key is resolved against the custom-key

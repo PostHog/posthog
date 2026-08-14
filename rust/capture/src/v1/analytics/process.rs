@@ -3,7 +3,7 @@ use std::sync::Arc;
 use std::time::Instant;
 
 use chrono::{DateTime, Utc};
-use metrics::histogram;
+use metrics::{counter, histogram};
 use uuid::Uuid;
 
 use super::constants::{
@@ -166,13 +166,26 @@ pub async fn process_batch(
     // overflowable lane is reachable, so behavior is identical across paths.
     if state.capture_mode.applies_global_rate_limit() {
         if let Some(ref limiter) = state.global_rate_limiter_token_distinctid {
-            let _ = apply_token_distinct_id_limits(
-                limiter,
-                context,
-                state.ingestion_warning_emitter.as_deref(),
-                &mut events,
-            )
-            .await;
+            // The token is constant across the batch, so an exemption resolves
+            // once here instead of once per event inside the limiter loop.
+            match limiter.exempt_token(&context.api_token) {
+                Some(token) => {
+                    counter!(
+                        "capture_global_rate_limiter_exempt_events_total",
+                        "token" => token,
+                    )
+                    .increment(events.len() as u64);
+                }
+                None => {
+                    let _ = apply_token_distinct_id_limits(
+                        limiter,
+                        context,
+                        state.ingestion_warning_emitter.as_deref(),
+                        &mut events,
+                    )
+                    .await;
+                }
+            }
         }
     }
 
