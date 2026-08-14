@@ -1,4 +1,4 @@
-import { TipsSection } from "@posthog/ui/features/settings/sections/GeneralSettings";
+import { TipsSection } from "@posthog/ui/features/settings/sections/TipsSettings";
 import { retireTeachingTip } from "@posthog/ui/primitives/TeachingTip";
 import type { Meta, StoryObj } from "@storybook/react-vite";
 
