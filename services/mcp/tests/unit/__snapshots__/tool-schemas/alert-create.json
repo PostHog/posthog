@@ -2232,7 +2232,7 @@
             "type": "number"
         },
         "investigation_agent_enabled": {
-            "description": "When enabled, an investigation agent runs on the state transition to firing and writes findings to a Notebook linked from the alert check. Only effective for detector-based (anomaly) alerts.",
+            "description": "When enabled, an investigation agent runs on each firing check and writes findings to a Notebook linked from that check. Alerts on a sub-hourly calculation interval are investigated at most once an hour. Only effective for detector-based (anomaly) alerts.",
             "type": "boolean"
         },
         "investigation_gates_notifications": {
