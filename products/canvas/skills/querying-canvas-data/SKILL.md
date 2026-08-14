@@ -94,8 +94,9 @@ product — rather than every tile resolving the insight's saved default.
 
 - `ph.capture(event, properties?, distinctId?)` — analytics events for interactions
   (fire-and-forget). Session replay, `$session_id`, and person attribution are handled by the
-  host automatically; never roll your own capture.
+  host automatically; never initialize recording, set session ids, or roll your own capture.
 - `ph.openExternal(url)` — opens `https://posthog.com` / `*.posthog.com` URLs only, and only from
-  a user interaction (opens outside focus are ignored). Don't link elsewhere.
+  a user interaction (opens outside focus are ignored). Sandboxed `target="_blank"` navigation is
+  blocked, so do not use it as a fallback or link elsewhere.
 - `ph.navigate.toTask(id)` / `.toNewTask()` / `.toCanvas(id)` / `.toNewCanvas()` — in-app
   navigation within the canvas's own channel.
