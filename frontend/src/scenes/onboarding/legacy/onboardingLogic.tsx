@@ -63,6 +63,7 @@ export interface onboardingLogicValues {
     billingProduct: BillingProductV2Type | null
     breadcrumbs: Breadcrumb[]
     canInviteTeammates: boolean
+    completionRedirectPending: boolean
     currentFlowStep: OnboardingStepDescriptor | null
     currentStepKey: OnboardingStepKey | null
     currentStepProductKey: ProductKey | null
@@ -122,6 +123,9 @@ export interface onboardingLogicActions {
     }
     completeOnboarding: (options?: { redirectUrlOverride?: string }) => {
         redirectUrlOverride: string | undefined
+    }
+    setCompletionRedirectPending: (pending: boolean) => {
+        pending: boolean
     }
     goToNextStep: () => {
         value: true
@@ -276,6 +280,7 @@ export const onboardingLogic = kea<onboardingLogicType>([
         // selection page) should not trigger the invalid-key redirect-to-home path.
         clearProductKey: true,
         setIsCompleting: (isCompleting: boolean) => ({ isCompleting }),
+        setCompletionRedirectPending: (pending: boolean) => ({ pending }),
     }),
     reducers(() => ({
         // True between dispatching `completeOnboarding` and the resulting team PATCH
@@ -285,6 +290,18 @@ export const onboardingLogic = kea<onboardingLogicType>([
             false,
             {
                 setIsCompleting: (_, { isCompleting }) => isCompleting,
+                resetOnboardingFlowState: () => false,
+            },
+        ],
+        // True from when this flow dispatches its own completion PATCH until the resulting
+        // redirect is consumed. The self-driving onboarding variant PATCHes the same team
+        // completion fields, and this legacy logic stays mounted alongside it. Without this
+        // gate the legacy redirect fires on that foreign PATCH and races the self-driving
+        // navigation, so we only redirect for a completion this flow started.
+        completionRedirectPending: [
+            false,
+            {
+                setCompletionRedirectPending: (_, { pending }) => pending,
                 resetOnboardingFlowState: () => false,
             },
         ],
@@ -729,6 +746,7 @@ export const onboardingLogic = kea<onboardingLogicType>([
                 return
             }
             actions.setIsCompleting(true)
+            actions.setCompletionRedirectPending(true)
             if (redirectUrlOverride) {
                 actions.setOnCompleteOnboardingRedirectUrl(redirectUrlOverride)
             }
@@ -841,6 +859,7 @@ export const onboardingLogic = kea<onboardingLogicType>([
                 return
             }
             actions.setIsCompleting(false)
+            actions.setCompletionRedirectPending(false)
         },
         setStepId: ({ stepId }, _, __, previousState) => {
             // kea listeners receive (payload, breakpoint, action, previousState). We need
@@ -985,8 +1004,13 @@ export const onboardingLogic = kea<onboardingLogicType>([
             return [url, searchParams, undefined, { replace: true }]
         },
         updateCurrentTeamSuccess(val) {
-            if (values.productKey && val.payload?.has_completed_onboarding_for?.[values.productKey]) {
+            if (
+                values.completionRedirectPending &&
+                values.productKey &&
+                val.payload?.has_completed_onboarding_for?.[values.productKey]
+            ) {
                 const redirectUrl = values.onCompleteOnboardingRedirectUrl
+                actions.setCompletionRedirectPending(false)
                 // Reset the override after consuming it so a subsequent onboarding session
                 // in the same tab doesn't reuse a stale redirect target.
                 if (values.onCompleteOnboardingRedirectUrlOverride) {

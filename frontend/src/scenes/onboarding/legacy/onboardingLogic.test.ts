@@ -7,6 +7,7 @@ import { SetupTaskId } from 'lib/components/ProductSetup'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { organizationLogic } from 'scenes/organizationLogic'
+import { teamLogic } from 'scenes/teamLogic'
 
 import { ProductKey } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
@@ -677,6 +678,33 @@ describe('onboardingLogic — flow composition', () => {
             logic.actions.setProductKey(ProductKey.WEB_ANALYTICS)
             logic.actions.setOnCompleteOnboardingRedirectUrl('/custom-target')
             expect(logic.values.onCompleteOnboardingRedirectUrl).toBe('/custom-target')
+        })
+    })
+
+    describe('post-completion redirect gate', () => {
+        // The Onboarding scene mounts this legacy logic even when the self-driving variant
+        // renders, and the URL gives it a productKey. When the self-driving flow PATCHes the
+        // same team completion fields, this logic's `updateCurrentTeamSuccess` used to redirect
+        // too — a second navigation racing the self-driving push to the inbox. The gate must
+        // only redirect for a completion this flow itself started.
+        const completionPayload = { has_completed_onboarding_for: { [ProductKey.PRODUCT_ANALYTICS]: true } }
+
+        it('does not redirect on a completion PATCH this flow did not initiate', async () => {
+            logic.actions.setProductKey(ProductKey.PRODUCT_ANALYTICS)
+            const before = router.values.location.pathname
+            await expectLogic(logic, () => {
+                teamLogic.actions.updateCurrentTeamSuccess(completionPayload as any, completionPayload)
+            }).toFinishAllListeners()
+            expect(router.values.location.pathname).toBe(before)
+        })
+
+        it('redirects on a completion PATCH this flow initiated', async () => {
+            logic.actions.setProductKey(ProductKey.PRODUCT_ANALYTICS)
+            logic.actions.setCompletionRedirectPending(true)
+            await expectLogic(logic, () => {
+                teamLogic.actions.updateCurrentTeamSuccess(completionPayload as any, completionPayload)
+            }).toFinishAllListeners()
+            expect(router.values.location.pathname).toMatch(/quickstart|insight/i)
         })
     })
 
