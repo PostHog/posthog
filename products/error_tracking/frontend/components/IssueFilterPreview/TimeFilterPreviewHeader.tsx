@@ -1,12 +1,14 @@
 import { useValues } from 'kea'
 import { match } from 'ts-pattern'
 
-import { IconClock, IconTrending } from '@posthog/icons'
+import { IconTrending } from '@posthog/icons'
 import { Tooltip as LemonTooltip } from '@posthog/lemon-ui'
 
 import { dayjs } from 'lib/dayjs'
 import { Skeleton } from 'lib/ui/quill'
 import { humanFriendlyLargeNumber } from 'lib/utils/numbers'
+import { shortTimeZone } from 'lib/utils/timezones'
+import { teamLogic } from 'scenes/teamLogic'
 
 import { ErrorTrackingIssueAggregations } from '~/queries/schema/schema-general'
 
@@ -23,15 +25,16 @@ interface TimeFilterPreviewHeaderProps {
 export function TimeFilterPreviewHeader({ sparklineKey }: TimeFilterPreviewHeaderProps): JSX.Element {
     const { aggregations, summaryLoading } = useValues(errorTrackingIssueSceneLogic)
     const { hoverSelection } = useValues(errorTrackingVolumeSparklineLogic({ sparklineKey }))
+    const { timezone } = useValues(teamLogic)
 
     return (
-        <IssueFilterPreviewHeader preview="time" title="Volume" resetIcon={<IconClock />}>
+        <IssueFilterPreviewHeader preview="time" title="Volume">
             {match(hoverSelection)
                 .when(
                     (data) => shouldRenderIssueMetrics(data),
                     () => <IssueMetrics aggregations={aggregations} summaryLoading={summaryLoading} />
                 )
-                .with({ kind: 'bin' }, (data) => renderDataPoint(data.datum))
+                .with({ kind: 'bin' }, (data) => renderDataPoint(data.datum, timezone))
                 .with({ kind: 'event' }, (data) => renderEventPoint(data.event))
                 .otherwise(() => null)}
         </IssueFilterPreviewHeader>
@@ -39,13 +42,7 @@ export function TimeFilterPreviewHeader({ sparklineKey }: TimeFilterPreviewHeade
 }
 
 function shouldRenderIssueMetrics(data: VolumeSparklineHoverSelection | null): boolean {
-    if (data == null) {
-        return true
-    }
-    if (data.kind === 'bin' && data.datum.value == 0) {
-        return true
-    }
-    return false
+    return data == null
 }
 
 function IssueMetrics({
@@ -73,31 +70,33 @@ function IssueMetrics({
 function renderMetric(name: string, value: number | undefined, loading: boolean, tooltip?: string): JSX.Element {
     return (
         <span className="contents">
-            {match([loading])
-                .with([true], () => (
-                    <Skeleton className="h-2 w-[50px]">
-                        <span>Loading…</span>
-                    </Skeleton>
-                ))
-                .with([false], () => (
-                    <LemonTooltip title={tooltip} delayMs={0} placement="right">
-                        <div className="flex items-center gap-1">
-                            <div className="inline-block text-lg font-bold">
-                                {value == null ? '0' : humanFriendlyLargeNumber(value)}
-                            </div>
-                            <div className="inline-block text-xs text-muted-foreground">{name}</div>
+            {loading && value == null ? (
+                <Skeleton className="h-5 w-16">
+                    <span>Loading…</span>
+                </Skeleton>
+            ) : (
+                <LemonTooltip title={tooltip} delayMs={0} placement="right">
+                    <div className="flex items-center gap-1">
+                        <div className="inline-block text-lg font-bold">
+                            {value == null ? '0' : humanFriendlyLargeNumber(value)}
                         </div>
-                    </LemonTooltip>
-                ))
-                .exhaustive()}
+                        <div className="inline-block text-xs text-muted-foreground">{name}</div>
+                    </div>
+                </LemonTooltip>
+            )}
         </span>
     )
 }
 
-function renderDataPoint(datum: SparklineDatum): JSX.Element {
+function renderDataPoint(datum: SparklineDatum, timezone: string): JSX.Element {
+    const timezoneLabel = shortTimeZone(timezone, datum.date)
     return (
         <div className="flex h-full shrink-0 items-center gap-3">
             {renderMetric('Occurrences', datum.value, false)}
+            <div className="text-sm font-semibold">
+                {dayjs(datum.date).tz(timezone).format('D MMM YYYY HH:mm')}
+                {timezoneLabel ? ` (${timezoneLabel})` : ''}
+            </div>
             {datum.isSpike && (
                 <div className="flex items-center gap-1.5 text-warning-foreground">
                     <IconTrending className="text-base" />

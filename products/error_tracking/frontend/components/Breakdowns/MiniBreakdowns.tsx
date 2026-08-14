@@ -1,7 +1,5 @@
 import { useValues } from 'kea'
 
-import { IconListTree } from '@posthog/icons'
-
 import { Text } from 'lib/ui/quill'
 
 import { IssueFilterPreviewHeader } from '../IssueFilterPreview/IssueFilterPreviewHeader'
@@ -19,7 +17,7 @@ export function MiniBreakdowns(): JSX.Element {
 
     return (
         <div className="flex flex-col">
-            <IssueFilterPreviewHeader preview="properties" title="Breakdown" resetIcon={<IconListTree />} />
+            <IssueFilterPreviewHeader preview="properties" title="Breakdown" />
             <div className="grid content-start grid-cols-[fit-content(12rem)_minmax(0,1fr)] gap-y-px pb-6 pt-1">
                 <BreakdownPropertySection
                     id="built-in-breakdown-properties"

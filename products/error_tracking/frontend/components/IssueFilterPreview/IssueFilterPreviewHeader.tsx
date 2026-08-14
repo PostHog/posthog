@@ -11,25 +11,19 @@ import { IssueFilterPreview, issueFilterPreviewLogic } from './issueFilterPrevie
 interface IssueFilterPreviewHeaderProps {
     preview: IssueFilterPreview
     title: string
-    resetIcon: ReactNode
     children?: ReactNode
 }
 
-export function IssueFilterPreviewHeader({
-    preview,
-    title,
-    resetIcon,
-    children,
-}: IssueFilterPreviewHeaderProps): JSX.Element {
+export function IssueFilterPreviewHeader({ preview, title, children }: IssueFilterPreviewHeaderProps): JSX.Element {
     const { activePreview, canUndoActivePreview } = useValues(issueFilterPreviewLogic)
-    const { resetAllFilters, undoActivePreview } = useActions(issueFilterPreviewLogic)
+    const { undoActivePreview } = useActions(issueFilterPreviewLogic)
     const canUndo = activePreview === preview && canUndoActivePreview
 
     return (
-        <div className="sticky top-0 z-10 flex h-10 shrink-0 items-center justify-between gap-2 border-b border-primary bg-[var(--background)] px-1.5">
+        <div className="sticky top-0 z-10 flex h-10 shrink-0 items-center justify-between gap-2 border-b border-primary bg-[var(--background)] px-3">
             <div className="flex shrink-0 items-center gap-1.5">
-                <div className="flex size-6 shrink-0 items-center justify-center">
-                    {canUndo ? (
+                {canUndo && (
+                    <div className="flex size-6 shrink-0 items-center justify-center">
                         <LemonTooltip title="Undo filter">
                             <Button
                                 variant="default"
@@ -41,20 +35,8 @@ export function IssueFilterPreviewHeader({
                                 <IconArrowLeft />
                             </Button>
                         </LemonTooltip>
-                    ) : (
-                        <LemonTooltip title="Reset all filters">
-                            <Button
-                                variant="default"
-                                size="icon-sm"
-                                aria-label="Reset all filters"
-                                data-attr="error-tracking-reset-all-filters"
-                                onClick={resetAllFilters}
-                            >
-                                {resetIcon}
-                            </Button>
-                        </LemonTooltip>
-                    )}
-                </div>
+                    </div>
+                )}
                 <Heading size="sm">{title}</Heading>
             </div>
             {children ? (

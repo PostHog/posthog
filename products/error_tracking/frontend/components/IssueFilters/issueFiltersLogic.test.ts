@@ -111,6 +111,23 @@ describe('issueFiltersLogic', () => {
                 },
             ])
         })
+
+        it('does not add an identical filter twice', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.addPropertyFilter('$browser', 'Chrome')
+                logic.actions.addPropertyFilter('$browser', 'Chrome')
+            }).toFinishAllListeners()
+
+            const innerGroup = logic.values.filterGroup.values[0] as UniversalFiltersGroup
+            expect(innerGroup.values).toEqual([
+                {
+                    type: PropertyFilterType.Event,
+                    key: '$browser',
+                    operator: PropertyOperator.Exact,
+                    value: ['Chrome'],
+                },
+            ])
+        })
     })
 
     describe('mergedFilterGroup', () => {

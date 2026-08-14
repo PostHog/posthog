@@ -36,6 +36,9 @@ describe('issueFilterPreviewLogic', () => {
         preview.actions.setActivePreview('properties')
         preview.actions.applyPropertyFilter('$browser', 'Chrome')
         const firstFilterGroup = filters.values.filterGroup
+        preview.actions.applyPropertyFilter('$browser', 'Chrome')
+        expect(filters.values.filterGroup).toEqual(firstFilterGroup)
+        expect(preview.values.filterGroupHistory).toHaveLength(1)
         preview.actions.applyPropertyFilter('$os', 'Mac OS X')
         preview.actions.undoActivePreview()
         expect(filters.values.filterGroup).toEqual(firstFilterGroup)
@@ -76,48 +79,6 @@ describe('issueFilterPreviewLogic', () => {
         expect(filters.values.filterGroup).toEqual(manualFilterGroup)
 
         preview.unmount()
-        filters.unmount()
-    })
-
-    it('resets every issue filter and clears preview history', () => {
-        initKeaTests()
-        const filters = issueFiltersLogic({ logicKey: ERROR_TRACKING_ISSUE_SCENE_LOGIC_KEY })
-        const quickFilters = quickFiltersSectionLogic({
-            context: QuickFilterContext.ErrorTrackingIssueFilters,
-            logicKey: ERROR_TRACKING_ISSUE_SCENE_LOGIC_KEY,
-        })
-        const preview = issueFilterPreviewLogic()
-        filters.mount()
-        quickFilters.mount()
-        preview.mount()
-
-        preview.actions.applyDateRangeFilter({
-            date_from: '2024-01-01T00:00:00.000Z',
-            date_to: '2024-01-01T01:00:00.000Z',
-        })
-        preview.actions.applyPropertyFilter('$browser', 'Chrome')
-        filters.actions.setFilterTestAccounts(true)
-        filters.actions.setSearchQuery('checkout')
-        quickFilters.actions.setQuickFilterValue('environment', '$environment', {
-            id: 'production',
-            label: 'Production',
-            value: 'production',
-            operator: PropertyOperator.Exact,
-        })
-
-        preview.actions.resetAllFilters()
-
-        expect(filters.values.dateRange).toEqual(DEFAULT_DATE_RANGE)
-        expect(filters.values.filterGroup).toEqual(DEFAULT_FILTER_GROUP)
-        expect(filters.values.filterTestAccounts).toBe(DEFAULT_TEST_ACCOUNT)
-        expect(filters.values.searchQuery).toBe(DEFAULT_SEARCH_QUERY)
-        expect(quickFilters.values.selectedQuickFilters).toEqual({})
-        expect(preview.values.dateRangeHistory).toEqual([])
-        expect(preview.values.filterGroupHistory).toEqual([])
-        expect(preview.values.canUndoActivePreview).toBe(false)
-
-        preview.unmount()
-        quickFilters.unmount()
         filters.unmount()
     })
 

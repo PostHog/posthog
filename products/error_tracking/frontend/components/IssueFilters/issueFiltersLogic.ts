@@ -153,6 +153,9 @@ export const issueFiltersLogic = kea<issueFiltersLogicType>([
                         operator,
                         ...(value === null ? {} : { value: [value] }),
                     }
+                    if (firstGroup.values.some((existingFilter) => equal(existingFilter, newFilter))) {
+                        return filterGroup
+                    }
 
                     return {
                         type: FilterLogicalOperator.And,

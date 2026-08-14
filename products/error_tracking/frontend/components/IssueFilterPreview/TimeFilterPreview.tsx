@@ -1,8 +1,6 @@
 import { useActions, useValues } from 'kea'
 import { useCallback, useMemo, useRef } from 'react'
 
-import { Tooltip as LemonTooltip } from '@posthog/lemon-ui'
-
 import { ErrorTrackingSpikeEvent } from 'lib/components/Errors/types'
 
 import { useSparklineDataIssueScene } from '../../hooks/use-sparkline-data'
@@ -61,25 +59,23 @@ export function TimeFilterPreview(): JSX.Element {
     return (
         <div className="relative flex flex-col">
             <TimeFilterPreviewHeader sparklineKey={sparklineKey} />
-            <LemonTooltip title="Click a bar or drag to select a date range">
-                <div
-                    onClick={cancelEvent}
-                    ref={sparklineContainerRef}
-                    className="relative flex h-56 w-full flex-col px-4 py-3"
-                >
-                    <VolumeSparkline
-                        data={sparklineData}
-                        layout="detailed"
-                        xAxis="full"
-                        events={sparklineEvents}
-                        sparklineKey={sparklineKey}
-                        className="h-full"
-                        onRangeSelect={handleRangeSelect}
-                        onBucketClick={handleRangeSelect}
-                        onSpikeClick={handleSpikeClick}
-                    />
-                </div>
-            </LemonTooltip>
+            <div
+                onClick={cancelEvent}
+                ref={sparklineContainerRef}
+                className="relative flex h-56 w-full flex-col px-2 py-3"
+            >
+                <VolumeSparkline
+                    data={sparklineData}
+                    layout="detailed"
+                    xAxis="full"
+                    events={sparklineEvents}
+                    sparklineKey={sparklineKey}
+                    className="h-full"
+                    onRangeSelect={handleRangeSelect}
+                    onBucketClick={handleRangeSelect}
+                    onSpikeClick={handleSpikeClick}
+                />
+            </div>
             {clickedSpike && (
                 <SpikeDetailsPopover
                     datum={clickedSpike.datum}

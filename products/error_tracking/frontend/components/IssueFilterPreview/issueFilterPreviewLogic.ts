@@ -6,7 +6,6 @@ import { DateRange, QuickFilterContext } from '~/queries/schema/schema-general'
 import { PropertyOperator, UniversalFiltersGroup } from '~/types'
 
 import {
-    DEFAULT_DATE_RANGE,
     DEFAULT_FILTER_GROUP,
     DEFAULT_SEARCH_QUERY,
     DEFAULT_TEST_ACCOUNT,
@@ -78,9 +77,6 @@ export interface issueFilterPreviewLogicActions {
         operator: PropertyOperator
         value: boolean | number | string | null
     }
-    clearFilterHistory: () => {
-        value: true
-    }
     clearNonDateFilters: () => {
         value: true
     }
@@ -95,9 +91,6 @@ export interface issueFilterPreviewLogicActions {
     }
     pushFilterGroupHistory: (filterGroup: UniversalFiltersGroup) => {
         filterGroup: UniversalFiltersGroup
-    }
-    resetAllFilters: () => {
-        value: true
     }
     setActivePreview: (activePreview: IssueFilterPreview) => {
         activePreview: IssueFilterPreview
@@ -162,9 +155,7 @@ export const issueFilterPreviewLogic = kea<issueFilterPreviewLogicType>([
             operator: PropertyOperator = PropertyOperator.Exact
         ) => ({ key, value, operator }),
         undoActivePreview: true,
-        resetAllFilters: true,
         clearNonDateFilters: true,
-        clearFilterHistory: true,
         popDateRangeHistory: true,
         popFilterGroupHistory: true,
         pushDateRangeHistory: (dateRange: DateRange) => ({ dateRange }),
@@ -182,7 +173,6 @@ export const issueFilterPreviewLogic = kea<issueFilterPreviewLogicType>([
             {
                 pushDateRangeHistory: (history, { dateRange }) => [...history, dateRange],
                 popDateRangeHistory: (history) => history.slice(0, -1),
-                clearFilterHistory: () => [],
                 // A manual date change (not from a preview) invalidates the undo stack.
                 setDateRange: (history, { fromPreview }) => (fromPreview ? history : []),
             },
@@ -192,7 +182,6 @@ export const issueFilterPreviewLogic = kea<issueFilterPreviewLogicType>([
             {
                 pushFilterGroupHistory: (history, { filterGroup }) => [...history, filterGroup],
                 popFilterGroupHistory: (history) => history.slice(0, -1),
-                clearFilterHistory: () => [],
                 clearNonDateFilters: () => [],
                 // A manual filter edit (not from a preview) invalidates the undo stack.
                 setFilterGroup: (history, { filterAddedFromPreview }) => (filterAddedFromPreview ? history : []),
@@ -235,8 +224,11 @@ export const issueFilterPreviewLogic = kea<issueFilterPreviewLogicType>([
             actions.setDateRange(dateRange, true)
         },
         applyPropertyFilter: ({ key, value, operator }) => {
-            actions.pushFilterGroupHistory(values.filterGroup)
+            const previousFilterGroup = values.filterGroup
             actions.addPropertyFilter(key, value, operator, false)
+            if (values.filterGroup !== previousFilterGroup) {
+                actions.pushFilterGroupHistory(previousFilterGroup)
+            }
         },
         undoActivePreview: () => {
             const previousDateRange = values.dateRangeHistory.at(-1)
@@ -248,16 +240,6 @@ export const issueFilterPreviewLogic = kea<issueFilterPreviewLogicType>([
                 actions.setFilterGroup(previousFilterGroup, 1)
                 actions.popFilterGroupHistory()
             }
-        },
-        resetAllFilters: () => {
-            actions.setDateRange(DEFAULT_DATE_RANGE)
-            actions.setFilterGroup(DEFAULT_FILTER_GROUP)
-            actions.setFilterTestAccounts(DEFAULT_TEST_ACCOUNT)
-            actions.setSearchQuery(DEFAULT_SEARCH_QUERY)
-            for (const filterId of Object.keys(values.selectedQuickFilters)) {
-                actions.clearQuickFilter(filterId)
-            }
-            actions.clearFilterHistory()
         },
         clearNonDateFilters: () => {
             actions.setFilterGroup(DEFAULT_FILTER_GROUP)

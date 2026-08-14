@@ -31,10 +31,7 @@ export function IssueFilterPreviewPanel({
 
     return (
         <div className={className}>
-            <div
-                className="flex min-h-0 flex-1 flex-col overflow-y-auto overscroll-y-none [scrollbar-gutter:stable]"
-                onScroll={handleScroll}
-            >
+            <div className="flex min-h-0 flex-1 flex-col overflow-y-auto overscroll-y-none" onScroll={handleScroll}>
                 <div className="max-h-1/2 shrink-0 overflow-y-auto overscroll-y-none">
                     <Tabs
                         orientation="vertical"

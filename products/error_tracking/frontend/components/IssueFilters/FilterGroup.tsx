@@ -99,11 +99,16 @@ const FilterControls = ({
         return (
             <>
                 {renderControls({
-                    filterPicker: filterRow,
+                    filterPicker: (
+                        <div className="relative flex shrink-0 items-center">
+                            <FilterPicker taxonomicGroupTypes={taxonomicGroupTypes} iconOnly={iconOnly} />
+                        </div>
+                    ),
                     activeFilters: hasActiveFilters ? (
                         <UniversalFilterGroup
                             taxonomicGroupTypes={taxonomicGroupTypes}
                             filterAddedFromPreview={filterAddedFromPreview}
+                            prefix={<FilterOperatorToggle />}
                             className="flex w-full flex-wrap items-center gap-1"
                             dataAttr="error-tracking-active-filters"
                         />
@@ -214,7 +219,7 @@ const FilterOperatorToggle = (): JSX.Element | null => {
     return (
         <ToggleGroup
             variant="outline"
-            size="default"
+            size="sm"
             className="shrink-0"
             value={[filterGroup.type]}
             onValueChange={([type]) => {
@@ -236,11 +241,13 @@ const UniversalFilterGroup = ({
     taxonomicGroupTypes = TAXONOMIC_GROUP_TYPES,
     className,
     dataAttr,
+    prefix,
     filterAddedFromPreview = 0,
 }: {
     taxonomicGroupTypes?: TaxonomicFilterGroupType[]
     className?: string
     dataAttr?: string
+    prefix?: ReactNode
     filterAddedFromPreview?: number
 }): JSX.Element | null => {
     const { filterGroup } = useValues(universalFiltersLogic)
@@ -276,9 +283,13 @@ const UniversalFilterGroup = ({
 
     return className ? (
         <div className={className} data-attr={dataAttr}>
+            {prefix}
             {values}
         </div>
     ) : (
-        <>{values}</>
+        <>
+            {prefix}
+            {values}
+        </>
     )
 }
