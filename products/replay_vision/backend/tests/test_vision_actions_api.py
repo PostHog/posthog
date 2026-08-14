@@ -13,6 +13,7 @@ from posthog.cdp.templates.hog_function_template import sync_template_to_db
 from posthog.cdp.templates.slack.template_slack import template as template_slack
 from posthog.models import Organization, Team
 from posthog.models.integration import Integration
+from posthog.rate_limit import ReplayVisionEstimateBurstRateThrottle
 
 from products.replay_vision.backend.api.vision_actions import (
     MAX_DELIVERY_TARGETS,
@@ -946,6 +947,18 @@ class TestVisionActionRunPreview(_VisionActionAPITestCase):
         action = self._summary()
         resp = self.client.get(self._preview_url(str(action.id)), {"window_end": "2026-07-01T00:00:00Z"})
         self.assertEqual(resp.status_code, 400, resp.content)
+
+    def test_preview_is_throttled_for_session_auth(self) -> None:
+        # The global throttles gate on personal-API-key auth, so a UI session skips them and could
+        # resubmit year-wide counts until the DB pool is saturated. Denying the throttle and asserting
+        # the status proves it is wired into the request path.
+        action = self._summary()
+        with (
+            patch.object(ReplayVisionEstimateBurstRateThrottle, "allow_request", return_value=False),
+            patch.object(ReplayVisionEstimateBurstRateThrottle, "wait", return_value=None),
+        ):
+            resp = self.client.get(self._preview_url(str(action.id)))
+        self.assertEqual(resp.status_code, 429, resp.content)
 
 
 class TestRunActionRequestSerializer(SimpleTestCase):

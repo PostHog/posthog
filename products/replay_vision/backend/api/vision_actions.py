@@ -29,6 +29,7 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.scoped_related_fields import TeamScopedPrimaryKeyRelatedField
 from posthog.api.shared import UserBasicSerializer
 from posthog.models.integration import Integration
+from posthog.rate_limit import ReplayVisionEstimateBurstRateThrottle, ReplayVisionEstimateSustainedRateThrottle
 
 from products.replay_vision.backend.api.backfills import MAX_BACKFILL_WINDOW_DAYS
 from products.replay_vision.backend.api.delivery import archive_delivery, provision_delivery
@@ -928,6 +929,10 @@ class VisionActionViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         methods=["get"],
         url_path="run_preview",
         required_scopes=["vision_action:read", "session_recording:read"],
+        # Counts up to a year of observations per call and its primary caller is the
+        # session-authenticated viewer, which the global throttles do not cover. Shares the
+        # scanner estimate endpoint's budget: same shape of query, same caller.
+        throttle_classes=[ReplayVisionEstimateBurstRateThrottle, ReplayVisionEstimateSustainedRateThrottle],
     )
     def run_preview(self, request: Request, **kwargs: Any) -> Response:
         """Preview what running this summary would cover: how many observations the window holds, and
