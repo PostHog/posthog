@@ -992,6 +992,97 @@ export const FeatureRequestsCreateBody = /* @__PURE__ */ zod.object({
         ),
 })
 
+export const featureRequestsUpdateBodyTitleMax = 400
+
+export const FeatureRequestsUpdateBody = /* @__PURE__ */ zod.object({
+    expected_version: zod
+        .number()
+        .min(1)
+        .describe('Request version loaded by the editor. Stale versions return 409 Conflict.'),
+    title: zod
+        .string()
+        .max(featureRequestsUpdateBodyTitleMax)
+        .optional()
+        .describe('Updated customer-facing request title.'),
+    description: zod.string().optional().describe('Updated customer-facing request description in Markdown.'),
+    account_id: zod.uuid().optional().describe('Updated affected Customer Analytics account ID.'),
+    product_area_ids: zod
+        .array(zod.uuid())
+        .optional()
+        .describe('One or more product area IDs. Existing inactive areas can remain linked.'),
+    request_status: zod
+        .enum(['requested', 'planned', 'completed', 'wont_fix', 'duplicate'])
+        .describe(
+            "\* `requested` - Requested\n\* `planned` - Planned\n\* `completed` - Completed\n\* `wont_fix` - Won't fix\n\* `duplicate` - Duplicate"
+        )
+        .optional()
+        .describe(
+            "Updated customer-facing lifecycle status.\n\n\* `requested` - Requested\n\* `planned` - Planned\n\* `completed` - Completed\n\* `wont_fix` - Won't fix\n\* `duplicate` - Duplicate"
+        ),
+    request_priority: zod
+        .union([
+            zod.enum(['high', 'medium', 'low']).describe('\* `high` - High\n\* `medium` - Medium\n\* `low` - Low'),
+            zod.null(),
+        ])
+        .optional()
+        .describe(
+            'Updated manual priority. Pass null to remove the priority.\n\n\* `high` - High\n\* `medium` - Medium\n\* `low` - Low'
+        ),
+})
+
+export const featureRequestsPartialUpdateBodyTitleMax = 400
+
+export const FeatureRequestsPartialUpdateBody = /* @__PURE__ */ zod.object({
+    expected_version: zod
+        .number()
+        .min(1)
+        .optional()
+        .describe('Request version loaded by the editor. Stale versions return 409 Conflict.'),
+    title: zod
+        .string()
+        .max(featureRequestsPartialUpdateBodyTitleMax)
+        .optional()
+        .describe('Updated customer-facing request title.'),
+    description: zod.string().optional().describe('Updated customer-facing request description in Markdown.'),
+    account_id: zod.uuid().optional().describe('Updated affected Customer Analytics account ID.'),
+    product_area_ids: zod
+        .array(zod.uuid())
+        .optional()
+        .describe('One or more product area IDs. Existing inactive areas can remain linked.'),
+    request_status: zod
+        .enum(['requested', 'planned', 'completed', 'wont_fix', 'duplicate'])
+        .describe(
+            "\* `requested` - Requested\n\* `planned` - Planned\n\* `completed` - Completed\n\* `wont_fix` - Won't fix\n\* `duplicate` - Duplicate"
+        )
+        .optional()
+        .describe(
+            "Updated customer-facing lifecycle status.\n\n\* `requested` - Requested\n\* `planned` - Planned\n\* `completed` - Completed\n\* `wont_fix` - Won't fix\n\* `duplicate` - Duplicate"
+        ),
+    request_priority: zod
+        .union([
+            zod.enum(['high', 'medium', 'low']).describe('\* `high` - High\n\* `medium` - Medium\n\* `low` - Low'),
+            zod.null(),
+        ])
+        .optional()
+        .describe(
+            'Updated manual priority. Pass null to remove the priority.\n\n\* `high` - High\n\* `medium` - Medium\n\* `low` - Low'
+        ),
+})
+
+export const FeatureRequestsArchiveCreateBody = /* @__PURE__ */ zod.object({
+    expected_version: zod
+        .number()
+        .min(1)
+        .describe('Request version loaded by the editor. Stale versions return 409 Conflict.'),
+})
+
+export const FeatureRequestsRestoreCreateBody = /* @__PURE__ */ zod.object({
+    expected_version: zod
+        .number()
+        .min(1)
+        .describe('Request version loaded by the editor. Stale versions return 409 Conflict.'),
+})
+
 export const groupsTypesMetricsCreateBodyNameMax = 255
 
 export const groupsTypesMetricsCreateBodyFormatDefault = `numeric`
