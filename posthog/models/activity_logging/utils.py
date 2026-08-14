@@ -1,5 +1,4 @@
 import traceback
-from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Optional, cast
 
 from django.db import models
@@ -7,6 +6,8 @@ from django.db.models import Q, QuerySet
 
 import structlog
 from asgiref.local import Local
+
+from posthog.dataclasses import frozen
 
 if TYPE_CHECKING:
     from posthog.models.activity_logging.activity_log import ActivityLog, Trigger
@@ -17,7 +18,7 @@ ACTIVITY_LOG_CLIENT_HEADER = "x-posthog-client"
 ACTIVITY_LOG_CLIENT_MAX_LENGTH = 32
 
 
-@dataclass(frozen=True, kw_only=True, slots=True)
+@frozen
 class CreatedByInfo:
     user_id: str | None
     email: str | None

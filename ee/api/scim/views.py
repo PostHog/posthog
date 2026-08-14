@@ -18,6 +18,7 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 from scim2_filter_parser.transpilers.django_q_object import get_query
 
+from posthog.dataclasses import frozen
 from posthog.exceptions_capture import capture_exception
 from posthog.models import User
 from posthog.models.activity_logging.activity_log import ActivityContextBase, Detail, log_activity
@@ -50,7 +51,7 @@ class SCIMPaginationError(Exception):
         super().__init__(detail)
 
 
-@dataclasses.dataclass(frozen=True, kw_only=True, slots=True)
+@frozen
 class ScimPagination:
     start_index: int
     count: int

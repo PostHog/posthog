@@ -1,9 +1,8 @@
-from dataclasses import dataclass
-
+from posthog.dataclasses import frozen
 from posthog.models.tagged_item import RELATED_OBJECTS
 
 
-@dataclass(frozen=True, kw_only=True, slots=True)
+@frozen
 class RelatedObjectInfo:
     type: str | None
     id: str | None

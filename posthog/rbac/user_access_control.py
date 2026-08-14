@@ -13,6 +13,7 @@ from opentelemetry import trace
 from rest_framework import serializers
 
 from posthog.constants import AvailableFeature
+from posthog.dataclasses import frozen
 from posthog.models import Organization, OrganizationMembership, Team, User
 from posthog.scopes import API_SCOPE_OBJECTS, INTERNAL_API_SCOPE_OBJECTS, APIScopeObject
 from posthog.settings import EE_AVAILABLE
@@ -510,7 +511,7 @@ def fallback_parent_object_id(obj: Model, parent_resource: APIScopeObject) -> Op
     return str(parent_id) if parent_id is not None else None
 
 
-@dataclass(frozen=True, kw_only=True, slots=True)
+@frozen
 class ObjectAccessDecision:
     blocked_ids: frozenset[str]
     allowed_ids: frozenset[str]

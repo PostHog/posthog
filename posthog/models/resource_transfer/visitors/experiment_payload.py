@@ -5,14 +5,14 @@ Helpers for extracting and rewriting cohort/action references embedded in
 
 from __future__ import annotations
 
-from dataclasses import dataclass
 from typing import Any
 
+from posthog.dataclasses import frozen
 from posthog.models.resource_transfer.types import ResourcePayload
 from posthog.models.resource_transfer.visitors.insight import InsightVisitor
 
 
-@dataclass(frozen=True, kw_only=True, slots=True)
+@frozen
 class CollectedResourceIds:
     cohort_ids: frozenset[int]
     action_ids: frozenset[int]
