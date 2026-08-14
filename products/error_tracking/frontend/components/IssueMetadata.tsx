@@ -201,8 +201,8 @@ function MetadataHeader({ sparklineKey }: { sparklineKey: string }): JSX.Element
     const canUndo = activePreview === 'time' && canUndoActivePreview
 
     return (
-        <div className="sticky top-0 z-10 flex h-10 shrink-0 items-center justify-between border-b border-primary bg-[var(--background)] px-4">
-            <div className="flex items-center gap-2">
+        <div className="sticky top-0 z-10 flex h-10 shrink-0 items-center justify-between border-b border-primary bg-[var(--background)] px-1.5">
+            <div className="flex items-center gap-1.5">
                 <div className="flex size-6 shrink-0 items-center justify-center">
                     {canUndo ? (
                         <LemonTooltip title="Undo filter">
