@@ -13,6 +13,7 @@ from posthog.models import Organization, OrganizationInvite
 from posthog.models.organization import BillingPeriod, OrganizationMembership
 from posthog.plugins.test.mock import mocked_plugin_requests_get
 from posthog.plugins.test.plugin_archives import HELLO_WORLD_PLUGIN_GITHUB_ZIP
+from posthog.redis import get_client
 
 from products.cdp.backend.models.plugin import Plugin
 
@@ -434,6 +435,32 @@ class TestOrganization(BaseTest):
             self.assertFalse(data["is_limited_in_redis"])
             self.assertEqual(data["limited_teams"], [])
             self.assertIsNone(data["redis_quota_limited_until"])
+
+    def test_is_active_change_invalidates_llm_gateway_quota_cache(self):
+        gateway_redis_url = "redis://llm-gateway-redis-org-active-test/"
+        second_team = self.organization.teams.create(name="Second Team", api_token="second_token")
+        other_organization = Organization.objects.create(name="Other Org")
+        other_team = other_organization.teams.create(name="Other Team", api_token="other_token")
+
+        cache_keys = [
+            f"quota:posthog_code_credits:team:{self.team.id}:credential:abc123",
+            f"quota:ai_credits:team:{second_team.id}:credential:def456",
+            f"quota:code_usage_billing:team:{self.team.id}",
+            f"quota:code_usage_billing:team:{second_team.id}",
+        ]
+        other_team_key = f"quota:posthog_code_credits:team:{other_team.id}:credential:abc123"
+
+        with self.settings(LLM_GATEWAY_REDIS_URL=gateway_redis_url):
+            gateway_redis = get_client(gateway_redis_url)
+            gateway_redis.mset(dict.fromkeys([*cache_keys, other_team_key], "stale"))
+
+            with self.captureOnCommitCallbacks(execute=True):
+                self.organization.is_active = False
+                self.organization.save()
+
+            assert gateway_redis.mget(cache_keys) == [None] * len(cache_keys)
+            assert gateway_redis.get(other_team_key) == b"stale"
+            gateway_redis.delete(other_team_key)
 
     @patch("ee.billing.quota_limiting.get_client")
     def test_get_limited_products_no_limits(self, mock_get_client):
