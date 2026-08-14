@@ -83,7 +83,8 @@ class ConcurrencySlot:
     task_id: str
 
 
-@dataclasses.dataclass
+# Mutable by design: tests inject fake clocks by assigning get_time and sleep after construction
+@dataclasses.dataclass(frozen=False)
 class RateLimit:
     """
     Ensures that only max_concurrency of tasks_name are executed at a given time.
