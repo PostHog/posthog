@@ -125,23 +125,23 @@ loaded get `false`/`undefined` and are dropped from their arm instead of showing
 
 ## 4. The numbers each cause needs
 
-| Cause                                     | The number that confirms it                                                                                                                |
-| ----------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
-| Uneven split + Exclude bias               | uneven `rollout_percentage` split **and** `$multiple` share > 0.1% (banner threshold), handling = `exclude`                                |
-| Sample ratio mismatch                     | chi-squared p < 0.001 on §2's per-person `total_exposures` (see below); only meaningful once totals are healthy                            |
-| Assignment override (assignment-side SRM) | hash-recomputation agreement well under 100% (the decisive test below); then localize with the SDK split / bootstrap mix below             |
-| Capture-by-surface (capture-side SRM)     | a `$pathname`/`$screen_name` where one variant's share jumps to ~100% while other paths sit near the split                                 |
-| Flag read before load (capture-side SRM)  | `false`/`null` person count near the short-arm gap and concentrated on that arm's `$lib`/surface                                           |
-| Pre-launch skew                           | the same directional skew _before_ `start_date` ⇒ points at assignment, not capture                                                        |
-| Bootstrap-inherited variant               | `$used_bootstrap_value = true` concentrated on the heavier arm                                                                             |
-| Identity fragmentation                    | `distinct_ids / persons` > ~1.2 for a variant, or persons under multiple variants                                                          |
-| No randomization / forced variant         | a `feature_flag.filters.groups[]` entry with non-null `variant` + broad `properties`                                                       |
-| Mid-run rebucketing                       | residual exposures for a 0%-configured variant + a flag `filters` diff after `start_date`                                                  |
-| Missing exposures                         | total exposures ~0, or a variant `last_seen` days behind the other, or a flat timeseries tail                                              |
-| Test-account exclusion                    | count of exposures matching the project's test-account filter                                                                              |
-| Holdout population loss                   | size of the `holdout-<id>` bucket vs the expected-minus-actual N (removes users evenly, no directional SRM)                                |
+| Cause                                     | The number that confirms it                                                                                                                        |
+| ----------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Uneven split + Exclude bias               | uneven `rollout_percentage` split **and** `$multiple` share > 0.1% (banner threshold), handling = `exclude`                                        |
+| Sample ratio mismatch                     | chi-squared p < 0.001 on §2's per-person `total_exposures` (see below); only meaningful once totals are healthy                                    |
+| Assignment override (assignment-side SRM) | hash-recomputation agreement well under 100% (the decisive test below); then localize with the SDK split / bootstrap mix below                     |
+| Capture-by-surface (capture-side SRM)     | a `$pathname`/`$screen_name` where one variant's share jumps to ~100% while other paths sit near the split                                         |
+| Flag read before load (capture-side SRM)  | `false`/`null` person count near the short-arm gap and concentrated on that arm's `$lib`/surface                                                   |
+| Pre-launch skew                           | the same directional skew _before_ `start_date` ⇒ points at assignment, not capture                                                                |
+| Bootstrap-inherited variant               | `$used_bootstrap_value = true` concentrated on the heavier arm                                                                                     |
+| Identity fragmentation                    | `distinct_ids / persons` > ~1.2 for a variant, or persons under multiple variants                                                                  |
+| No randomization / forced variant         | a `feature_flag.filters.groups[]` entry with non-null `variant` + broad `properties`                                                               |
+| Mid-run rebucketing                       | residual exposures for a 0%-configured variant + a flag `filters` diff after `start_date`                                                          |
+| Missing exposures                         | total exposures ~0, or a variant `last_seen` days behind the other, or a flat timeseries tail                                                      |
+| Test-account exclusion                    | count of exposures matching the project's test-account filter                                                                                      |
+| Holdout population loss                   | size of the `holdout-<id>` bucket vs the expected-minus-actual N (removes users evenly, no directional SRM)                                        |
 | Flag dependency (fail-closed)             | `false` responses concentrated on users failing a type-`flag` release condition; `posthog:feature-flags-dependent-flags-retrieve` names the parent |
-| Capture disabled                          | exposures ~0 while the flag is demonstrably read — `send_feature_flag_events`/events-off in the SDK config, not a wrong accessor           |
+| Capture disabled                          | exposures ~0 while the flag is demonstrably read — `send_feature_flag_events`/events-off in the SDK config, not a wrong accessor                   |
 
 ### Sample ratio mismatch (SRM) — chi-squared
 
