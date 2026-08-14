@@ -2,6 +2,7 @@
 
 import re
 import json
+from collections.abc import Iterator
 from datetime import UTC, datetime, timedelta
 from email.utils import getaddresses, parseaddr, parsedate_to_datetime
 from typing import Any, cast
@@ -34,7 +35,13 @@ from products.conversations.backend.services.attachments import (
     sanitize_attachment_filename,
     save_file_to_uploaded_media,
 )
-from products.conversations.backend.services.email_channel_setup import capture_google_forwarding_confirmation
+from products.conversations.backend.services.email_channel_setup import (
+    FORWARDING_CHALLENGE_HEADER,
+    FORWARDING_CHALLENGE_MARKER,
+    ForwardingChallengeResult,
+    capture_google_forwarding_confirmation,
+    process_forwarding_challenges,
+)
 from products.conversations.backend.services.email_thread_ingestion import (
     EmailAddress,
     ParsedInboundEmail,
@@ -48,6 +55,7 @@ INBOUND_TOKEN_PATTERN = re.compile(r"^team-([a-f0-9]+)@")
 _VIA_SUFFIX_RE = re.compile(r"\s+via\s+.+$", re.IGNORECASE)
 _BASIC_EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 _MESSAGE_ID_RE = re.compile(r"<[^<>\s]+>")
+_FORWARDING_CHALLENGE_RE = re.compile(rf"{re.escape(FORWARDING_CHALLENGE_MARKER)}(?P<token>[A-Za-z0-9_.:-]{{1,1000}})")
 MAX_EMAIL_BODY_LENGTH = 50_000
 MAX_ATTACHMENT_SIZE = 10 * 1024 * 1024  # 10 MB per file
 MAX_ATTACHMENTS = 20
@@ -55,6 +63,7 @@ MAX_ATTACHMENTS = 20
 # one becomes a per-recipient participant upsert. Cap the count so one message can't fan out into
 # an unbounded batch of queries under the held thread lock.
 MAX_RECIPIENTS = 100
+MAX_FORWARDING_CHALLENGE_TOKENS = 10
 # The sender controls the Date header, so a far-future value would latch a thread's last_message_at
 # and freeze its preview. Reject dates beyond a small clock-skew allowance and fall back to the
 # authenticated webhook timestamp (or now) instead.
@@ -278,29 +287,55 @@ def _parse_message_ids(value: str) -> tuple[str, ...]:
     return tuple(dict.fromkeys(message_id.strip()[:998] for message_id in message_ids if message_id.strip()))
 
 
-def _message_header_values(request: HttpRequest, header_name: str) -> tuple[str, ...]:
-    values: list[str] = []
+def _iter_message_header_values(request: HttpRequest, header_name: str) -> Iterator[str]:
     direct_value = request.POST.get(header_name, "")
     if direct_value:
-        values.append(direct_value)
+        yield direct_value
 
     raw_headers = request.POST.get("message-headers", "")
-    if raw_headers:
-        try:
-            parsed_headers = json.loads(raw_headers)
-        except (TypeError, ValueError):
-            parsed_headers = []
-        if isinstance(parsed_headers, list):
-            for header in parsed_headers:
-                if (
-                    isinstance(header, list)
-                    and len(header) == 2
-                    and isinstance(header[0], str)
-                    and isinstance(header[1], str)
-                    and header[0].lower() == header_name.lower()
-                ):
-                    values.append(header[1])
-    return tuple(dict.fromkeys(values))
+    if not raw_headers:
+        return
+    try:
+        parsed_headers = json.loads(raw_headers)
+    except (TypeError, ValueError):
+        return
+    if not isinstance(parsed_headers, list):
+        return
+    for header in parsed_headers:
+        if (
+            isinstance(header, list)
+            and len(header) == 2
+            and isinstance(header[0], str)
+            and isinstance(header[1], str)
+            and header[0].lower() == header_name.lower()
+        ):
+            yield header[1]
+
+
+def _message_header_values(request: HttpRequest, header_name: str) -> tuple[str, ...]:
+    return tuple(dict.fromkeys(_iter_message_header_values(request, header_name)))
+
+
+def _forwarding_challenge_tokens(request: HttpRequest) -> tuple[str, ...]:
+    tokens: list[str] = []
+    seen: set[str] = set()
+
+    def append_token(raw_token: str) -> bool:
+        token = raw_token.strip()
+        if not token or len(token) > 1000 or token in seen:
+            return False
+        seen.add(token)
+        tokens.append(token)
+        return len(tokens) >= MAX_FORWARDING_CHALLENGE_TOKENS
+
+    for header_value in _iter_message_header_values(request, FORWARDING_CHALLENGE_HEADER):
+        if append_token(header_value):
+            return tuple(tokens)
+    for field_name in ("body-html", "body-plain", "stripped-text"):
+        for match in _FORWARDING_CHALLENGE_RE.finditer(request.POST.get(field_name, "")):
+            if append_token(match.group("token")):
+                return tuple(tokens)
+    return tuple(tokens)
 
 
 def _mailgun_authentication_passed(request: HttpRequest, header_name: str) -> bool:
@@ -412,6 +447,7 @@ def _parse_inbound_email(request: HttpRequest, config: EmailChannel) -> ParsedIn
         dkim_signing_domains=_dkim_signing_domains(request),
         capture_address=request.POST.get("recipient", "").strip().lower(),
         attachments=tuple(attachments),
+        forwarding_challenge_tokens=_forwarding_challenge_tokens(request),
     )
 
 
@@ -625,6 +661,21 @@ def email_inbound_handler(request: HttpRequest) -> HttpResponse:
         return HttpResponse(status=200)
 
     if config.kind == EmailChannelKind.CUSTOMER_COMMUNICATION:
+        challenge_result = process_forwarding_challenges(
+            team_id=config.team_id,
+            channel=config,
+            capture_address=email.capture_address,
+            challenge_tokens=email.forwarding_challenge_tokens,
+        )
+        if challenge_result != ForwardingChallengeResult.NOT_CHALLENGE:
+            logger.info(
+                "customer_email_forwarding_challenge_processed",
+                team_id=config.team_id,
+                config_id=str(config.id),
+                result=challenge_result,
+            )
+            return HttpResponse(status=200)
+
         if config.connection_status == EmailChannelConnectionStatus.PENDING_CONFIRMATION:
             captured = capture_google_forwarding_confirmation(
                 team_id=config.team_id,
