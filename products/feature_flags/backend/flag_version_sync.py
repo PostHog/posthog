@@ -22,9 +22,9 @@ definition change. The same goes for flag edits that leave the flag's conditions
 comparison below guarantees only real definition changes bump.
 
 The bumps run synchronously inside the triggering save's transaction rather than on
-commit: ``refresh_flag_cache_on_updates`` connects at model-import time, i.e. before
-this module is wired in ``apps.ready()``, so its own ``on_commit`` callback runs first
-and would rebuild the flag cache with the pre-bump versions.
+commit: the flag-change signals schedule cache rebuilds via ``on_commit`` callbacks,
+so a bump deferred to commit time could run after a rebuild has already read the
+pre-bump versions.
 """
 
 from collections import defaultdict

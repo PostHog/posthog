@@ -232,6 +232,46 @@ class PersonPropertyBackfillActivityInputs:
         }
 
 
+# --- Data-quality checks gate ---------------------------------------------------------
+
+DataQualityChecksGate = Callable[[int, "str | uuid.UUID"], bool]
+_data_quality_checks_gate: Optional[DataQualityChecksGate] = None
+
+
+def register_data_quality_checks_gate(fn: DataQualityChecksGate) -> None:
+    global _data_quality_checks_gate
+    _data_quality_checks_gate = fn
+
+
+def data_quality_checks_needed_for(team_id: int, table_id: "str | uuid.UUID | None") -> bool:
+    if _data_quality_checks_gate is None or table_id is None:
+        return False
+    return _data_quality_checks_gate(team_id, table_id)
+
+
+@dataclasses.dataclass(frozen=True)
+class DataQualitySuiteTriggerInputs:
+    """Payload the import pipeline sends to the data-quality suite workflow.
+
+    Field names mirror data_quality's ``RunCheckSuiteInputs`` (the workflow is started by
+    registered name, so nothing here imports that product); omitted selector fields fall back to
+    the workflow input's defaults. ``trigger`` stays a plain string for the same reason: the
+    ``SuiteRunTrigger`` enum it decodes into lives on the other side of a one-way dependency.
+    """
+
+    team_id: int
+    trigger: str
+    table_ids: list[str]
+
+    @property
+    def properties_to_log(self) -> dict[str, Any]:
+        return {
+            "team_id": self.team_id,
+            "trigger": self.trigger,
+            "table_ids": self.table_ids,
+        }
+
+
 # --- Person-property sync run recorder ------------------------------------------------
 # The sync/backfill activities (owned by warehouse_sources) persist each run's funnel counts so the
 # customer_analytics UI can show run history and affected-person counts. Recording is inverted the
