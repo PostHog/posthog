@@ -304,24 +304,12 @@ class UnionFindStrategy:
                 (target.id, source.team_id, source.id),
             )
 
-        # Union members: the source and everything already merged into it.
-        cur.execute(
-            """
-            WITH RECURSIVE members AS (
-                SELECT id FROM posthog_person WHERE team_id = %s AND id = %s
-                UNION ALL
-                SELECT p.id FROM posthog_person p
-                JOIN members m ON p.merged_into_id = m.id
-                WHERE p.team_id = %s
-            )
-            SELECT id FROM members
-            """,
-            (source.team_id, source.id, source.team_id),
-        )
-        member_ids = [r[0] for r in cur.fetchall()]
-
-        # Cohort/FF rows still re-home (proportional to cohort membership, not
-        # distinct id count).
+        # Cohort/FF rows re-home from the source root only: every earlier merge
+        # already moved its own source's rows to the then-root, so accumulated
+        # rows always sit on the current root. Collecting the whole union here
+        # would make the merge O(members) — measured at ~2s per merge once a
+        # union reached ~9k members.
+        member_ids = [source.id]
         cur.execute(
             """
             WITH cohort_update AS (
@@ -460,13 +448,24 @@ class UnionFindCompatStrategy(UnionFindStrategy):
         member_ids: list[int],
         new_version: int,
     ) -> list[Emission]:
+        # Mapping rows never move, so they still point at every union member —
+        # emitting per-mapping overrides requires the full member list. This
+        # O(members) walk is inherent to the current CH contract, which is why
+        # it lives here and not on the pure pointer-merge path.
         cur.execute(
             """
-            SELECT distinct_id, COALESCE(version, 0) + %s
-            FROM posthog_persondistinctid
-            WHERE team_id = %s AND person_id = ANY(%s::bigint[]) AND is_deleted = false
+            WITH RECURSIVE members AS (
+                SELECT id FROM posthog_person WHERE team_id = %s AND id = %s
+                UNION ALL
+                SELECT p.id FROM posthog_person p
+                JOIN members m ON p.merged_into_id = m.id
+                WHERE p.team_id = %s
+            )
+            SELECT d.distinct_id, COALESCE(d.version, 0) + %s
+            FROM posthog_persondistinctid d
+            WHERE d.team_id = %s AND d.person_id IN (SELECT id FROM members) AND d.is_deleted = false
             """,
-            (new_version, source.team_id, member_ids),
+            (source.team_id, source.id, source.team_id, new_version, source.team_id),
         )
         rows = cur.fetchall()
         return [
