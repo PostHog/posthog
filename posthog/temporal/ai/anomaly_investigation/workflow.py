@@ -414,9 +414,9 @@ def _dispatch_gated_notification(
             else None
         )
         try:
-            targets = dispatch_alert_notification(alert, check, breaches, extra_properties=extra_properties)
-            if targets is not None:
-                record_alert_delivery(alert, check, targets)
+            deliveries = dispatch_alert_notification(alert, check, breaches, extra_properties=extra_properties)
+            if deliveries is not None:
+                record_alert_delivery(alert, check, deliveries)
         except Exception:
             logger.exception(
                 "anomaly_investigation.gated_notification_failed",

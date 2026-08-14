@@ -13,6 +13,7 @@ from posthog.slo.context import SloSpec, slo_operation
 from posthog.slo.types import SloArea, SloOperation, SloOutcome
 from posthog.tasks.alerts.utils import (
     calculation_interval_to_order,
+    disable_invalid_alert,
     next_check_time,
     send_notifications_for_breaches,
     send_notifications_for_errors,
@@ -20,7 +21,7 @@ from posthog.tasks.alerts.utils import (
 )
 
 from products.alerts.backend.destinations import ActiveAlertDestination
-from products.alerts.backend.models.alert import AlertConfiguration
+from products.alerts.backend.models.alert import AlertCheck, AlertConfiguration
 from products.product_analytics.backend.models.insight import Insight
 
 
@@ -270,4 +271,36 @@ class TestSendNotificationsReceipts(APIBaseTest):
         receipts = send_notifications_for_errors(self.alert, {"message": "boom"}, idempotency_key="check-1")
 
         assert [(r.channel, r.target, r.status) for r in receipts] == [("email", self.user.email, "accepted")]
+        mock_send.assert_called_once()
+
+
+class TestDisableInvalidAlert(APIBaseTest):
+    def setUp(self) -> None:
+        super().setUp()
+        self.insight = Insight.objects.create(team=self.team, name="test insight")
+        self.alert = AlertConfiguration.objects.create(
+            team=self.team,
+            insight=self.insight,
+            name="test alert",
+            condition={"type": "absolute_value"},
+            created_by=self.user,
+        )
+        self.alert.subscribed_users.add(self.user)
+
+    @patch("posthog.tasks.alerts.utils.send_notifications_for_disabled", side_effect=RuntimeError("smtp down"))
+    def test_disable_invalid_alert_records_nothing_when_send_fails(self, _mock_send: MagicMock) -> None:
+        with pytest.raises(RuntimeError):
+            disable_invalid_alert(self.alert, reason="bad config")
+
+        check = AlertCheck.objects.filter(alert_configuration=self.alert).latest("created_at")
+        assert check.targets_notified == {}
+        assert check.notification_sent_at is None
+
+    @patch("posthog.tasks.alerts.utils.send_notifications_for_disabled")
+    def test_disable_invalid_alert_records_receipts_after_send(self, mock_send: MagicMock) -> None:
+        check = disable_invalid_alert(self.alert, reason="bad config")
+
+        check.refresh_from_db()
+        assert check.targets_notified == {"users": [self.user.email]}
+        assert check.deliveries[0]["channel"] == "email"
         mock_send.assert_called_once()

@@ -476,12 +476,18 @@ def disable_invalid_alert(alert: AlertConfiguration, reason: str) -> AlertCheck:
         alert_configuration=alert,
         calculated_value=None,
         condition=alert.condition,
-        targets_notified={"users": targets_to_notify} if targets_to_notify else {},
+        targets_notified={},
         state=AlertState.ERRORED,
         error={"message": reason},
     )
     if targets_to_notify:
         send_notifications_for_disabled(alert, reason, targets_to_notify)
+        accepted_at = datetime.now(UTC).isoformat()
+        record_alert_delivery(
+            alert,
+            alert_check,
+            [AlertDelivery(channel="email", target=target, at=accepted_at) for target in targets_to_notify],
+        )
     return alert_check
 
 

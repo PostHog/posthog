@@ -98,9 +98,9 @@ def run_investigation_notification_safety_net() -> int:
                 if locked.notification_sent_at is not None or locked.notification_suppressed_by_agent:
                     continue
                 breaches = _fallback_breach_descriptions(locked)
-                targets = dispatch_alert_notification(alert, locked, breaches)
-                if targets is not None:
-                    record_alert_delivery(alert, locked, targets)
+                deliveries = dispatch_alert_notification(alert, locked, breaches)
+                if deliveries is not None:
+                    record_alert_delivery(alert, locked, deliveries)
                 # Set notification_sent_at in lock-step with record_alert_delivery so
                 # gating/idempotency reads that still use this marker stay consistent.
                 locked.notification_sent_at = timezone.now()
