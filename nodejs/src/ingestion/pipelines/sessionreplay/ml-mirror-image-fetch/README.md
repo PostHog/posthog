@@ -12,6 +12,7 @@ code is written against. Where the code and this file disagree, one of them is a
 - Any time there is ambiguity, we should resolve it in the direction of not fetching the image
 - We only fetch images that are linked to by a Session Replay from a customer with AI training enabled, and respect known methods for web sites to opt out of this fetching, regardless of whether there is a legal requirement to do so
 - We have a high standard for politeness, and have aggressive rate limits to enforce this
+- We are combining many opt out signals, any one of them causes us to stop fetching. We pick the order that these are checked to prioritise legal requirements first, spec compliance second, and load on hosts third
 
 ## The model
 
