@@ -148,11 +148,18 @@ class AssistantContextManager(AssistantContextMixin):
         Defaults to `posthog_ai` because most runs are the in-product assistant. Programmatic
         entry points (the MCP `create_and_query_insight` endpoint) resolve it from the request
         instead, so an agent's work isn't counted as PostHog AI's.
+
+        Coerced rather than type-checked: configs round-trip through checkpoint serialization,
+        which turns the enum back into a plain string, and `isinstance` would silently reset a
+        recovered run to the default.
         """
         event_source = (self._config.get("configurable") or {}).get("event_source")
-        if not isinstance(event_source, EventSource):
+        if event_source is None:
             return EventSource.POSTHOG_AI
-        return event_source
+        try:
+            return EventSource(event_source)
+        except ValueError:
+            return EventSource.POSTHOG_AI
 
     def get_billing_context(self) -> MaxBillingContext | None:
         """
@@ -520,6 +527,7 @@ class AssistantContextManager(AssistantContextMixin):
         return InsightContext(
             team=self._team,
             user=self._user,
+            event_source=self.event_source,
             query=insight.query,
             name=insight.name,
             description=insight.description,
