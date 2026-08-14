@@ -5,30 +5,37 @@ import { IconArrowLeft } from '@posthog/icons'
 import { LemonButton, LemonSkeleton } from '@posthog/lemon-ui'
 
 import { pluralize } from 'lib/utils/strings'
+import { urls } from 'scenes/urls'
 
 import { captureScoutDetailViewed } from '../../../inboxAnalytics'
 import { inboxSceneLogic } from '../../../inboxSceneLogic'
 import { scoutDetailLogic } from '../../../logics/scoutDetailLogic'
 import { scoutFleetLogic } from '../../../logics/scoutFleetLogic'
+import { scoutNotesLogic } from '../../../logics/scoutNotesLogic'
+import { entriesForSkill, scratchpadLogic } from '../../../logics/scratchpadLogic'
 import { SCOUT_NO_RECENT_RUNS, SCOUT_RUNS_PER_SCOUT_LABEL } from '../../../utils/scoutRunsWindow'
+import { ScoutDetailHeader, ScoutAttentionBanner } from './ScoutDetailHeader'
 import { ScoutEmissionCard } from './ScoutEmissionCard'
+import { ScoutLearnedPanel } from './ScoutLearnedPanel'
+import { ScoutNotesPanel } from './ScoutNotesPanel'
 import { ScoutReportCard } from './ScoutReportCard'
-import { ScoutRowCard } from './ScoutRowCard'
 import { ScoutRunHistorySection } from './ScoutRunHistorySection'
 
 /**
- * Full-width scout detail surface, rendered over the inbox list at `/inbox/scouts/:skillName`.
- * Skeleton (W1): back link, the shared `ScoutRowCard` as the header, and the recent-window
- * rollup line. The Signals section (emission cards) and per-scout run history land next (W2/W3).
+ * One scout's page, at `/inbox/scouts/:skillName`. In order of what a reader needs: anything the
+ * scheduler wants decided, then what the scout produced, and down the side what it has worked out
+ * for itself and what the team has told it. Configuration lives behind the header's settings modal —
+ * this page is for reading the scout, not adjusting it.
  */
 export function ScoutDetailView({ skillName }: { skillName: string }): JSX.Element {
-    const { scoutConfigs, rollups, updatingScoutIds } = useValues(scoutFleetLogic)
-    const { updateScoutConfig, startRunsPolling, stopRunsPolling } = useActions(scoutFleetLogic)
-    const { setSelectedScoutSkillName } = useActions(inboxSceneLogic)
+    const { scoutConfigs, rollups } = useValues(scoutFleetLogic)
+    const { startRunsPolling, stopRunsPolling } = useActions(scoutFleetLogic)
+    const { entries } = useValues(scratchpadLogic)
+    const { scoutNotes } = useValues(scoutNotesLogic({ skillName }))
 
-    // Deep-linking straight to a scout (or a narrow viewport where the fleet list isn't mounted)
+    // Deep-linking straight to a scout (or a narrow viewport where the roster isn't mounted)
     // means nobody else is polling the runs window, so the header + rollup would read empty
-    // defaults. Drive the same start/stop lifecycle the fleet section uses.
+    // defaults. Drive the same start/stop lifecycle the roster uses.
     useEffect(() => {
         startRunsPolling()
         return () => stopRunsPolling()
@@ -57,68 +64,101 @@ export function ScoutDetailView({ skillName }: { skillName: string }): JSX.Eleme
         })
     }, [skillName, config, rollup])
 
-    return (
-        <div className="flex flex-col min-h-0 flex-1 overflow-auto gap-4 px-4 py-3">
-            <LemonButton
-                type="tertiary"
-                size="small"
-                icon={<IconArrowLeft />}
-                onClick={() => setSelectedScoutSkillName(null)}
-                className="self-start"
-            >
-                Scouts
-            </LemonButton>
+    if (scoutConfigs === null) {
+        // Configs unresolved (loading, not-yet-fetched on a fresh deep-link mount, or a failed
+        // load — never an empty fleet, which is `[]`). Hold the skeleton so "Scout not found"
+        // can't flash before we actually have the fleet to look in.
+        return (
+            <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-auto px-4 py-3">
+                <LemonSkeleton className="h-24 w-full rounded" />
+                <LemonSkeleton className="h-40 w-full rounded" />
+            </div>
+        )
+    }
 
-            {scoutConfigs === null ? (
-                // Configs unresolved (loading, not-yet-fetched on a fresh deep-link mount, or a failed
-                // load — never an empty fleet, which is `[]`). Hold the skeleton so "Scout not found"
-                // can't flash before we actually have the fleet to look in.
-                <LemonSkeleton className="h-16 w-full rounded" />
-            ) : config === null ? (
+    if (config === null) {
+        return (
+            <div className="flex min-h-0 flex-1 flex-col overflow-auto px-4 py-3">
+                <div className="flex">
+                    <BackToScouts />
+                </div>
                 <div className="flex flex-1 items-center justify-center text-sm text-tertiary">Scout not found.</div>
-            ) : (
-                <>
-                    <ScoutRowCard
-                        config={config}
-                        rollup={rollup}
-                        onUpdate={updateScoutConfig}
-                        updating={updatingScoutIds.includes(config.id)}
-                        asHeader
-                    />
+            </div>
+        )
+    }
 
-                    {config.description ? (
-                        <p className="text-sm text-secondary leading-snug mb-0">{config.description}</p>
-                    ) : null}
+    return (
+        <div className="flex min-h-0 flex-1 flex-col overflow-auto">
+            <div className="flex px-4 pt-3">
+                <BackToScouts />
+            </div>
+            <ScoutDetailHeader
+                config={config}
+                rollup={rollup}
+                noteCount={scoutNotes.length}
+                learnedCount={entriesForSkill(entries, skillName).length}
+            />
 
-                    <div className="flex flex-col gap-1">
-                        <span className="text-xs font-medium text-default uppercase tracking-wide">
-                            {SCOUT_RUNS_PER_SCOUT_LABEL}
-                        </span>
-                        <span className="text-sm text-secondary">
-                            {rollup && rollup.runCount > 0 ? (
-                                <>
-                                    {pluralize(rollup.runCount, 'run')} · {rollup.completedCount} completed ·{' '}
-                                    {rollup.failedCount} failed · {pluralize(rollup.emittedCount, 'signal')} emitted
-                                    {rollup.authoredReportIds.size > 0 && (
-                                        <> · {pluralize(rollup.authoredReportIds.size, 'report')} authored</>
-                                    )}
-                                    {rollup.editedReportIds.size > 0 && (
-                                        <> · {pluralize(rollup.editedReportIds.size, 'report')} edited</>
-                                    )}
-                                </>
-                            ) : (
-                                SCOUT_NO_RECENT_RUNS
-                            )}
-                        </span>
-                    </div>
-
+            <div className="grid grid-cols-1 items-start gap-4 px-4 py-4 xl:grid-cols-[minmax(0,1fr)_20rem]">
+                <div className="flex min-w-0 flex-col gap-4">
+                    <ScoutAttentionBanner config={config} />
+                    <ScoutActivitySummary skillName={skillName} />
                     <ScoutReportsSection skillName={skillName} />
-
                     <ScoutSignalsSection skillName={skillName} />
-
                     <ScoutRunHistorySection skillName={skillName} />
-                </>
-            )}
+                </div>
+                <div className="flex min-w-0 flex-col gap-4">
+                    <ScoutNotesPanel skillName={skillName} />
+                    <ScoutLearnedPanel skillName={skillName} />
+                </div>
+            </div>
+        </div>
+    )
+}
+
+function BackToScouts(): JSX.Element {
+    const { setSelectedScoutSkillName } = useActions(inboxSceneLogic)
+    return (
+        <LemonButton
+            type="tertiary"
+            size="small"
+            icon={<IconArrowLeft />}
+            to={urls.inbox('scouts')}
+            onClick={() => setSelectedScoutSkillName(null)}
+            className="w-fit"
+        >
+            Scouts
+        </LemonButton>
+    )
+}
+
+/** The window's totals in one line, so the sections below don't each restate the same window. */
+function ScoutActivitySummary({ skillName }: { skillName: string }): JSX.Element {
+    const { rollups } = useValues(scoutFleetLogic)
+    const rollup = rollups.get(skillName)
+
+    if (!rollup || rollup.runCount === 0) {
+        return <span className="text-sm text-secondary">{SCOUT_NO_RECENT_RUNS}</span>
+    }
+
+    // Reports filed lead; reports it only added to are stated as such rather than as a second
+    // report count, which read as two flavours of the same number.
+    const parts = [
+        pluralize(rollup.runCount, 'run'),
+        ...(rollup.failedCount > 0 ? [`${rollup.failedCount} failed`] : []),
+        ...(rollup.authoredReportIds.size > 0 ? [`${pluralize(rollup.authoredReportIds.size, 'report')} filed`] : []),
+        ...(rollup.editedReportIds.size > 0
+            ? [`added to ${pluralize(rollup.editedReportIds.size, 'existing report')}`]
+            : []),
+        ...(rollup.emittedCount > 0 ? [`${pluralize(rollup.emittedCount, 'signal')} emitted`] : []),
+    ]
+
+    return (
+        <div className="flex flex-col gap-0.5">
+            <span className="text-xs font-medium uppercase tracking-wide text-default">
+                {SCOUT_RUNS_PER_SCOUT_LABEL}
+            </span>
+            <span className="text-sm text-secondary">{parts.join(' · ')}</span>
         </div>
     )
 }
@@ -143,12 +183,12 @@ function ScoutReportsSection({ skillName }: { skillName: string }): JSX.Element 
 
     return (
         <div className="flex flex-col gap-2">
-            <span className="text-xs font-medium text-default uppercase tracking-wide">Reports</span>
+            <span className="text-xs font-medium uppercase tracking-wide text-default">Reports it filed</span>
             {loading ? (
                 <LemonSkeleton className="h-12 w-full rounded" />
             ) : reportRows.length === 0 ? (
                 // Touched ids exist but none resolved — the reports were deleted, or the fetch failed.
-                <div className="rounded border border-dashed border-primary bg-bg-light px-4 py-6 text-center text-sm text-muted">
+                <div className="rounded border border-dashed border-primary bg-surface-primary px-4 py-6 text-center text-sm text-muted">
                     Couldn’t load the reports this scout authored.
                 </div>
             ) : (
@@ -193,35 +233,33 @@ function ScoutSignalsSection({ skillName }: { skillName: string }): JSX.Element 
 
     return (
         <div className="flex flex-col gap-2">
-            <span className="text-xs font-medium text-default uppercase tracking-wide">Signals</span>
+            <span className="text-xs font-medium uppercase tracking-wide text-default">Signals</span>
             {loading && !hasRows ? (
                 <LemonSkeleton className="h-12 w-full rounded" />
             ) : emissionsLoadFailed && !hasRows ? (
                 // Every per-run emissions fetch failed while the rollup says these runs emitted —
                 // don't claim "no signals". The 60s poll keeps retrying.
-                <div className="rounded border border-dashed border-primary bg-bg-light px-4 py-6 text-center text-sm text-muted">
+                <div className="rounded border border-dashed border-primary bg-surface-primary px-4 py-6 text-center text-sm text-muted">
                     Couldn’t load signals for this scout. Retrying…
                 </div>
             ) : !hasRows ? (
-                <div className="rounded border border-dashed border-primary bg-bg-light px-4 py-6 text-center text-sm text-muted">
+                <div className="rounded border border-dashed border-primary bg-surface-primary px-4 py-6 text-center text-sm text-muted">
                     {`No signals emitted in the ${SCOUT_RUNS_PER_SCOUT_LABEL}.`}
                 </div>
             ) : (
-                <>
-                    {emissionRows.map(({ emission, run, report }) => (
-                        <ScoutEmissionCard
-                            key={emission.id}
-                            skillName={skillName}
-                            emission={emission}
-                            run={run}
-                            report={report}
-                            // `finding_id` repeats across runs (it's a dedup trace id, not unique), so only
-                            // mark the newest matching emission — rows are newest-first — to keep the
-                            // highlight/scroll deterministic for a single shared link.
-                            isDeepLinked={emission.id === deepLinkedEmissionId}
-                        />
-                    ))}
-                </>
+                emissionRows.map(({ emission, run, report }) => (
+                    <ScoutEmissionCard
+                        key={emission.id}
+                        skillName={skillName}
+                        emission={emission}
+                        run={run}
+                        report={report}
+                        // `finding_id` repeats across runs (it's a dedup trace id, not unique), so only
+                        // mark the newest matching emission — rows are newest-first — to keep the
+                        // highlight/scroll deterministic for a single shared link.
+                        isDeepLinked={emission.id === deepLinkedEmissionId}
+                    />
+                ))
             )}
         </div>
     )

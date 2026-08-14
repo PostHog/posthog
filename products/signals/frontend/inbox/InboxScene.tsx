@@ -2,11 +2,10 @@ import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import React, { useEffect, useRef } from 'react'
 
-import { IconArrowLeft, IconBug } from '@posthog/icons'
-import { LemonButton, Tooltip } from '@posthog/lemon-ui'
+import { IconArrowLeft } from '@posthog/icons'
+import { LemonButton } from '@posthog/lemon-ui'
 
 import { useResizeBreakpoints } from 'lib/hooks/useResizeObserver'
-import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
@@ -14,6 +13,7 @@ import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 
 import { ScoutDetailView } from './components/config/scouts/ScoutDetailView'
+import { ScoutsRoster, ScoutsRosterActions } from './components/config/scouts/ScoutsRoster'
 import { ReportDetail, ReportDetailSkeleton } from './components/detail/ReportDetail'
 import { FindingsPanel } from './components/findings/FindingsPanel'
 import { InboxOnboardingBanner, InboxOnboardingTakeover } from './components/onboarding/InboxOnboarding'
@@ -94,6 +94,8 @@ function ActiveTabBody({
             return <NotActionableTab />
         case 'archived':
             return <ArchivedTab />
+        case 'scouts':
+            return <ScoutsRoster />
         case 'runs':
             return <RunsTab runs={signalRuns} loading={signalRunsLoading} />
         case 'config':
@@ -121,7 +123,9 @@ function InboxListView(): JSX.Element {
     // tab (the other tabs are visible but disabled) whose body is the onboarding card. The setup rail
     // is dropped too, so the onboarding is the whole story – just run the one command.
     const onboarding = onboardingMode === 'takeover'
-    const showRail = wide && !onboarding
+    // The Scouts tab is a full-width table, and the rail's own scout widget just links here — so
+    // the rail would be both redundant and the reason the table has nowhere to breathe.
+    const showRail = wide && !onboarding && activeTab !== 'scouts'
     // The rail and the Configuration tab are mutually exclusive – never leave 'config' active
     // (e.g. via a deep link) while the rail shows, or the rail and a config body would both appear.
     const effectiveTab = showRail && activeTab === 'config' ? 'pulls' : activeTab
@@ -223,7 +227,6 @@ function InboxPanelView({ onBack, children }: { onBack: () => void; children: JS
 export function InboxScene(): JSX.Element {
     const {
         activeTab,
-        isRunningSessionAnalysis,
         selectedReportId,
         selectedReport,
         selectedReportLoading,
@@ -231,9 +234,8 @@ export function InboxScene(): JSX.Element {
         isScratchpadOpen,
         isFindingsOpen,
     } = useValues(inboxSceneLogic)
-    const { runSessionAnalysis, setScratchpadOpen, setFindingsOpen } = useActions(inboxSceneLogic)
+    const { setScratchpadOpen, setFindingsOpen } = useActions(inboxSceneLogic)
     const { onboardingMode } = useValues(inboxOnboardingLogic)
-    const { isDev } = useValues(preflightLogic)
     const { searchParams } = useValues(router)
 
     // Surfaces that embed inbox cards (e.g. the customer analytics feed) set a `?back=` internal path;
@@ -274,23 +276,10 @@ export function InboxScene(): JSX.Element {
                             : INBOX_TAB_DESCRIPTION[activeTab]
                     }
                     resourceType={{ type: 'inbox' }}
-                    actions={
-                        isDev ? (
-                            <Tooltip title="Analyze the last 7 days of sessions">
-                                <LemonButton
-                                    type="secondary"
-                                    onClick={() => runSessionAnalysis()}
-                                    loading={isRunningSessionAnalysis}
-                                    size="small"
-                                    data-attr="run-session-analysis-button"
-                                    tooltip="DEBUG-only"
-                                    icon={<IconBug />}
-                                >
-                                    Run session analysis
-                                </LemonButton>
-                            </Tooltip>
-                        ) : undefined
-                    }
+                    // Creating a scout is the Scouts tab's primary action, so it sits in the scene
+                    // header rather than inside the roster — one predictable place, and it stays
+                    // reachable when the roster is filtered down to nothing.
+                    actions={activeTab === 'scouts' ? <ScoutsRosterActions /> : undefined}
                 />
 
                 <div className="flex flex-col -mx-4 -mt-4 flex-1 min-h-0">

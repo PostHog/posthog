@@ -1,19 +1,20 @@
 import { useActions, useValues } from 'kea'
 import { useEffect } from 'react'
 
-import { IconArrowLeft } from '@posthog/icons'
+import { IconArrowLeft, IconCompass } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { urls } from 'scenes/urls'
 
+import { scoutFleetLogic } from '../../logics/scoutFleetLogic'
 import { SessionAnalysisSetup } from '../../SessionAnalysisSetup'
 import { signalSourcesLogic } from '../../signalSourcesLogic'
 import { AgentsRoster } from './AgentsRoster'
 import { ConnectionsSection } from './ConnectionsSection'
 import { DataSourceSetup } from './DataSourceSetup'
 import { McpServersSection } from './McpServersSection'
-import { ScoutsFleetSection } from './scouts/ScoutsFleetSection'
 import { SlackNotificationsSection } from './SlackNotificationsSection'
 
 function Subsection({
@@ -34,6 +35,28 @@ function Subsection({
                 )}
             </div>
             {children}
+        </div>
+    )
+}
+
+/**
+ * The roster lives on its own tab now, so this points at it rather than mounting a second copy —
+ * two live rosters on one project would each poll the runs window and fight over the same state.
+ */
+function ScoutsSubsectionLink(): JSX.Element {
+    const { scoutConfigs, enabledCount } = useValues(scoutFleetLogic)
+
+    return (
+        <div className="flex items-center gap-3 rounded border border-primary bg-surface-primary px-4 py-3">
+            <IconCompass className="size-5 shrink-0 text-accent" />
+            <span className="flex-1 text-sm text-secondary">
+                {scoutConfigs === null
+                    ? 'Manage the scouts sweeping this project.'
+                    : `${enabledCount} of ${scoutConfigs.length} scouts on patrol.`}
+            </span>
+            <LemonButton type="secondary" size="small" to={urls.inbox('scouts')}>
+                Open scouts
+            </LemonButton>
         </div>
     )
 }
@@ -103,7 +126,7 @@ export function AgentsTab(): JSX.Element {
                     title="Scouts"
                     description="Scheduled agents that sweep this project on a cadence and emit signals to your inbox."
                 >
-                    <ScoutsFleetSection />
+                    <ScoutsSubsectionLink />
                 </Subsection>
 
                 <Subsection

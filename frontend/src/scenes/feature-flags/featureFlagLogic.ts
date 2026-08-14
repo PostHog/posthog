@@ -1,5 +1,4 @@
 import { CronExpressionParser } from 'cron-parser'
-import cronstrue from 'cronstrue'
 import {
     MakeLogicType,
     actions,
@@ -29,6 +28,7 @@ import { ACTIVITY_SEARCH_PARAM } from 'lib/components/ActivityLog/activityLogLog
 import { tryShowMCPHint } from 'lib/components/MCPHint/mcpHintLogic'
 import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
 import { FEATURE_FLAGS } from 'lib/constants'
+import { describeCron } from 'lib/cron'
 import { Dayjs, dayjs } from 'lib/dayjs'
 import { scrollToFormError } from 'lib/forms/scrollToFormError'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
@@ -255,25 +255,9 @@ interface PairedPresetDefinition {
     disableCron: string
 }
 
-/** Human-readable description of a 5-field cron expression, or an error string. Returns null for empty input. */
-export function describeCron(expr: string | null): string | null {
-    if (!expr) {
-        return null
-    }
-    const fields = expr.trim().split(/\s+/)
-    if (fields.length !== 5) {
-        return 'Invalid cron expression'
-    }
-    try {
-        // Validate with cron-parser first — cronstrue is lenient and can
-        // produce garbled output (e.g. "Monday through undefined") for
-        // syntactically incomplete expressions like "0 9 * * 1-".
-        CronExpressionParser.parse(expr)
-        return cronstrue.toString(expr)
-    } catch {
-        return 'Invalid cron expression'
-    }
-}
+// Re-exported so the existing feature-flag call sites keep their import; the implementation is
+// shared with any other surface that renders a cron schedule.
+export { describeCron }
 
 /**
  * Schedule pickers operate on the browser's wall clock, but users expect the time they enter

@@ -238,7 +238,6 @@ export interface inboxSceneLogicValues {
     activeTab: InboxTabKey
     breadcrumbs: Breadcrumb[]
     isFindingsOpen: boolean
-    isRunningSessionAnalysis: boolean
     isScratchpadOpen: boolean
     isStaff: boolean
     scoutTemplateDraft: ScoutCreateInitialValues | null
@@ -293,15 +292,6 @@ export interface inboxSceneLogicActions {
         payload?: {
             id: string
         }
-    }
-    runSessionAnalysis: () => {
-        value: true
-    }
-    runSessionAnalysisFailure: (error: string) => {
-        error: string
-    }
-    runSessionAnalysisSuccess: () => {
-        value: true
     }
     seedSelectedReport: (report: SignalReport | null) => {
         report: SignalReport | null
@@ -390,9 +380,6 @@ export const inboxSceneLogic = kea<inboxSceneLogicType>([
         // Cross-fleet findings surface: full-width browse/search/filter of every finding the troop
         // emitted recently, mutually exclusive with the other full-width views.
         setFindingsOpen: (open: boolean) => ({ open }),
-        runSessionAnalysis: true,
-        runSessionAnalysisSuccess: true,
-        runSessionAnalysisFailure: (error: string) => ({ error }),
         // A decoded `#createScout=` payload, prefilling the create modal. The user still submits it.
         setScoutTemplateDraft: (draft: ScoutCreateInitialValues | null) => ({ draft }),
     }),
@@ -514,14 +501,6 @@ export const inboxSceneLogic = kea<inboxSceneLogicType>([
             null as string | null,
             {
                 setSelectedScoutSkillName: (_, { findingId }) => findingId,
-            },
-        ],
-        isRunningSessionAnalysis: [
-            false,
-            {
-                runSessionAnalysis: () => true,
-                runSessionAnalysisSuccess: () => false,
-                runSessionAnalysisFailure: () => false,
             },
         ],
     }),
@@ -676,16 +655,6 @@ export const inboxSceneLogic = kea<inboxSceneLogicType>([
                 cache.sessionAnalysisPollInterval = setInterval(() => {
                     actions.loadSourceConfigs()
                 }, SESSION_ANALYSIS_POLL_INTERVAL_MS)
-            }
-        },
-        runSessionAnalysis: async () => {
-            try {
-                await api.signalReports.analyzeSessions()
-                lemonToast.success('Session analysis completed')
-                actions.runSessionAnalysisSuccess()
-            } catch (error: any) {
-                lemonToast.error(error?.detail || error?.message || 'Failed to run session analysis')
-                actions.runSessionAnalysisFailure(error?.detail || error?.message || 'Failed to run session analysis')
             }
         },
     })),
