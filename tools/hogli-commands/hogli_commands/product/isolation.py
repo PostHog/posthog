@@ -489,6 +489,7 @@ MODEL_CROSSINGS: frozenset[tuple[str, str]] = frozenset(
         ("warehouse_sources", "ExternalDataJob"),
         ("warehouse_sources", "ExternalDataSchema"),
         ("warehouse_sources", "ExternalDataSource"),
+        ("warehouse_sources", "PendingSourceCredential"),
         ("warehouse_sources", "WarehouseColumnAnnotation"),
         ("warehouse_sources", "WarehouseColumnStatistics"),
     }
