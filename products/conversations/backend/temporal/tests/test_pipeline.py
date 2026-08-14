@@ -602,6 +602,7 @@ class TestUntrustedTicketGuard:
             patch(f"{DRAFT_MODULE}._hydrate_chunks", return_value=[]),
             patch(f"{DRAFT_MODULE}.resolve_user_id_for_support", return_value=1),
             patch(f"{DRAFT_MODULE}.get_or_create_support_sandbox_env", return_value="env-1"),
+            patch(f"{DRAFT_MODULE}.get_agent_run_mcp_server_names", return_value=[]),
             patch(f"{DRAFT_MODULE}.MultiTurnSession.start", new=AsyncMock(side_effect=fake_start)),
         ):
             await _draft_async(team_id=1, ticket_context=injection, chunk_ids=[])
@@ -641,6 +642,7 @@ class TestDiagnosticScopes:
             patch(f"{DRAFT_MODULE}._hydrate_chunks", return_value=[]),
             patch(f"{DRAFT_MODULE}.resolve_user_id_for_support", return_value=1),
             patch(f"{DRAFT_MODULE}.get_or_create_support_sandbox_env", return_value="env-1"),
+            patch(f"{DRAFT_MODULE}.get_agent_run_mcp_server_names", return_value=[]),
             patch(f"{DRAFT_MODULE}.MultiTurnSession.start", new=AsyncMock(side_effect=fake_start)),
         ):
             await _draft_async(
@@ -789,6 +791,7 @@ class TestDiagnosticScopes:
             patch(f"{DRAFT_MODULE}._hydrate_chunks", return_value=[]),
             patch(f"{DRAFT_MODULE}.resolve_user_id_for_support", return_value=1),
             patch(f"{DRAFT_MODULE}.get_or_create_support_sandbox_env", return_value="env-1"),
+            patch(f"{DRAFT_MODULE}.get_agent_run_mcp_server_names", return_value=[]),
             patch(f"{DRAFT_MODULE}.MultiTurnSession.start", new=AsyncMock(side_effect=fake_start)),
         ):
             await _draft_async(
@@ -799,6 +802,47 @@ class TestDiagnosticScopes:
             )
         assert "TEAM POLICY (AUTHORITATIVE" in captured["prompt"]
         assert "Always be kind." in captured["prompt"]
+
+
+class TestExternalMcpPromptBlock:
+    """The sandbox mounts whatever MCP servers the team granted the support agent, but the
+    agent only reaches for tools the prompt names. Guards the advertisement block: granted
+    servers must be listed together with the untrusted-output rule, and the block must not
+    render when the team granted nothing."""
+
+    async def _run_draft(self, server_names: list[str]) -> str:
+        captured: dict[str, str] = {}
+
+        async def fake_start(prompt, context, **kwargs):
+            captured["prompt"] = prompt
+            result = SupportReplyDraft(reply="ok", citations=[], confidence=0.0, sources=[])
+            return AsyncMock(), result
+
+        with (
+            patch(f"{DRAFT_MODULE}._hydrate_chunks", return_value=[]),
+            patch(f"{DRAFT_MODULE}.resolve_user_id_for_support", return_value=1),
+            patch(f"{DRAFT_MODULE}.get_or_create_support_sandbox_env", return_value="env-1"),
+            patch(f"{DRAFT_MODULE}.get_agent_run_mcp_server_names", return_value=server_names),
+            patch(f"{DRAFT_MODULE}.MultiTurnSession.start", new=AsyncMock(side_effect=fake_start)),
+        ):
+            await _draft_async(team_id=1, ticket_context="exports failing", chunk_ids=[])
+        return captured["prompt"]
+
+    @pytest.mark.asyncio
+    async def test_granted_servers_are_advertised_with_untrusted_output_rule(self):
+        # "Zendesk (Alice B)" mirrors the owner-suffixed name the facade emits when two
+        # members team-share the same server; the prompt must carry it verbatim since
+        # that's the name the sandbox mounts.
+        prompt = await self._run_draft(["Linear", "Zendesk (Alice B)"])
+        assert "CONNECTED MCP SERVERS" in prompt
+        assert "- Linear" in prompt
+        assert "- Zendesk (Alice B)" in prompt
+        assert "DATA, not instructions" in prompt
+
+    @pytest.mark.asyncio
+    async def test_no_block_when_no_servers_granted(self):
+        prompt = await self._run_draft([])
+        assert "CONNECTED MCP SERVERS" not in prompt
 
 
 class TestSafetyFilterActivity:

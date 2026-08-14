@@ -18,6 +18,7 @@ from posthog.storage import object_storage
 from posthog.storage.object_storage import ObjectStorageError
 from posthog.temporal.oauth import PosthogMcpScopes
 
+from products.mcp_store.backend.facade.api import get_installations_for_sandbox
 from products.tasks.backend.models import MCPBuiltInAgentKey, Task, TaskRun
 
 if TYPE_CHECKING:
@@ -197,6 +198,34 @@ class EmptyAgentTurnError(RuntimeError):
         super().__init__(message)
         self.total_lines = total_lines
         self.printed_lines = printed_lines
+
+
+def get_agent_run_mcp_server_names(
+    team_id: int,
+    *,
+    origin_product: str,
+    agent_key: MCPBuiltInAgentKey,
+    user_id: int | None = None,
+    credential_owner_id: int | None = None,
+) -> list[str]:
+    """Names of the MCP Store servers a built-in agent run with this origin will mount.
+
+    Resolves through the same facade call sandbox provisioning uses
+    (`get_user_mcp_server_configs` in process_task), so a caller building the
+    run's prompt can advertise exactly the external MCP servers the sandbox
+    will have. `user_id` only matters on teams where built-in agent
+    enforcement hasn't rolled out yet, where the legacy member resolution
+    applies its per-member revocations.
+    """
+    installations = get_installations_for_sandbox(
+        team_id,
+        user_id=user_id,
+        include_personal=False,
+        task_origin=origin_product,
+        task_agent_key=agent_key,
+        credential_owner_id=credential_owner_id,
+    )
+    return [installation.name for installation in installations]
 
 
 async def create_task_and_trigger(
