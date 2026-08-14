@@ -256,6 +256,7 @@ class MaterializeViewWorkflow(PostHogWorkflow):
                     table_uri=materialize_result.table_uri,
                     file_uris=materialize_result.file_uris,
                     row_count=materialize_result.row_count,
+                    incremental=materialize_result.incremental,
                 )
                 # A rolling deploy can pair an old workflow worker with a new activity worker, so a
                 # history can carry "gate" and still have recorded the ungated command. The marker

@@ -16,6 +16,10 @@ from .materialize_view_duckgres import (
     check_duckgres_shadow_enabled_activity,
     materialize_view_duckgres_activity,
 )
+from .notify_materialization_failure import (
+    NotifyDAGMaterializationFailuresInputs,
+    notify_dag_materialization_failures_activity,
+)
 from .preempt_dag_run import PreemptDAGRunInputs, preempt_dag_run_activity
 from .prepare_queryable_table import (
     PrepareQueryableTableInputs,
@@ -43,6 +47,7 @@ __all__ = [
     "DuckgresShadowResult",
     "GetDAGStructureInputs",
     "FailMaterializationInputs",
+    "NotifyDAGMaterializationFailuresInputs",
     "MaterializeViewInputs",
     "MaterializeViewResult",
     "PreemptDAGRunInputs",
@@ -58,6 +63,7 @@ __all__ = [
     "record_skipped_data_modeling_jobs_activity",
     "enrich_view_semantics_activity",
     "fail_materialization_activity",
+    "notify_dag_materialization_failures_activity",
     "materialize_view_activity",
     "materialize_view_duckgres_activity",
     "get_dag_structure_activity",

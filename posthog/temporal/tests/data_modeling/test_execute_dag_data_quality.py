@@ -20,6 +20,7 @@ from posthog.temporal.tests.data_modeling.test_execute_dag_workflow import (
     _mock_workflow_should_block_on_quality,
     _mock_workflow_should_fail,
     _mock_workflow_should_self_audit,
+    stub_notify_dag_materialization_failures,
     stub_preempt_dag_run,
     stub_record_skipped_data_modeling_jobs,
 )
@@ -94,6 +95,7 @@ class TestPostMaterializationChecks:
                     stub_get_dag_structure,
                     stub_materialization_gate,
                     stub_record_skipped_data_modeling_jobs,
+                    stub_notify_dag_materialization_failures,
                 ],
                 workflow_runner=temporalio.worker.UnsandboxedWorkflowRunner(),
             ):
