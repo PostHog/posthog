@@ -1,6 +1,8 @@
 from datetime import UTC, datetime
 
+import pytest
 from freezegun import freeze_time
+from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, patch
 
 from parameterized import parameterized
@@ -9,10 +11,17 @@ from posthog.schema import AlertCalculationInterval
 
 from posthog.slo.context import SloSpec, slo_operation
 from posthog.slo.types import SloArea, SloOperation, SloOutcome
-from posthog.tasks.alerts.utils import calculation_interval_to_order, next_check_time, trigger_alert_hog_functions
+from posthog.tasks.alerts.utils import (
+    calculation_interval_to_order,
+    next_check_time,
+    send_notifications_for_breaches,
+    send_notifications_for_errors,
+    trigger_alert_hog_functions,
+)
 
 from products.alerts.backend.destinations import ActiveAlertDestination
 from products.alerts.backend.models.alert import AlertConfiguration
+from products.product_analytics.backend.models.insight import Insight
 
 
 class TestAlertUtils:
@@ -218,3 +227,47 @@ class TestAlertUtils:
         alert.detector_config = None
 
         assert trigger_alert_hog_functions(alert=alert, properties={}) == []
+
+
+class TestSendNotificationsReceipts(APIBaseTest):
+    def setUp(self) -> None:
+        super().setUp()
+        self.insight = Insight.objects.create(team=self.team, name="test insight")
+        self.alert = AlertConfiguration.objects.create(
+            team=self.team,
+            insight=self.insight,
+            name="test alert",
+            condition={"type": "absolute_value"},
+            created_by=self.user,
+        )
+        self.alert.subscribed_users.add(self.user)
+
+    @patch("posthog.tasks.alerts.utils.trigger_alert_hog_functions", return_value=[])
+    @patch("posthog.tasks.alerts.utils.send_alert_email")
+    def test_breach_notifications_return_email_receipts(self, mock_send: MagicMock, _mock_trigger: MagicMock) -> None:
+        receipts = send_notifications_for_breaches(self.alert, ["breach"], idempotency_key="check-1")
+
+        assert [(r.channel, r.target, r.status) for r in receipts] == [("email", self.user.email, "accepted")]
+        mock_send.assert_called_once()
+
+    @patch("posthog.tasks.alerts.utils.trigger_alert_hog_functions", return_value=[])
+    @patch("posthog.tasks.alerts.utils.send_alert_email", side_effect=RuntimeError("smtp down"))
+    def test_breach_notifications_propagate_email_failure(
+        self, _mock_send: MagicMock, _mock_trigger: MagicMock
+    ) -> None:
+        with pytest.raises(RuntimeError):
+            send_notifications_for_breaches(self.alert, ["breach"], idempotency_key="check-1")
+
+    @patch("posthog.tasks.alerts.utils.send_alert_email")
+    def test_error_notifications_return_empty_without_eligible_recipients(self, mock_send: MagicMock) -> None:
+        self.alert.subscribed_users.clear()
+
+        assert send_notifications_for_errors(self.alert, {"message": "boom"}, idempotency_key="check-1") == []
+        mock_send.assert_not_called()
+
+    @patch("posthog.tasks.alerts.utils.send_alert_email")
+    def test_error_notifications_return_email_receipts(self, mock_send: MagicMock) -> None:
+        receipts = send_notifications_for_errors(self.alert, {"message": "boom"}, idempotency_key="check-1")
+
+        assert [(r.channel, r.target, r.status) for r in receipts] == [("email", self.user.email, "accepted")]
+        mock_send.assert_called_once()

@@ -210,13 +210,14 @@ def send_notifications_for_breaches(
     breaches: list[str],
     idempotency_key: str,
     extra_properties: dict[str, str] | None = None,
-) -> list[str]:
+) -> list[AlertDelivery]:
     """A stable idempotency_key (typically alert_check.id) lets MessagingRecord enforce
     per-recipient at-most-once email delivery on retries.
 
     `extra_properties` are merged into the internal-event properties that HogFunction
     destinations render (e.g. the anomaly investigation notebook URL for the Slack button).
     """
+    deliveries: list[AlertDelivery] = []
     email_targets = alert.get_subscribed_users_emails()
     if email_targets:
         subject = f"PostHog alert {alert.name} is firing for {alert.team.name}"
@@ -238,15 +239,19 @@ def send_notifications_for_breaches(
                 "project_name": alert.team.name,
             },
         )
+        accepted_at = datetime.now(UTC).isoformat()
+        deliveries.extend(AlertDelivery(channel="email", target=target, at=accepted_at) for target in email_targets)
 
     # Join with newlines so each breach/investigation line renders on its own line in
     # Slack/Discord/Teams destinations rather than as one run-on comma-separated string.
-    trigger_alert_hog_functions(
-        alert=alert,
-        properties={"breaches": "\n".join(breaches), **(extra_properties or {})},
+    deliveries.extend(
+        trigger_alert_hog_functions(
+            alert=alert,
+            properties={"breaches": "\n".join(breaches), **(extra_properties or {})},
+        )
     )
 
-    return email_targets
+    return deliveries
 
 
 def send_test_alert_email(alert: AlertConfiguration, recipients: Collection[str], idempotency_key: str) -> None:
@@ -268,7 +273,7 @@ def send_test_alert_email(alert: AlertConfiguration, recipients: Collection[str]
     )
 
 
-def send_notifications_for_errors(alert: AlertConfiguration, error: dict, idempotency_key: str) -> list[str]:
+def send_notifications_for_errors(alert: AlertConfiguration, error: dict, idempotency_key: str) -> list[AlertDelivery]:
     logger.info("Sending alert error notifications", alert_id=alert.id, error=error)
     email_targets = [email for _, email in get_alert_error_notification_recipients(alert) if email]
     if not email_targets:
@@ -293,7 +298,8 @@ def send_notifications_for_errors(alert: AlertConfiguration, error: dict, idempo
             "next_check_at": alert.next_check_at,
         },
     )
-    return email_targets
+    accepted_at = datetime.now(UTC).isoformat()
+    return [AlertDelivery(channel="email", target=target, at=accepted_at) for target in email_targets]
 
 
 def next_scheduled_check_time(alert: AlertConfiguration) -> str | None:
