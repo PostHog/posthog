@@ -170,6 +170,36 @@ def report_user_password_reset(user: User) -> None:
     )
 
 
+def report_login_code_verification_failed(user: User, attempt: int) -> None:
+    """
+    Reports a wrong emailed login code, so stuck code screens are measurable.
+    """
+    if not user.distinct_id:
+        return
+
+    posthoganalytics.capture(
+        distinct_id=user.distinct_id,
+        event="login verification code failed",
+        properties={"attempt": attempt},
+        groups=groups(user.current_organization, user.current_team),
+    )
+
+
+def report_login_code_verification_locked_out(user: User, attempts: int) -> None:
+    """
+    Reports that too many wrong codes destroyed the pending login, so lockouts are measurable.
+    """
+    if not user.distinct_id:
+        return
+
+    posthoganalytics.capture(
+        distinct_id=user.distinct_id,
+        event="login verification code locked out",
+        properties={"attempts": attempts},
+        groups=groups(user.current_organization, user.current_team),
+    )
+
+
 def report_team_member_invited(
     inviting_user: User,
     invite_id: str,

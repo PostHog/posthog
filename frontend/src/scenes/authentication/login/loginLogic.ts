@@ -619,7 +619,19 @@ export const loginLogic = kea<loginLogicType>([
                         email: values.login.email,
                     })
                 } catch (e) {
-                    const { detail } = e as Record<string, any>
+                    const { code: errorCode, detail } = e as Record<string, any>
+                    // The server destroys the pending login after too many wrong codes, and reports no
+                    // pending session once it is gone. From either state the code form can only fail, so
+                    // send the person back to the password form to start a fresh login.
+                    if (errorCode === 'too_many_attempts' || errorCode === 'no_pending_verification') {
+                        actions.exitCodeVerification()
+                        const message =
+                            errorCode === 'too_many_attempts'
+                                ? 'Too many incorrect codes. Log in again to get a new code.'
+                                : 'Your login session expired. Log in again to get a new code.'
+                        actions.setGeneralError(errorCode, message)
+                        throw e
+                    }
                     const message =
                         typeof detail === 'string' ? detail : 'That code is invalid or has expired. Please try again.'
                     actions.setGeneralError('invalid_code', message)

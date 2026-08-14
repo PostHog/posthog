@@ -208,6 +208,24 @@ describe('loginLogic', () => {
             expect(logic.values.codeVerificationRequired).toBe(false)
             expect(logic.values.generalError).toBe(null)
         })
+
+        it.each([
+            ['too_many_attempts', 'Too many incorrect codes. Log in again to get a new code.'],
+            ['no_pending_verification', 'Your login session expired. Log in again to get a new code.'],
+        ])('returns to the password form when the server reports %s', async (code, message) => {
+            useMocks({
+                post: {
+                    '/api/login/code-based-verification': () => [400, { code, detail: 'server detail' }],
+                },
+            })
+            logic.actions.setCodeVerificationRequired()
+            logic.actions.setCodeVerificationValue('code', '000000')
+            logic.actions.submitCodeVerification()
+            await expectLogic(logic).toDispatchActions(['exitCodeVerification', 'submitCodeVerificationFailure'])
+
+            expect(logic.values.codeVerificationRequired).toBe(false)
+            expect(logic.values.generalError).toEqual({ code, detail: message })
+        })
     })
 
     describe('opaque login failure', () => {

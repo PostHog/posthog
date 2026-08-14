@@ -110,6 +110,27 @@ class TestCodeBasedVerificationAPI(APIBaseTest):
             self.assertEqual(response.json()["code"], "too_many_attempts")
 
     @pytest.mark.disable_mock_code_based_verifier
+    def test_captures_events_for_failed_attempts_and_lockout(self):
+        # These events are the only way support can size how often people get stuck on the code screen,
+        # so guard that a wrong code and the lockout both report.
+        with (
+            enable_code_sending() as mock_send,
+            patch("posthog.api.authentication.report_login_code_verification_failed") as mock_failed,
+            patch("posthog.api.authentication.report_login_code_verification_locked_out") as mock_locked_out,
+        ):
+            code = self._trigger(mock_send)
+            wrong = "000000" if code != "000000" else "111111"
+
+            for _ in range(CODE_MAX_ATTEMPTS):
+                self.client.post(VERIFY_URL, {"code": wrong})
+            self.client.post(VERIFY_URL, {"code": wrong})
+
+            self.assertEqual(mock_failed.call_count, CODE_MAX_ATTEMPTS)
+            self.assertEqual(mock_failed.call_args_list[0].kwargs["attempt"], 1)
+            mock_locked_out.assert_called_once()
+            self.assertEqual(mock_locked_out.call_args.kwargs["attempts"], CODE_MAX_ATTEMPTS + 1)
+
+    @pytest.mark.disable_mock_code_based_verifier
     def test_expired_code_is_rejected(self):
         with freeze_time("2024-01-01T10:00:00") as frozen, enable_code_sending() as mock_send:
             code = self._trigger(mock_send)

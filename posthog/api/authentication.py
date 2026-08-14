@@ -52,7 +52,12 @@ from posthog.api.email_verification import EmailVerifier, is_email_verification_
 from posthog.caching.login_device_cache import check_and_cache_login_device
 from posthog.constants import AUTH_BACKEND_DISPLAY_NAMES
 from posthog.email import is_email_available
-from posthog.event_usage import report_user_logged_in, report_user_password_reset
+from posthog.event_usage import (
+    report_login_code_verification_failed,
+    report_login_code_verification_locked_out,
+    report_user_logged_in,
+    report_user_password_reset,
+)
 from posthog.exceptions_capture import capture_exception
 from posthog.geoip import get_geoip_properties
 from posthog.helpers.dev_login import is_dev_login_allowed
@@ -1027,12 +1032,16 @@ class CodeBasedVerificationViewSet(NonCreatingViewSetMixin, viewsets.GenericView
         # observe the same count and exceed the cap. `attempts` includes the current attempt.
         attempts = code_based_verifier.reserve_attempt(request)
         if attempts > CODE_MAX_ATTEMPTS:
+            locked_out_user_id = code_based_verifier.get_pending_code_based_verification_user_id(request)
             mfa_logger.warning(
                 "Code-based verification locked out",
-                user_id=code_based_verifier.get_pending_code_based_verification_user_id(request),
+                user_id=locked_out_user_id,
                 attempts=attempts,
             )
             LOGIN_CODE_VERIFICATION_COUNTER.labels(result="locked_out").inc()
+            locked_out_user = User.objects.filter(pk=locked_out_user_id, is_active=True).first()
+            if locked_out_user:
+                report_login_code_verification_locked_out(locked_out_user, attempts=attempts)
             code_based_verifier.clear_pending(request)
             raise serializers.ValidationError(
                 {"detail": "Too many incorrect attempts. Please log in again."},
@@ -1052,6 +1061,7 @@ class CodeBasedVerificationViewSet(NonCreatingViewSetMixin, viewsets.GenericView
         if not code or not code_based_verifier.check_code(request, user, code):
             mfa_logger.warning("Code-based verification attempt failed", user_id=user.pk, attempt=attempts)
             LOGIN_CODE_VERIFICATION_COUNTER.labels(result="invalid").inc()
+            report_login_code_verification_failed(user, attempt=attempts)
             raise invalid_error
 
         # Code valid - invalidate the pending state and complete login.
