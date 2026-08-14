@@ -2,7 +2,16 @@ import sortBy from 'lodash.sortby'
 
 import { dayjs } from 'lib/dayjs'
 
-import { YC_BATCHES } from './constants'
+import { PUBLIC_EMAIL_DOMAINS, YC_BATCHES } from './constants'
+
+export function getEmailDomain(email: string | null | undefined): string {
+    return email?.split('@')[1]?.toLowerCase() ?? ''
+}
+
+export function isPublicEmailDomain(email: string | null | undefined): boolean {
+    const domain = getEmailDomain(email)
+    return !!domain && PUBLIC_EMAIL_DOMAINS.has(domain)
+}
 
 /**
  * Generates YC batch options for the dropdown, showing relevant batches based on current date.

@@ -62,9 +62,11 @@ export function StartupProgram(): JSX.Element {
         isCurrentlyOnStartupPlan,
         wasPreviouslyOnStartupPlan,
         isAdminOrOwner,
+        isEmailDomainBlocked,
         isYC,
         isReferralProgram,
         referrerDisplayName,
+        user,
         ycBatchOptions,
         currentStartupProgramLabel,
     } = useValues(startupProgramLogic)
@@ -411,6 +413,21 @@ export function StartupProgram(): JSX.Element {
                                             Return to PostHog
                                         </LemonButton>
                                     </div>
+                                ) : isEmailDomainBlocked ? (
+                                    <LemonBanner type="warning">
+                                        <h3 className="mb-2">A company email is required</h3>
+                                        <p>
+                                            You're signed in as {user?.email}, which uses a personal email domain. The
+                                            startup program requires a company email address.
+                                        </p>
+                                        <p>
+                                            Change your account email in settings and verify it, then come back to
+                                            apply.
+                                        </p>
+                                        <LemonButton type="primary" to={urls.settings('user')} className="mt-2">
+                                            Update your email
+                                        </LemonButton>
+                                    </LemonBanner>
                                 ) : (
                                     <Form
                                         logic={startupProgramLogic}

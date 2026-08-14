@@ -1,4 +1,4 @@
-import { getYCBatchOptions } from './utils'
+import { getYCBatchOptions, isPublicEmailDomain } from './utils'
 
 let mockedToday = '2024-06-01'
 
@@ -73,5 +73,19 @@ describe('getYCBatchOptions()', () => {
         expect(batchNames2).toContain('Winter 2024') // Future batch (Current + 1)
         expect(batchNames2).toContain('Summer 2024') // Future batch (Current + 2)
         expect(batchNames2).toContain('Summer 2023') // Current batch
+    })
+})
+
+describe('isPublicEmailDomain()', () => {
+    it.each([
+        ['jane@gmail.com', true],
+        ['jane@GMAIL.COM', true],
+        ['jane@mailinator.com', true], // disposable domains are part of the list
+        ['jane@posthog.com', false],
+        ['not-an-email', false],
+        ['', false],
+        [undefined, false],
+    ])('%s → %s', (email, expected) => {
+        expect(isPublicEmailDomain(email)).toEqual(expected)
     })
 })

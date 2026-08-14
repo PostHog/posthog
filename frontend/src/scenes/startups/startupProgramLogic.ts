@@ -1,4 +1,4 @@
-import { MakeLogicType, actions, connect, kea, path, props, reducers, selectors } from 'kea'
+import { MakeLogicType, actions, afterMount, connect, kea, path, props, reducers, selectors } from 'kea'
 import { forms } from 'kea-forms'
 import type { DeepPartial, DeepPartialMap, FieldName, ValidationErrorType } from 'kea-forms'
 import posthog from 'posthog-js'
@@ -14,8 +14,7 @@ import { userLogic } from 'scenes/userLogic'
 import { BillingType } from '~/types'
 
 import type { OrganizationType, StartupProgramLabel, UserType } from '../../types'
-import { PUBLIC_EMAIL_DOMAINS } from './constants'
-import { getYCBatchOptions } from './utils'
+import { getEmailDomain, getYCBatchOptions, isPublicEmailDomain } from './utils'
 
 export enum StartupProgramType {
     YC = 'YC',
@@ -82,6 +81,7 @@ export interface startupProgramLogicValues {
     domainFromEmail: string
     formSubmitted: boolean
     isCurrentlyOnStartupPlan: boolean
+    isEmailDomainBlocked: boolean
     isReferralProgram: boolean
     isStartupProgramSubmitting: boolean
     isStartupProgramValid: boolean
@@ -98,6 +98,7 @@ export interface startupProgramLogicValues {
     startupProgramTouched: boolean
     startupProgramTouches: Record<string, boolean>
     startupProgramValidationErrors: DeepPartialMap<StartupProgramFormValues, ValidationErrorType>
+    userEmailDomain: string
     wasPreviouslyOnStartupPlan: boolean
     ycBatchOptions: {
         label: string
@@ -157,7 +158,9 @@ export interface startupProgramLogicMeta {
         isCurrentlyOnStartupPlan: (billing: BillingType | null) => boolean
         currentStartupProgramLabel: (billing: BillingType | null) => StartupProgramLabel | null
         wasPreviouslyOnStartupPlan: (billing: BillingType | null) => boolean
-        domainFromEmail: (user: UserType | null) => string
+        userEmailDomain: (user: UserType | null) => string
+        isEmailDomainBlocked: (user: UserType | null) => boolean
+        domainFromEmail: (userEmailDomain: string, isEmailDomainBlocked: boolean) => string
     }
 }
 
@@ -226,20 +229,11 @@ export const startupProgramLogic = kea<startupProgramLogicType>([
                 return !!billing?.startup_program_label_previous
             },
         ],
+        userEmailDomain: [(s) => [s.user], (user: UserType | null) => getEmailDomain(user?.email)],
+        isEmailDomainBlocked: [(s) => [s.user], (user: UserType | null) => isPublicEmailDomain(user?.email)],
         domainFromEmail: [
-            (s) => [s.user],
-            (user: null | import('~/types').UserType) => {
-                if (!user?.email) {
-                    return ''
-                }
-
-                const domain = user.email.split('@')[1]
-                if (PUBLIC_EMAIL_DOMAINS.includes(domain)) {
-                    return ''
-                }
-
-                return domain
-            },
+            (s) => [s.userEmailDomain, s.isEmailDomainBlocked],
+            (userEmailDomain: string, isEmailDomainBlocked: boolean) => (isEmailDomainBlocked ? '' : userEmailDomain),
         ],
         ycBatchOptions: [
             () => [],
@@ -264,7 +258,7 @@ export const startupProgramLogic = kea<startupProgramLogicType>([
             // Selector-style errors so that validation recomputes when billing
             // or isYC change, not only when form values change
             errors: [
-                (s) => [s.startupProgram, s.billing, s.isYC],
+                (s) => [s.startupProgram, s.billing, s.isYC, s.isEmailDomainBlocked],
                 (
                     {
                         organization_id,
@@ -274,8 +268,15 @@ export const startupProgramLogic = kea<startupProgramLogicType>([
                         yc_proof_screenshot_url,
                     }: StartupProgramFormValues,
                     billing: BillingType | null,
-                    isYC: boolean
+                    isYC: boolean,
+                    isEmailDomainBlocked: boolean
                 ) => {
+                    if (isEmailDomainBlocked) {
+                        return {
+                            _form: 'The startup program requires a company email address. Update your account email to your company domain, then apply again.',
+                        }
+                    }
+
                     if (!billing?.has_active_subscription) {
                         return {
                             _form: 'You need to upgrade to a paid plan before submitting your application',
@@ -319,10 +320,22 @@ export const startupProgramLogic = kea<startupProgramLogicType>([
                     actions.setFormSubmitted(true)
                     posthog.capture('startup program application submitted', valuesToSubmit)
                 } catch (error: any) {
-                    lemonToast.error(error.detail || 'Failed to submit application')
+                    // Billing-service validation errors can arrive as an object under error.detail
+                    const detail = typeof error.detail === 'string' ? error.detail : error.detail?.detail
+                    lemonToast.error(detail || 'Failed to submit application')
                     throw error
                 }
             },
         },
     })),
+    afterMount(({ values }) => {
+        if (values.isEmailDomainBlocked) {
+            posthog.capture('startup program application blocked', {
+                email_domain: values.userEmailDomain,
+                program: values.isYC ? StartupProgramType.YC : StartupProgramType.Startup,
+                organization_id: values.currentOrganizationId,
+                blocked_at: 'form',
+            })
+        }
+    }),
 ])
