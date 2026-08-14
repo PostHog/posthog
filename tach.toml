@@ -48,8 +48,6 @@ depends_on = [
     "products.conversations",
     "products.customer_analytics",
     "products.dashboards",
-    # Facade-only (enforced by data_catalog's [[interfaces]] block): the MCP execute_sql tool tells
-    # an agent when an approved metric already covers the number it is deriving.
     "products.data_catalog",
     "products.data_modeling",
     "products.data_tools",
