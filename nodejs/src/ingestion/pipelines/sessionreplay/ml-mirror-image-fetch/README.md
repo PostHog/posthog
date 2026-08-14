@@ -6,6 +6,13 @@ remove private data from them and the result can train a model.
 It is a web crawler. The names here are the crawler's names, and this file is the specification the
 code is written against. Where the code and this file disagree, one of them is a bug.
 
+## Principles
+
+- The image fetcher is open source, this README is publicly visible, and everything we are doing is in the open and fully transparent
+- Any time there is ambiguity, we should resolve it in the direction of not fetching the image
+- We only fetch images that are linked to by a Session Replay from a customer with AI training enabled, and respect known methods for web sites to opt out of this fetching, regardless of whether there is a legal requirement to do so
+- We have a high standard for politeness, and have aggressive rate limits to enforce this
+
 ## The model
 
 | Part               | What it is                                                                                                                                                                                                                        |
