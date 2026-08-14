@@ -6,6 +6,7 @@ import dataclasses
 from copy import deepcopy
 from datetime import timedelta
 from typing import Any, NamedTuple, Optional, cast
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from django.conf import settings
 from django.core.cache import cache
@@ -982,6 +983,9 @@ class HogFlowActionSerializer(serializers.Serializer):
             "after). expression is compiled server-side, so any bytecode sent with it is discarded. "
             "A person property is person.properties.<key>; an event property is properties.<key>, as the "
             "'event.' prefix resolves to nothing and aborts the run. "
+            "Optional timezone (IANA name), use_person_timezone (read $geoip_time_zone) and "
+            "fallback_timezone decide which zone a date with no offset of its own is read in; a date that "
+            "states an offset, and unix seconds, ignore them. Default UTC. "
             "Optional sibling max_delay_duration (default 30d, same '<number><unit>' format) caps how "
             "far past the step's start the wait may run. "
             "conditional_branch: {conditions: [{filters}, ...]}. Index N matches the 'branch' edge with index:N. "
@@ -1388,6 +1392,19 @@ class HogFlowActionSerializer(serializers.Serializer):
         max_delay_duration = config.get("max_delay_duration")
         if strict and max_delay_duration is not None and not _is_valid_duration(max_delay_duration):
             raise serializers.ValidationError({"config": _duration_error("max_delay_duration")})
+
+        # An unknown zone would silently fall back to UTC in the executor, which is the wrong local day
+        # for most of the world - the mistake this setting exists to prevent.
+        for field in ("timezone", "fallback_timezone"):
+            value = delay_until.get(field)
+            if not strict or value is None:
+                continue
+            try:
+                ZoneInfo(value)
+            except (ZoneInfoNotFoundError, ValueError, TypeError):
+                raise serializers.ValidationError(
+                    {"config": f"delay_until.{field} must be an IANA timezone name, e.g. 'Europe/Berlin'."}
+                )
 
         # Compiled here rather than trusted from the client. Compiling also surfaces a broken expression
         # at save time instead of at the first run that reaches it.

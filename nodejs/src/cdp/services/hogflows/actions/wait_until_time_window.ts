@@ -64,7 +64,14 @@ function isValidTimezone(timezone: string): boolean {
     return DateTime.utc().setZone(timezone).isValid
 }
 
-export function resolveTimezone(config: Action['config'], person?: CyclotronPerson): string {
+/** The timezone fields any step that reasons about local time carries. Shared with delay's `delay_until`. */
+export interface TimezoneConfig {
+    timezone?: string | null
+    use_person_timezone?: boolean
+    fallback_timezone?: string | null
+}
+
+export function resolveTimezone(config: TimezoneConfig, person?: CyclotronPerson): string {
     const fallback = config.fallback_timezone || config.timezone || 'UTC'
 
     if (config.use_person_timezone) {

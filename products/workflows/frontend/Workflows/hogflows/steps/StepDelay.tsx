@@ -1,17 +1,22 @@
 import { Node } from '@xyflow/react'
 import { useActions, useValues } from 'kea'
 
-import { LemonSelect } from '@posthog/lemon-ui'
+import { LemonInputSelect, LemonSelect, LemonSwitch } from '@posthog/lemon-ui'
 
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { TaxonomicStringPopover } from 'lib/components/TaxonomicPopover/TaxonomicPopover'
+import { LemonField } from 'lib/lemon-ui/LemonField'
+import { timeZoneLabel } from 'lib/utils/timezones'
+import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 
 import { workflowLogic } from '../../workflowLogic'
 import { HogFlowAction } from '../types'
 import { HogFlowDuration } from './components/HogFlowDuration'
 import { StepSchemaErrors } from './components/StepSchemaErrors'
 import {
+    DEFAULT_DELAY_TIMEZONE,
     DEFAULT_MAX_DELAY_DURATION,
+    DelayTimezone,
     getDelayMode,
     getDurationText,
     parseDelayExpression,
@@ -30,9 +35,8 @@ export function StepDelayConfiguration({
     const config = action.config
 
     const { logicProps } = useValues(workflowLogic)
-    const { setDelayWorkflowActionConfig, setDelayMode, setDelayProperty, setDelayOffset } = useActions(
-        stepDelayLogic({ workflowLogicProps: logicProps })
-    )
+    const { setDelayWorkflowActionConfig, setDelayMode, setDelayProperty, setDelayOffset, setDelayTimezone } =
+        useActions(stepDelayLogic({ workflowLogicProps: logicProps }))
 
     const mode = getDelayMode(config)
     const expression = config.delay_until?.expression ?? ''
@@ -116,6 +120,13 @@ export function StepDelayConfiguration({
                             </p>
                         ) : null}
 
+                        <DelayTimezoneConfiguration
+                            timezone={config.delay_until?.timezone}
+                            usePersonTimezone={config.delay_until?.use_person_timezone}
+                            fallbackTimezone={config.delay_until?.fallback_timezone}
+                            onChange={(timezone) => setDelayTimezone(action.id, timezone)}
+                        />
+
                         <p className="mb-0 mt-1 text-xs text-muted">
                             The property is read again each time the run wakes, so a date that moves still applies. A
                             run never waits more than {maxDelayText} past this step.
@@ -124,5 +135,64 @@ export function StepDelayConfiguration({
                 )}
             </div>
         </>
+    )
+}
+
+/**
+ * A date stored without a zone ('2026-03-01', or '2026-03-01T09:00:00') is read in the zone chosen here.
+ * A date that carries its own offset already names an instant and ignores this.
+ */
+function DelayTimezoneConfiguration({
+    timezone,
+    usePersonTimezone,
+    fallbackTimezone,
+    onChange,
+}: {
+    timezone?: string | null
+    usePersonTimezone?: boolean
+    fallbackTimezone?: string | null
+    onChange: (timezone: DelayTimezone) => void
+}): JSX.Element {
+    const { preflight } = useValues(preflightLogic)
+
+    const timezoneOptions = Object.entries(preflight?.available_timezones || {}).map(([tz, offset]) => ({
+        key: tz,
+        label: timeZoneLabel(tz, offset),
+    }))
+
+    return (
+        <div className="flex flex-col gap-2">
+            <LemonSwitch
+                size="small"
+                checked={usePersonTimezone ?? false}
+                onChange={(checked) => onChange({ use_person_timezone: checked })}
+                label="Use the person's timezone"
+                bordered
+                tooltip="Requires the GeoIP transformation to be enabled in Data pipelines → Transformations."
+                data-attr="workflow-delay-use-person-timezone"
+            />
+
+            <LemonField.Pure
+                label={usePersonTimezone ? 'Fallback timezone' : 'Timezone'}
+                help={
+                    usePersonTimezone
+                        ? 'Used when the person has no timezone set.'
+                        : 'A date with no timezone of its own is read in this timezone.'
+                }
+            >
+                <LemonInputSelect
+                    mode="single"
+                    size="small"
+                    placeholder="Select a timezone"
+                    value={[(usePersonTimezone ? fallbackTimezone || timezone : timezone) || DEFAULT_DELAY_TIMEZONE]}
+                    popoverClassName="z-[1000]"
+                    onChange={([selected]) =>
+                        onChange(usePersonTimezone ? { fallback_timezone: selected } : { timezone: selected })
+                    }
+                    options={timezoneOptions}
+                    data-attr="workflow-delay-timezone"
+                />
+            </LemonField.Pure>
+        </div>
     )
 }

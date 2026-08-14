@@ -43,6 +43,16 @@ export interface DelayOffset {
     direction: DelayOffsetDirection
 }
 
+/** Only the fields the timezone controls change, merged onto whatever else delay_until holds. */
+export interface DelayTimezone {
+    timezone?: string | null
+    use_person_timezone?: boolean
+    fallback_timezone?: string | null
+}
+
+/** Matches the executor's default when no zone is configured. */
+export const DEFAULT_DELAY_TIMEZONE = 'UTC'
+
 export const DEFAULT_DELAY_DURATION = '10m'
 // Mirrors the executor's cap in nodejs/src/cdp/services/hogflows/actions/delay.ts.
 export const DEFAULT_MAX_DELAY_DURATION = '30d'
@@ -725,6 +735,13 @@ export interface stepDelayLogicActions {
         actionId: string
         property: DelayProperty
     }
+    setDelayTimezone: (
+        actionId: string,
+        timezone: DelayTimezone
+    ) => {
+        actionId: string
+        timezone: DelayTimezone
+    }
     setDelayWorkflowActionConfig: (
         actionId: string,
         config: DelayActionConfig
@@ -737,7 +754,10 @@ export interface stepDelayLogicActions {
                       bytecode?: any
                       bytecode_error?: string | undefined
                       expression: string
+                      fallback_timezone?: string | null | undefined
                       offset?: string | undefined
+                      timezone?: string | null | undefined
+                      use_person_timezone?: boolean | undefined
                   }
                 | undefined
             max_delay_duration?: string | undefined
@@ -770,6 +790,7 @@ export const stepDelayLogic = kea<stepDelayLogicType>([
         setDelayMode: (actionId: string, mode: DelayMode) => ({ actionId, mode }),
         setDelayProperty: (actionId: string, property: DelayProperty) => ({ actionId, property }),
         setDelayOffset: (actionId: string, offset: DelayOffset) => ({ actionId, offset }),
+        setDelayTimezone: (actionId: string, timezone: DelayTimezone) => ({ actionId, timezone }),
     }),
     listeners(({ values, actions }) => ({
         setDelayWorkflowActionConfig: ({ actionId, config }) => {
@@ -818,7 +839,7 @@ export const stepDelayLogic = kea<stepDelayLogicType>([
             actions.setDelayWorkflowActionConfig(actionId, {
                 ...action.config,
                 delay_until: {
-                    offset: action.config.delay_until.offset,
+                    ...action.config.delay_until,
                     expression: buildDelayExpression(property),
                 },
             })
@@ -832,9 +853,20 @@ export const stepDelayLogic = kea<stepDelayLogicType>([
             actions.setDelayWorkflowActionConfig(actionId, {
                 ...action.config,
                 delay_until: {
-                    expression: action.config.delay_until.expression,
+                    ...action.config.delay_until,
                     offset: buildDelayOffset(offset),
                 },
+            })
+        },
+
+        setDelayTimezone: ({ actionId, timezone }) => {
+            const action = findDelayAction(values.workflow, actionId)
+            if (!action?.config.delay_until) {
+                return
+            }
+            actions.setDelayWorkflowActionConfig(actionId, {
+                ...action.config,
+                delay_until: { ...action.config.delay_until, ...timezone },
             })
         },
     })),

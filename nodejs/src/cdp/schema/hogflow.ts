@@ -139,6 +139,12 @@ export const HogFlowActionSchema = z.discriminatedUnion('type', [
                     // Signed offset applied to that instant, e.g. '-1d' for "one day before". Kept separate
                     // from the expression so the builder can offer a property picker instead of arithmetic.
                     offset: z.string().optional(),
+                    // Which zone a date with no offset of its own is read in, the same three fields
+                    // wait_until_time_window uses. A stored '2026-03-01' means midnight where the customer
+                    // lives, not midnight UTC.
+                    timezone: z.string().nullish(),
+                    use_person_timezone: z.boolean().optional(),
+                    fallback_timezone: z.string().nullish(),
                     bytecode: z.any().optional(),
                     bytecode_error: z.string().optional(),
                 })

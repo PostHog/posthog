@@ -73,6 +73,19 @@ class TestDelayUntil(APIBaseTest):
                 {"delay_until": {"expression": "person.properties.x"}, "max_delay_duration": "forever"},
             ),
             ("expression_not_sql", {"delay_until": {"expression": "this is not sql ("}}),
+            # An unknown zone reaches the executor and silently reads dates in UTC, which is the wrong
+            # local day for most of the world - the mistake the setting exists to prevent.
+            ("timezone_unknown", {"delay_until": {"expression": "person.properties.x", "timezone": "Mars/Olympus"}}),
+            (
+                "fallback_timezone_unknown",
+                {
+                    "delay_until": {
+                        "expression": "person.properties.x",
+                        "use_person_timezone": True,
+                        "fallback_timezone": "Europe/Atlantis",
+                    }
+                },
+            ),
         ]
     )
     def test_rejects_an_unusable_delay(self, _name: str, config: dict):
@@ -92,6 +105,24 @@ class TestDelayUntil(APIBaseTest):
         status, body = self._post({"delay_until": {"expression": "person.properties.expires_at", "offset": offset}})
 
         assert status == 201, body
+
+    def test_keeps_the_timezone_settings_it_was_given(self):
+        status, body = self._post(
+            {
+                "delay_until": {
+                    "expression": "person.properties.expires_at",
+                    "timezone": "Europe/Berlin",
+                    "use_person_timezone": True,
+                    "fallback_timezone": "America/New_York",
+                }
+            }
+        )
+
+        assert status == 201, body
+        stored = next(a for a in body["actions"] if a["id"] == "delay_1")["config"]["delay_until"]
+        assert stored["timezone"] == "Europe/Berlin"
+        assert stored["use_person_timezone"] is True
+        assert stored["fallback_timezone"] == "America/New_York"
 
     def test_a_draft_saves_the_date_mode_before_a_date_is_picked(self):
         # The builder writes the mode as soon as it is chosen, so the editor autosaves this exact state

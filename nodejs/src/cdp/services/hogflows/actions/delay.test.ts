@@ -253,6 +253,47 @@ describe('DelayHandler with delay_until', () => {
         expect(invocation.state.currentAction!.delayUntilUnresolved).toBe(true)
     })
 
+    // A date stored without a zone ('2025-01-08', or a local datetime) means midnight where the customer
+    // is, not midnight UTC. Reading it in UTC sends a "day before" reminder on the wrong local day for
+    // most of the world.
+    it.each([
+        ['UTC by default', {}, '2025-01-08T00:00:00.000Z'],
+        ['a configured zone', { timezone: 'Asia/Tokyo' }, '2025-01-07T15:00:00.000Z'],
+        ['a zone behind UTC', { timezone: 'America/New_York' }, '2025-01-08T05:00:00.000Z'],
+    ])('reads a date with no offset of its own in %s', async (_label, zoneConfig, expected) => {
+        const result = await runDelay(delayUntil(zoneConfig), { trial_expiration_at: '2025-01-08' })
+
+        expect(result.scheduledAt?.toUTC().toISO()).toBe(DateTime.fromISO(expected).toUTC().toISO())
+    })
+
+    // The zone only fills in what the value leaves out, so anything absolute must come out unchanged -
+    // otherwise setting a zone would quietly move dates that were already exact.
+    it.each([
+        ['an offset-bearing string', '2025-01-08T00:00:00+00:00'],
+        ['unix seconds', DateTime.fromISO('2025-01-08T00:00:00.000Z').toSeconds()],
+    ])('leaves %s alone whatever the zone says', async (_label, value) => {
+        const result = await runDelay(delayUntil({ timezone: 'Asia/Tokyo' }), { trial_expiration_at: value })
+
+        expect(result.scheduledAt?.toUTC().toISO()).toBe(DateTime.fromISO('2025-01-08T00:00:00.000Z').toUTC().toISO())
+    })
+
+    it("reads the date in the person's own timezone", async () => {
+        const result = await runDelay(delayUntil({ use_person_timezone: true, fallback_timezone: 'Europe/Berlin' }), {
+            trial_expiration_at: '2025-01-08',
+            $geoip_time_zone: 'Asia/Tokyo',
+        })
+
+        expect(result.scheduledAt?.toUTC().toISO()).toBe(DateTime.fromISO('2025-01-07T15:00:00.000Z').toUTC().toISO())
+    })
+
+    it('falls back when the person has no timezone', async () => {
+        const result = await runDelay(delayUntil({ use_person_timezone: true, fallback_timezone: 'Europe/Berlin' }), {
+            trial_expiration_at: '2025-01-08',
+        })
+
+        expect(result.scheduledAt?.toUTC().toISO()).toBe(DateTime.fromISO('2025-01-07T23:00:00.000Z').toUTC().toISO())
+    })
+
     it('still delays by a fixed duration when that is what is configured', async () => {
         const result = await runDelay({ delay_duration: '2h' })
 

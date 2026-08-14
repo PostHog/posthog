@@ -239,6 +239,11 @@ export const HogFlowActionSchema = z.discriminatedUnion('type', [
                         // but the API accepts any expression, so anything can turn up here.
                         expression: z.string(),
                         offset: OFFSET_DURATION_STRING.optional(),
+                        // Which zone a date carrying no offset of its own is read in, the same three
+                        // fields wait_until_time_window uses.
+                        timezone: z.string().nullish(),
+                        use_person_timezone: z.boolean().optional(),
+                        fallback_timezone: z.string().nullish(),
                         // Compiled server-side at save; whatever the client sends is discarded.
                         bytecode: z.any().optional(),
                         bytecode_error: z.string().optional(),

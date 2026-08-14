@@ -6,6 +6,7 @@ import { execHog } from '~/cdp/utils/hog-exec'
 
 import { findContinueAction } from '../hogflow-utils'
 import { ActionHandler, ActionHandlerOptions, ActionHandlerResult } from './action.interface'
+import { resolveTimezone } from './wait_until_time_window'
 
 export class DelayHandler implements ActionHandler {
     async execute({
@@ -57,8 +58,14 @@ function durationSeconds(value: string): number | null {
     return (sign === '-' ? -1 : 1) * capped * perUnit[unit]
 }
 
-/** The instant a `delay_until` expression evaluates to, or null when it yields nothing usable. */
-function instantFromHogValue(value: unknown): DateTime | null {
+/**
+ * The instant a `delay_until` expression evaluates to, or null when it yields nothing usable.
+ *
+ * `zone` only decides how a value that carries no offset of its own is read — a bare date or a local
+ * datetime string. Luxon keeps the offset a value already states, and unix seconds and HogDateTime are
+ * absolute, so those are unaffected by the zone.
+ */
+function instantFromHogValue(value: unknown, zone: string): DateTime | null {
     if (value && typeof value === 'object' && '__hogDateTime__' in (value as Record<string, unknown>)) {
         const seconds = (value as { dt?: unknown }).dt
         return typeof seconds === 'number' ? DateTime.fromSeconds(seconds, { zone: 'UTC' }) : null
@@ -75,7 +82,7 @@ function instantFromHogValue(value: unknown): DateTime | null {
         return asSeconds.isValid ? asSeconds : null
     }
     if (typeof value === 'string') {
-        const parsed = DateTime.fromISO(value, { zone: 'UTC' })
+        const parsed = DateTime.fromISO(value, { zone })
         return parsed.isValid ? parsed : null
     }
     return null
@@ -108,6 +115,7 @@ async function scheduledAtFromInstant(
     const globals = { ...invocation.filterGlobals, variables: invocation.state.variables }
     const { execResult, error } = await execHog(config.bytecode, { globals })
     const evaluationError = error ?? execResult?.error
+    const zone = resolveTimezone(config, invocation.person)
 
     // A resumed invocation rebuilds its globals from stored state, which can arrive without the event or
     // person properties the expression reads — so evaluation can error (a missing global raises) or yield a
@@ -117,7 +125,7 @@ async function scheduledAtFromInstant(
     // first park before giving up.
     const previous = invocation.state.currentAction?.delayUntilAt
     const instant =
-        (evaluationError ? null : instantFromHogValue(execResult?.result)) ??
+        (evaluationError ? null : instantFromHogValue(execResult?.result, zone)) ??
         (previous ? DateTime.fromISO(previous, { zone: 'UTC' }) : null)
     if (!instant) {
         // Marked so the run aborts rather than falling through to the next step. on_error defaults to
