@@ -34,6 +34,7 @@ from products.warehouse_sources.backend.models.external_data_source import (
     ExternalDataSource,
     get_direct_external_data_source_for_connection,
 )
+from products.warehouse_sources.backend.models.pending_source_credential import PendingSourceCredential
 from products.warehouse_sources.backend.models.table import (
     SERIALIZED_FIELD_TO_CLICKHOUSE_MAPPING,
     DataWarehouseTable,
@@ -65,6 +66,7 @@ __all__ = [
     "ExternalDataSchema",
     "ExternalDataSource",
     "MANAGED_WAREHOUSE_SOURCE_PREFIX",
+    "PendingSourceCredential",
     "SERIALIZED_FIELD_TO_CLICKHOUSE_MAPPING",
     "WarehouseColumnAnnotation",
     "WarehouseColumnStatistics",
