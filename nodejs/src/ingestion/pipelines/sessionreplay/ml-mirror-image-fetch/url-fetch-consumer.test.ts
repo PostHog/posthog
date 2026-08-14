@@ -131,20 +131,20 @@ describe('UrlFetchConsumer', () => {
     })
 
     it('does not re-record a URL another pod already reached', async () => {
-        crawlHistory.stored.set(crawlHistoryKey(TEAM, hash('a')), NOW - 1000)
+        crawlHistory.stored.set(crawlHistoryKey(hash('a')), NOW - 1000)
 
         await consumer.handleBatch([record([url('a'), url('b')])], NOW)
 
         // The earlier entry survives, so the store measures the hit rate rather than the rate of
         // first arrivals.
-        expect(crawlHistory.stored.get(crawlHistoryKey(TEAM, hash('a')))).toBe(NOW - 1000)
-        expect(crawlHistory.stored.get(crawlHistoryKey(TEAM, hash('b')))).toBe(NOW)
+        expect(crawlHistory.stored.get(crawlHistoryKey(hash('a')))).toBe(NOW - 1000)
+        expect(crawlHistory.stored.get(crawlHistoryKey(hash('b')))).toBe(NOW)
     })
 
     it('collapses a repeated URL inside one batch into a single ledger write', async () => {
         await consumer.handleBatch([record([url('a')]), record([url('a')]), record([url('a')])], NOW)
 
-        expect([...crawlHistory.stored.keys()]).toEqual([crawlHistoryKey(TEAM, hash('a'))])
+        expect([...crawlHistory.stored.keys()]).toEqual([crawlHistoryKey(hash('a'))])
     })
 
     it('does not consult the store for a URL this pod already handled', async () => {
@@ -258,7 +258,7 @@ describe('UrlFetchConsumer', () => {
     })
 
     it('does not mark the pod cache for a URL whose write failed', async () => {
-        crawlHistory.partialWriteFailures.add(crawlHistoryKey(TEAM, hash('a')))
+        crawlHistory.partialWriteFailures.add(crawlHistoryKey(hash('a')))
 
         await consumer.handleBatch([record([url('a')])], NOW)
         const readsAfterFirst = crawlHistory.reads
@@ -290,7 +290,7 @@ describe('UrlFetchConsumer', () => {
     it('holds back a URL whose dedup read failed, rather than treating it as new', async () => {
         // To count it as new would fetch it. A store outage would then make every batch send the
         // full un-deduped volume at customer sites, because our own store is down.
-        crawlHistory.partialReadFailures.add(crawlHistoryKey(TEAM, hash('a')))
+        crawlHistory.partialReadFailures.add(crawlHistoryKey(hash('a')))
 
         await expect(consumer.handleBatch([record([url('a'), url('b')])], NOW)).resolves.toBeUndefined()
 
