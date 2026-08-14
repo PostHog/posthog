@@ -71,6 +71,10 @@ describe('config', () => {
             expect(() => validateInput(baseInput({ session_id: '' }))).toThrow('session_id is required')
         })
 
+        it.each(['../../2/recordings/other', 'abc\\..\\def', 'a..b'])('rejects traversal session_id %s', (id) => {
+            expect(() => validateInput(baseInput({ session_id: id }))).toThrow('session_id contains illegal characters')
+        })
+
         it('rejects invalid team_id', () => {
             expect(() => validateInput(baseInput({ team_id: 0 }))).toThrow('team_id must be a positive integer')
             expect(() => validateInput(baseInput({ team_id: -1 }))).toThrow('team_id must be a positive integer')

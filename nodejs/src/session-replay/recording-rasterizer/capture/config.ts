@@ -23,6 +23,11 @@ export function validateInput(input: RasterizeRecordingInput): void {
     if (!input.session_id) {
         throw new RasterizationError('session_id is required', false, 'INVALID_INPUT')
     }
+    // Path separators and dot segments would let a session id rewrite the internal recording-api
+    // URLs the block proxy builds from it.
+    if (/[/\\]/.test(input.session_id) || input.session_id.includes('..')) {
+        throw new RasterizationError('session_id contains illegal characters', false, 'INVALID_INPUT')
+    }
     if (!input.team_id || input.team_id <= 0) {
         throw new RasterizationError('team_id must be a positive integer', false, 'INVALID_INPUT')
     }

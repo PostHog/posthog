@@ -1,3 +1,4 @@
+import re
 from datetime import timedelta
 from typing import Any, Literal
 
@@ -37,6 +38,10 @@ from posthog.temporal.session_replay.rasterize_recording.types import RasterizeR
 from products.exports.backend.facade.api import EXPORT_WORKFLOW_TIMEOUT
 from products.exports.backend.models.exported_asset import ExportedAsset, get_content_response
 from products.product_analytics.backend.models.insight import Insight
+
+# Downstream renderers interpolate the session id straight into internal API paths, so anything
+# that could change the shape of that path (separators, percent escapes, dot segments) is rejected.
+SESSION_RECORDING_ID_RE = re.compile(r"^[A-Za-z0-9_.:-]{1,200}$")
 
 # Full video exports per team per calendar month, tiered by plan.
 FULL_VIDEO_EXPORTS_LIMIT_BY_TIER: dict[Literal["free", "paid", "enterprise"], int] = {
@@ -133,9 +138,14 @@ class ExportedAssetSerializer(UserAccessControlSerializerMixin, serializers.Mode
         if data.get("insight") and data["insight"].team.id != self.context["team_id"]:
             raise ValidationError({"insight": ["This insight does not belong to your team."]})
 
+        export_context = data.get("export_context") or {}
+        if export_context.get("session_recording_id") is not None:
+            session_recording_id = export_context["session_recording_id"]
+            if not isinstance(session_recording_id, str) or not SESSION_RECORDING_ID_RE.match(session_recording_id):
+                raise ValidationError({"export_context": ["Invalid session_recording_id."]})
+
         # Check full video export limit for team (video session recording exports)
         export_format = data.get("export_format")
-        export_context = data.get("export_context", {})
 
         is_full_video_export = export_format in ("video/mp4", "video/webm", "image/gif") and export_context.get(
             "session_recording_id"
@@ -505,18 +515,24 @@ class ExportedAssetViewSet(
 
         session_recording_id = export_context.get("session_recording_id")
 
-        resource = instance.dashboard or instance.insight
-        if not resource and session_recording_id:
-            from posthog.session_recordings.models.session_recording import SessionRecording
-
-            resource = SessionRecording.objects.filter(
-                team_id=instance.team_id, session_id=session_recording_id
-            ).first()
-
-        if resource is not None:
-            if not self.user_access_control.check_access_level_for_object(resource, required_level="viewer"):
+        # Both can be set on one asset, and the renderer prefers the insight, so checking only the
+        # first non-null one would let an accessible dashboard authorize an inaccessible insight.
+        for related in (instance.dashboard, instance.insight):
+            if related is not None and not self.user_access_control.check_access_level_for_object(
+                related, required_level="viewer"
+            ):
                 raise NotFound()
-        elif session_recording_id and instance.created_by_id != self.request.user.id:
+
+        if instance.dashboard or instance.insight or not session_recording_id:
+            return instance
+
+        from posthog.session_recordings.models.session_recording import SessionRecording
+
+        recording = SessionRecording.objects.filter(team_id=instance.team_id, session_id=session_recording_id).first()
+        if recording is not None:
+            if not self.user_access_control.check_access_level_for_object(recording, required_level="viewer"):
+                raise NotFound()
+        elif instance.created_by_id != self.request.user.id:
             # No SessionRecording row — cannot run object-level RBAC; still enforce the team's
             # session_recording resource default for other users so detail/content are not fail-open.
             # The creator is exempt from this fallback only: they necessarily had the access required
