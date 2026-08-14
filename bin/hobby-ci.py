@@ -657,7 +657,22 @@ runcmd:
                                         "height": 720,
                                     },
                                 },
-                                {"type": 2, "timestamp": snapshot_timestamp + 1, "data": {"node": {"type": 0, "childNodes": []}}},
+                                {
+                                    "type": 2,
+                                    "timestamp": snapshot_timestamp + 1_000,
+                                    "data": {
+                                        "source": 1,
+                                        "snapshot": {"html": "<html><body>Hobby CI</body></html>"},
+                                    },
+                                },
+                                {
+                                    "type": 3,
+                                    "timestamp": snapshot_timestamp + 2_000,
+                                    "data": {
+                                        "source": 2,
+                                        "mutations": [{"type": "characterData", "id": 1}],
+                                    },
+                                },
                             ],
                         },
                     }
