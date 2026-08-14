@@ -11,6 +11,7 @@ from asgiref.sync import sync_to_async
 from structlog import get_logger
 from temporalio.exceptions import ApplicationError
 
+from posthog.dataclasses import frozen
 from posthog.models import OrganizationMembership
 from posthog.ph_client import ph_scoped_capture
 from posthog.sync import database_sync_to_async
@@ -76,7 +77,7 @@ async def _load_ai_report(delivery_id: uuid.UUID) -> str | None:
     return _snapshot_report(await _load_snapshot(delivery_id))
 
 
-@dataclasses.dataclass(frozen=True, kw_only=True, slots=True)
+@frozen
 class DiagnosticCounts:
     failed_step_count: int
     total_step_count: int

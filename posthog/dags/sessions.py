@@ -1,7 +1,6 @@
 import time
 import base64
 from collections.abc import Callable
-from dataclasses import dataclass
 from datetime import datetime, timedelta
 from typing import Any, NoReturn, Optional
 
@@ -34,6 +33,7 @@ from posthog.clickhouse.cluster import get_cluster
 from posthog.clickhouse.query_tagging import Feature, tags_context
 from posthog.cloud_utils import is_cloud
 from posthog.dags.common import JobOwners, dagster_tags
+from posthog.dataclasses import frozen
 from posthog.git import get_git_commit_short
 from posthog.models.raw_sessions.sessions_v3 import (
     DISTRIBUTED_RAW_SESSIONS_TABLE_V3,
@@ -455,7 +455,7 @@ def _split_uint64_range(low: int, high: int, num: int, i: int) -> tuple[int, int
     return sub_low, sub_high
 
 
-@dataclass(frozen=True, kw_only=True, slots=True)
+@frozen
 class ExperimentalChunking:
     num_chunks: int
     description: str

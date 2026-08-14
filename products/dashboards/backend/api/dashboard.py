@@ -7,7 +7,6 @@ import builtins
 from collections.abc import AsyncGenerator
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from contextlib import nullcontext
-from dataclasses import dataclass
 from enum import StrEnum
 from typing import Any, Optional, TypedDict, cast
 
@@ -430,7 +429,7 @@ DEFAULT_REORDER_TILE_WIDTH = 6
 DEFAULT_REORDER_TILE_HEIGHT = 5
 
 
-@dataclass(frozen=True, kw_only=True, slots=True)
+@frozen
 class TileSize:
     width: int
     height: int
