@@ -65,8 +65,12 @@ export interface logsAlertingLogicActions {
     closeEditAlertModal: () => {
         value: true
     }
-    deleteAlert: (id: string) => {
+    deleteAlert: (
+        id: string,
+        onSuccess?: () => void
+    ) => {
         id: string
+        onSuccess: (() => void) | undefined
     }
     loadAlerts: (_?: any) => any
     loadAlertsFailure: (
@@ -145,7 +149,7 @@ export const logsAlertingLogic = kea<logsAlertingLogicType>([
 
     actions({
         setCreatedByFilter: (createdByFilter: string | null) => ({ createdByFilter }),
-        deleteAlert: (id: string) => ({ id }),
+        deleteAlert: (id: string, onSuccess?: () => void) => ({ id, onSuccess }),
         toggleAlertEnabled: (alert: LogsAlertConfigurationApi) => ({ alert }),
         resetAlert: (id: string) => ({ id }),
         setResettingAlertId: (id: string, resetting: boolean) => ({ id, resetting }),
@@ -217,12 +221,13 @@ export const logsAlertingLogic = kea<logsAlertingLogicType>([
 
     listeners(({ actions, values }) => ({
         setCreatedByFilter: () => actions.loadAlerts(),
-        deleteAlert: async ({ id }) => {
+        deleteAlert: async ({ id, onSuccess }) => {
             const projectId = String(values.currentTeamId)
             try {
                 await logsAlertsDestroy(projectId, id)
                 lemonToast.success('Alert deleted')
                 actions.loadAlerts()
+                onSuccess?.()
             } catch {
                 lemonToast.error('Failed to delete alert')
             }

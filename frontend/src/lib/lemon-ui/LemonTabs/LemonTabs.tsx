@@ -100,6 +100,7 @@ export function LemonTabs<T extends string | number>({
                 >
                     {realTabs.map((tab) => {
                         const disabled = !!tab.disabledReason
+                        const isLinked = !!tab.link
                         const opensInNewTab = tab.linkTarget === '_blank'
                         const content = (
                             <div className="relative flex items-center gap-1" data-attr={tab['data-attr']}>
@@ -127,15 +128,13 @@ export function LemonTabs<T extends string | number>({
                                         tab.key === activeKey && 'LemonTabs__tab--active',
                                         disabled && 'LemonTabs__tab--disabled'
                                     )}
-                                    onClick={
-                                        onChange && !disabled && !opensInNewTab ? () => onChange(tab.key) : undefined
-                                    }
-                                    role="tab"
-                                    aria-selected={tab.key === activeKey}
-                                    aria-disabled={disabled || undefined}
-                                    tabIndex={disabled ? -1 : 0}
+                                    onClick={onChange && !disabled && !isLinked ? () => onChange(tab.key) : undefined}
+                                    role={isLinked ? undefined : 'tab'}
+                                    aria-selected={isLinked ? undefined : tab.key === activeKey}
+                                    aria-disabled={isLinked ? undefined : disabled || undefined}
+                                    tabIndex={isLinked ? undefined : disabled ? -1 : 0}
                                     onKeyDown={
-                                        onChange && !disabled && !opensInNewTab
+                                        onChange && !disabled && !isLinked && !opensInNewTab
                                             ? (e) => {
                                                   if (e.key === 'Enter') {
                                                       onChange(tab.key)

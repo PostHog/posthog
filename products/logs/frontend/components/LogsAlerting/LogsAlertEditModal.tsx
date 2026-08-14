@@ -85,8 +85,7 @@ function LogsAlertEditModalContent({
                             type: 'primary',
                             status: 'danger',
                             onClick: () => {
-                                deleteAlert(alert.id)
-                                onClose()
+                                deleteAlert(alert.id, onClose)
                             },
                         },
                         secondaryButton: { children: 'Cancel' },
