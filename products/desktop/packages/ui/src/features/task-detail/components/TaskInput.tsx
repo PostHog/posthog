@@ -13,7 +13,7 @@ import { isValidConfigValue } from "@posthog/core/task-detail/configOptions";
 import { useServiceOptional } from "@posthog/di/react";
 import { useHostTRPC, useHostTRPCClient } from "@posthog/host-router/react";
 import { ButtonGroup } from "@posthog/quill";
-import type { AgentRuntime } from "@posthog/shared";
+import { type AgentRuntime, ANALYTICS_EVENTS } from "@posthog/shared";
 import type { Task } from "@posthog/shared/domain-types";
 import {
   TaskRepositoryChip,
@@ -30,6 +30,7 @@ import type { TaskInputReportAssociation } from "@posthog/ui/features/task-detai
 import { useTaskInputPrefillStore } from "@posthog/ui/features/task-detail/stores/taskInputPrefillStore";
 import { navigateToInbox } from "@posthog/ui/router/navigationBridge";
 import { useAppView } from "@posthog/ui/router/useAppView";
+import { track } from "@posthog/ui/shell/analytics";
 import { Box, Flex, Text, Tooltip } from "@radix-ui/themes";
 import { useQuery } from "@tanstack/react-query";
 import { AnimatePresence, motion } from "framer-motion";
