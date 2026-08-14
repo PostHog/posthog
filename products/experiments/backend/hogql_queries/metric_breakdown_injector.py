@@ -14,7 +14,13 @@ migrate to metric-event breakdowns.
 
 from typing import cast
 
-from posthog.schema import Breakdown, BreakdownAttributionType, ExperimentFunnelMetric, MultipleBreakdownType
+from posthog.schema import (
+    Breakdown,
+    BreakdownAttributionType,
+    ExperimentFunnelMetric,
+    MultipleBreakdownType,
+    StepOrderValue,
+)
 
 from posthog.hogql import ast
 from posthog.hogql.constants import BREAKDOWN_VALUES_LIMIT
@@ -74,8 +80,8 @@ class MetricBreakdownInjector:
 
         return result
 
-    def _attribution_step(self) -> tuple[str, int]:
-        """Resolve (aggregation_fn, step_column_index) for the configured attribution mode.
+    def _attribution_agg_and_steps(self) -> tuple[str, list[int]]:
+        """Resolve (aggregation_fn, step_column_indexes) for the configured attribution mode.
 
         In experiment funnels ``step_0`` is the exposure event and the metric series
         events are ``step_1 .. step_N`` (N = len(series)). The breakdown is read off
@@ -83,38 +89,62 @@ class MetricBreakdownInjector:
 
         - first_touch / all_events: argMinIf from the first metric step (step_1).
         - last_touch: argMaxIf from the last metric step (step_N).
-        - step: argMinIf from ``breakdownAttributionValue`` (0-indexed into the series,
-          mapped to the corresponding step column step_{value + 1}).
+        - step (ordered): argMinIf from ``breakdownAttributionValue`` (0-indexed into the
+          series, mapped to the corresponding step column step_{value + 1}).
+        - step (unordered, "Any step"): argMinIf across all metric step columns, since an
+          unordered funnel has no fixed step position and any matching step attributes.
         """
         attribution = self.metric.breakdownAttributionType or BreakdownAttributionType.FIRST_TOUCH
         num_metric_steps = len(self.metric.series)
+        is_unordered = self.metric.funnel_order_type == StepOrderValue.UNORDERED
 
         if attribution == BreakdownAttributionType.LAST_TOUCH:
-            return "argMaxIf", num_metric_steps
+            return "argMaxIf", [num_metric_steps]
         if attribution == BreakdownAttributionType.STEP:
+            if is_unordered:
+                # "Any step": the stored index is ignored, attribute from the earliest matching step.
+                return "argMinIf", list(range(1, num_metric_steps + 1))
             series_index = self.metric.breakdownAttributionValue
             if series_index is None or series_index < 0 or series_index >= num_metric_steps:
                 raise ValueError(
                     f"breakdownAttributionValue must be in [0, {num_metric_steps - 1}] for step attribution, "
                     f"got {series_index}"
                 )
-            return "argMinIf", series_index + 1
-        return "argMinIf", 1
+            return "argMinIf", [series_index + 1]
+        return "argMinIf", [1]
 
-    def _attribution_expr(self, breakdown_field: ast.Expr) -> ast.Call:
-        """argMin/argMax that picks the attributed breakdown value at the configured step."""
-        agg, step_index = self._attribution_step()
-        return ast.Call(
+    def _attribution_condition(self, step_indexes: list[int]) -> ast.Expr:
+        """Match a metric event at any of the attribution step columns (``step_i = 1``)."""
+        comparisons: list[ast.Expr] = [
+            ast.CompareOperation(
+                op=ast.CompareOperationOp.Eq,
+                left=ast.Field(chain=[f"step_{index}"]),
+                right=ast.Constant(value=1),
+            )
+            for index in step_indexes
+        ]
+        return comparisons[0] if len(comparisons) == 1 else ast.Or(exprs=comparisons)
+
+    def _attribution_expr(self, breakdown_field: ast.Expr) -> ast.Expr:
+        """Attributed breakdown value at the configured step(s).
+
+        argMinIf/argMaxIf over zero matching rows returns ClickHouse's empty string, which would
+        create an invisible ``""`` bucket that collides with real empty-string values and steals a
+        top-N slot. Users with no attributable metric event get the null label instead.
+        """
+        agg, step_indexes = self._attribution_agg_and_steps()
+        condition = self._attribution_condition(step_indexes)
+        attributed = ast.Call(
             name=agg,
-            args=[
-                breakdown_field,
-                ast.Field(chain=["timestamp"]),
-                ast.CompareOperation(
-                    op=ast.CompareOperationOp.Eq,
-                    left=ast.Field(chain=[f"step_{step_index}"]),
-                    right=ast.Constant(value=1),
-                ),
-            ],
+            args=[breakdown_field, ast.Field(chain=["timestamp"]), condition],
+        )
+        return parse_expr(
+            "if({has_match} = 0, {null_label}, {attributed})",
+            placeholders={
+                "has_match": ast.Call(name="countIf", args=[condition]),
+                "null_label": ast.Constant(value=BREAKDOWN_NULL_STRING_LABEL),
+                "attributed": attributed,
+            },
         )
 
     def _breakdown_limit(self) -> int:

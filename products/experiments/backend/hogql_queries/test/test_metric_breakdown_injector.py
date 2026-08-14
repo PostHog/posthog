@@ -1,20 +1,39 @@
 from parameterized import parameterized
 
-from posthog.schema import Breakdown, BreakdownAttributionType, BreakdownFilter, EventsNode, ExperimentFunnelMetric
+from posthog.schema import (
+    Breakdown,
+    BreakdownAttributionType,
+    BreakdownFilter,
+    EventsNode,
+    ExperimentFunnelMetric,
+    StepOrderValue,
+)
 
 from posthog.hogql import ast
 from posthog.hogql.parser import parse_select
 
+from posthog.hogql_queries.insights.utils.breakdowns import BREAKDOWN_NULL_STRING_LABEL
+
 from products.experiments.backend.hogql_queries.metric_breakdown_injector import MetricBreakdownInjector
 
 
-def _funnel_metric(attribution=None, attribution_value=None, num_steps=2):
+def _funnel_metric(attribution=None, attribution_value=None, num_steps=2, funnel_order_type=None):
     return ExperimentFunnelMetric(
         series=[EventsNode(event=f"step_{i}") for i in range(num_steps)],
         breakdownFilter=BreakdownFilter(breakdowns=[Breakdown(property="$browser")]),
         breakdownAttributionType=attribution,
         breakdownAttributionValue=attribution_value,
+        funnel_order_type=funnel_order_type,
     )
+
+
+def _unwrap_attribution(expr: ast.Expr) -> ast.Call:
+    """Users with no attribution event get the null label, so the attribution agg is nested in an
+    ``if(countIf(cond) = 0, null_label, agg(...))``. Return the inner argMin/argMax call."""
+    assert isinstance(expr, ast.Call) and expr.name == "if"
+    attributed = expr.args[2]
+    assert isinstance(attributed, ast.Call)
+    return attributed
 
 
 def _optimized_query() -> ast.SelectQuery:
@@ -56,12 +75,44 @@ class TestMetricBreakdownInjector:
 
         injector.inject_funnel_breakdown_columns_optimized(query)
 
-        expr = _entity_metrics_aliases(query)["breakdown_value_1"]
-        assert isinstance(expr, ast.Call)
+        expr = _unwrap_attribution(_entity_metrics_aliases(query)["breakdown_value_1"])
         assert expr.name == expected_agg
         cond = expr.args[2]
         assert isinstance(cond, ast.CompareOperation)
         assert cond.left == ast.Field(chain=[expected_step])
+
+    def test_unattributed_users_get_null_label_not_empty_string(self):
+        # argMinIf over zero matching rows returns "", which would form an invisible bucket that
+        # collides with real empty values and steals a top-N slot. It must map to the null label.
+        metric = _funnel_metric(attribution=BreakdownAttributionType.FIRST_TOUCH, num_steps=2)
+        injector = MetricBreakdownInjector(metric.breakdownFilter.breakdowns, metric)
+        query = _optimized_query()
+
+        injector.inject_funnel_breakdown_columns_optimized(query)
+
+        expr = _entity_metrics_aliases(query)["breakdown_value_1"]
+        assert isinstance(expr, ast.Call) and expr.name == "if"
+        null_label = expr.args[1]
+        assert isinstance(null_label, ast.Constant) and null_label.value == BREAKDOWN_NULL_STRING_LABEL
+
+    def test_unordered_any_step_attributes_across_all_steps(self):
+        # For unordered funnels "Any step" (step attribution) must match a metric event at any step,
+        # not just step_1, or a user who completed through a later series event lands unattributed.
+        metric = _funnel_metric(
+            attribution=BreakdownAttributionType.STEP,
+            attribution_value=0,
+            num_steps=2,
+            funnel_order_type=StepOrderValue.UNORDERED,
+        )
+        injector = MetricBreakdownInjector(metric.breakdownFilter.breakdowns, metric)
+        query = _optimized_query()
+
+        injector.inject_funnel_breakdown_columns_optimized(query)
+
+        cond = _unwrap_attribution(_entity_metrics_aliases(query)["breakdown_value_1"]).args[2]
+        assert isinstance(cond, ast.Or)
+        matched_steps = {c.left.chain[0] for c in cond.exprs if isinstance(c, ast.CompareOperation)}
+        assert matched_steps == {"step_1", "step_2"}
 
     def test_breakdown_read_from_metric_event_in_base_events(self):
         metric = _funnel_metric(attribution=BreakdownAttributionType.FIRST_TOUCH)
