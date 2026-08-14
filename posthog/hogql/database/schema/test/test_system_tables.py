@@ -914,12 +914,12 @@ class TestSystemTablesTeamIsolation(NonAtomicBaseTest):
         )
 
         response = execute_hogql_query(
-            "SELECT count() FROM system.error_tracking_issues WHERE severity IS NOT NULL",
+            "SELECT severity FROM system.error_tracking_issues WHERE severity IS NOT NULL",
             team=self.team,
             user=self.user,
         )
 
-        assert response.results == [(1,)]
+        assert response.results == [("high",)]
 
 
 class TestDataWarehouseSourcesLiveQueryability(BaseTest):
