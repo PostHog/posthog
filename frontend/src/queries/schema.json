@@ -47711,6 +47711,10 @@
         "ScatterChartSettings": {
             "additionalProperties": false,
             "properties": {
+                "showBestFit": {
+                    "description": "Whether to draw a least-squares fit line through each series' points.",
+                    "type": "boolean"
+                },
                 "xScale": {
                     "description": "X-axis scale. A `logarithmic` axis can't place a non-positive value, so those points are dropped.",
                     "enum": ["linear", "logarithmic"],
