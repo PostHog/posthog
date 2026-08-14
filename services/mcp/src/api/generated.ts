@@ -46096,6 +46096,18 @@ export namespace Schemas {
       readonly id: string;
     } | null;
 
+    /**
+     * One notebook-level variable. Shared by the notebook's own `variables` field and a run body.
+     */
+    export interface NotebookVariable {
+      /** Identifier the cell reads: `{name}` in a SQL cell, a plain global in a Python cell. */
+      name: string;
+      /** How to coerce the value: 'string', 'number', 'boolean', or 'date'. Unknown types read as 'string'. */
+      type: string;
+      /** The variable's current value. A 'date' accepts an absolute date or a relative expression ('-7d', 'mStart'), resolved against the project timezone. */
+      value?: unknown;
+    }
+
     export interface Notebook {
       /** UUID of the notebook. */
       readonly id: string;
@@ -46136,6 +46148,8 @@ export namespace Schemas {
          * @nullable
          */
       readonly parent_resource: NotebookParentResource;
+      /** Notebook-level variables, in display order. A SQL cell reads one as a `{name}` placeholder and a Python cell as a global. Names must be unique. */
+      variables?: NotebookVariable[];
       _create_in_folder?: string;
     }
 
@@ -46493,15 +46507,6 @@ export namespace Schemas {
      */
     export type NotebookSQLV2RunRequestRefs = {[key: string]: NotebookSQLV2Ref};
 
-    export interface NotebookSQLV2Variable {
-      /** Identifier the cell reads: `{name}` in a SQL cell, a plain global in a Python cell. */
-      name: string;
-      /** How to coerce the value: 'string', 'number', 'boolean', or 'date'. Unknown types read as 'string'. */
-      type: string;
-      /** The variable's current value. A 'date' accepts an absolute date or a relative expression ('-7d', 'mStart'), resolved against the project timezone. */
-      value?: unknown;
-    }
-
     export interface NotebookSQLV2RunRequest {
       /** ProseMirror node id of the SQLV2 node being run. */
       node_id: string;
@@ -46517,7 +46522,7 @@ export namespace Schemas {
       /** Available upstream nodes, keyed by dataframe name. A SQL node inlines referenced hogql refs as CTEs — unless it references a local ref, which reroutes the run to the sandbox's DuckDB; a python node materializes the hogql refs its code reads as pandas frames. */
       refs?: NotebookSQLV2RunRequestRefs;
       /** Notebook-level variables in scope for this run. A SQL node has each `{name}` bound to its value before dispatch; a Python node gets them as globals in the kernel namespace. A SQL node reading a `{name}` that is absent here fails the dispatch. */
-      variables?: NotebookSQLV2Variable[];
+      variables?: NotebookVariable[];
       /**
          * SQL nodes only: id of a direct-query-capable external data source to run against instead of PostHog's ClickHouse. Omit to query PostHog.
          * @nullable
@@ -57520,6 +57525,8 @@ export namespace Schemas {
          * @nullable
          */
       readonly parent_resource?: PatchedNotebookParentResource;
+      /** Notebook-level variables, in display order. A SQL cell reads one as a `{name}` placeholder and a Python cell as a global. Names must be unique. */
+      variables?: NotebookVariable[];
       _create_in_folder?: string;
     }
 
