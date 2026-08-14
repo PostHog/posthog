@@ -270,10 +270,15 @@ def draft_scanner_from_goal(
     then synthesize one scanner draft. Raises DraftError on model failure.
 
     `include_business_context` must be False for scoped-token requests: core memory's own API is
-    INTERNAL (session-only), so its content must not flow out through this endpoint's response.
+    INTERNAL (session-only), and the org/project names sit behind their own read scopes, so neither
+    may flow out through this endpoint's response (the model can echo them into the draft).
     """
     taxonomy = _product_taxonomy(team)
-    company = " / ".join(part for part in [team.organization.name, team.project.name if team.project else ""] if part)
+    company = (
+        " / ".join(part for part in [team.organization.name, team.project.name if team.project else ""] if part)
+        if include_business_context
+        else ""
+    )
     user_content = _build_user_content(
         goal,
         taxonomy.events,
