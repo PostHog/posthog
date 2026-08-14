@@ -4,7 +4,6 @@ from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
-
     dependencies = [
         ("data_modeling", "0030_datawarehousesavedquery_incremental_config_and_more"),
     ]

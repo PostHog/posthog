@@ -1,8 +1,8 @@
 from datetime import UTC, date, datetime, timedelta
 
-from django.utils import timezone
-
 from posthog.test.base import BaseTest
+
+from django.utils import timezone
 
 from parameterized import parameterized
 
