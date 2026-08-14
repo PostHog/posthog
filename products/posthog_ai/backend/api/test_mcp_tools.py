@@ -74,7 +74,7 @@ class TestMCPToolsAPI(APIBaseTest):
 
     @patch("ee.hogai.utils.helpers.TeamTaxonomyQueryRunner")
     def test_invoke_read_taxonomy_attributes_query_executed_to_user_and_mcp_source(self, mock_runner_cls):
-        now = datetime.now(UTC)
+        now = datetime(2026, 1, 1, tzinfo=UTC)
         mock_runner_cls.return_value.run.return_value = CachedTeamTaxonomyQueryResponse(
             cache_key="cache_key",
             is_cached=True,
