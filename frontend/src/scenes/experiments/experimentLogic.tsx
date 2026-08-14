@@ -65,6 +65,7 @@ import {
     ExperimentTrendsQuery,
     FunnelsQuery,
     InsightVizNode,
+    isExperimentFunnelMetric,
     NodeKind,
     ProductIntentContext,
     ProductKey,
@@ -464,11 +465,14 @@ const sharedMetricsToExperimentMetrics = (
         .filter(({ metadata }) => metadata.type === type)
         .map(({ query, metadata }) => ({
             ...query,
-            // Merge per-experiment customizations from metadata into the query
-            ...(metadata?.breakdownAttributionType !== undefined && {
-                breakdownAttributionType: metadata.breakdownAttributionType,
-                breakdownAttributionValue: metadata.breakdownAttributionValue,
-            }),
+            // Merge per-experiment customizations from metadata into the query. Attribution only
+            // exists on funnel metrics; merging it onto any other type produces an extra field the
+            // backend metric models reject, and the UI can't clear it (the control is funnel-only).
+            ...(metadata?.breakdownAttributionType !== undefined &&
+                isExperimentFunnelMetric(query) && {
+                    breakdownAttributionType: metadata.breakdownAttributionType,
+                    breakdownAttributionValue: metadata.breakdownAttributionValue,
+                }),
             breakdownFilter: {
                 ...query?.breakdownFilter,
                 breakdowns: metadata?.breakdowns || [],

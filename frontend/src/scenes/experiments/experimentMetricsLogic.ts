@@ -8,6 +8,7 @@ import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { projectLogic } from 'scenes/projectLogic'
 
 import type { FeatureFlagsSet } from '~/lib/logic/featureFlagLogic'
+import { isExperimentFunnelMetric } from '~/queries/schema/schema-general'
 import type { Breakdown, CachedNewExperimentQueryResponse, ExperimentMetric } from '~/queries/schema/schema-general'
 import { BreakdownAttributionType, Experiment } from '~/types'
 import type { ExperimentIdType } from '~/types'
@@ -81,10 +82,13 @@ const sharedMetricsToExperimentMetrics = (
         .filter(({ metadata }) => metadata.type === type)
         .map(({ query, metadata }) => ({
             ...query,
-            ...(metadata?.breakdownAttributionType !== undefined && {
-                breakdownAttributionType: metadata.breakdownAttributionType,
-                breakdownAttributionValue: metadata.breakdownAttributionValue,
-            }),
+            // Attribution is funnel-only; merging it onto another metric type adds a field the
+            // backend rejects and the UI can't clear (see sharedMetricsToExperimentMetrics in experimentLogic).
+            ...(metadata?.breakdownAttributionType !== undefined &&
+                isExperimentFunnelMetric(query) && {
+                    breakdownAttributionType: metadata.breakdownAttributionType,
+                    breakdownAttributionValue: metadata.breakdownAttributionValue,
+                }),
             breakdownFilter: {
                 ...query?.breakdownFilter,
                 breakdowns: metadata?.breakdowns || [],
