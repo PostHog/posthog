@@ -240,6 +240,7 @@ const groupedChartDisplayTypes: Record<ChartDisplayType, ChartDisplayType> = {
     [ChartDisplayType.ActionsUnstackedBar]: ChartDisplayType.ActionsLineGraph,
     [ChartDisplayType.ActionsStackedBar]: ChartDisplayType.ActionsLineGraph,
     [ChartDisplayType.TwoDimensionalHeatmap]: ChartDisplayType.ActionsLineGraph,
+    [ChartDisplayType.ScatterPlot]: ChartDisplayType.ActionsLineGraph,
     [ChartDisplayType.Metric]: ChartDisplayType.ActionsLineGraph,
 
     // cumulative time series
