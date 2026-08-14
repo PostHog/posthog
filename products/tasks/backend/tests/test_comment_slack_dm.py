@@ -213,7 +213,8 @@ class TestCommentSlackDm(CommentActivityTestCase):
 
         assert self._dm_channels() == ["U-author"]
         assert (
-            f"/code/task/{self.task.id}?comment={comment.id}&scope=desktop_canvas&item={canvas.id}" in self._dm_text()
+            f"/code/task/{self.task.id}?comment={comment.id}&scope=desktop_canvas&item={canvas.id}"
+            in self._dm_heading()
         )
 
     def test_dm_links_to_the_desktop_task_bridge_anchored_on_the_comment(self):
@@ -221,7 +222,7 @@ class TestCommentSlackDm(CommentActivityTestCase):
 
         self._record_activity(comment, [self.author.id])
 
-        assert f"/code/task/{self.task.id}?comment={comment.id}" in self._dm_text()
+        assert f"/code/task/{self.task.id}?comment={comment.id}" in self._dm_heading()
 
     def test_canvas_comment_does_not_dm_a_recipient_without_canvas_access(self):
         personal_channel = Channel.objects.unscoped().create(
