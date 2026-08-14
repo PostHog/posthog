@@ -44,6 +44,8 @@ const GLOBAL_RATE_LIMITER_CACHE_SIZE_GAUGE: &str = "global_rate_limiter_cache_si
 const GLOBAL_RATE_LIMITER_EVICTION_COUNTER: &str = "global_rate_limiter_eviction_total";
 /// Keys still queued for sync after a tick took its bounded slice.
 const GLOBAL_RATE_LIMITER_SYNC_DEFERRED_GAUGE: &str = "global_rate_limiter_sync_deferred_size";
+/// (key, epoch) write entries still batched after a tick took its bounded slice.
+const GLOBAL_RATE_LIMITER_WRITE_DEFERRED_GAUGE: &str = "global_rate_limiter_write_deferred_size";
 /// Syncs not queued because the key's level is below `min_sync_floor`.
 const GLOBAL_RATE_LIMITER_SYNC_SKIPPED_COUNTER: &str = "global_rate_limiter_sync_skipped_total";
 /// Redis commands issued per tick, after chunking.
@@ -513,6 +515,19 @@ impl GlobalRateLimiterImpl {
             );
             config.local_cache_idle_timeout = config.window_interval;
         }
+        // Same hazard for the hard TTL: an entry evicted mid-window discards the
+        // counts it was accumulating, and the next request follows the always-
+        // allowed miss path.
+        if config.local_cache_ttl < config.window_interval {
+            warn!(
+                scope,
+                ttl = ?config.local_cache_ttl,
+                window_interval = ?config.window_interval,
+                "local_cache_ttl below window_interval would drop counts inside \
+                 the enforcement window; clamping to window_interval"
+            );
+            config.local_cache_ttl = config.window_interval;
+        }
         let config = config;
 
         let cache = Cache::builder()
@@ -616,7 +631,7 @@ impl GlobalRateLimiterImpl {
             // floor while still idle-tier syncs on the Low cadence rather than
             // never -- otherwise a key that is hot across the fleet but cold on
             // any single node would never be discovered.
-            if self.sync_floor_blocks(level) {
+            if self.sync_floor_blocks(level, threshold) {
                 metrics::counter!(GLOBAL_RATE_LIMITER_CACHE_COUNTER, "scope" => self.scope, "result" => "hit")
                     .increment(1);
             } else {
@@ -653,7 +668,7 @@ impl GlobalRateLimiterImpl {
                 pressure: 0.0,
             };
             self.cache.insert(key.to_string(), entry);
-            if !self.sync_floor_blocks(count as f64) {
+            if !self.sync_floor_blocks(count as f64, threshold) {
                 self.pending_sync.insert(key.to_string());
             }
 
@@ -680,13 +695,25 @@ impl GlobalRateLimiterImpl {
         }
     }
 
-    /// True when `level` sits below the configured sync floor, meaning a Redis
-    /// round trip for this key cannot change any enforcement decision. Records
-    /// the skip so the saving is visible next to `cache_counts_total`.
+    /// True when `level` sits below the sync floor for this key's threshold,
+    /// meaning a Redis round trip cannot change any enforcement decision.
+    /// Records the skip so the saving is visible next to `cache_counts_total`.
     ///
-    /// A floor of 0 disables the check, restoring sync-every-key behavior.
-    fn sync_floor_blocks(&self, level: f64) -> bool {
-        if self.config.min_sync_floor == 0 || level >= self.config.min_sync_floor as f64 {
+    /// The configured floor is capped at 1% of the key's own threshold. The
+    /// floor is a per-node level, so a fleet of N nodes can hide at most
+    /// N * floor events from Redis; the cap keeps that bypass under N% of the
+    /// threshold regardless of configuration. Without it, a custom threshold
+    /// far below the global one (the exact keys overrides exist to clamp) could
+    /// sit entirely below a floor tuned for the global threshold and never
+    /// sync, making the override unenforceable.
+    ///
+    /// A configured floor of 0 disables the check entirely.
+    fn sync_floor_blocks(&self, level: f64, threshold: u64) -> bool {
+        if self.config.min_sync_floor == 0 {
+            return false;
+        }
+        let effective_floor = self.config.min_sync_floor.min((threshold / 100).max(1));
+        if level >= effective_floor as f64 {
             return false;
         }
         metrics::counter!(
@@ -889,8 +916,27 @@ impl GlobalRateLimiterImpl {
         metrics::gauge!(GLOBAL_RATE_LIMITER_SYNC_DEFERRED_GAUGE, "scope" => scope)
             .set(pending_sync.len() as f64);
 
-        // Take ownership of write batch
-        let writes = std::mem::take(write_batch);
+        // Bound the write drain the same way. The deferred remainder stays in
+        // `write_batch`, where new arrivals merge into it by (key, epoch), so no
+        // count is lost -- it lands in the same epoch key up to a few ticks late.
+        // Without the bound, a high-cardinality burst produces a write batch
+        // whose waves consume the whole tick before reads run.
+        let writes: HashMap<(String, i64), u64> =
+            if write_batch.len() <= config.max_sync_keys_per_tick {
+                std::mem::take(write_batch)
+            } else {
+                let drain_keys: Vec<(String, i64)> = write_batch
+                    .keys()
+                    .take(config.max_sync_keys_per_tick)
+                    .cloned()
+                    .collect();
+                drain_keys
+                    .into_iter()
+                    .filter_map(|k| write_batch.remove_entry(&k))
+                    .collect()
+            };
+        metrics::gauge!(GLOBAL_RATE_LIMITER_WRITE_DEFERRED_GAUGE, "scope" => scope)
+            .set(write_batch.len() as f64);
 
         let read_count = sync_keys.len();
         let write_count = writes.len();
@@ -943,10 +989,14 @@ impl GlobalRateLimiterImpl {
         let now = Utc::now();
         let ttl = config.global_cache_ttl.as_secs() as usize;
 
-        let writes_issued =
-            Self::run_writes(config, redis, &redis_idx_str, writes, ttl, scope).await;
+        // Reads first: enforcement accuracy depends on fresh global counts, while
+        // a write is additive and lands correctly a tick late. The old
+        // writes-first order let a large write batch consume the tick before any
+        // read ran, starving the very syncs the burst made necessary.
         let reads_issued =
             Self::run_reads(config, redis, &redis_idx_str, cache, sync_keys, now, scope).await;
+        let writes_issued =
+            Self::run_writes(config, redis, &redis_idx_str, writes, ttl, scope).await;
 
         metrics::histogram!(GLOBAL_RATE_LIMITER_COMMANDS_HISTOGRAM, "scope" => scope, "op" => "write")
             .record(writes_issued as f64);
@@ -1902,8 +1952,13 @@ mod tests {
 
         for (floor, count, expect_queued) in cases {
             let client = Arc::new(MockRedisClient::new());
-            let limiter =
-                GlobalRateLimiterImpl::new(config_with_floor(floor), vec![client]).unwrap();
+            // Threshold large enough (floor * 100 or more) that the 1% cap does
+            // not reduce the configured floor; the cap has its own test below.
+            let config = GlobalRateLimiterConfig {
+                global_threshold: 1000,
+                ..config_with_floor(floor)
+            };
+            let limiter = GlobalRateLimiterImpl::new(config, vec![client]).unwrap();
             let key = format!("cold_{floor}_{count}");
 
             limiter.check_limit(&key, count, None).await;
@@ -1941,6 +1996,129 @@ mod tests {
                  an idle timeout inside the window expires entries mid-window and silently under-enforces"
             );
         }
+    }
+
+    #[tokio::test]
+    async fn test_sync_floor_capped_at_one_percent_of_threshold() {
+        // (configured_floor, threshold, count, expect_queued)
+        let cases = vec![
+            // Custom-style low threshold: cap = max(1, 100/100) = 1, so any
+            // counted event syncs. A floor tuned for the global threshold must
+            // not make a low custom override unenforceable.
+            (10, 100, 1, true),
+            // Threshold 500: cap = 5. The configured 10 is reduced to 5.
+            (10, 500, 4, false),
+            (10, 500, 5, true),
+            // Large threshold: cap = 150 leaves the configured 10 in charge.
+            (10, 15_000, 9, false),
+            (10, 15_000, 10, true),
+        ];
+
+        for (floor, threshold, count, expect_queued) in cases {
+            let client = Arc::new(MockRedisClient::new());
+            let config = GlobalRateLimiterConfig {
+                global_threshold: threshold,
+                ..config_with_floor(floor)
+            };
+            let limiter = GlobalRateLimiterImpl::new(config, vec![client]).unwrap();
+            let key = format!("cap_{floor}_{threshold}_{count}");
+
+            limiter.check_limit(&key, count, None).await;
+
+            assert_eq!(
+                limiter.pending_sync.contains(&key),
+                expect_queued,
+                "floor={floor} threshold={threshold} count={count} should queue sync = {expect_queued}"
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn test_ttl_clamped_up_to_window_interval() {
+        let client = Arc::new(MockRedisClient::new());
+        let config = GlobalRateLimiterConfig {
+            local_cache_ttl: Duration::from_secs(1),
+            ..test_config() // 60s window
+        };
+        let limiter = GlobalRateLimiterImpl::new(config, vec![client]).unwrap();
+
+        assert_eq!(
+            limiter.config.local_cache_ttl,
+            Duration::from_secs(60),
+            "a TTL below the window evicts entries mid-window; the next request \
+             takes the always-allowed miss path and the limiter under-enforces"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_tick_runs_reads_before_writes() {
+        let mock = Arc::new(MockRedisClient::new());
+        let client: Arc<dyn Client + Send + Sync> = mock.clone();
+        let config = config_with_floor(0);
+        let cache: Cache<String, CacheEntry> = Cache::builder().max_capacity(100).build();
+        let pending: Arc<DashSet<String>> = Arc::new(DashSet::new());
+        pending.insert("read_key".to_string());
+        let mut writes: HashMap<(String, i64), u64> = HashMap::new();
+        writes.insert(("write_key".to_string(), 1), 5);
+
+        GlobalRateLimiterImpl::tick(
+            &config,
+            std::slice::from_ref(&client),
+            &cache,
+            &pending,
+            &mut writes,
+            "test",
+            1,
+        )
+        .await;
+
+        let calls = mock.get_calls();
+        let first_read = calls.iter().position(|c| c.op == "mget");
+        let first_write = calls.iter().position(|c| c.op.starts_with("batch_incr"));
+        assert!(
+            first_read.is_some() && first_write.is_some(),
+            "tick should issue both a read and a write"
+        );
+        assert!(
+            first_read < first_write,
+            "reads must run before writes: enforcement depends on fresh global \
+             counts, and a large write batch running first starves the reads a \
+             burst makes necessary. calls={calls:?}"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_tick_bounds_write_drain_and_carries_remainder() {
+        let client: Arc<dyn Client + Send + Sync> = Arc::new(MockRedisClient::new());
+        let config = GlobalRateLimiterConfig {
+            max_sync_keys_per_tick: 10,
+            ..config_with_floor(0)
+        };
+        let cache: Cache<String, CacheEntry> = Cache::builder().max_capacity(100).build();
+        let pending: Arc<DashSet<String>> = Arc::new(DashSet::new());
+        let mut writes: HashMap<(String, i64), u64> = HashMap::new();
+        for i in 0..25 {
+            writes.insert((format!("w{i}"), 1), 1);
+        }
+
+        GlobalRateLimiterImpl::tick(
+            &config,
+            std::slice::from_ref(&client),
+            &cache,
+            &pending,
+            &mut writes,
+            "test",
+            1,
+        )
+        .await;
+
+        assert_eq!(
+            writes.len(),
+            15,
+            "tick must drain at most max_sync_keys_per_tick write entries and \
+             leave the remainder batched -- deferring keeps counts (they merge by \
+             key+epoch and land a tick late), dropping them would lose counts"
+        );
     }
 
     #[tokio::test]
