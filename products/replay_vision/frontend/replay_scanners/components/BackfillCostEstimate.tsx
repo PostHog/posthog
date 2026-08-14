@@ -4,7 +4,6 @@ import { LemonBanner, LemonCard, Spinner, Tooltip } from '@posthog/lemon-ui'
 
 import { LemonLabel } from 'lib/lemon-ui/LemonLabel'
 
-import { CreditPriceNote } from '../../components/PricingLink'
 import type { BackfillEstimateResponseApi } from '../../generated/api.schemas'
 import { visionQuotaLogic } from '../../logics/visionQuotaLogic'
 import { creditsToUsd, formatCreditCount } from '../../utils/credits'
@@ -137,10 +136,6 @@ export function BackfillCostEstimate({ estimate, loading }: Props): JSX.Element 
                     period.
                 </LemonBanner>
             )}
-
-            <div className="text-xs text-muted">
-                <CreditPriceNote dataAttr="vision-pricing-link-backfill-estimate" />
-            </div>
         </LemonCard>
     )
 }

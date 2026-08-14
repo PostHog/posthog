@@ -1,5 +1,7 @@
 import { Link } from '@posthog/lemon-ui'
 
+import { creditsToUsd, formatCreditCount } from '../utils/credits'
+
 const VISION_PRICING_URL = 'https://posthog.com/replay-vision/pricing'
 
 /** Pricing link for replay vision surfaces. Opens in a new tab so nobody loses a half-configured scanner. */
@@ -27,7 +29,8 @@ export function VisionPricingLink({
 export function CreditPriceNote({ dataAttr }: { dataAttr: string }): JSX.Element {
     return (
         <span>
-            1 credit is $0.01. <VisionPricingLink dataAttr={dataAttr}>Read more about pricing</VisionPricingLink>
+            {formatCreditCount(1)} is {creditsToUsd(1)}.{' '}
+            <VisionPricingLink dataAttr={dataAttr}>Read more about pricing</VisionPricingLink>
         </span>
     )
 }
