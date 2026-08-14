@@ -147,7 +147,7 @@ def send_comment_slack_dms(*, team_id: int, comment_id: UUID, task_id: UUID, rec
             if not slack_user_id:
                 _skip(comment_id, "recipient_not_found_in_slack", user_id=user_id)
                 continue
-            fallback, blocks = _message(
+            heading, blocks = _message(
                 kind=kind,
                 comment=comment,
                 task=task,
@@ -162,8 +162,8 @@ def send_comment_slack_dms(*, team_id: int, comment_id: UUID, task_id: UUID, rec
             )
             slack.client.chat_postMessage(
                 channel=slack_user_id,
-                text=fallback,
-                attachments=[{"color": _ACCENT, "blocks": blocks}],
+                text=heading,
+                attachments=[{"color": _ACCENT, "blocks": blocks}] if blocks else None,
                 unfurl_links=False,
             )
         except Exception as exc:
@@ -358,8 +358,6 @@ def _message(
     # A pipe in the title would end the link label early, so it can't survive into the label.
     label = escape_slack_mrkdwn(title).replace("|", "-")
     heading = template.format(author=f"*{escape_slack_mrkdwn(author)}*", link=f"<{url}|{label}>")
-    # Plain-text twin for the notification preview and older clients.
-    fallback = template.format(author=escape_slack_mrkdwn(author), link=escape_slack_mrkdwn(title))
 
     body, _ = rich_content_to_slack_payload(
         comment.rich_content,
@@ -369,10 +367,11 @@ def _message(
         slack_user_id_by_email=slack_user_id_by_email,
     )
     body = _truncate_body(body.strip())
-    text = f"{heading}\n\n{body}" if body else heading
-    blocks: list[dict] = [{"type": "section", "text": {"type": "mrkdwn", "text": text}}]
+    blocks: list[dict] = []
+    if body:
+        blocks.append({"type": "section", "text": {"type": "mrkdwn", "text": body}})
     # Three canvases in one task otherwise produce three identical headings.
     location = _LOCATIONS.get(comment.scope)
     if location:
         blocks.append({"type": "context", "elements": [{"type": "mrkdwn", "text": location}]})
-    return fallback, blocks
+    return heading, blocks
