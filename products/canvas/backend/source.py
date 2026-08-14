@@ -14,6 +14,7 @@ import re
 import json
 from typing import Any
 
+from products.canvas.backend.actions import CANVAS_ACTIONS
 from products.canvas.backend.contract import (
     allowed_import_specifiers,
     canvas_sdk_version,
@@ -80,6 +81,10 @@ _NETWORK_PATTERNS: list[tuple[re.Pattern[str], str, str]] = [
 _PH_LOAD_INSIGHT_RE = re.compile(r"\bph\s*\.\s*loadInsight\s*\(\s*(?:[\"']([^\"']+)[\"'])?")
 _PH_QUERY_RE = re.compile(r"\bph\s*\.\s*query\s*\(")
 _PH_CAPTURE_RE = re.compile(r"\bph\s*\.\s*capture\s*\(\s*(?:[\"']([^\"']+)[\"'])?")
+_PH_STATE_RE = re.compile(r"\bph\s*\.\s*state\s*\.")
+_PH_STATE_CALL_RE = re.compile(r"\bph\s*\.\s*state\s*\.\s*(get|set|list)\s*\(")
+_STATE_SCOPE_LITERAL_RE = re.compile(r"\bscope\s*:\s*[\"']([^\"']+)[\"']")
+_PH_ACTIONS_RE = re.compile(r"\bph\s*\.\s*actions\s*\.\s*invoke\s*\(\s*(?:[\"']([^\"']+)[\"'])?")
 
 _PATH_SEGMENT_RE = re.compile(r"^[A-Za-z0-9._@-]+$")
 
@@ -209,6 +214,78 @@ def _validate_capabilities(path: str, code: str, capabilities: dict[str, Any]) -
     declared_events = set(posthog_capabilities.get("captureEvents") or [])
     inline_queries = bool(posthog_capabilities.get("inlineQueries"))
 
+    declared_state = set(posthog_capabilities.get("state") or [])
+    if not declared_state:
+        state_match = _PH_STATE_RE.search(code)
+        if state_match is not None:
+            diagnostics.append(
+                diagnostic(
+                    "error",
+                    "capability_missing_state",
+                    'ph.state requires its scopes in capabilities.posthog.state (["user"] and/or ["shared"]) — '
+                    "the host rejects undeclared state access at runtime",
+                    path=path,
+                    line=_line_of(code, state_match.start()),
+                )
+            )
+    else:
+        # Declaring one scope is not declaring the other: check each call
+        # site's scope — the explicit literal, or the runtime's "user"
+        # default when get/set pass no options — against the declaration.
+        for call in _PH_STATE_CALL_RE.finditer(code):
+            window_end = min(len(code), call.end() + 200)
+            next_call = _PH_STATE_CALL_RE.search(code, call.end())
+            if next_call is not None:
+                window_end = min(window_end, next_call.start())
+            scope_literal = _STATE_SCOPE_LITERAL_RE.search(code, call.end(), window_end)
+            used_scope = scope_literal.group(1) if scope_literal else None
+            if used_scope is None:
+                used_scope = "user" if call.group(1) in ("get", "set") else None
+            if used_scope is not None and used_scope not in declared_state:
+                line = _line_of(code, call.start())
+                detail = (
+                    f'ph.state.{call.group(1)} uses scope "{used_scope}"'
+                    if scope_literal
+                    else f'ph.state.{call.group(1)} defaults to scope "user"'
+                )
+                diagnostics.append(
+                    diagnostic(
+                        "error",
+                        "capability_missing_state",
+                        f"{detail}, which capabilities.posthog.state does not declare — "
+                        "the host rejects undeclared state access at runtime",
+                        path=path,
+                        line=line,
+                    )
+                )
+
+    declared_action_verbs = set(posthog_capabilities.get("actions") or [])
+    for match in _PH_ACTIONS_RE.finditer(code):
+        verb = match.group(1)
+        line = _line_of(code, match.start())
+        if verb is not None and verb not in declared_action_verbs:
+            diagnostics.append(
+                diagnostic(
+                    "error",
+                    "capability_missing_action",
+                    f'ph.actions.invoke("{verb}") requires "{verb}" in capabilities.posthog.actions — '
+                    "the host rejects undeclared actions at runtime",
+                    path=path,
+                    line=line,
+                )
+            )
+        elif verb is None and not declared_action_verbs:
+            diagnostics.append(
+                diagnostic(
+                    "warning",
+                    "capability_missing_action",
+                    "ph.actions.invoke() is called with a dynamic verb but capabilities.posthog.actions is empty — "
+                    "declare every verb the canvas invokes",
+                    path=path,
+                    line=line,
+                )
+            )
+
     for match in _PH_LOAD_INSIGHT_RE.finditer(code):
         short_id = match.group(1)
         line = _line_of(code, match.start())
@@ -310,6 +387,19 @@ def validate_source_project(project: dict[str, Any]) -> list[dict[str, Any]]:
     if network_origins:
         diagnostics.append(
             diagnostic("error", "network_origins_not_supported", "capabilities.network.origins must be empty")
+        )
+    declared_verbs = ((project.get("capabilities") or {}).get("posthog") or {}).get("actions") or []
+    unregistered = sorted(set(declared_verbs) - set(CANVAS_ACTIONS))
+    if unregistered:
+        diagnostics.append(
+            diagnostic(
+                "error",
+                "action_not_registered",
+                "capabilities.posthog.actions declares unknown verbs: "
+                + ", ".join(unregistered)
+                + " — registered verbs: "
+                + ", ".join(sorted(CANVAS_ACTIONS)),
+            )
         )
     if len(files) + len(assets) > limits["maxSourceFiles"]:
         diagnostics.append(
