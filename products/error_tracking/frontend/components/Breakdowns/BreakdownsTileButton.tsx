@@ -54,8 +54,8 @@ export function BreakdownsTileButton({ item: { title, property } }: BreakdownsTi
                         </button>
                     </LemonTooltip>
                 ) : responseLoading ? (
-                    <div className="flex h-5 w-full items-center justify-center">
-                        <Skeleton className="h-5 w-full rounded bg-border">
+                    <div className="flex h-3 w-full items-center justify-center">
+                        <Skeleton className="h-3 w-full rounded-sm bg-border">
                             <span>Loading…</span>
                         </Skeleton>
                     </div>

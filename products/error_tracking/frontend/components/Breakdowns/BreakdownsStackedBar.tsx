@@ -48,7 +48,7 @@ export function BreakdownsStackedBar({
             maxCategoryLabelWidth: 0,
             xTickFormatter: () => '',
             margins: { top: 0, right: 0, bottom: 0, left: 0 },
-            barCornerRadius: 4,
+            barCornerRadius: 2,
             bars: {
                 bandPadding: 0,
                 fitToHeight: true,
@@ -78,7 +78,7 @@ export function BreakdownsStackedBar({
     }
 
     return (
-        <div className="flex h-5 w-full overflow-hidden rounded">
+        <div className="flex h-3 w-full overflow-hidden rounded-sm">
             <BarChart
                 series={series}
                 labels={labels}
