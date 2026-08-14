@@ -20,6 +20,7 @@ from products.logs.backend.pattern_replay import (
 )
 
 _T0 = dt.datetime(2026, 8, 14, 12, 0, tzinfo=dt.UTC)
+_SAMPLE_CORPUS = Path(__file__).parent / "fixtures" / "pattern_replay_sample.jsonl"
 
 
 def _sample(body: str, service: str = "svc") -> LogSample:
@@ -125,6 +126,18 @@ class TestPatternReplay(TestCase):
         self.assertEqual(samples[0].service_name, "checkout")
 
     def test_cli_runs_without_crashing(self) -> None:
-        corpus = Path(__file__).parent / "fixtures" / "pattern_replay_sample.jsonl"
+        main([str(_SAMPLE_CORPUS), "--compare", "truncate=1024"])
 
-        main([str(corpus), "--compare", "truncate=1024"])
+    @parameterized.expand(
+        [
+            ("no value at all", "truncate"),
+            ("an empty value", "truncate="),
+            ("a word where a number belongs", "truncate=abc"),
+            ("a fraction for a whole-number knob", "truncate=1.5"),
+            ("a word where a fraction belongs", "sim_th=abc"),
+            ("a knob that does not exist", "nonsense=1"),
+        ]
+    )
+    def test_cli_refuses_an_override_it_cannot_apply(self, _name: str, pair: str) -> None:
+        with self.assertRaises(SystemExit):
+            main([str(_SAMPLE_CORPUS), "--compare", pair])

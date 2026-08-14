@@ -1,8 +1,8 @@
 """Replay a fixed corpus of log bodies through the miner and measure the result.
 
 Masking and truncation interact: every masking change shifts string lengths, which moves
-the truncation cut point. So a miner change cannot be judged by reading its output, so it
-needs the same corpus measured before and after. This module is that measurement.
+the truncation cut point. A miner change therefore cannot be judged by reading its output.
+It needs the same corpus measured before and after, which is what this module does.
 
 Compare two tunings in one run:
 
@@ -14,10 +14,10 @@ Compare a code change across two runs, one per branch:
     python -m products.logs.backend.pattern_replay corpora/edge.jsonl --baseline before.json
 
 A corpus is one JSON object per line, each with at least a `body`; `service_name`,
-`severity_text`, and `timestamp` are optional. Capture one per service from query-logs rows,
-and keep it under `corpora/`, which is gitignored, because corpora hold real log bodies and this
-repository is public. `test/fixtures/pattern_replay_sample.jsonl` is invented data, small
-enough to smoke-test the command but too small to measure a change against.
+`severity_text`, and `timestamp` are optional. Capture one per service from query-logs rows
+and keep it under `corpora/`, which is gitignored, because a corpus holds real log bodies
+and this repository is public. `test/fixtures/pattern_replay_sample.jsonl` is invented data,
+small enough to smoke-test the command but too small to measure a change against.
 """
 
 import os
@@ -27,6 +27,7 @@ import datetime as dt
 from collections import defaultdict
 from dataclasses import asdict, fields
 from pathlib import Path
+from typing import get_type_hints
 
 from posthog.dataclasses import frozen
 
@@ -209,11 +210,25 @@ def _measure_with(samples: list[LogSample], overrides: dict[str, str]) -> Replay
 
 
 def _parse_overrides(pairs: list[str]) -> dict[str, str]:
+    """Turn `key=value` arguments into environment overrides, rejecting any that would not apply.
+
+    _env falls back to its default whenever a value fails to parse, so an unusable override
+    mines at the default and reports the default. Both runs then agree, config_mismatch stays
+    empty, and the diff reads as a real "no change" answer to a comparison never made. Refuse
+    the value here, where the mistake is still visible.
+    """
+    parsers = get_type_hints(ReplayConfig)
     overrides = {}
     for pair in pairs:
-        key, _, value = pair.partition("=")
+        key, assigned, value = pair.partition("=")
         if key not in _ENV_VARS:
             raise SystemExit(f"unknown config key {key!r}, expected one of {', '.join(_ENV_VARS)}")
+        if not assigned or not value:
+            raise SystemExit(f"config key {key!r} needs a value, written as {key}=<value>")
+        try:
+            parsers[key](value)
+        except ValueError:
+            raise SystemExit(f"config key {key!r} needs {parsers[key].__name__}, got {value!r}")
         overrides[_ENV_VARS[key]] = value
     return overrides
 
