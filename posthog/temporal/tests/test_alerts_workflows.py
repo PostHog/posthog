@@ -36,8 +36,13 @@ from posthog.temporal.alerts.types import AlertInfo, CheckAlertWorkflowInputs, S
 from posthog.temporal.alerts.workflows import CheckAlertWorkflow, ScheduleDueAlertChecksWorkflow
 from posthog.temporal.common.slo_interceptor import SloInterceptor
 
+from products.alerts.backend.destinations import AlertDelivery
 from products.alerts.backend.models.alert import AlertCheck, AlertConfiguration, Threshold
 from products.product_analytics.backend.models.insight import Insight
+
+def _email_delivery(target: str, at: str = "2026-08-11T00:00:00+00:00") -> AlertDelivery:
+    return AlertDelivery(channel="email", target=target, at=at)
+
 
 CHECK_ALERT_ACTIVITIES: list[Callable[..., Any]] = [
     prepare_alert,
@@ -221,7 +226,8 @@ async def test_check_alert_workflow_firing_drives_full_chain_with_slo(
     with (
         patch("posthog.temporal.alerts.activities.check_alert_for_insight", return_value=evaluation_result),
         patch(
-            "posthog.tasks.alerts.utils.send_notifications_for_breaches", return_value=recipients
+            "posthog.tasks.alerts.utils.send_notifications_for_breaches",
+            return_value=[_email_delivery(recipients[0])],
         ) as mock_send_breaches,
     ):
         await _run_check_alert_workflow(
@@ -347,7 +353,7 @@ async def test_check_alert_workflow_records_errored_check_when_evaluation_keeps_
         ) as mock_ch_query,
         patch(
             "posthog.tasks.alerts.utils.send_notifications_for_errors",
-            return_value=["alerts-wf-test@posthog.com"],
+            return_value=[_email_delivery("alerts-wf-test@posthog.com")],
         ) as mock_send_errors,
         failure_ctx,
     ):

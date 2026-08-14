@@ -24,6 +24,7 @@ from products.alerts.backend.destinations import (
     flush_alert_internal_events,
     list_active_alert_destinations,
     produce_alert_internal_event,
+    serialize_deliveries,
 )
 from products.alerts.backend.facade.api import send_alert_email
 from products.alerts.backend.insight_alert_state_machine import (
@@ -326,13 +327,13 @@ def dispatch_alert_notification(
     alert_check: AlertCheck,
     breaches: list[str] | None,
     extra_properties: dict[str, str] | None = None,
-) -> list[str] | None:
+) -> list[AlertDelivery] | None:
     """Route an AlertCheck to the correct notification sender.
 
-    Returns the list of recipients the delivery targeted, or None if nothing was sent
+    Returns the delivery receipts the notification produced, or None if nothing was sent
     (NOT_FIRING, or ERRORED with a non-dict error payload). Callers pass the returned
-    list to record_alert_delivery so the `targets_notified` sentinel reflects reality
-    — never claiming delivery for a state that didn't actually send.
+    receipts to record_alert_delivery so the `targets_notified` sentinel reflects reality,
+    never claiming delivery for a state that didn't actually send.
 
     Raises:
         ValueError: state is FIRING but breaches is None/empty.
@@ -387,19 +388,26 @@ def dispatch_alert_notification(
                 raise AssertionError(f"dispatch_alert_notification: unhandled alert state: {alert_check.state}")
 
 
-def record_alert_delivery(alert: AlertConfiguration, alert_check: AlertCheck, targets: list[str]) -> None:
-    """Persist the side-effects of a successful notification delivery.
+def record_alert_delivery(alert: AlertConfiguration, alert_check: AlertCheck, deliveries: list[AlertDelivery]) -> bool:
+    """Persist the side-effects of accepted notification deliveries.
 
-    - alert_check.targets_notified: populated set = delivery happened (idempotency sentinel
-      for Temporal notify retries).
-    - alert.last_notified_at: used by monitoring / throttling.
+    No-ops (returns False) when nothing was accepted, so a check can never claim
+    delivery that didn't happen. Writes the legacy targets_notified map (emails only),
+    the receipt list, and both notification timestamps together.
 
     Caller must wrap in transaction.atomic() if atomic semantics are required.
     """
-    alert_check.targets_notified = {"users": targets}
-    alert_check.save(update_fields=["targets_notified"])
+    if not deliveries:
+        return False
+    alert_check.targets_notified = {
+        "users": [delivery.target for delivery in deliveries if delivery.channel == "email"]
+    }
+    alert_check.deliveries = serialize_deliveries(deliveries)
+    alert_check.notification_sent_at = datetime.now(UTC)
+    alert_check.save(update_fields=["targets_notified", "deliveries", "notification_sent_at"])
     alert.last_notified_at = datetime.now(UTC)
     alert.save(update_fields=["last_notified_at"])
+    return True
 
 
 def add_alert_check(

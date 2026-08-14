@@ -51,10 +51,15 @@ from posthog.temporal.alerts.types import (
     SkipReason,
 )
 
+from products.alerts.backend.destinations import AlertDelivery
 from products.alerts.backend.evaluation.contract import AlertExtractionError
 from products.alerts.backend.evaluation.validation import THRESHOLD_BOUNDS_REQUIRED_MESSAGE
 from products.alerts.backend.models.alert import AlertCheck, AlertConfiguration, Threshold
 from products.product_analytics.backend.models.insight import Insight
+
+
+def _email_delivery(target: str, at: str = "2026-08-11T00:00:00+00:00") -> AlertDelivery:
+    return AlertDelivery(channel="email", target=target, at=at)
 
 
 def _valid_trends_query() -> dict:
@@ -563,7 +568,7 @@ class TestNotifyAlert:
             patch("products.alerts.backend.delivery_slo.get_instance_region", return_value="US"),
             patch(
                 "posthog.tasks.alerts.utils.send_notifications_for_breaches",
-                return_value=["alice@posthog.com"],
+                return_value=[_email_delivery("alice@posthog.com")],
             ) as mock_breaches,
             patch("posthog.tasks.alerts.utils.send_notifications_for_errors") as mock_errors,
         ):
@@ -582,6 +587,17 @@ class TestNotifyAlert:
 
         refreshed = await sync_to_async(AlertCheck.objects.get)(pk=check.id)
         assert refreshed.targets_notified == {"users": ["alice@posthog.com"]}
+        assert refreshed.deliveries == [
+            {
+                "channel": "email",
+                "target": "alice@posthog.com",
+                "target_id": None,
+                "template": None,
+                "status": "accepted",
+                "at": "2026-08-11T00:00:00+00:00",
+            }
+        ]
+        assert refreshed.notification_sent_at is not None
 
         refreshed_alert = await sync_to_async(AlertConfiguration.objects.get)(pk=alert_with_user.pk)
         assert refreshed_alert.last_notified_at is not None
@@ -605,7 +621,7 @@ class TestNotifyAlert:
 
         with patch(
             "posthog.tasks.alerts.utils.send_notifications_for_breaches",
-            return_value=["alice@posthog.com"],
+            return_value=[_email_delivery("alice@posthog.com")],
         ) as mock_breaches:
             env = ActivityEnvironment()
             await env.run(
@@ -637,7 +653,7 @@ class TestNotifyAlert:
             patch("posthog.tasks.alerts.utils.send_notifications_for_breaches") as mock_breaches,
             patch(
                 "posthog.tasks.alerts.utils.send_notifications_for_errors",
-                return_value=["alice@posthog.com"],
+                return_value=[_email_delivery("alice@posthog.com")],
             ) as mock_errors,
             patch("posthog.temporal.alerts.activities.create_notification") as mock_create_notification,
         ):
@@ -679,7 +695,7 @@ class TestNotifyAlert:
         with (
             patch(
                 "posthog.tasks.alerts.utils.send_notifications_for_errors",
-                return_value=["alice@posthog.com"],
+                return_value=[_email_delivery("alice@posthog.com")],
             ),
             patch("posthog.temporal.alerts.activities.create_notification") as mock_create_notification,
         ):
@@ -730,7 +746,7 @@ class TestNotifyAlert:
         with (
             patch(
                 "posthog.tasks.alerts.utils.send_notifications_for_errors",
-                return_value=["alice@posthog.com"],
+                return_value=[_email_delivery("alice@posthog.com")],
             ),
             patch("posthog.temporal.alerts.activities.create_notification", side_effect=RuntimeError("kafka down")),
         ):
@@ -825,7 +841,7 @@ class TestNotifyAlert:
         with (
             patch(
                 "posthog.tasks.alerts.utils.send_notifications_for_breaches",
-                return_value=["alice@posthog.com"],
+                return_value=[_email_delivery("alice@posthog.com")],
             ),
             patch("posthog.temporal.alerts.activities.create_notification") as mock_create_notification,
         ):
@@ -856,7 +872,7 @@ class TestNotifyAlert:
         with (
             patch(
                 "posthog.tasks.alerts.utils.send_notifications_for_breaches",
-                return_value=["alice@posthog.com"],
+                return_value=[_email_delivery("alice@posthog.com")],
             ) as mock_breaches,
             patch(
                 "posthog.temporal.alerts.activities.create_notification",
