@@ -431,6 +431,7 @@ depends_on = [
     "products.dashboards",
     "products.early_access_features",
     "products.experiments",
+    "products.exports",
     "products.product_analytics",
     "products.product_tours",
     "products.surveys",
@@ -657,6 +658,7 @@ depends_on = [
     "products.cohorts",
     "products.experiments",
     "products.exports",
+    "products.notifications",
     "products.signals",
     "products.tasks",
 ]

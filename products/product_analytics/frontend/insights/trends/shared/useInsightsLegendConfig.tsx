@@ -4,6 +4,7 @@ import { useMemo, type ReactNode } from 'react'
 import type { ChartLegendConfig, LegendItem } from '@posthog/quill-charts'
 
 import { insightLogic } from 'scenes/insights/insightLogic'
+import { getTrendResultCustomizationKey } from 'scenes/insights/utils'
 import { trendsDataLogic } from 'scenes/trends/trendsDataLogic'
 import type { IndexedTrendResult } from 'scenes/trends/types'
 
@@ -24,9 +25,15 @@ export function useInsightsLegendConfig({
     inSharedMode = false,
 }: UseInsightsLegendConfigOptions): ChartLegendConfig {
     const { canEditInsight } = useValues(insightLogic)
-    const { indexedResults, getTrendsHidden, showLegend, legendPosition, legendSeriesIsolationMenuEligible } =
-        useValues(trendsDataLogic(insightProps))
-    const { toggleResultHidden } = useActions(trendsDataLogic(insightProps))
+    const {
+        indexedResults,
+        getTrendsHidden,
+        showLegend,
+        legendPosition,
+        legendSeriesIsolationMenuEligible,
+        resultCustomizationBy,
+    } = useValues(trendsDataLogic(insightProps))
+    const { toggleResultHidden, setResultsHidden } = useActions(trendsDataLogic(insightProps))
 
     const resultById = useMemo(() => {
         const m = new Map<string, IndexedTrendResult>()
@@ -49,6 +56,16 @@ export function useInsightsLegendConfig({
                 if (result) {
                     toggleResultHidden(result)
                 }
+            },
+            // Isolating rewrites the whole hidden set, so it lands as one resultCustomizations
+            // update rather than a toggle per series.
+            onSetHiddenSeries: setResultsHidden,
+            // Hidden state is stored per customization key, and comparing to the previous period puts
+            // a series' two rows on one key — so quill has to treat them as one series when it
+            // isolates, or the twin row it deliberately leaves visible would read as "not isolated".
+            visibilityGroupKey: (key: string) => {
+                const result = resultById.get(key)
+                return result ? getTrendResultCustomizationKey(resultCustomizationBy, result) : key
             },
             renderItem: showContextMenu
                 ? (node: ReactNode, item: LegendItem) => {
@@ -73,6 +90,8 @@ export function useInsightsLegendConfig({
         legendSeriesIsolationMenuEligible,
         resultById,
         toggleResultHidden,
+        setResultsHidden,
+        resultCustomizationBy,
         insightProps,
     ])
 }

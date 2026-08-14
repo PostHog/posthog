@@ -2666,6 +2666,31 @@ def append_task_run_log(
     return _task_run_detail_to_dto(run)
 
 
+def clear_task_run_conversation(
+    run_id: str | UUID, task_id: str | UUID, team_id: int
+) -> tuple[Literal["cleared", "not_found", "not_terminal"], contracts.TaskRunDetailDTO | None]:
+    """Write a `/clear` boundary into a finished run's log, for the next run to resume from.
+
+    Only for a finished run: a live one has a sandbox that owns the clear (and a writer
+    streaming into the same log object, which this read-modify-write append would race),
+    so the caller sends `/clear` to it as an ordinary message instead.
+    """
+    run = _get_visible_run(run_id, task_id, team_id)
+    if run is None:
+        return "not_found", None
+    with transaction.atomic():
+        # Hold the row lock across the append: resume_task_run_in_cloud locks this same
+        # row to flip a finished run back to QUEUED, so locking here keeps the terminal
+        # check true while the boundary is written, and serializes concurrent clears so
+        # the dedup in emit_conversation_cleared holds. The block writes nothing to
+        # Postgres; the lock is mutual exclusion only.
+        run = _task_run_queryset().select_for_update(of=("self",)).get(pk=run.pk)
+        if not run.is_terminal:
+            return "not_terminal", None
+        run.emit_conversation_cleared()
+    return "cleared", _task_run_detail_to_dto(run)
+
+
 def ensure_task_run_session(run_id: str | UUID) -> UUID:
     with transaction.atomic():
         run = TaskRun.objects.select_for_update(of=("self",)).select_related("task__team").get(id=run_id)
@@ -3521,10 +3546,10 @@ def signal_task_run_user_message(
     from products.tasks.backend.exceptions import (
         ComputeBillingLimitError,  # noqa: PLC0415 — keep temporalio off the api import path
     )
-    from products.tasks.backend.logic.services.compute_quota import is_compute_quota_exhausted  # noqa: PLC0415
+    from products.tasks.backend.logic.services.compute_quota import get_compute_quota_denial_reason  # noqa: PLC0415
 
-    if is_compute_quota_exhausted(run.task):
-        raise ComputeBillingLimitError({"team_id": team_id, "task_id": str(task_id), "run_id": str(run_id)})
+    if reason := get_compute_quota_denial_reason(run.task):
+        raise ComputeBillingLimitError({"team_id": team_id, "task_id": str(task_id), "run_id": str(run_id)}, reason)
     try:
         context = {"actor_slack_user_id": actor_slack_user_id} if actor_slack_user_id else None
         signal_task_followup_message(
@@ -4731,11 +4756,13 @@ def create_task(
             from products.tasks.backend.exceptions import (
                 ComputeBillingLimitError,  # noqa: PLC0415 — keep temporalio off the api import path
             )
-            from products.tasks.backend.logic.services.compute_quota import is_compute_quota_exhausted  # noqa: PLC0415
+            from products.tasks.backend.logic.services.compute_quota import (  # noqa: PLC0415
+                get_compute_quota_denial_reason,
+            )
 
-            if is_compute_quota_exhausted(warm_task):
+            if reason := get_compute_quota_denial_reason(warm_task):
                 raise ComputeBillingLimitError(
-                    {"team_id": team_id, "task_id": str(warm_task.id), "run_id": str(warm_run.id)}
+                    {"team_id": team_id, "task_id": str(warm_task.id), "run_id": str(warm_run.id)}, reason
                 )
             description = (validated_data.get("description") or "").strip()
             update_fields: list[str] = []
@@ -7256,6 +7283,11 @@ def post_artifact_thread_update(run: TaskRun, artifact: dict, *, revised: bool) 
         logger.exception("Failed to post artifact thread update", extra={"task_id": str(run.task_id)})
 
 
+def _thread_safe_canvas_name(canvas_name: str) -> str:
+    # Brackets and newlines in the name would break the [label](url) token.
+    return re.sub(r"[\[\]\n]", " ", canvas_name).strip() or "Canvas"
+
+
 def post_canvas_created_thread_update(
     task_id: str | UUID, team_id: int, *, acting_user_id: int | None, canvas_name: str, canvas_url: str | None
 ) -> None:
@@ -7275,8 +7307,7 @@ def post_canvas_created_thread_update(
             return
         if not _agent_thread_updates_enabled(task.created_by):
             return
-        # Brackets and newlines in the name would break the [label](url) token.
-        name = re.sub(r"[\[\]\n]", " ", canvas_name).strip() or "Canvas"
+        name = _thread_safe_canvas_name(canvas_name)
         content = f"[{name}]({canvas_url}) has been created" if canvas_url else f"{name} has been created"
         _create_agent_thread_message(
             task,
@@ -7286,6 +7317,162 @@ def post_canvas_created_thread_update(
         )
     except Exception:
         logger.exception("Failed to post canvas-created thread update", extra={"task_id": str(task_id)})
+
+
+def post_canvas_error_thread_update(
+    task_id: str | UUID,
+    team_id: int,
+    *,
+    canvas_id: str,
+    canvas_name: str,
+    build_id: str,
+    source_version_id: str | None,
+    error_type: str,
+    origin: str,
+    error_codes: list[str] | None = None,
+) -> str:
+    """File a canvas failure report (``event="canvas_error_reported"``) in the authoring task's thread.
+
+    ``error_type``/``error_codes`` must already be validated identifiers — the canvas
+    backend owns that sanitization because everything here lands in agent-visible text.
+    The task id is resolved server-side from the canvas record, never caller-named, so
+    a teammate can't plant reports in an unrelated task's thread. Dedupes per
+    ``(build_id, error_type)`` under the task row lock, mirroring ``pr_created``.
+    Returns ``filed`` / ``duplicate`` / ``skipped``; never raises.
+    """
+    try:
+        task = Task.objects.select_related("created_by").filter(id=task_id, team_id=team_id).first()
+        if task is None or not _agent_thread_updates_enabled(task.created_by):
+            return "skipped"
+        with transaction.atomic():
+            Task.objects.select_for_update().filter(id=task.id).first()
+            if (
+                TaskThreadMessage.objects.for_team(task.team_id)
+                .filter(
+                    task_id=task.id,
+                    event="canvas_error_reported",
+                    payload__build_id=build_id,
+                    payload__error_type=error_type,
+                )
+                .exists()
+            ):
+                return "duplicate"
+            name = _thread_safe_canvas_name(canvas_name)
+            if origin == "build":
+                codes = ", ".join(error_codes or []) or "unknown"
+                content = f'Canvas "{name}" build failed ({codes})'
+            else:
+                content = f'Canvas "{name}" hit a runtime error ({error_type}) in a rendering session'
+            _create_agent_thread_message(
+                task,
+                content,
+                event="canvas_error_reported",
+                payload={
+                    "canvas_id": canvas_id,
+                    "canvas_name": name,
+                    "build_id": build_id,
+                    "source_version_id": source_version_id,
+                    "error_type": error_type,
+                    "origin": origin,
+                    "error_codes": error_codes or [],
+                },
+            )
+        return "filed"
+    except Exception:
+        logger.exception("Failed to post canvas-error thread update", extra={"task_id": str(task_id)})
+        return "skipped"
+
+
+def _canvas_fix_denial_outcome(reason: str) -> str:
+    """Map a compute-quota denial to a canvas fix outcome.
+
+    Deactivation and quota exhaustion need different copy: a retry clears a spent
+    quota but never a deactivation.
+    """
+    from products.tasks.backend.logic.services.compute_quota import (  # noqa: PLC0415
+        ORGANIZATION_DEACTIVATED_DENIAL_CODE,
+    )
+
+    return "organization_deactivated" if reason == ORGANIZATION_DEACTIVATED_DENIAL_CODE else "quota_exhausted"
+
+
+def request_canvas_fix(task_id: str | UUID, team_id: int, *, prompt: str, acting_user_id: int | None) -> str:
+    """Wake a task's agent to fix a canvas: signal the live run, else seed a fresh run with ``prompt``.
+
+    Creator-only, like every run-driving surface (``forward_thread_message``,
+    ``task_control_q``): the dispatched run executes with the task creator's
+    credentials, so nobody else may start or steer it. The task row is locked
+    for the duration so overlapping fix requests serialize instead of each
+    creating a paid run. The fresh-run path mirrors ``run_task_automation``:
+    create the run inside the transaction and dispatch its processing workflow
+    on commit with ``skip_user_check``.
+    Returns ``signaled`` / ``new_run`` / ``already_queued`` / ``not_found`` /
+    ``forbidden`` / ``quota_exhausted`` / ``organization_deactivated``.
+    """
+    from products.tasks.backend.exceptions import (
+        ComputeBillingLimitError,  # noqa: PLC0415 — keep temporalio off the api import path
+    )
+    from products.tasks.backend.logic.services.compute_quota import get_compute_quota_denial_reason  # noqa: PLC0415
+
+    with transaction.atomic():
+        # of=("self",): FOR UPDATE cannot span the nullable created_by join.
+        task = (
+            Task.objects.select_for_update(of=("self",))
+            .select_related("team", "created_by")
+            .filter(id=task_id, team_id=team_id)
+            .first()
+        )
+        if task is None:
+            return "not_found"
+        if acting_user_id is None or task.created_by_id != acting_user_id:
+            return "forbidden"
+        if reason := get_compute_quota_denial_reason(task):
+            return _canvas_fix_denial_outcome(reason)
+        run = task.latest_run
+        if run is not None and not run.is_terminal:
+            try:
+                if signal_task_run_user_message(
+                    run.id, task.id, team_id, content=prompt, artifact_ids=[], actor_user_id=acting_user_id
+                ):
+                    return "signaled"
+            except ComputeBillingLimitError as error:
+                return _canvas_fix_denial_outcome(error.reason)
+            if run.status == TaskRun.Status.QUEUED and (run.state or {}).get("pending_user_message"):
+                # A queued, prompt-seeded run whose workflow hasn't registered yet
+                # is a fix run a just-committed request dispatched (creation is
+                # serialized on this row lock). Another run would double-bill.
+                return "already_queued"
+            # The workflow is gone despite the non-terminal row (evicted or stale); fall
+            # through to a fresh run rather than reporting a dead end.
+        task_run = task.create_run(mode="background", extra_state={"pending_user_message": prompt})
+        transaction.on_commit(
+            lambda: _dispatch_server_run(
+                team_id=task.team_id,
+                user_id=task.created_by_id,
+                task_id=str(task.id),
+                run_id=str(task_run.id),
+            )
+        )
+    return "new_run"
+
+
+def _dispatch_server_run(*, team_id: int, user_id: int | None, task_id: str, run_id: str) -> None:
+    """Dispatch a server-originated run's processing workflow, bypassing the per-user check.
+
+    Nothing canvas-specific: the same shape as ``automation_service``'s dispatch, kept
+    here because that module puts temporalio on its import path and this one must not.
+    """
+    from products.tasks.backend.temporal.client import (  # noqa: PLC0415 — keep temporalio off the api import path
+        execute_task_processing_workflow,
+    )
+
+    execute_task_processing_workflow(
+        task_id=task_id,
+        run_id=run_id,
+        team_id=team_id,
+        user_id=user_id,
+        skip_user_check=True,
+    )
 
 
 _GITHUB_PR_PATH_PATTERN = re.compile(r"/([^/]+)/([^/]+)/pull/(\d+)/?", re.IGNORECASE)
