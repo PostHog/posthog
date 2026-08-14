@@ -639,6 +639,12 @@ def get_authenticator_scoped_organization_ids(authenticator) -> list[str] | None
         return list(authenticator.personal_api_key.scoped_organizations or []) or None
     if isinstance(authenticator, OAuthAccessTokenAuthentication):
         return list(authenticator.access_token.scoped_organizations or []) or None
+    if isinstance(authenticator, IDJagAccessTokenAuthentication):
+        # An ID-JAG access token is bound to the one PostHog organization whose OrganizationDomain
+        # pinned the trusted IdP, carried in the `org_id` claim. Confining it to that organization
+        # keeps it away from the other organizations the resolved user happens to belong to
+        # (cross-org confused-deputy defense).
+        return [authenticator.organization_id]
     return None
 
 
@@ -773,22 +779,15 @@ class APIScopePermission(ScopeBasePermission):
 
         self._check_organization_personal_api_key_restrictions(request, view)
 
-        if isinstance(request.successful_authenticator, OAuthAccessTokenAuthentication):
-            scoped_organizations = request.successful_authenticator.access_token.scoped_organizations
-            scoped_teams = request.successful_authenticator.access_token.scoped_teams
-        elif isinstance(request.successful_authenticator, PersonalAPIKeyAuthentication):
-            scoped_organizations = request.successful_authenticator.personal_api_key.scoped_organizations
-            scoped_teams = request.successful_authenticator.personal_api_key.scoped_teams
-        elif isinstance(request.successful_authenticator, IDJagAccessTokenAuthentication):
-            # ID-JAG access tokens are bound to the specific PostHog Organization
-            # whose OrganizationDomain pinned the trusted IdP — carried in the
-            # `org_id` claim. Pin `scoped_organizations` to that single org so
-            # the token cannot reach other orgs the resolved user happens to
-            # be a member of (cross-org confused-deputy defense).
-            scoped_organizations = [request.successful_authenticator.organization_id]
-            scoped_teams = None
-        else:
+        authenticator = request.successful_authenticator
+        if not isinstance(
+            authenticator,
+            OAuthAccessTokenAuthentication | PersonalAPIKeyAuthentication | IDJagAccessTokenAuthentication,
+        ):
             raise ValueError("Unexpected authentication type")
+
+        scoped_organizations = get_authenticator_scoped_organization_ids(authenticator)
+        scoped_teams = get_authenticator_scoped_team_ids(authenticator)
 
         if scoped_teams and not skip_team_and_org:
             # Views that aren't project-nested but still need to accept
