@@ -1,6 +1,10 @@
 # S3 query cache setup
 
-Large cached query results (at least `QUERY_CACHE_S3_MIN_SIZE_BYTES` serialized bytes, default 1MB) can be stored as zstd-compressed S3 objects instead of inline Redis blobs. Redis then holds a small pointer record under the same cache key. See `posthog/query_cache/s3_blobs.py`.
+The query cache zstd-compresses every entry it stores in Redis.
+Entries whose compressed form is at least `QUERY_CACHE_S3_MIN_COMPRESSED_BYTES` (default 128KB) can be stored as S3 objects instead of inline Redis blobs; the same compressed bytes serve as the routing decision, the inline value, and the upload body.
+Redis then holds a small pointer record under the same cache key.
+The threshold applies to compressed bytes because that is what an entry actually costs in Redis.
+See `posthog/query_cache/storage.py`.
 
 ## Semantics
 
@@ -17,7 +21,10 @@ Objects are written to `s3://{QUERY_CACHE_S3_BUCKET}/{OBJECT_STORAGE_S3_QUERY_CA
 
 ## Required S3 lifecycle rule
 
-One flat rule: expire every object after `CACHED_RESULTS_TTL_DAYS` (7) days. The buckets (`posthog-query-cache-<region>-<env>`) are managed in posthog-cloud-infra, `terraform/modules/s3/main.tf` (`enable_query_cache_lifecycle`).
+One rule scoped to the `OBJECT_STORAGE_S3_QUERY_CACHE_FOLDER` prefix (`query_cache/` by default): expire objects after `CACHED_RESULTS_TTL_DAYS` (7) days.
+The cloud buckets (`posthog-query-cache-<region>-<env>`) are dedicated and managed in posthog-cloud-infra, `terraform/modules/s3/main.tf` (`enable_query_cache_lifecycle`).
+
+**Always scope the rule to the prefix.** `QUERY_CACHE_S3_BUCKET` falls back to the shared `OBJECT_STORAGE_BUCKET` when unset, and an unscoped expiry rule there would also delete exports, media uploads, and error-tracking source maps.
 
 **If `CACHED_RESULTS_TTL_DAYS` is ever raised, raise the bucket rule first**, otherwise S3 deletes blobs while their Redis pointers still live and large cache entries silently expire early. Lowering the setting is safe: blobs then just outlive their pointers by a few days before GC.
 
@@ -27,4 +34,4 @@ One flat rule: expire every object after `CACHED_RESULTS_TTL_DAYS` (7) days. The
 | -------------------------------------- | ----------------------- | ---------------------------------------------------------------------- |
 | `QUERY_CACHE_S3_BUCKET`                | `OBJECT_STORAGE_BUCKET` | Bucket for cache blobs (`posthog-query-cache-<region>-<env>` in cloud) |
 | `OBJECT_STORAGE_S3_QUERY_CACHE_FOLDER` | `query_cache`           | Key prefix inside the bucket                                           |
-| `QUERY_CACHE_S3_MIN_SIZE_BYTES`        | `1048576`               | Minimum serialized size for S3 routing                                 |
+| `QUERY_CACHE_S3_MIN_COMPRESSED_BYTES`  | `131072`                | Minimum zstd-compressed size for S3 routing                            |

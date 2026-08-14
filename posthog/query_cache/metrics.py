@@ -14,6 +14,10 @@ class CacheMetrics(NamedTuple):
     write_counter: Counter
     bytes_counter: Counter
     size_histogram: Histogram
+    s3_write_counter: Counter
+    s3_read_counter: Counter
+    s3_write_duration: Histogram
+    s3_read_duration: Histogram
 
 
 # Default metrics for long-running processes (lazy-initialized)
@@ -99,7 +103,46 @@ def _create_cache_metrics(registry: Optional[CollectorRegistry] = None) -> Cache
         registry=registry,
     )
 
-    return CacheMetrics(hit_counter, write_counter, bytes_counter, size_histogram)
+    s3_write_counter = Counter(
+        name="posthog_query_cache_s3_write_total",
+        documentation="Query cache blob uploads to S3, by write mode and outcome.",
+        labelnames=["mode", "outcome"],
+        registry=registry,
+    )
+
+    s3_read_counter = Counter(
+        name="posthog_query_cache_s3_read_total",
+        documentation="Query cache blob reads from S3 pointer entries, by outcome.",
+        labelnames=["outcome"],
+        registry=registry,
+    )
+
+    s3_duration_buckets = [0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, float("inf")]
+
+    s3_write_duration = Histogram(
+        name="posthog_query_cache_s3_write_duration_seconds",
+        documentation="Time spent uploading a query cache blob to S3.",
+        buckets=s3_duration_buckets,
+        registry=registry,
+    )
+
+    s3_read_duration = Histogram(
+        name="posthog_query_cache_s3_read_duration_seconds",
+        documentation="Time spent fetching a query cache blob from S3.",
+        buckets=s3_duration_buckets,
+        registry=registry,
+    )
+
+    return CacheMetrics(
+        hit_counter,
+        write_counter,
+        bytes_counter,
+        size_histogram,
+        s3_write_counter,
+        s3_read_counter,
+        s3_write_duration,
+        s3_read_duration,
+    )
 
 
 def _get_cache_metrics(registry: Optional[CollectorRegistry] = None) -> CacheMetrics:

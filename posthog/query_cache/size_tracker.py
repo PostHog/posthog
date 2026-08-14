@@ -3,16 +3,14 @@ from datetime import timedelta
 from typing import Optional
 
 from django.conf import settings
-from django.core.cache import BaseCache, caches
 from django.db import DatabaseError
 
 import structlog
-from django_redis import get_redis_connection
 from prometheus_client import Counter, Histogram
 from redis import Redis, RedisCluster
 
 from posthog.cache_utils import cache_for
-from posthog.caching.redis_cluster_connection_factory import QUERY_CACHE_ALIAS
+from posthog.query_cache import storage
 
 logger = structlog.get_logger(__name__)
 
@@ -145,13 +143,11 @@ class TeamCacheSizeTracker:
     def __init__(
         self,
         team_id: int,
-        cache_backend: BaseCache | None = None,
         redis_client: Redis | RedisCluster | None = None,
     ):
         self.team_id = team_id
-        self._cache = cache_backend if cache_backend is not None else caches[QUERY_CACHE_ALIAS]
         self.redis_client: Redis | RedisCluster = (
-            redis_client if redis_client is not None else get_redis_connection(QUERY_CACHE_ALIAS)
+            redis_client if redis_client is not None else storage.query_cache_raw_client()
         )
         self.entries_key = f"posthog:cache_sizes:{{{team_id}}}"
         self.sizes_key = f"posthog:cache_entry_sizes:{{{team_id}}}"
@@ -180,7 +176,7 @@ class TeamCacheSizeTracker:
         if size_before + data_size > limit:
             evicted = self.evict_until_under_limit(limit, data_size)
 
-        self._cache.set(cache_key, data, ttl)
+        self.redis_client.set(storage.entry_redis_key(cache_key), data, ex=ttl)
         self.track_cache_write(cache_key, data_size)
 
         total_size = self.get_total_size()
@@ -231,13 +227,13 @@ class TeamCacheSizeTracker:
                 cache_key = cache_key.decode()
 
             # Check if key still exists in cache (lazy cleanup for TTL-expired keys)
-            if cache_key not in self._cache:
+            if not self.redis_client.exists(storage.entry_redis_key(cache_key)):
                 # Already expired via TTL, just clean up tracking
                 removed_size = self._remove_tracking(cache_key)
                 current_size -= removed_size
                 continue
 
-            self._cache.delete(cache_key)
+            self.redis_client.delete(storage.entry_redis_key(cache_key))
             removed_size = self._remove_tracking(cache_key)
 
             current_size -= removed_size

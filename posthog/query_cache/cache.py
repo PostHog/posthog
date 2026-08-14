@@ -11,9 +11,9 @@ from posthog.query_cache.failures import Budget, FailureKind, QueryFailureCache,
 from posthog.query_cache.freshness_index import remove_last_refresh, update_target_age
 from posthog.query_cache.metrics import count_cache_write_data
 from posthog.query_cache.results import fetch_entry
-from posthog.query_cache.s3_blobs import s3_write_mode, write_blob
 from posthog.query_cache.serialization import CachedEntry, encode_split_cached_response
 from posthog.query_cache.size_tracker import TeamCacheSizeTracker
+from posthog.query_cache.storage import encode_stored_value
 
 logger = structlog.get_logger(__name__)
 
@@ -71,22 +71,14 @@ class QueryCache:
             fresh_response_serialized = OrjsonJsonSerializer({}).dumps(response)
         data_size = len(fresh_response_serialized)
 
-        storage_bytes = fresh_response_serialized
-        if data_size >= settings.QUERY_CACHE_S3_MIN_SIZE_BYTES:
-            mode = s3_write_mode(self.team_id)
-            if mode != "off":
-                # "shadow" writes the entry to both S3 and Redis, testing the write path;
-                # "on" stores the pointer instead of the blob, so the blob stops counting
-                # against the team's Redis cache budget. Upload failures fall back to the
-                # inline blob.
-                pointer = write_blob(
-                    team_id=self.team_id, cache_key=self.cache_key, serialized=fresh_response_serialized, mode=mode
-                )
-                if mode == "on" and pointer is not None:
-                    storage_bytes = pointer
+        storage_bytes = encode_stored_value(
+            team_id=self.team_id, cache_key=self.cache_key, payload=fresh_response_serialized
+        )
 
-        # Set cache with per-team size limit enforcement. Caching is an optimization: the query
-        # has already run, so a bookkeeping failure here must not fail the response.
+        # Set cache with per-team size limit enforcement. The tracker budgets the bytes actually
+        # stored in Redis (compressed blob or pointer), while the write metrics below keep
+        # counting the uncompressed payload. Caching is an optimization: the query has already
+        # run, so a bookkeeping failure here must not fail the response.
         try:
             tracker = TeamCacheSizeTracker(self.team_id)
             tracker.set(self.cache_key, storage_bytes, len(storage_bytes), settings.CACHED_RESULTS_TTL)
