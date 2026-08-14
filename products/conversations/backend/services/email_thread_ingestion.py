@@ -7,6 +7,8 @@ from django.core.files.uploadedfile import UploadedFile
 from django.db import IntegrityError, transaction
 from django.db.models.functions import Lower
 
+import structlog
+
 from posthog.models.comment import Comment
 from posthog.models.organization import OrganizationMembership
 
@@ -20,6 +22,8 @@ from products.conversations.backend.models import (
     EmailThreadParticipantKind,
 )
 from products.customer_analytics.backend.facade.email_matching import recalculate_email_thread_links
+
+logger = structlog.get_logger(__name__)
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -279,5 +283,15 @@ def ingest_customer_email(
             created=False,
         )
 
-    recalculate_email_thread_links(team_id, thread_ids=[str(result.thread_id)])
+    # The message is already committed above; account-link recalculation is a derived,
+    # self-healing side effect, so its failures must not fail the inbound webhook and
+    # trigger Mailgun retries of an already-persisted email.
+    try:
+        recalculate_email_thread_links(team_id, thread_ids=[str(result.thread_id)])
+    except Exception:
+        logger.exception(
+            "email_thread_account_link_recalculation_failed",
+            team_id=team_id,
+            thread_id=str(result.thread_id),
+        )
     return result

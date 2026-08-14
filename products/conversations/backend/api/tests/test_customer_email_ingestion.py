@@ -5,7 +5,7 @@ from uuid import uuid4
 
 from freezegun import freeze_time
 from posthog.test.base import BaseTest
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from django.apps import apps
 from django.test import Client, RequestFactory, SimpleTestCase
@@ -397,6 +397,18 @@ class TestCustomerEmailIngestion(BaseTest):
         assert link.account_id == str(account.id)
         assert link.account_external_id == "customer-account"
         assert link.match_source == "email_domain"
+
+    @patch(
+        "products.conversations.backend.services.email_thread_ingestion.recalculate_email_thread_links",
+        side_effect=Exception("account matching backend unavailable"),
+    )
+    def test_account_link_recalculation_failure_does_not_fail_ingestion(self, _mock_recalc: MagicMock) -> None:
+        response = self._post_email(message_id="<recalc-fails@customer.example>")
+
+        assert response.status_code == 200
+        thread = EmailThread.objects.for_team(self.team.id).get()
+        assert EmailThreadMessage.objects.for_team(self.team.id).filter(thread=thread).count() == 1
+        assert not EmailThreadAccountLink.objects.for_team(self.team.id).exists()
 
     def test_duplicate_delivery_creates_one_message_across_customer_channels(self) -> None:
         message_id = "<duplicate@customer.example>"
