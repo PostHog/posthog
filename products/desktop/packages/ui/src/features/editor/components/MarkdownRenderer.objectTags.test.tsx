@@ -85,6 +85,17 @@ describe("object tags in agent markdown", () => {
     expect(screen.queryByText(/SELECT 1/)).toBeNull();
   });
 
+  it("lifts a single-line block tag out of its paragraph into a card", () => {
+    // Markdown parses `<hogql ...>SELECT ...</hogql>` on one line as inline
+    // html inside a paragraph, not an HTML block; without the lift it would
+    // downgrade to an inline chip.
+    renderMarkdown(
+      '<hogql display="block" title="One-liner">SELECT 1</hogql>\n',
+    );
+    expect(screen.getByTestId("report-chart")).toBeDefined();
+    expect(screen.getByText("One-liner")).toBeDefined();
+  });
+
   it("leaves tags inside code fences literal", () => {
     const { container } = renderMarkdown(
       'Example:\n\n```xml\n<insight id="9pQx3">label</insight>\n```\n',

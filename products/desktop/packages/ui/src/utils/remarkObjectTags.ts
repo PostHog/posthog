@@ -110,7 +110,9 @@ function blockNode(tag: ParsedTag): RootContent | null {
   const caption = tag.attrs.caption?.trim() || undefined;
   let spec: Record<string, unknown> | null = null;
   if (tag.kind === "hogql") {
-    const query = tag.body?.trim();
+    const query = (
+      tag.body ?? (tag.labelNodes ? nodesToText(tag.labelNodes) : "")
+    ).trim();
     if (query) spec = { mode: "hogql", query, title, caption };
   } else if (tag.kind === "insight") {
     const shortId = tag.attrs.id?.trim();
@@ -182,6 +184,40 @@ function consumeHtml(
   return null;
 }
 
+/**
+ * A paragraph that is nothing but one block-display tag becomes the block
+ * node itself. Markdown only forms an HTML *block* when the opening tag line
+ * carries nothing else, so the common single-line form
+ * `<hogql display="block">SELECT ...</hogql>` arrives as a paragraph of
+ * inline html; without the lift it would downgrade to an inline chip.
+ */
+function liftParagraphBlockTag(paragraph: Parent): RootContent | null {
+  const kids = paragraph.children as RootContent[];
+  if (kids.length === 0) return null;
+
+  if (kids.length === 1 && kids[0].type === "html") {
+    const tag = matchCompleteTag(kids[0].value);
+    return tag && tag.attrs.display === "block" ? blockNode(tag) : null;
+  }
+
+  const first = kids[0];
+  const last = kids[kids.length - 1];
+  if (first.type !== "html" || last.type !== "html") return null;
+  const open = matchOpenTag(first.value);
+  if (
+    !open ||
+    open.attrs.display !== "block" ||
+    last.value.trim() !== `</${open.tag}>`
+  ) {
+    return null;
+  }
+  return blockNode({
+    kind: open.kind,
+    attrs: open.attrs,
+    labelNodes: kids.slice(1, -1) as PhrasingContent[],
+  });
+}
+
 function transformChildren(parent: Parent, atRoot: boolean): void {
   const out: RootContent[] = [];
   const children = parent.children as RootContent[];
@@ -192,6 +228,13 @@ function transformChildren(parent: Parent, atRoot: boolean): void {
       if (consumed) {
         out.push(...consumed.nodes);
         i = consumed.nextIndex - 1;
+        continue;
+      }
+    }
+    if (atRoot && child.type === "paragraph") {
+      const lifted = liftParagraphBlockTag(child as Parent);
+      if (lifted) {
+        out.push(lifted);
         continue;
       }
     }

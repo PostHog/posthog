@@ -11,6 +11,8 @@ import {
   Text,
 } from "@posthog/quill";
 import { ArtifactRefChip } from "@posthog/ui/features/editor/components/ArtifactRefChip";
+import { EvidenceRefChip } from "@posthog/ui/features/editor/components/EvidenceRefChip";
+import { MessageChartCard } from "@posthog/ui/features/editor/components/MessageChartCard";
 import {
   markOpenLinkDestination,
   parseOpenFence,
@@ -25,11 +27,15 @@ import {
 import { HighlightedCode } from "@posthog/ui/primitives/HighlightedCode";
 import { useCopy } from "@posthog/ui/primitives/useCopy";
 import { parseArtifactLink } from "@posthog/ui/utils/artifactLinks";
+import { chartBlockKey, parseChartBlock } from "@posthog/ui/utils/chartBlocks";
+import { parseEvidenceLink } from "@posthog/ui/utils/evidenceLinks";
+import { remarkObjectTags } from "@posthog/ui/utils/remarkObjectTags";
 import { IconButton } from "@radix-ui/themes";
 import { memo, type ReactNode, useMemo } from "react";
-import Markdown, { type Components } from "react-markdown";
-import rehypeSanitize from "rehype-sanitize";
+import Markdown, { type Components, defaultUrlTransform } from "react-markdown";
+import rehypeSanitize, { defaultSchema } from "rehype-sanitize";
 import remarkGfm from "remark-gfm";
+import type { PluggableList } from "unified";
 
 const PENDING_LINK_DESTINATION = "#posthog-streaming-link";
 
@@ -83,6 +89,12 @@ const components: Components = {
         </output>
       );
     }
+    const evidenceTarget = parseEvidenceLink(href);
+    if (evidenceTarget) {
+      return (
+        <EvidenceRefChip target={evidenceTarget}>{children}</EvidenceRefChip>
+      );
+    }
     const link = (
       <a
         href={href}
@@ -117,7 +129,15 @@ const components: Components = {
   li: ({ children }) => <li className="text-sm">{children}</li>,
   code: ({ className, children }) => {
     const text = String(children).replace(/\n$/, "");
-    const match = /language-(\w+)/.exec(className ?? "");
+    const match = /language-([\w-]+)/.exec(className ?? "");
+    // Block-display object tags normalize to posthog-chart code nodes (see
+    // remarkObjectTags); they render as chart cards, not code. Malformed or
+    // half-streamed specs render nothing rather than raw JSON.
+    if (match?.[1] === "posthog-chart") {
+      const spec = parseChartBlock(text);
+      if (!spec) return null;
+      return <MessageChartCard spec={spec} blockKey={chartBlockKey(text)} />;
+    }
     // Fenced blocks (carry a language, or span multiple lines) render as a boxed, copyable
     // block; short inline spans stay inline. `pre` below is a passthrough so the box lives here,
     // where the raw code string is in hand.
@@ -183,8 +203,30 @@ const components: Components = {
   td: ({ children }) => <TableCell>{children}</TableCell>,
 };
 
-const remarkPlugins = [remarkGfm];
-const rehypePlugins = [rehypeSanitize];
+// The internal `evidence:` hrefs never reach the DOM (the `a` component
+// renders them as chips), but they must survive react-markdown's default
+// transform, which empties unknown protocols.
+function chatUrlTransform(value: string, key: string): string {
+  if (key === "href" && value.startsWith("evidence:")) return value;
+  return defaultUrlTransform(value);
+}
+
+const remarkPlugins = [remarkGfm, remarkObjectTags];
+// The default sanitize schema, plus the internal `evidence:` reference links
+// remarkObjectTags emits (they never reach the DOM as hrefs; the `a`
+// component renders them as chips).
+const rehypePlugins: PluggableList = [
+  [
+    rehypeSanitize,
+    {
+      ...defaultSchema,
+      protocols: {
+        ...defaultSchema.protocols,
+        href: [...(defaultSchema.protocols?.href ?? []), "evidence"],
+      },
+    },
+  ],
+];
 
 export const ChatMarkdown = memo(function ChatMarkdown({
   content,
@@ -196,6 +238,7 @@ export const ChatMarkdown = memo(function ChatMarkdown({
       <Markdown
         remarkPlugins={remarkPlugins}
         rehypePlugins={rehypePlugins}
+        urlTransform={chatUrlTransform}
         components={components}
       >
         {content}
