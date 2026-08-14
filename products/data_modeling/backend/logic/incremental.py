@@ -266,13 +266,7 @@ def deserialize_watermark(value: Any, watermark_type: Optional[str] = None) -> A
     if watermark_type in ("int", "float", "string"):
         return value
 
-    # Legacy fallback: states persisted before the type tag existed carry no tag, so their
-    # original date/datetime sniffing is kept to avoid breaking already-running views.
-    if isinstance(value, str):
-        try:
-            # A bare YYYY-MM-DD came from a Date key, so give the filter back a date rather than a
-            # midnight datetime, which would compare against a Date column as the wrong type.
-            return date.fromisoformat(value) if len(value) == 10 else datetime.fromisoformat(value)
-        except ValueError:
-            return value
-    return value
+    # No tag means the state predates the tag (pre-release dev state only — the feature has never
+    # shipped without it). Reading it as absent costs one full refresh, which re-records a tagged
+    # watermark; sniffing the value's type is exactly the guessing the tag exists to prevent.
+    return None

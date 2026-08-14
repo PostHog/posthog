@@ -147,16 +147,16 @@ class TestIncrementalConfig(BaseTest):
 
     @parameterized.expand(
         [
-            ("datetime_string", "2026-08-01T12:30:00+00:00", datetime(2026, 8, 1, 12, 30, tzinfo=UTC)),
-            ("date_string", "2026-08-01", date(2026, 8, 1)),
-            ("non_iso_string", "not-a-date", "not-a-date"),
-            ("integer", 42, 42),
+            ("datetime_string", "2026-08-01T12:30:00+00:00"),
+            ("date_string", "2026-08-01"),
+            ("non_iso_string", "not-a-date"),
+            ("integer", 42),
         ]
     )
-    def test_untagged_state_falls_back_to_sniffing(self, _name: str, stored, expected) -> None:
-        """States persisted before the type tag existed have no watermark_type, and their
-        already-running views must keep deserializing the way they always did."""
-        assert deserialize_watermark(stored, None) == expected
+    def test_an_untagged_watermark_reads_as_absent(self, _name: str, stored) -> None:
+        """Without a tag the value's type would have to be guessed, which is what the tag exists
+        to prevent. Absent routes the run to one full refresh, which re-records a tagged state."""
+        assert deserialize_watermark(stored, None) is None
 
     def test_a_corrupted_tagged_watermark_reads_as_absent(self) -> None:
         """A watermark the tag cannot parse routes the run to a full refresh instead of failing it."""
