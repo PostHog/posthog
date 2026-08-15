@@ -1417,6 +1417,10 @@ class UserViewSet(
         otp_login(request, default_device(request.user))
         set_two_factor_verified_in_session(request)
 
+        # Mint backup codes as part of setup so the user always leaves with a recovery method,
+        # instead of relying on a separate opt-in action they may never trigger.
+        backup_codes = self._regenerate_backup_codes(request.user)
+
         send_two_factor_auth_enabled_email.delay(request.user.id)
 
         session_cache.delete("django_two_factor-hex")
@@ -1424,7 +1428,7 @@ class UserViewSet(
 
         revoke_other_sessions_for_request(request, cast(User, request.user))
 
-        return Response({"success": True})
+        return Response({"success": True, "backup_codes": backup_codes})
 
     @action(methods=["GET"], detail=True)
     def two_factor_status(self, request, **kwargs):
@@ -1459,6 +1463,23 @@ class UserViewSet(
             }
         )
 
+    @staticmethod
+    def _regenerate_backup_codes(user) -> list[str]:
+        """Replace any existing backup codes with a fresh set and return them."""
+        static_device = StaticDevice.objects.filter(user=user).first()
+        if static_device:
+            static_device.token_set.all().delete()
+        else:
+            static_device = StaticDevice.objects.create(user=user, name="Backup Codes")
+
+        backup_codes = []
+        for _ in range(NUM_2FA_BACKUP_CODES):
+            token = StaticToken.random_token()
+            static_device.token_set.create(token=token)
+            backup_codes.append(token)
+
+        return backup_codes
+
     @action(methods=["POST"], detail=True)
     def two_factor_backup_codes(self, request, **kwargs):
         """Generate new backup codes, invalidating any existing ones"""
@@ -1468,21 +1489,7 @@ class UserViewSet(
         if not default_device(user):
             raise serializers.ValidationError("2FA must be enabled first", code="2fa_not_enabled")
 
-        # Remove existing backup codes
-        static_device = StaticDevice.objects.filter(user=user).first()
-        if static_device:
-            static_device.token_set.all().delete()
-        else:
-            static_device = StaticDevice.objects.create(user=user, name="Backup Codes")
-
-        # Generate new backup codes
-        backup_codes = []
-        for _ in range(NUM_2FA_BACKUP_CODES):
-            token = StaticToken.random_token()
-            static_device.token_set.create(token=token)
-            backup_codes.append(token)
-
-        return Response({"backup_codes": backup_codes})
+        return Response({"backup_codes": self._regenerate_backup_codes(user)})
 
     @action(methods=["POST"], detail=True)
     def two_factor_disable(self, request, **kwargs):

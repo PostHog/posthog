@@ -3060,7 +3060,15 @@ class TestUserTwoFactor(APIBaseTest):
 
         response = self.client.post(f"/api/users/@me/two_factor_validate/", {"token": "123456"})
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json(), {"success": True})
+
+        # Setup mints backup codes so the user always leaves with a recovery method
+        body = response.json()
+        self.assertTrue(body["success"])
+        self.assertEqual(len(body["backup_codes"]), 10)
+
+        static_device = StaticDevice.objects.get(user=self.user)
+        stored_codes = [token.token for token in static_device.token_set.all()]
+        self.assertEqual(sorted(body["backup_codes"]), sorted(stored_codes))
 
         # Verify form was created with correct params
         mock_totp_form.assert_called_once_with("1234567890abcdef1234", self.user, data={"token": "123456"})
