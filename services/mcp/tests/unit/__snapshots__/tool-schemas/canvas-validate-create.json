@@ -70,6 +70,15 @@
                         },
                         "posthog": {
                             "properties": {
+                                "actions": {
+                                    "description": "Registered action verbs the canvas may invoke via ph.actions (e.g. 'annotations.create', 'tasks.create'). Each executes as the viewer; declaring one shows it in the promote review.",
+                                    "items": {
+                                        "maxLength": 64,
+                                        "type": "string"
+                                    },
+                                    "maxItems": 32,
+                                    "type": "array"
+                                },
                                 "captureEvents": {
                                     "items": {
                                         "maxLength": 200,
@@ -87,6 +96,16 @@
                                         "type": "string"
                                     },
                                     "maxItems": 100,
+                                    "type": "array"
+                                },
+                                "state": {
+                                    "description": "State scopes the canvas may use via ph.state: 'user' (private to each viewer) and/or 'shared' (one value per canvas, team-visible).",
+                                    "items": {
+                                        "description": "* `user` - user\n* `shared` - shared",
+                                        "enum": ["user", "shared"],
+                                        "type": "string"
+                                    },
+                                    "maxItems": 2,
                                     "type": "array"
                                 }
                             },

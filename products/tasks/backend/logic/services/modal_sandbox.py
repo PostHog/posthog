@@ -28,6 +28,7 @@ import modal
 import requests
 from modal.exception import (
     ConnectionError as ModalConnectionError,
+    InvalidError as ModalInvalidError,
     ResourceExhaustedError as ModalResourceExhaustedError,
     ServiceError as ModalServiceError,
     TimeoutError as ModalTimeoutError,
@@ -48,6 +49,7 @@ from products.tasks.backend.constants import (
 from products.tasks.backend.exceptions import (
     SandboxCleanupError,
     SandboxExecutionError,
+    SandboxNetworkPolicyError,
     SandboxNotFoundError,
     SandboxNotRunningError,
     SandboxProvisionError,
@@ -190,6 +192,20 @@ SESSION_INIT_PROBE_HOSTS = (
     "gateway.eu.posthog.com",
     "api.anthropic.com",
 )
+
+_MODAL_NETWORK_POLICY_REJECTION_MARKERS = (
+    "outbound_domain_allowlist",
+    "outbound domain allowlist",
+    "domain allowlist",
+    "allowed domains",
+)
+
+
+def _is_modal_network_policy_rejection(error: BaseException) -> bool:
+    if not isinstance(error, ModalInvalidError):
+        return False
+    message = str(error).casefold()
+    return any(marker in message for marker in _MODAL_NETWORK_POLICY_REJECTION_MARKERS)
 
 
 def _session_init_probe_hosts() -> list[str]:
@@ -824,7 +840,7 @@ class ModalSandbox(SandboxBase):
             if config.block_network:
                 create_kwargs["block_network"] = True
 
-            if config.outbound_domain_allowlist:
+            if config.outbound_domain_allowlist is not None:
                 create_kwargs["outbound_domain_allowlist"] = config.outbound_domain_allowlist
 
             if secrets:
@@ -916,11 +932,13 @@ class ModalSandbox(SandboxBase):
 
             return sandbox
 
+        except SandboxNetworkPolicyError:
+            raise
         except Exception as e:
             logger.exception(f"Failed to create sandbox: {e}")
             raise SandboxProvisionError(
                 "Failed to create sandbox", {"config_name": config.name, "error": str(e)}, cause=e
-            )
+            ) from e
 
     @staticmethod
     def _create_from_image_candidates(
@@ -936,12 +954,22 @@ class ModalSandbox(SandboxBase):
         re-enter this chain (the wedged-restore recovery) can describe what they landed on.
         """
         for index, candidate in enumerate(candidates):
-            create_kwargs["image"] = candidate.image
+            attempt_kwargs = {**create_kwargs, "image": candidate.image}
             try:
                 modal_output: StringIO | None
                 with capture_modal_output_if_debug() as modal_output:
-                    sb = modal.Sandbox.create(**create_kwargs)  # type: ignore[arg-type]
+                    sb = modal.Sandbox.create(**attempt_kwargs)  # type: ignore[arg-type]
             except Exception as e:
+                if config.outbound_domain_allowlist is not None and _is_modal_network_policy_rejection(e):
+                    raise SandboxNetworkPolicyError(
+                        "Modal rejected the requested sandbox network policy.",
+                        {
+                            "config_name": config.name,
+                            "network_policy_fingerprint": config.network_policy_fingerprint,
+                            "error": str(e),
+                        },
+                        cause=e,
+                    ) from e
                 if index == len(candidates) - 1:
                     raise
                 logger.warning(
@@ -1364,6 +1392,8 @@ class ModalSandbox(SandboxBase):
             raise RuntimeError("Sandbox not in running state.")
 
         if self._agent_server_is_healthy():
+            if wait_for_health:
+                self.wait_for_agent_server_ready(allowed_domains)
             logger.info(f"Agent-server already healthy in sandbox {self.id}; skipping relaunch")
             return
         self._free_agent_server_port()
@@ -1451,6 +1481,12 @@ class ModalSandbox(SandboxBase):
 
     def wait_for_agent_server_ready(self, allowed_domains: list[str] | None = None) -> None:
         if self._wait_for_health_check():
+            if allowed_domains is not None and not self._agentsh_daemon_is_healthy():
+                raise SandboxExecutionError(
+                    "Failed to verify agentsh network enforcement",
+                    {"sandbox_id": self.id},
+                    cause=RuntimeError("agentsh daemon health check failed"),
+                )
             logger.info(f"Agent-server ready in sandbox {self.id}")
             return
         diagnostics = self._diagnose_startup_failure(allowed_domains)

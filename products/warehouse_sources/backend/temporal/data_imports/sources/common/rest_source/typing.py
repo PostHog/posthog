@@ -1,4 +1,4 @@
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
 from dataclasses import dataclass, field
 from typing import Any, Literal, NotRequired, Optional, TypedDict
 
@@ -231,6 +231,13 @@ class ResolvedParam:
 class ResponseAction(TypedDict, total=False):
     status_code: Optional[int | str]
     content: Optional[str]
+    # Match on a value inside the parsed JSON body rather than on raw text. ``json_field`` is a
+    # dotted path from the body root (e.g. ``"code"``, ``"error.type"``) and the action matches when
+    # the value there is one of ``json_values``. For an API that answers HTTP 200 and carries the
+    # outcome in the body: substring matching on the serialized body would depend on the API's
+    # whitespace and on the value not appearing elsewhere in the payload.
+    json_field: Optional[str]
+    json_values: Optional[list[Any]]
     # One of:
     #  - "ignore" — treat the matched response as a valid empty page and stop pagination.
     #  - "retry"  — raise a retryable error so the request is re-issued (for an HTTP-200 body-level
@@ -293,6 +300,10 @@ class EndpointResourceBase(ResourceBase, total=False):
     # a row the selector can't express (e.g. flattening JSON:API ``attributes`` into the row root).
     # Wired through to ``Resource.add_map``; must be dict -> dict (1:1).
     data_map: Optional[Callable[[dict[str, Any]], dict[str, Any] | list[dict[str, Any]]]]
+    # When set, the resource's pages come from this callable instead of HTTP pagination —
+    # ``endpoint`` is kept only for dependency-graph bookkeeping. Used to drive a fan-out
+    # child from an already-synced warehouse parent table.
+    data_iterator: Optional[Callable[[], Iterator[list[dict[str, Any]]]]]
 
 
 class EndpointResource(EndpointResourceBase, total=False):

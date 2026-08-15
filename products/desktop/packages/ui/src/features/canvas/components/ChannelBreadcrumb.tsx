@@ -53,6 +53,12 @@ interface ChannelBreadcrumbProps {
   onRename?: (next: string) => void;
   /** Right-aligned slot pushed to the far end of the bar (e.g. an opener). */
   trailing?: ReactNode;
+  /**
+   * Slot that rides directly after the leaf segment instead of the far end —
+   * for controls that act on the leaf itself (copy its link), which read as
+   * unrelated once the bar's width separates them from the name.
+   */
+  leafTrailing?: ReactNode;
 }
 
 // "# channel / leaf" header breadcrumb shared across channel scenes (CONTEXT.md,
@@ -69,6 +75,7 @@ export function ChannelBreadcrumb({
   editScopeKey,
   onRename,
   trailing,
+  leafTrailing,
 }: ChannelBreadcrumbProps) {
   const spacesLayout = useChannelsLayout();
   // Only a leaf is renamable, so the scope key falls back to its label.
@@ -161,6 +168,9 @@ export function ChannelBreadcrumb({
               </Tooltip>
             ) : (
               <BreadcrumbSegment icon={leafIcon} label={leafLabel} muted />
+            )}
+            {leafTrailing && (
+              <span className="flex shrink-0 items-center">{leafTrailing}</span>
             )}
           </>
         )}

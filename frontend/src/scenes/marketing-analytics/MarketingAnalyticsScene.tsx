@@ -31,6 +31,7 @@ import { MarketingAnalyticsFilters } from '../web-analytics/tabs/marketing-analy
 import { MarketingAnalyticsSourceStatusBanner } from '../web-analytics/tabs/marketing-analytics/frontend/components/MarketingAnalyticsSourceStatusBanner'
 import {
     MarketingAnalyticsTab,
+    SETUP_ABSORBED_TABS,
     marketingAnalyticsLogic,
 } from '../web-analytics/tabs/marketing-analytics/frontend/logic/marketingAnalyticsLogic'
 import { marketingAnalyticsSettingsLogic } from '../web-analytics/tabs/marketing-analytics/frontend/logic/marketingAnalyticsSettingsLogic'
@@ -41,6 +42,7 @@ import {
 import { NewMarketingAnalyticsDashboard } from './NewMarketingAnalyticsDashboard'
 import { marketingOnboardingLogic } from './Onboarding/marketingOnboardingLogic'
 import { Onboarding } from './Onboarding/Onboarding'
+import { SetupTab } from './Setup/SetupTab'
 
 export const scene: SceneExport = {
     component: MarketingAnalyticsScene,
@@ -208,7 +210,7 @@ const MarketingAnalyticsDashboard = (): JSX.Element => {
 const MarketingAnalyticsContent = (): JSX.Element => {
     const { featureFlags } = useValues(featureFlagLogic)
     const { activeTab } = useValues(marketingAnalyticsLogic)
-    const { setActiveTab } = useActions(marketingAnalyticsLogic)
+    const { setActiveTab, setSetupSection } = useActions(marketingAnalyticsLogic)
 
     // The redesigned dashboard replaces the current one under the same "Dashboard" tab when its flag is
     // on, so the eventual cutover is just flipping the flag — no tab rename, no extra tab key to strand.
@@ -221,8 +223,29 @@ const MarketingAnalyticsContent = (): JSX.Element => {
         </>
     )
 
+    // Setup absorbs Integration health: while its flag is on, the audit lives inside
+    // Setup as a section rather than as a second top-level tab, so there's one door to
+    // "something is wrong with my setup" instead of two.
+    const setupEnabled = !!featureFlags[FEATURE_FLAGS.MARKETING_ANALYTICS_SETUP]
+
+    // Setup absorbs the tabs it replaces, so a link or bookmark carrying one still lands
+    // somewhere sensible. Here rather than in the logic because only the scene knows
+    // whether Setup is rendering: with its flag off those tabs are still real and
+    // resolve on their own. Above the early return below, since hooks have to run on
+    // every render.
+    const absorbed = setupEnabled ? SETUP_ABSORBED_TABS[activeTab] : undefined
+    useEffect(() => {
+        if (absorbed) {
+            setActiveTab(MarketingAnalyticsTab.SETUP)
+            setSetupSection(absorbed)
+        }
+    }, [absorbed, setActiveTab, setSetupSection])
+
     const tabs = [
         { key: MarketingAnalyticsTab.DASHBOARD, label: 'Dashboard', content: dashboard },
+        // Untouched by Setup: the explorer compares attribution models against each
+        // other, which is analysis. Setup's Attribution section is the two config
+        // fields (mode and lookback), which is a different thing with the same name.
         ...(featureFlags[FEATURE_FLAGS.MARKETING_ANALYTICS_ATTRIBUTION]
             ? [
                   {
@@ -232,16 +255,31 @@ const MarketingAnalyticsContent = (): JSX.Element => {
                   },
               ]
             : []),
-        ...(featureFlags[FEATURE_FLAGS.MARKETING_ANALYTICS_UTM_AUDIT]
-            ? [
-                  {
-                      key: MarketingAnalyticsTab.INTEGRATION_HEALTH,
-                      label: 'Integration health',
-                      content: <UtmAuditTab />,
-                  },
-              ]
-            : []),
+        ...(setupEnabled
+            ? [{ key: MarketingAnalyticsTab.SETUP, label: 'Setup', content: <SetupTab /> }]
+            : featureFlags[FEATURE_FLAGS.MARKETING_ANALYTICS_UTM_AUDIT]
+              ? [
+                    {
+                        key: MarketingAnalyticsTab.INTEGRATION_HEALTH,
+                        label: 'Integration health',
+                        content: <UtmAuditTab />,
+                    },
+                ]
+              : []),
     ]
+
+    // A stored tab can still name one no flag is rendering — a key persisted from before
+    // a flag was turned off. Normalising the state rather than just what LemonTabs
+    // highlights: `activeTab` also feeds the scene description and `?tab=`, so leaving it
+    // invalid describes a tab you aren't on and writes it back into the URL on the next
+    // filter change. Above the early return, since hooks run on every render.
+    const tabIsRendered = tabs.some((tab) => tab.key === activeTab)
+    useEffect(() => {
+        if (!tabIsRendered && !absorbed) {
+            setActiveTab(MarketingAnalyticsTab.DASHBOARD)
+        }
+    }, [tabIsRendered, absorbed, setActiveTab])
+    const selectedTab = tabIsRendered ? activeTab : MarketingAnalyticsTab.DASHBOARD
 
     // Only surface the tab bar once a secondary tab is enabled; otherwise show the dashboard directly.
     if (tabs.length === 1) {
@@ -249,7 +287,7 @@ const MarketingAnalyticsContent = (): JSX.Element => {
     }
 
     return (
-        <LemonTabs activeKey={activeTab} onChange={(key) => setActiveTab(key as MarketingAnalyticsTab)} tabs={tabs} />
+        <LemonTabs activeKey={selectedTab} onChange={(key) => setActiveTab(key as MarketingAnalyticsTab)} tabs={tabs} />
     )
 }
 
@@ -260,6 +298,8 @@ const TAB_DESCRIPTIONS: Record<string, string> = {
         'Compare how each attribution model credits your conversions, to see which marketing you might be over or under valuing.',
     [MarketingAnalyticsTab.INTEGRATION_HEALTH]:
         'Check that your ad platform campaigns are properly linked to UTM tracking in PostHog.',
+    [MarketingAnalyticsTab.SETUP]:
+        'Everything Marketing analytics needs to work: connected ad platforms, conversion goals, UTM mapping and attribution.',
 }
 
 const MarketingAnalyticsAIToolWrapper = ({ children }: { children: React.ReactNode }): JSX.Element => {

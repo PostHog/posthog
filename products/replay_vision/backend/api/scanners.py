@@ -34,7 +34,13 @@ from posthog.exceptions import QuotaLimitExceeded
 from posthog.models.tag import tagify
 from posthog.models.tagged_item import TaggedItem
 from posthog.models.user import User
-from posthog.rate_limit import ReplayVisionEstimateBurstRateThrottle, ReplayVisionEstimateSustainedRateThrottle
+from posthog.permissions import get_authenticator_scopes
+from posthog.rate_limit import (
+    AIBurstRateThrottle,
+    AISustainedRateThrottle,
+    ReplayVisionEstimateBurstRateThrottle,
+    ReplayVisionEstimateSustainedRateThrottle,
+)
 from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
 from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
 
@@ -97,6 +103,7 @@ from products.replay_vision.backend.scanner_config import (
     acting_user,
     scanner_config_error,
 )
+from products.replay_vision.backend.scanner_draft import DraftError, draft_scanner_from_goal
 from products.replay_vision.backend.scanning import MAX_SESSIONS_PER_SCAN, run_inline_scan, scan_existing_scanner
 from products.replay_vision.backend.session_limits import MAX_SESSION_ID_LENGTH
 from products.replay_vision.backend.tag_suggestions import SuggestionError, suggest_classifier_tags
@@ -256,7 +263,7 @@ class ReplayScannerSerializer(TaggedItemSerializerMixin, UserAccessControlSerial
         required=False,
         max_length=_MAX_TAGS,
         help_text=(
-            "Organizational tags for this scanner. Distinct from a classifier's tag vocabulary in scanner_config. "
+            "Organizational tags for this scanner. Distinct from a classifier's categories in scanner_config. "
             "Tags cannot contain commas."
         ),
     )
@@ -1177,7 +1184,7 @@ class SuggestTagsRequestSerializer(serializers.Serializer):
         required=False,
         default=list,
         max_length=200,
-        help_text="The current tag vocabulary, so suggestions never duplicate a tag the user already has.",
+        help_text="The categories already configured, so suggestions never duplicate one the user has.",
     )
     multi_label = serializers.BooleanField(
         required=False,
@@ -1221,6 +1228,37 @@ class SuggestTagsResponseSerializer(serializers.Serializer):
     suggestions = TagSuggestionSerializer(
         many=True,
         help_text="Suggested tags to add, most relevant first. May be empty when the evidence is too thin.",
+    )
+
+
+class DraftScannerRequestSerializer(serializers.Serializer):
+    """Body of POST /vision/scanners/draft/ — the user's goal, stated in their own words."""
+
+    goal = serializers.CharField(
+        max_length=2000,
+        help_text="What the user wants to accomplish, e.g. 'find out where users get stuck during onboarding'.",
+    )
+
+
+class DraftScannerResponseSerializer(serializers.Serializer):
+    """An AI-drafted scanner configuration, ready to seed the creation wizard. Nothing is persisted."""
+
+    name = serializers.CharField(help_text="Drafted scanner name.")
+    description = serializers.CharField(help_text="Drafted one-sentence description.")
+    scanner_type = serializers.ChoiceField(
+        choices=ScannerType.choices, help_text="The scanner type the draft picked for the goal."
+    )
+    scanner_config = serializers.JSONField(
+        help_text="Type-specific config for the drafted `scanner_type`; always includes `prompt`."
+    )
+    rationale = serializers.CharField(
+        allow_blank=True,
+        help_text="Why the draft picked this scanner type and configuration, addressed to the user.",
+    )
+    query = serializers.JSONField(
+        allow_null=True,
+        help_text="Drafted `RecordingsQuery` narrowing which sessions get scanned, holding one event filter "
+        "picked from the team's real events; null when no event clearly matched the goal.",
     )
 
 
@@ -1857,7 +1895,7 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vi
         """Suggest classifier tags grounded in the scanner's own observations and the org's product data."""
         # Suggestions read recording-derived observation reasoning, so gate on session_recording read.
         if not self.user_access_control.check_access_level_for_resource("session_recording", required_level="viewer"):
-            raise PermissionDenied("Suggesting classifier tags requires session_recording read access.")
+            raise PermissionDenied("Suggesting categories requires session_recording read access.")
 
         body = SuggestTagsRequestSerializer(data=request.data)
         body.is_valid(raise_exception=True)
@@ -1889,3 +1927,73 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vi
             )
 
         return Response(SuggestTagsResponseSerializer({"suggestions": suggestions}).data)
+
+    @extend_schema(
+        request=DraftScannerRequestSerializer,
+        responses={
+            200: DraftScannerResponseSerializer,
+            400: OpenApiResponse(
+                response=ReplayVisionErrorSerializer,
+                description="The goal is missing or AI consent hasn't been granted.",
+            ),
+            403: OpenApiResponse(
+                response=ReplayVisionErrorSerializer,
+                description="The caller lacks the required access, or the feature isn't enabled.",
+            ),
+            503: OpenApiResponse(response=ReplayVisionErrorSerializer, description="The draft couldn't be generated."),
+        },
+    )
+    # Each call is an inline LLM request, so it gets the shared AI rate limits like prompt suggestions.
+    @action(
+        detail=False,
+        methods=["post"],
+        url_path="draft",
+        required_scopes=["replay_scanner:write", "session_recording:read"],
+        throttle_classes=[AIBurstRateThrottle, AISustainedRateThrottle],
+    )
+    def draft(self, request: Request, **kwargs: Any) -> Response:
+        """Draft a full scanner configuration from a natural-language goal, for the goal-based creation flow."""
+        # This action is `detail=False`, so the generic gate settles for editor access to any one scanner.
+        # A draft spends model budget toward a scanner only editors can save, so hold it to `create`'s bar.
+        if not self.user_access_control.check_access_level_for_resource("replay_scanner", required_level="editor"):
+            raise PermissionDenied("Drafting a Replay Vision scanner requires edit access to this project's scanners.")
+        # The draft feeds a scanner that will expose recording contents, so mirror the config actions' gate.
+        if not self.user_access_control.check_access_level_for_resource("session_recording", required_level="viewer"):
+            raise PermissionDenied("Drafting a Replay Vision scanner requires session_recording read access.")
+        # Same consent requirement as scanner creation: the goal and the team's taxonomy go to the model.
+        if not self.team.organization.is_ai_data_processing_approved:
+            raise ValidationError(
+                "Your organization needs to allow AI analysis before you can draft a Replay Vision scanner."
+            )
+
+        body = DraftScannerRequestSerializer(data=request.data)
+        body.is_valid(raise_exception=True)
+
+        try:
+            drafted = draft_scanner_from_goal(
+                team=self.team,
+                user=cast(User, request.user),
+                goal=body.validated_data["goal"],
+                user_access_control=self.user_access_control,
+                # Core memory's own API is INTERNAL (session-only), so scoped tokens must not
+                # receive its content through the draft either.
+                include_business_context=get_authenticator_scopes(request.successful_authenticator) is None,
+            )
+        except DraftError:
+            return Response(
+                {"detail": "Couldn't draft a scanner right now. Try again in a moment."},
+                status=status.HTTP_503_SERVICE_UNAVAILABLE,
+            )
+
+        return Response(
+            DraftScannerResponseSerializer(
+                {
+                    "name": drafted.name,
+                    "description": drafted.description,
+                    "scanner_type": drafted.scanner_type,
+                    "scanner_config": drafted.scanner_config,
+                    "rationale": drafted.rationale,
+                    "query": drafted.query,
+                }
+            ).data
+        )
