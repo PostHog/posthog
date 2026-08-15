@@ -246,7 +246,7 @@ class EffectiveAccessResult:
     inherited_access_level_reason: InheritedAccessLevelReason | None
 
 
-@dataclass(frozen=True, kw_only=True)
+@frozen
 class ResolvedAccess:
     """An access level plus which rule supplied it, so callers can attribute a resolution
     instead of re-deriving it. Enforcement reads only `access_level`.
