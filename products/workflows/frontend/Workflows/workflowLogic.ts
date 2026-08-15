@@ -3440,7 +3440,7 @@ export const workflowLogic = kea<workflowLogicType>([
             (originalWorkflow: HogFlow | null): boolean => !!originalWorkflow?.draft,
         ],
     }),
-    listeners(({ actions, values, props }) => ({
+    listeners(({ actions, values, props, cache }) => ({
         setScheduleStartsAtFromPicker: ({ pickerDate }) => {
             if (!pickerDate) {
                 actions.setScheduleStartsAt(null)
@@ -3647,6 +3647,17 @@ export const workflowLogic = kea<workflowLogicType>([
         saveWorkflowSuccess: async ({ originalWorkflow }) => {
             const isAutoSave = values.isAutoSave
 
+            // Did the person keep editing after this auto-save left the browser? The server echo
+            // carries the content we sent, not what they typed since. Rebaselining on it would drop
+            // those keystrokes and, because the form value changes, rebuild the flow and remount the
+            // step panel — closing an open email editor mid-sentence. Compare the form now against the
+            // snapshot we sent; if it moved on, keep the local edits and let the pending debounce save them.
+            const localEditsMovedOn =
+                isAutoSave &&
+                !!cache.autoSaveContentSnapshot &&
+                !objectsEqual(cache.autoSaveContentSnapshot, values.workflow)
+            cache.autoSaveContentSnapshot = null
+
             if (!isAutoSave) {
                 // Save pending schedule changes (only on manual save)
                 const workflowId = originalWorkflow.id
@@ -3742,9 +3753,19 @@ export const workflowLogic = kea<workflowLogicType>([
                 globalSetupLogic.findMounted()?.actions.markTaskAsCompleted(tasksToMarkAsCompleted)
             }
 
+            if (isAutoSave) {
+                posthog.capture('workflows autosaved', {
+                    workflow_id: originalWorkflow.id,
+                    preserved_inflight_edits: localEditsMovedOn,
+                })
+            }
+
             // A staged save's response carries the live config plus the new draft blob: rebaseline the
             // form on the merged view, or the reset would wipe the just-saved edits off the canvas.
-            actions.resetWorkflow(withStagedDraft(originalWorkflow))
+            // Skip it when local edits moved on, so the in-flight keystrokes and the open editor survive.
+            if (!localEditsMovedOn) {
+                actions.resetWorkflow(withStagedDraft(originalWorkflow))
+            }
             actions.markAutoSave(false)
             actions.replayDeferredResourceEdited()
         },
@@ -3841,6 +3862,9 @@ export const workflowLogic = kea<workflowLogicType>([
             }
 
             actions.markAutoSave(true)
+            // Snapshot what we send, so the success handler can tell whether the person kept typing
+            // while the request was in flight.
+            cache.autoSaveContentSnapshot = values.workflow
             actions.saveWorkflow(values.workflow)
         },
         duplicate: async () => {

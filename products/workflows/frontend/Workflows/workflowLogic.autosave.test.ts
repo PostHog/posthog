@@ -256,6 +256,56 @@ describe('workflowLogic auto-save', () => {
             expect(logic.values.hasStagedDraft).toBe(true)
         })
 
+        it('keeps keystrokes typed while a save is in flight, instead of rebaselining them away', async () => {
+            // The reported failure: the person keeps typing after the auto-save request leaves the
+            // browser. The server echo carries the older content; rebaselining on it would drop the
+            // newer keystrokes and remount the step panel, closing an open email editor. The
+            // in-flight edits must win.
+            let sawRequest = false
+            useMocks({
+                get: {
+                    '/api/environments/:team_id/hog_flows/:id/': activeWorkflow,
+                    '/api/projects/:team_id/hog_function_templates/': { results: [], count: 0 },
+                },
+                patch: {
+                    '/api/environments/:team_id/hog_flows/:id/': async ({ request }) => {
+                        updateCalls += 1
+                        const body = (await request.json()) as Record<string, any>
+                        patchBodies.push(body)
+                        // The request has left: model the person typing more before the response lands.
+                        sawRequest = true
+                        logic.actions.setWorkflowValue(
+                            'actions',
+                            renameExit(activeWorkflow.actions, 'Typed while saving')
+                        )
+                        return [
+                            200,
+                            {
+                                ...activeWorkflow,
+                                draft: { actions: body.actions, edges: body.edges },
+                                draft_updated_at: '2026-05-02T00:00:00.000Z',
+                            },
+                        ]
+                    },
+                },
+            })
+            initKeaTests()
+            logic = workflowLogic({ id: WORKFLOW_ID })
+            logic.mount()
+            await expectLogic(logic).toDispatchActions(['loadWorkflowSuccess'])
+
+            jest.useFakeTimers()
+            logic.actions.setWorkflowValue('actions', renameExit(activeWorkflow.actions, 'Saved edit'))
+            await jest.advanceTimersByTimeAsync(3100)
+            jest.useRealTimers()
+            await expectLogic(logic).toDispatchActions(['saveWorkflowSuccess'])
+
+            expect(sawRequest).toBe(true)
+            // The later keystrokes survive: rebaselining is skipped, so the form keeps what the person
+            // typed during the round trip rather than the server echo of the older content.
+            expect(logic.values.workflow.actions.find((a) => a.id === 'exit_node')?.name).toBe('Typed while saving')
+        })
+
         it('auto-saves despite action validation errors: incomplete steps stage safely into the draft', async () => {
             // The user's iterating case: an email step exists but has no content/sender yet. Pausing
             // auto-save here strands their edits unsaved while an agent keeps writing to the server.
