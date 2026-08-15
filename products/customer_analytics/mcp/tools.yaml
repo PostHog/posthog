@@ -178,6 +178,12 @@ tools:
         description: |
             Permanently delete a Customer Analytics account by id.
         feature_flag: customer-analytics-csp
+    accounts-email-thread-messages-list:
+        operation: accounts_email_thread_messages_list
+        enabled: false
+    accounts-email-threads-list:
+        operation: accounts_email_threads_list
+        enabled: false
     accounts-list:
         operation: accounts_list
         enabled: true

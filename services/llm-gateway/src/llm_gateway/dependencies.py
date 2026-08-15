@@ -211,6 +211,16 @@ async def resolve_plan_and_quota(
     return plan_info, QuotaResourceStatus(limited=False)
 
 
+def _format_retry_delay(seconds: int) -> str:
+    if seconds < 60:
+        return f"{seconds} second{'s' if seconds != 1 else ''}"
+    if seconds < 3600:
+        minutes = (seconds + 59) // 60
+        return f"{minutes} minute{'s' if minutes != 1 else ''}"
+    hours = (seconds + 3599) // 3600
+    return f"{hours} hour{'s' if hours != 1 else ''}"
+
+
 async def enforce_throttles(
     request: Request,
     user: Annotated[AuthenticatedUser, Depends(enforce_product_access)],
@@ -314,11 +324,18 @@ async def enforce_throttles(
         message = (
             f"Rate limit exceeded: {reason}" if reason and reason != "Rate limit exceeded" else "Rate limit exceeded"
         )
+        # Surfaces like the Slack agent relay only error.message, so the retry
+        # time must live in the text, not just the Retry-After header. Skipped
+        # when retry_after is only a back-off hint (exhausted credits) — those
+        # details already carry their own next step.
+        if result.retry_after is not None and result.retry_after > 0 and result.retry_after_resets_limit:
+            message += f". Try again in about {_format_retry_delay(result.retry_after)}."
         detail = {
             "error": {
                 "message": message,
                 "type": "rate_limit_error",
                 "reason": reason,
+                **({"retry_after": result.retry_after} if result.retry_after is not None else {}),
                 **({"code": result.scope} if result.scope else {}),
             }
         }
