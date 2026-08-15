@@ -8,7 +8,9 @@ import {
   gridRows,
   hogqlEscape,
   shapeCohortPreview,
+  shapeDashboardPreview,
   shapeErrorIssuePreview,
+  shapeEvaluationPreview,
   shapeEventDefinitionPreview,
   shapeExperimentPreview,
   shapeFlagPreview,
@@ -113,6 +115,42 @@ describe("evidence preview shaping", () => {
     ]);
   });
 
+  it("describes an evaluation with its state, reason, and type", () => {
+    expect(
+      shapeEvaluationPreview({
+        id: "ev1",
+        name: "Faithfulness eval",
+        enabled: true,
+        status: "degraded",
+        status_reason: "Provider key expired",
+        evaluation_type: "llm_judge",
+      } as unknown as Schemas.Evaluation),
+    ).toEqual({
+      title: "Faithfulness eval",
+      detail: "Enabled · Provider key expired",
+      facts: ["LLM judge"],
+    });
+  });
+
+  it("names a dashboard's tiles instead of counting them", () => {
+    const preview = shapeDashboardPreview({
+      id: 12,
+      name: "Growth",
+      tiles: [
+        { insight: { name: "DAU" } },
+        { insight: { name: "Signup funnel" } },
+        { insight: { name: "Revenue" } },
+        { insight: { name: "Churn" } },
+      ],
+    } as unknown as Schemas.Dashboard);
+    expect(preview.facts).toEqual([
+      "DAU",
+      "Signup funnel",
+      "Revenue",
+      "+1 more",
+    ]);
+  });
+
   it("describes a cohort by its size, falling back to the description", () => {
     expect(
       shapeCohortPreview({
@@ -178,6 +216,18 @@ describe("evidence preview shaping", () => {
       detail: expect.stringMatching(/^Last seen Jan 3/),
       resolvedId: "0192-aaaa",
     });
+  });
+
+  it("adds a person's country and browser as pills", () => {
+    const preview = shapePersonPreview({
+      id: 1,
+      name: "Ann",
+      uuid: "u1",
+      distinct_ids: ["d1"],
+      properties: { $geoip_country_name: "Germany", $browser: "Chrome" },
+      created_at: "2024-03-01T00:00:00Z",
+    } as unknown as Schemas.PersonRecord);
+    expect(preview.facts).toEqual(["Germany", "Chrome"]);
   });
 
   it("verifies an event by its definition and resolves the page id", () => {

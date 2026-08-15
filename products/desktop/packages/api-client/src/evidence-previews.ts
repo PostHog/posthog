@@ -154,7 +154,32 @@ export function shapeExperimentPreview(
   if (experiment.feature_flag_key) {
     facts.push(`Flag: ${experiment.feature_flag_key}`);
   }
+  const primaryMetric = experiment.saved_metrics?.find(
+    (metric) => typeof metric.name === "string" && metric.name,
+  );
+  if (primaryMetric) facts.push(`Metric: ${primaryMetric.name}`);
   return { title: experiment.name, detail, facts };
+}
+
+const EVALUATION_TYPE_LABELS: Record<string, string> = {
+  llm_judge: "LLM judge",
+  hog: "Hog",
+  sentiment: "Sentiment",
+};
+
+export function shapeEvaluationPreview(
+  evaluation: Schemas.Evaluation,
+): EvidencePreview {
+  const state = evaluation.enabled ? "Enabled" : "Disabled";
+  const reason = evaluation.status_reason?.trim();
+  const typeLabel =
+    EVALUATION_TYPE_LABELS[String(evaluation.evaluation_type)] ??
+    String(evaluation.evaluation_type);
+  return {
+    title: evaluation.name,
+    detail: reason ? `${state} · ${reason}` : state,
+    facts: [typeLabel],
+  };
 }
 
 /** (variant, unique persons) rows -> "control 12.4K · test 12.1K". */
@@ -294,9 +319,19 @@ export function shapeRecordingPreview(
 export function shapeDashboardPreview(
   dashboard: Schemas.Dashboard,
 ): EvidencePreview {
+  // Tile names say what the dashboard covers; the count only says how big.
   const facts: string[] = [];
-  if (Array.isArray(dashboard.tiles)) {
-    facts.push(count(dashboard.tiles.length, "tile"));
+  const tiles = Array.isArray(dashboard.tiles) ? dashboard.tiles : [];
+  const names = tiles
+    .map((tile) =>
+      isRecord(tile) && isRecord(tile.insight) ? tile.insight.name : null,
+    )
+    .filter((name): name is string => typeof name === "string" && name !== "");
+  if (names.length > 0) {
+    facts.push(...names.slice(0, 3));
+    if (tiles.length > 3) facts.push(`+${tiles.length - 3} more`);
+  } else if (Array.isArray(dashboard.tiles)) {
+    facts.push(count(tiles.length, "tile"));
   }
   return {
     title: dashboard.name || "Untitled dashboard",
@@ -383,10 +418,16 @@ export function shapePersonPreview(
   if (person.created_at) {
     parts.push(`First seen ${formatDay(person.created_at)}`);
   }
+  const facts: string[] = [];
+  if (email && email !== title) facts.push(email);
+  const country = properties.$geoip_country_name;
+  if (typeof country === "string" && country) facts.push(country);
+  const browser = properties.$browser;
+  if (typeof browser === "string" && browser) facts.push(browser);
   return {
     title,
     detail: parts.join(" · ") || undefined,
-    facts: email && email !== title ? [email] : undefined,
+    facts,
     resolvedId: person.uuid,
   };
 }

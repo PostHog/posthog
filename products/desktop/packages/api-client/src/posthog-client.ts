@@ -129,6 +129,7 @@ import {
   shapeCohortPreview,
   shapeDashboardPreview,
   shapeErrorIssuePreview,
+  shapeEvaluationPreview,
   shapeEventDefinitionPreview,
   shapeExperimentPreview,
   shapeFlagPreview,
@@ -7279,11 +7280,34 @@ export class PostHogAPIClient {
       }
       case "action": {
         if (numericId === null) return null;
-        const action = await this.api.get(
-          "/api/projects/{project_id}/actions/{id}/",
-          { path: { project_id: projectId, id: numericId }, query: {} },
+        const [action, volume] = await Promise.all([
+          this.api.get("/api/projects/{project_id}/actions/{id}/", {
+            path: { project_id: projectId, id: numericId },
+            query: {},
+          }),
+          this.runQuery({
+            kind: "HogQLQuery",
+            query: `SELECT toDate(timestamp) AS day, count() FROM events WHERE matchesAction(${numericId}) AND timestamp >= now() - INTERVAL 14 DAY GROUP BY day ORDER BY day`,
+          }).catch(() => ({})),
+        ]);
+        const preview = shapeActionPreview(action);
+        const points = dailySparkPoints(gridRows(volume));
+        const total = points.reduce((sum, value) => sum + value, 0);
+        const facts = [...(preview.facts ?? [])];
+        if (total > 0) facts.unshift(`${compactCount(total)} matches (14d)`);
+        return {
+          ...preview,
+          facts,
+          spark:
+            points.length > 1 ? { points, render: "line" as const } : undefined,
+        };
+      }
+      case "eval": {
+        const evaluation = await this.api.get(
+          "/api/environments/{project_id}/evaluations/{id}/",
+          { path: { project_id: projectId, id } },
         );
-        return shapeActionPreview(action);
+        return shapeEvaluationPreview(evaluation);
       }
       default:
         return null;
