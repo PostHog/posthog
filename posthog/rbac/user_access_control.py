@@ -249,13 +249,19 @@ class EffectiveAccessResult:
 @dataclass(frozen=True, kw_only=True)
 class ResolvedAccess:
     """An access level plus which rule supplied it, so callers can attribute a resolution
-    instead of re-deriving it. Enforcement reads only `access_level`."""
+    instead of re-deriving it. Enforcement reads only `access_level`.
+
+    `source` values:
+    - "object": a rule on the object itself — a member/role row, or its default
+    - "parent_object": a rule on its fallback parent — a table's source (RESOURCE_FALLBACK_MAP)
+    - "resource": a resource-wide rule
+    - "parent_resource": the fallback parent's resource-wide rule
+    - "system_default": no rule anywhere — default_access_level() applies (also covers orgs
+      without the entitlement, where rules are never consulted)
+    - "org_admin": rules never consulted — the admin bypass
+    """
 
     access_level: AccessControlLevel
-    # What supplied the level: a row on the object itself, a row on its fallback parent (a table's
-    # source), a resource-wide rule, the parent's resource-wide rule, the system default
-    # (default_access_level(), no row anywhere — also covers orgs without the entitlement, where
-    # rules are never consulted), or the org-admin bypass.
     source: Literal["object", "parent_object", "resource", "parent_resource", "system_default", "org_admin"]
     # The source rule's subject: an everyone-row ("default"), a role row, or a member row.
     # None when no row decided.
