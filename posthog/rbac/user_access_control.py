@@ -939,7 +939,7 @@ class UserAccessControl:
             return default_access_level(resource) if not explicit else None
 
         # If there are access controls we pick the highest level the user has
-        return self._highest_access_level_from_rows(resource, access_controls)
+        return self._highest_access_from_rows(resource, access_controls).access_level
 
     def check_access_level_for_object(self, obj: Model, required_level: AccessControlLevel, explicit=False) -> bool:
         """
@@ -1114,7 +1114,7 @@ class UserAccessControl:
                 source_resource=resource,
             )
 
-        row = self._highest_access_control_from_rows(resource, access_controls)
+        row = self._highest_access_from_rows(resource, access_controls)
         return ResolvedAccess(
             access_level=row.access_level,
             source="resource",
@@ -1601,16 +1601,8 @@ class UserAccessControl:
         return False, None
 
     @staticmethod
-    def _highest_access_level_from_rows(
-        resource: APIScopeObject, access_controls: list[_AccessControl]
-    ) -> AccessControlLevel:
-        return UserAccessControl._highest_access_control_from_rows(resource, access_controls).access_level
-
-    @staticmethod
-    def _highest_access_control_from_rows(
-        resource: APIScopeObject, access_controls: list[_AccessControl]
-    ) -> _AccessControl:
-        """The row that supplies the highest level — `_highest_access_level_from_rows` as a row.
+    def _highest_access_from_rows(resource: APIScopeObject, access_controls: list[_AccessControl]) -> _AccessControl:
+        """The row that supplies the highest level.
 
         On level ties the attribution is deterministic — a member row over a role row over the
         everyone-row. Label only: the level is identical by construction.
@@ -1652,7 +1644,7 @@ class UserAccessControl:
             ac for ac in object_access_controls if ac.role_id is not None or ac.organization_member_id is not None
         ]
         if explicit_rows:
-            row = self._highest_access_control_from_rows(resource, explicit_rows)
+            row = self._highest_access_from_rows(resource, explicit_rows)
             return ResolvedAccess(
                 access_level=row.access_level,
                 source="object",
@@ -1666,7 +1658,7 @@ class UserAccessControl:
                 self._access_controls_filters_for_object(parent, cast(str, fallback_parent_id))
             )
             if parent_rows:
-                row = self._highest_access_control_from_rows(parent, parent_rows)
+                row = self._highest_access_from_rows(parent, parent_rows)
                 return ResolvedAccess(
                     access_level=row.access_level,
                     source="parent_object",
@@ -1686,7 +1678,7 @@ class UserAccessControl:
                 return replace(access_for_parent, source="parent_resource")
 
         if object_access_controls:
-            row = self._highest_access_control_from_rows(resource, object_access_controls)
+            row = self._highest_access_from_rows(resource, object_access_controls)
             return ResolvedAccess(
                 access_level=row.access_level,
                 source="object",
