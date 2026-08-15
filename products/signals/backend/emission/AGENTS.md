@@ -20,7 +20,9 @@ The core signal pipeline (`products/signals/backend/emission/pipeline.py`) is so
 1. **Record fetcher** — each source defines a `record_fetcher` callable on its config
 2. **Emitter** — transforms each record dict into a `SignalEmitterOutput` (or `None` to skip)
 3. **Summarization** — optionally summarizes long descriptions via LLM
-4. **Actionability filter** — optionally filters non-actionable records via LLM
+4. **Actionability filter** — optionally filters non-actionable records via LLM.
+   Teams can steer this gate per source via two keys on `SignalSourceConfig.config`: `steering` (plain-language rules injected into the canonical prompt) and `default_not_actionable` (flips the "when in doubt" posture from keep to filter).
+   See `steering.py` — the injection escapes braces and caps length so team text can never break the prompt's one-word output contract, and every canonical actionability prompt must keep the `When in doubt, classify as ACTIONABLE` posture line the injection anchors on.
 5. **Emission** — emits surviving outputs as Signals via `products/signals/backend/api/emit_signal`
 
 ### Registry

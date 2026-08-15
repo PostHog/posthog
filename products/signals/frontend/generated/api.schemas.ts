@@ -3898,6 +3898,7 @@ export interface SignalSourceConfigApi {
     source_product: SignalSourceConfigSourceProductEnumApi
     source_type: SignalSourceConfigSourceTypeEnumApi
     enabled?: boolean
+    /** Per-source settings as a JSON object. Keys understood by every emission source: `steering` (string, max 2000 characters) holds the team's preferences about this source's records in plain language: what matters, what to skip, what's out of scope. The emission actionability gate applies it when deciding which records become signals; rules apply from the next sync and nothing already emitted is retracted. `default_not_actionable` (boolean, default false) flips the gate's default: instead of keeping every record the steering rules don't exclude, only records that clearly match the team's preferences are kept. Some sources read additional keys, for example `recording_filters` and `sample_rate` for session analysis. */
     config?: unknown
     readonly created_at: string
     readonly updated_at: string
@@ -3919,6 +3920,7 @@ export interface PatchedSignalSourceConfigApi {
     source_product?: SignalSourceConfigSourceProductEnumApi
     source_type?: SignalSourceConfigSourceTypeEnumApi
     enabled?: boolean
+    /** Per-source settings as a JSON object. Keys understood by every emission source: `steering` (string, max 2000 characters) holds the team's preferences about this source's records in plain language: what matters, what to skip, what's out of scope. The emission actionability gate applies it when deciding which records become signals; rules apply from the next sync and nothing already emitted is retracted. `default_not_actionable` (boolean, default false) flips the gate's default: instead of keeping every record the steering rules don't exclude, only records that clearly match the team's preferences are kept. Some sources read additional keys, for example `recording_filters` and `sample_rate` for session analysis. */
     config?: unknown
     readonly created_at?: string
     readonly updated_at?: string

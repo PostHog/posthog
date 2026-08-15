@@ -12,6 +12,7 @@ from posthog.models import User
 
 from products.signals.backend import contracts
 from products.signals.backend.billing import REFUND_INELIGIBILITY_REASONS, refund_ineligibility_reason
+from products.signals.backend.emission.steering import DEFAULT_NOT_ACTIONABLE_KEY, STEERING_KEY, STEERING_MAX_LENGTH
 from products.signals.backend.enums import SignalSourceProduct, SignalSourceType
 
 from .artefact_schemas import NON_WRITABLE_ARTEFACT_TYPES
@@ -41,6 +42,21 @@ _DATA_IMPORT_SOURCE_MAP: dict[tuple[str, str], tuple[str, str]] = {
 
 class SignalSourceConfigSerializer(serializers.ModelSerializer):
     status = serializers.SerializerMethodField()
+    config = serializers.JSONField(
+        required=False,
+        help_text=(
+            "Per-source settings as a JSON object. Keys understood by every emission source: "
+            "`steering` (string, max 2000 characters) holds the team's preferences about this source's "
+            "records in plain language: what matters, what to skip, what's out of scope. The emission "
+            "actionability gate applies it when deciding which records become signals; rules apply from "
+            "the next sync and nothing already emitted is retracted. "
+            "`default_not_actionable` (boolean, default false) flips the gate's default: instead of "
+            "keeping every record the steering rules don't exclude, only records that clearly match the "
+            "team's preferences are kept. "
+            "Some sources read additional keys, for example `recording_filters` and `sample_rate` for "
+            "session analysis."
+        ),
+    )
 
     class Meta:
         model = SignalSourceConfig
@@ -93,6 +109,19 @@ class SignalSourceConfigSerializer(serializers.ModelSerializer):
         source_type = attrs.get("source_type", getattr(self.instance, "source_type", None))
         enabled = attrs.get("enabled", getattr(self.instance, "enabled", False))
         config = attrs.get("config", {})
+        if config:
+            if not isinstance(config, dict):
+                raise serializers.ValidationError({"config": "config must be a JSON object"})
+            steering = config.get(STEERING_KEY)
+            if steering is not None and not isinstance(steering, str):
+                raise serializers.ValidationError({"config": "steering must be a string"})
+            if isinstance(steering, str) and len(steering) > STEERING_MAX_LENGTH:
+                raise serializers.ValidationError(
+                    {"config": f"steering must be at most {STEERING_MAX_LENGTH} characters"}
+                )
+            default_not_actionable = config.get(DEFAULT_NOT_ACTIONABLE_KEY)
+            if default_not_actionable is not None and not isinstance(default_not_actionable, bool):
+                raise serializers.ValidationError({"config": "default_not_actionable must be a boolean"})
         if source_product == SignalSourceConfig.SourceProduct.SESSION_REPLAY and config:
             recording_filters = config.get("recording_filters")
             if recording_filters is not None and not isinstance(recording_filters, dict):

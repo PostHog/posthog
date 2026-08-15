@@ -21,6 +21,7 @@ from posthog.temporal.common.heartbeat import LivenessHeartbeater as Heartbeater
 
 from products.signals.backend.emission import InternalSourceType, get_signal_config
 from products.signals.backend.emission.pipeline import run_signal_pipeline
+from products.signals.backend.emission.steering import afetch_source_config
 from products.signals.backend.models import SignalSourceConfig
 
 logger = structlog.get_logger(__name__)
@@ -76,11 +77,13 @@ async def emit_conversations_signals_activity(inputs: EmitConversationsSignalsIn
             log.warning("Team no longer exists, skipping")
             return {"status": "skipped", "reason": "team_deleted", "signals_emitted": 0}
         records = await database_sync_to_async(config.record_fetcher, thread_sensitive=False)(team, config, {})
+        source_config = await afetch_source_config(team.id, config.source_product, config.source_type)
         return await run_signal_pipeline(
             team=team,
             config=config,
             records=records,
             extra=inputs.properties_to_log,
+            source_config=source_config,
         )
 
 

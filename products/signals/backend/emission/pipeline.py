@@ -17,6 +17,7 @@ from posthog.models import Organization, Team
 from posthog.sync import database_sync_to_async
 
 from products.signals.backend.emission.registry import SignalEmitter, SignalEmitterOutput, SignalSourceTableConfig
+from products.signals.backend.emission.steering import apply_steering, steering_from_config
 from products.signals.backend.facade.api import emit_signal
 from products.signals.backend.temporal import metrics
 from products.signals.backend.temporal.drop_telemetry import summarize_drop_error
@@ -463,7 +464,14 @@ async def run_signal_pipeline(
     config: SignalSourceTableConfig,
     records: list[dict[str, Any]],
     extra: dict[str, Any],
+    source_config: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
+    """Run records through the shared emission pipeline (emit, summarize, gate, emit signals).
+
+    `source_config` is the team's `SignalSourceConfig.config` blob for this source; its
+    steering keys customize the actionability gate (see `steering.py`). Callers that have
+    no per-team row (e.g. fixture smoke tests) can omit it for canonical behavior.
+    """
     source_label = f"{config.source_product}/{config.source_type}"
 
     if not records:
@@ -504,17 +512,20 @@ async def run_signal_pipeline(
                 _capture_pipeline_stage("signal_data_source_summarized", team, organization, output)
 
     if config.actionability_prompt:
+        steering = steering_from_config(source_config)
         pre_filter_by_id = {o.source_id: o for o in outputs}
         outputs = await filter_actionable(
             team=team,
             outputs=outputs,
-            actionability_prompt=config.actionability_prompt,
+            actionability_prompt=apply_steering(config.actionability_prompt, steering),
             extra=extra,
         )
         post_filter_ids = {o.source_id for o in outputs}
         for source_id, output in pre_filter_by_id.items():
             if source_id not in post_filter_ids:
-                _capture_pipeline_stage("signal_data_source_filtered", team, organization, output)
+                _capture_pipeline_stage(
+                    "signal_data_source_filtered", team, organization, output, {"steering_applied": steering.active}
+                )
 
     if not outputs:
         logger.warning(f"No actionable records after filtering for {source_label}", **extra)

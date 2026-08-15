@@ -16,6 +16,7 @@ from posthog.temporal.common.heartbeat import LivenessHeartbeater as Heartbeater
 
 from products.signals.backend.emission import get_signal_config
 from products.signals.backend.emission.pipeline import run_signal_pipeline
+from products.signals.backend.emission.steering import afetch_source_config
 from products.warehouse_sources.backend.facade.hooks import EmitSignalsActivityInputs
 from products.warehouse_sources.backend.facade.models import ExternalDataSchema
 
@@ -49,11 +50,13 @@ async def emit_data_import_signals_activity(inputs: EmitSignalsActivityInputs) -
         records = await database_sync_to_async(config.record_fetcher, thread_sensitive=False)(
             team, config, fetcher_context
         )
+        source_config = await afetch_source_config(team.id, config.source_product, config.source_type)
         return await run_signal_pipeline(
             team=team,
             config=config,
             records=records,
             extra=inputs.properties_to_log,
+            source_config=source_config,
         )
 
 
