@@ -489,6 +489,15 @@ class TestPushSubscriptionsAPI(BaseTest):
         assert response.json()["code"] == code
         assert counter._value.get() == before + 1
 
+    def test_unsupported_method_collapses_counter_label(self):
+        counter = PUSH_SUBSCRIPTION_REJECTION_COUNTER.labels(code="method_not_allowed", method="other")
+        before = counter._value.get()
+
+        response = self.client.patch("/api/push_subscriptions/", data="{}", content_type="application/json")
+
+        assert response.status_code == status.HTTP_405_METHOD_NOT_ALLOWED
+        assert counter._value.get() == before + 1
+
     @patch("products.messaging.backend.api.push_subscriptions.capture_internal")
     def test_optional_mode_stores_even_without_a_token(self, mock_capture: MagicMock):
         mock_capture.return_value = MagicMock(status_code=200)
