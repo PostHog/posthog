@@ -11,6 +11,8 @@ from django.http import HttpRequest, HttpResponse, HttpResponseNotFound
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 
+from posthog.cloud_utils import is_cloud_us
+
 CONTENT_TYPE = "application/http-message-signatures-directory+json"
 _TAG = "http-message-signatures-directory"
 _SIGNATURE_LIFETIME_SECONDS = 300
@@ -76,12 +78,17 @@ def signed_directory(key: Ed25519PrivateKey, created_at_seconds: int, nonce: str
 
 def http_message_signatures_directory(request: HttpRequest) -> HttpResponse:
     """
-    The Web Bot Auth key directory for PostHogSessionReplayBot, served at posthog.com through a
-    rewrite. A stored file cannot serve this: Cloudflare uses a key only when the response carries a
-    signature made with that key, covering the authority asked for and expiring minutes later.
+    The Web Bot Auth key directory for PostHogSessionReplayBot. A stored file cannot serve this:
+    Cloudflare uses a key only when the response carries a signature made with that key, covering
+    the authority asked for and expiring minutes later.
 
     https://developers.cloudflare.com/bots/reference/bot-verification/web-bot-auth/
     """
+    # The signature covers _AUTHORITY, so anywhere else would serve a directory that cannot verify
+    # where it is served. The key is deployed to every region, so its presence does not gate this.
+    if not is_cloud_us():
+        return HttpResponseNotFound()
+
     key = _private_key()
     if key is None:
         return HttpResponseNotFound()

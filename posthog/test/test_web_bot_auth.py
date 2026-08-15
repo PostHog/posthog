@@ -77,7 +77,7 @@ def test_the_signature_covers_the_parameters_it_publishes():
     assert "expires=1750106129" in params
 
 
-@override_settings(WEB_BOT_AUTH_PRIVATE_KEY=PEM)
+@override_settings(WEB_BOT_AUTH_PRIVATE_KEY=PEM, CLOUD_DEPLOYMENT="US")
 def test_the_route_serves_a_signed_directory():
     response = Client().get("/.well-known/http-message-signatures-directory")
 
@@ -88,7 +88,7 @@ def test_the_route_serves_a_signed_directory():
     assert response["Signature"].startswith("sig1=:")
 
 
-@override_settings(WEB_BOT_AUTH_PRIVATE_KEY=PEM, ALLOWED_HOSTS=["*"])
+@override_settings(WEB_BOT_AUTH_PRIVATE_KEY=PEM, ALLOWED_HOSTS=["*"], CLOUD_DEPLOYMENT="US")
 def test_the_route_ignores_the_host_it_was_asked_on():
     # Reading the authority off the request looks harmless and is the change to guard against. A
     # signer that trusted the Host would hand any site proxying here a directory that verifies there.
@@ -102,7 +102,16 @@ def test_the_route_ignores_the_host_it_was_asked_on():
     assert verify_at("evil.example", headers, key) is False
 
 
-@override_settings(WEB_BOT_AUTH_PRIVATE_KEY="")
+@override_settings(WEB_BOT_AUTH_PRIVATE_KEY="", CLOUD_DEPLOYMENT="US")
 def test_the_route_is_absent_where_no_key_is_configured():
-    # Self-hosted and EU hold no key. A 500 there would read as a broken deployment.
+    # Self-hosted holds no key. A 500 there would read as a broken deployment.
     assert Client().get("/.well-known/http-message-signatures-directory").status_code == 404
+
+
+@pytest.mark.parametrize("region", ["EU", "DEV", None])
+@override_settings(WEB_BOT_AUTH_PRIVATE_KEY=PEM)
+def test_the_route_is_absent_outside_the_us(region: str | None):
+    # The key is deployed to every region, so holding it is not what makes a region the right one to
+    # serve from. Anywhere but the US would answer with a directory that cannot verify where it sits.
+    with override_settings(CLOUD_DEPLOYMENT=region):
+        assert Client().get("/.well-known/http-message-signatures-directory").status_code == 404
