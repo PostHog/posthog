@@ -8,6 +8,7 @@ from django.test import Client
 
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import ec
+from parameterized import parameterized
 from rest_framework import status
 
 from posthog.models.integration import Integration
@@ -15,6 +16,7 @@ from posthog.models.team.team import Team
 from posthog.models.team.team_caching import set_team_in_cache
 
 from products.messaging.backend.api.push_identity_tokens import sign_push_identity_token, sign_push_identity_token_es256
+from products.messaging.backend.api.push_subscriptions import PUSH_SUBSCRIPTION_REJECTION_COUNTER
 
 
 def _es256_keypair() -> tuple[str, str]:
@@ -436,6 +438,39 @@ class TestPushSubscriptionsAPI(BaseTest):
 
         assert response.status_code == status.HTTP_401_UNAUTHORIZED
         mock_capture.assert_not_called()
+
+    @parameterized.expand(
+        [
+            (
+                "integration_not_found",
+                status.HTTP_400_BAD_REQUEST,
+                {
+                    "distinct_id": "user-1",
+                    "device_token": "fcm-device-token-abc",
+                    "platform": "android",
+                    "app_id": "app-with-no-integration",
+                },
+            ),
+            (
+                "missing_fields",
+                status.HTTP_400_BAD_REQUEST,
+                {
+                    "distinct_id": "user-1",
+                    "platform": "android",
+                    "app_id": "my-firebase-project",
+                },
+            ),
+        ]
+    )
+    def test_rejection_increments_counter_with_code(self, code: str, status_code: int, payload: dict):
+        counter = PUSH_SUBSCRIPTION_REJECTION_COUNTER.labels(code=code, method="POST")
+        before = counter._value.get()
+
+        response = self._post(payload)
+
+        assert response.status_code == status_code
+        assert response.json()["code"] == code
+        assert counter._value.get() == before + 1
 
     @patch("products.messaging.backend.api.push_subscriptions.capture_internal")
     def test_optional_mode_stores_even_without_a_token(self, mock_capture: MagicMock):
