@@ -385,6 +385,12 @@ key that arrives without one, so an unsigned directory registers nothing. That s
 carries a `created` and an `expires` a few seconds apart. A stored file cannot hold a signature that
 covers the request and expires in seconds, so code serves this directory and signs each response.
 
+**9.14** The origin in `Signature-Agent` is `us.posthog.com`. The URL in the user agent of
+requirement 9.1 is a page on `posthog.com`. The two differ on purpose: one is where a verifier
+fetches a key, and the other is where a person reads what the lane does and how to refuse it.
+posthog.com cannot serve the key, because Vercel serves that site and reserves `/.well-known`, which
+leaves a stored file as the only thing it can answer with there.
+
 ### 10. Opt-out signals
 
 `robots.txt` speaks about a path. It cannot express a rule for one image, because an image is a
