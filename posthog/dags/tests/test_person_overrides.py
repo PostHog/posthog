@@ -114,6 +114,89 @@ def test_full_job(cluster: ClickhouseCluster):
     assert cluster.any_host(get_distinct_ids_with_overrides).result() == {"z"}
 
 
+def test_squash_ignores_deleted_mappings(cluster: ClickhouseCluster) -> None:
+    """
+    Keys whose latest override row is a deletion tombstone (is_deleted = 1) must not have their events rewritten to
+    the tombstoned person -- but the tombstoned rows should still be removed from the overrides table.
+    """
+    timestamp = datetime(2025, 1, 1)
+
+    def insert_events(client: Client) -> None:
+        client.execute(
+            "INSERT INTO writable_events (distinct_id, person_id, timestamp) VALUES",
+            [
+                # "del": person 10 was deleted, and the distinct id later ended up on live person 11
+                ("del", UUID(int=10), timestamp - timedelta(hours=24)),
+                ("del", UUID(int=11), timestamp - timedelta(hours=3)),
+                # "live": ordinary override, should be squashed as usual
+                ("live", UUID(int=20), timestamp - timedelta(hours=24)),
+                # "revived": tombstone followed by a higher-versioned live row, should be squashed to the live row
+                ("revived", UUID(int=30), timestamp - timedelta(hours=24)),
+            ],
+        )
+
+    cluster.any_host(insert_events).result()
+
+    def insert_overrides(client: Client) -> None:
+        client.execute(
+            "INSERT INTO person_distinct_id_overrides (distinct_id, person_id, _timestamp, version, is_deleted) VALUES",
+            [
+                ("del", UUID(int=11), timestamp - timedelta(hours=12), 1, 0),  # live merge row, outranked by tombstone
+                ("del", UUID(int=10), timestamp - timedelta(hours=10), 100, 1),  # deletion tombstone
+                ("live", UUID(int=21), timestamp - timedelta(hours=12), 1, 0),
+                ("revived", UUID(int=30), timestamp - timedelta(hours=12), 100, 1),  # deletion tombstone
+                ("revived", UUID(int=31), timestamp - timedelta(hours=8), 101, 0),  # later live row wins
+            ],
+        )
+
+    cluster.any_host(insert_overrides).result()
+
+    def get_distinct_ids_on_events_by_person(client: Client) -> dict[UUID, set[str]]:
+        rows = client.execute("SELECT person_id, groupUniqArray(distinct_id) FROM events GROUP BY ALL")
+        result = {person_id: set(distinct_ids) for person_id, distinct_ids in rows}
+        assert len(rows) == len(result)
+        return result
+
+    def get_distinct_ids_with_overrides(client: Client) -> set[str]:
+        rows = client.execute("SELECT distinct_id FROM person_distinct_id_overrides FINAL")
+        result = {distinct_id for [distinct_id] in rows}
+        assert len(rows) == len(result)
+        return result
+
+    # check preconditions
+    assert cluster.any_host(get_distinct_ids_on_events_by_person).result() == {
+        UUID(int=10): {"del"},
+        UUID(int=11): {"del"},
+        UUID(int=20): {"live"},
+        UUID(int=30): {"revived"},
+    }
+    assert cluster.any_host(get_distinct_ids_with_overrides).result() == {"del", "live", "revived"}
+
+    run_result = squash_person_overrides.execute_in_process(
+        run_config=dagster.RunConfig(
+            {populate_snapshot_table.name: PopulateSnapshotTableConfig(timestamp=timestamp.isoformat())}
+        ),
+        resources={"cluster": cluster},
+    )
+
+    # ensure we cleaned up after ourselves
+    table = PersonOverridesSnapshotTable(UUID(run_result.dagster_run.run_id))
+    dictionary = PersonOverridesSnapshotDictionary(table)
+    assert not any(cluster.map_all_hosts(table.exists).result().values())
+    assert not any(cluster.map_all_hosts(dictionary.exists).result().values())
+
+    # check postconditions
+    assert cluster.any_host(get_distinct_ids_on_events_by_person).result() == {
+        # events for the tombstoned key are left untouched (not rewritten to the deleted person 10)
+        UUID(int=10): {"del"},
+        UUID(int=11): {"del"},
+        UUID(int=21): {"live"},
+        UUID(int=31): {"revived"},
+    }
+    # ... but all snapshotted override rows (including the tombstoned key) are removed
+    assert cluster.any_host(get_distinct_ids_with_overrides).result() == set()
+
+
 def test_cleanup_job(cluster: ClickhouseCluster) -> None:
     timestamp = datetime(2025, 1, 1)
 

@@ -26,7 +26,7 @@ class PersonOverridesSnapshotTable(OverridesSnapshotTable):
     def create(self, client: Client) -> None:
         client.execute(
             f"""
-            CREATE TABLE IF NOT EXISTS {self.qualified_name} (team_id Int64, distinct_id String, person_id UUID, version Int64)
+            CREATE TABLE IF NOT EXISTS {self.qualified_name} (team_id Int64, distinct_id String, person_id UUID, version Int64, is_deleted Int8)
             ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/noshard/{self.qualified_name}', '{{replica}}-{{shard}}', version)
             ORDER BY (team_id, distinct_id)
             """
@@ -43,8 +43,8 @@ class PersonOverridesSnapshotTable(OverridesSnapshotTable):
 
         client.execute(
             f"""
-            INSERT INTO {self.qualified_name} (team_id, distinct_id, person_id, version)
-            SELECT team_id, distinct_id, argMax(person_id, version), max(version)
+            INSERT INTO {self.qualified_name} (team_id, distinct_id, person_id, version, is_deleted)
+            SELECT team_id, distinct_id, argMax(person_id, version), max(version), argMax(is_deleted, version)
             FROM {settings.CLICKHOUSE_DATABASE}.{PERSON_DISTINCT_ID_OVERRIDES_TABLE}
             WHERE _timestamp < %(timestamp)s
             GROUP BY team_id, distinct_id
@@ -68,7 +68,8 @@ class PersonOverridesSnapshotDictionary(OverridesSnapshotDictionary):
                 team_id Int64,
                 distinct_id String,
                 person_id UUID,
-                version Int64
+                version Int64,
+                is_deleted Int8
             )
             PRIMARY KEY team_id, distinct_id
             SOURCE(CLICKHOUSE(DB %(database)s TABLE %(table)s USER %(user)s PASSWORD %(password)s))
@@ -100,8 +101,13 @@ class PersonOverridesSnapshotDictionary(OverridesSnapshotDictionary):
 
     @property
     def update_commands(self):
+        # Skip keys whose latest override is a deletion tombstone (is_deleted = 1): those are not live mappings, and
+        # rewriting events to a deleted person would misattribute them (and can never be repaired by a later run, since
+        # the tombstone's version outranks lower-versioned live rows.) The tombstoned rows are still removed from the
+        # overrides table by the delete mutation below.
         return {
-            "UPDATE person_id = dictGet(%(name)s, 'person_id', (team_id, distinct_id)) WHERE dictHas(%(name)s, (team_id, distinct_id))"
+            "UPDATE person_id = dictGet(%(name)s, 'person_id', (team_id, distinct_id)) "
+            "WHERE dictHas(%(name)s, (team_id, distinct_id)) AND dictGet(%(name)s, 'is_deleted', (team_id, distinct_id)) = 0"
         }
 
     @property
