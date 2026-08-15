@@ -34,6 +34,7 @@ from products.conversations.backend.models import (
     EmailThread,
     EmailThreadAccountLink,
     EmailThreadMessage,
+    EmailThreadMessageDirection,
     Ticket,
 )
 from products.conversations.backend.services.email_channel_setup import (
@@ -88,6 +89,30 @@ class TestCustomerEmailIngestion(BaseTest):
         }
         data.update(overrides)
         return self.client.post("/api/conversations/v1/email/inbound", data)
+
+    def _post_outbound_email(
+        self,
+        *,
+        message_id: str,
+        **overrides: str,
+    ):
+        data = {
+            "token": "webhook-token",
+            "timestamp": "1749565800",
+            "signature": "webhook-signature",
+            "recipient": "sent@mg.posthog.com",
+            "from": "Customer success <csm@example.com>",
+            "sender": "csm@example.com",
+            "To": "Prospect <prospect@future.example>",
+            "Message-Id": message_id,
+            "Date": "Tue, 10 Jun 2025 14:00:00 +0000",
+            "subject": "Account update",
+            "stripped-text": "Here is your account update.",
+            "body-plain": "Here is your account update.",
+            "X-Mailgun-Spf": "pass",
+        }
+        data.update(overrides)
+        return self.client.post("/api/conversations/v1/email/outbound", data)
 
     def _start_google_setup(self, *, expires_at=None) -> EmailChannelSetup:
         self.channel.connection_status = EmailChannelConnectionStatus.PENDING_CONFIRMATION
@@ -402,6 +427,76 @@ class TestCustomerEmailIngestion(BaseTest):
         thread = EmailThread.objects.for_team(self.team.id).get()
         assert EmailThreadMessage.objects.for_team(self.team.id).filter(thread=thread).count() == 1
         assert not EmailThreadAccountLink.objects.for_team(self.team.id).exists()
+
+    def test_outbound_message_is_recovered_when_a_later_reply_matches_an_account(self) -> None:
+        outbound_message_id = "<outbound@customer-success.example>"
+        outbound_response = self._post_outbound_email(message_id=outbound_message_id)
+
+        assert outbound_response.status_code == 200
+        thread = EmailThread.objects.for_team(self.team.id).get()
+        assert not EmailThreadAccountLink.objects.for_team(self.team.id).filter(thread=thread).exists()
+
+        account_model = apps.get_model("customer_analytics", "Account")
+        account = account_model.objects.for_team(self.team.id).create(
+            team=self.team,
+            name="Future account",
+            external_id="future-account",
+            _properties={"known_emails": ["prospect@future.example"]},
+        )
+        reply_response = self._post_email(
+            message_id="<reply@future.example>",
+            **{
+                "from": "Prospect <prospect@future.example>",
+                "sender": "prospect@future.example",
+                "To": "Customer success <csm@example.com>",
+                "In-Reply-To": outbound_message_id,
+                "Date": "Tue, 10 Jun 2025 15:00:00 +0000",
+                "body-plain": "Thanks for the update.",
+                "stripped-text": "Thanks for the update.",
+                "X-Mailgun-Spf": "pass",
+            },
+        )
+
+        assert reply_response.status_code == 200
+        thread.refresh_from_db()
+        messages = list(EmailThreadMessage.objects.for_team(self.team.id).filter(thread=thread))
+        assert thread.message_count == 2
+        assert [message.direction for message in messages] == [
+            EmailThreadMessageDirection.OUTBOUND,
+            EmailThreadMessageDirection.INBOUND,
+        ]
+        assert messages[0].sender_email == "csm@example.com"
+        assert messages[0].sender_authenticated is True
+        assert messages[1].in_reply_to == outbound_message_id
+        link = EmailThreadAccountLink.objects.for_team(self.team.id).get(thread=thread)
+        assert link.account_id == str(account.id)
+        assert not Ticket.objects.filter(team=self.team).exists()
+        assert not EmailOutboxMessage.objects.filter(team=self.team).exists()
+
+    def test_outbound_capture_rejects_a_sender_with_a_different_envelope_address(self) -> None:
+        response = self._post_outbound_email(
+            message_id="<spoofed@customer-success.example>",
+            sender="attacker@example.com",
+        )
+
+        assert response.status_code == 200
+        assert not EmailThread.objects.for_team(self.team.id).exists()
+
+    def test_outbound_capture_drops_internal_only_messages(self) -> None:
+        colleague = User.objects.create(email="colleague@example.com", current_team=self.team)
+        OrganizationMembership.objects.create(
+            organization=self.organization,
+            user=colleague,
+            level=OrganizationMembership.Level.MEMBER,
+        )
+
+        response = self._post_outbound_email(
+            message_id="<internal@example.com>",
+            To="Colleague <colleague@example.com>",
+        )
+
+        assert response.status_code == 200
+        assert not EmailThread.objects.for_team(self.team.id).exists()
 
     def test_duplicate_delivery_creates_one_message_across_customer_channels(self) -> None:
         message_id = "<duplicate@customer.example>"
