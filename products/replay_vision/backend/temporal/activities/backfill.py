@@ -1,5 +1,6 @@
 """Activities for the per-backfill tick workflow: gatekeeping, candidate walk, cursor advance, schedule ops."""
 
+import time
 import asyncio
 from uuid import UUID
 
@@ -44,6 +45,7 @@ from products.replay_vision.backend.temporal.backfill_types import (
 from products.replay_vision.backend.temporal.constants import (
     BACKFILL_SCHEDULE_ID_PREFIX,
     BACKFILL_SCHEDULE_TYPE,
+    FIND_BACKFILL_CANDIDATES_TIMEOUT,
     backfill_dispatch_budget,
     build_apply_scanner_workflow_id,
 )
@@ -170,14 +172,8 @@ def find_backfill_candidates_activity(inputs: FindBackfillCandidatesInputs) -> F
         candidate_limit=inputs.candidate_limit,
         skip_negative_blocklists=True,
     )
+    started_at = time.monotonic()
     candidates = candidate_query.run()
-    # Not wrapped: the in-query blocklists are off, so a swallowed failure would dispatch unfiltered.
-    excluded = excluded_sessions.excluded_session_ids(
-        team=backfill.team,
-        candidate_query=candidate_query,
-        candidates=candidates,
-        scanner_id=str(backfill.scanner_id),
-    )
 
     # Succeeded only, matching the `$recording_observed` event the creation-time count excludes on.
     # Postgres rather than that count's fail-soft ClickHouse read, whose hiccup would report every session
@@ -190,7 +186,16 @@ def find_backfill_candidates_activity(inputs: FindBackfillCandidatesInputs) -> F
             session_id__in=[c.session_id for c in candidates],
         ).values_list("session_id", "completed_at")
     )
-    dispatchable = [c for c in candidates if c.session_id not in succeeded_at and c.session_id not in excluded]
+    unobserved = [c for c in candidates if c.session_id not in succeeded_at]
+    # After the Postgres filter, so the scan covers only ids that could still be dispatched.
+    excluded = excluded_sessions.excluded_session_ids(
+        team=backfill.team,
+        candidate_query=candidate_query,
+        candidates=unobserved,
+        scanner_id=str(backfill.scanner_id),
+        seconds_remaining=FIND_BACKFILL_CANDIDATES_TIMEOUT.total_seconds() - (time.monotonic() - started_at),
+    )
+    dispatchable = [c for c in unobserved if c.session_id not in excluded]
     # Only sessions the live sweep reached after this backfill was quoted were in its total, so only those
     # count as work done; earlier successes were already excluded at creation.
     overtaken = {

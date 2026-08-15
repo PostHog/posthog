@@ -201,11 +201,7 @@ class ScannerCandidateQuery:
 
     @tracer.start_as_current_span("ScannerCandidateQuery.run")
     def excluded_sessions_queries(self, session_ids: list[str]) -> list[ast.SelectQuery]:
-        """Which of `session_ids` this scanner's negative filters exclude, as queries to run.
-
-        Delegates so the exclusion inherits the window and preprocessed filters this query fetched
-        with. Empty when nothing is excluded.
-        """
+        """Delegates, so the exclusion inherits the window and filters this query fetched with."""
         return self._inner.excluded_sessions_queries(session_ids)
 
     def run(self) -> list[CandidateSession]:
@@ -378,11 +374,7 @@ class BackfillCandidateQuery:
         )
 
     def excluded_sessions_queries(self, session_ids: list[str]) -> list[ast.SelectQuery]:
-        """Which of `session_ids` this scanner's negative filters exclude, as queries to run.
-
-        Delegates so the exclusion inherits the window and preprocessed filters this query fetched
-        with. Empty when nothing is excluded.
-        """
+        """Delegates, so the exclusion inherits the window and filters this query fetched with."""
         return self._inner.excluded_sessions_queries(session_ids)
 
     @tracer.start_as_current_span("BackfillCandidateQuery.run")

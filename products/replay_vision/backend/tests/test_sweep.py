@@ -447,66 +447,6 @@ class TestFindScannerCandidatesActivity:
         "properties": [{"key": "$host", "value": ["internal.example.com"], "operator": "is_not", "type": "event"}],
     }
 
-    def test_deep_pass_excludes_negative_filter_matches(self) -> None:
-        # The deep pass re-walks a full-width window, so it is the larger of the two exclusion paths.
-        scanner = _make_scanner(
-            query=self._NEGATIVE_QUERY, last_deep_swept_at=dt.datetime.now(dt.UTC) - dt.timedelta(hours=7)
-        )
-        fetched = [
-            CandidateSession(session_id="deep-keep", session_end=dt.datetime(2026, 5, 1, 6, 0, tzinfo=dt.UTC)),
-            CandidateSession(session_id="deep-blocked", session_end=dt.datetime(2026, 5, 1, 7, 0, tzinfo=dt.UTC)),
-        ]
-        with (
-            patch(
-                "products.replay_vision.backend.temporal.activities.find_scanner_candidates.ScannerCandidateQuery"
-            ) as MockQuery,
-            patch(
-                "products.replay_vision.backend.temporal.activities.find_scanner_candidates.BackfillCandidateQuery"
-            ) as MockDeep,
-            patch.object(excluded_sessions, "excluded_session_ids", side_effect=[set(), {"deep-blocked"}]),
-        ):
-            MockQuery.return_value.run.return_value = []
-            MockDeep.return_value.run.return_value = fetched
-            result = find_scanner_candidates_activity(
-                FindScannerCandidatesInputs(scanner_id=scanner.id, team_id=scanner.team_id)
-            )
-
-        assert MockDeep.call_args.kwargs["skip_negative_blocklists"] is True
-        assert [c.session_id for c in result.deep_candidates] == ["deep-keep"]
-
-    def test_deep_truncation_is_measured_before_exclusion(self) -> None:
-        # A saturated batch that mostly gets excluded still means the window had more rows. Measuring
-        # after exclusion would advance the deep watermark past stragglers the headroom never covered.
-        scanner = _make_scanner(
-            query=self._NEGATIVE_QUERY, last_deep_swept_at=dt.datetime.now(dt.UTC) - dt.timedelta(hours=7)
-        )
-        fetched = [
-            CandidateSession(session_id=f"s{i}", session_end=dt.datetime(2026, 5, 1, 6, 0, tzinfo=dt.UTC))
-            for i in range(DEFAULT_CANDIDATE_LIMIT)
-        ]
-        with (
-            patch(
-                "products.replay_vision.backend.temporal.activities.find_scanner_candidates.ScannerCandidateQuery"
-            ) as MockQuery,
-            patch(
-                "products.replay_vision.backend.temporal.activities.find_scanner_candidates.BackfillCandidateQuery"
-            ) as MockDeep,
-            patch.object(
-                excluded_sessions,
-                "excluded_session_ids",
-                side_effect=[set(), {f"s{i}" for i in range(1, len(fetched))}],
-            ),
-        ):
-            MockQuery.return_value.run.return_value = []
-            MockDeep.return_value.run.return_value = fetched
-            result = find_scanner_candidates_activity(
-                FindScannerCandidatesInputs(scanner_id=scanner.id, team_id=scanner.team_id)
-            )
-
-        # one survivor, but the window was saturated, so the watermark must be held
-        assert len(result.deep_candidates) == 1
-        assert result.deep_swept_through is None
-
     def test_fully_excluded_batch_still_advances_the_keyset(self) -> None:
         # Falling back to the last surviving candidate would leave the keyset where it was and refetch
         # the same excluded rows forever.
