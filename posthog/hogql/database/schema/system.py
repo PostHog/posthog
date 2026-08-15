@@ -1641,6 +1641,9 @@ error_tracking_issues: PostgresTable = PostgresTable(
         "status": StringDatabaseField(
             name="status", description="Issue status, e.g. 'active', 'resolved', 'suppressed'."
         ),
+        "severity": StringDatabaseField(
+            name="severity", nullable=True, description="Assigned issue severity, or null when unassigned."
+        ),
         "name": StringDatabaseField(name="name", description="Issue title (usually the exception type/message)."),
         "description": StringDatabaseField(name="description", description="Issue description."),
     },
