@@ -957,13 +957,13 @@ class TestExposurePreaggregationBreakdownGating(ExperimentQueryRunnerBaseTest):
             series=[EventsNode(event="purchase")],
             breakdownFilter=BreakdownFilter(breakdowns=breakdowns),
         )
-        exposure_config, multiple_variant_handling, filter_test_accounts = get_exposure_config_params_for_builder(None)
+        exposure_params = get_exposure_config_params_for_builder(None, self.team, None)
         builder = ExperimentQueryBuilder(
             team=self.team,
             feature_flag_key="test-flag",
-            exposure_config=exposure_config,
-            filter_test_accounts=filter_test_accounts,
-            multiple_variant_handling=multiple_variant_handling,
+            exposure_config=exposure_params.exposure_config,
+            filter_test_accounts=exposure_params.filter_test_accounts,
+            multiple_variant_handling=exposure_params.multiple_variant_handling,
             variants=["control", "test"],
             date_range_query=QueryDateRange(
                 date_range=DateRange(date_from="2024-01-01", date_to="2024-01-14"),
@@ -975,6 +975,7 @@ class TestExposurePreaggregationBreakdownGating(ExperimentQueryRunnerBaseTest):
             metric=metric,
             breakdowns=breakdowns,
             breakdown_injector=injector_cls(breakdowns, metric),
+            activation_config=exposure_params.activation_config,
         )
 
         exposure_builder = ExposureQueryBuilder(
