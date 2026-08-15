@@ -88,6 +88,7 @@ rules:
                               |Canvas
                               |CanvasBuild
                               |CanvasSourceVersion
+                              |CanvasState
                               |ChangeRequest
                               |ChannelContextGeneration
                               |ChannelInstructions
@@ -139,6 +140,7 @@ rules:
                               |EmailMessageMapping
                               |EmailChannelSetup
                               |EmailThread
+                              |EmailThreadAccountLink
                               |EmailThreadMessage
                               |EmailThreadParticipant
                               |EmailReputationSnapshot
@@ -451,6 +453,7 @@ rules:
                         |Canvas
                         |CanvasBuild
                         |CanvasSourceVersion
+                        |CanvasState
                         |ChangeRequest
                         |ChannelContextGeneration
                         |ChannelInstructions
@@ -502,6 +505,7 @@ rules:
                         |EmailMessageMapping
                         |EmailChannelSetup
                         |EmailThread
+                        |EmailThreadAccountLink
                         |EmailThreadMessage
                         |EmailThreadParticipant
                         |EmailReputationSnapshot
