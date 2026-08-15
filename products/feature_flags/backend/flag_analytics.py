@@ -245,7 +245,7 @@ def _build_enriched_analytics_query() -> str:
         SELECT team_id, {_enriched_flag_key_expr_sql()} as flag_key
         FROM events
         PREWHERE event IN ('$feature_view', '$feature_interaction')
-        WHERE timestamp between %(begin)s AND %(end)s
+        AND timestamp between %(begin)s AND %(end)s
         GROUP BY team_id, flag_key
     """
 

@@ -934,6 +934,12 @@ class TestEnrichedAnalytics(BaseTest):
             key="beta-feature3",
             created_by=self.user,
         )
+        f5 = FeatureFlag.objects.create(
+            team=self.team,
+            name="Beta feature",
+            key="beta-feature4",
+            created_by=self.user,
+        )
 
         # create usage dashboard for f1 and f3
         _create_usage_dashboard(f1, self.user)
@@ -960,6 +966,14 @@ class TestEnrichedAnalytics(BaseTest):
             distinct_id="test3",
             event="$feature_view",
             properties={"feature_flag": "test_flag"},
+            timestamp="2021-01-12T12:00:10Z",
+        )
+        # out of bounds for f5 - should not set has_enriched_analytics
+        _create_event(
+            team=self.team,
+            distinct_id="test8",
+            event="$feature_view",
+            properties={"feature_flag": "beta-feature4"},
             timestamp="2021-01-12T12:00:10Z",
         )
         # different flag
@@ -1006,11 +1020,13 @@ class TestEnrichedAnalytics(BaseTest):
         f2.refresh_from_db()
         f3.refresh_from_db()
         f4.refresh_from_db()
+        f5.refresh_from_db()
 
         self.assertEqual(f1.has_enriched_analytics, True)
         self.assertEqual(f2.has_enriched_analytics, True)
         self.assertEqual(f3.has_enriched_analytics, False)
         self.assertEqual(f4.has_enriched_analytics, False)
+        self.assertEqual(f5.has_enriched_analytics, False)
 
         # now try deleting a usage dashboard. It should not delete the feature flag
         assert f1.usage_dashboard is not None
@@ -1038,7 +1054,7 @@ class TestEnrichedAnalytics(BaseTest):
 
     def test_find_flags_with_enriched_analytics_via_feature_interaction_only(self):
         # A flag that only ever receives $feature_interaction (no $feature_view) should still be
-        # detected as enriched, because the docs present the two events as interchangeable triggers.
+        # detected as enriched, since the generated usage dashboard charts both events.
         flag = FeatureFlag.objects.create(
             team=self.team,
             name="Interaction only feature",
