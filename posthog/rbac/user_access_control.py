@@ -1761,9 +1761,15 @@ class UserAccessControl:
 
 
 class SubjectAccessControl(UserAccessControl):
-    """Resolves access from the rules that apply to a subject instead of the requesting user:
-    the everyone-rows alone (the default subject), plus a member's own rows and their roles'
-    rows, or plus a single role's rows. The org-admin bypass follows the subject the same way.
+    """Resolves access for a subject rather than for the requesting user.
+
+    The subject decides which rules count:
+    - no subject (the default): only the everyone-rows — what the rules grant everyone
+    - member=...: the everyone-rows, the member's own rows, and the rows of the member's roles
+    - role_id=...: the everyone-rows and that role's rows
+
+    A member subject keeps the org-admin bypass when their membership level grants it; the
+    other subjects never have it.
 
     For attribution and display (what does or would this subject have) — never for enforcing
     the requesting user's access, which is UserAccessControl's job. `user`/`team` are still the
