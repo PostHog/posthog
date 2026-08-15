@@ -8,6 +8,10 @@ import posthog from 'posthog-js'
 import api, { ApiConfig, getCookie } from 'lib/api'
 import { DashboardCompatibleScenes } from 'lib/components/SceneDashboardChoice/sceneDashboardChoiceModalLogic'
 // eslint-disable-next-line import/no-cycle
+import { modalInterruptionTrackingLogic } from 'lib/components/TimeSensitiveAuthentication/modalInterruptionTrackingLogic'
+// eslint-disable-next-line import/no-cycle
+import { timeSensitiveAuthenticationLogic } from 'lib/components/TimeSensitiveAuthentication/timeSensitiveAuthenticationLogic'
+// eslint-disable-next-line import/no-cycle
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { clearSession, isOAuthMode, setOAuthContextIds } from 'lib/oauth/oauthClient'
 import { getAppContext } from 'lib/utils/getAppContext'
@@ -478,7 +482,16 @@ export const userLogic = kea<userLogicType>([
                       ? 'This email is too long. Please keep it under 255 characters.'
                       : null,
             }),
-            submit: (user) => {
+            submit: async (user) => {
+                // Saving name or email is a sensitive action. Hold the request until any required
+                // re-authentication finishes, so the change isn't dropped behind the modal and lost.
+                const tracking = modalInterruptionTrackingLogic.findMounted()
+                tracking?.actions.setInterruptedForm('user_details')
+                await timeSensitiveAuthenticationLogic.findMounted()?.asyncActions.checkReauthentication()
+                // Clear our attribution if no modal consumed it, so a later modal isn't mis-tagged.
+                if (tracking?.values.interruptedForm === 'user_details') {
+                    tracking.actions.setInterruptedForm(null)
+                }
                 actions.updateUser(user)
             },
         },

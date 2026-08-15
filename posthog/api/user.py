@@ -1141,7 +1141,9 @@ class UserViewSet(
                 code="invalid_token",
             )
 
+        email_changed = False
         if user.pending_email:
+            email_changed = True
             old_email = user.email
             with transaction.atomic():
                 user.email = user.pending_email
@@ -1150,7 +1152,6 @@ class UserViewSet(
                 # Delete social auth so the old external identity can't keep logging in.
                 UserSocialAuth.objects.filter(user=user).delete()
             send_email_change_emails.delay(datetime.now(UTC).isoformat(), user.first_name, old_email, user.email)
-            revoke_other_sessions_for_request(request, user)
 
         user.is_email_verified = True
         user.save()
@@ -1171,6 +1172,12 @@ class UserViewSet(
             return Response({"success": True, "token": token, "requires_login": True})
 
         login(self.request, user, backend="django.contrib.auth.backends.ModelBackend")
+        # Revoke other sessions only after login establishes the caller's session, so the freshly
+        # authenticated session is preserved while the old ones are cleared. Running this before login
+        # (or on the requires_2fa/requires_sso/requires_login paths that never call login) revokes the
+        # tab the user started in.
+        if email_changed:
+            revoke_other_sessions_for_request(request, user)
         set_two_factor_verified_in_session(self.request)
         report_user_logged_in(user)
         return Response({"success": True, "token": token})

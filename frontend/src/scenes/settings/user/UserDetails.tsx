@@ -1,4 +1,4 @@
-import { useActions, useValues } from 'kea'
+import { useActions, useMountedLogic, useValues } from 'kea'
 import { Form } from 'kea-forms'
 
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
@@ -6,7 +6,10 @@ import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonInput } from 'lib/lemon-ui/LemonInput/LemonInput'
 import { userLogic } from 'scenes/userLogic'
 
+import { userDetailsLogic } from './userDetailsLogic'
+
 export function UserDetails(): JSX.Element {
+    useMountedLogic(userDetailsLogic)
     const { userLoading, isUserDetailsSubmitting, userDetailsChanged, user } = useValues(userLogic)
     const { cancelEmailChangeRequest } = useActions(userLogic)
 

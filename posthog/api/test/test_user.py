@@ -1,6 +1,7 @@
 import uuid
 import datetime
 from datetime import timedelta
+from importlib import import_module
 from typing import cast
 from urllib.parse import quote, unquote, urlparse
 
@@ -10,6 +11,8 @@ from posthog.test.base import APIBaseTest, NonAtomicBaseTest
 from unittest import mock
 from unittest.mock import ANY, patch
 
+from django.conf import settings as django_settings
+from django.contrib.auth import BACKEND_SESSION_KEY, SESSION_KEY
 from django.contrib.auth.tokens import default_token_generator
 from django.core import mail
 from django.core.cache import cache
@@ -38,6 +41,7 @@ from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.user import default_ui_configuration_for_new_users
 from posthog.models.utils import generate_random_token_personal, hash_key_value
 from posthog.models.webauthn_credential import WebauthnCredential
+from posthog.session.models import Session as AuthSession
 from posthog.temporal.tests.delete_teams.inline import execute_deletion_workflows_inline
 
 from products.dashboards.backend.models.dashboard import Dashboard
@@ -2994,6 +2998,45 @@ class TestEmailVerificationAPI(APIBaseTest):
         self.user.refresh_from_db()
         assert self.user.is_email_verified
         assert self.client.session.get("_auth_user_id") is None
+
+    def _make_live_session(self, user: User) -> str:
+        engine = import_module(django_settings.SESSION_ENGINE)
+        store = engine.SessionStore()
+        store[SESSION_KEY] = str(user.pk)
+        store[BACKEND_SESSION_KEY] = "django.contrib.auth.backends.ModelBackend"
+        store.create()
+        return store.session_key
+
+    @patch("posthog.tasks.email.send_email_change_emails.delay")
+    def test_email_change_verification_revokes_other_sessions_after_login(self, _):
+        # The successful login path still clears the user's other sessions, but only once login has
+        # established the caller's own session, so revocation runs after login rather than before it.
+        other_session_key = self._make_live_session(self.user)
+        self.user.pending_email = "alice@example.com"
+        self.user.save()
+
+        token = email_verification_token_generator.make_token(self.user)
+        response = self.client.post("/api/users/verify_email/", {"uuid": self.user.uuid, "token": token})
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json() == {"success": True, "token": token}
+        assert not AuthSession.objects.filter(session_key=other_session_key).exists()
+
+    @patch("posthog.tasks.email.send_email_change_emails.delay")
+    def test_email_change_verification_keeps_other_sessions_when_2fa_required(self, _):
+        # A verification that stops at requires_2fa never establishes a session, so it must not revoke
+        # the user's existing sessions — otherwise the tab they started the change in is logged out.
+        TOTPDevice.objects.create(user=self.user, name="default", confirmed=True)
+        other_session_key = self._make_live_session(self.user)
+        self.user.pending_email = "alice@example.com"
+        self.user.save()
+
+        token = email_verification_token_generator.make_token(self.user)
+        response = self.client.post("/api/users/verify_email/", {"uuid": self.user.uuid, "token": token})
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json() == {"success": True, "token": token, "requires_2fa": True}
+        assert AuthSession.objects.filter(session_key=other_session_key).exists()
 
     def test_cant_request_verification_for_already_verified_email(self):
         self.user.is_email_verified = True
