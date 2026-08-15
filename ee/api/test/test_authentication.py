@@ -13,7 +13,7 @@ from django.conf import settings
 from django.core import mail
 from django.core.exceptions import ValidationError
 from django.shortcuts import redirect
-from django.test import override_settings
+from django.test import SimpleTestCase, override_settings
 from django.utils import timezone
 
 from parameterized import parameterized
@@ -1477,3 +1477,29 @@ dcKmj4EG6bfcI3KY6wK46JoogXZdHDaFP+WOJNj/pJ165hYsYLcqkJktj/rEgGQmqAXWPOXHmFJb
         # Should be redirected to login with SSO enforcement error
         self.assertEqual(response.status_code, status.HTTP_302_FOUND)
         self.assertIn("/login?error_code=google_sso_enforced", response.headers["Location"])
+
+
+class TestMultitenantSAMLAuthAttributes(SimpleTestCase):
+    """Unit tests for SAML attribute extraction."""
+
+    def setUp(self):
+        # __init__ needs a strategy we do not exercise here.
+        self.auth = MultitenantSAMLAuth.__new__(MultitenantSAMLAuth)
+
+    def test_returns_first_value_of_a_list(self):
+        self.assertEqual(self.auth._get_attr({"first_name": ["Ada"]}, ["first_name"]), "Ada")
+
+    def test_optional_attribute_absent(self):
+        self.assertEqual(self.auth._get_attr({}, ["first_name"], optional=True), "")
+
+    def test_optional_attribute_present_but_empty(self):
+        """An IdP can send `<saml:Attribute Name="first_name"/>` with no usable value.
+
+        python3-saml drops empty and whitespace-only AttributeValues but still
+        assigns the resulting empty list, so `{"first_name": []}` reaches us.
+        """
+        self.assertEqual(self.auth._get_attr({"first_name": []}, ["first_name"], optional=True), "")
+
+    def test_required_attribute_present_but_empty_raises(self):
+        with self.assertRaises(AuthMissingParameter):
+            self.auth._get_attr({"email": []}, ["email"])

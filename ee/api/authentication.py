@@ -292,7 +292,9 @@ class MultitenantSAMLAuth(SAMLAuth):
             raise AuthMissingParameter(self, attribute_names[0])
 
         if isinstance(output, list):
-            output = output[0]
+            # An optional attribute that is present but carries no usable value
+            # arrives as an empty list, so this cannot index blindly.
+            output = output[0] if output else None
 
         return output or ""
 
