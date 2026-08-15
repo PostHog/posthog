@@ -1,4 +1,3 @@
-import json
 
 import pytest
 from unittest.mock import MagicMock, patch
@@ -30,7 +29,9 @@ class TestVercelAPIClient:
         def json_error():
             mock_response = MagicMock()
             mock_response.status_code = 200
-            mock_response.json.side_effect = json.JSONDecodeError("Invalid JSON", "", 0)
+            # requests raises its own JSONDecodeError, which does not derive from
+            # the stdlib one when simplejson is installed.
+            mock_response.json.side_effect = requests.exceptions.JSONDecodeError("Invalid JSON", "", 0)
             return mock_response
 
     @pytest.fixture

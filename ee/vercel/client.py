@@ -1,4 +1,3 @@
-import json
 from dataclasses import dataclass
 from typing import Any
 from urllib.parse import urlencode
@@ -85,7 +84,7 @@ class VercelAPIClient:
     def _parse_json_response(self, response: requests.Response) -> dict[str, Any]:
         try:
             return response.json()
-        except json.JSONDecodeError as e:
+        except requests.exceptions.JSONDecodeError as e:
             logger.exception("Failed to parse JSON response", integration="vercel")
             raise APIError("Invalid JSON response", detail=str(e))
 
