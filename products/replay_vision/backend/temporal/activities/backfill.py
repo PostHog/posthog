@@ -24,6 +24,7 @@ from products.replay_vision.backend.models.replay_scanner_backfill import (
     BackfillStatus,
     ReplayScannerBackfill,
 )
+from products.replay_vision.backend.queries import excluded_sessions
 from products.replay_vision.backend.queries.scanner_candidate_query import BackfillCandidateQuery
 from products.replay_vision.backend.quota import compute_scanner_budget, quota_state
 from products.replay_vision.backend.temporal.activities.count_in_flight_applies import (
@@ -154,7 +155,7 @@ def find_backfill_candidates_activity(inputs: FindBackfillCandidatesInputs) -> F
             f"ReplayScannerBackfill {inputs.backfill_id} has malformed frozen query: {exc}", non_retryable=True
         ) from exc
 
-    candidates = BackfillCandidateQuery(
+    candidate_query = BackfillCandidateQuery(
         team=backfill.team,
         query=query,
         window_start=backfill.window_start,
@@ -167,7 +168,16 @@ def find_backfill_candidates_activity(inputs: FindBackfillCandidatesInputs) -> F
         cursor_end_time=backfill.cursor_end_time,
         cursor_session_id=backfill.cursor_session_id or None,
         candidate_limit=inputs.candidate_limit,
-    ).run()
+        skip_negative_blocklists=True,
+    )
+    candidates = candidate_query.run()
+    # Not wrapped: the in-query blocklists are off, so a swallowed failure would dispatch unfiltered.
+    excluded = excluded_sessions.excluded_session_ids(
+        team=backfill.team,
+        candidate_query=candidate_query,
+        candidates=candidates,
+        scanner_id=str(backfill.scanner_id),
+    )
 
     # Succeeded only, matching the `$recording_observed` event the creation-time count excludes on.
     # Postgres rather than that count's fail-soft ClickHouse read, whose hiccup would report every session
@@ -180,7 +190,7 @@ def find_backfill_candidates_activity(inputs: FindBackfillCandidatesInputs) -> F
             session_id__in=[c.session_id for c in candidates],
         ).values_list("session_id", "completed_at")
     )
-    dispatchable = [c for c in candidates if c.session_id not in succeeded_at]
+    dispatchable = [c for c in candidates if c.session_id not in succeeded_at and c.session_id not in excluded]
     # Only sessions the live sweep reached after this backfill was quoted were in its total, so only those
     # count as work done; earlier successes were already excluded at creation.
     overtaken = {

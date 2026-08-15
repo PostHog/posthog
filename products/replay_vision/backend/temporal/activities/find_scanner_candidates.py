@@ -189,9 +189,17 @@ def _deep_sweep(
         candidate_limit=limit,
         max_execution_time_seconds=DEEP_SWEEP_MAX_EXECUTION_SECONDS,
         scanner_id=str(scanner.id),
+        skip_negative_blocklists=True,
     )
-    deep_candidates = deep_query.run()
-    if len(deep_candidates) == limit and len(observed_session_ids) < _DEEP_SWEEP_MAX_EXCLUSIONS:
+    fetched = deep_query.run()
+    # Not wrapped: the in-query blocklists are off, so a swallowed failure would dispatch unfiltered.
+    excluded = excluded_sessions.excluded_session_ids(
+        team=scanner.team, candidate_query=deep_query, candidates=fetched, scanner_id=str(scanner.id)
+    )
+    deep_candidates = [c for c in fetched if c.session_id not in excluded]
+    # Truncation is a property of what the window returned, not of what survived exclusion; measuring
+    # it after would advance the watermark past rows the headroom never covered.
+    if len(fetched) == limit and len(observed_session_ids) < _DEEP_SWEEP_MAX_EXCLUSIONS:
         # Truncated by the dispatch headroom rather than by the window running out, so hold the
         # watermark and cover the rest next time. The walk is newest-first, so advancing here would
         # drop the oldest stragglers, which are exactly the ones this pass exists to catch. Re-running

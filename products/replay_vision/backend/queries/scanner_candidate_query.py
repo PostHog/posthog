@@ -326,6 +326,9 @@ class BackfillCandidateQuery:
         # the caller rather than from the `$recording_observed` event, so it can carry observations in
         # any state and cannot be influenced by ingested events.
         exclude_session_ids: list[str] | None = None,
+        # Only for callers that drop negative-filter matches from the rows they fetched. The quote
+        # path counts rather than dispatching, so it keeps the in-query blocklist and stays exact.
+        skip_negative_blocklists: bool = False,
         candidate_limit: int = DEFAULT_CANDIDATE_LIMIT,
         max_execution_time_seconds: int = DEFAULT_MAX_EXECUTION_SECONDS,
         scanner_id: str | None = None,
@@ -371,7 +374,16 @@ class BackfillCandidateQuery:
             query=inner_query,
             extra_having_predicates=extra_having,
             session_ids_to_exclude=exclude_session_ids,
+            skip_negative_blocklists=skip_negative_blocklists,
         )
+
+    def excluded_sessions_queries(self, session_ids: list[str]) -> list[ast.SelectQuery]:
+        """Which of `session_ids` this scanner's negative filters exclude, as queries to run.
+
+        Delegates so the exclusion inherits the window and preprocessed filters this query fetched
+        with. Empty when nothing is excluded.
+        """
+        return self._inner.excluded_sessions_queries(session_ids)
 
     @tracer.start_as_current_span("BackfillCandidateQuery.run")
     def run(self) -> list[CandidateSession]:

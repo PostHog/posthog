@@ -21,16 +21,26 @@ membership, group and person properties) resolve at query time exactly as they d
 """
 
 import time
+from typing import Protocol
 
 from opentelemetry import trace
 
+from posthog.hogql import ast
+
 from posthog.models import Team
 
-from products.replay_vision.backend.queries.scanner_candidate_query import (
-    CandidateSession,
-    ScannerCandidateQuery,
-    execute_candidate_query,
-)
+from products.replay_vision.backend.queries.scanner_candidate_query import CandidateSession, execute_candidate_query
+
+
+class CandidateQuery(Protocol):
+    """A query that can say which of a set of sessions its negative filters exclude.
+
+    Both the sweep and the backfill fetch candidates with the in-query blocklists off, so both owe
+    the caller this. Taking the protocol rather than either class keeps the two on one code path.
+    """
+
+    def excluded_sessions_queries(self, session_ids: list[str]) -> list[ast.SelectQuery]: ...
+
 
 tracer = trace.get_tracer(__name__)
 
@@ -50,7 +60,7 @@ _MAX_IDS_PER_QUERY = 1_000
 def excluded_session_ids(
     *,
     team: Team,
-    candidate_query: ScannerCandidateQuery,
+    candidate_query: CandidateQuery,
     candidates: list[CandidateSession],
     scanner_id: str | None = None,
     seconds_remaining: float | None = None,
