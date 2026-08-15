@@ -70,7 +70,8 @@ For each new candidate, do a first read to set its baseline and cadence, then ad
 
 Explore is not only additive — **importance decays.**
 Every few days (~3), re-pull the ranking and reconcile the _existing_ watchlist against it: promote newly-hot items, and retire ones whose dashboards have gone cold.
-**Retiring is a delete, not a demote** — `scout-scratchpad-forget` the item's `watchlist:` and `baseline:` entries and leave a one-line `retired:` tombstone in their place, so the ledger holds only what you still score.
+**Retiring is a delete, not a demote** — leave a one-line `retired:` tombstone, then `scout-scratchpad-forget` the item's `watchlist:` and `baseline:` entries, so the ledger holds only what you still score.
+Retire on evidence a metric went cold, never to make a refresh look productive, and never an item whose report is still live — the reference has the guard list.
 A large or "mature" watchlist is **not** a reason to skip explore — a frozen watchlist tracks last week's priorities, not today's.
 The refresh cadence, the terminal-state convention, and the `importance-refresh` memo are in [`references/watchlist-and-memory.md`](references/watchlist-and-memory.md).
 
