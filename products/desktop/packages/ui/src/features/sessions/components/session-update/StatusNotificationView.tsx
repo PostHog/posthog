@@ -13,10 +13,11 @@ import { formatDuration } from "../GeneratingIndicator";
 interface StatusNotificationViewProps {
   status: string;
   isComplete?: boolean;
-  /** Epoch ms when a `compacting` status began; anchors the elapsed timer so it
-   *  survives unmount/remount in the virtualized list instead of resetting. */
+  /** Epoch ms when a `compacting` or `clearing` status began; anchors the
+   *  elapsed timer so it survives unmount/remount in the virtualized list
+   *  instead of resetting. */
   startedAt?: number;
-  /** Failure reason, set on a `compacting_failed` status. */
+  /** Failure reason, set on a `compacting_failed` or `clearing_failed` status. */
   error?: string;
   /** Refusal statuses: display-only stop_details.explanation from the API. */
   explanation?: string;
@@ -167,6 +168,40 @@ export function StatusNotificationView({
     );
   }
 
+  // A timed-out clear (rare — the swap normally completes in under a
+  // second). The matching `clearing` spinner is cleared separately; this row
+  // reports the outcome.
+  if (status === "clearing_failed") {
+    const message = error ? `Clear failed: ${error}` : "Clear failed";
+    if (chatChrome) {
+      return (
+        <ChatMarker variant="separator">
+          <ChatMarkerContent>{message}</ChatMarkerContent>
+        </ChatMarker>
+      );
+    }
+    return (
+      <Box className="my-1 border-gray-6 border-l-2 py-1 pl-3 dark:border-gray-8">
+        <Flex align="center" gap="2">
+          <XCircle size={14} className="text-gray-9" aria-hidden />
+          <Text className="text-[13px] text-gray-11">{message}</Text>
+        </Flex>
+      </Box>
+    );
+  }
+
+  if (status === "clearing") {
+    if (isComplete) {
+      return null;
+    }
+    return (
+      <CompactingStatusView
+        startedAt={startedAt}
+        label="Clearing conversation…"
+      />
+    );
+  }
+
   // Generic status display for other statuses
   return (
     <Box className="my-1 border-gray-6 border-l-2 py-1 pl-3 dark:border-gray-8">
@@ -222,20 +257,27 @@ function RetryingStatusView({
 }
 
 /**
- * In-flight compaction row. Compaction is a single streaming summarization call
- * with no measurable percentage, so we pair the spinner with an indeterminate
- * progress bar (constant motion, so it never reads as frozen) and a live
- * elapsed-time counter, which is the one honest progress signal we have.
+ * In-flight row for a single streaming operation with no measurable
+ * percentage (compaction, `/clear`), so we pair the spinner with an
+ * indeterminate progress bar (constant motion, so it never reads as frozen)
+ * and a live elapsed-time counter, which is the one honest progress signal
+ * we have.
  */
-function CompactingStatusView({ startedAt }: { startedAt?: number }) {
+function CompactingStatusView({
+  startedAt,
+  label = "Compacting conversation history...",
+}: {
+  startedAt?: number;
+  label?: string;
+}) {
   const [elapsed, setElapsed] = useState(() =>
     startedAt ? Date.now() - startedAt : 0,
   );
 
   useEffect(() => {
-    // Anchor to the persisted compaction start time so remounting this row
-    // (e.g. scrolling it out of and back into the virtualized list while
-    // compaction runs) keeps counting from when compaction began rather than
+    // Anchor to the persisted start time so remounting this row (e.g.
+    // scrolling it out of and back into the virtualized list while the
+    // operation runs) keeps counting from when it began rather than
     // resetting to zero. Fall back to mount time only if it's missing.
     const start = startedAt ?? Date.now();
     const tick = () => setElapsed(Date.now() - start);
@@ -248,9 +290,7 @@ function CompactingStatusView({ startedAt }: { startedAt?: number }) {
     <Box className="my-1 border-blue-6 border-l-2 px-3 py-1 dark:border-blue-8">
       <Flex align="center" gap="2">
         <Spinner size={14} className="animate-spin text-blue-9" />
-        <Text className="text-[13px] text-gray-11">
-          Compacting conversation history...
-        </Text>
+        <Text className="text-[13px] text-gray-11">{label}</Text>
         <Text className="text-[13px] text-gray-10 tabular-nums">
           {formatDuration(elapsed, 1)}
         </Text>

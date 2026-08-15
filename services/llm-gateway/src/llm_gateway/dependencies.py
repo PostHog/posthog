@@ -9,13 +9,21 @@ import structlog
 from fastapi import Depends, HTTPException, Request, status
 
 from llm_gateway.auth.models import AuthenticatedUser
-from llm_gateway.auth.service import AuthService, get_auth_service
+from llm_gateway.auth.service import (
+    AuthService,
+    InvalidProjectScopeError,
+    UnauthorizedProjectScopeError,
+    get_auth_service,
+)
 from llm_gateway.circuit_breaker import AnthropicCircuitBreaker
+from llm_gateway.config import get_settings
+from llm_gateway.flags import evaluate_flag
 from llm_gateway.products.config import (
     ALLOWED_PRODUCTS,
     check_free_tier_model_access,
     check_product_access,
     get_product_config,
+    get_required_model_flag,
     resolve_product_alias,
 )
 from llm_gateway.rate_limiting.cost_refresh import ensure_costs_fresh
@@ -50,7 +58,12 @@ async def get_authenticated_user(
     db_pool: Annotated[asyncpg.Pool, Depends(get_db_pool)],
     auth_service: Annotated[AuthService, Depends(get_auth_service)],
 ) -> AuthenticatedUser:
-    user = await auth_service.authenticate_request(request, db_pool)
+    try:
+        user = await auth_service.authenticate_request(request, db_pool)
+    except InvalidProjectScopeError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid project scope") from exc
+    except UnauthorizedProjectScopeError as exc:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Project access denied") from exc
     if not user:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Authentication required")
     return user
@@ -198,6 +211,16 @@ async def resolve_plan_and_quota(
     return plan_info, QuotaResourceStatus(limited=False)
 
 
+def _format_retry_delay(seconds: int) -> str:
+    if seconds < 60:
+        return f"{seconds} second{'s' if seconds != 1 else ''}"
+    if seconds < 3600:
+        minutes = (seconds + 59) // 60
+        return f"{minutes} minute{'s' if minutes != 1 else ''}"
+    hours = (seconds + 3599) // 3600
+    return f"{hours} hour{'s' if hours != 1 else ''}"
+
+
 async def enforce_throttles(
     request: Request,
     user: Annotated[AuthenticatedUser, Depends(enforce_product_access)],
@@ -219,9 +242,11 @@ async def enforce_throttles(
         product=product,
     )
 
+    model = await get_model_from_request(request)
+
     model_allowed, model_error = check_free_tier_model_access(
         product=product,
-        model=await get_model_from_request(request),
+        model=model,
         provider=await get_provider_from_request(request),
         code_usage_billed=quota_status.code_usage_billing_active,
         usage_unlimited=is_usage_unlimited(user),
@@ -243,6 +268,30 @@ async def enforce_throttles(
                 }
             },
         )
+
+    # Entitlement gate for models not cleared for general use on this path (e.g. Kimi K3,
+    # Baseten-only DeepSeek). Each maps to its own access flag. Fails closed (a None eval outage
+    # blocks) since these decide spend / backend rollout.
+    access_flag = get_required_model_flag(model)
+    if access_flag is not None and not get_settings().debug:
+        if not await evaluate_flag(access_flag, user.distinct_id):
+            logger.warning(
+                "model_access_blocked",
+                user_id=user.user_id,
+                team_id=user.team_id,
+                product=product,
+                flag=access_flag,
+            )
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail={
+                    "error": {
+                        "message": f"Model '{model}' is not available. Choose another model. (rate_limit)",
+                        "type": "permission_error",
+                        "code": "model_gate",
+                    }
+                },
+            )
 
     context = ThrottleContext(
         user=user,
@@ -275,11 +324,18 @@ async def enforce_throttles(
         message = (
             f"Rate limit exceeded: {reason}" if reason and reason != "Rate limit exceeded" else "Rate limit exceeded"
         )
+        # Surfaces like the Slack agent relay only error.message, so the retry
+        # time must live in the text, not just the Retry-After header. Skipped
+        # when retry_after is only a back-off hint (exhausted credits) — those
+        # details already carry their own next step.
+        if result.retry_after is not None and result.retry_after > 0 and result.retry_after_resets_limit:
+            message += f". Try again in about {_format_retry_delay(result.retry_after)}."
         detail = {
             "error": {
                 "message": message,
                 "type": "rate_limit_error",
                 "reason": reason,
+                **({"retry_after": result.retry_after} if result.retry_after is not None else {}),
                 **({"code": result.scope} if result.scope else {}),
             }
         }

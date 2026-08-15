@@ -1,6 +1,5 @@
 import {
   ArrowSquareIn,
-  Cloud,
   GitBranch,
   GitMerge,
   GitPullRequest,
@@ -11,6 +10,7 @@ import {
   getOriginProductMeta,
   type TaskIconProps,
 } from "@posthog/ui/features/sidebar/components/items/TaskIcon";
+import { SlackMark } from "@posthog/ui/primitives/SlackMark";
 
 /**
  * The task state a status dot / badge stack is drawn from: what the shipped
@@ -56,7 +56,7 @@ export const DOT_TONE_VAR: Record<DotTone, string> = {
   yellow: "var(--primary)",
   red: "var(--red-9)",
   blue: "var(--blue-9)",
-  gray: "var(--gray-8)",
+  gray: "var(--muted-foreground)",
 };
 
 /**
@@ -125,11 +125,18 @@ export interface TaskDot {
  */
 export function taskDot(props: TaskStatusInput): TaskDot {
   if (props.needsPermission) {
+    // Not flashing. Blue already reads as the one thing in the list that is
+    // yours to answer, and a blink on top of that argues with every quiet row
+    // around it — in a sidebar of a dozen spaces it is the whole tree moving.
     return {
       tone: "blue",
       style: "solid",
-      pulse: true,
-      label: "Needs permission — blocked on you",
+      pulse: false,
+      // What the agent is asking for varies: permission to run a tool, an
+      // answer to a question it asked with one. Both reach the reader as the
+      // same prompt in the same place, so the row names the ask rather than the
+      // mechanism behind it.
+      label: "Needs your input",
     };
   }
   // Spinning means something is moving on its own: a prompt in flight, or a
@@ -148,12 +155,14 @@ export function taskDot(props: TaskStatusInput): TaskDot {
       label: props.isGenerating ? "Working" : "Starting",
     };
   }
-  // The statuses that lie. Nothing writes a terminal status when a local agent
-  // goes idle, and the cloud workflow holds in_progress while it babysits CI, so
-  // the claim outlives the work, sometimes for the row's whole life. Live, but
-  // nothing moving: the still dot.
+  // Only a background run's status is a claim about work. An interactive run is
+  // left `in_progress` after it succeeds, deliberately — the session stays open
+  // for a follow-up, so the status says "followable", not "working". Reading it
+  // as a claim marked every finished session as pending, on a row nobody could
+  // clear: opening the session writes a viewed timestamp, not a status.
   const runClaimsWork =
-    props.taskRunStatus === "in_progress" || props.taskRunStatus === "queued";
+    props.runMode === "background" &&
+    (props.taskRunStatus === "in_progress" || props.taskRunStatus === "queued");
   if (runClaimsWork && !hasPullRequest(props)) {
     return {
       tone: "yellow",
@@ -204,17 +213,31 @@ export interface TaskBadge {
   label: string;
   /** Set only where colour earns its keep — currently PR state. */
   tone?: DotTone;
+  /**
+   * Where the badge points, for the surfaces that can offer it. A row can't:
+   * it is a `<button>`, so its badges stay spans. The hover card is not, so it
+   * draws a badge with a url as something you can click through to — the PR, or
+   * the Slack thread the task was filed from.
+   */
+  url?: string;
 }
 
 /**
  * Identity → badges, widest context first so the stack reads left-to-right as
- * "who asked, where it runs, what came out of it". Always returns at least one
- * badge: an empty slot where every other row has an avatar reads as a bug.
+ * "who asked, where it runs, what came out of it".
  *
- * Origins deliberately share ONE glyph. Eight product marks at avatar size is a
- * vocabulary nobody learns — and the badge's job in a nav row is "this didn't
- * come from you", which is the same fact whether Slack or error tracking filed
- * it. The tooltip names the actual product for anyone who needs it.
+ * Only the local case says where it runs. Running in the cloud is what a task
+ * does by default, and a badge on the majority of rows is a badge nobody reads —
+ * so cloud is silent and the laptop marks the exception. A cloud row with
+ * nothing else to say carries no badges at all, which is the honest shape:
+ * nothing has happened to it yet.
+ *
+ * Origins share ONE glyph, with Slack as the exception. Eight product marks at
+ * avatar size is a vocabulary nobody learns — and the badge's job in a nav row
+ * is "this didn't come from you", which is the same fact whether Slack or error
+ * tracking filed it. The tooltip names the actual product for anyone who needs
+ * it. Slack keeps its own mark because it's the one origin where the row came
+ * from a person in a thread, and readers already know that logo on sight.
  *
  * The PR badge is the exception that gets colour: merged / ready / closed is the
  * outcome people actually scan a task list for, and it's a three-value
@@ -223,22 +246,25 @@ export interface TaskBadge {
 export function taskBadges(props: TaskStatusInput): TaskBadge[] {
   const badges: TaskBadge[] = [];
   const origin = getOriginProductMeta(props.originProduct);
+  const isSlack = props.originProduct === "slack";
   if (origin) {
     badges.push({
       key: "origin",
-      Icon: ArrowSquareIn,
+      Icon: isSlack ? SlackMark : ArrowSquareIn,
       label: `Source: ${origin.label}`,
+      // Slack is the one origin that hands back a place to go: the thread the
+      // task was filed from. Other products name themselves and stop there.
+      url: isSlack ? (props.slackThreadUrl ?? undefined) : undefined,
     });
   }
-  if (props.workspaceMode === "cloud") {
-    badges.push({ key: "cloud", Icon: Cloud, label: "Cloud" });
-  }
+  const prUrl = props.prUrl ?? undefined;
   if (props.prState === "merged") {
     badges.push({
       key: "pr",
       Icon: GitMerge,
       label: "Merged",
       tone: "purple",
+      url: prUrl,
     });
   } else if (props.prState === "open") {
     badges.push({
@@ -246,6 +272,7 @@ export function taskBadges(props: TaskStatusInput): TaskBadge[] {
       Icon: GitPullRequest,
       label: "PR ready for review",
       tone: "green",
+      url: prUrl,
     });
   } else if (props.prState === "closed") {
     badges.push({
@@ -253,6 +280,7 @@ export function taskBadges(props: TaskStatusInput): TaskBadge[] {
       Icon: GitPullRequest,
       label: "PR closed unmerged",
       tone: "red",
+      url: prUrl,
     });
   } else if (props.prState === "draft") {
     // Mid grey: a draft is a real PR, so it earns a solid glyph, but it isn't
@@ -262,6 +290,7 @@ export function taskBadges(props: TaskStatusInput): TaskBadge[] {
       Icon: GitPullRequest,
       label: "Draft PR",
       tone: "gray",
+      url: prUrl,
     });
   } else if (props.prUrl) {
     // A PR we know exists but haven't resolved the state of. Uncoloured on
@@ -269,7 +298,12 @@ export function taskBadges(props: TaskStatusInput): TaskBadge[] {
     // saying "there's a PR, go look". Showing the badge is not optional — a
     // task that opened a PR and shows no sign of it reads as having done
     // nothing.
-    badges.push({ key: "pr", Icon: GitPullRequest, label: "Pull request" });
+    badges.push({
+      key: "pr",
+      Icon: GitPullRequest,
+      label: "Pull request",
+      url: props.prUrl,
+    });
   } else if (props.hasDiff) {
     badges.push({
       key: "branch",
@@ -278,7 +312,11 @@ export function taskBadges(props: TaskStatusInput): TaskBadge[] {
       tone: "yellow",
     });
   }
-  if (badges.length === 0) {
+  // Only when we actually know it runs on this machine. An unset mode is
+  // unknown, not local, and claiming a laptop for it would be a guess.
+  const runsLocally =
+    props.workspaceMode === "local" || props.workspaceMode === "worktree";
+  if (badges.length === 0 && runsLocally) {
     badges.push({ key: "local", Icon: Laptop, label: "Local" });
   }
   return badges;

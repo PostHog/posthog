@@ -19,6 +19,7 @@ from django.core.cache import cache
 
 from posthog import redis
 from posthog.constants import FlagRequestType
+from posthog.errors import CHQueryErrorUnknownTable
 from posthog.models.team.team import Team
 from posthog.tasks.tasks import find_flags_with_enriched_analytics as find_flags_with_enriched_analytics_task
 
@@ -1038,13 +1039,22 @@ class TestEnrichedAnalytics(BaseTest):
 
 class TestFindFlagsWithEnrichedAnalyticsTask(BaseTest):
     @patch("products.feature_flags.backend.flag_analytics.find_flags_with_enriched_analytics")
-    def test_logs_and_reraises_on_failure(self, mock_find_flags: MagicMock) -> None:
+    def test_logs_and_captures_on_failure_without_reraising(self, mock_find_flags: MagicMock) -> None:
         mock_find_flags.side_effect = Exception("boom")
 
-        with patch("posthog.tasks.tasks.capture_exception") as mock_capture, self.assertRaises(Exception):
+        with patch("posthog.tasks.tasks.capture_exception") as mock_capture:
             find_flags_with_enriched_analytics_task()
 
         mock_capture.assert_called_once()
+
+    @patch("products.feature_flags.backend.flag_analytics.find_flags_with_enriched_analytics")
+    def test_unknown_table_error_is_not_captured(self, mock_find_flags: MagicMock) -> None:
+        mock_find_flags.side_effect = CHQueryErrorUnknownTable("Table default.events doesn't exist", code=60)
+
+        with patch("posthog.tasks.tasks.capture_exception") as mock_capture:
+            find_flags_with_enriched_analytics_task()
+
+        mock_capture.assert_not_called()
 
 
 class TestCrossProjectEvaluations(ClickhouseTestMixin, APIBaseTest):

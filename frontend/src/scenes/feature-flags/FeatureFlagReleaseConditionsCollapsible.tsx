@@ -73,7 +73,7 @@ import {
 import { INTENT_METADATA } from 'products/feature_flags/frontend/featureFlagTemplateConstants'
 
 import { resolveAggregationGroupTypeIndex } from './aggregation'
-import { MATCHING_ESTIMATE_TOOLTIP } from './constants'
+import { EARLY_ACCESS_GROUP_TARGETING_DISABLED_REASON, MATCHING_ESTIMATE_TOOLTIP } from './constants'
 import { EarlyExitIndicator } from './EarlyExitIndicator'
 import { FeatureFlagConditionDragHandle } from './FeatureFlagConditionDragHandle'
 import { FeatureFlagConditionWarning } from './FeatureFlagConditionWarning'
@@ -86,6 +86,7 @@ import {
     isDistinctIdFilter,
     withResolvedFlagLabels,
 } from './featureFlagReleaseConditionsLogic'
+import { MatchingActorsLink } from './MatchingActorsLink'
 import { getPropertySelectErrorMessages, PropertySelectError } from './propertySelectErrorMessages'
 
 interface FeatureFlagReleaseConditionsCollapsibleProps extends FeatureFlagReleaseConditionsLogicProps {
@@ -98,6 +99,12 @@ interface FeatureFlagReleaseConditionsCollapsibleProps extends FeatureFlagReleas
     evaluationRuntime?: FeatureFlagEvaluationRuntime
     /** When true, hides the "Match by" User/Group selector. Use when the aggregation type is inherited from the parent flag. */
     hideMatchOptions?: boolean
+    /**
+     * When true, group targeting is disabled per condition set. Early access feature enrollment is
+     * held in the `$feature_enrollment/<key>` person property, which a group-aggregated condition
+     * cannot read, so the API rejects the save.
+     */
+    hasEarlyAccessFeatures?: boolean
     /** When true, hides the early exit toggle. Use in contexts where early_exit cannot be persisted (e.g. default release conditions). */
     hideEarlyExit?: boolean
 }
@@ -348,6 +355,7 @@ interface ConditionProps {
     taxonomicGroupTypesForCondition: (conditionGroupTypeIndex: number | null | undefined) => TaxonomicFilterGroupType[]
     groupTypes: Map<GroupTypeIndex, GroupType>
     setConditionAggregation: (index: number, groupTypeIndex: number | null) => void
+    hasEarlyAccessFeatures?: boolean
     isDeviceTargeting: boolean
     onMoveUp: () => void
     onMoveDown: () => void
@@ -421,6 +429,7 @@ const ConditionContent = ({
     taxonomicGroupTypesForCondition,
     groupTypes,
     setConditionAggregation,
+    hasEarlyAccessFeatures,
     isDeviceTargeting,
     onMoveUp,
     onMoveDown,
@@ -497,13 +506,11 @@ const ConditionContent = ({
     }
 
     const resolvedTargetName = aggregationTargetName(group.aggregation_group_type_index)
-    const resolvedSingularTargetName = aggregationLabel(
-        resolveAggregationGroupTypeIndex(
-            group.aggregation_group_type_index,
-            releaseFilters.aggregation_group_type_index
-        ),
-        true
-    ).singular
+    const resolvedGroupTypeIndex = resolveAggregationGroupTypeIndex(
+        group.aggregation_group_type_index,
+        releaseFilters.aggregation_group_type_index
+    )
+    const resolvedSingularTargetName = aggregationLabel(resolvedGroupTypeIndex, true).singular
 
     return (
         <div
@@ -613,6 +620,9 @@ const ConditionContent = ({
                                                                     gt.group_type.slice(1) +
                                                                     's',
                                                             icon: <IconPeople />,
+                                                            disabledReason: hasEarlyAccessFeatures
+                                                                ? EARLY_ACCESS_GROUP_TARGETING_DISABLED_REASON
+                                                                : undefined,
                                                         })),
                                                     },
                                                 ]}
@@ -690,10 +700,7 @@ const ConditionContent = ({
                                                         calculateBlastRadiusForCondition(
                                                             group.sort_key,
                                                             group.properties,
-                                                            resolveAggregationGroupTypeIndex(
-                                                                group.aggregation_group_type_index,
-                                                                releaseFilters.aggregation_group_type_index
-                                                            )
+                                                            resolvedGroupTypeIndex
                                                         )
                                                     }
                                                 >
@@ -732,10 +739,7 @@ const ConditionContent = ({
                                                                         resolvedTargetName
                                                                     )}
                                                                 </b>
-                                                                {resolveAggregationGroupTypeIndex(
-                                                                    group.aggregation_group_type_index,
-                                                                    releaseFilters.aggregation_group_type_index
-                                                                ) == null && (
+                                                                {resolvedGroupTypeIndex == null && (
                                                                     <Tooltip
                                                                         title={MATCHING_ESTIMATE_TOOLTIP}
                                                                         interactive
@@ -756,6 +760,11 @@ const ConditionContent = ({
                                                                 </b>{' '}
                                                                 - <b className="tabular-nums">{rolloutPct}%</b>
                                                             </span>
+                                                            <MatchingActorsLink
+                                                                properties={group.properties}
+                                                                resolvedGroupTypeIndex={resolvedGroupTypeIndex}
+                                                                targetName={resolvedTargetName}
+                                                            />
                                                         </div>
                                                     )
                                                 })()}
@@ -862,6 +871,7 @@ export function FeatureFlagReleaseConditionsCollapsible({
     evaluationRuntime,
     hideMatchOptions,
     hideEarlyExit,
+    hasEarlyAccessFeatures,
 }: FeatureFlagReleaseConditionsCollapsibleProps): JSX.Element {
     const releaseConditionsLogic = featureFlagReleaseConditionsLogic({
         id,
@@ -1284,6 +1294,7 @@ export function FeatureFlagReleaseConditionsCollapsible({
                                                 taxonomicGroupTypesForCondition={taxonomicGroupTypesForCondition}
                                                 groupTypes={groupTypes}
                                                 setConditionAggregation={setConditionAggregation}
+                                                hasEarlyAccessFeatures={hasEarlyAccessFeatures}
                                                 isDeviceTargeting={isDeviceTargeting}
                                                 onMoveUp={() => moveConditionSetUp(index)}
                                                 onMoveDown={() => moveConditionSetDown(index)}
@@ -1364,6 +1375,7 @@ export function FeatureFlagReleaseConditionsCollapsible({
                                         taxonomicGroupTypesForCondition={taxonomicGroupTypesForCondition}
                                         groupTypes={groupTypes}
                                         setConditionAggregation={setConditionAggregation}
+                                        hasEarlyAccessFeatures={hasEarlyAccessFeatures}
                                         isDeviceTargeting={isDeviceTargeting}
                                         onMoveUp={() => moveConditionSetUp(index)}
                                         onMoveDown={() => moveConditionSetDown(index)}
@@ -1418,6 +1430,7 @@ export function FeatureFlagReleaseConditionsCollapsible({
                                         taxonomicGroupTypesForCondition={taxonomicGroupTypesForCondition}
                                         groupTypes={groupTypes}
                                         setConditionAggregation={setConditionAggregation}
+                                        hasEarlyAccessFeatures={hasEarlyAccessFeatures}
                                         isDeviceTargeting={isDeviceTargeting}
                                         onMoveUp={() => moveConditionSetUp(index)}
                                         onMoveDown={() => moveConditionSetDown(index)}
@@ -1454,6 +1467,7 @@ export function FeatureFlagReleaseConditionsCollapsible({
                                 taxonomicGroupTypesForCondition={taxonomicGroupTypesForCondition}
                                 groupTypes={groupTypes}
                                 setConditionAggregation={setConditionAggregation}
+                                hasEarlyAccessFeatures={hasEarlyAccessFeatures}
                                 isDeviceTargeting={isDeviceTargeting}
                                 onMoveUp={() => moveConditionSetUp(index)}
                                 onMoveDown={() => moveConditionSetDown(index)}
