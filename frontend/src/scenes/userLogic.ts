@@ -8,10 +8,6 @@ import posthog from 'posthog-js'
 import api, { ApiConfig, getCookie } from 'lib/api'
 import { DashboardCompatibleScenes } from 'lib/components/SceneDashboardChoice/sceneDashboardChoiceModalLogic'
 // eslint-disable-next-line import/no-cycle
-import { modalInterruptionTrackingLogic } from 'lib/components/TimeSensitiveAuthentication/modalInterruptionTrackingLogic'
-// eslint-disable-next-line import/no-cycle
-import { timeSensitiveAuthenticationLogic } from 'lib/components/TimeSensitiveAuthentication/timeSensitiveAuthenticationLogic'
-// eslint-disable-next-line import/no-cycle
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { clearSession, isOAuthMode, setOAuthContextIds } from 'lib/oauth/oauthClient'
 import { getAppContext } from 'lib/utils/getAppContext'
@@ -485,6 +481,12 @@ export const userLogic = kea<userLogicType>([
             submit: async (user) => {
                 // Saving name or email is a sensitive action. Hold the request until any required
                 // re-authentication finishes, so the change isn't dropped behind the modal and lost.
+                // Import lazily: the re-auth logic pulls in a heavy webauthn dependency, and userLogic
+                // is on the import path of most of the app, so keep it off the static graph.
+                const { modalInterruptionTrackingLogic } =
+                    await import('lib/components/TimeSensitiveAuthentication/modalInterruptionTrackingLogic')
+                const { timeSensitiveAuthenticationLogic } =
+                    await import('lib/components/TimeSensitiveAuthentication/timeSensitiveAuthenticationLogic')
                 const tracking = modalInterruptionTrackingLogic.findMounted()
                 tracking?.actions.setInterruptedForm('user_details')
                 await timeSensitiveAuthenticationLogic.findMounted()?.asyncActions.checkReauthentication()
