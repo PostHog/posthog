@@ -18,6 +18,16 @@ def _network_origins(manifest: dict | None) -> list[str]:
     return ((manifest or {}).get("network") or {}).get("origins") or []
 
 
+def declared_state_scopes(manifest: dict | None) -> set[str]:
+    """The ph.state scopes a capabilities manifest declares."""
+    return set(_posthog_section(manifest).get("state") or [])
+
+
+def declared_actions(manifest: dict | None) -> set[str]:
+    """The ph.actions verbs a capabilities manifest declares."""
+    return set(_posthog_section(manifest).get("actions") or [])
+
+
 @dataclass(frozen=True, kw_only=True)
 class CapabilityWidening:
     """What `after` declares beyond `before`. Narrowings are not reported here
@@ -28,6 +38,8 @@ class CapabilityWidening:
     capture_events_added: list[str]
     inline_queries_enabled: bool
     network_origins_added: list[str]
+    state_scopes_added: list[str]
+    actions_added: list[str]
 
     @property
     def widens(self) -> bool:
@@ -36,6 +48,8 @@ class CapabilityWidening:
             or self.capture_events_added
             or self.inline_queries_enabled
             or self.network_origins_added
+            or self.state_scopes_added
+            or self.actions_added
         )
 
 
@@ -55,4 +69,6 @@ def capability_widening(before: dict | None, after: dict | None) -> CapabilityWi
         ),
         inline_queries_enabled=bool(after_ph.get("inlineQueries")) and not bool(before_ph.get("inlineQueries")),
         network_origins_added=sorted(set(_network_origins(after)) - set(_network_origins(before))),
+        state_scopes_added=sorted(set(after_ph.get("state") or []) - set(before_ph.get("state") or [])),
+        actions_added=sorted(set(after_ph.get("actions") or []) - set(before_ph.get("actions") or [])),
     )
