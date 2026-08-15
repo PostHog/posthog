@@ -35,14 +35,16 @@ else:
     _GenericViewSet = object
 
 
-def _inherited_source_display_name(team: Team, access: ResolvedAccess) -> str | None:
-    """A human name for the parent object an inherited level comes through (a table's source),
-    so the UI can say which one. Only object-scoped sources have one."""
-    if access.source != "parent_object" or not access.source_resource_id:
+def _inherited_source_display_name(obj: Any, access: ResolvedAccess) -> str | None:
+    """A human name for the parent object an inherited level comes through, so the UI can say
+    which one. Only object-scoped sources have one, and the parent is always the object's own
+    fallback relation (that's where the walk got its id), so it is read off the object — cached
+    by Django, free when already loaded — never refetched by id."""
+    if access.source != "parent_object":
         return None
     if access.source_resource == "external_data_source":
-        source = ExternalDataSource.objects.filter(team=team, id=access.source_resource_id).first()
-        return source.source_type if source else None
+        source = getattr(obj, "external_data_source", None)
+        return source.source_type if isinstance(source, ExternalDataSource) else None
     return None
 
 
@@ -370,7 +372,7 @@ class AccessControlViewSetMixin(_GenericViewSet):
                     "source_subject": inherited.source_subject,
                     "source_resource": inherited.source_resource,
                     "source_resource_id": inherited.source_resource_id,
-                    "source_display_name": _inherited_source_display_name(team, inherited),
+                    "source_display_name": _inherited_source_display_name(obj, inherited),
                 }
                 if inherited
                 else None
