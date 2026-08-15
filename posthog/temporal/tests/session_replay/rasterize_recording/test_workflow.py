@@ -7,6 +7,7 @@ import temporalio.workflow
 from temporalio import activity
 from temporalio.api.enums.v1 import IndexedValueType
 from temporalio.api.operatorservice.v1 import AddSearchAttributesRequest
+from temporalio.client import WorkflowHistory
 from temporalio.common import RetryPolicy, SearchAttributePair, TypedSearchAttributes
 from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import Replayer, UnsandboxedWorkflowRunner, Worker
@@ -97,7 +98,7 @@ async def test_terminal_failure_bumps_stuck_counter():
     assert [(call.exported_asset_id, call.error_code) for call in record_calls] == [(42, "RuntimeError")]
 
 
-def _scheduled_activities(history) -> list[str]:
+def _scheduled_activities(history: WorkflowHistory) -> list[str]:
     return [
         event.activity_task_scheduled_event_attributes.activity_type.name
         for event in history.events
@@ -126,7 +127,7 @@ async def test_failure_recording_stays_behind_its_patch(monkeypatch):
     async def bump_noop(_inputs: BumpStuckCounterInput) -> None:
         pass
 
-    async def _run_to_failure(env, task_queue) -> object:
+    async def _run_to_failure(env: WorkflowEnvironment, task_queue: str) -> WorkflowHistory:
         handle = await env.client.start_workflow(
             RasterizeRecordingWorkflow.run,
             RasterizeRecordingInputs(exported_asset_id=42),
