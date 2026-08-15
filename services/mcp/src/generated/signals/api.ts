@@ -1797,10 +1797,6 @@ export const SignalsSourceConfigsCreateParams = /* @__PURE__ */ zod.object({
         ),
 })
 
-export const signalsSourceConfigsCreateBodyConfigSteeringMax = 2000
-
-export const signalsSourceConfigsCreateBodyConfigDefaultNotActionableDefault = false
-
 export const SignalsSourceConfigsCreateBody = /* @__PURE__ */ zod.object({
     source_product: zod
         .enum([
@@ -1882,21 +1878,7 @@ export const SignalsSourceConfigsCreateBody = /* @__PURE__ */ zod.object({
         ),
     enabled: zod.boolean().optional(),
     config: zod
-        .object({
-            steering: zod
-                .string()
-                .max(signalsSourceConfigsCreateBodyConfigSteeringMax)
-                .optional()
-                .describe(
-                    "The team's preferences about this source's records, in plain language: what matters, what to skip, what's out of scope."
-                ),
-            default_not_actionable: zod
-                .boolean()
-                .default(signalsSourceConfigsCreateBodyConfigDefaultNotActionableDefault)
-                .describe(
-                    "When true, the actionability gate only keeps records that clearly match the team's steering preferences instead of keeping everything that isn't ruled out."
-                ),
-        })
+        .record(zod.string(), zod.unknown())
         .optional()
         .describe(
             "Per-source settings as a JSON object. Keys shared by the sources that sync through the emission pipeline (data warehouse imports and Conversations): `steering` (string, max 2000 characters) holds the team's preferences about this source's records in plain language: what matters, what to skip, what's out of scope. The emission actionability gate applies it when deciding which records become signals; rules apply from the next sync and nothing already emitted is retracted. `default_not_actionable` (boolean, default false) flips the gate's default: instead of keeping every record the steering rules don't exclude, only records that clearly match the team's preferences are kept. Other sources store these keys without reading them yet; future pipeline stages will consume the same steering text. Some sources read additional keys, for example `recording_filters` and `sample_rate` for session analysis."
@@ -1920,10 +1902,6 @@ export const SignalsSourceConfigsUpdateParams = /* @__PURE__ */ zod.object({
             "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
-
-export const signalsSourceConfigsUpdateBodyConfigSteeringMax = 2000
-
-export const signalsSourceConfigsUpdateBodyConfigDefaultNotActionableDefault = false
 
 export const SignalsSourceConfigsUpdateBody = /* @__PURE__ */ zod.object({
     source_product: zod
@@ -2006,21 +1984,7 @@ export const SignalsSourceConfigsUpdateBody = /* @__PURE__ */ zod.object({
         ),
     enabled: zod.boolean().optional(),
     config: zod
-        .object({
-            steering: zod
-                .string()
-                .max(signalsSourceConfigsUpdateBodyConfigSteeringMax)
-                .optional()
-                .describe(
-                    "The team's preferences about this source's records, in plain language: what matters, what to skip, what's out of scope."
-                ),
-            default_not_actionable: zod
-                .boolean()
-                .default(signalsSourceConfigsUpdateBodyConfigDefaultNotActionableDefault)
-                .describe(
-                    "When true, the actionability gate only keeps records that clearly match the team's steering preferences instead of keeping everything that isn't ruled out."
-                ),
-        })
+        .record(zod.string(), zod.unknown())
         .optional()
         .describe(
             "Per-source settings as a JSON object. Keys shared by the sources that sync through the emission pipeline (data warehouse imports and Conversations): `steering` (string, max 2000 characters) holds the team's preferences about this source's records in plain language: what matters, what to skip, what's out of scope. The emission actionability gate applies it when deciding which records become signals; rules apply from the next sync and nothing already emitted is retracted. `default_not_actionable` (boolean, default false) flips the gate's default: instead of keeping every record the steering rules don't exclude, only records that clearly match the team's preferences are kept. Other sources store these keys without reading them yet; future pipeline stages will consume the same steering text. Some sources read additional keys, for example `recording_filters` and `sample_rate` for session analysis."
@@ -2035,10 +1999,6 @@ export const SignalsSourceConfigsPartialUpdateParams = /* @__PURE__ */ zod.objec
             "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
-
-export const signalsSourceConfigsPartialUpdateBodyConfigSteeringMax = 2000
-
-export const signalsSourceConfigsPartialUpdateBodyConfigDefaultNotActionableDefault = false
 
 export const SignalsSourceConfigsPartialUpdateBody = /* @__PURE__ */ zod.object({
     source_product: zod
@@ -2123,21 +2083,7 @@ export const SignalsSourceConfigsPartialUpdateBody = /* @__PURE__ */ zod.object(
         ),
     enabled: zod.boolean().optional(),
     config: zod
-        .object({
-            steering: zod
-                .string()
-                .max(signalsSourceConfigsPartialUpdateBodyConfigSteeringMax)
-                .optional()
-                .describe(
-                    "The team's preferences about this source's records, in plain language: what matters, what to skip, what's out of scope."
-                ),
-            default_not_actionable: zod
-                .boolean()
-                .default(signalsSourceConfigsPartialUpdateBodyConfigDefaultNotActionableDefault)
-                .describe(
-                    "When true, the actionability gate only keeps records that clearly match the team's steering preferences instead of keeping everything that isn't ruled out."
-                ),
-        })
+        .record(zod.string(), zod.unknown())
         .optional()
         .describe(
             "Per-source settings as a JSON object. Keys shared by the sources that sync through the emission pipeline (data warehouse imports and Conversations): `steering` (string, max 2000 characters) holds the team's preferences about this source's records in plain language: what matters, what to skip, what's out of scope. The emission actionability gate applies it when deciding which records become signals; rules apply from the next sync and nothing already emitted is retracted. `default_not_actionable` (boolean, default false) flips the gate's default: instead of keeping every record the steering rules don't exclude, only records that clearly match the team's preferences are kept. Other sources store these keys without reading them yet; future pipeline stages will consume the same steering text. Some sources read additional keys, for example `recording_filters` and `sample_rate` for session analysis."

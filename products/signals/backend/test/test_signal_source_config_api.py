@@ -188,6 +188,9 @@ class TestSignalSourceConfigAPI(APIBaseTest):
                 {"steering": "Release checklists are never actionable", "default_not_actionable": False},
                 status.HTTP_201_CREATED,
             ),
+            # Falsy non-dict values must be rejected, not skipped by a truthiness guard.
+            ("config_list", [], status.HTTP_400_BAD_REQUEST),
+            ("config_string", "skip chores", status.HTTP_400_BAD_REQUEST),
         ]
     )
     def test_create_steering_config_validation(self, _name, config, expected_status):

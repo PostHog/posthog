@@ -57,35 +57,14 @@ _SOURCE_CONFIG_HELP_TEXT = (
 )
 
 
-@extend_schema_field(
-    {
-        "type": "object",
-        "description": _SOURCE_CONFIG_HELP_TEXT,
-        "properties": {
-            STEERING_KEY: {
-                "type": "string",
-                "maxLength": STEERING_MAX_LENGTH,
-                "description": (
-                    "The team's preferences about this source's records, in plain language: "
-                    "what matters, what to skip, what's out of scope."
-                ),
-            },
-            DEFAULT_NOT_ACTIONABLE_KEY: {
-                "type": "boolean",
-                "default": False,
-                "description": (
-                    "When true, the actionability gate only keeps records that clearly match the "
-                    "team's steering preferences instead of keeping everything that isn't ruled out."
-                ),
-            },
-        },
-        "additionalProperties": True,
-    }
-)
+# Declared as an open object WITHOUT typed `properties`: Orval turns properties into a
+# key-stripping `zod.object`, which would silently drop source-specific keys (e.g. session
+# replay's `recording_filters`) from MCP tool calls. The open shape generates a passthrough
+# `zod.record`, and the steering keys are documented in the description instead.
+@extend_schema_field({"type": "object", "additionalProperties": True, "description": _SOURCE_CONFIG_HELP_TEXT})
 class _SourceConfigField(serializers.JSONField):
-    """`config` blob with the shared steering keys typed in the OpenAPI schema, so generated
-    frontend and MCP types expose them instead of `unknown`. Runtime behavior is plain JSONField;
-    key validation stays in the serializer's `validate` (source-specific keys remain open)."""
+    """`config` blob typed as an open JSON object in the OpenAPI schema. Runtime behavior is
+    plain JSONField; steering-key validation stays in the serializer's `validate`."""
 
 
 class SignalSourceConfigSerializer(serializers.ModelSerializer):
@@ -142,8 +121,10 @@ class SignalSourceConfigSerializer(serializers.ModelSerializer):
         source_product = attrs.get("source_product", getattr(self.instance, "source_product", None))
         source_type = attrs.get("source_type", getattr(self.instance, "source_type", None))
         enabled = attrs.get("enabled", getattr(self.instance, "enabled", False))
-        config = attrs.get("config", {})
-        if config:
+        config = attrs.get("config")
+        # `is not None` rather than truthiness: falsy non-dict values ([], "", 0, false) must be
+        # rejected, not silently persisted.
+        if config is not None:
             if not isinstance(config, dict):
                 raise serializers.ValidationError({"config": "config must be a JSON object"})
             steering = config.get(STEERING_KEY)
