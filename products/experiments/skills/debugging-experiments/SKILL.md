@@ -12,8 +12,9 @@ description: >-
   deep diagnostic library.
   DO NOT TRIGGER when: creating an experiment (use creating-experiments),
   only configuring rollout (configuring-experiment-rollout) or metrics
-  (configuring-experiment-analytics), or asking lifecycle questions
-  (managing-experiment-lifecycle).
+  (configuring-experiment-analytics), asking lifecycle questions
+  (managing-experiment-lifecycle), or the underlying feature flag is what's
+  misbehaving rather than the results (use debugging-feature-flags).
 ---
 
 # Debugging experiments
@@ -214,6 +215,18 @@ with [references/customer-reply.md](references/customer-reply.md):
 | "PostHog's number ≠ my SQL", funnel/breakdown/sum-of-revenue mismatch, filter didn't change the count | group D (`references/numbers-vs-sql.md`)                                 |
 | Numbers shifted after a mid-run edit, ship/reset/pause surprises, retention/matured-users quirks      | group E (`references/mid-run-changes.md`)                                |
 | Results won't load / many metric rows show `data: null`                                               | `references/diagnostic-snapshot.md` (transient-vs-real protocol)         |
+
+## The flag underneath is the problem → hand off
+
+An experiment is a feature flag plus exposure capture plus statistics. When the evidence points at
+the **flag layer** rather than the experiment — the flag returns the wrong value (or nothing) for a
+specific user, release conditions or a dependent flag don't do what the customer expects, the
+payload is empty, or behaviour differs between local and production — that's a flag-evaluation
+question wearing an experiment costume. Hand off to `debugging-feature-flags`, which reproduces the
+evaluation server-side and returns the **match reason** for a given user.
+
+Stay here when the flag evaluates correctly and the complaint is about the results built on top of
+it: exposure balance, SRM, metric movement, significance.
 
 ## Access for debugging
 
