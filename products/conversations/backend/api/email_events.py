@@ -48,12 +48,17 @@ from products.conversations.backend.services.email_thread_ingestion import (
     ParsedEmail,
     ingest_customer_email,
 )
-from products.conversations.backend.services.region_routing import is_primary_region, proxy_to_secondary_region
+from products.conversations.backend.services.region_routing import (
+    is_primary_region,
+    proxy_to_secondary_region,
+    request_secondary_region_status,
+)
 
 logger = structlog.get_logger(__name__)
 
 INBOUND_TOKEN_PATTERN = re.compile(r"^team-([a-f0-9]+)@")
 OUTBOUND_CAPTURE_LOCAL_PART = "sent"
+OUTBOUND_SENDER_LOOKUP_QUERY_PARAM = "sender_lookup"
 _VIA_SUFFIX_RE = re.compile(r"\s+via\s+.+$", re.IGNORECASE)
 _BASIC_EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 _MESSAGE_ID_RE = re.compile(r"<[^<>\s]+>")
@@ -697,24 +702,44 @@ def email_outbound_handler(request: HttpRequest) -> HttpResponse:
         EmailChannel.objects.select_related("team", "owner")
         .filter(
             kind=EmailChannelKind.CUSTOMER_COMMUNICATION,
+            connection_status=EmailChannelConnectionStatus.ACTIVE,
             from_email__iexact=sender_email,
         )
         .first()
     )
+    lookup_only = request.GET.get(OUTBOUND_SENDER_LOOKUP_QUERY_PARAM) == "1"
     if config is None:
+        if lookup_only:
+            return HttpResponse(status=404)
         if is_primary_region(request):
             success = proxy_to_secondary_region(request, log_prefix="email_outbound", timeout=10)
             return HttpResponse(status=200 if success else 502)
         logger.info("email_outbound_unknown_sender", sender_email=sender_email)
         return HttpResponse(status=200)
 
-    if config.connection_status != EmailChannelConnectionStatus.ACTIVE:
-        logger.info(
-            "email_outbound_inactive_channel",
-            team_id=config.team_id,
-            config_id=str(config.id),
+    if lookup_only:
+        return HttpResponse(status=204)
+
+    if is_primary_region(request):
+        secondary_status = request_secondary_region_status(
+            request,
+            log_prefix="email_outbound_sender_lookup",
+            timeout=10,
+            query_params={OUTBOUND_SENDER_LOOKUP_QUERY_PARAM: "1"},
+            accepted_statuses=frozenset({404}),
         )
-        return HttpResponse(status=200)
+        if secondary_status is None or secondary_status >= 500:
+            return HttpResponse(status=502)
+        if secondary_status == 204:
+            logger.error(
+                "email_outbound_sender_region_ambiguous",
+                sender_email=sender_email,
+                team_id=config.team_id,
+                config_id=str(config.id),
+            )
+            return HttpResponse(status=200)
+        if secondary_status != 404:
+            return HttpResponse(status=502)
 
     email = _parse_inbound_email(request, config)
     if email is None:

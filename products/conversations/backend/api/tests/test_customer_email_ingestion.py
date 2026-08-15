@@ -7,6 +7,7 @@ from freezegun import freeze_time
 from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, patch
 
+from django.apps import apps
 from django.test import Client, RequestFactory, SimpleTestCase
 from django.utils import timezone
 
@@ -94,6 +95,7 @@ class TestCustomerEmailIngestion(BaseTest):
         self,
         *,
         message_id: str,
+        lookup_only: bool = False,
         **overrides: str,
     ):
         data = {
@@ -118,7 +120,12 @@ class TestCustomerEmailIngestion(BaseTest):
             ),
         }
         data.update(overrides)
-        return self.client.post("/api/conversations/v1/email/capture", data)
+        endpoint = (
+            "/api/conversations/v1/email/capture?sender_lookup=1"
+            if lookup_only
+            else "/api/conversations/v1/email/capture"
+        )
+        return self.client.post(endpoint, data)
 
     def _start_google_setup(self, *, expires_at=None) -> EmailChannelSetup:
         self.channel.connection_status = EmailChannelConnectionStatus.PENDING_CONFIRMATION
@@ -494,6 +501,20 @@ class TestCustomerEmailIngestion(BaseTest):
                     )
                 },
             ),
+            (
+                "conflicting_authentication_results",
+                {
+                    "message-headers": json.dumps(
+                        [
+                            ["X-Mailgun-Spf", "Fail"],
+                            ["X-Mailgun-Spf", "Pass"],
+                            ["X-Mailgun-Dkim-Check-Result", "Fail"],
+                            ["X-Mailgun-Dkim-Check-Result", "Pass"],
+                            ["DKIM-Signature", "v=1; a=rsa-sha256; d=example.com; s=mail"],
+                        ]
+                    )
+                },
+            ),
         ]
     )
     def test_outbound_capture_rejects_an_unauthenticated_sender(self, _name: str, overrides: dict[str, str]) -> None:
@@ -503,6 +524,53 @@ class TestCustomerEmailIngestion(BaseTest):
         )
 
         assert response.status_code == 200
+        assert not EmailThread.objects.for_team(self.team.id).exists()
+
+    @parameterized.expand(
+        [
+            ("secondary_absent", 404, 200, True),
+            ("sender_in_both_regions", 204, 200, False),
+            ("secondary_unavailable", None, 502, False),
+            ("secondary_error", 500, 502, False),
+        ]
+    )
+    @patch("products.conversations.backend.api.email_events.request_secondary_region_status")
+    @patch("products.conversations.backend.api.email_events.is_primary_region", return_value=True)
+    def test_primary_region_checks_secondary_before_ingesting(
+        self,
+        _name: str,
+        secondary_status: int | None,
+        expected_status: int,
+        expected_ingestion: bool,
+        _mock_primary: MagicMock,
+        mock_secondary_status: MagicMock,
+    ) -> None:
+        mock_secondary_status.return_value = secondary_status
+
+        response = self._post_outbound_email(message_id=f"<region-{_name}@example.com>")
+
+        assert response.status_code == expected_status
+        assert EmailThread.objects.for_team(self.team.id).exists() is expected_ingestion
+
+    @parameterized.expand(
+        [
+            ("active", EmailChannelConnectionStatus.ACTIVE, 204),
+            ("pending_confirmation", EmailChannelConnectionStatus.PENDING_CONFIRMATION, 404),
+            ("confirmation_expired", EmailChannelConnectionStatus.CONFIRMATION_EXPIRED, 404),
+        ]
+    )
+    def test_outbound_sender_lookup_returns_only_active_channels(
+        self, _name: str, connection_status: EmailChannelConnectionStatus, expected_status: int
+    ) -> None:
+        self.channel.connection_status = connection_status
+        self.channel.save(update_fields=["connection_status"])
+
+        response = self._post_outbound_email(
+            message_id=f"<lookup-{_name}@customer-success.example>",
+            lookup_only=True,
+        )
+
+        assert response.status_code == expected_status
         assert not EmailThread.objects.for_team(self.team.id).exists()
 
     @parameterized.expand(
