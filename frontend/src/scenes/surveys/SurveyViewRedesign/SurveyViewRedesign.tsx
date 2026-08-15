@@ -679,7 +679,7 @@ function SurveyResponsesContent(): JSX.Element {
         isAnyResultsLoading,
         resultsRequeryInProgress,
     } = useValues(surveyLogic)
-    const { setResponseExpanded, toggleResponseExpansion } = useActions(surveyLogic)
+    const { setResponseExpanded, toggleResponseExpansion, setDataTableQuery } = useActions(surveyLogic)
     const isInitialSurveyLoad = surveyLoading && survey.id === NEW_SURVEY.id
     const isRefreshingResults = resultsRequeryInProgress || isAnyResultsLoading
     const surveyColumnRenderers = useSurveyResponseColumns()
@@ -702,6 +702,7 @@ function SurveyResponsesContent(): JSX.Element {
                 >
                     <Query
                         query={dataTableQuery}
+                        setQuery={setDataTableQuery}
                         context={{
                             columns: surveyColumnRenderers,
                             rowProps: (record: unknown) => {

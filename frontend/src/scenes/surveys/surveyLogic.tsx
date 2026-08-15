@@ -28,6 +28,7 @@ import { dayjs } from 'lib/dayjs'
 import { FeatureFlagsSet, featureFlagLogic as enabledFlagLogic } from 'lib/logic/featureFlagLogic'
 import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { getCurrentTeamId } from 'lib/utils/getAppContext'
 import { isObject } from 'lib/utils/guards'
 import { hasFormErrors, objectClean } from 'lib/utils/objects'
 import { allOperatorsMapping } from 'lib/utils/operators'
@@ -51,6 +52,7 @@ import { userLogic } from 'scenes/userLogic'
 import { SIDE_PANEL_CONTEXT_KEY, SidePanelSceneContext } from '~/layout/navigation-3000/sidepanel/types'
 import { refreshTreeItem } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
+import { removeExpressionComment } from '~/queries/nodes/DataTable/utils'
 import {
     CompareFilter,
     DataTableNode,
@@ -60,7 +62,7 @@ import {
     ProductKey,
 } from '~/queries/schema/schema-general'
 import { SurveyAnalysisQuestionGroup, SurveyAnalysisResponseItem } from '~/queries/schema/schema-surveys'
-import { HogQLQueryString } from '~/queries/utils'
+import { HogQLQueryString, isEventsQuery } from '~/queries/utils'
 import {
     ActivityScope,
     AnyPropertyFilter,
@@ -712,6 +714,7 @@ export interface surveyLogicValues {
     reusableSurveyNotifications: HogFunctionType[]
     reusableSurveyNotificationsLoading: boolean
     selectedPageIndex: number | null
+    selectedResponseColumns: string[] | null
     selectedSection: SurveyEditSection | null
     showArchivedResponses: boolean
     showSurveyErrors: boolean
@@ -1176,6 +1179,9 @@ export interface surveyLogicActions {
     setDataCollectionType: (dataCollectionType: DataCollectionType) => {
         dataCollectionType: DataCollectionType
     }
+    setDataTableQuery: (query: DataTableNode) => {
+        query: DataTableNode
+    }
     setDateRange: (
         dateRange: SurveyDateRange,
         reloadResults?: boolean
@@ -1566,6 +1572,7 @@ export const surveyLogic = kea<surveyLogicType>([
             reloadResults,
         }),
         setDateRange: (dateRange: SurveyDateRange, reloadResults: boolean = true) => ({ dateRange, reloadResults }),
+        setDataTableQuery: (query: DataTableNode) => ({ query }),
         clearFilters: true,
         setInterval: (interval: IntervalType) => ({ interval }),
         setCompareFilter: (compareFilter: CompareFilter) => ({ compareFilter }),
@@ -2415,7 +2422,7 @@ export const surveyLogic = kea<surveyLogicType>([
             }
         },
     })),
-    reducers({
+    reducers(({ props }) => ({
         activeTab: [
             SurveyTab.SUMMARY as SurveyTab,
             {
@@ -2783,6 +2790,28 @@ export const surveyLogic = kea<surveyLogicType>([
                 setDateRange: (_, { dateRange }) => dateRange,
             },
         ],
+        // The responses table is rendered from the derived `dataTableQuery` selector, which rebuilds
+        // on every filter, date, and archive change. Holding the column selection here is what makes
+        // it outlive those rebuilds; without it the choice lives only in `Query`'s local React state
+        // and is discarded the next time the selector emits.
+        selectedResponseColumns: [
+            null as string[] | null,
+            {
+                persist: true,
+                // Scope by team so columns don't leak across projects (e.g. after impersonation).
+                storageKey: `scenes.surveys.surveyLogic.${getCurrentTeamId()}.${props.id}.selectedResponseColumns`,
+            },
+            {
+                setDataTableQuery: (state, { query }) => {
+                    // Every unsaved survey shares the 'new' logic key, so persisting here would
+                    // bleed columns from one draft into the next.
+                    if (props.id === NEW_SURVEY.id || !isEventsQuery(query.source)) {
+                        return state
+                    }
+                    return query.source.select ?? state
+                },
+            },
+        ],
         interval: [
             null as IntervalType | null,
             {
@@ -2811,7 +2840,7 @@ export const surveyLogic = kea<surveyLogicType>([
                 resetSurvey: () => null,
             },
         ],
-    }),
+    })),
     selectors({
         enrichedConsolidatedSurveyResults: [
             (s) => [s.consolidatedSurveyResults, s.personNames],
@@ -3087,6 +3116,7 @@ export const surveyLogic = kea<surveyLogicType>([
                 s.partialResponsesFilter,
                 s.archivedResponsesFilter,
                 s.dateRange,
+                s.selectedResponseColumns,
                 s.archivedResponseUuids,
                 s.showArchivedResponses,
             ],
@@ -3096,7 +3126,8 @@ export const surveyLogic = kea<surveyLogicType>([
                 answerFilterHogQLExpression: string,
                 partialResponsesFilter: string,
                 archivedResponsesFilter: string,
-                dateRange: SurveyDateRange
+                dateRange: SurveyDateRange,
+                selectedResponseColumns: string[] | null
             ): DataTableNode | null => {
                 if (survey.id === 'new') {
                     return null
@@ -3128,11 +3159,21 @@ export const surveyLogic = kea<surveyLogicType>([
                     'person',
                 ]
 
+                // Deleting a question shifts the remaining response expressions, so a stored
+                // selection can point at a question that no longer exists. Comparing expressions
+                // with their comments stripped keeps a selection through question rewording,
+                // which leaves the expression itself untouched.
+                const currentExpressions = new Set(defaultColumns.map(removeExpressionComment))
+                const hasStaleColumn = selectedResponseColumns?.some((column) => {
+                    const expression = removeExpressionComment(column)
+                    return expression.includes('getSurveyResponse(') && !currentExpressions.has(expression)
+                })
+
                 return {
                     kind: NodeKind.DataTableNode,
                     source: {
                         kind: NodeKind.EventsQuery,
-                        select: defaultColumns,
+                        select: !selectedResponseColumns || hasStaleColumn ? defaultColumns : selectedResponseColumns,
                         orderBy: ['timestamp DESC'],
                         where,
                         after: dateRange?.date_from || startDate,

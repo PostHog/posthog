@@ -374,7 +374,7 @@ export function SurveyResult({ disableEventsTable }: { disableEventsTable?: bool
         hasActiveDateRange,
         propertyFilters,
     } = useValues(surveyLogic)
-    const { clearFilters } = useActions(surveyLogic)
+    const { clearFilters, setDataTableQuery } = useActions(surveyLogic)
     const isInitialSurveyLoad = surveyLoading && survey.id === NEW_SURVEY.id
     const surveyColumnRenderers = useSurveyResponseColumns()
 
@@ -414,6 +414,7 @@ export function SurveyResult({ disableEventsTable }: { disableEventsTable?: bool
                                 <div className="survey-table-results">
                                     <Query
                                         query={dataTableQuery}
+                                        setQuery={setDataTableQuery}
                                         context={{
                                             columns: surveyColumnRenderers,
                                             rowProps: (record: unknown) => {

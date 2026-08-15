@@ -12,6 +12,7 @@ import {
 import { OpenEndedColumnMap } from 'scenes/surveys/utils'
 
 import { useMocks } from '~/mocks/jest'
+import { DataTableNode, EventsQuery } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 import {
     AccessControlLevel,
@@ -2736,5 +2737,73 @@ describe('mergeResponsesByQuestion', () => {
         const other = result.data.filter((d) => !d.isPredefined)
         expect(other).toHaveLength(1)
         expect(other[0].label).toBe('My own reason')
+    })
+})
+
+describe('survey response column selection', () => {
+    let logic: ReturnType<typeof surveyLogic.build>
+
+    const customColumns = ['*', 'properties.$browser', 'timestamp', 'person']
+
+    const selectedColumns = (): string[] | undefined =>
+        (logic.values.dataTableQuery?.source as EventsQuery | undefined)?.select
+
+    const chooseColumns = (columns: string[]): void => {
+        const query = logic.values.dataTableQuery as DataTableNode
+        logic.actions.setDataTableQuery({
+            ...query,
+            source: { ...(query.source as EventsQuery), select: columns },
+        })
+    }
+
+    beforeEach(async () => {
+        useMocks({
+            get: {
+                [`/api/projects/:team/surveys/${MULTIPLE_CHOICE_SURVEY.id}/`]: () => [200, MULTIPLE_CHOICE_SURVEY],
+                [`/api/projects/:team/surveys/${MULTIPLE_CHOICE_SURVEY.id}/archived-response-uuids/`]: () => [200, []],
+            },
+        })
+        initKeaTests()
+        logic = surveyLogic({ id: MULTIPLE_CHOICE_SURVEY.id })
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+    })
+
+    // Each of these rebuilds the derived dataTableQuery. Before the table owned its column
+    // selection, the rebuild replaced the user's columns with the defaults.
+    it.each([
+        ['archived response uuids finish loading', () => logic.actions.loadArchivedResponseUuidsSuccess(new Set())],
+        ['the date range changes', () => logic.actions.setDateRange({ date_from: '-14d', date_to: null }, false)],
+        [
+            'a property filter changes',
+            () =>
+                logic.actions.setPropertyFilters(
+                    [
+                        {
+                            key: 'email',
+                            value: 'test@posthog.com',
+                            operator: PropertyOperator.Exact,
+                            type: PropertyFilterType.Person,
+                        },
+                    ],
+                    false
+                ),
+        ],
+        ['the survey is refetched', () => logic.actions.loadSurveySuccess(MULTIPLE_CHOICE_SURVEY)],
+    ])('keeps the chosen columns when %s', (_description, rebuildQuery) => {
+        chooseColumns(customColumns)
+        expect(selectedColumns()).toEqual(customColumns)
+
+        rebuildQuery()
+
+        expect(selectedColumns()).toEqual(customColumns)
+    })
+
+    it('falls back to the defaults when a chosen column points at a removed question', () => {
+        const defaultColumns = logic.values.dataTableQuery?.defaultColumns
+
+        chooseColumns(['*', "getSurveyResponse(7, 'deleted-question') -- Gone", 'timestamp'])
+
+        expect(selectedColumns()).toEqual(defaultColumns)
     })
 })
