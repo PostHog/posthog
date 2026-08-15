@@ -25,6 +25,7 @@ from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, extend_sche
 from rest_framework import mixins, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import PermissionDenied, ValidationError
+from rest_framework.pagination import LimitOffsetPagination
 from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.throttling import UserRateThrottle
@@ -50,6 +51,8 @@ from products.customer_analytics.backend.facade import api, contracts
 from products.customer_analytics.backend.facade.constants import CUSTOMER_ANALYTICS_FEATURE_REQUESTS_FLAG
 from products.customer_analytics.backend.presentation.views.serializers import (
     AccountChannelSummarySerializer,
+    AccountEmailThreadMessageSerializer,
+    AccountEmailThreadSerializer,
     AccountNotebookSerializer,
     AccountNoteSerializer,
     AccountRelationshipDefinitionSerializer,
@@ -148,6 +151,11 @@ _ACCOUNT_ID_PARAM = OpenApiParameter(
 # NOTE: deliberately no class docstring — a docstring here is inherited as the ViewSets'
 # ``__doc__`` and drf-spectacular would surface it as every operation's description (the
 # model-backed viewsets had none), drifting the generated clients.
+class AccountEmailThreadMessagePagination(LimitOffsetPagination):
+    default_limit = 50
+    max_limit = 200
+
+
 class _FacadePaginationMixin:
     # Drives the standard ``LimitOffsetPagination`` envelope from a facade ``(page, count)``
     # result. The facade does the slicing (offset/limit), so we set the paginator's state
@@ -1262,6 +1270,71 @@ class AccountViewSet(
             return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
         return Response(SupportTicketSerializer(instance=tickets, many=True).data)
 
+    @extend_schema(parameters=[_ACCOUNT_ID_PARAM], responses={200: AccountEmailThreadSerializer(many=True)})
+    @action(methods=["GET"], detail=True, url_path="email_threads")
+    def email_threads(self, request: Request, *args, **kwargs) -> Response:
+        if api.get_accessible_account_id(self.team_id, self.kwargs["pk"], self.user_access_control) is None:
+            return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
+
+        def fetch(offset: int, limit: int) -> tuple[list[api.AccountEmailThreadSummary], int]:
+            try:
+                result = api.get_account_email_threads(
+                    self.team_id,
+                    self.kwargs["pk"],
+                    self.user_access_control,
+                    offset=offset,
+                    limit=limit,
+                )
+            except api.ResourceForbiddenError:
+                raise PermissionDenied()
+            return result if result is not None else ([], 0)
+
+        return self._paginate_via_facade(request, fetch, AccountEmailThreadSerializer)
+
+    @extend_schema(
+        operation_id="accounts_email_thread_messages_list",
+        parameters=[_ACCOUNT_ID_PARAM],
+        responses={200: AccountEmailThreadMessageSerializer(many=True)},
+    )
+    @action(
+        methods=["GET"],
+        detail=True,
+        url_path=r"email_threads/(?P<thread_id>[^/.]+)",
+        url_name="email-thread-detail",
+        pagination_class=AccountEmailThreadMessagePagination,
+    )
+    def email_thread(self, request: Request, thread_id: str, *args, **kwargs) -> Response:
+        try:
+            parsed_thread_id = str(UUID(thread_id))
+        except ValueError:
+            return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
+
+        paginator = cast(LimitOffsetPagination, self.paginator)
+        limit = paginator.get_limit(request)
+        assert limit is not None
+        offset = paginator.get_offset(request)
+        try:
+            result = api.get_account_email_thread_messages(
+                self.team_id,
+                self.kwargs["pk"],
+                parsed_thread_id,
+                self.user_access_control,
+                offset=offset,
+                limit=limit,
+            )
+        except api.ResourceForbiddenError:
+            raise PermissionDenied()
+        if result is None:
+            return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
+
+        messages, count = result
+        paginator.request = request
+        paginator.limit = limit
+        paginator.offset = offset
+        paginator.count = count
+        serializer = AccountEmailThreadMessageSerializer(instance=messages, many=True)
+        return paginator.get_paginated_response(serializer.data)
+
     @extend_schema(
         parameters=[
             _ACCOUNT_ID_PARAM,
@@ -1302,7 +1375,7 @@ class AccountViewSet(
                 return mixin_result
         # Ticket content behind an account-scoped viewset — a token holding only
         # account:read must not read it.
-        if view.action == "support_tickets":
+        if view.action in {"support_tickets", "email_threads", "email_thread"}:
             return ["account:read", "ticket:read"]
         return None
 
