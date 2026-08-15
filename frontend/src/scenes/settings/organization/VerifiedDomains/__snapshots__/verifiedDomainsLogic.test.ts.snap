@@ -32,6 +32,7 @@ exports[`verifiedDomainsLogic values has proper defaults 1`] = `
   "isSamlConfigValid": true,
   "isXAAAuthenticationAvailable": false,
   "ownVerifiedDomain": null,
+  "reusableSamlConfigs": [],
   "samlConfig": {},
   "samlConfigAllErrors": {
     "saml_acs_url": undefined,
@@ -45,6 +46,7 @@ exports[`verifiedDomainsLogic values has proper defaults 1`] = `
   "samlConfigValidationErrors": {
     "saml_acs_url": undefined,
   },
+  "samlReuseConfigId": null,
   "scimConfig": {},
   "scimConfigLoading": false,
   "scimLogs": null,

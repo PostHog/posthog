@@ -139,6 +139,8 @@ export interface verifiedDomainsLogicValues {
     isSamlConfigValid: boolean
     isXAAAuthenticationAvailable: boolean
     ownVerifiedDomain: OrganizationDomainType | null
+    reusableSamlConfigs: { configId: string; domains: string[] }[]
+    samlReuseConfigId: string | null
     samlConfig: Partial<
         Pick<IdentityProviderConfigApi, 'saml_acs_url' | 'saml_entity_id' | 'saml_x509_cert'> & {
             id: string
@@ -483,6 +485,27 @@ export interface verifiedDomainsLogicActions {
     setVerifyModal: (id: string | null) => {
         id: string | null
     }
+    setSamlReuseConfigId: (configId: string | null) => {
+        configId: string | null
+    }
+    linkExistingConfig: (payload: { domainId: string; configId: string }) => {
+        domainId: string
+        configId: string
+    }
+    linkExistingConfigFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    linkExistingConfigSuccess: (
+        updatingDomain: boolean,
+        payload?: { domainId: string; configId: string }
+    ) => {
+        updatingDomain: boolean
+        payload?: { domainId: string; configId: string }
+    }
     showAddDomainModal: () => {
         value: true
     }
@@ -607,6 +630,7 @@ export interface verifiedDomainsLogicMeta {
             verifiedDomains: OrganizationDomainType[],
             user: UserType | null
         ) => OrganizationDomainType | null
+        reusableSamlConfigs: (verifiedDomains: OrganizationDomainType[]) => { configId: string; domains: string[] }[]
         isSSOEnforcementAvailable: (
             hasAvailableFeature: (feature: AvailableFeature, currentUsage?: number | undefined) => boolean
         ) => boolean
@@ -645,6 +669,7 @@ export const verifiedDomainsLogic = kea<verifiedDomainsLogicType>([
         setScimLogsPage: (page: number) => ({ page }),
         reloadScimLogs: true,
         setVerifyModal: (id: string | null) => ({ id }),
+        setSamlReuseConfigId: (configId: string | null) => ({ configId }),
     }),
     reducers({
         verifiedDomains: [
@@ -718,6 +743,14 @@ export const verifiedDomainsLogic = kea<verifiedDomainsLogicType>([
                 setVerifyModal: (_, { id }) => id,
             },
         ],
+        samlReuseConfigId: [
+            null as string | null,
+            {
+                setSamlReuseConfigId: (_, { configId }) => configId,
+                // Reset the choice whenever the SAML modal opens or closes for a domain.
+                setConfigureSAMLModalId: () => null,
+            },
+        ],
     }),
     loaders(({ values, actions }) => ({
         verifiedDomains: [
@@ -766,6 +799,17 @@ export const verifiedDomainsLogic = kea<verifiedDomainsLogicType>([
                     }
                     actions.replaceDomain(response)
                     actions.setVerifyModal(null)
+                    return false
+                },
+                linkExistingConfig: async ({ domainId, configId }: { domainId: string; configId: string }) => {
+                    const orgId = values.currentOrganizationId as string
+                    const refreshed = await api.update<OrganizationDomainType>(
+                        `api/organizations/${orgId}/domains/${domainId}`,
+                        { identity_provider_config: configId }
+                    )
+                    actions.replaceDomain(refreshed)
+                    actions.setConfigureSAMLModalId(null)
+                    lemonToast.success(`${refreshed.domain} now shares this SAML app.`)
                     return false
                 },
             },
@@ -953,6 +997,25 @@ export const verifiedDomainsLogic = kea<verifiedDomainsLogicType>([
                         (domain) => domain.is_verified && domain.domain.toLowerCase() === emailDomain
                     ) ?? null
                 )
+            },
+        ],
+        reusableSamlConfigs: [
+            (s) => [s.verifiedDomains],
+            // Group verified domains that already have a working SAML app by the config that backs
+            // them, so a second domain can point at that same IdP app instead of minting a new one.
+            (verifiedDomains: OrganizationDomainType[]): { configId: string; domains: string[] }[] => {
+                const domainsByConfig = new Map<string, string[]>()
+                for (const domain of verifiedDomains) {
+                    if (domain.is_verified && domain.has_saml && domain.identity_provider_config) {
+                        const domains = domainsByConfig.get(domain.identity_provider_config) ?? []
+                        domains.push(domain.domain)
+                        domainsByConfig.set(domain.identity_provider_config, domains)
+                    }
+                }
+                return [...domainsByConfig.entries()].map(([configId, domains]) => ({
+                    configId,
+                    domains: domains.sort((a, b) => a.localeCompare(b)),
+                }))
             },
         ],
         isSSOEnforcementAvailable: [

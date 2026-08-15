@@ -1,6 +1,8 @@
 import { MOCK_DEFAULT_ORGANIZATION, MOCK_DEFAULT_TEAM, MOCK_DEFAULT_USER } from 'lib/api.mock'
 
 import type { Meta, StoryObj } from '@storybook/react'
+import { within } from '@testing-library/dom'
+import userEvent from '@testing-library/user-event'
 import { router } from 'kea-router'
 
 import { STORYBOOK_FEATURE_FLAGS } from 'lib/constants'
@@ -53,6 +55,7 @@ const VERIFIED_DOMAIN_WITH_SAML_SCIM: OrganizationDomainType = {
     has_scim: true,
     scim_base_url: 'https://posthog.com/scim/v2',
     has_id_jag: true,
+    identity_provider_config: 'cfg-1',
 }
 
 const VERIFIED_DOMAIN_NO_SAML_SCIM: OrganizationDomainType = {
@@ -176,4 +179,30 @@ export const EnterpriseMixed: Story = {
             },
         }),
     ],
+}
+
+// A second domain without its own SAML app can reuse the one already backing posthog.com,
+// so one SAML app in the IdP covers both domains.
+export const ReuseExistingSamlApp: Story = {
+    decorators: [
+        mswDecorator({
+            get: {
+                '/api/users/@me': () => [200, mockUserWithFeatures(...ALL_FEATURES)],
+                '/api/organizations/:id/domains': domainsResponse([
+                    VERIFIED_DOMAIN_WITH_SAML_SCIM,
+                    VERIFIED_DOMAIN_NO_SAML_SCIM,
+                ]),
+            },
+        }),
+    ],
+    play: async ({ canvasElement }) => {
+        const canvas = within(canvasElement)
+        const row = (await canvas.findByText('posthog.dev')).closest('tr') as HTMLElement
+        await userEvent.click(within(row).getByLabelText('more'))
+        const body = within(document.body)
+        await userEvent.click(await body.findByText('Configure SAML'))
+        await userEvent.click(await body.findByText('Set up a new SAML app'))
+        await userEvent.click(await body.findByText('Reuse the app for posthog.com'))
+        await body.findByText('Link SAML app')
+    },
 }

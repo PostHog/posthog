@@ -9,22 +9,35 @@ import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonInput } from 'lib/lemon-ui/LemonInput/LemonInput'
 import { LemonModal } from 'lib/lemon-ui/LemonModal'
+import { LemonSelect } from 'lib/lemon-ui/LemonSelect'
 import { LemonTextArea } from 'lib/lemon-ui/LemonTextArea/LemonTextArea'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 
 import { verifiedDomainsLogic } from './verifiedDomainsLogic'
 
 export function ConfigureSAMLModal(): JSX.Element {
-    const { configureSAMLModalId, isSamlConfigSubmitting, samlConfig } = useValues(verifiedDomainsLogic)
-    const { setConfigureSAMLModalId } = useActions(verifiedDomainsLogic)
+    const {
+        configureSAMLModalId,
+        isSamlConfigSubmitting,
+        samlConfig,
+        verifiedDomains,
+        reusableSamlConfigs,
+        samlReuseConfigId,
+        updatingDomainLoading,
+    } = useValues(verifiedDomainsLogic)
+    const { setConfigureSAMLModalId, setSamlReuseConfigId, linkExistingConfig } = useActions(verifiedDomainsLogic)
     const { preflight } = useValues(preflightLogic)
     const siteUrl = preflight?.site_url ?? window.location.origin
 
     const samlReady = samlConfig.saml_acs_url && samlConfig.saml_entity_id && samlConfig.saml_x509_cert
 
+    const domain = verifiedDomains.find(({ id }) => id === configureSAMLModalId)
+    // A domain with no config yet can point at an existing SAML app instead of minting a new one.
+    const canReuse = !domain?.identity_provider_config && reusableSamlConfigs.length > 0
+    const selectedReuse = reusableSamlConfigs.find(({ configId }) => configId === samlReuseConfigId)
+
     const handleClose = (): void => {
         setConfigureSAMLModalId(null)
-        // clean()
     }
 
     return (
@@ -39,39 +52,80 @@ export function ConfigureSAMLModal(): JSX.Element {
                             Read the docs
                         </Link>
                     </p>
-                    <LemonField label="ACS Consumer URL" name="_ACSConsumerUrl">
-                        <CopyToClipboardInline>{`${siteUrl}/complete/saml/`}</CopyToClipboardInline>
-                    </LemonField>
-                    <LemonField label="RelayState" name="_RelayState">
-                        <CopyToClipboardInline>{configureSAMLModalId || 'unknown'}</CopyToClipboardInline>
-                    </LemonField>
-                    <LemonField label="Audience / Entity ID" name="_Audience">
-                        <CopyToClipboardInline>{siteUrl}</CopyToClipboardInline>
-                    </LemonField>
-                    <LemonField name="saml_acs_url" label="SAML ACS URL">
-                        <LemonInput className="ph-ignore-input" placeholder="Your IdP's ACS or single sign-on URL." />
-                    </LemonField>
-                    <LemonField name="saml_entity_id" label="SAML Entity ID">
-                        <LemonInput className="ph-ignore-input" placeholder="Entity ID provided by your IdP." />
-                    </LemonField>
-                    <LemonField name="saml_x509_cert" label="SAML X.509 Certificate">
-                        <LemonTextArea
-                            className="ph-ignore-input"
-                            minRows={10}
-                            placeholder={`Enter the public certificate of your IdP. Keep all line breaks.\n-----BEGIN CERTIFICATE-----\nMIICVjCCAb+gAwIBAgIBADANBgkqhkiG9w0BAQ0FADBIMQswCQYDVQQGEwJ1czEL\n-----END CERTIFICATE-----`}
-                        />
-                    </LemonField>
-                    {!samlReady && (
+                    {canReuse && (
+                        <LemonField label="SAML app" name="_ReuseConfig">
+                            <LemonSelect
+                                value={samlReuseConfigId ?? ''}
+                                onChange={(value) => setSamlReuseConfigId(value || null)}
+                                options={[
+                                    { value: '', label: 'Set up a new SAML app' },
+                                    ...reusableSamlConfigs.map(({ configId, domains }) => ({
+                                        value: configId,
+                                        label: `Reuse the app for ${domains.join(', ')}`,
+                                    })),
+                                ]}
+                            />
+                        </LemonField>
+                    )}
+                    {selectedReuse ? (
                         <LemonBanner type="info">
-                            SAML will not be enabled unless you enter all attributes above. However you can still
-                            settings as draft.
+                            This domain will share the SAML app already used by {selectedReuse.domains.join(', ')}.
+                            Users on both domains sign in through the same app in your identity provider, so there is
+                            nothing more to set up here.
                         </LemonBanner>
+                    ) : (
+                        <>
+                            <LemonField label="ACS Consumer URL" name="_ACSConsumerUrl">
+                                <CopyToClipboardInline>{`${siteUrl}/complete/saml/`}</CopyToClipboardInline>
+                            </LemonField>
+                            <LemonField label="RelayState" name="_RelayState">
+                                <CopyToClipboardInline>{configureSAMLModalId || 'unknown'}</CopyToClipboardInline>
+                            </LemonField>
+                            <LemonField label="Audience / Entity ID" name="_Audience">
+                                <CopyToClipboardInline>{siteUrl}</CopyToClipboardInline>
+                            </LemonField>
+                            <LemonField name="saml_acs_url" label="SAML ACS URL">
+                                <LemonInput
+                                    className="ph-ignore-input"
+                                    placeholder="Your IdP's ACS or single sign-on URL."
+                                />
+                            </LemonField>
+                            <LemonField name="saml_entity_id" label="SAML Entity ID">
+                                <LemonInput className="ph-ignore-input" placeholder="Entity ID provided by your IdP." />
+                            </LemonField>
+                            <LemonField name="saml_x509_cert" label="SAML X.509 Certificate">
+                                <LemonTextArea
+                                    className="ph-ignore-input"
+                                    minRows={10}
+                                    placeholder={`Enter the public certificate of your IdP. Keep all line breaks.\n-----BEGIN CERTIFICATE-----\nMIICVjCCAb+gAwIBAgIBADANBgkqhkiG9w0BAQ0FADBIMQswCQYDVQQGEwJ1czEL\n-----END CERTIFICATE-----`}
+                                />
+                            </LemonField>
+                            {!samlReady && (
+                                <LemonBanner type="info">
+                                    SAML will not be enabled unless you enter all attributes above. However you can
+                                    still settings as draft.
+                                </LemonBanner>
+                            )}
+                        </>
                     )}
                 </LemonModal.Content>
                 <LemonModal.Footer>
-                    <LemonButton loading={isSamlConfigSubmitting} type="primary" htmlType="submit">
-                        Save settings
-                    </LemonButton>
+                    {selectedReuse ? (
+                        <LemonButton
+                            loading={updatingDomainLoading}
+                            type="primary"
+                            onClick={() =>
+                                configureSAMLModalId &&
+                                linkExistingConfig({ domainId: configureSAMLModalId, configId: selectedReuse.configId })
+                            }
+                        >
+                            Link SAML app
+                        </LemonButton>
+                    ) : (
+                        <LemonButton loading={isSamlConfigSubmitting} type="primary" htmlType="submit">
+                            Save settings
+                        </LemonButton>
+                    )}
                 </LemonModal.Footer>
             </Form>
         </LemonModal>

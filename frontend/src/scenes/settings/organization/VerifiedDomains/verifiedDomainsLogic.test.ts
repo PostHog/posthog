@@ -108,4 +108,46 @@ describe('verifiedDomainsLogic', () => {
             expect(verifiedDomains.length).toEqual(1)
         })
     })
+
+    describe('reusableSamlConfigs', () => {
+        // A verified domain with a working SAML app can be reused by a second domain, so the config
+        // must be offered with every domain it already backs. Unverified or SAML-less domains must not.
+        it('groups verified SAML domains by their linked config', async () => {
+            await expectLogic(logic).toFinishAllListeners()
+            logic.actions.loadVerifiedDomainsSuccess([
+                {
+                    id: '1',
+                    domain: 'consumer-edge.com',
+                    is_verified: true,
+                    has_saml: true,
+                    identity_provider_config: 'cfg-a',
+                },
+                {
+                    id: '2',
+                    domain: 'earnestanalytics.com',
+                    is_verified: true,
+                    has_saml: true,
+                    identity_provider_config: 'cfg-a',
+                },
+                {
+                    id: '3',
+                    domain: 'no-saml.com',
+                    is_verified: true,
+                    has_saml: false,
+                    identity_provider_config: 'cfg-b',
+                },
+                {
+                    id: '4',
+                    domain: 'unverified.com',
+                    is_verified: false,
+                    has_saml: true,
+                    identity_provider_config: 'cfg-c',
+                },
+                { id: '5', domain: 'pending-config.com', is_verified: true, has_saml: false },
+            ] as any)
+            expect(logic.values.reusableSamlConfigs).toEqual([
+                { configId: 'cfg-a', domains: ['consumer-edge.com', 'earnestanalytics.com'] },
+            ])
+        })
+    })
 })
