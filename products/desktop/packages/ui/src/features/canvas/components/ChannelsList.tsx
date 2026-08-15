@@ -3,7 +3,6 @@ import {
   ArrowRightIcon,
   CaretDownIcon,
   CaretRightIcon,
-  ChartBarIcon,
   DotsThreeIcon,
   FileTextIcon,
   LinkIcon,
@@ -61,7 +60,6 @@ import {
   TaskRowContextMenu,
   type TaskRowMenuProps,
 } from "@posthog/ui/features/canvas/components/TaskRowMenu";
-import { trackAndCreateCanvas } from "@posthog/ui/features/canvas/createCanvasAnalytics";
 import { useBlockedSessionCount } from "@posthog/ui/features/canvas/hooks/useBlockedSessionCount";
 import { useChannelStarToggle } from "@posthog/ui/features/canvas/hooks/useChannelStars";
 import {
@@ -71,7 +69,6 @@ import {
 } from "@posthog/ui/features/canvas/hooks/useChannels";
 import { useChannelsLayout } from "@posthog/ui/features/canvas/hooks/useChannelsLayout";
 import { useChannelTaskStatus } from "@posthog/ui/features/canvas/hooks/useChannelTaskStatus";
-import { useCreateAndOpenDashboard } from "@posthog/ui/features/canvas/hooks/useDashboards";
 import {
   NO_TASKS,
   type SpaceTasks,
@@ -953,8 +950,7 @@ const ChannelSection = memo(
     const isActive = pathname === base || pathname.startsWith(`${base}/`);
     // Lifted so the hover button group stays visible while the menu is open.
     const [menuOpen, setMenuOpen] = useState(false);
-    // The "+" dropdown (New task / New canvas). Keeps the hover actions pinned
-    // while open.
+    // Keep the hover actions pinned while the create menu is open.
     const [newMenuOpen, setNewMenuOpen] = useState(false);
     const { reveal, hoverProps, focusProps } = useOverflowTickerReveal();
     const hasAttention = unreadSessions > 0 || blockedSessions > 0;
@@ -963,7 +959,6 @@ const ChannelSection = memo(
       undefined,
     );
     useEffect(() => () => clearTimeout(prefetchTimer.current), []);
-    const createAndOpenCanvas = useCreateAndOpenDashboard(channel.id);
     // Shared by the "..." dropdown and the right-click context menu so both offer
     // the same star / edit / rename / delete actions.
     const {
@@ -1134,8 +1129,7 @@ const ChannelSection = memo(
               </ContextMenuContent>
             </ContextMenu>
           </SpaceHoverCard>
-          {/* Hover actions: the "+" dropdown (New task / New canvas) and the
-            options menu. Stay visible while either is open. */}
+          {/* Hover actions stay visible while either menu is open. */}
           <div className="absolute top-1 right-1">
             <ButtonGroup>
               <DropdownMenu open={newMenuOpen} onOpenChange={setNewMenuOpen}>
@@ -1181,21 +1175,6 @@ const ChannelSection = memo(
                   >
                     <FileTextIcon size={14} />
                     New task
-                  </DropdownMenuItem>
-                  <DropdownMenuItem
-                    onClick={() => {
-                      // Create + open a canvas with the default template directly;
-                      // the canvas's own composer drives what gets built.
-                      trackAndCreateCanvas(
-                        channel.id,
-                        undefined,
-                        "sidebar",
-                        () => void createAndOpenCanvas(),
-                      );
-                    }}
-                  >
-                    <ChartBarIcon size={14} />
-                    New canvas
                   </DropdownMenuItem>
                 </DropdownMenuContent>
               </DropdownMenu>
@@ -1382,7 +1361,7 @@ const PersonalChannelRow = memo(function PersonalChannelRow({
   const pathname = useRouterState({ select: (s) => s.location.pathname });
   const { channels } = useChannels();
   const { ensureChannelId, openPersonalChannel } = useOpenPersonalChannel();
-  // The "+" dropdown (New task / New canvas), mirroring a shared channel row.
+  // The create dropdown mirrors a shared channel row.
   const [newMenuOpen, setNewMenuOpen] = useState(false);
 
   // Personal channels are provisioned lazily server-side when the channel list
@@ -1391,7 +1370,6 @@ const PersonalChannelRow = memo(function PersonalChannelRow({
   const isUnread = useIsChannelUnread()(meChannel?.id);
   const unreadSessions = useUnreadSessionCount()(meChannel?.id);
   const blockedSessions = useBlockedSessionCount()(meChannel?.id);
-  const createAndOpenCanvas = useCreateAndOpenDashboard(meChannel?.id);
   const isActive =
     !!meChannel &&
     (pathname === `/website/${meChannel.id}` ||
@@ -1406,17 +1384,6 @@ const PersonalChannelRow = memo(function PersonalChannelRow({
       channel_id: channelId,
     });
     openTaskInput({ channelId });
-  };
-
-  const newCanvas = () => {
-    const channelId = ensureChannelId();
-    if (!channelId) return;
-    trackAndCreateCanvas(
-      channelId,
-      undefined,
-      "sidebar",
-      () => void createAndOpenCanvas({ channelId }),
-    );
   };
 
   // The one row in the list that carries a glyph, and it earns the exception:
@@ -1513,10 +1480,6 @@ const PersonalChannelRow = memo(function PersonalChannelRow({
               <DropdownMenuItem onClick={newTask}>
                 <FileTextIcon size={14} />
                 New task
-              </DropdownMenuItem>
-              <DropdownMenuItem onClick={newCanvas}>
-                <ChartBarIcon size={14} />
-                New canvas
               </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>

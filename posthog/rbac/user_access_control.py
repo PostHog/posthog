@@ -13,6 +13,7 @@ from opentelemetry import trace
 from rest_framework import serializers
 
 from posthog.constants import AvailableFeature
+from posthog.dataclasses import frozen
 from posthog.models import Organization, OrganizationMembership, Team, User
 from posthog.scopes import API_SCOPE_OBJECTS, INTERNAL_API_SCOPE_OBJECTS, APIScopeObject
 from posthog.settings import EE_AVAILABLE
@@ -508,6 +509,12 @@ def fallback_parent_object_id(obj: Model, parent_resource: APIScopeObject) -> Op
         return None
     parent_id = getattr(obj, field, None)
     return str(parent_id) if parent_id is not None else None
+
+
+@frozen
+class ObjectAccessDecision:
+    blocked_ids: frozenset[str]
+    allowed_ids: frozenset[str]
 
 
 class UserAccessControl:
@@ -1188,28 +1195,28 @@ class UserAccessControl:
         filters = self._access_controls_filters_for_queryset(resource)
         access_controls = self._get_access_controls(filters)
 
-        blocked_resource_ids, allowed_resource_ids = self._blocked_and_allowed_object_ids(access_controls)
+        decision = self._blocked_and_allowed_object_ids(access_controls)
 
         # Apply filtering logic based on resource-level access
-        if not self.has_resource_access(resource) and allowed_resource_ids:
+        if not self.has_resource_access(resource) and decision.allowed_ids:
             # User has "none" resource access but specific object access
             # Only show objects they have explicit access to (plus created objects)
             if model_has_creator:
-                queryset = queryset.filter(Q(id__in=allowed_resource_ids) | Q(created_by=self._user))
+                queryset = queryset.filter(Q(id__in=decision.allowed_ids) | Q(created_by=self._user))
             else:
-                queryset = queryset.filter(id__in=allowed_resource_ids)
-        elif blocked_resource_ids:
+                queryset = queryset.filter(id__in=decision.allowed_ids)
+        elif decision.blocked_ids:
             # Standard case: exclude explicitly blocked objects
             if model_has_creator:
-                queryset = queryset.exclude(Q(id__in=blocked_resource_ids) & ~Q(created_by=self._user))
+                queryset = queryset.exclude(Q(id__in=decision.blocked_ids) & ~Q(created_by=self._user))
             else:
-                queryset = queryset.exclude(id__in=blocked_resource_ids)
+                queryset = queryset.exclude(id__in=decision.blocked_ids)
 
         return queryset
 
-    def _blocked_and_allowed_object_ids(self, access_controls: list[_AccessControl]) -> tuple[set[str], set[str]]:
+    def _blocked_and_allowed_object_ids(self, access_controls: list[_AccessControl]) -> ObjectAccessDecision:
         """Canonical object-level decision over a pool of object access controls (rows with
-        `resource_id` set), returning (blocked_ids, allowed_ids).
+        `resource_id` set), returning an ObjectAccessDecision of blocked and allowed ids.
 
         Explicit-wins: if a resource_id has any explicit (role/member) rule, the object is
         allowed when any explicit rule grants non-"none", otherwise blocked. With no explicit
@@ -1250,10 +1257,12 @@ class UserAccessControl:
                 # All explicit access levels are "none" - block this object
                 blocked_resource_ids.add(resource_id)
 
-        return blocked_resource_ids, allowed_resource_ids
+        return ObjectAccessDecision(
+            blocked_ids=frozenset(blocked_resource_ids), allowed_ids=frozenset(allowed_resource_ids)
+        )
 
     @cached_property
-    def blocked_resource_ids_by_scope(self) -> dict[APIScopeObject, set[str]]:
+    def blocked_resource_ids_by_scope(self) -> dict[APIScopeObject, frozenset[str]]:
         """Per-resource set of object IDs the user is denied (effective access resolves to
         "none"), built from the single preload via the canonical object resolver.
 
@@ -1273,15 +1282,15 @@ class UserAccessControl:
             if ac.resource_id is not None:
                 object_rows_by_resource[cast(APIScopeObject, ac.resource)].append(ac)
 
-        result: dict[APIScopeObject, set[str]] = {}
+        result: dict[APIScopeObject, frozenset[str]] = {}
         for resource, acs in object_rows_by_resource.items():
-            blocked, _allowed = self._blocked_and_allowed_object_ids(acs)
+            blocked = self._blocked_and_allowed_object_ids(acs).blocked_ids
             if blocked:
                 result[resource] = blocked
         return result
 
     @cached_property
-    def allowlisted_resource_ids_by_scope(self) -> dict[APIScopeObject, set[str]]:
+    def allowlisted_resource_ids_by_scope(self) -> dict[APIScopeObject, frozenset[str]]:
         """Per-resource set of object IDs that are the *only* ones the user may read, for resources
         where they hold object-level grants but no resource-level access at all.
 
@@ -1305,9 +1314,9 @@ class UserAccessControl:
             if ac.resource_id is not None:
                 object_rows_by_resource[cast(APIScopeObject, ac.resource)].append(ac)
 
-        result: dict[APIScopeObject, set[str]] = {}
+        result: dict[APIScopeObject, frozenset[str]] = {}
         for resource, acs in object_rows_by_resource.items():
-            _blocked, allowed = self._blocked_and_allowed_object_ids(acs)
+            allowed = self._blocked_and_allowed_object_ids(acs).allowed_ids
             if allowed and not self.has_resource_access(resource):
                 result[resource] = allowed
         return result

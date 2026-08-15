@@ -258,12 +258,13 @@ def _consume_jti(client_id: str, jti: str, expires_at: int) -> None:
 def verify_client_assertion(app: OAuthApplication, assertion: str, *, audiences: list[str] | None = None) -> None:
     """Verify a ``private_key_jwt`` assertion presented by ``app``, or raise.
 
-    Checks, in order: the app is registered for this method and has a key source; the
+    Checks, in order: the app has a published key source to verify against — confidential
+    partners always have one, and a public CIMD client may too, once it starts signing; the
     signature verifies against that key under an asymmetric algorithm; the audience is us;
     ``iss`` and ``sub`` both identify this client (RFC 7523 section 3); the lifetime is
     bounded; and the ``jti`` has not been seen before.
     """
-    if not app.uses_private_key_jwt_auth or not app.jwks_uri:
+    if not app.jwks_uri:
         raise ClientAssertionError("This client is not registered for private_key_jwt authentication")
 
     key = _select_key_allowing_rotation(app.jwks_uri, assertion)

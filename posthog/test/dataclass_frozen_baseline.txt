@@ -30,7 +30,6 @@
 1 posthog/hogql/functions/core.py
 1 posthog/hogql/observability.py
 1 posthog/hogql/printer/types.py
-1 posthog/hogql/query.py
 1 posthog/hogql/scripts/_diagnostic_common.py
 1 posthog/hogql/snowflake_connection_cache.py
 1 posthog/hogql/transforms/federated_join_merge.py
@@ -87,7 +86,6 @@
 1 posthog/temporal/session_replay/session_summary/activities/capture_timing.py
 1 posthog/temporal/tests/common/test_logger.py
 1 posthog/temporal/tests/data_modeling/test_log_routing.py
-1 posthog/temporal/tests/session_replay/gemini_cleanup_sweep/test_activities.py
 1 posthog/test/test_journeys.py
 1 posthog/views.py
 1 products/actions/backend/models/action.py
@@ -1430,7 +1428,6 @@
 2 posthog/temporal/proxy_service/cloudflare.py
 2 posthog/temporal/proxy_service/delete.py
 2 posthog/temporal/salesforce_enrichment/workflow.py
-2 posthog/temporal/session_replay/gemini_cleanup_sweep/types.py
 2 posthog/temporal/sync_person_distinct_ids/workflow.py
 2 posthog/temporal/tests/common/test_error_tracking.py
 2 posthog/temporal/tests/common/test_posthog_client_team_id.py
