@@ -1,6 +1,8 @@
 from collections.abc import Callable
 from typing import TYPE_CHECKING, Any, cast
 
+from django.db.models import Model
+
 from rest_framework import exceptions, serializers, status
 from rest_framework.decorators import action
 from rest_framework.request import Request
@@ -19,13 +21,12 @@ from posthog.rbac.user_access_control import (
     SubjectAccessControl,
     UserAccessControl,
     default_access_level,
+    fallback_parent_object,
     highest_access_level,
     minimum_access_level,
     ordered_access_levels,
 )
 from posthog.scopes import API_SCOPE_OBJECTS, INTERNAL_API_SCOPE_OBJECTS, APIScopeObjectOrNotSupported
-
-from products.warehouse_sources.backend.models import ExternalDataSource
 
 from ee.models.rbac.access_control import AccessControl
 
@@ -35,17 +36,24 @@ else:
     _GenericViewSet = object
 
 
-def _inherited_source_display_name(obj: Any, access: ResolvedAccess) -> str | None:
+def _inherited_source_display_name(obj: Model, access: ResolvedAccess) -> str | None:
     """A human name for the parent object an inherited level comes through, so the UI can say
     which one. Only object-scoped sources have one, and the parent is always the object's own
     fallback relation (that's where the walk got its id), so it is read off the object — cached
-    by Django, free when already loaded — never refetched by id."""
+    by Django, free when already loaded — never refetched by id. The name field comes from the
+    same registry the settings UI names objects with, so a new fallback parent needs no code here."""
+    from ee.api.rbac.access_control_settings import (
+        _display_model,  # noqa: PLC0415 — access_control_settings imports this module; deferring breaks the cycle
+    )
+
     if access.source != "parent_object":
         return None
-    if access.source_resource == "external_data_source":
-        source = getattr(obj, "external_data_source", None)
-        return source.source_type if isinstance(source, ExternalDataSource) else None
-    return None
+    parent = fallback_parent_object(obj, access.source_resource)
+    display = _display_model(access.source_resource)
+    if parent is None or display is None:
+        return None
+    name = getattr(parent, display.name_field, None)
+    return str(name) if name else None
 
 
 class OrganizationMemberField(serializers.PrimaryKeyRelatedField):

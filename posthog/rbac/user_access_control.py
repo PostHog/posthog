@@ -528,8 +528,8 @@ def model_to_resource(model: Model) -> Optional[APIScopeObject]:
 
 
 @cache
-def _fallback_parent_field(model: type[Model], parent_resource: APIScopeObject) -> Optional[str]:
-    """Attribute holding the id of `model`'s `parent_resource` foreign key, if it has one.
+def _fallback_parent_field(model: type[Model], parent_resource: APIScopeObject) -> Optional[ForeignKey]:
+    """`model`'s foreign key to `parent_resource`, if it has one.
 
     Found by introspection rather than a declared field map so the relationship is read off the
     schema that already defines it. Cached because it depends only on the model class.
@@ -539,7 +539,7 @@ def _fallback_parent_field(model: type[Model], parent_resource: APIScopeObject) 
         if not isinstance(field, ForeignKey) or field.related_model is None:
             continue
         if model_to_resource(cast(Model, field.related_model)) == parent_resource:
-            return field.attname
+            return field
     return None
 
 
@@ -552,8 +552,20 @@ def fallback_parent_object_id(obj: Model, parent_resource: APIScopeObject) -> Op
     field = _fallback_parent_field(type(obj), parent_resource)
     if field is None:
         return None
-    parent_id = getattr(obj, field, None)
+    parent_id = getattr(obj, field.attname, None)
     return str(parent_id) if parent_id is not None else None
+
+
+def fallback_parent_object(obj: Model, parent_resource: APIScopeObject) -> Optional[Model]:
+    """The object `obj` falls back to for access, or None when it has no such parent.
+
+    Read off the object's own relation — Django caches it on the instance — so callers that
+    only need to display the parent never refetch it by id.
+    """
+    field = _fallback_parent_field(type(obj), parent_resource)
+    if field is None:
+        return None
+    return getattr(obj, field.name, None)
 
 
 @frozen
