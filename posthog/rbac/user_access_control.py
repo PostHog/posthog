@@ -257,10 +257,11 @@ class ResolvedAccess:
     - "resource": a resource-wide rule
     - "parent_resource": the fallback parent's resource-wide rule
     - "system_default": no rule anywhere — default_access_level() applies (also covers orgs
-      without the entitlement, where rules are never consulted, and non-admin access to the
-      organization itself, which can have no rules at all)
+      without the entitlement, where rules are never consulted)
     - "org_admin": rules never consulted — the admin bypass
     - "creator": rules never consulted — the user created the object
+    - "org_membership": the object is the organization itself — organizations have no access
+      rules; the level comes from the user's OrganizationMembership.level (admin or member)
     """
 
     access_level: AccessControlLevel
@@ -272,6 +273,7 @@ class ResolvedAccess:
         "system_default",
         "org_admin",
         "creator",
+        "org_membership",
     ]
     # The source rule's subject: an everyone-row ("default"), a role row, or a member row.
     # None when no row decided.
@@ -1573,9 +1575,12 @@ class UserAccessControl:
 
         if resource == "organization":
             # Organization access is controlled via membership level only
+            membership_level: AccessControlLevel = (
+                "admin" if org_membership.level >= OrganizationMembership.Level.ADMIN else "member"
+            )
             return True, ResolvedAccess(
-                access_level=default_access_level(resource),
-                source="system_default",
+                access_level=membership_level,
+                source="org_membership",
                 source_subject=None,
                 source_resource=resource,
             )

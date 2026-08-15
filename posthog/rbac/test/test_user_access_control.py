@@ -2261,7 +2261,7 @@ class TestUserAccessControlFallbackParent(BaseUserAccessControlTest):
             "organization", is_creator=False
         )
         assert resolved and resolution is not None
-        assert (resolution.access_level, resolution.source) == ("member", "system_default")
+        assert (resolution.access_level, resolution.source) == ("member", "org_membership")
 
     def test_tie_between_member_and_role_reports_the_member(self):
         self._create_access_control(
