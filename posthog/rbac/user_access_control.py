@@ -251,6 +251,9 @@ class ResolvedAccess:
     """An access level plus which rule supplied it, so callers can attribute a resolution
     instead of re-deriving it. Enforcement reads only `access_level`.
 
+    `source` names how the level was actually derived in the implementation — it must never be
+    a nicer label for a different code path, and the implementation must never change to fit a label.
+
     `source` values:
     - "object": a rule on the object itself — a member/role row, or its default
     - "parent_object": a rule on its fallback parent — a table's source (RESOURCE_FALLBACK_MAP)
