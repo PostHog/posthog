@@ -1,8 +1,8 @@
 import { expectLogic } from 'kea-test-utils'
 
-import { initKeaTests } from '~/test/init'
-
 import { userLogic } from 'scenes/userLogic'
+
+import { initKeaTests } from '~/test/init'
 
 import { userDetailsLogic } from './userDetailsLogic'
 
