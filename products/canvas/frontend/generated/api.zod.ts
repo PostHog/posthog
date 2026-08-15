@@ -47,6 +47,28 @@ export const CanvasesPartialUpdateBody = /* @__PURE__ */ zod
     .describe('Writable canvas fields: metadata only — source changes go through publish\/edit.')
 
 /**
+ * Invoke one registered action verb as the viewer.
+ *
+ * The canvas must declare the verb in capabilities.posthog.actions (the
+ * reviewed permission boundary); the write itself runs with the viewer's
+ * own permissions, exactly as if they acted in the app.
+ */
+export const canvasesActionsInvokeBodyVerbMax = 64
+
+export const CanvasesActionsInvokeBody = /* @__PURE__ */ zod
+    .object({
+        verb: zod
+            .string()
+            .max(canvasesActionsInvokeBodyVerbMax)
+            .describe("Registered verb to invoke, e.g. 'tasks.create'."),
+        payload: zod
+            .record(zod.string(), zod.unknown())
+            .optional()
+            .describe("Verb-specific arguments, validated against the verb's payload schema."),
+    })
+    .describe('Payload for invoking one action verb.')
+
+/**
  * Apply a lifecycle action (retry, pin, unpin, cancel) to one build.
  */
 export const CanvasesBuildActionCreateBody = /* @__PURE__ */ zod.object({
@@ -78,6 +100,12 @@ export const canvasesDraftCreateBodyProjectOneCapabilitiesOnePosthogInsightsMax 
 export const canvasesDraftCreateBodyProjectOneCapabilitiesOnePosthogCaptureEventsItemMax = 200
 
 export const canvasesDraftCreateBodyProjectOneCapabilitiesOnePosthogCaptureEventsMax = 100
+
+export const canvasesDraftCreateBodyProjectOneCapabilitiesOnePosthogStateMax = 2
+
+export const canvasesDraftCreateBodyProjectOneCapabilitiesOnePosthogActionsItemMax = 64
+
+export const canvasesDraftCreateBodyProjectOneCapabilitiesOnePosthogActionsMax = 32
 
 export const canvasesDraftCreateBodyProjectOneCapabilitiesOneNetworkOriginsItemMax = 2048
 
@@ -150,6 +178,24 @@ export const CanvasesDraftCreateBody = /* @__PURE__ */ zod
                                         )
                                 )
                                 .max(canvasesDraftCreateBodyProjectOneCapabilitiesOnePosthogCaptureEventsMax),
+                            state: zod
+                                .array(zod.enum(['user', 'shared']).describe('\* `user` - user\n\* `shared` - shared'))
+                                .max(canvasesDraftCreateBodyProjectOneCapabilitiesOnePosthogStateMax)
+                                .optional()
+                                .describe(
+                                    "State scopes the canvas may use via ph.state: 'user' (private to each viewer) and\/or 'shared' (one value per canvas, team-visible)."
+                                ),
+                            actions: zod
+                                .array(
+                                    zod
+                                        .string()
+                                        .max(canvasesDraftCreateBodyProjectOneCapabilitiesOnePosthogActionsItemMax)
+                                )
+                                .max(canvasesDraftCreateBodyProjectOneCapabilitiesOnePosthogActionsMax)
+                                .optional()
+                                .describe(
+                                    "Registered action verbs the canvas may invoke via ph.actions (e.g. 'annotations.create', 'tasks.create'). Each executes as the viewer; declaring one shows it in the promote review."
+                                ),
                         }),
                         network: zod.object({
                             origins: zod
@@ -259,6 +305,12 @@ export const canvasesPublishCreateBodyProjectOneCapabilitiesOnePosthogCaptureEve
 
 export const canvasesPublishCreateBodyProjectOneCapabilitiesOnePosthogCaptureEventsMax = 100
 
+export const canvasesPublishCreateBodyProjectOneCapabilitiesOnePosthogStateMax = 2
+
+export const canvasesPublishCreateBodyProjectOneCapabilitiesOnePosthogActionsItemMax = 64
+
+export const canvasesPublishCreateBodyProjectOneCapabilitiesOnePosthogActionsMax = 32
+
 export const canvasesPublishCreateBodyProjectOneCapabilitiesOneNetworkOriginsItemMax = 2048
 
 export const canvasesPublishCreateBodyProjectOneCapabilitiesOneNetworkOriginsMax = 20
@@ -332,6 +384,24 @@ export const CanvasesPublishCreateBody = /* @__PURE__ */ zod
                                         )
                                 )
                                 .max(canvasesPublishCreateBodyProjectOneCapabilitiesOnePosthogCaptureEventsMax),
+                            state: zod
+                                .array(zod.enum(['user', 'shared']).describe('\* `user` - user\n\* `shared` - shared'))
+                                .max(canvasesPublishCreateBodyProjectOneCapabilitiesOnePosthogStateMax)
+                                .optional()
+                                .describe(
+                                    "State scopes the canvas may use via ph.state: 'user' (private to each viewer) and\/or 'shared' (one value per canvas, team-visible)."
+                                ),
+                            actions: zod
+                                .array(
+                                    zod
+                                        .string()
+                                        .max(canvasesPublishCreateBodyProjectOneCapabilitiesOnePosthogActionsItemMax)
+                                )
+                                .max(canvasesPublishCreateBodyProjectOneCapabilitiesOnePosthogActionsMax)
+                                .optional()
+                                .describe(
+                                    "Registered action verbs the canvas may invoke via ph.actions (e.g. 'annotations.create', 'tasks.create'). Each executes as the viewer; declaring one shows it in the promote review."
+                                ),
                         }),
                         network: zod.object({
                             origins: zod
@@ -438,6 +508,24 @@ export const CanvasesRevertCreateBody = /* @__PURE__ */ zod
     .describe("Payload for reverting the canvas's head to an existing source version.")
 
 /**
+ * Write one key of the canvas's runtime state, or delete it with a null value.
+ */
+export const canvasesStateSetBodyKeyMax = 200
+
+export const CanvasesStateSetBody = /* @__PURE__ */ zod
+    .object({
+        scope: zod
+            .enum(['user', 'shared'])
+            .describe('\* `user` - user\n\* `shared` - shared')
+            .describe(
+                'Scope to write into; the canvas must declare it in capabilities.posthog.state.\n\n\* `user` - user\n\* `shared` - shared'
+            ),
+        key: zod.string().max(canvasesStateSetBodyKeyMax).describe('Key to write, unique within its scope.'),
+        value: zod.unknown().describe('JSON value to store (at most 64 KB serialized), or null to delete the key.'),
+    })
+    .describe("Payload for writing (or deleting) one key of a canvas's runtime state.")
+
+/**
  * Validate a candidate source project without publishing it. Side-effect free.
  */
 export const canvasesValidateCreateBodyProjectOneAssetsContentMax = 2796204
@@ -452,6 +540,12 @@ export const canvasesValidateCreateBodyProjectOneCapabilitiesOnePosthogInsightsM
 export const canvasesValidateCreateBodyProjectOneCapabilitiesOnePosthogCaptureEventsItemMax = 200
 
 export const canvasesValidateCreateBodyProjectOneCapabilitiesOnePosthogCaptureEventsMax = 100
+
+export const canvasesValidateCreateBodyProjectOneCapabilitiesOnePosthogStateMax = 2
+
+export const canvasesValidateCreateBodyProjectOneCapabilitiesOnePosthogActionsItemMax = 64
+
+export const canvasesValidateCreateBodyProjectOneCapabilitiesOnePosthogActionsMax = 32
 
 export const canvasesValidateCreateBodyProjectOneCapabilitiesOneNetworkOriginsItemMax = 2048
 
@@ -524,6 +618,24 @@ export const CanvasesValidateCreateBody = /* @__PURE__ */ zod
                                         )
                                 )
                                 .max(canvasesValidateCreateBodyProjectOneCapabilitiesOnePosthogCaptureEventsMax),
+                            state: zod
+                                .array(zod.enum(['user', 'shared']).describe('\* `user` - user\n\* `shared` - shared'))
+                                .max(canvasesValidateCreateBodyProjectOneCapabilitiesOnePosthogStateMax)
+                                .optional()
+                                .describe(
+                                    "State scopes the canvas may use via ph.state: 'user' (private to each viewer) and\/or 'shared' (one value per canvas, team-visible)."
+                                ),
+                            actions: zod
+                                .array(
+                                    zod
+                                        .string()
+                                        .max(canvasesValidateCreateBodyProjectOneCapabilitiesOnePosthogActionsItemMax)
+                                )
+                                .max(canvasesValidateCreateBodyProjectOneCapabilitiesOnePosthogActionsMax)
+                                .optional()
+                                .describe(
+                                    "Registered action verbs the canvas may invoke via ph.actions (e.g. 'annotations.create', 'tasks.create'). Each executes as the viewer; declaring one shows it in the promote review."
+                                ),
                         }),
                         network: zod.object({
                             origins: zod

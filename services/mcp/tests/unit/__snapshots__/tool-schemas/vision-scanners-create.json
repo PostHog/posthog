@@ -102,7 +102,7 @@
             "type": "string"
         },
         "tags": {
-            "description": "Organizational tags for this scanner. Distinct from a classifier's tag vocabulary in scanner_config. Tags cannot contain commas.",
+            "description": "Organizational tags for this scanner. Distinct from a classifier's categories in scanner_config. Tags cannot contain commas.",
             "items": {
                 "maxLength": 255,
                 "type": "string"

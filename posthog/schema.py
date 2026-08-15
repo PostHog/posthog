@@ -2583,6 +2583,10 @@ class ScatterChartSettings(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    showBestFit: bool | None = Field(
+        default=None,
+        description=("Whether to draw a least-squares fit line through each series' points."),
+    )
     xScale: XScale | None = Field(
         default=None,
         description=(
@@ -24426,6 +24430,10 @@ class AccountsTableQuery(BaseModel):
     ) = Field(
         default=None,
         description=("Filters are combined with AND. Values within tag and assignment filters use OR."),
+    )
+    includeChurned: bool | None = Field(
+        default=None,
+        description="Include churned accounts. Churned accounts are hidden by default.",
     )
     kind: Literal["AccountsTableQuery"] = "AccountsTableQuery"
     limit: conint(ge=1) | None = None
