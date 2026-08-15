@@ -63,6 +63,11 @@ async function rasterizeRecordingActivity(
     const progress: RasterizationProgress = { phase: 'setup', frame: 0, estimatedTotalFrames: 0 }
     const onProgress = (): void => Context.current().heartbeat(progress)
 
+    // Progress-driven heartbeats stop while a beginFrame stalls (e.g. a frame waiting out a mass
+    // image decode), and the workflow's 30s heartbeat timeout would kill an otherwise healthy
+    // render. Beat on wall clock as well so stalls up to beginFrameTimeoutMs survive.
+    const heartbeatInterval = setInterval(onProgress, 10_000)
+
     try {
         const result = await rasterizeRecording(
             pool,
@@ -134,6 +139,7 @@ async function rasterizeRecordingActivity(
         }
         throw toActivityError(err)
     } finally {
+        clearInterval(heartbeatInterval)
         RasterizationMetrics.activityFinished()
         await fs.rm(outputPath, { force: true })
     }

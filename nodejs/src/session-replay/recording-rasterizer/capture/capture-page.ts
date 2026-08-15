@@ -4,6 +4,9 @@ import { CDPSession, Page } from 'puppeteer'
 import { config as defaultConfig } from '~/session-replay/recording-rasterizer/config'
 import { RasterizationError } from '~/session-replay/recording-rasterizer/errors'
 import { type Logger, createLogger } from '~/session-replay/recording-rasterizer/logger'
+import { RasterizationMetrics } from '~/session-replay/recording-rasterizer/metrics'
+
+const BEGINFRAME_WARN_AFTER_MS = 15_000
 
 export const playerHtmlCache = {
     _html: null as string | null,
@@ -37,6 +40,8 @@ export class CapturePage {
     // Set at the site that detects a fatal cause (e.g. the beginFrame compositor deadlock)
     // so the generic captureStopped handler can attribute the abort instead of guessing.
     fatalError: RasterizationError | null = null
+
+    private readonly beginFrameTimeoutMs = defaultConfig.beginFrameTimeoutMs
 
     private constructor(
         readonly page: Page,
@@ -141,22 +146,37 @@ export class CapturePage {
 
                     await waitForRequestsSettled()
 
+                    // A frame can legitimately stall for tens of seconds: content that reveals many
+                    // huge images at once (e.g. resuming from an inactivity skip onto a gallery)
+                    // forces every software image decode to finish inside this one beginFrame under
+                    // --run-all-compositor-stages-before-draw. Warn at the soft threshold so slow
+                    // frames are visible, and only abort at the hard cap.
                     let timedOut = false
                     let timeoutHandle: ReturnType<typeof setTimeout>
+                    let warnHandle: ReturnType<typeof setTimeout>
+                    const sendStart = process.hrtime.bigint()
+                    const elapsedS = (): number => Number(process.hrtime.bigint() - sendStart) / 1e9
                     const timeout = new Promise<never>((_, reject) => {
+                        warnHandle = setTimeout(() => {
+                            log.warn({ params }, `beginFrame slow (>${BEGINFRAME_WARN_AFTER_MS / 1000}s), waiting`)
+                        }, BEGINFRAME_WARN_AFTER_MS)
                         timeoutHandle = setTimeout(() => {
                             timedOut = true
-                            reject(new Error('beginFrame timeout (15s)'))
-                        }, 15_000)
+                            reject(new Error(`beginFrame timeout (${this.beginFrameTimeoutMs / 1000}s)`))
+                        }, this.beginFrameTimeoutMs)
                     })
                     try {
                         const result = await Promise.race([originalSend(method as any, params), timeout])
-                        clearTimeout(timeoutHandle!)
+                        const stallS = elapsedS()
+                        if (stallS * 1000 >= BEGINFRAME_WARN_AFTER_MS) {
+                            RasterizationMetrics.observeBeginFrameStall(stallS)
+                            log.warn({ stall_s: +stallS.toFixed(1) }, 'beginFrame recovered after stall')
+                        }
                         return result
                     } catch (err) {
                         if (timedOut) {
                             this.fatalError = new RasterizationError(
-                                'beginFrame timeout (15s) — compositor deadlock',
+                                `beginFrame timeout (${this.beginFrameTimeoutMs / 1000}s) — compositor deadlock`,
                                 true,
                                 'BEGINFRAME_DEADLOCK'
                             )
@@ -171,6 +191,9 @@ export class CapturePage {
                             throw this.fatalError
                         }
                         throw err
+                    } finally {
+                        clearTimeout(timeoutHandle!)
+                        clearTimeout(warnHandle!)
                     }
                 }
                 return originalSend(method as any, ...args)
