@@ -178,10 +178,10 @@ class TestUserAccessControl(BaseUserAccessControlTest):
         assert self.user_access_control.check_access_level_for_object(self.team, "admin") is True
         assert self.other_user_access_control.access_level_for_object(self.team) == "admin"
         assert self.other_user_access_control.check_access_level_for_object(self.team, "admin") is True
-        resource_resolution = self.user_access_control.access_level_for_resource("project")
-        assert resource_resolution and resource_resolution.access_level == "admin"
-        resource_resolution = self.other_user_access_control.access_level_for_resource("project")
-        assert resource_resolution and resource_resolution.access_level == "admin"
+        resource_access = self.user_access_control.access_level_for_resource("project")
+        assert resource_access and resource_access.access_level == "admin"
+        resource_access = self.other_user_access_control.access_level_for_resource("project")
+        assert resource_access and resource_access.access_level == "admin"
         assert self.user_access_control.check_can_modify_access_levels_for_object(self.team) is True
         assert self.other_user_access_control.check_can_modify_access_levels_for_object(self.team) is False
 
@@ -193,10 +193,10 @@ class TestUserAccessControl(BaseUserAccessControlTest):
         assert self.user_access_control.check_access_level_for_object(self.team, "admin") is True
         assert self.other_user_access_control.access_level_for_object(self.team) == "admin"
         assert self.other_user_access_control.check_access_level_for_object(self.team, "admin") is True
-        resource_resolution = self.user_access_control.access_level_for_resource("project")
-        assert resource_resolution and resource_resolution.access_level == "admin"
-        resource_resolution = self.other_user_access_control.access_level_for_resource("project")
-        assert resource_resolution and resource_resolution.access_level == "admin"
+        resource_access = self.user_access_control.access_level_for_resource("project")
+        assert resource_access and resource_access.access_level == "admin"
+        resource_access = self.other_user_access_control.access_level_for_resource("project")
+        assert resource_access and resource_access.access_level == "admin"
         assert self.user_access_control.check_can_modify_access_levels_for_object(self.team) is True
         assert self.other_user_access_control.check_can_modify_access_levels_for_object(self.team) is False
 
@@ -400,10 +400,10 @@ class TestUserAccessControlResourceSpecific(BaseUserAccessControlTest):
 
         assert self.user_access_control.access_level_for_object(self.dashboard) == "manager"
         assert self.other_user_access_control.access_level_for_object(self.dashboard) == "editor"
-        resource_resolution = self.user_access_control.access_level_for_resource("dashboard")
-        assert resource_resolution and resource_resolution.access_level == "manager"
-        resource_resolution = self.other_user_access_control.access_level_for_resource("dashboard")
-        assert resource_resolution and resource_resolution.access_level == "editor"
+        resource_access = self.user_access_control.access_level_for_resource("dashboard")
+        assert resource_access and resource_access.access_level == "manager"
+        resource_access = self.other_user_access_control.access_level_for_resource("dashboard")
+        assert resource_access and resource_access.access_level == "editor"
 
     def test_ac_object_default_response(self):
         assert self.user_access_control.access_level_for_object(self.dashboard) == "editor"
@@ -1602,8 +1602,8 @@ class TestResourceInheritance(BaseUserAccessControlTest):
         self._clear_uac_caches()
 
         # Check that the user has viewer access to session_recording_playlist through inheritance
-        resource_resolution = self.user_access_control.access_level_for_resource("session_recording_playlist")
-        assert resource_resolution and resource_resolution.access_level == "viewer"
+        resource_access = self.user_access_control.access_level_for_resource("session_recording_playlist")
+        assert resource_access and resource_access.access_level == "viewer"
         assert self.user_access_control.check_access_level_for_resource("session_recording_playlist", "viewer") is True
         assert self.user_access_control.check_access_level_for_resource("session_recording_playlist", "editor") is False
 
@@ -1619,8 +1619,8 @@ class TestResourceInheritance(BaseUserAccessControlTest):
         self._clear_uac_caches()
 
         # Check that the user has editor access to session_recording_playlist
-        resource_resolution = self.user_access_control.access_level_for_resource("session_recording_playlist")
-        assert resource_resolution and resource_resolution.access_level == "editor"
+        resource_access = self.user_access_control.access_level_for_resource("session_recording_playlist")
+        assert resource_access and resource_access.access_level == "editor"
         assert self.user_access_control.check_access_level_for_resource("session_recording_playlist", "viewer") is True
         assert self.user_access_control.check_access_level_for_resource("session_recording_playlist", "editor") is True
         assert (
@@ -1635,8 +1635,8 @@ class TestResourceInheritance(BaseUserAccessControlTest):
         self._clear_uac_caches()
 
         # Check that org admin has highest level access to session_recording_playlist
-        resource_resolution = self.user_access_control.access_level_for_resource("session_recording_playlist")
-        assert resource_resolution and resource_resolution.access_level == "manager"
+        resource_access = self.user_access_control.access_level_for_resource("session_recording_playlist")
+        assert resource_access and resource_access.access_level == "manager"
         assert self.user_access_control.check_access_level_for_resource("session_recording_playlist", "manager") is True
 
     def test_no_access_to_parent_means_no_access_to_inherited(self):
@@ -1651,8 +1651,8 @@ class TestResourceInheritance(BaseUserAccessControlTest):
         self._clear_uac_caches()
 
         # Check that the user has no access to session_recording_playlist
-        resource_resolution = self.user_access_control.access_level_for_resource("session_recording_playlist")
-        assert resource_resolution and resource_resolution.access_level == "none"
+        resource_access = self.user_access_control.access_level_for_resource("session_recording_playlist")
+        assert resource_access and resource_access.access_level == "none"
         assert self.user_access_control.check_access_level_for_resource("session_recording_playlist", "viewer") is False
 
 
@@ -2199,7 +2199,7 @@ class TestUserAccessControlFallbackParent(BaseUserAccessControlTest):
             self._create_access_control(resource=resource, resource_id=resource_id, access_level=level)
         self._clear_uac_caches()
 
-    def _resolution(self, table, uac=None):
+    def _resolve(self, table, uac=None):
         uac = uac or self.user_with_no_role_access_control
         rows = uac._get_access_controls(uac._access_controls_filters_for_object("warehouse_table", str(table.id)))
         return uac._object_access_level_from_rows(
@@ -2230,38 +2230,36 @@ class TestUserAccessControlFallbackParent(BaseUserAccessControlTest):
         # reordered or mislabeled tier fails here instead of shipping a wrong "Based on …"
         self._apply_for_everyone(rules, self.sourced_table)
 
-        resolution = self._resolution(self.sourced_table)
-        assert resolution is not None
+        access = self._resolve(self.sourced_table)
+        assert access is not None
         actual = (
-            resolution.access_level,
-            resolution.source,
-            resolution.source_subject,
-            resolution.source_resource,
+            access.access_level,
+            access.source,
+            access.source_subject,
+            access.source_resource,
         )
         assert actual == expected
         expected_ids = {None: None, "source": str(self.source.id), "table": str(self.sourced_table.id)}
-        assert resolution.source_resource_id == expected_ids[expected_id_of]
+        assert access.source_resource_id == expected_ids[expected_id_of]
 
     def test_precheck_outcomes_report_their_source(self):
-        resolved, resolution = self.user_access_control._object_access_level_precheck(
-            "warehouse_table", is_creator=True
-        )
-        assert resolved and resolution is not None
-        assert (resolution.access_level, resolution.source) == ("manager", "creator")
+        resolved, access = self.user_access_control._object_access_level_precheck("warehouse_table", is_creator=True)
+        assert resolved and access is not None
+        assert (access.access_level, access.source) == ("manager", "creator")
 
         self.membership.level = OrganizationMembership.Level.ADMIN
         self.membership.save()
-        resolved, resolution = UserAccessControl(self.user, self.team)._object_access_level_precheck(
+        resolved, access = UserAccessControl(self.user, self.team)._object_access_level_precheck(
             "warehouse_table", is_creator=False
         )
-        assert resolved and resolution is not None
-        assert (resolution.access_level, resolution.source) == ("manager", "org_admin")
+        assert resolved and access is not None
+        assert (access.access_level, access.source) == ("manager", "org_admin")
 
-        resolved, resolution = self.user_with_no_role_access_control._object_access_level_precheck(
+        resolved, access = self.user_with_no_role_access_control._object_access_level_precheck(
             "organization", is_creator=False
         )
-        assert resolved and resolution is not None
-        assert (resolution.access_level, resolution.source) == ("member", "org_membership")
+        assert resolved and access is not None
+        assert (access.access_level, access.source) == ("member", "org_membership")
 
     def test_tie_between_member_and_role_reports_the_member(self):
         self._create_access_control(
@@ -2275,9 +2273,9 @@ class TestUserAccessControlFallbackParent(BaseUserAccessControlTest):
         )
         self._clear_uac_caches()
 
-        resolution = self._resolution(self.sourced_table, self.user_access_control)
-        assert resolution is not None
-        assert (resolution.access_level, resolution.source, resolution.source_subject) == (
+        access = self._resolve(self.sourced_table, self.user_access_control)
+        assert access is not None
+        assert (access.access_level, access.source, access.source_subject) == (
             "editor",
             "object",
             "member",
@@ -2288,14 +2286,14 @@ class TestUserAccessControlFallbackParent(BaseUserAccessControlTest):
         self._create_access_control(resource="warehouse_objects", access_level="editor", role=self.role_a)
         self._clear_uac_caches()
 
-        resolution = self.user_access_control.access_level_for_resource("warehouse_table")
-        assert resolution is not None
+        access = self.user_access_control.access_level_for_resource("warehouse_table")
+        assert access is not None
         # Also pins the inheritance redirect: a table's resource rules are the warehouse_objects ones
         assert (
-            resolution.access_level,
-            resolution.source,
-            resolution.source_subject,
-            resolution.source_resource,
+            access.access_level,
+            access.source,
+            access.source_subject,
+            access.source_resource,
         ) == ("editor", "resource", "role", "warehouse_objects")
 
     def test_source_denial_does_not_leak_across_sources(self):

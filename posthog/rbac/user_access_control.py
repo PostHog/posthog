@@ -1142,14 +1142,14 @@ class UserAccessControl:
         return bool(access_controls)
 
     def check_access_level_for_resource(self, resource: APIScopeObject, required_level: AccessControlLevel) -> bool:
-        resolution = self.access_level_for_resource(resource)
+        access = self.access_level_for_resource(resource)
 
         # For inherited resources, use the parent resource's access levels for comparison
         comparison_resource = RESOURCE_INHERITANCE_MAP.get(resource, resource)
 
-        if not resolution:
+        if not access:
             return False
-        access_level = resolution.access_level
+        access_level = access.access_level
 
         return access_level_satisfied_for_resource(comparison_resource, access_level, required_level)
 
@@ -1222,8 +1222,8 @@ class UserAccessControl:
             span.set_attribute("rbac.resource", str(resource))
             # First check resource-level access
             with tracer.start_as_current_span("rbac.resource_level_check"):
-                resource_resolution = self.access_level_for_resource(resource)
-                resource_access = resource_resolution.access_level if resource_resolution else None
+                access = self.access_level_for_resource(resource)
+                resource_access = access.access_level if access else None
 
             # If resource access is not "none", return it directly
             if resource_access and resource_access != NO_ACCESS_LEVEL:
@@ -1397,8 +1397,8 @@ class UserAccessControl:
 
     def has_resource_access(self, resource: APIScopeObject) -> bool:
         """Whether the user has any resource-level access (level is set and not "none")"""
-        resolution = self.access_level_for_resource(resource)
-        return bool(resolution and resolution.access_level != NO_ACCESS_LEVEL)
+        access = self.access_level_for_resource(resource)
+        return bool(access and access.access_level != NO_ACCESS_LEVEL)
 
     @cached_property
     def has_project_access(self) -> bool:
@@ -1676,14 +1676,14 @@ class UserAccessControl:
                 )
 
         if self.has_access_levels_for_resource(resource):
-            resource_resolution = self.access_level_for_resource(resource)
-            if resource_resolution:
-                return resource_resolution
+            access_for_resource = self.access_level_for_resource(resource)
+            if access_for_resource:
+                return access_for_resource
 
         if parent and self.has_access_levels_for_resource(parent):
-            parent_resolution = self.access_level_for_resource(parent)
-            if parent_resolution:
-                return replace(parent_resolution, source="parent_resource")
+            access_for_parent = self.access_level_for_resource(parent)
+            if access_for_parent:
+                return replace(access_for_parent, source="parent_resource")
 
         if object_access_controls:
             row = self._highest_access_control_from_rows(resource, object_access_controls)
@@ -1715,20 +1715,20 @@ class UserAccessControl:
             return None
 
         is_creator = getattr(obj, "created_by", None) == self._user
-        resolved, resolution = self._object_access_level_precheck(resource, is_creator, explicit=explicit)
+        resolved, access = self._object_access_level_precheck(resource, is_creator, explicit=explicit)
         if resolved:
-            return resolution.access_level if resolution else None
+            return access.access_level if access else None
 
         object_access_controls = self._get_access_controls(
             self._access_controls_filters_for_object(resource, str(obj.id))  # type: ignore
         )
-        resolution = self._object_access_level_from_rows(
+        access = self._object_access_level_from_rows(
             resource,
             object_access_controls,
             explicit=explicit,
             fallback_parent_id=self._fallback_parent_id(obj, resource),
         )
-        return resolution.access_level if resolution else None
+        return access.access_level if access else None
 
     def bulk_object_access_levels(
         self,
@@ -1755,9 +1755,9 @@ class UserAccessControl:
 
         for object_id, created_by_id in objects:
             is_creator = created_by_id is not None and created_by_id == self._user.id
-            resolved, resolution = self._object_access_level_precheck(resource, is_creator)
+            resolved, access = self._object_access_level_precheck(resource, is_creator)
             if resolved:
-                results[object_id] = resolution.access_level if resolution else None
+                results[object_id] = access.access_level if access else None
                 continue
 
             if rows_by_object_id is None:
@@ -1765,8 +1765,8 @@ class UserAccessControl:
                 for ac in self._get_access_controls(self._access_controls_filters_for_queryset(resource)):
                     rows_by_object_id[ac.resource_id].append(ac)
 
-            resolution = self._object_access_level_from_rows(resource, rows_by_object_id.get(object_id, []))
-            results[object_id] = resolution.access_level if resolution else None
+            access = self._object_access_level_from_rows(resource, rows_by_object_id.get(object_id, []))
+            results[object_id] = access.access_level if access else None
 
         return results
 
