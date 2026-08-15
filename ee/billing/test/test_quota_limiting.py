@@ -1804,11 +1804,12 @@ class TestQuotaLimiting(BaseTest):
 
     def test_usage_keys_stay_in_sync(self):
         """
-        Ensure QuotaResource, UsageCounters, and OrganizationUsageInfo all use the same keys (except for `period`).
+        Ensure QuotaResource, UsageCounters, and OrganizationUsageInfo all use the same keys
+        (except for `period`).
         """
         from posthog.models.organization import OrganizationUsageInfo
 
-        # OrganizationUsageInfo is source of truth (excluding 'period``)
+        # OrganizationUsageInfo is source of truth (excluding 'period`)
         org_usage_keys = set(OrganizationUsageInfo.__annotations__.keys()) - {"period"}
 
         quota_resource_keys = {resource.value for resource in QuotaResource}

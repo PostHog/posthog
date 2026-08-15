@@ -52,6 +52,7 @@ export function DefaultTooltip<Meta = unknown>({
     label,
     seriesData,
     hoverPosition,
+    hoveredSeriesKey,
     valueFormatter,
     labelFormatter,
     labelRenderer,
@@ -72,7 +73,9 @@ export function DefaultTooltip<Meta = unknown>({
           ? [...visible].sort((a, b) => (a.yPixel ?? Infinity) - (b.yPixel ?? Infinity))
           : visible
     const summable = rows.filter((s) => !s.series.overlay && s.series.visibility?.total !== false)
-    const closestKey = hoverPosition != null && rows.length > 1 ? findClosestSeriesKey(rows, hoverPosition.y) : null
+    const closestKey =
+        hoveredSeriesKey ??
+        (hoverPosition != null && rows.length > 1 ? findClosestSeriesKey(rows, hoverPosition.y) : null)
     const renderTotal = showTotal && summable.length > 1
     const total = summable.reduce((acc, s) => acc + s.value, 0)
     const formatTotal = totalFormatter ?? ((value: number): React.ReactNode => format(value, summable[0]))

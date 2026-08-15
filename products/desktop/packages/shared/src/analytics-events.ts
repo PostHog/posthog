@@ -982,9 +982,6 @@ export type ChannelActionType =
   | "mention_member"
   | "view_activity"
   | "open_mention"
-  | "canvas_mode_toggle"
-  /** Submitted a canvas-mode prompt (the agent resolves or creates the canvas). */
-  | "canvas_generate"
   | "activity_tab_change";
 
 export interface ChannelActionProperties {
@@ -1002,8 +999,6 @@ export interface ChannelActionProperties {
   mentioned_user_id?: string;
   /** For new_task_suggestion: the starter-prompt card label. */
   suggestion_label?: string;
-  /** For canvas_mode_toggle: whether canvas mode is being armed. */
-  armed?: boolean;
   /** For activity_tab_change: the tab landed on. */
   tab?: string;
   /** Whether the underlying mutation resolved successfully. */
@@ -1032,8 +1027,6 @@ export interface DashboardActionProperties {
   surface: ChannelsSurface;
   channel_id?: string;
   dashboard_id?: string;
-  /** The canvas render kind. */
-  kind?: "json-render" | "freeform";
   /** Template chosen on create. */
   template_id?: string;
   /** edit_toggle: the state being entered. */

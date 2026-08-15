@@ -19,6 +19,9 @@ from products.conversations.backend.models import (
     EmailThreadParticipant,
     EmailThreadParticipantKind,
 )
+from products.customer_analytics.backend.facade.email_matching import (
+    schedule_email_thread_link_recalculation_for_threads,
+)
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -47,6 +50,7 @@ class ParsedInboundEmail:
     dkim_signing_domains: tuple[str, ...]
     capture_address: str
     attachments: tuple[UploadedFile, ...]
+    forwarding_challenge_tokens: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -266,13 +270,16 @@ def ingest_customer_email(
 ) -> EmailThreadIngestionResult:
     try:
         with transaction.atomic():
-            return _ingest_customer_email_once(team_id=team_id, channel=channel, email=email)
+            result = _ingest_customer_email_once(team_id=team_id, channel=channel, email=email)
     except IntegrityError:
         existing_message = _find_existing_message(team_id=team_id, email=email)
         if existing_message is None:
             raise
-        return EmailThreadIngestionResult(
+        result = EmailThreadIngestionResult(
             thread_id=existing_message.thread_id,
             message_id=existing_message.id,
             created=False,
         )
+
+    schedule_email_thread_link_recalculation_for_threads(team_id, [str(result.thread_id)])
+    return result
