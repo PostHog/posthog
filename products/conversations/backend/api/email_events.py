@@ -821,3 +821,10 @@ def email_inbound_handler(request: HttpRequest) -> HttpResponse:
         return HttpResponse(status=200)
 
     return _process_support_email(config=config, inbound_token=inbound_token, email=email)
+
+
+@csrf_exempt
+def email_capture_handler(request: HttpRequest) -> HttpResponse:
+    if _is_outbound_capture_recipient(request.POST.get("recipient", "")):
+        return email_outbound_handler(request)
+    return email_inbound_handler(request)

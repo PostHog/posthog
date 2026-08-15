@@ -112,7 +112,7 @@ class TestCustomerEmailIngestion(BaseTest):
             "X-Mailgun-Spf": "pass",
         }
         data.update(overrides)
-        return self.client.post("/api/conversations/v1/email/outbound", data)
+        return self.client.post("/api/conversations/v1/email/capture", data)
 
     def _start_google_setup(self, *, expires_at=None) -> EmailChannelSetup:
         self.channel.connection_status = EmailChannelConnectionStatus.PENDING_CONFIRMATION
