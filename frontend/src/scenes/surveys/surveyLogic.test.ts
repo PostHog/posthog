@@ -2771,7 +2771,7 @@ describe('survey responses table state', () => {
     const source = (): EventsQuery | undefined => logic.values.dataTableQuery?.source as EventsQuery | undefined
 
     /** Mirrors how `DataTable` hands a query back: spread the current one, override what changed. */
-    const editTable = (patch: Partial<DataTableNode> & { source?: Partial<EventsQuery> }): void => {
+    const editTable = (patch: Omit<Partial<DataTableNode>, 'source'> & { source?: Partial<EventsQuery> }): void => {
         const query = logic.values.dataTableQuery as DataTableNode
         logic.actions.setDataTableQuery({
             ...query,
