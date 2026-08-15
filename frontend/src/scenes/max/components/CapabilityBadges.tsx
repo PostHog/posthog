@@ -31,6 +31,13 @@ export interface CapabilityBadgesProps {
     capabilities: Capability[]
     selectedKey: string | null
     onSelect: (key: string | null) => void
+    /**
+     * When the composer already holds text, a badge click submits that text instead of swapping the
+     * suggestion cards below. Without this a badge only filters, so a click made with a typed
+     * question in the box does nothing the user can see.
+     */
+    hasTypedText?: boolean
+    onSubmitTyped?: () => void
     className?: string
 }
 
@@ -39,6 +46,8 @@ export function CapabilityBadges({
     capabilities,
     selectedKey,
     onSelect,
+    hasTypedText,
+    onSubmitTyped,
     className,
 }: CapabilityBadgesProps): JSX.Element | null {
     const isProductAutonomyEnabled = useFeatureFlag('PRODUCT_AUTONOMY')
@@ -62,7 +71,11 @@ export function CapabilityBadges({
                     type="secondary"
                     active={selectedKey === capability.key}
                     icon={badgeIcon(capability)}
-                    onClick={() => onSelect(selectedKey === capability.key ? null : capability.key)}
+                    onClick={() =>
+                        hasTypedText && onSubmitTyped
+                            ? onSubmitTyped()
+                            : onSelect(selectedKey === capability.key ? null : capability.key)
+                    }
                     data-attr={`capability-badge-${capability.key}`}
                 >
                     {capability.label}

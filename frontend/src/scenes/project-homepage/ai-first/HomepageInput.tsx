@@ -564,6 +564,8 @@ export function HomepageInput(): JSX.Element {
                                 capabilities={capabilities}
                                 selectedKey={selectedCapability}
                                 onSelect={setSelectedCapability}
+                                hasTypedText={!!query.trim()}
+                                onSubmitTyped={() => submitQuery('ai')}
                             />
                             {/* Single fixed-height swap area — the cards and the recents grid both fill
                                 it (h-full), so switching never changes height. */}

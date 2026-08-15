@@ -25,7 +25,8 @@ export function SidebarQuestionInputWithSuggestions({
 }: {
     hideSuggestions?: boolean
 }): JSX.Element {
-    const { dataProcessingAccepted, dataProcessingApprovalDisabledReason, activeSuggestionGroup } = useValues(maxLogic)
+    const { dataProcessingAccepted, dataProcessingApprovalDisabledReason, activeSuggestionGroup, question } =
+        useValues(maxLogic)
     const { setActiveGroup, setQuestion, focusInput, setFillInHint } = useActions(maxLogic)
     const { agentMode } = useValues(maxThreadLogic)
     const { askMax } = useActions(maxThreadLogic)
@@ -81,6 +82,8 @@ export function SidebarQuestionInputWithSuggestions({
                                 setFillInHint(null)
                                 setSelectedCapability(key)
                             }}
+                            hasTypedText={!!question.trim()}
+                            onSubmitTyped={() => askMax(question)}
                         />
                         {selectedCapabilityData && (
                             <div className="w-full overflow-hidden" style={{ height: CAPABILITY_CARDS_HEIGHT_PX }}>
