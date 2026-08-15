@@ -2208,22 +2208,24 @@ class TestUserAccessControlFallbackParent(BaseUserAccessControlTest):
 
     @parameterized.expand(
         [
-            ("system_default_when_nothing_set", {}, ("editor", "system_default", None, "warehouse_objects")),
+            ("system_default_when_nothing_set", {}, ("editor", "system_default", None, "warehouse_objects"), None),
             (
                 "source_default",
                 {"this_source": "viewer"},
                 ("viewer", "parent_object", "default", "external_data_source"),
+                "source",
             ),
-            ("tables_wide", {"all_tables": "viewer"}, ("viewer", "resource", "default", "warehouse_objects")),
+            ("tables_wide", {"all_tables": "viewer"}, ("viewer", "resource", "default", "warehouse_objects"), None),
             (
                 "sources_wide",
                 {"all_sources": "viewer"},
                 ("viewer", "parent_resource", "default", "external_data_source"),
+                None,
             ),
-            ("object_default", {"this_table": "viewer"}, ("viewer", "object", "default", "warehouse_table")),
+            ("object_default", {"this_table": "viewer"}, ("viewer", "object", "default", "warehouse_table"), "table"),
         ]
     )
-    def test_resolution_reports_its_source(self, _name, rules, expected):
+    def test_resolution_reports_its_source(self, _name, rules, expected, expected_id_of):
         # The levels are pinned elsewhere; this pins the attribution the UI will render, so a
         # reordered or mislabeled tier fails here instead of shipping a wrong "Based on …"
         self._apply_for_everyone(rules, self.sourced_table)
@@ -2237,6 +2239,29 @@ class TestUserAccessControlFallbackParent(BaseUserAccessControlTest):
             resolution.source_resource,
         )
         assert actual == expected
+        expected_ids = {None: None, "source": str(self.source.id), "table": str(self.sourced_table.id)}
+        assert resolution.source_resource_id == expected_ids[expected_id_of]
+
+    def test_precheck_outcomes_report_their_source(self):
+        resolved, resolution = self.user_access_control._object_access_level_precheck(
+            "warehouse_table", is_creator=True
+        )
+        assert resolved and resolution is not None
+        assert (resolution.access_level, resolution.source) == ("manager", "creator")
+
+        self.membership.level = OrganizationMembership.Level.ADMIN
+        self.membership.save()
+        resolved, resolution = UserAccessControl(self.user, self.team)._object_access_level_precheck(
+            "warehouse_table", is_creator=False
+        )
+        assert resolved and resolution is not None
+        assert (resolution.access_level, resolution.source) == ("manager", "org_admin")
+
+        resolved, resolution = self.user_with_no_role_access_control._object_access_level_precheck(
+            "organization", is_creator=False
+        )
+        assert resolved and resolution is not None
+        assert (resolution.access_level, resolution.source) == ("member", "org_membership")
 
     def test_tie_between_member_and_role_reports_the_member(self):
         self._create_access_control(

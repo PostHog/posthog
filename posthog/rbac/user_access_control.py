@@ -259,10 +259,22 @@ class ResolvedAccess:
     - "system_default": no rule anywhere — default_access_level() applies (also covers orgs
       without the entitlement, where rules are never consulted)
     - "org_admin": rules never consulted — the admin bypass
+    - "creator": rules never consulted — the user created the object
+    - "org_membership": the object is the organization itself — organizations have no access
+      rules; the level comes from the user's OrganizationMembership.level (admin or member)
     """
 
     access_level: AccessControlLevel
-    source: Literal["object", "parent_object", "resource", "parent_resource", "system_default", "org_admin"]
+    source: Literal[
+        "object",
+        "parent_object",
+        "resource",
+        "parent_resource",
+        "system_default",
+        "org_admin",
+        "creator",
+        "org_membership",
+    ]
     # The source rule's subject: an everyone-row ("default"), a role row, or a member row.
     # None when no row decided.
     source_subject: Optional[Literal["member", "role", "default"]]
@@ -270,6 +282,10 @@ class ResolvedAccess:
     # source's resource, and the system default reports the resource whose rules would apply
     # (the RESOURCE_INHERITANCE_MAP umbrella), not necessarily the object's own.
     source_resource: APIScopeObject
+    # The source rule's resource_id — for a "parent_object" source this identifies which parent
+    # (the source a table inherited from), so a display can name it. None when the rule is
+    # resource-wide or no rule decided.
+    source_resource_id: Optional[str] = None
 
 
 def get_effective_access_level_for_role(
@@ -1530,11 +1546,11 @@ class UserAccessControl:
 
     def _object_access_level_precheck(
         self, resource: APIScopeObject, is_creator: bool, explicit: bool = False
-    ) -> tuple[bool, Optional[AccessControlLevel]]:
+    ) -> tuple[bool, Optional[ResolvedAccess]]:
         """Guard steps of object access resolution that don't need the object's own AC rows.
 
-        Returns (resolved, level): when `resolved` is True, `level` is the final answer and
-        the object's rows must not be consulted. Shared by `get_user_access_level` and
+        Returns (resolved, resolution): when `resolved` is True, `resolution` is the final answer
+        and the object's rows must not be consulted. Shared by `get_user_access_level` and
         `bulk_object_access_levels` so the single and bulk paths cannot drift.
         """
         org_membership = self._organization_membership
@@ -1542,17 +1558,42 @@ class UserAccessControl:
             return True, None
 
         # Creators and org admins always have highest access
-        if is_creator or self.is_organization_admin:
-            return True, highest_access_level(resource)
+        if is_creator:
+            return True, ResolvedAccess(
+                access_level=highest_access_level(resource),
+                source="creator",
+                source_subject=None,
+                source_resource=resource,
+            )
+        if self.is_organization_admin:
+            return True, ResolvedAccess(
+                access_level=highest_access_level(resource),
+                source="org_admin",
+                source_subject=None,
+                source_resource=resource,
+            )
 
         if resource == "organization":
             # Organization access is controlled via membership level only
-            if org_membership.level >= OrganizationMembership.Level.ADMIN:
-                return True, "admin"
-            return True, "member"
+            membership_level: AccessControlLevel = (
+                "admin" if org_membership.level >= OrganizationMembership.Level.ADMIN else "member"
+            )
+            return True, ResolvedAccess(
+                access_level=membership_level,
+                source="org_membership",
+                source_subject=None,
+                source_resource=resource,
+            )
 
         if not self.access_controls_supported:
-            return True, (None if explicit else default_access_level(resource))
+            if explicit:
+                return True, None
+            return True, ResolvedAccess(
+                access_level=default_access_level(resource),
+                source="system_default",
+                source_subject=None,
+                source_resource=resource,
+            )
 
         return False, None
 
@@ -1614,6 +1655,7 @@ class UserAccessControl:
                 source="object",
                 source_subject=self._row_subject(row),
                 source_resource=resource,
+                source_resource_id=row.resource_id,
             )
 
         if parent:
@@ -1627,6 +1669,7 @@ class UserAccessControl:
                     source="parent_object",
                     source_subject=self._row_subject(row),
                     source_resource=parent,
+                    source_resource_id=row.resource_id,
                 )
 
         if self.has_access_levels_for_resource(resource):
@@ -1646,6 +1689,7 @@ class UserAccessControl:
                 source="object",
                 source_subject=self._row_subject(row),
                 source_resource=resource,
+                source_resource_id=row.resource_id,
             )
 
         if explicit:
@@ -1668,9 +1712,9 @@ class UserAccessControl:
             return None
 
         is_creator = getattr(obj, "created_by", None) == self._user
-        resolved, level = self._object_access_level_precheck(resource, is_creator, explicit=explicit)
+        resolved, resolution = self._object_access_level_precheck(resource, is_creator, explicit=explicit)
         if resolved:
-            return level
+            return resolution.access_level if resolution else None
 
         object_access_controls = self._get_access_controls(
             self._access_controls_filters_for_object(resource, str(obj.id))  # type: ignore
@@ -1708,9 +1752,9 @@ class UserAccessControl:
 
         for object_id, created_by_id in objects:
             is_creator = created_by_id is not None and created_by_id == self._user.id
-            resolved, level = self._object_access_level_precheck(resource, is_creator)
+            resolved, resolution = self._object_access_level_precheck(resource, is_creator)
             if resolved:
-                results[object_id] = level
+                results[object_id] = resolution.access_level if resolution else None
                 continue
 
             if rows_by_object_id is None:
