@@ -175,11 +175,11 @@ export interface twoFactorLogicActions {
         code: string
         detail: string
     }
-    setSetupCallOngoing: (ongoing: boolean) => {
-        ongoing: boolean
-    }
     setSetupBackupCodes: (codes: string[]) => {
         codes: string[]
+    }
+    setSetupCallOngoing: (ongoing: boolean) => {
+        ongoing: boolean
     }
     setTokenManualErrors: (errors: Record<string, any>) => {
         errors: Record<string, any>
