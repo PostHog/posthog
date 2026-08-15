@@ -102,7 +102,12 @@ def _rejection_response(
     app_id: str | None = None,
     exc_info: bool = False,
 ) -> HttpResponse:
-    PUSH_SUBSCRIPTION_REJECTION_COUNTER.labels(code=code, method=request.method).inc()
+    # request.method is an arbitrary attacker-controlled token on the method_not_allowed path (any
+    # HTTP verb reaches this view), so bound the counter label to the supported verbs to keep
+    # Prometheus cardinality fixed. The log below keeps the raw method — structured log fields aren't
+    # a time-series cardinality risk and the real verb helps diagnose who is hitting the endpoint.
+    method_label = request.method if request.method in ("POST", "DELETE") else "other"
+    PUSH_SUBSCRIPTION_REJECTION_COUNTER.labels(code=code, method=method_label).inc()
     # exc_info attaches the active exception's traceback for paths that swallow one (capture_failed),
     # so a 500 is diagnosable from this single labeled event rather than just the counter.
     logger.warning(
