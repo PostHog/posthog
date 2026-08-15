@@ -790,11 +790,13 @@ class ExperimentQueryRunner(QueryRunner):
     ) -> tuple[list[ExperimentBreakdownResult], list[ExperimentStatsBase]]:
         """Compute per-breakdown statistics and aggregate across breakdowns."""
 
-        def _sort_key(breakdown_tuple: tuple[str, ...]) -> tuple[int, int, tuple[str, ...]]:
-            # Keep the "Other" bucket (and null) at the bottom of the breakdown list, matching insights.
+        def _sort_key(breakdown_tuple: tuple[str, ...]) -> tuple[int, tuple[str, ...]]:
+            # Keep the "Other" bucket last and null just above it, matching insights. A single rank
+            # (0 normal, 1 null, 2 other) then the tuple itself breaks ties alphabetically.
             has_other = any(value == BREAKDOWN_OTHER_STRING_LABEL for value in breakdown_tuple)
             has_null = any(value == BREAKDOWN_NULL_STRING_LABEL for value in breakdown_tuple)
-            return (int(has_other), int(has_null), breakdown_tuple)
+            rank = 2 if has_other else 1 if has_null else 0
+            return (rank, breakdown_tuple)
 
         breakdown_tuples = sorted({bv for bv, _ in variant_results if bv is not None}, key=_sort_key)
 
