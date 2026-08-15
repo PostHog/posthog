@@ -3751,7 +3751,9 @@ export const experimentLogic = kea<experimentLogicType>([
                 }))
             }
 
-            actions.updateExperiment(updatePayload)
+            // Await the save so a failed persist (e.g. a version conflict) doesn't kick off a
+            // recalculation that reads the old attribution from the server.
+            await asyncActions.updateExperiment(updatePayload)
 
             // Attribution changes how the metric is computed, so re-run results; the recalculation
             // flow triggers a fresh recalc via config_change, the legacy flow reloads per-metric results.
@@ -3784,7 +3786,9 @@ export const experimentLogic = kea<experimentLogicType>([
                 }))
             }
 
-            actions.updateExperiment(updatePayload)
+            // Await the save so a failed persist (e.g. a version conflict) doesn't kick off a
+            // recalculation that reads the old limit from the server.
+            await asyncActions.updateExperiment(updatePayload)
 
             // The limit changes how the metric is computed, so re-run results; the recalculation
             // flow triggers a fresh recalc via config_change, the legacy flow reloads per-metric results.
