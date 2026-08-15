@@ -53,7 +53,7 @@ def test_the_directory_names_the_key_it_is_signed_with():
 
 @pytest.mark.parametrize(
     "authority,expected",
-    [("posthog.com", True), ("evil.example", False), ("us.posthog.com", False)],
+    [("us.posthog.com", True), ("evil.example", False), ("posthog.com", False)],
 )
 def test_the_signature_only_verifies_at_the_authority_it_covers(authority: str, expected: bool):
     # This is the whole point of signing the directory. If the signature verified wherever the
@@ -90,8 +90,7 @@ def test_the_route_serves_a_signed_directory():
 
 @override_settings(WEB_BOT_AUTH_PRIVATE_KEY=PEM, ALLOWED_HOSTS=["*"])
 def test_the_route_ignores_the_host_it_was_asked_on():
-    # The route answers on us.posthog.com and reaches the public at posthog.com through a rewrite,
-    # so reading the authority off the request looks harmless and is the change to guard against. A
+    # Reading the authority off the request looks harmless and is the change to guard against. A
     # signer that trusted the Host would hand any site proxying here a directory that verifies there.
     key = serialization.load_pem_private_key(PEM.encode(), password=None)
     assert isinstance(key, Ed25519PrivateKey)
@@ -99,7 +98,7 @@ def test_the_route_ignores_the_host_it_was_asked_on():
     response = Client().get("/.well-known/http-message-signatures-directory", HTTP_HOST="evil.example")
 
     headers = {"Signature-Input": response["Signature-Input"], "Signature": response["Signature"]}
-    assert verify_at("posthog.com", headers, key) is True
+    assert verify_at("us.posthog.com", headers, key) is True
     assert verify_at("evil.example", headers, key) is False
 
 

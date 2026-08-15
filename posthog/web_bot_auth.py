@@ -17,9 +17,12 @@ _SIGNATURE_LIFETIME_SECONDS = 300
 
 # Signed as a constant, never read from the request. The signature covers the authority, so a signer
 # that signed whichever Host it was handed would give any site proxying this route a directory that
-# verifies on that site while carrying our key. Preventing exactly that is what this signature is
-# for. posthog.com reaches this route through a rewrite, so the Host here is not the public one.
-_AUTHORITY = "posthog.com"
+# verifies on that site while carrying our key. Preventing exactly that is what this signature is for.
+#
+# This is the origin the bot names in Signature-Agent, and it is us.posthog.com rather than
+# posthog.com because Vercel reserves /.well-known and will not rewrite it, so posthog.com cannot
+# serve a response it computes per request.
+_AUTHORITY = "us.posthog.com"
 
 
 def _private_key() -> Optional[Ed25519PrivateKey]:
