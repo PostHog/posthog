@@ -273,4 +273,84 @@ describe('useragent-plugin', () => {
             )
         })
     })
+
+    describe('in-app browsers', () => {
+        // Each pair is the same app on both platforms where it ships one, so the
+        // regression these catch is a platform split: `detect-browser` names the iOS
+        // build and lets the Android build fall through to chrome/chromium-webview.
+        const cases: [string, string, string][] = [
+            [
+                'facebook',
+                'iOS',
+                'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/21A329 [FBAN/FBIOS;FBDV/iPhone14,3;FBSV/17.0;]',
+            ],
+            [
+                'facebook',
+                'Android',
+                'Mozilla/5.0 (Linux; Android 13; SM-S908B Build/TP1A.220624.014; wv) AppleWebKit/537.36 (KHTML, like Gecko) Version/4.0 Chrome/119.0.6045.163 Mobile Safari/537.36 [FB_IAB/FB4A;FBAV/440.0.0.30.108;]',
+            ],
+            [
+                'instagram',
+                'iOS',
+                'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/21A329 Instagram 302.0.0.23.113 (iPhone14,3; iOS 17_0; en_US)',
+            ],
+            [
+                'instagram',
+                'Android',
+                'Mozilla/5.0 (Linux; Android 13; SM-S908B) AppleWebKit/537.36 (KHTML, like Gecko) Version/4.0 Chrome/119.0.6045.163 Mobile Safari/537.36 Instagram 302.0.0.23.113 Android (33/13; 420dpi; 1080x2138; samsung)',
+            ],
+            [
+                'linkedin',
+                'Android',
+                'Mozilla/5.0 (Linux; Android 13; SM-S908B) AppleWebKit/537.36 (KHTML, like Gecko) Version/4.0 Chrome/119.0.6045.163 Mobile Safari/537.36 [LinkedInApp]',
+            ],
+            [
+                'tiktok',
+                'iOS',
+                'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/21A329 musical_ly_2022803040 JsSdk/2.0 NetType/WIFI Channel/App Store ByteLocale/en Region/US',
+            ],
+            [
+                'wechat',
+                'iOS',
+                'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148 MicroMessenger/8.0.32.2300(0x28002037) NetType/WIFI Language/en',
+            ],
+            [
+                'line',
+                'iOS',
+                'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/21A329 Line/13.9.1/IAB',
+            ],
+            [
+                'twitter',
+                'iOS',
+                'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/21A329 Twitter for iPhone',
+            ],
+        ]
+
+        test.each(cases)('reports %s on %s as the app, not the host browser', (expected, _platform, userAgent) => {
+            const event = { properties: { $useragent: userAgent } } as unknown as PluginEvent
+
+            const processedEvent = processEvent(event, makeMeta())
+
+            expect(processedEvent.properties!.$browser).toEqual(expected)
+        })
+
+        // Guards the regexes against matching an ordinary mobile browser, which would
+        // relabel traffic that is already reported correctly today.
+        test.each([
+            [
+                'chrome',
+                'Mozilla/5.0 (Linux; Android 13; SM-S908B) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.6045.163 Mobile Safari/537.36',
+            ],
+            [
+                'ios',
+                'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1',
+            ],
+        ])('leaves %s alone', (expected, userAgent) => {
+            const event = { properties: { $useragent: userAgent } } as unknown as PluginEvent
+
+            const processedEvent = processEvent(event, makeMeta())
+
+            expect(processedEvent.properties!.$browser).toEqual(expected)
+        })
+    })
 })
