@@ -111,7 +111,9 @@ class TestMetricBreakdownInjector:
 
         cond = _unwrap_attribution(_entity_metrics_aliases(query)["breakdown_value_1"]).args[2]
         assert isinstance(cond, ast.Or)
-        matched_steps = {c.left.chain[0] for c in cond.exprs if isinstance(c, ast.CompareOperation)}
+        matched_steps = {
+            c.left.chain[0] for c in cond.exprs if isinstance(c, ast.CompareOperation) and isinstance(c.left, ast.Field)
+        }
         assert matched_steps == {"step_1", "step_2"}
 
     def test_breakdown_read_from_metric_event_in_base_events(self):
