@@ -1759,54 +1759,16 @@ class UserAccessControl:
 
         return results
 
-    def inherited_access_for_object(
-        self,
-        obj: Model,
-        *,
-        member: Optional[OrganizationMembership] = None,
-        role_id: Optional[str] = None,
-    ) -> Optional[ResolvedAccess]:
-        """The access a subject would have if their override on this object were removed — the
-        inherited level the UI shows next to "No override". The subject is the object's default
-        (no arguments), one member, or one role.
 
-        Runs the subject's precheck (a member keeps their creator and org-admin bypasses even
-        without the override) and then the same object walk, over the rules that apply to the
-        subject with the subject's own rows on this object left out — so the answer cannot
-        disagree with how access would actually be enforced.
-
-        None when nothing sits above the object (the resources without resource-level
-        controls, e.g. a project) — that None is load-bearing for the UI, which must not
-        offer "No override" there.
-        """
-        resource = model_to_resource(obj)
-        if not resource or resource in RESOURCES_WITHOUT_RESOURCE_LEVEL_CONTROLS:
-            return None
-
-        subject = _SubjectAccessControl(
-            self._user, self._team, organization_id=self._organization_id, member=member, role_id=role_id
-        )
-        is_creator = member is not None and getattr(obj, "created_by", None) == member.user
-        resolved, access = subject._object_access_level_precheck(resource, is_creator)
-        if resolved:
-            return access
-
-        rows = subject._get_access_controls(subject._access_controls_filters_for_object(resource, str(obj.id)))  # type: ignore
-        if member is not None:
-            rows = [ac for ac in rows if ac.organization_member_id != member.id]
-        elif role_id is not None:
-            rows = [ac for ac in rows if str(ac.role_id) != str(role_id)]
-        else:
-            rows = [ac for ac in rows if ac.organization_member_id is not None or ac.role_id is not None]
-        return subject._object_access_level_from_rows(
-            resource, rows, fallback_parent_id=self._fallback_parent_id(obj, resource)
-        )
-
-
-class _SubjectAccessControl(UserAccessControl):
+class SubjectAccessControl(UserAccessControl):
     """Resolves access from the rules that apply to a subject instead of the requesting user:
     the everyone-rows alone (the default subject), plus a member's own rows and their roles'
-    rows, or plus a single role's rows. The org-admin bypass follows the subject the same way."""
+    rows, or plus a single role's rows. The org-admin bypass follows the subject the same way.
+
+    For attribution and display (what does or would this subject have) — never for enforcing
+    the requesting user's access, which is UserAccessControl's job. `user`/`team` are still the
+    requesting user's context; the subject only changes whose rules resolve.
+    """
 
     def __init__(
         self,
@@ -1820,6 +1782,46 @@ class _SubjectAccessControl(UserAccessControl):
         super().__init__(user, team, organization_id)
         self._subject_member = member
         self._subject_role_id = role_id
+
+    def inherited_access_for_object(self, obj: Model) -> Optional[ResolvedAccess]:
+        """The access the subject would have if their override on this object were removed — the
+        inherited level the UI shows next to "No override".
+
+        Runs the subject's precheck (a member keeps their creator and org-admin bypasses even
+        without the override) and then the same object walk, over the subject's rules with the
+        subject's own rows on this object left out — so the answer cannot disagree with how
+        access would actually be enforced.
+
+        None when nothing sits above the object (the resources without resource-level
+        controls, e.g. a project) — that None is load-bearing for the UI, which must not
+        offer "No override" there.
+        """
+        resource = model_to_resource(obj)
+        if not resource or resource in RESOURCES_WITHOUT_RESOURCE_LEVEL_CONTROLS:
+            return None
+
+        member = self._subject_member
+        is_creator = member is not None and getattr(obj, "created_by", None) == member.user
+        resolved, access = self._object_access_level_precheck(resource, is_creator)
+        if resolved:
+            return access
+
+        rows = [
+            ac
+            for ac in self._get_access_controls(self._access_controls_filters_for_object(resource, str(obj.id)))  # type: ignore
+            if not self._is_subject_row(ac)
+        ]
+        return self._object_access_level_from_rows(
+            resource, rows, fallback_parent_id=self._fallback_parent_id(obj, resource)
+        )
+
+    def _is_subject_row(self, access_control: _AccessControl) -> bool:
+        """Whether this row is the subject's own — the kind of rule "No override" would remove."""
+        if self._subject_member is not None:
+            return access_control.organization_member_id == self._subject_member.id
+        if self._subject_role_id is not None:
+            return str(access_control.role_id) == str(self._subject_role_id)
+        return access_control.organization_member_id is None and access_control.role_id is None
 
     @cached_property
     def _user_role_ids(self):

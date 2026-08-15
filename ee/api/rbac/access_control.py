@@ -16,6 +16,7 @@ from posthog.rbac.user_access_control import (
     ACCESS_CONTROL_MAX_OBJECTS_PER_RESOURCE,
     AccessSource,
     ResolvedAccess,
+    SubjectAccessControl,
     UserAccessControl,
     default_access_level,
     highest_access_level,
@@ -361,7 +362,7 @@ class AccessControlViewSetMixin(_GenericViewSet):
             # a project's own default, which has nothing above it to fall back to. "No override"
             # belongs to object defaults only — project-level access is configured in its own
             # panel, which has no inherited tier to fall back to.
-            inherited = user_access_control.inherited_access_for_object(obj)
+            inherited = SubjectAccessControl(user_access_control.user, team).inherited_access_for_object(obj)
             payload["inherited_access"] = (
                 {
                     "access_level": inherited.access_level,
