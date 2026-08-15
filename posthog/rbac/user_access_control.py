@@ -1602,20 +1602,17 @@ class UserAccessControl:
 
     @staticmethod
     def _highest_access_from_rows(resource: APIScopeObject, access_controls: list[_AccessControl]) -> _AccessControl:
-        """The row that supplies the highest level.
+        """Pick the row that supplies the highest access level.
 
-        On level ties the attribution is deterministic — a member row over a role row over the
-        everyone-row. Label only: the level is identical by construction.
+        Several rows can tie at the highest level. The level is the same whichever we pick, but the
+        caller reports which row decided (source_subject, source_resource_id), so the pick must be
+        deterministic: the user's own member row wins over a role row, which wins over the everyone-row.
         """
         levels = ordered_access_levels(resource)
-        top = max(levels.index(ac.access_level) for ac in access_controls)
-
-        def specificity(ac: _AccessControl) -> int:
-            return 2 if ac.organization_member_id is not None else 1 if ac.role_id is not None else 0
-
+        specificity = {"default": 0, "role": 1, "member": 2}
         return max(
-            (ac for ac in access_controls if levels.index(ac.access_level) == top),
-            key=specificity,
+            access_controls,
+            key=lambda ac: (levels.index(ac.access_level), specificity[UserAccessControl._row_subject(ac)]),
         )
 
     @staticmethod
