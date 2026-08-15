@@ -29,8 +29,10 @@ from posthog.schema import (
     SpendHistoryItem,
 )
 
+from posthog.models.personal_api_key import PersonalAPIKey, hash_key_value
 from posthog.models.team.team import Team
 from posthog.models.user import User
+from posthog.models.utils import generate_random_token_personal
 from posthog.rate_limit import AIBurstRateThrottle
 from posthog.temporal.ai.chat_agent import ChatAgentWorkflow, ChatAgentWorkflowInputs
 from posthog.temporal.ai.research_agent import ResearchAgentWorkflow, ResearchAgentWorkflowInputs
@@ -1667,6 +1669,36 @@ class TestConversationSandboxRoute(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.mock_select_repo.assert_not_awaited()
         self.assertIsNone(m_session.return_value.open.call_args.kwargs["repository"])
+
+    def test_open_reachable_with_scoped_token_auth(self):
+        # Custom actions sit outside APIScopePermission's default read/write lists, so `open`
+        # 403'd every token-authenticated caller (OAuth, personal API key) until it declared
+        # required_scopes. Session-authenticated callers never hit the scope check.
+        key_value = generate_random_token_personal()
+        PersonalAPIKey.objects.create(
+            label="quick-ask",
+            user=self.user,
+            secure_value=hash_key_value(key_value),
+            scopes=["conversation:write"],
+        )
+        self.client.logout()
+        conversation = self._sandbox_conversation()
+        sentinel = SandboxRouteResult(
+            task_id="t", run_id="r", trace_id=None, run_status="queued", just_created_run=True
+        )
+        with (
+            patch("ee.api.conversation.SandboxSession") as m_session,
+            patch("ee.api.conversation.report_user_action"),
+        ):
+            m_session.return_value.open.return_value = sentinel
+            response = self.client.post(
+                f"/api/environments/{self.team.id}/conversations/{conversation.id}/open/",
+                {"content": "hello"},
+                format="json",
+                HTTP_AUTHORIZATION=f"Bearer {key_value}",
+            )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
 
     def test_open_without_content_warms(self):
         # A null/absent content warms a sandbox; the session returns a fresh warm handle (200), or

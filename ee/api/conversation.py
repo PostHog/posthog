@@ -713,7 +713,11 @@ class ConversationViewSet(
             "frontend opens SSE against. The conversation row is created on first use from the URL id."
         ),
     )
-    @action(detail=True, methods=["POST"], url_path="open")
+    # Custom actions are outside APIScopePermission's default read/write action
+    # lists, so without explicit scopes every token-authenticated caller (OAuth,
+    # personal API key) gets a 403. Session auth (the web app) bypasses scope
+    # checks, which is why this only bites programmatic clients like the desktop.
+    @action(detail=True, methods=["POST"], url_path="open", required_scopes=["conversation:write"])
     def open(self, request: Request, *args, **kwargs):
         # Both warming and messaging launch a Run, so gate both on the AI-credit quota.
         if is_team_limited(self.team.api_token, QuotaResource.AI_CREDITS, QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY):
