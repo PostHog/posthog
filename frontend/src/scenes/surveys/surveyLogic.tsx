@@ -3176,19 +3176,20 @@ export const surveyLogic = kea<surveyLogicType>([
                     'person',
                 ]
 
-                const select = responseTableState
+                // Reading a persisted value, so treat anything but a usable selection as absent
+                // rather than letting a stale shape throw out of the selector.
+                const select = responseTableState?.select?.length
                     ? reconcileSurveyResponseColumns(
                           responseTableState.select,
-                          responseTableState.knownResponseExpressions,
+                          responseTableState.knownResponseExpressions ?? [],
                           defaultColumns
                       )
                     : defaultColumns
                 // A sort on a column that reconciliation just dropped would reference a question
                 // that no longer exists, which fails the query rather than returning nothing.
-                const orderBy =
-                    responseTableState && !isSurveyResponseOrderByStale(responseTableState.orderBy, select)
-                        ? responseTableState.orderBy
-                        : DEFAULT_RESPONSES_ORDER_BY
+                const orderBy = isSurveyResponseOrderByStale(responseTableState?.orderBy, select)
+                    ? DEFAULT_RESPONSES_ORDER_BY
+                    : responseTableState?.orderBy
 
                 return {
                     kind: NodeKind.DataTableNode,

@@ -2866,6 +2866,13 @@ describe('survey responses table state', () => {
             ['*', Q1_COLUMN, 'timestamp'],
             ['*', Q1_COLUMN, 'timestamp'],
         ],
+        [
+            // `*` renders no column of its own, so keeping it alone would leave a blank table.
+            'the only question left in the selection is deleted',
+            [HOW_DID_YOU_HEAR],
+            ['*', Q2_COLUMN],
+            ['*', Q1_COLUMN, 'timestamp', 'person'],
+        ],
     ])('reconciles the columns when %s', (_description, questions, chosen, expected) => {
         editTable({ source: { select: chosen } })
 
@@ -2883,5 +2890,28 @@ describe('survey responses table state', () => {
 
         expect(source()?.select).not.toContain(Q2_COLUMN)
         expect(source()?.orderBy).toEqual(['timestamp DESC'])
+    })
+
+    // The events query runner only defaults to `timestamp DESC` when `orderBy` is absent. Sending
+    // the empty array that "Reset sorting" produces runs the query unordered, so paging by offset
+    // repeats and skips responses.
+    it('restores the default sort when sorting is reset', () => {
+        editTable({ source: { orderBy: [] } })
+
+        expect(source()?.orderBy).toEqual(['timestamp DESC'])
+    })
+
+    // `removeExpressionComment` splits on the last `--`, so question text containing one used to
+    // leave part of the wording in the column's identity.
+    it('keeps a removed column removed when its question text contains a comment marker', () => {
+        const tricky = { ...WHAT_CAN_WE_IMPROVE, question: 'What can we improve -- honestly?' }
+        logic.actions.loadSurveySuccess(withQuestions([HOW_DID_YOU_HEAR, tricky]))
+        editTable({ source: { select: ['*', Q1_COLUMN, 'timestamp'] } })
+
+        logic.actions.loadSurveySuccess(
+            withQuestions([HOW_DID_YOU_HEAR, { ...tricky, question: 'What could we improve -- honestly?' }])
+        )
+
+        expect(source()?.select).toEqual(['*', Q1_COLUMN, 'timestamp'])
     })
 })

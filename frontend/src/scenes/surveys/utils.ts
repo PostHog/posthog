@@ -14,7 +14,6 @@ import {
 } from 'scenes/surveys/constants'
 import { SurveyRatingResults } from 'scenes/surveys/surveyLogic'
 
-import { removeExpressionComment } from '~/queries/nodes/DataTable/utils'
 import {
     BasicSurveyQuestion,
     CyclotronJobInvocationGlobals,
@@ -398,12 +397,26 @@ export function getSurveyResponse(question: SurveyQuestion, index: number): stri
 
 const SURVEY_RESPONSE_CALL = 'getSurveyResponse('
 
+/**
+ * The bare expression a survey column selects, used as its stable identity.
+ *
+ * `removeExpressionComment` splits on the *last* `--`, so question text containing `--` leaves part
+ * of the wording in the result and rewording the question then changes the identity. The generated
+ * expressions never contain `--` themselves, so the first one always opens the comment.
+ */
+function surveyColumnKey(column: string): string {
+    return column
+        .split('--')[0]
+        .replace(/\s+DESC$/i, '')
+        .trim()
+}
+
 export function isSurveyResponseColumn(column: string): boolean {
-    return removeExpressionComment(column).includes(SURVEY_RESPONSE_CALL)
+    return surveyColumnKey(column).includes(SURVEY_RESPONSE_CALL)
 }
 
 export function surveyResponseExpressions(columns: string[]): string[] {
-    return columns.filter(isSurveyResponseColumn).map(removeExpressionComment)
+    return columns.filter(isSurveyResponseColumn).map(surveyColumnKey)
 }
 
 /**
@@ -419,20 +432,30 @@ export function reconcileSurveyResponseColumns(
     defaultColumns: string[]
 ): string[] {
     const currentByExpression = new Map(
-        defaultColumns.filter(isSurveyResponseColumn).map((column) => [removeExpressionComment(column), column])
+        defaultColumns.filter(isSurveyResponseColumn).map((column) => [surveyColumnKey(column), column])
     )
     const known = new Set(knownExpressions)
 
     const matched = new Set<string>()
     const columns: string[] = []
+    let hasStar = false
     for (const column of storedColumns) {
+        if (column === '*') {
+            // `*` marks the event payload rather than a column, and the configurator's reset can
+            // hand back a selection carrying two of them, which would fetch every payload twice.
+            if (!hasStar) {
+                hasStar = true
+                columns.push(column)
+            }
+            continue
+        }
         if (!isSurveyResponseColumn(column)) {
             columns.push(column)
             continue
         }
         // Rebuild from the current default so a reworded question refreshes its header, and drop
         // columns whose question was deleted or reordered, since the index is part of the expression.
-        const expression = removeExpressionComment(column)
+        const expression = surveyColumnKey(column)
         const current = currentByExpression.get(expression)
         if (current) {
             columns.push(current)
@@ -444,25 +467,31 @@ export function reconcileSurveyResponseColumns(
         .filter(([expression]) => !matched.has(expression) && !known.has(expression))
         .map(([, column]) => column)
     if (added.length) {
-        // Response columns sit right after `*` in the defaults, and the row renderers read the event
-        // payload at `*`'s index, so a new column must never land ahead of it.
+        // Keep new response columns grouped with the existing ones, and never ahead of `*`, whose
+        // index the survey row renderers use to read the event payload.
         const lastResponse = columns.findLastIndex(isSurveyResponseColumn)
         columns.splice(lastResponse >= 0 ? lastResponse + 1 : columns.indexOf('*') + 1, 0, ...added)
     }
 
-    return columns.length ? columns : defaultColumns
+    // `*` carries the event payload for row expansion but renders no column of its own, so a
+    // selection that reconciles down to just `*` would leave a table with nothing in it.
+    return columns.some((column) => column !== '*') ? columns : defaultColumns
 }
 
-/** True when `orderBy` sorts on a response column that `select` no longer contains. */
+/**
+ * True when `orderBy` cannot be used as-is and the caller should fall back to its default.
+ *
+ * An empty `orderBy` is not "no preference": the events query runner only falls back to
+ * `timestamp DESC` when `orderBy` is absent, so sending `[]` runs the query genuinely unordered and
+ * makes offset pagination repeat and skip rows.
+ */
 export function isSurveyResponseOrderByStale(orderBy: string[] | undefined, select: string[]): boolean {
     if (!orderBy?.length) {
-        return false
+        return true
     }
-    const selected = new Set(select.map(removeExpressionComment))
+    const selected = new Set(select.map(surveyColumnKey))
     return orderBy.some((entry) => {
-        const expression = removeExpressionComment(entry)
-            .replace(/\s+DESC$/i, '')
-            .trim()
+        const expression = surveyColumnKey(entry)
         return expression.includes(SURVEY_RESPONSE_CALL) && !selected.has(expression)
     })
 }
