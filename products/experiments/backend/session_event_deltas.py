@@ -404,12 +404,9 @@ class ExperimentWatchResult:
     max_card_recordings: int
     # How many cards the duplicate-recording-set rule removed from this viewer's shelf, reported
     # so the shelf-loaded telemetry can say how often DUPLICATE_CARD_OVERLAP fires on real shelves
-    # before anyone tunes it.
+    # before anyone tunes it. Set in `finalize_watch_cards` rather than here, because the shelf is
+    # cached across viewers and the duplicate cut runs on the shelf a viewer actually gets.
     dropped_duplicate_cards: int
-    # Whether this viewer's per-recording access filter removed anything. Both of these are set in
-    # `finalize_watch_cards` rather than here, because the shelf is cached across viewers and the
-    # duplicate cut runs on the shelf a viewer actually gets.
-    recordings_excluded_by_access: bool
     too_early: bool
 
 
@@ -430,6 +427,10 @@ def finalize_watch_cards(result: ExperimentWatchResult, accessible_session_ids: 
     recorded, since either way there is nothing to watch behind it. `recording_count` is recomputed
     so it keeps meaning "recordings this card can show you".
 
+    The cut is silent, as it is on the bucket and batch-context reads: the response must not say
+    whether this filter removed anything, because that would tell the viewer recordings denied to
+    them ran through this experiment, which is the fact the object-level control withholds.
+
     The duplicate cut and the highlight assignment run here rather than in the scan because both
     are statements about the shelf a viewer sees. Cutting a duplicate against recordings this
     viewer can't open would drop a card whose remaining recordings they can, and could leave two
@@ -438,23 +439,15 @@ def finalize_watch_cards(result: ExperimentWatchResult, accessible_session_ids: 
     """
     accessible = set(accessible_session_ids)
     cards = []
-    excluded_any = False
     for card in result.cards:
         session_ids = [session_id for session_id in card.session_ids if session_id in accessible]
-        if len(session_ids) < len(card.session_ids):
-            excluded_any = True
         if session_ids:
             highlights = [highlight for highlight in card.highlights if highlight.session_id in accessible]
             cards.append(
                 replace(card, recording_count=len(session_ids), session_ids=session_ids, highlights=highlights)
             )
     deduped = _drop_duplicate_recording_sets(cards)
-    return replace(
-        result,
-        cards=_assign_highlights(deduped),
-        dropped_duplicate_cards=len(cards) - len(deduped),
-        recordings_excluded_by_access=excluded_any,
-    )
+    return replace(result, cards=_assign_highlights(deduped), dropped_duplicate_cards=len(cards) - len(deduped))
 
 
 def get_experiment_session_event_deltas(team: Team, user: User, experiment: Experiment) -> ExperimentWatchResult:
@@ -622,9 +615,8 @@ def get_experiment_session_event_deltas(team: Team, user: User, experiment: Expe
         events_truncated=scan.events_truncated,
         min_arm_persons=MIN_ARM_PERSONS,
         max_card_recordings=MAX_CARD_RECORDINGS,
-        # Both settled per viewer in `finalize_watch_cards`; the cached shelf carries placeholders.
+        # Settled per viewer in `finalize_watch_cards`; the cached shelf carries a placeholder.
         dropped_duplicate_cards=0,
-        recordings_excluded_by_access=False,
         too_early=too_early,
     )
     safe_cache_set(cache_key, result, timeout=DELTA_CACHE_TTL)

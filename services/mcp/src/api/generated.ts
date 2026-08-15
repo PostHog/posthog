@@ -31987,8 +31987,6 @@ export namespace Schemas {
       max_card_recordings: number;
       /** How many cards were removed because their recordings were already another card's on the same shelf. Nothing was lost: the recordings are all reachable through the cards that stayed. */
       dropped_duplicate_cards: number;
-      /** True when recordings this viewer is not allowed to open were left out. Counts are then lower than another viewer may see for the same experiment, and a recording_count below max_card_recordings may still have hit the ceiling before this viewer's filter was applied. */
-      recordings_excluded_by_access: boolean;
       /** True when fewer than two variants have min_arm_persons exposed people, so no comparison exists and cards is empty. Say 'too early to compare' and show the arms' counts; an empty shelf presented without this would read as 'the variants behaved identically'. */
       too_early: boolean;
     }

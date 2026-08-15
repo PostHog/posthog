@@ -2091,13 +2091,6 @@ class ExperimentSessionEventDeltaResponseSerializer(serializers.Serializer):
             "shelf. Nothing was lost: the recordings are all reachable through the cards that stayed."
         )
     )
-    recordings_excluded_by_access = serializers.BooleanField(
-        help_text=(
-            "True when recordings this viewer is not allowed to open were left out. Counts are then lower than "
-            "another viewer may see for the same experiment, and a recording_count below max_card_recordings "
-            "may still have hit the ceiling before this viewer's filter was applied."
-        )
-    )
     too_early = serializers.BooleanField(
         help_text=(
             "True when fewer than two variants have min_arm_persons exposed people, so no comparison exists and "

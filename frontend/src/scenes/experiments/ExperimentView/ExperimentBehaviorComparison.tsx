@@ -598,9 +598,6 @@ function ShelfCaption({ deltas }: { deltas: ExperimentSessionEventDeltaResponseA
         deltas.used_exposure_fallback
             ? 'Sessions are matched on the feature flag being active, since no exposure event can be matched to a recording here.'
             : null,
-        deltas.recordings_excluded_by_access
-            ? "Recordings you don't have access to are left out, so the counts here can be lower than what another viewer sees."
-            : null,
         deltas.sessions_truncated
             ? 'The experiment has more exposed sessions than one comparison covers, so the window is the most recent stretch that fits, not the whole run.'
             : null,

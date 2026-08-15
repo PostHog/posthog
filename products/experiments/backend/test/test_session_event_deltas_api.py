@@ -236,9 +236,8 @@ class TestExperimentSessionEventDeltas(ClickhouseTestMixin, APILicensedTest):
         # find, and the frontend words those two cases differently.
         assert data["too_early"] is False
         assert [(arm["key"], arm["persons"]) for arm in data["arms"]] == [("control", 30), ("test", 30)]
-        # A clean shelf reports clean caveats: nothing deduped, nothing withheld from this viewer.
+        # A clean shelf reports a clean caveat: no card was deduped away.
         assert data["dropped_duplicate_cards"] == 0
-        assert data["recordings_excluded_by_access"] is False
 
     @patch.object(session_event_deltas, "MIN_ARM_PERSONS", 20)
     def test_cards_rank_by_separation_and_leave_out_what_the_arms_share(self) -> None:
@@ -859,9 +858,9 @@ class TestExperimentSessionEventDeltas(ClickhouseTestMixin, APILicensedTest):
         card = next(card for card in self._cards(data, "behavior") if card["event"] == "pricing_faq")
         assert card["session_ids"] == [allowed]
         assert card["recording_count"] == 1
-        # The response owns up to the cut: without this flag two viewers comparing counts for the
-        # same experiment have no way to see why their numbers differ.
-        assert data["recordings_excluded_by_access"] is True
+        # The cut leaves no trace: acknowledging it would tell the viewer that recordings denied
+        # to them ran through this experiment.
+        assert "recordings_excluded_by_access" not in data
 
     @rank_anything
     def test_a_card_the_viewer_can_still_watch_survives_its_duplicate_being_cut(self) -> None:
