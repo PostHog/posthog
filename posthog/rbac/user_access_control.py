@@ -1759,14 +1759,21 @@ class UserAccessControl:
 
         return results
 
-    def inherited_access_for_object(self, obj: Model) -> Optional[ResolvedAccess]:
-        """The access an object falls back to when it carries no rules of its own — what the
-        UI's "No override" option means.
+    def inherited_access_for_object(
+        self,
+        obj: Model,
+        *,
+        member: Optional[OrganizationMembership] = None,
+        role_id: Optional[str] = None,
+    ) -> Optional[ResolvedAccess]:
+        """The access a subject would have if their override on this object were removed — the
+        inherited level the UI shows next to "No override". The subject is the object's default
+        (no arguments), one member, or one role.
 
-        The same object walk, run with the object's own rows masked out (an empty row pool)
-        and from the everyone perspective: overrides on the object are exactly what "no
-        override" ignores, and the fallback is a property of the object, not of the requesting
-        user, so member/role rows and the admin/creator bypasses don't apply.
+        Runs the subject's precheck (a member keeps their creator and org-admin bypasses even
+        without the override) and then the same object walk, over the rules that apply to the
+        subject with the subject's own rows on this object left out — so the answer cannot
+        disagree with how access would actually be enforced.
 
         None when nothing sits above the object (the resources without resource-level
         controls, e.g. a project) — that None is load-bearing for the UI, which must not
@@ -1775,22 +1782,68 @@ class UserAccessControl:
         resource = model_to_resource(obj)
         if not resource or resource in RESOURCES_WITHOUT_RESOURCE_LEVEL_CONTROLS:
             return None
-        everyone = _EveryonePerspectiveAccessControl(self._user, self._team, organization_id=self._organization_id)
-        return everyone._object_access_level_from_rows(
-            resource, [], fallback_parent_id=self._fallback_parent_id(obj, resource)
+
+        subject = _SubjectAccessControl(
+            self._user, self._team, organization_id=self._organization_id, member=member, role_id=role_id
+        )
+        is_creator = member is not None and getattr(obj, "created_by", None) == member.user
+        resolved, access = subject._object_access_level_precheck(resource, is_creator)
+        if resolved:
+            return access
+
+        rows = subject._get_access_controls(subject._access_controls_filters_for_object(resource, str(obj.id)))  # type: ignore
+        if member is not None:
+            rows = [ac for ac in rows if ac.organization_member_id != member.id]
+        elif role_id is not None:
+            rows = [ac for ac in rows if str(ac.role_id) != str(role_id)]
+        else:
+            rows = [ac for ac in rows if ac.organization_member_id is not None or ac.role_id is not None]
+        return subject._object_access_level_from_rows(
+            resource, rows, fallback_parent_id=self._fallback_parent_id(obj, resource)
         )
 
 
-class _EveryonePerspectiveAccessControl(UserAccessControl):
-    """The walk restricted to everyone-rows. Member rows, role rows, and the org-admin bypass
-    don't apply: the result describes what the rules grant everyone, not a particular user."""
+class _SubjectAccessControl(UserAccessControl):
+    """Resolves access from the rules that apply to a subject instead of the requesting user:
+    the everyone-rows alone (the default subject), plus a member's own rows and their roles'
+    rows, or plus a single role's rows. The org-admin bypass follows the subject the same way."""
+
+    def __init__(
+        self,
+        user: User,
+        team: Optional[Team] = None,
+        organization_id: Optional[str] = None,
+        *,
+        member: Optional[OrganizationMembership] = None,
+        role_id: Optional[str] = None,
+    ):
+        super().__init__(user, team, organization_id)
+        self._subject_member = member
+        self._subject_role_id = role_id
+
+    @cached_property
+    def _user_role_ids(self):
+        if self._subject_member is not None:
+            if not self.rbac_supported:
+                return []
+            return list(
+                cast(Any, self._subject_member.user)
+                .role_memberships.filter(role__organization_id=self._organization_id)
+                .values_list("role_id", flat=True)
+            )
+        return [self._subject_role_id] if self._subject_role_id else []
 
     def _filter_options(self, filters: dict[str, Any]) -> Q:
-        return Q(**filters, organization_member=None, role=None)
+        q = Q(**filters, organization_member=None, role=None)
+        if self._subject_member is not None:
+            q |= Q(**filters, organization_member=self._subject_member, role=None)
+        if self._user_role_ids:
+            q |= Q(**filters, organization_member=None, role__in=self._user_role_ids)
+        return q
 
     @property
     def is_organization_admin(self) -> bool:
-        return False
+        return bool(self._subject_member and self._subject_member.level >= OrganizationMembership.Level.ADMIN)
 
 
 class UserAccessControlSerializerMixin(serializers.Serializer):
