@@ -1764,9 +1764,9 @@ class SubjectAccessControl(UserAccessControl):
     """Resolves access for a subject rather than for the requesting user.
 
     The subject decides which rules count:
-    - no subject (the default): only the everyone-rows — what the rules grant everyone
-    - member=...: the everyone-rows, the member's own rows, and the rows of the member's roles
-    - role_id=...: the everyone-rows and that role's rows
+    - no subject: only the default rules (scoped to no member and no role) — what applies to everyone
+    - member=...: the default rules, the member's own rules, and the rules of the member's roles
+    - role_id=...: the default rules and that role's rules
 
     A member subject keeps the org-admin bypass when their membership level grants it; the
     other subjects never have it.
