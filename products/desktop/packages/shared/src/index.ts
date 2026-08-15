@@ -341,6 +341,7 @@ export {
   serializeSkillMarkdown,
   stripFrontmatter,
 } from "./skills";
+export { leadingSlashCommand } from "./slash-commands";
 export type { PostHogAPIConfig } from "./task";
 export {
   type CreateTaskAutomationOptions,
