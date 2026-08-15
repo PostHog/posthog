@@ -1759,6 +1759,39 @@ class UserAccessControl:
 
         return results
 
+    def inherited_access_for_object(self, obj: Model) -> Optional[ResolvedAccess]:
+        """The access an object falls back to when it carries no rules of its own — what the
+        UI's "No override" option means.
+
+        The same object walk, run with the object's own rows masked out (an empty row pool)
+        and from the everyone perspective: overrides on the object are exactly what "no
+        override" ignores, and the fallback is a property of the object, not of the requesting
+        user, so member/role rows and the admin/creator bypasses don't apply.
+
+        None when nothing sits above the object (the resources without resource-level
+        controls, e.g. a project) — that None is load-bearing for the UI, which must not
+        offer "No override" there.
+        """
+        resource = model_to_resource(obj)
+        if not resource or resource in RESOURCES_WITHOUT_RESOURCE_LEVEL_CONTROLS:
+            return None
+        everyone = _EveryonePerspectiveAccessControl(self._user, self._team, organization_id=self._organization_id)
+        return everyone._object_access_level_from_rows(
+            resource, [], fallback_parent_id=self._fallback_parent_id(obj, resource)
+        )
+
+
+class _EveryonePerspectiveAccessControl(UserAccessControl):
+    """The walk restricted to everyone-rows. Member rows, role rows, and the org-admin bypass
+    don't apply: the result describes what the rules grant everyone, not a particular user."""
+
+    def _filter_options(self, filters: dict[str, Any]) -> Q:
+        return Q(**filters, organization_member=None, role=None)
+
+    @property
+    def is_organization_admin(self) -> bool:
+        return False
+
 
 class UserAccessControlSerializerMixin(serializers.Serializer):
     """

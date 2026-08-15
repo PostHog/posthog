@@ -14,9 +14,8 @@ from posthog.models.team.team import Team
 from posthog.rbac.user_access_control import (
     ACCESS_CONTROL_LEVELS_RESOURCE,
     ACCESS_CONTROL_MAX_OBJECTS_PER_RESOURCE,
-    RESOURCE_INHERITANCE_MAP,
-    RESOURCES_WITHOUT_RESOURCE_LEVEL_CONTROLS,
     AccessSource,
+    ResolvedAccess,
     UserAccessControl,
     default_access_level,
     highest_access_level,
@@ -25,12 +24,25 @@ from posthog.rbac.user_access_control import (
 )
 from posthog.scopes import API_SCOPE_OBJECTS, INTERNAL_API_SCOPE_OBJECTS, APIScopeObjectOrNotSupported
 
+from products.warehouse_sources.backend.models import ExternalDataSource
+
 from ee.models.rbac.access_control import AccessControl
 
 if TYPE_CHECKING:
     _GenericViewSet = GenericViewSet
 else:
     _GenericViewSet = object
+
+
+def _inherited_source_display_name(team: Team, access: ResolvedAccess) -> str | None:
+    """A human name for the parent object an inherited level comes through (a table's source),
+    so the UI can say which one. Only object-scoped sources have one."""
+    if access.source != "parent_object" or not access.source_resource_id:
+        return None
+    if access.source_resource == "external_data_source":
+        source = ExternalDataSource.objects.filter(team=team, id=access.source_resource_id).first()
+        return source.source_type if source else None
+    return None
 
 
 class OrganizationMemberField(serializers.PrimaryKeyRelatedField):
@@ -340,32 +352,28 @@ class AccessControlViewSetMixin(_GenericViewSet):
 
         if not is_resource_level:
             # The level this object falls back to when it carries no default of its own, so the UI
-            # can spell out what removing the override means. Follows RESOURCE_INHERITANCE_MAP
-            # because that's the resource the runtime check consults — a warehouse view is gated by
-            # the warehouse_objects rules, not by its own.
+            # can spell out what removing the override means. Resolved by the access walker itself
+            # (the object's own rows masked out, everyone perspective), so the shown level cannot
+            # disagree with how access is actually enforced — a re-derivation here would miss the
+            # fallback-parent tier (a table gated by its source).
             #
             # None for a project is load-bearing: it is what stops the UI offering "No override" on
             # a project's own default, which has nothing above it to fall back to. "No override"
             # belongs to object defaults only — project-level access is configured in its own
             # panel, which has no inherited tier to fall back to.
-            inherited_resource = (
-                None
-                if resource in RESOURCES_WITHOUT_RESOURCE_LEVEL_CONTROLS
-                else RESOURCE_INHERITANCE_MAP.get(resource, resource)
+            inherited = user_access_control.inherited_access_for_object(obj)
+            payload["inherited_access"] = (
+                {
+                    "access_level": inherited.access_level,
+                    "source": inherited.source,
+                    "source_subject": inherited.source_subject,
+                    "source_resource": inherited.source_resource,
+                    "source_resource_id": inherited.source_resource_id,
+                    "source_display_name": _inherited_source_display_name(team, inherited),
+                }
+                if inherited
+                else None
             )
-            payload["inherited_resource"] = inherited_resource
-            payload["inherited_access_level"] = None
-            if inherited_resource:
-                everyone_rule = AccessControl.objects.filter(
-                    team=team,
-                    resource=inherited_resource,
-                    resource_id=None,
-                    organization_member=None,
-                    role=None,
-                ).first()
-                payload["inherited_access_level"] = (
-                    everyone_rule.access_level if everyone_rule else default_access_level(inherited_resource)
-                )
 
         return Response(payload)
 
