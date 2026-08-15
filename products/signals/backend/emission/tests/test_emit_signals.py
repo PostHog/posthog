@@ -682,6 +682,9 @@ class TestRunSignalPipelineSteering:
         assert "Ignore issues labeled chore" in prompt
         assert "When in doubt, classify as NOT_ACTIONABLE" in prompt
         assert "Bump lodash to 4.17.21" in prompt
+        # Steered gates also see the record's extra metadata, where emitters keep labels/state.
+        assert "<record_metadata>" in prompt
+        assert '"chore_1"' in prompt
 
         filtered_calls = [
             call for call in capture.call_args_list if call.kwargs["event"] == "signal_data_source_filtered"

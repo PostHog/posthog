@@ -47,10 +47,12 @@ async def emit_data_import_signals_activity(inputs: EmitSignalsActivityInputs) -
             "last_synced_at": inputs.last_synced_at,
             "extra": inputs.properties_to_log,
         }
+        # Before the record fetch: fetchers record emission optimistically, so a failure after
+        # they return would permanently skip this batch on the Temporal retry.
+        source_config = await afetch_source_config(team.id, config.source_product, config.source_type)
         records = await database_sync_to_async(config.record_fetcher, thread_sensitive=False)(
             team, config, fetcher_context
         )
-        source_config = await afetch_source_config(team.id, config.source_product, config.source_type)
         return await run_signal_pipeline(
             team=team,
             config=config,

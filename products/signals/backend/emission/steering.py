@@ -21,20 +21,18 @@ from typing import Any
 
 from posthog.dataclasses import frozen
 
+from products.signals.backend.contracts import DEFAULT_NOT_ACTIONABLE_KEY, STEERING_KEY, STEERING_MAX_LENGTH
 from products.signals.backend.models import SignalSourceConfig
-
-STEERING_KEY = "steering"
-DEFAULT_NOT_ACTIONABLE_KEY = "default_not_actionable"
-# Server-side cap on steering text. The serializer rejects longer input; reads truncate
-# defensively so a row written by another path cannot bloat every gate prompt.
-STEERING_MAX_LENGTH = 2000
 
 # Every canonical actionability prompt states its lenient posture on a line starting with
 # this marker; the posture flip and the steering block anchor on it.
 _POSTURE_MARKER = "When in doubt, classify as ACTIONABLE"
+# Must stand alone: `default_not_actionable` is valid without steering text, so this line
+# references the prompt's own ACTIONABLE criteria rather than a preferences block that may
+# not be present.
 _ALLOWLIST_POSTURE_LINE = (
-    "When in doubt, classify as NOT_ACTIONABLE. This team only wants records that clearly qualify "
-    "under their preferences below, so err on the side of filtering."
+    "When in doubt, classify as NOT_ACTIONABLE. This team only wants records that clearly match "
+    "the ACTIONABLE criteria above, so err on the side of filtering."
 )
 _RESPONSE_MARKER = "Respond with exactly one word"
 
