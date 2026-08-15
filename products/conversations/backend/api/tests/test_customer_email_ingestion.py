@@ -109,7 +109,13 @@ class TestCustomerEmailIngestion(BaseTest):
             "subject": "Account update",
             "stripped-text": "Here is your account update.",
             "body-plain": "Here is your account update.",
-            "X-Mailgun-Spf": "pass",
+            "message-headers": json.dumps(
+                [
+                    ["X-Mailgun-Spf", "Fail"],
+                    ["X-Mailgun-Dkim-Check-Result", "Pass"],
+                    ["DKIM-Signature", "v=1; a=rsa-sha256; d=example.com; s=mail"],
+                ]
+            ),
         }
         data.update(overrides)
         return self.client.post("/api/conversations/v1/email/capture", data)
@@ -473,10 +479,27 @@ class TestCustomerEmailIngestion(BaseTest):
         assert not Ticket.objects.filter(team=self.team).exists()
         assert not EmailOutboxMessage.objects.filter(team=self.team).exists()
 
-    def test_outbound_capture_rejects_a_sender_with_a_different_envelope_address(self) -> None:
+    @parameterized.expand(
+        [
+            ("different_envelope", {"sender": "attacker@example.com"}),
+            (
+                "unaligned_dkim",
+                {
+                    "message-headers": json.dumps(
+                        [
+                            ["X-Mailgun-Spf", "Fail"],
+                            ["X-Mailgun-Dkim-Check-Result", "Pass"],
+                            ["DKIM-Signature", "v=1; a=rsa-sha256; d=attacker.example; s=mail"],
+                        ]
+                    )
+                },
+            ),
+        ]
+    )
+    def test_outbound_capture_rejects_an_unauthenticated_sender(self, _name: str, overrides: dict[str, str]) -> None:
         response = self._post_outbound_email(
-            message_id="<spoofed@customer-success.example>",
-            sender="attacker@example.com",
+            message_id=f"<spoofed-{_name}@customer-success.example>",
+            **overrides,
         )
 
         assert response.status_code == 200

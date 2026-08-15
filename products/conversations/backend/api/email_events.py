@@ -58,6 +58,7 @@ _VIA_SUFFIX_RE = re.compile(r"\s+via\s+.+$", re.IGNORECASE)
 _BASIC_EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 _MESSAGE_ID_RE = re.compile(r"<[^<>\s]+>")
 _FORWARDING_CHALLENGE_RE = re.compile(rf"{re.escape(FORWARDING_CHALLENGE_MARKER)}(?P<token>[A-Za-z0-9_.:-]{{1,1000}})")
+_DKIM_DOMAIN_RE = re.compile(r"(?:^|;)\s*d\s*=\s*([^;\s]+)", re.IGNORECASE)
 MAX_EMAIL_BODY_LENGTH = 50_000
 MAX_ATTACHMENT_SIZE = 10 * 1024 * 1024  # 10 MB per file
 MAX_ATTACHMENTS = 20
@@ -257,29 +258,33 @@ def _recover_dmarc_rewritten_sender(
     return sender_email, sender_name
 
 
-def _sender_authenticated(request: HttpRequest, sender_email: str) -> bool:
-    """Verify the From header domain is authenticated before trusting it for identity.
-
-    We require SPF pass + envelope-to-From domain alignment:
-      - SPF pass means the sending IP is authorized by the envelope sender's
-        domain DNS (X-Mailgun-Spf). An attacker can't pass SPF for posthog.com
-        without controlling posthog.com's DNS records.
-      - Domain alignment means the envelope sender (MAIL FROM) domain matches
-        the From header domain, preventing an attacker from passing SPF on
-        evil.com while forging From: teammate@posthog.com.
-
-    DKIM alone is insufficient — Mailgun's X-Mailgun-Dkim-Check-Result only
-    confirms a valid signature exists without reporting which domain signed it.
-    An attacker signing with evil.com's key but forging From: teammate@posthog.com
-    would still get DKIM Pass.
-    """
-    spf_passed = _mailgun_authentication_passed(request, "X-Mailgun-Spf")
-    if not spf_passed:
+def _dkim_aligned_with_sender(request: HttpRequest, sender_domain: str) -> bool:
+    if not _mailgun_authentication_passed(request, "X-Mailgun-Dkim-Check-Result"):
         return False
+
+    signing_domains: list[str] = []
+    for signature in _message_header_values(request, "DKIM-Signature"):
+        match = _DKIM_DOMAIN_RE.search(signature)
+        if match:
+            signing_domains.append(match.group(1).rstrip(".").lower())
+    return bool(signing_domains) and all(domain == sender_domain for domain in signing_domains)
+
+
+def _sender_authenticated(request: HttpRequest, sender_email: str) -> bool:
+    """Verify the From header domain before trusting it for identity.
+
+    Mailgun SPF checks can fail for legitimate senders, so aligned DKIM is accepted as a fallback.
+    A DKIM pass is trusted only when every signature uses the From domain, which prevents an unrelated
+    valid signature from authenticating a forged From address.
+    """
     envelope_sender = request.POST.get("sender", "")
     envelope_domain = envelope_sender.rsplit("@", 1)[-1].lower() if "@" in envelope_sender else ""
     from_domain = sender_email.rsplit("@", 1)[-1].lower() if "@" in sender_email else ""
-    return bool(envelope_domain and from_domain and envelope_domain == from_domain)
+    if not envelope_domain or not from_domain or envelope_domain != from_domain:
+        return False
+
+    spf_passed = _mailgun_authentication_passed(request, "X-Mailgun-Spf")
+    return spf_passed or _dkim_aligned_with_sender(request, from_domain)
 
 
 def _outbound_sender_authenticated(request: HttpRequest, sender_email: str) -> bool:
