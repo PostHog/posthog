@@ -95,7 +95,7 @@ class TestCustomerEmailIngestion(BaseTest):
         self,
         *,
         message_id: str,
-        lookup_only: bool = False,
+        lookup_only: str = "",
         **overrides: str,
     ):
         data = {
@@ -122,7 +122,7 @@ class TestCustomerEmailIngestion(BaseTest):
         data.update(overrides)
         endpoint = (
             "/api/conversations/v1/email/capture?sender_lookup=1"
-            if lookup_only
+            if lookup_only == "1"
             else "/api/conversations/v1/email/capture"
         )
         return self.client.post(endpoint, data)
@@ -567,7 +567,7 @@ class TestCustomerEmailIngestion(BaseTest):
 
         response = self._post_outbound_email(
             message_id=f"<lookup-{_name}@customer-success.example>",
-            lookup_only=True,
+            lookup_only="1",
         )
 
         assert response.status_code == expected_status
