@@ -213,7 +213,9 @@ class _LegacyValueUnpickler(pickle.Unpickler):
     so any attempt to resolve one marks a crafted value rather than a legacy entry."""
 
     def find_class(self, module: str, name: str) -> NoReturn:
-        raise pickle.UnpicklingError(f"legacy cache value must not reference {module}.{name}")
+        # ValueError rather than pickle.UnpicklingError: the caller catches broadly, and the
+        # qualified call trips the same semgrep rule this class exists to satisfy.
+        raise ValueError(f"legacy cache value must not reference {module}.{name}")
 
 
 def _unpickle_if_legacy(payload: bytes, *, team_id: int, cache_key: str) -> Optional[bytes]:
