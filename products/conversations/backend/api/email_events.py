@@ -708,6 +708,14 @@ def email_outbound_handler(request: HttpRequest) -> HttpResponse:
         logger.info("email_outbound_unknown_sender", sender_email=sender_email)
         return HttpResponse(status=200)
 
+    if config.connection_status != EmailChannelConnectionStatus.ACTIVE:
+        logger.info(
+            "email_outbound_inactive_channel",
+            team_id=config.team_id,
+            config_id=str(config.id),
+        )
+        return HttpResponse(status=200)
+
     email = _parse_inbound_email(request, config)
     if email is None:
         logger.warning("email_outbound_no_message_id", team_id=config.team_id)

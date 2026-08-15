@@ -505,6 +505,23 @@ class TestCustomerEmailIngestion(BaseTest):
         assert response.status_code == 200
         assert not EmailThread.objects.for_team(self.team.id).exists()
 
+    @parameterized.expand(
+        [
+            ("pending_confirmation", EmailChannelConnectionStatus.PENDING_CONFIRMATION),
+            ("confirmation_expired", EmailChannelConnectionStatus.CONFIRMATION_EXPIRED),
+        ]
+    )
+    def test_outbound_capture_skips_non_active_channels(
+        self, _name: str, connection_status: EmailChannelConnectionStatus
+    ) -> None:
+        self.channel.connection_status = connection_status
+        self.channel.save(update_fields=["connection_status"])
+
+        response = self._post_outbound_email(message_id=f"<outbound-{_name}@customer-success.example>")
+
+        assert response.status_code == 200
+        assert not EmailThread.objects.for_team(self.team.id).exists()
+
     def test_outbound_capture_drops_internal_only_messages(self) -> None:
         colleague = User.objects.create(email="colleague@example.com", current_team=self.team)
         OrganizationMembership.objects.create(
