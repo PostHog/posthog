@@ -12,42 +12,12 @@ import { sessionRecordingPlayerLogic } from 'scenes/session-recordings/player/se
 
 import { ExporterFormat } from '~/types'
 
+import { MIN_CLIP_DURATION_SECONDS, clipDurationOptions, clipWindowSeconds } from './clipRange'
+
 interface ClipTimes {
     current: string
     startClip: string
     endClip: string
-}
-
-interface ClipDurationOption {
-    value: number
-    label: string
-    'data-attr': string
-}
-
-// Seconds for a moment worth sharing. Anything past a couple of minutes is a different job, and a
-// recording long enough to need one is served by the longer options below.
-const SHORT_CLIP_SECONDS = [5, 10, 15]
-// Minutes, for reviewing part of a recording too long to export whole.
-const LONG_CLIP_MINUTES = [1, 5, 15]
-
-export const MIN_CLIP_DURATION_SECONDS = SHORT_CLIP_SECONDS[0]
-
-export function clipDurationOptions(sessionDurationMs: number): ClipDurationOption[] {
-    const sessionSeconds = sessionDurationMs / 1000
-    const shortOptions = SHORT_CLIP_SECONDS.map((seconds) => ({
-        value: seconds,
-        label: `${seconds}s`,
-        'data-attr': `replay-clip-duration-${seconds}`,
-    }))
-
-    // Only offered where there is that much recording to clip, so no option produces an empty tail.
-    const longOptions = LONG_CLIP_MINUTES.filter((minutes) => minutes * 60 < sessionSeconds).map((minutes) => ({
-        value: minutes * 60,
-        label: `${minutes}m`,
-        'data-attr': `replay-clip-duration-${minutes}m`,
-    }))
-
-    return [...shortOptions, ...longOptions]
 }
 
 function calculateClipTimes(currentTimeMs: number | null, sessionDurationMs: number, clipDuration: number): ClipTimes {
@@ -57,24 +27,10 @@ function calculateClipTimes(currentTimeMs: number | null, sessionDurationMs: num
 
     const current = colonDelimitedDuration(startTimeSeconds, fixedUnits)
 
-    // Calculate ideal start/end centered around current time
-    let idealStart = startTimeSeconds - clipDuration / 2
-    let idealEnd = startTimeSeconds + clipDuration / 2
+    const window = clipWindowSeconds(startTimeSeconds, endTimeSeconds, clipDuration)
 
-    // Adjust if we hit the beginning boundary
-    if (idealStart < 0) {
-        idealStart = 0
-        idealEnd = Math.min(clipDuration, endTimeSeconds)
-    }
-
-    // Adjust if we hit the end boundary
-    if (idealEnd > endTimeSeconds) {
-        idealEnd = endTimeSeconds
-        idealStart = Math.max(0, endTimeSeconds - clipDuration)
-    }
-
-    const startClip = colonDelimitedDuration(idealStart, fixedUnits)
-    const endClip = colonDelimitedDuration(idealEnd, fixedUnits)
+    const startClip = colonDelimitedDuration(window.startSeconds, fixedUnits)
+    const endClip = colonDelimitedDuration(window.endSeconds, fixedUnits)
 
     return { current, startClip, endClip }
 }
