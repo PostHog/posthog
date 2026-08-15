@@ -61,6 +61,13 @@ class AdjustSource(ResumableSource[AdjustSourceConfig, AdjustResumeConfig]):
             "404 Client Error: Not Found for url: https://automate.adjust.com": "Adjust could not find the requested report data. Check the app tokens on this source.",
         }
 
+    def get_retryable_errors(self) -> set[str]:
+        # A 429 or 5xx is retried internally by the tracked session; if those retries still
+        # exhaust, `_request` re-raises AdjustRetryableError and Temporal retries the whole
+        # activity, so the failure is transient and self-recovering — don't surface it as
+        # tracked exception noise.
+        return {"Adjust API error (retryable)"}
+
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(

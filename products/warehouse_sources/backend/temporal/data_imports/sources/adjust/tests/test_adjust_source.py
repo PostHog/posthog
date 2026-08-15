@@ -90,6 +90,19 @@ class TestAdjustSource:
     def test_throttles_and_5xx_stay_retryable(self, observed_error: str) -> None:
         assert not any(key in observed_error for key in self.source.get_non_retryable_errors())
 
+    @pytest.mark.parametrize(
+        "observed_error",
+        [
+            "Adjust API error (retryable): status=500, url=https://automate.adjust.com/reports-service/report",
+            "Adjust API error (retryable): status=429, url=https://automate.adjust.com/reports-service/report",
+        ],
+    )
+    def test_retryable_errors_match_known_failures(self, observed_error: str) -> None:
+        # Matches the message `_request` raises in adjust.py after the tracked session's own
+        # retries exhaust; keeps this benign, self-recovering failure out of error tracking.
+        retryable_errors = self.source.get_retryable_errors()
+        assert any(key in observed_error for key in retryable_errors)
+
     def test_get_schemas_covers_every_report(self) -> None:
         schemas = self.source.get_schemas(self.config, self.team_id)
         assert {schema.name for schema in schemas} == set(ENDPOINTS)
