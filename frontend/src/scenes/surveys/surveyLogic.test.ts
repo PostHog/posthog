@@ -17,6 +17,7 @@ import { initKeaTests } from '~/test/init'
 import {
     AccessControlLevel,
     AnyPropertyFilter,
+    BasicSurveyQuestion,
     ChoiceQuestionProcessedResponses,
     EventPropertyFilter,
     LinkSurveyQuestion,
@@ -29,6 +30,7 @@ import {
     SurveyEventProperties,
     SurveyEventStats,
     SurveyPosition,
+    SurveyQuestion,
     SurveyQuestionBranchingType,
     SurveyQuestionType,
     SurveyRates,
@@ -2740,26 +2742,50 @@ describe('mergeResponsesByQuestion', () => {
     })
 })
 
-describe('survey response column selection', () => {
+describe('survey responses table state', () => {
     let logic: ReturnType<typeof surveyLogic.build>
 
-    const customColumns = ['*', 'properties.$browser', 'timestamp', 'person']
+    const openQuestion = (id: string, question: string): BasicSurveyQuestion => ({
+        type: SurveyQuestionType.Open,
+        question,
+        description: '',
+        id,
+    })
 
-    const selectedColumns = (): string[] | undefined =>
-        (logic.values.dataTableQuery?.source as EventsQuery | undefined)?.select
+    const HOW_DID_YOU_HEAR = openQuestion('q1', 'How did you hear about us?')
+    const WHAT_CAN_WE_IMPROVE = openQuestion('q2', 'What can we improve?')
 
-    const chooseColumns = (columns: string[]): void => {
+    const TWO_QUESTION_SURVEY: Survey = {
+        ...MULTIPLE_CHOICE_SURVEY,
+        questions: [HOW_DID_YOU_HEAR, WHAT_CAN_WE_IMPROVE],
+    }
+    const withQuestions = (questions: SurveyQuestion[]): Survey => ({ ...TWO_QUESTION_SURVEY, questions })
+
+    const responseColumn = (index: number, id: string, question: string): string =>
+        `getSurveyResponse(${index}, '${id}') -- ${question}`
+
+    const Q1_COLUMN = responseColumn(0, 'q1', HOW_DID_YOU_HEAR.question)
+    const Q2_COLUMN = responseColumn(1, 'q2', WHAT_CAN_WE_IMPROVE.question)
+    const ALL_COLUMNS = ['*', Q1_COLUMN, Q2_COLUMN, 'timestamp', 'person']
+
+    const source = (): EventsQuery | undefined => logic.values.dataTableQuery?.source as EventsQuery | undefined
+
+    /** Mirrors how `DataTable` hands a query back: spread the current one, override what changed. */
+    const editTable = (patch: Partial<DataTableNode> & { source?: Partial<EventsQuery> }): void => {
         const query = logic.values.dataTableQuery as DataTableNode
         logic.actions.setDataTableQuery({
             ...query,
-            source: { ...(query.source as EventsQuery), select: columns },
+            ...patch,
+            source: { ...(query.source as EventsQuery), ...patch.source },
         })
     }
 
     beforeEach(async () => {
+        // The reducer persists, and `initKeaTests` doesn't clear storage between cases.
+        localStorage.clear()
         useMocks({
             get: {
-                [`/api/projects/:team/surveys/${MULTIPLE_CHOICE_SURVEY.id}/`]: () => [200, MULTIPLE_CHOICE_SURVEY],
+                [`/api/projects/:team/surveys/${MULTIPLE_CHOICE_SURVEY.id}/`]: () => [200, TWO_QUESTION_SURVEY],
                 [`/api/projects/:team/surveys/${MULTIPLE_CHOICE_SURVEY.id}/archived-response-uuids/`]: () => [200, []],
             },
         })
@@ -2769,8 +2795,8 @@ describe('survey response column selection', () => {
         await expectLogic(logic).toFinishAllListeners()
     })
 
-    // Each of these rebuilds the derived dataTableQuery. Before the table owned its column
-    // selection, the rebuild replaced the user's columns with the defaults.
+    // Each of these rebuilds the derived dataTableQuery. Before the table owned its own state, the
+    // rebuild replaced whatever the user had changed with the defaults.
     it.each([
         ['archived response uuids finish loading', () => logic.actions.loadArchivedResponseUuidsSuccess(new Set())],
         ['the date range changes', () => logic.actions.setDateRange({ date_from: '-14d', date_to: null }, false)],
@@ -2789,21 +2815,73 @@ describe('survey response column selection', () => {
                     false
                 ),
         ],
-        ['the survey is refetched', () => logic.actions.loadSurveySuccess(MULTIPLE_CHOICE_SURVEY)],
-    ])('keeps the chosen columns when %s', (_description, rebuildQuery) => {
-        chooseColumns(customColumns)
-        expect(selectedColumns()).toEqual(customColumns)
+        ['the survey is refetched', () => logic.actions.loadSurveySuccess(TWO_QUESTION_SURVEY)],
+    ])('keeps the chosen columns and sort when %s', (_description, rebuildQuery) => {
+        const chosen = ['*', Q1_COLUMN, 'timestamp']
+        editTable({ source: { select: chosen, orderBy: ['timestamp'] } })
 
         rebuildQuery()
 
-        expect(selectedColumns()).toEqual(customColumns)
+        expect(source()?.select).toEqual(chosen)
+        expect(source()?.orderBy).toEqual(['timestamp'])
     })
 
-    it('falls back to the defaults when a chosen column points at a removed question', () => {
-        const defaultColumns = logic.values.dataTableQuery?.defaultColumns
+    // Sorting only changes `orderBy`, so the query it hands back shares its `select` array with the
+    // one the selector emitted. A reducer that tracks columns alone sees no change and never re-emits.
+    it('applies a sort that leaves the columns untouched', () => {
+        editTable({ source: { orderBy: ['person'] } })
 
-        chooseColumns(['*', "getSurveyResponse(7, 'deleted-question') -- Gone", 'timestamp'])
+        expect(source()?.orderBy).toEqual(['person'])
+    })
 
-        expect(selectedColumns()).toEqual(defaultColumns)
+    it('restores the columns after a remount', async () => {
+        const chosen = ['*', Q2_COLUMN, 'timestamp']
+        editTable({ source: { select: chosen } })
+        logic.unmount()
+
+        logic = surveyLogic({ id: MULTIPLE_CHOICE_SURVEY.id })
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(source()?.select).toEqual(chosen)
+    })
+
+    it.each([
+        ['a question is deleted', [HOW_DID_YOU_HEAR], ALL_COLUMNS, ['*', Q1_COLUMN, 'timestamp', 'person']],
+        [
+            'a question is reworded',
+            [HOW_DID_YOU_HEAR, { ...WHAT_CAN_WE_IMPROVE, question: 'What should we fix?' }],
+            ALL_COLUMNS,
+            ['*', Q1_COLUMN, responseColumn(1, 'q2', 'What should we fix?'), 'timestamp', 'person'],
+        ],
+        [
+            'a question is added',
+            [HOW_DID_YOU_HEAR, WHAT_CAN_WE_IMPROVE, openQuestion('q3', 'Anything else?')],
+            ['*', Q1_COLUMN, Q2_COLUMN, 'timestamp'],
+            ['*', Q1_COLUMN, Q2_COLUMN, responseColumn(2, 'q3', 'Anything else?'), 'timestamp'],
+        ],
+        [
+            'a question the user hid is still there',
+            [HOW_DID_YOU_HEAR, WHAT_CAN_WE_IMPROVE],
+            ['*', Q1_COLUMN, 'timestamp'],
+            ['*', Q1_COLUMN, 'timestamp'],
+        ],
+    ])('reconciles the columns when %s', (_description, questions, chosen, expected) => {
+        editTable({ source: { select: chosen } })
+
+        logic.actions.loadSurveySuccess(withQuestions(questions))
+
+        expect(source()?.select).toEqual(expected)
+    })
+
+    // An order by on a column reconciliation just dropped names a question that no longer exists,
+    // which fails the query outright rather than returning nothing.
+    it('drops a sort on a question that was deleted', () => {
+        editTable({ source: { select: ALL_COLUMNS, orderBy: [Q2_COLUMN] } })
+
+        logic.actions.loadSurveySuccess(withQuestions([HOW_DID_YOU_HEAR]))
+
+        expect(source()?.select).not.toContain(Q2_COLUMN)
+        expect(source()?.orderBy).toEqual(['timestamp DESC'])
     })
 })

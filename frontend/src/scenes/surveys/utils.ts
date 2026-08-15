@@ -14,6 +14,7 @@ import {
 } from 'scenes/surveys/constants'
 import { SurveyRatingResults } from 'scenes/surveys/surveyLogic'
 
+import { removeExpressionComment } from '~/queries/nodes/DataTable/utils'
 import {
     BasicSurveyQuestion,
     CyclotronJobInvocationGlobals,
@@ -393,6 +394,77 @@ export function getSurveyResponse(question: SurveyQuestion, index: number): stri
     }
 
     return question.id ? `getSurveyResponse(${index}, '${question.id}')` : `getSurveyResponse(${index})`
+}
+
+const SURVEY_RESPONSE_CALL = 'getSurveyResponse('
+
+export function isSurveyResponseColumn(column: string): boolean {
+    return removeExpressionComment(column).includes(SURVEY_RESPONSE_CALL)
+}
+
+export function surveyResponseExpressions(columns: string[]): string[] {
+    return columns.filter(isSurveyResponseColumn).map(removeExpressionComment)
+}
+
+/**
+ * Merge a stored responses-table column selection with the survey's current questions.
+ *
+ * `knownExpressions` is the set of response expressions that existed when the selection was stored.
+ * Without it, a question the user deliberately removed is indistinguishable from one added since,
+ * so every rebuild would put the removed column back.
+ */
+export function reconcileSurveyResponseColumns(
+    storedColumns: string[],
+    knownExpressions: string[],
+    defaultColumns: string[]
+): string[] {
+    const currentByExpression = new Map(
+        defaultColumns.filter(isSurveyResponseColumn).map((column) => [removeExpressionComment(column), column])
+    )
+    const known = new Set(knownExpressions)
+
+    const matched = new Set<string>()
+    const columns: string[] = []
+    for (const column of storedColumns) {
+        if (!isSurveyResponseColumn(column)) {
+            columns.push(column)
+            continue
+        }
+        // Rebuild from the current default so a reworded question refreshes its header, and drop
+        // columns whose question was deleted or reordered, since the index is part of the expression.
+        const expression = removeExpressionComment(column)
+        const current = currentByExpression.get(expression)
+        if (current) {
+            columns.push(current)
+            matched.add(expression)
+        }
+    }
+
+    const added = [...currentByExpression.entries()]
+        .filter(([expression]) => !matched.has(expression) && !known.has(expression))
+        .map(([, column]) => column)
+    if (added.length) {
+        // Response columns sit right after `*` in the defaults, and the row renderers read the event
+        // payload at `*`'s index, so a new column must never land ahead of it.
+        const lastResponse = columns.findLastIndex(isSurveyResponseColumn)
+        columns.splice(lastResponse >= 0 ? lastResponse + 1 : columns.indexOf('*') + 1, 0, ...added)
+    }
+
+    return columns.length ? columns : defaultColumns
+}
+
+/** True when `orderBy` sorts on a response column that `select` no longer contains. */
+export function isSurveyResponseOrderByStale(orderBy: string[] | undefined, select: string[]): boolean {
+    if (!orderBy?.length) {
+        return false
+    }
+    const selected = new Set(select.map(removeExpressionComment))
+    return orderBy.some((entry) => {
+        const expression = removeExpressionComment(entry)
+            .replace(/\s+DESC$/i, '')
+            .trim()
+        return expression.includes(SURVEY_RESPONSE_CALL) && !selected.has(expression)
+    })
 }
 
 /**
