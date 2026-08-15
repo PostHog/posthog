@@ -270,7 +270,26 @@ def exposed_distinct_ids_select(linkage: ExperimentExposureLinkage) -> ast.Selec
         context=linkage.context,
         preaggregation_job_ids=linkage.preaggregation_job_ids,
     ).select_query()
+    # A second instance for the prefilter below: an AST node can only sit at one place in the
+    # tree, and on the preaggregated path the doubled read is a few thousand rows. On the live
+    # path it doubles the exposure events scan, which stays affordable for the same reason the
+    # scan is allowed at all: teams too large for it are refused in _resolve_preaggregation_job_ids.
+    exposure_prefilter_select = ExposureQueryBuilder(
+        context=linkage.context,
+        preaggregation_job_ids=linkage.preaggregation_job_ids,
+    ).select_query()
 
+    # The distinct-id expansion must not aggregate the team's whole mapping table: its memory
+    # scales with the team's total distinct ids rather than with the exposed population, which
+    # OOMs the recordings request on the largest teams. So a prefilter first nominates the
+    # distinct ids that ever mapped to an exposed person (a row-level scan, no aggregation
+    # state), and argMax then resolves the latest mapping over every version row of those
+    # candidates only. Filtering rows by person_id directly instead would resurrect stale
+    # mappings: a distinct id reassigned away from an exposed person keeps its old rows, and
+    # argMax over just those would report the old person as current. The prefilter is a
+    # superset (it ignores variant and reassignment), and the join keeps only candidates whose
+    # latest person really is exposed.
+    #
     # The WHERE on variant also drops entities attributed MULTIPLE_VARIANT_KEY under "exclude"
     # handling, matching who the analysis counts. Both join sides are pre-grouped, so each
     # distinct id carries exactly one exposure row and min() merely satisfies the GROUP BY.
@@ -286,6 +305,12 @@ def exposed_distinct_ids_select(linkage: ExperimentExposureLinkage) -> ast.Selec
                 argMax(is_deleted, version) AS is_deleted
             FROM raw_person_distinct_ids
             WHERE team_id = {team_id}
+                AND distinct_id IN (
+                    SELECT distinct_id
+                    FROM raw_person_distinct_ids
+                    WHERE team_id = {prefilter_team_id}
+                        AND person_id IN (SELECT entity_id FROM ({exposure_prefilter_select}))
+                )
             GROUP BY distinct_id
             HAVING is_deleted = 0
         ) AS pdi
@@ -295,7 +320,9 @@ def exposed_distinct_ids_select(linkage: ExperimentExposureLinkage) -> ast.Selec
         """,
         placeholders={
             "team_id": ast.Constant(value=linkage.context.team.pk),
+            "prefilter_team_id": ast.Constant(value=linkage.context.team.pk),
             "exposure_select": exposure_select,
+            "exposure_prefilter_select": exposure_prefilter_select,
             "requested_variants": ast.Constant(value=linkage.requested_variants),
         },
     )
