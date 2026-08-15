@@ -22,6 +22,7 @@ rewrites the entry in place (the idempotent refresh — use it to update a basel
 | `watchlist:anomaly_detection:importance-refresh` | Memo: when the watchlist's importance ranking was last reconciled + what changed.                                                                                                                                                                                                                          |
 | `baseline:anomaly_detection:insight:<short_id>`  | The learned normal: median + MAD per seasonal bucket, so scoring is cheap.                                                                                                                                                                                                                                 |
 | `report:anomaly_detection:insight:<short_id>`    | Pointer to the inbox report you authored for this anomaly: `report_id` + re-escalation condition. Add a `:<series-or-direction>` suffix when one insight carries genuinely distinct concurrent anomalies (multi-series / breakdown, or an opposite-direction move) so they don't collapse onto one report. |
+| `retired:anomaly_detection:<suffix of the retired row>` | Tombstone for a watchlist item you stopped scoring: why, and what would bring it back. One line.                                                                                                                                                                                                    |
 | `reviewer:anomaly_detection:<area>`              | A cached owner: the bare lowercase GitHub login for a dashboard / metric area.                                                                                                                                                                                                                             |
 | `noise:anomaly_detection:<topic>`                | A pattern to ignore (a chronically erratic insight, a seasonal quirk).                                                                                                                                                                                                                                     |
 | `addressed:anomaly_detection:<topic>`            | Team-confirmed expected (a launch/backfill) or fix shipped — skip.                                                                                                                                                                                                                                         |
@@ -81,11 +82,16 @@ focus moves. Every ~3 days, treat the importance ranking itself as the thing to 
 
 - Re-pull `insights-trending-retrieve` (`days=7`) and `recent_dashboards`, and reconcile them
   against the watchlist you already have — not just to add, but to **re-rank and prune**: bump
-  the `priority` of items climbing the view counts, and **demote or retire** items whose
-  dashboard is no longer accessed or whose view count has collapsed (drop them, or mark
-  `priority: low` and stretch their cadence). A dashboard created last week that's now the
-  most-opened one belongs on the list; one nobody has opened in a month should not keep burning
-  the budget.
+  the `priority` of items climbing the view counts, and **retire** items whose dashboard is no
+  longer accessed or whose view count has collapsed. A dashboard created last week that's now
+  the most-opened one belongs on the list; one nobody has opened in a month should not keep
+  burning the budget.
+- **Every refresh ends in deletes, not just a memo.** Naming the active scoreable set in the
+  `importance-refresh` memo is not pruning — every cold row survives it, and the ledger keeps
+  growing while the memo says coverage is fine. Close each refresh by retiring the rows you just
+  judged cold (see _Retiring an item_ below), so the ledger and the memo agree. A refresh that
+  retired nothing should say so explicitly, and on a watchlist you didn't just bootstrap that
+  should be rare.
 - A large watchlist is **not** a reason to skip this. "The watchlist is already mature" is the
   trap: it freezes coverage on whatever was important when you bootstrapped. The refresh is
   cheap — two reads plus a diff — and it is what keeps "important" meaning _currently_
@@ -95,6 +101,9 @@ focus moves. Every ~3 days, treat the importance ranking itself as the thing to 
   days old, do the refresh this run before exploiting, then reuse the key to update it in place.
   Like the weekly baseline re-derivation above, this stops the watchlist going stale — but run it
   more often, because the team's attention shifts faster than a metric's own distribution does.
+  **One memo, one key** — never date-suffix it (`…:importance-refresh:2026-06-18`) or spell it a
+  second way. A dated key can't be rewritten in place, so every refresh leaves another row behind
+  and the memo you're looking for gets harder to find.
 
 **Round-robin, don't re-scan everything.** The watchlist + `next_due` timestamps are what let
 successive runs cover different items instead of all repeating the same top insights every
@@ -104,6 +113,40 @@ hour. Trust the ledger: if an item was checked 20 minutes ago by a prior run, it
 the run summary, or a `watchlist:` `next_due` you set to "now" on the next item) so the next
 run knows where to resume. The run summary (`scout-runs-list`) is the natural place to
 say "checked items A–F; G–K still due next run."
+
+## Retiring an item (the terminal state)
+
+An item you no longer score has to leave the ledger. `priority: low` is **not** a terminal state —
+it keeps the row in every `watchlist:` search, in the round-robin, and in the way of the items you
+do score. Retire in one move:
+
+1. `scout-scratchpad-forget` the `watchlist:anomaly_detection:…` row.
+2. `scout-scratchpad-forget` its paired `baseline:anomaly_detection:…` entry. A baseline outlives
+   the row that used it, so baselines are the first thing to overrun the ledger — retiring the
+   watchlist row alone just moves the bloat.
+3. Write one compact `retired:` line in their place:
+
+```text
+key:     retired:anomaly_detection:insight:ym0K91uz
+content: "Revenue over time — retired 2026-06-14: the go/revenue dashboard hasn't been opened in
+         ~6 weeks and its view count fell 412 → 3. Re-add if it returns to the trending ranking."
+```
+
+Key the tombstone on the same suffix as the row it replaces. It exists so the next explore pass
+doesn't re-add what you just retired — one line, no charts, no verdict prose. It is distinct from
+`allowlist:`, which means never surface this at all (deprecated / sandbox / test); a `retired:`
+item is legitimate, just not worth the budget today.
+
+**This applies to every watchlist row, not just insight-keyed ones.** A finished investigation, a
+day-of-week sweep, or a bootstrap queue that has served its purpose retires the same way — a run
+log is not a ledger row. The write-up belongs in the run summary (`scout-runs-list`), not under a
+`watchlist:` key where the round-robin keeps picking it up.
+
+**Keep the working set scannable.** Your orientation search is capped, so an unbounded ledger
+silently hides overdue items behind the limit — the exact failure this convention prevents. If a
+`watchlist:` search returns more rows than you could score in several runs, the surplus is backlog,
+not coverage: retire the coldest until it fits. Drop `retired:` tombstones older than ~90 days, and
+`dedupe:` or other one-off dated entries once their window has passed.
 
 ## The four states (classify every candidate before reporting)
 
