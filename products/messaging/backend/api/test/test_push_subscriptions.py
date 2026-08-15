@@ -16,7 +16,10 @@ from posthog.models.team.team import Team
 from posthog.models.team.team_caching import set_team_in_cache
 
 from products.messaging.backend.api.push_identity_tokens import sign_push_identity_token, sign_push_identity_token_es256
-from products.messaging.backend.api.push_subscriptions import PUSH_SUBSCRIPTION_REJECTION_COUNTER
+from products.messaging.backend.api.push_subscriptions import (
+    PUSH_SUBSCRIPTION_DISCARD_COUNTER,
+    PUSH_SUBSCRIPTION_REJECTION_COUNTER,
+)
 
 
 def _es256_keypair() -> tuple[str, str]:
@@ -215,7 +218,10 @@ class TestPushSubscriptionsAPI(BaseTest):
         call_kwargs = mock_capture.call_args.kwargs
         assert call_kwargs["properties"]["$unset"] == ["$device_push_subscription_com.example.app"]
 
-    def test_unregister_integration_not_found(self):
+    @patch("products.messaging.backend.api.push_subscriptions.capture_internal")
+    def test_unregister_without_integration_still_unsets(self, mock_capture: MagicMock):
+        mock_capture.return_value = MagicMock(status_code=200)
+
         response = self._delete(
             {
                 "distinct_id": "user-1",
@@ -225,8 +231,9 @@ class TestPushSubscriptionsAPI(BaseTest):
             }
         )
 
-        assert response.status_code == status.HTTP_400_BAD_REQUEST
-        assert "integration" in response.json()["detail"].lower()
+        assert response.status_code == status.HTTP_200_OK
+        call_kwargs = mock_capture.call_args.kwargs
+        assert call_kwargs["properties"]["$unset"] == ["$device_push_subscription_nonexistent-project"]
 
     def test_missing_api_key_returns_401(self):
         response = self.client.post(
@@ -266,7 +273,11 @@ class TestPushSubscriptionsAPI(BaseTest):
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert "Invalid platform" in response.json()["detail"]
 
-    def test_integration_not_found(self):
+    @patch("products.messaging.backend.api.push_subscriptions.capture_internal")
+    def test_register_without_integration_returns_200_and_discards(self, mock_capture: MagicMock):
+        counter = PUSH_SUBSCRIPTION_DISCARD_COUNTER.labels(reason="no_integration")
+        before = counter._value.get()
+
         response = self._post(
             {
                 "distinct_id": "user-1",
@@ -276,10 +287,15 @@ class TestPushSubscriptionsAPI(BaseTest):
             }
         )
 
-        assert response.status_code == status.HTTP_400_BAD_REQUEST
-        assert "integration" in response.json()["detail"].lower()
+        assert response.status_code == status.HTTP_200_OK
+        data = response.json()
+        assert data["stored"] is False
+        assert data["push_enabled"] is False
+        mock_capture.assert_not_called()
+        assert counter._value.get() == before + 1
 
-    def test_team_isolation(self):
+    @patch("products.messaging.backend.api.push_subscriptions.capture_internal")
+    def test_team_isolation(self, mock_capture: MagicMock):
         other_team = Team.objects.create(organization=self.organization, name="Other Team")
         Integration.objects.create(
             team=other_team,
@@ -298,8 +314,9 @@ class TestPushSubscriptionsAPI(BaseTest):
             }
         )
 
-        assert response.status_code == status.HTTP_400_BAD_REQUEST
-        assert "integration" in response.json()["detail"].lower()
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["stored"] is False
+        mock_capture.assert_not_called()
 
     def test_get_method_not_allowed(self):
         response = self.client.get(
@@ -442,13 +459,13 @@ class TestPushSubscriptionsAPI(BaseTest):
     @parameterized.expand(
         [
             (
-                "integration_not_found",
+                "invalid_platform",
                 status.HTTP_400_BAD_REQUEST,
                 {
                     "distinct_id": "user-1",
                     "device_token": "fcm-device-token-abc",
-                    "platform": "android",
-                    "app_id": "app-with-no-integration",
+                    "platform": "windows_phone",
+                    "app_id": "my-firebase-project",
                 },
             ),
             (

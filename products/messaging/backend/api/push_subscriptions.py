@@ -40,6 +40,12 @@ PUSH_SUBSCRIPTION_REJECTION_COUNTER = Counter(
     labelnames=["code", "method"],
 )
 
+PUSH_SUBSCRIPTION_DISCARD_COUNTER = Counter(
+    "push_subscription_discarded",
+    "Push subscription registrations acknowledged without storing, by reason.",
+    labelnames=["reason"],
+)
+
 logger = structlog.get_logger(__name__)
 
 VALID_PLATFORMS = ("android", "ios")
@@ -226,16 +232,26 @@ def push_subscriptions(request: Request):
         )
 
     integrations = _find_integrations(team.id, app_id)
-    if not integrations:
-        return _rejection_response(
+    # A missing integration is an account state, not a request error: SDKs auto-register on every
+    # app open, so for most teams this is the endpoint's normal case, and a 4xx here turns the
+    # whole fleet into an error firehose. Acknowledge registration with a 200 and skip the store,
+    # so unconsumable tokens don't become person properties and capture events; devices re-register
+    # on every app open, so a team that later configures an integration is covered within a day.
+    # DELETE falls through: logout must clear any subscription stored while an integration existed.
+    if not integrations and request.method == "POST":
+        PUSH_SUBSCRIPTION_DISCARD_COUNTER.labels(reason="no_integration").inc()
+        logger.info("push_subscription_discarded", reason="no_integration", team_id=team.id, app_id=app_id)
+        return cors_response(
             request,
-            f"No push integration found for app_id '{app_id}'. "
-            "Please configure the integration in your PostHog project settings.",
-            error_type="validation_error",
-            code="integration_not_found",
-            status_code=status.HTTP_400_BAD_REQUEST,
-            team_id=team.id,
-            app_id=app_id,
+            JsonResponse(
+                {
+                    "distinct_id": distinct_id,
+                    "platform": platform,
+                    "stored": False,
+                    "push_enabled": False,
+                },
+                status=status.HTTP_200_OK,
+            ),
         )
 
     operation = "register" if request.method == "POST" else "unregister"
