@@ -100,8 +100,11 @@ def _rejection_response(
     status_code: int,
     team_id: int | None = None,
     app_id: str | None = None,
+    exc_info: bool = False,
 ) -> HttpResponse:
     PUSH_SUBSCRIPTION_REJECTION_COUNTER.labels(code=code, method=request.method).inc()
+    # exc_info attaches the active exception's traceback for paths that swallow one (capture_failed),
+    # so a 500 is diagnosable from this single labeled event rather than just the counter.
     logger.warning(
         "push_subscription_rejected",
         code=code,
@@ -109,6 +112,7 @@ def _rejection_response(
         method=request.method,
         team_id=team_id,
         app_id=app_id,
+        exc_info=exc_info,
     )
     return cors_response(
         request,
@@ -316,6 +320,7 @@ def push_subscriptions(request: Request):
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             team_id=team.id,
             app_id=app_id,
+            exc_info=True,
         )
 
     return cors_response(
