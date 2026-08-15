@@ -139,8 +139,10 @@ export interface verifiedDomainsLogicValues {
     isSamlConfigValid: boolean
     isXAAAuthenticationAvailable: boolean
     ownVerifiedDomain: OrganizationDomainType | null
-    reusableSamlConfigs: { configId: string; domains: string[] }[]
-    samlReuseConfigId: string | null
+    reusableSamlConfigs: {
+        configId: string
+        domains: string[]
+    }[]
     samlConfig: Partial<
         Pick<IdentityProviderConfigApi, 'saml_acs_url' | 'saml_entity_id' | 'saml_x509_cert'> & {
             id: string
@@ -168,6 +170,7 @@ export interface verifiedDomainsLogicValues {
         >,
         ValidationErrorType
     >
+    samlReuseConfigId: string | null
     scimConfig: SCIMConfigType
     scimConfigLoading: boolean
     scimLogs: PaginatedSCIMRequestLogs | null
@@ -269,6 +272,30 @@ export interface verifiedDomainsLogicActions {
     }
     hideAddDomainModal: () => {
         value: true
+    }
+    linkExistingConfig: ({ domainId, configId }: { configId: string; domainId: string }) => {
+        domainId: string
+        configId: string
+    }
+    linkExistingConfigFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    linkExistingConfigSuccess: (
+        updatingDomain: boolean,
+        payload?: {
+            domainId: string
+            configId: string
+        }
+    ) => {
+        updatingDomain: boolean
+        payload?: {
+            domainId: string
+            configId: string
+        }
     }
     loadScimConfig: (domainId: string) => string
     loadScimConfigFailure: (
@@ -452,6 +479,9 @@ export interface verifiedDomainsLogicActions {
             >
         >
     }
+    setSamlReuseConfigId: (configId: string | null) => {
+        configId: string | null
+    }
     setScimLogsModalId: (id: string | null) => {
         id: string | null
     }
@@ -484,27 +514,6 @@ export interface verifiedDomainsLogicActions {
     }
     setVerifyModal: (id: string | null) => {
         id: string | null
-    }
-    setSamlReuseConfigId: (configId: string | null) => {
-        configId: string | null
-    }
-    linkExistingConfig: (payload: { domainId: string; configId: string }) => {
-        domainId: string
-        configId: string
-    }
-    linkExistingConfigFailure: (
-        error: string,
-        errorObject?: any
-    ) => {
-        error: string
-        errorObject?: any
-    }
-    linkExistingConfigSuccess: (
-        updatingDomain: boolean,
-        payload?: { domainId: string; configId: string }
-    ) => {
-        updatingDomain: boolean
-        payload?: { domainId: string; configId: string }
     }
     showAddDomainModal: () => {
         value: true
@@ -630,7 +639,10 @@ export interface verifiedDomainsLogicMeta {
             verifiedDomains: OrganizationDomainType[],
             user: UserType | null
         ) => OrganizationDomainType | null
-        reusableSamlConfigs: (verifiedDomains: OrganizationDomainType[]) => { configId: string; domains: string[] }[]
+        reusableSamlConfigs: (verifiedDomains: OrganizationDomainType[]) => {
+            configId: string
+            domains: string[]
+        }[]
         isSSOEnforcementAvailable: (
             hasAvailableFeature: (feature: AvailableFeature, currentUsage?: number | undefined) => boolean
         ) => boolean
