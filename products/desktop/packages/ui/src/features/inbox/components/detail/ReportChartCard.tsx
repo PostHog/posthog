@@ -242,14 +242,11 @@ export function ReportChartCardView({
               {stat.value}
             </span>
             {stat.delta && (
-              <span
-                className={cn(
-                  "font-medium text-[11px] tabular-nums",
-                  stat.delta.direction === "up"
-                    ? "text-(--green-11)"
-                    : "text-(--red-11)",
-                )}
-              >
+              // The delta carries no metric polarity, so a rise here isn't
+              // necessarily good (errors, latency, cost all land in these
+              // cards). Stay neutral and let the arrow convey direction alone,
+              // matching how the main app leaves an unlabelled change uncolored.
+              <span className="font-medium text-(--gray-11) text-[11px] tabular-nums">
                 {stat.delta.direction === "up" ? "▲" : "▼"}
                 {stat.delta.label}
               </span>
