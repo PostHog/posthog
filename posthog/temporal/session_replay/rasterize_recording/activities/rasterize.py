@@ -1,14 +1,19 @@
+from datetime import timedelta
+
 from django.conf import settings
 from django.db import close_old_connections, transaction
 
 import structlog
 from temporalio import activity
 
+from posthog.session_recordings.recordings.recording_api_jwt import mint_recording_api_token, recording_api_jwt_enabled
 from posthog.storage import object_storage
 
-from products.exports.backend.models.exported_asset import ExportedAsset
+from products.exports.backend.models.exported_asset import ExportedAsset, is_valid_session_recording_id
 
 from ..types import (
+    RASTERIZE_RENDER_MAX_ATTEMPTS,
+    RASTERIZE_RENDER_TIMEOUT,
     BuildRasterizationResult,
     FinalizeRasterizationInput,
     InactivityPeriod,
@@ -18,6 +23,13 @@ from ..types import (
 )
 
 logger = structlog.get_logger(__name__)
+
+# The rasterizer relays one token across an entire render and cannot re-mint, so it must outlive the
+# whole Node activity envelope. Derive the lifetime from the activity's actual retry envelope (shared
+# constants in ..types) plus a 1h buffer for queue wait/backoff, so bumping the retry policy can't
+# silently leave the token expiring mid-render. Still a read-only, single-team token (a big
+# improvement over the unscoped shared secret it replaces).
+_RASTERIZE_TOKEN_TTL = RASTERIZE_RENDER_TIMEOUT * RASTERIZE_RENDER_MAX_ATTEMPTS + timedelta(hours=1)
 
 _RENDER_FINGERPRINT_KEY = "render_fingerprint"
 _PERSISTED_OUTPUT_FIELDS: frozenset[str] = frozenset(
@@ -35,6 +47,12 @@ def build_rasterization_input(exported_asset_id: int) -> BuildRasterizationResul
     session_id = ctx.get("session_recording_id")
     if not session_id:
         raise ValueError(f"ExportedAsset {exported_asset_id} has no session_recording_id in export_context")
+    # Assets reach this activity from several writers, not all of them behind the exports serializer,
+    # so the id is re-checked here before it becomes part of an internal recording API path.
+    if not is_valid_session_recording_id(session_id):
+        # Logged as well as raised so a session id we reject wrongly is greppable, not just a failed render.
+        logger.warning("rasterize.malformed_session_recording_id", asset_id=exported_asset_id)
+        raise ValueError(f"ExportedAsset {exported_asset_id} has a malformed session_recording_id")
 
     format_map = {"video/webm": "webm", "video/mp4": "mp4", "image/gif": "gif"}
     output_format = format_map.get(asset.export_format, "mp4")
@@ -67,9 +85,16 @@ def build_rasterization_input(exported_asset_id: int) -> BuildRasterizationResul
     if recording_fps is not None:
         recording_fps = min(60, int(recording_fps))
 
+    # Empty until the signing secret is configured; the rasterizer then relays the legacy shared
+    # secret instead, so rollout can happen per environment without breaking rendering.
+    recording_api_token = (
+        mint_recording_api_token(asset.team_id, "read", ttl=_RASTERIZE_TOKEN_TTL) if recording_api_jwt_enabled() else ""
+    )
+
     activity_input = RasterizationActivityInput(
         team_id=asset.team_id,
         session_id=session_id,
+        recording_api_token=recording_api_token,
         s3_bucket=settings.OBJECT_STORAGE_BUCKET,
         s3_key_prefix=s3_key_prefix,
         playback_speed=playback_speed,

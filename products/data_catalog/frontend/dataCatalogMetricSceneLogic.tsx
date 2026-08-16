@@ -59,6 +59,7 @@ export interface dataCatalogMetricSceneLogicValues {
     metric: DataCatalogMetricApi | null
     metricLoading: boolean
     mutating: boolean
+    pendingDefinitionEdit: boolean
     runResult: DataCatalogMetricRunApi | null
     runResultLoading: boolean
 }
@@ -104,6 +105,9 @@ export interface dataCatalogMetricSceneLogicActions {
     refreshMetricFromInsight: () => {
         value: true
     }
+    renameMetric: (name: string) => {
+        name: string
+    }
     setDraftMarkdown: (draftMarkdown: string) => {
         draftMarkdown: string
     }
@@ -137,6 +141,9 @@ export interface dataCatalogMetricSceneLogicActions {
     setMutating: (mutating: boolean) => {
         mutating: boolean
     }
+    setPendingDefinitionEdit: (pendingDefinitionEdit: boolean) => {
+        pendingDefinitionEdit: boolean
+    }
     startEditingMarkdown: () => {
         value: true
     }
@@ -169,12 +176,14 @@ export const dataCatalogMetricSceneLogic = kea<dataCatalogMetricSceneLogicType>(
         approveMetric: true,
         refreshMetricFromInsight: true,
         deleteMetric: true,
+        renameMetric: (name: string) => ({ name }),
         updateMetric: (patch: PatchedDataCatalogMetricApi) => ({ patch }),
         setMutating: (mutating: boolean) => ({ mutating }),
         setEditingDefinition: (editingDefinition: boolean) => ({ editingDefinition }),
         setDraftSql: (draftSql: string) => ({ draftSql }),
         setDraftMarkdown: (draftMarkdown: string) => ({ draftMarkdown }),
         startEditingMarkdown: true,
+        setPendingDefinitionEdit: (pendingDefinitionEdit: boolean) => ({ pendingDefinitionEdit }),
     }),
     loaders(({ props }) => ({
         metric: [
@@ -227,6 +236,12 @@ export const dataCatalogMetricSceneLogic = kea<dataCatalogMetricSceneLogicType>(
                 setDraftMarkdown: (_, { draftMarkdown }) => draftMarkdown,
             },
         ],
+        pendingDefinitionEdit: [
+            false,
+            {
+                setPendingDefinitionEdit: (_, { pendingDefinitionEdit }) => pendingDefinitionEdit,
+            },
+        ],
     }),
     selectors({
         breadcrumbs: [
@@ -246,6 +261,11 @@ export const dataCatalogMetricSceneLogic = kea<dataCatalogMetricSceneLogicType>(
             }
             actions.setDraftSql(definitionField(metric, 'query'))
             actions.setDraftMarkdown(definitionField(metric, 'markdown'))
+            // Deferred until the metric is loaded, otherwise the draft sync above would wipe the seeded template.
+            if (values.pendingDefinitionEdit) {
+                actions.setPendingDefinitionEdit(false)
+                actions.startEditingMarkdown()
+            }
         },
         setMetric: ({ metric }) => {
             actions.setDraftSql(definitionField(metric, 'query'))
@@ -314,6 +334,26 @@ export const dataCatalogMetricSceneLogic = kea<dataCatalogMetricSceneLogicType>(
                 actions.setMutating(false)
             }
         },
+        renameMetric: async ({ name }) => {
+            if (values.mutating || isInvalidMetricName(props.name) || name === props.name) {
+                return
+            }
+            const validationError = validateMetricName(name)
+            if (validationError) {
+                lemonToast.error(validationError)
+                return
+            }
+            actions.setMutating(true)
+            try {
+                await dataCatalogMetricsPartialUpdate(projectId(), props.name, { name })
+                lemonToast.success('Metric renamed')
+                // The logic is keyed by name, so navigating remounts a fresh instance at the new URL.
+                router.actions.replace(urls.dataCatalogMetric(name))
+            } catch (error) {
+                lemonToast.error(apiErrorDetail(error) || 'Could not rename the metric. Try again.')
+                actions.setMutating(false)
+            }
+        },
         deleteMetric: async () => {
             if (values.mutating || isInvalidMetricName(props.name)) {
                 return
@@ -330,7 +370,12 @@ export const dataCatalogMetricSceneLogic = kea<dataCatalogMetricSceneLogicType>(
         },
     })),
     urlToAction(({ actions }) => ({
-        [urls.dataCatalogMetric(':name')]: () => {
+        [urls.dataCatalogMetric(':name')]: (_, searchParams) => {
+            if (searchParams.edit === 'definition') {
+                actions.setPendingDefinitionEdit(true)
+                // Consume the param so refresh or back does not reopen the editor.
+                router.actions.replace(router.values.location.pathname)
+            }
             actions.loadMetric()
         },
     })),

@@ -114,13 +114,17 @@ function ChannelTaskDetailRoute() {
           channelId={channelId}
         />
       </div>
-      <ThreadSidebar
-        taskId={taskId}
-        channelId={channelId}
-        task={task}
-        showTaskSummary={false}
-        canOpenInPlace
-      />
+      {/* The chrome's right panel carries the timeline, artifacts and comments
+          now, so the session's own dock only serves the legacy Code layout. */}
+      {!spacesLayout && (
+        <ThreadSidebar
+          taskId={taskId}
+          channelId={channelId}
+          task={task}
+          showTaskSummary={false}
+          canOpenInPlace
+        />
+      )}
     </div>
   );
 }

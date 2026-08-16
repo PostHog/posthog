@@ -28,15 +28,20 @@ class TestReviewUserSettingsAPI(APIBaseTest):
             "review_inbox_prs": False,
             "stamphog_review_inbox_prs": False,  # opt-in: a real approval must never be a default
             "review_labeled_prs": True,
+            "resolve_comments": True,
             "urgency_threshold": "consider",
-            "can_trigger_reviews": False,  # REVIEWHOG_TEAM_ID is unset in tests
+            "can_trigger_reviews": False,  # REVIEWHOG_TEAM_IDS is empty in tests
             "stamphog_connected": False,  # no synced+enabled repo config in this project
         }
         assert ReviewUserSettings.objects.for_team(self.team.id).filter(user_id=self.user.id).count() == 1
 
     def test_patch_updates_only_the_provided_fields(self) -> None:
+        # resolve_comments rides along: it's the UI toggle's only write path, so a serializer that
+        # stops accepting it (e.g. marked read-only) would silently no-op the switch.
         res = self.client.patch(
-            self.url, {"urgency_threshold": "must_fix", "stamphog_review_inbox_prs": True}, format="json"
+            self.url,
+            {"urgency_threshold": "must_fix", "stamphog_review_inbox_prs": True, "resolve_comments": False},
+            format="json",
         )
 
         assert res.status_code == 200
@@ -44,6 +49,7 @@ class TestReviewUserSettingsAPI(APIBaseTest):
         row = ReviewUserSettings.objects.for_team(self.team.id).get(user_id=self.user.id)
         assert row.urgency_threshold == "must_fix"
         assert row.stamphog_review_inbox_prs is True
+        assert row.resolve_comments is False
         assert row.review_labeled_prs is True  # untouched field keeps its default
 
     @parameterized.expand(

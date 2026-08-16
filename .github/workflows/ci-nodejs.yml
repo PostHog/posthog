@@ -62,6 +62,11 @@ jobs:
                         # its Rust tests; a rust-side change (incl. the shared fixtures) must run it.
                         - 'rust/replay-anonymizer/**'
                         - 'rust/replay-anonymizer-node/**'
+                        # These native addons are built by Turbo before Node.js tests. Their Rust
+                        # dependencies are not part of the ingestion consumer's targeted e2e set.
+                        - 'rust/cyclotron-core/**'
+                        - 'rust/cyclotron-node/**'
+                        - 'rust/common/hogvm/**'
                         - '**/crosslang/**'
                         # The clientwarnings consumer e2e replays capture's warning envelope from
                         # this shared fixture. Without it the rust filter below decides, and it only
@@ -416,6 +421,7 @@ jobs:
                   SECRET_KEY: 'abcdef' # unsafe - for testing only
                   DATABASE_URL: 'postgres://posthog:posthog@localhost:5432/posthog'
                   BEHAVIORAL_COHORTS_DATABASE_URL: 'postgres://posthog:posthog@localhost:5432/test_behavioral_cohorts'
+                  # Downloading an artifact requires the Actions permission, which the setup-actions app does not hold
                   GH_TOKEN: ${{ github.token }}
               run: |
                   # Download pre-migrated schema from CI
@@ -688,6 +694,7 @@ jobs:
                   SECRET_KEY: 'abcdef' # unsafe - for testing only
                   DATABASE_URL: 'postgres://posthog:posthog@localhost:5432/posthog'
                   BEHAVIORAL_COHORTS_DATABASE_URL: 'postgres://posthog:posthog@localhost:5432/test_behavioral_cohorts'
+                  # Downloading an artifact requires the Actions permission, which the setup-actions app does not hold
                   GH_TOKEN: ${{ github.token }}
               run: |
                   # Download pre-migrated schema from CI
