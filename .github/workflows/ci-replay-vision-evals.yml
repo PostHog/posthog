@@ -120,10 +120,12 @@ jobs:
               env:
                   POSTHOG_API_KEY: ${{ secrets.REPLAY_VISION_EVAL_POSTHOG_API_KEY }}
                   DEBUG: '1'
+                  # Through env, not inline ${{ }}, so a dispatch input can never inject into the shell.
+                  PER_TYPE: ${{ inputs.per_type || '3' }}
               run: |
                   python -m products.replay_vision.evals.collect \
                       --project-id 2 \
-                      --per-type "${{ inputs.per_type || '3' }}" \
+                      --per-type "$PER_TYPE" \
                       --max-observations 50 \
                       --output "$DATASET_DIR"
 
@@ -137,9 +139,10 @@ jobs:
                   LLM_GATEWAY_ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
                   # The summary_alignment judge (autoevals) calls its model with the OpenAI client.
                   OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+                  TRIALS: ${{ inputs.trials || '1' }}
               run: |
                   python -m products.posthog_ai.eval_harness.harness eval_scanner_quality \
-                      --trials "${{ inputs.trials || '1' }}" 2>&1 | tee /tmp/eval-output.log
+                      --trials "$TRIALS" 2>&1 | tee /tmp/eval-output.log
 
             - name: Publish score summary
               # Publish whatever the run produced, including on failure; the suite is private, so
