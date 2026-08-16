@@ -812,12 +812,11 @@ export function AgentsRoster(): JSX.Element {
                         {group.agents.map((agent) => {
                             const state = stateFor(agent.source)
                             // Steering needs a persisted row to write to, so optimistic `new_`
-                            // placeholder rows wait until the reload lands.
+                            // placeholder rows wait until the reload lands. Disabled sources keep
+                            // the control: enabling starts a sync immediately, so rules must be
+                            // settable before the first sync runs.
                             const steeringConfig =
-                                agent.steerable &&
-                                state.armed &&
-                                state.sourceConfig &&
-                                !state.sourceConfig.id.startsWith('new_')
+                                agent.steerable && state.sourceConfig && !state.sourceConfig.id.startsWith('new_')
                                     ? state.sourceConfig
                                     : null
                             return (

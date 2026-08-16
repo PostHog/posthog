@@ -74,6 +74,20 @@ describe('sourceSteeringModalLogic', () => {
         expect(onClose).toHaveBeenCalled()
     })
 
+    it('merges onto the freshest cached config, not the open-time snapshot', async () => {
+        // A reload landed while the modal was open and changed a key steering does not own.
+        signalSourcesLogic.actions.loadSourceConfigsSuccess([
+            { ...sourceConfig, config: { ...sourceConfig.config, recording_filters: { events: ['$pageview'] } } },
+        ])
+
+        logic.actions.setSourceSteeringValue('steering', 'new rules')
+        await expectLogic(logic, () => {
+            logic.actions.submitSourceSteering()
+        }).toDispatchActions(['submitSourceSteeringSuccess'])
+
+        expect(patchBodies[0].config.recording_filters).toEqual({ events: ['$pageview'] })
+    })
+
     it('caches the saved config from the response even when the list reload fails', async () => {
         signalSourcesLogic.actions.loadSourceConfigsSuccess([sourceConfig])
         reloadFails = true
