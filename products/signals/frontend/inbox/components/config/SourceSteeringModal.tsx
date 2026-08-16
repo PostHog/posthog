@@ -83,6 +83,7 @@ export function SourceSteeringModal({ sourceConfig, sourceLabel, onClose }: Sour
                     <LemonField name="defaultNotActionable" label="Default behavior">
                         {({ value, onChange }) => (
                             <LemonRadio
+                                aria-label="Default behavior"
                                 value={value ? STRICT : LENIENT}
                                 onChange={(posture: string) => onChange(posture === STRICT)}
                                 options={[
