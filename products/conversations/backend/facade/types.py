@@ -80,8 +80,3 @@ class AccountEmailThreadMessage:
     sender_authenticated: bool
     direction: str
     content: str
-
-
-@dataclass(frozen=True)
-class AccountEmailThreadDetail(AccountEmailThreadSummary):
-    messages: list[AccountEmailThreadMessage]
