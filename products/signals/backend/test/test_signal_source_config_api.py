@@ -191,6 +191,9 @@ class TestSignalSourceConfigAPI(APIBaseTest):
             # Falsy non-dict values must be rejected, not skipped by a truthiness guard.
             ("config_list", [], status.HTTP_400_BAD_REQUEST),
             ("config_string", "skip chores", status.HTTP_400_BAD_REQUEST),
+            # Explicit nulls violate the key types and must not persist.
+            ("steering_null", {"steering": None}, status.HTTP_400_BAD_REQUEST),
+            ("default_not_actionable_null", {"default_not_actionable": None}, status.HTTP_400_BAD_REQUEST),
         ]
     )
     def test_create_steering_config_validation(self, _name, config, expected_status):

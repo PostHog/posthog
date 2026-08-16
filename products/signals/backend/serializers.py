@@ -41,8 +41,8 @@ _DATA_IMPORT_SOURCE_MAP: dict[tuple[str, str], tuple[str, str]] = {
 
 
 _SOURCE_CONFIG_HELP_TEXT = (
-    "Per-source settings as a JSON object. Keys shared by the sources that sync through the emission "
-    "pipeline (data warehouse imports and Conversations): "
+    "Per-source settings as a JSON object. Keys read by the emission actionability gate on sources "
+    "that define one (most data warehouse imports, and Conversations): "
     "`steering` (string, max 2000 characters) holds the team's preferences about this source's "
     "records in plain language: what matters, what to skip, what's out of scope. The emission "
     "actionability gate applies it when deciding which records become signals; rules apply from "
@@ -127,15 +127,16 @@ class SignalSourceConfigSerializer(serializers.ModelSerializer):
         if config is not None:
             if not isinstance(config, dict):
                 raise serializers.ValidationError({"config": "config must be a JSON object"})
-            steering = config.get(STEERING_KEY)
-            if steering is not None and not isinstance(steering, str):
-                raise serializers.ValidationError({"config": "steering must be a string"})
-            if isinstance(steering, str) and len(steering) > STEERING_MAX_LENGTH:
-                raise serializers.ValidationError(
-                    {"config": f"steering must be at most {STEERING_MAX_LENGTH} characters"}
-                )
-            default_not_actionable = config.get(DEFAULT_NOT_ACTIONABLE_KEY)
-            if default_not_actionable is not None and not isinstance(default_not_actionable, bool):
+            # Presence-based checks so an explicit null is rejected like any other wrong type.
+            if STEERING_KEY in config:
+                steering = config[STEERING_KEY]
+                if not isinstance(steering, str):
+                    raise serializers.ValidationError({"config": "steering must be a string"})
+                if len(steering) > STEERING_MAX_LENGTH:
+                    raise serializers.ValidationError(
+                        {"config": f"steering must be at most {STEERING_MAX_LENGTH} characters"}
+                    )
+            if DEFAULT_NOT_ACTIONABLE_KEY in config and not isinstance(config[DEFAULT_NOT_ACTIONABLE_KEY], bool):
                 raise serializers.ValidationError({"config": "default_not_actionable must be a boolean"})
         if source_product == SignalSourceConfig.SourceProduct.SESSION_REPLAY and config:
             recording_filters = config.get("recording_filters")

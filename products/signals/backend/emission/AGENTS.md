@@ -95,6 +95,9 @@ DEBUG=1 ./manage.py emit_signals_from_fixture --type zendesk --team-id 1 --fixtu
 and maps to the matching auto-registered config in `registry.py`.
 The command requires `DEBUG=True` and is intended for local iteration only.
 
+Fixture runs (and `emit_signals_from_llm`) read the team's `SignalSourceConfig.config` steering keys exactly like production, so a team with `steering` or `default_not_actionable` set can filter records a plain run would keep.
+For an unsteered baseline, clear those keys on the source's config row first.
+
 ## Maintaining this file
 
 If the pipeline architecture, registry pattern, or conventions change significantly, update this AGENTS.md to reflect the new reality.
