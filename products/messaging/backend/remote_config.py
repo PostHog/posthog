@@ -18,11 +18,14 @@ def build_push_config(team: Team) -> dict:
     older server that never sends the key, so absent has to keep meaning "attempt the registration".
     """
     integrations = Integration.objects.filter(team=team, kind__in=list(PUSH_APP_ID_CONFIG_KEYS)).only("kind", "config")
+    # config is a JSONField, so an identifier can be any JSON value. Anything but a non-empty string is
+    # unusable as an app_id, and letting one through would raise inside the set or the sort — which
+    # aborts build_config and leaves the team's whole remote config stale, not just its push key.
     app_ids = sorted(
         {
             app_id
             for integration in integrations
-            if (app_id := integration.config.get(PUSH_APP_ID_CONFIG_KEYS[integration.kind]))
+            if isinstance(app_id := integration.config.get(PUSH_APP_ID_CONFIG_KEYS[integration.kind]), str) and app_id
         }
     )
     return {"appIds": app_ids}

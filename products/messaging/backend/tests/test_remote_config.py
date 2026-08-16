@@ -15,6 +15,11 @@ class TestBuildPushConfig(BaseTest):
             ("other kinds are ignored", [("slack", {"project_id": "my-project"})], []),
             ("a push kind without its id key", [("firebase", {}), ("apns", {})], []),
             (
+                "non-string identifiers",
+                [("apns", {"bundle_id": ["com.example.app"]}), ("firebase", {"project_id": 42})],
+                [],
+            ),
+            (
                 "deduped and sorted",
                 [("firebase", {"project_id": "b"}), ("apns", {"bundle_id": "a"}), ("firebase", {"project_id": "a"})],
                 ["a", "b"],

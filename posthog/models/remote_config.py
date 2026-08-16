@@ -605,5 +605,11 @@ def push_integration_changed(sender, instance, **kwargs):
     # Integrations cover every kind we support, and most of them have nothing to do with the SDK
     # payload. Only refresh for the two push kinds, so an OAuth token refresh on an unrelated
     # integration doesn't enqueue a rebuild for every team that has one.
-    if instance.kind in PUSH_APP_ID_CONFIG_KEYS:
-        transaction.on_commit(lambda: _update_team_remote_config(instance.team_id))
+    if instance.kind not in PUSH_APP_ID_CONFIG_KEYS:
+        return
+    # The app_ids live in config, and integration code saves errors and created_by on their own —
+    # apns_integration alone does three saves per creation. Only config can change the payload.
+    update_fields = kwargs.get("update_fields")
+    if update_fields is not None and "config" not in update_fields:
+        return
+    transaction.on_commit(lambda: _update_team_remote_config(instance.team_id))

@@ -150,6 +150,21 @@ class TestRemoteConfig(_RemoteConfigBase):
                 integration.delete()
             assert mock_rebuild.called is expects_rebuild
 
+    def test_push_integration_save_that_cannot_change_app_ids_skips_the_rebuild(self):
+        # Integration code saves errors and created_by on their own — apns_integration does three
+        # saves per creation. Without the update_fields guard each one enqueues a rebuild and a CDN
+        # purge for a payload that cannot have changed.
+        integration = Integration.objects.create(team=self.team, kind="apns", config={"bundle_id": "com.example.app"})
+
+        with patch("posthog.models.remote_config._update_team_remote_config") as mock_rebuild:
+            with self.captureOnCommitCallbacks(execute=True):
+                integration.save(update_fields=["errors"])
+            assert not mock_rebuild.called
+
+            with self.captureOnCommitCallbacks(execute=True):
+                integration.save(update_fields=["config"])
+            assert mock_rebuild.called
+
     def test_conversations_disabled_by_default(self):
         self.sync_remote_config()
         assert (
