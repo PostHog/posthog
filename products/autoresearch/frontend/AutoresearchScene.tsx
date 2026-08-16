@@ -4,6 +4,7 @@ import { IconPause, IconPlay, IconPlus, IconTrash } from '@posthog/icons'
 import { LemonButton, LemonDialog, LemonTable, LemonTableColumn } from '@posthog/lemon-ui'
 
 import { dayjs } from 'lib/dayjs'
+import { More } from 'lib/lemon-ui/LemonButton/More'
 import { createdByColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import { sceneConfigurations } from 'scenes/scenes'
@@ -68,7 +69,7 @@ export function AutoresearchScene(): JSX.Element {
                 record.champion_holdout_auc == null ? '—' : record.champion_holdout_auc.toFixed(3),
         },
         {
-            title: 'Online accuracy',
+            title: 'Realized AUC',
             dataIndex: 'champion_realized_auc',
             tooltip:
                 'Realized AUC of the current champion model, measured against actual outcomes once predictions matured.',
@@ -89,56 +90,57 @@ export function AutoresearchScene(): JSX.Element {
                 const canResume = record.status === 'paused'
                 const mutating = !!mutatingPipelineIds[record.id]
                 return (
-                    <div className="flex items-center gap-1">
-                        {canPause && (
-                            <LemonButton
-                                size="small"
-                                icon={<IconPause />}
-                                tooltip="Pause daily scoring"
-                                loading={mutating}
-                                disabledReason={mutating ? 'Another change is still saving' : undefined}
-                                onClick={(e) => {
-                                    e.stopPropagation()
-                                    pausePipeline(record)
-                                }}
-                            />
-                        )}
-                        {canResume && (
-                            <LemonButton
-                                size="small"
-                                icon={<IconPlay />}
-                                tooltip="Resume daily scoring"
-                                loading={mutating}
-                                disabledReason={mutating ? 'Another change is still saving' : undefined}
-                                onClick={(e) => {
-                                    e.stopPropagation()
-                                    resumePipeline(record)
-                                }}
-                            />
-                        )}
-                        <LemonButton
-                            size="small"
-                            icon={<IconTrash />}
-                            status="danger"
-                            tooltip="Delete model"
-                            loading={mutating}
-                            disabledReason={mutating ? 'Another change is still saving' : undefined}
-                            onClick={(e) => {
-                                e.stopPropagation()
-                                LemonDialog.open({
-                                    title: `Delete "${record.name}"?`,
-                                    description:
-                                        'The model, its training runs, and prediction metadata will be removed. Emitted autoresearch_prediction events stay in the events stream.',
-                                    primaryButton: {
-                                        children: 'Delete',
-                                        status: 'danger',
-                                        onClick: () => deletePipeline(record.id, record.name),
-                                    },
-                                    secondaryButton: { children: 'Cancel' },
-                                })
-                            }}
-                        />
-                    </div>
+                    <More
+                        data-attr="autoresearch-model-more"
+                        overlay={
+                            <>
+                                {canPause && (
+                                    <LemonButton
+                                        fullWidth
+                                        icon={<IconPause />}
+                                        loading={mutating}
+                                        disabledReason={mutating ? 'Another change is still saving' : undefined}
+                                        onClick={() => pausePipeline(record)}
+                                    >
+                                        Pause daily scoring
+                                    </LemonButton>
+                                )}
+                                {canResume && (
+                                    <LemonButton
+                                        fullWidth
+                                        icon={<IconPlay />}
+                                        loading={mutating}
+                                        disabledReason={mutating ? 'Another change is still saving' : undefined}
+                                        onClick={() => resumePipeline(record)}
+                                    >
+                                        Resume daily scoring
+                                    </LemonButton>
+                                )}
+                                <LemonButton
+                                    fullWidth
+                                    icon={<IconTrash />}
+                                    status="danger"
+                                    loading={mutating}
+                                    disabledReason={mutating ? 'Another change is still saving' : undefined}
+                                    onClick={() => {
+                                        LemonDialog.open({
+                                            title: `Delete "${record.name}"?`,
+                                            description:
+                                                'The model, its training runs, and prediction metadata will be removed. Emitted autoresearch_prediction events stay in the events stream.',
+                                            primaryButton: {
+                                                children: 'Delete',
+                                                status: 'danger',
+                                                onClick: () => deletePipeline(record.id, record.name),
+                                            },
+                                            secondaryButton: { children: 'Cancel' },
+                                        })
+                                    }}
+                                >
+                                    Delete model
+                                </LemonButton>
+                            </>
+                        }
+                    />
                 )
             },
         },

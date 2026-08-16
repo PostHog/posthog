@@ -2,6 +2,7 @@ import { useActions, useValues } from 'kea'
 
 import { IconChevronRight, IconExternal, IconGraph, IconPause, IconPlay, IconRefresh } from '@posthog/icons'
 import {
+    LemonBanner,
     LemonButton,
     LemonCollapse,
     LemonModal,
@@ -40,7 +41,10 @@ import { DailyVolumeChart } from './DailyVolumeChart'
 import {
     AutoresearchIterationStatusEnumApi,
     AutoresearchPipelineApi,
+    AutoresearchRunStatusEnumApi,
     AutoresearchSuggestionApi,
+    AutoresearchSuggestionPriorityEnumApi,
+    AutoresearchSuggestionStatusEnumApi,
     AutoresearchTrainingRunApi,
     CreateSuggestionPriorityEnumApi,
     IterationTrailApi,
@@ -99,7 +103,7 @@ function OverviewTab(): JSX.Element {
                 />
             </div>
             {champion && (
-                <>
+                <div className="border rounded p-4 space-y-4">
                     <div className="flex items-center gap-2">
                         <span className="text-sm font-semibold text-muted">Champion model</span>
                         {champion.is_preliminary && (
@@ -109,15 +113,27 @@ function OverviewTab(): JSX.Element {
                         )}
                     </div>
                     <div className="grid grid-cols-2 gap-4 md:grid-cols-3">
-                        <MetricCard label="Holdout AUC" value={champion.holdout_score?.toFixed(3) ?? '—'} />
-                        <MetricCard label="Realized AUC" value={champion.realized_score?.toFixed(3) ?? '—'} />
-                        <MetricCard label="Calibration error" value={champion.calibration_error?.toFixed(3) ?? '—'} />
+                        <MetricCard
+                            label="Holdout AUC"
+                            value={champion.holdout_score?.toFixed(3) ?? '—'}
+                            tooltip="Offline AUC of the champion model, measured on held-out training data. Higher is better."
+                        />
+                        <MetricCard
+                            label="Realized AUC"
+                            value={champion.realized_score?.toFixed(3) ?? '—'}
+                            tooltip="AUC of the champion model measured against actual outcomes once predictions matured. Higher is better."
+                        />
+                        <MetricCard
+                            label="Calibration error"
+                            value={champion.calibration_error?.toFixed(3) ?? '—'}
+                            tooltip="Expected calibration error (ECE): how far predicted probabilities drift from observed rates. Lower is better."
+                        />
                     </div>
                     <FeatureImportanceChart explanation={champion.model_explanation} />
                     {champion.agent_description && (
                         <div className="text-sm text-muted italic">"{champion.agent_description}"</div>
                     )}
-                </>
+                </div>
             )}
             <div className="border rounded p-4">
                 <DetailRow label="Output person property">
@@ -161,10 +177,15 @@ function populationSummary(population: AutoresearchPipelineApi['training_populat
     return JSON.stringify(population)
 }
 
-function MetricCard({ label, value }: { label: string; value: string }): JSX.Element {
+function MetricCard({ label, value, tooltip }: { label: string; value: string; tooltip?: string }): JSX.Element {
+    const labelElement = (
+        <div className={`text-xs font-semibold text-muted uppercase tracking-wide${tooltip ? ' cursor-help' : ''}`}>
+            {label}
+        </div>
+    )
     return (
         <div className="border rounded p-3 space-y-1">
-            <div className="text-xs font-semibold text-muted uppercase tracking-wide">{label}</div>
+            {tooltip ? <Tooltip title={tooltip}>{labelElement}</Tooltip> : labelElement}
             <div className="text-lg font-bold truncate">{value}</div>
         </div>
     )
@@ -224,6 +245,37 @@ const ITERATION_STATUS: Record<
     kept: { type: 'success', label: 'Kept' },
     discarded: { type: 'default', label: 'Discarded' },
     crashed: { type: 'danger', label: 'Crashed' },
+}
+
+const RUN_STATUS: Record<
+    AutoresearchRunStatusEnumApi,
+    { type: 'success' | 'default' | 'danger' | 'highlight'; label: string }
+> = {
+    pending: { type: 'default', label: 'Pending' },
+    running: { type: 'highlight', label: 'Running' },
+    completed: { type: 'success', label: 'Completed' },
+    failed: { type: 'danger', label: 'Failed' },
+}
+
+const MODEL_ROLE: Record<string, { type: 'success' | 'default' | 'highlight'; label: string }> = {
+    champion: { type: 'success', label: 'Champion' },
+    challenger: { type: 'highlight', label: 'Challenger' },
+    archived: { type: 'default', label: 'Archived' },
+}
+
+const SUGGESTION_STATUS: Record<
+    AutoresearchSuggestionStatusEnumApi,
+    { type: 'success' | 'default' | 'danger' | 'highlight'; label: string }
+> = {
+    queued: { type: 'default', label: 'Queued' },
+    picked_up: { type: 'highlight', label: 'Picked up' },
+    acted_on: { type: 'success', label: 'Acted on' },
+    dismissed: { type: 'danger', label: 'Dismissed' },
+}
+
+const SUGGESTION_PRIORITY: Record<AutoresearchSuggestionPriorityEnumApi, string> = {
+    consider: 'Consider',
+    try_next: 'Try next',
 }
 
 /** Render the agent's model_spec (class + hyperparameters) compactly. random_state is noise — drop it. */
@@ -307,7 +359,6 @@ function RunReport({ runId }: { runId: string }): JSX.Element | null {
     }
     return (
         <LemonCollapse
-            defaultActiveKey="report"
             panels={[
                 {
                     key: 'report',
@@ -325,6 +376,18 @@ function TrainingRunRow({ run }: { run: AutoresearchTrainingRunApi }): JSX.Eleme
     const isExpanded = expandedRunId === run.id
     const paths = artifactsByRun[run.id]
     const progress = trainingRunProgress(run)
+    const startedAt = run.started_at ?? run.created_at
+    const duration =
+        run.started_at && run.completed_at ? dayjs(run.completed_at).from(dayjs(run.started_at), true) : null
+    const runStatus = RUN_STATUS[run.status]
+    const progressSummary =
+        run.status === 'failed' && progress.iterationCount === 0
+            ? 'Failed before any iterations'
+            : `${progress.iterationCount} iterations · ${
+                  progress.bestHoldoutScore != null
+                      ? `best AUC ${progress.bestHoldoutScore.toFixed(3)}`
+                      : 'no score yet'
+              }`
 
     return (
         <div className="border rounded">
@@ -338,7 +401,9 @@ function TrainingRunRow({ run }: { run: AutoresearchTrainingRunApi }): JSX.Eleme
                     />
                     <div className="space-y-0.5">
                         <div className="text-sm font-semibold flex items-center gap-1">
-                            Run {run.id.slice(0, 8)}
+                            <Tooltip title={dayjs(startedAt).format('MMM D, YYYY HH:mm')}>
+                                <span>Training run · {dayjs(startedAt).fromNow()}</span>
+                            </Tooltip>
                             {run.task_url && (
                                 <Link
                                     to={run.task_url}
@@ -352,29 +417,16 @@ function TrainingRunRow({ run }: { run: AutoresearchTrainingRunApi }): JSX.Eleme
                             {run.status === 'running' && <Spinner className="ml-2 inline" />}
                         </div>
                         <div className="text-xs text-muted">
-                            {progress.iterationCount} iterations ·{' '}
-                            {progress.bestHoldoutScore != null
-                                ? `best AUC ${progress.bestHoldoutScore.toFixed(3)}`
-                                : 'no score yet'}
+                            <span className="font-mono">{run.id.slice(0, 8)}</span> · {progressSummary}
+                            {duration ? ` · took ${duration}` : ''}
                         </div>
                     </div>
                 </div>
-                <LemonTag
-                    type={
-                        run.status === 'completed'
-                            ? 'success'
-                            : run.status === 'failed'
-                              ? 'danger'
-                              : run.status === 'running'
-                                ? 'highlight'
-                                : 'default'
-                    }
-                >
-                    {run.status}
-                </LemonTag>
+                <LemonTag type={runStatus.type}>{runStatus.label}</LemonTag>
             </div>
             {isExpanded && (
                 <div className="border-t p-3 space-y-3">
+                    {run.status === 'failed' && run.error && <LemonBanner type="error">{run.error}</LemonBanner>}
                     <RunReport runId={run.id} />
                     <div className="space-y-2">
                         <div className="text-xs font-semibold text-muted uppercase tracking-wide">Iterations</div>
@@ -538,9 +590,9 @@ function FeatureImportanceChart({ explanation }: { explanation: unknown }): JSX.
                                     </Tooltip>
                                 </div>
                             ) : (
-                                <div className="flex-1 min-w-0 truncate text-xs text-muted" title={f.note}>
-                                    {f.note}
-                                </div>
+                                <Tooltip title={f.note}>
+                                    <div className="flex-1 min-w-0 truncate text-xs text-muted">{f.note}</div>
+                                </Tooltip>
                             )}
                         </div>
                     )
@@ -558,13 +610,15 @@ function FeatureImportanceChart({ explanation }: { explanation: unknown }): JSX.
     )
 }
 
-/** Renders a prediction's person_id (a person UUID) as a link to that person's page. */
-function PersonLink({ value }: { value: unknown }): JSX.Element {
-    const personId = value == null ? '' : String(value)
+/** Links to the person's page. The value is a (person UUID, display name) tuple; the display name falls back to the UUID. */
+function PersonCell({ value }: { value: unknown }): JSX.Element {
+    const [id, name] = Array.isArray(value) ? value : [value, null]
+    const personId = id == null ? '' : String(id)
     if (!personId) {
         return <>—</>
     }
-    return <Link to={urls.personByUUID(personId)}>{personId}</Link>
+    const display = typeof name === 'string' && name ? name : personId
+    return <Link to={urls.personByUUID(personId)}>{display}</Link>
 }
 
 function PercentCell({ value }: { value: unknown }): JSX.Element {
@@ -584,7 +638,7 @@ function ProbabilityUsersTable({
             readOnly
             context={{
                 columns: {
-                    person_id: { title: 'Person', render: PersonLink },
+                    person: { title: 'Person', render: PersonCell },
                     probability: { title: 'Probability', render: PercentCell },
                     last_scored: { title: 'Last scored' },
                 },
@@ -599,16 +653,29 @@ function ProbabilityUsersTable({
                             FROM events
                             WHERE event = 'autoresearch_prediction'
                               AND properties.$autoresearch_pipeline_id = {pipeline_id}
+                        ),
+                        scored AS (
+                            SELECT
+                                coalesce(nullIf(properties.$autoresearch_person_id, ''), distinct_id) AS person_id,
+                                round(100 * argMax(toFloat(properties.$autoresearch_p_y), timestamp), 1) AS probability,
+                                max(timestamp) AS last_scored
+                            FROM events
+                            WHERE event = 'autoresearch_prediction'
+                              AND properties.$autoresearch_pipeline_id = {pipeline_id}
+                              AND toDate(timestamp) = (SELECT d FROM latest)
+                            GROUP BY person_id
                         )
+                        -- LEFT JOIN persons directly on the person UUID: the implicit person join goes via
+                        -- distinct_id, which drops scored people whose prediction events aren't person-mapped.
                         SELECT
-                            coalesce(nullIf(properties.$autoresearch_person_id, ''), distinct_id) AS person_id,
-                            round(100 * argMax(toFloat(properties.$autoresearch_p_y), timestamp), 1) AS probability,
-                            max(timestamp) AS last_scored
-                        FROM events
-                        WHERE event = 'autoresearch_prediction'
-                          AND properties.$autoresearch_pipeline_id = {pipeline_id}
-                          AND toDate(timestamp) = (SELECT d FROM latest)
-                        GROUP BY person_id
+                            tuple(s.person_id, coalesce(
+                                nullIf(toString(p.properties.email), ''),
+                                nullIf(toString(p.properties.name), '')
+                            )) AS person,
+                            s.probability AS probability,
+                            s.last_scored AS last_scored
+                        FROM scored s
+                        LEFT JOIN persons p ON toString(p.id) = s.person_id
                         ORDER BY probability ${direction}
                         LIMIT 50
                     `,
@@ -679,18 +746,15 @@ function PredictionsTab(): JSX.Element {
 
     return (
         <div className="space-y-6">
-            <div className="flex items-center justify-between gap-2">
-                <p className="text-sm text-muted">
-                    Each scoring run writes the champion's predicted probability to the{' '}
-                    <code>{pipeline.output_person_property}</code> person property and emits an{' '}
-                    <code>autoresearch_prediction</code> event. These views read straight from those events.
-                </p>
-                <ScoreNowButton />
-            </div>
+            <p className="text-sm text-muted">
+                Each scoring run writes the champion's predicted probability to the{' '}
+                <code>{pipeline.output_person_property}</code> person property and emits an{' '}
+                <code>autoresearch_prediction</code> event. These views read straight from those events.
+            </p>
 
             <LemonCollapse
                 multiple
-                defaultActiveKeys={['distribution', 'highest', 'lowest', 'volume']}
+                defaultActiveKeys={['distribution', 'highest']}
                 panels={[
                     {
                         key: 'distribution',
@@ -781,9 +845,10 @@ function MetricTrendCard({
     return (
         <div className="border rounded p-3 space-y-1 inline-block">
             <div className="text-xs font-semibold text-muted uppercase tracking-wide">{title}</div>
+            <div className="text-lg font-bold">{latest.value.toFixed(3)}</div>
             <MetricSparkline points={points} color={color} floor={floor} ceil={ceil} />
             <div className="text-xs text-muted">
-                {points[0].date} → {latest.date} · latest {latest.value.toFixed(3)}
+                {dayjs(points[0].date).format('MMM D')} to {dayjs(latest.date).format('MMM D')}
             </div>
         </div>
     )
@@ -850,16 +915,8 @@ function OnlinePerformanceTab(): JSX.Element {
                     {
                         title: 'Model',
                         render: (_, row) => (
-                            <LemonTag
-                                type={
-                                    row.model_role === 'champion'
-                                        ? 'success'
-                                        : row.model_role === 'challenger'
-                                          ? 'highlight'
-                                          : 'default'
-                                }
-                            >
-                                {row.model_role}
+                            <LemonTag type={MODEL_ROLE[row.model_role]?.type ?? 'default'}>
+                                {MODEL_ROLE[row.model_role]?.label ?? row.model_role}
                             </LemonTag>
                         ),
                     },
@@ -942,20 +999,12 @@ function SuggestionsTab(): JSX.Element {
                     {suggestions.map((s: AutoresearchSuggestionApi) => (
                         <div key={s.id} className="border rounded p-3 space-y-1">
                             <div className="flex items-center gap-2">
-                                <LemonTag
-                                    type={
-                                        s.status === 'acted_on'
-                                            ? 'success'
-                                            : s.status === 'dismissed'
-                                              ? 'danger'
-                                              : s.status === 'picked_up'
-                                                ? 'highlight'
-                                                : 'default'
-                                    }
-                                >
-                                    {s.status}
+                                <LemonTag type={SUGGESTION_STATUS[s.status].type}>
+                                    {SUGGESTION_STATUS[s.status].label}
                                 </LemonTag>
-                                <span className="text-xs text-muted">{s.priority}</span>
+                                <span className="text-xs text-muted">
+                                    {s.priority ? SUGGESTION_PRIORITY[s.priority] : ''}
+                                </span>
                                 <span className="text-xs text-muted">{dayjs(s.created_at).fromNow()}</span>
                             </div>
                             <div className="text-sm">{s.prompt}</div>
@@ -1046,7 +1095,12 @@ export function AutoresearchPipelineScene(): JSX.Element {
                 name={heading}
                 description={subheading}
                 resourceType={{ type: 'experiment' }}
-                actions={<PipelineActions />}
+                actions={
+                    <>
+                        <ScoreNowButton />
+                        <PipelineActions />
+                    </>
+                }
             />
 
             {pipelineLoading && !pipeline ? (

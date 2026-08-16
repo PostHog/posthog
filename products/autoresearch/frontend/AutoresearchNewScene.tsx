@@ -106,7 +106,6 @@ function ValidationPanel(): JSX.Element {
                                         w.severity === 'error' ? 'error' : w.severity === 'warning' ? 'warning' : 'info'
                                     }
                                 >
-                                    <span className="font-semibold mr-2">{w.code}</span>
                                     {w.message}
                                 </LemonBanner>
                             ))}
@@ -272,7 +271,7 @@ export function AutoresearchNewScene(): JSX.Element {
                             disabledReason={blockingError ? 'Resolve blocking warnings before creating' : undefined}
                             onClick={() => submitNewPipeline()}
                         >
-                            Create pipeline
+                            Create model
                         </LemonButton>
                     </div>
                 </Form>
