@@ -125,6 +125,7 @@ jobs:
 
             - name: Collect golden dataset
               if: steps.gate.outputs.enabled == 'true'
+              shell: bash
               env:
                   POSTHOG_API_KEY: ${{ secrets.REPLAY_VISION_EVAL_POSTHOG_API_KEY }}
                   DEBUG: '1'
@@ -136,11 +137,21 @@ jobs:
                       --per-type "$PER_TYPE" \
                       --max-observations 50 \
                       --output "$DATASET_DIR"
+                  # An empty dataset (expired assets, warehouse lag) must fail loudly, not score green over nothing.
+                  python - <<'EOF'
+                  import json, os, pathlib, sys
+                  cases = json.loads((pathlib.Path(os.environ["DATASET_DIR"]) / "manifest.json").read_text())["cases"]
+                  print(f"{len(cases)} cases in the collected dataset")
+                  sys.exit(1 if not cases else 0)
+                  EOF
 
             - name: Run scanner quality suite
               if: steps.gate.outputs.enabled == 'true'
+              # bash (not the default shell) for pipefail: without it a failing harness piped into a
+              # succeeding tee reports this step green.
+              shell: bash
               env:
-                  REPLAY_VISION_EVAL_DATASET: /tmp/replay-vision-golden-dataset
+                  REPLAY_VISION_EVAL_DATASET: ${{ env.DATASET_DIR }}
                   GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
                   BRAINTRUST_API_KEY: ${{ secrets.BRAINTRUST_API_KEY }}
                   # The one-shot preflight name for a plain Anthropic key (used directly, no gateway).
@@ -156,6 +167,7 @@ jobs:
               # Publish whatever the run produced, including on failure; the suite is private, so
               # scores exist only in this runner's local logs.
               if: always() && steps.gate.outputs.enabled == 'true'
+              shell: bash
               run: |
                   {
                       echo "## Replay Vision scanner eval"
@@ -164,7 +176,11 @@ jobs:
                       echo "Directional signal only: Gemini is nondeterministic and the dataset is re-sampled per run."
                       echo ""
                       echo '```'
-                      tail -n 80 /tmp/eval-output.log 2>/dev/null || echo "no eval output produced"
+                      # Only the stable aggregate lines: this summary is public, and case payloads
+                      # (session-derived content) must never leave the runner even if the harness's
+                      # console output grows.
+                      grep -E '^(CASE|EXPERIMENT DONE|Suites:|Cases:|Mean score:|Score gate:|Duration:)|eval summary' \
+                          /tmp/eval-output.log 2>/dev/null || echo "no eval output produced"
                       echo '```'
                   } >> "$GITHUB_STEP_SUMMARY"
 
