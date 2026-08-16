@@ -275,8 +275,11 @@ class RetentionFixedIntervalBaseQueryBuilder(RetentionBaseQueryBuilder):
     def _can_single_scan(self) -> bool:
         # Events-only, non-property-aggregating series read the same `events` source on both arms, so the
         # start and return timestamp arrays can be computed in one pass. Property aggregation stays on the
-        # UNION because collapsing it into the single scan is known to diverge from legacy results; the
-        # UNION shape itself matches legacy (covered by the aggregation tests in
+        # UNION only because this builder does not collect the (interval, value, timestamp) tuple arrays
+        # (_start_event_data / _return_event_data) that _get_intervals_from_base_exprs reads in
+        # aggregation mode, so routing it through the single scan fails to resolve those fields.
+        # Collecting them inline, the way build_base_query_legacy does on one scan, is a legitimate perf
+        # follow-up; the UNION shape matches legacy results (compared by the aggregation tests in
         # test_retention_query_runner.py). A data-warehouse entity is a genuinely different source and
         # cannot collapse here.
         return (
@@ -424,9 +427,23 @@ class RetentionFixedIntervalBaseQueryBuilder(RetentionBaseQueryBuilder):
             filters.append(self.runner._group_actor_filter())
         filters.extend(self._cohort_breakdown_filters())
 
+        if self.is_first_ever_occurrence and self._return_names_within_start_names():
+            # The return branch's rows are a subset of the start branch's, so OR-ing the
+            # window-bounded return branch in admits nothing new. The start branch alone is the
+            # whole filter, which is exactly the flat name filter the legacy shape scans with.
+            filters.append(start_branch)
+            return filters
+
         return_branch = self._first_time_role_branch(self.return_event, "return") or self.events_timestamp_filter()
         filters.append(ast.Or(exprs=[start_branch, return_branch]))
         return filters
+
+    def _return_names_within_start_names(self) -> bool:
+        start_names = self.runner.get_events_for_entity(self.start_event)
+        return_names = self.runner.get_events_for_entity(self.return_event)
+        if None in start_names or None in return_names:
+            return False
+        return set(return_names) <= set(start_names)
 
     def _first_time_role_branch(
         self, entity: RetentionEntity, query_kind: Literal["start", "return"]
@@ -438,9 +455,18 @@ class RetentionFixedIntervalBaseQueryBuilder(RetentionBaseQueryBuilder):
         event_name_filter = self.runner.event_name_filter([entity])
         if event_name_filter is not None:
             exprs.append(event_name_filter)
-        predicate = self._arm_scan_predicate(entity, query_kind)
-        if not (isinstance(predicate, ast.Constant) and predicate.value is True):
-            exprs.append(predicate)
+        # First-ever branches filter by event name only. Every aggregate condition re-checks the
+        # full entity matcher anyway, and ClickHouse does not share expression results between the
+        # WHERE stage and the aggregation stage, so a property or action-step matcher here is
+        # evaluated per row a second time. That costs far more CPU than the rows it removes save,
+        # while the names and the window bound already carry all the granule pruning the branch
+        # provides. The legacy first-ever shape scans with just the name filter for the same
+        # reason. First-time-matching keeps the full matcher because the legacy shape filters on
+        # it per row too, so it is cost parity there.
+        if not self.is_first_ever_occurrence:
+            predicate = self._arm_scan_predicate(entity, query_kind)
+            if not (isinstance(predicate, ast.Constant) and predicate.value is True):
+                exprs.append(predicate)
         if not exprs:
             return None
         if query_kind == "return":
@@ -620,11 +646,21 @@ class RetentionFixedIntervalBaseQueryBuilder(RetentionBaseQueryBuilder):
         # mode the only element ever read is start_event_timestamps[1] (the minimum), so a single-element array is
         # equivalent. A null anchor (first-ever occurrence not matching filters) or an out-of-window anchor both
         # fail the window check and yield an empty array, excluding the actor.
+        bucketed_anchor: ast.Expr = self.query_date_range.date_to_start_of_interval_hogql(anchor_expr)
+        if self.query_date_range.interval_name in ("hour", "day"):
+            # The legacy shape builds start_event_timestamps via groupUniqArrayIf, whose result type drops
+            # the DateTime timezone (Array(DateTime) in the server default, UTC on Cloud). This array literal
+            # would instead keep the team timezone carried by the anchor. dateDiff — the custom-brackets
+            # bucketing — evaluates each operand's calendar day in its own timezone, so for teams east of UTC
+            # a team-tz-typed anchor lands every return one bracket early (next-day returns collapse into
+            # day 0 and get dropped). Pin the aggregate's type so both shapes bucket identically. Week/month
+            # buckets are Date-typed (timezoneless) in both shapes and toTimeZone would not accept them.
+            bucketed_anchor = ast.Call(name="toTimeZone", args=[bucketed_anchor, ast.Constant(value="UTC")])
         return parse_expr(
             "if({within_window}, [{bucketed_anchor}], [])",
             {
                 "within_window": self.events_timestamp_filter(field=anchor_expr),
-                "bucketed_anchor": self.query_date_range.date_to_start_of_interval_hogql(anchor_expr),
+                "bucketed_anchor": bucketed_anchor,
             },
         )
 

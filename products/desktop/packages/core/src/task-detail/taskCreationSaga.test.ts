@@ -374,6 +374,7 @@ describe("TaskCreationSaga", () => {
     expect(piRunner.create).toHaveBeenCalledWith({
       taskId: "task-123",
       cwd: "/tmp/scratch/task-123",
+      projectTrustPath: "/tmp/scratch/task-123",
       prompt: "Draft a launch email",
       model: "claude-sonnet",
       thinkingLevel: "medium",

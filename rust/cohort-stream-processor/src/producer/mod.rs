@@ -6,11 +6,9 @@
 pub mod batcher;
 pub mod cascade;
 pub mod kafka;
+pub mod marker;
 pub mod merge;
 pub mod seed;
-
-use std::sync::atomic::{AtomicUsize, Ordering};
-use std::sync::{Arc, Mutex};
 
 use async_trait::async_trait;
 use chrono::Utc;
@@ -26,11 +24,16 @@ pub use cohort_core::seed::ReconcileCompleteMarker;
 use crate::filters::reverse_index::TeamFilters;
 use crate::filters::CohortId;
 use crate::observability::metrics::OUTPUT_TRANSITIONS_UNMAPPED;
+use crate::producer::merge::Capture;
 use crate::stage1::transition::{LeafTransition, TransitionKind};
 
 pub use batcher::OutputBuffer;
 pub use cascade::{CaptureCascadeSink, CascadeSink, KafkaCascadeSink, NoopCascadeSink};
 pub use kafka::KafkaMembershipSink;
+pub use marker::{
+    CaptureReconcileMarkerSink, KafkaReconcileMarkerSink, NoopReconcileMarkerSink,
+    ReconcileMarkerSink,
+};
 pub use merge::{
     CaptureStreamEventSink, CaptureTransferSink, KafkaStreamEventSink, KafkaTransferSink,
     StreamEventSink, TransferSink,
@@ -163,19 +166,10 @@ pub trait MembershipSink: Send + Sync {
         &self,
         changes: Vec<CohortMembershipChange>,
     ) -> Vec<Result<(), KafkaProduceError>>;
-
-    async fn produce_markers(
-        &self,
-        markers: Vec<ReconcileCompleteMarker>,
-    ) -> Vec<Result<(), KafkaProduceError>>;
 }
 
 #[derive(Debug, Default, Clone)]
-pub struct CaptureSink {
-    changes: Arc<Mutex<Vec<CohortMembershipChange>>>,
-    markers: Arc<Mutex<Vec<ReconcileCompleteMarker>>>,
-    fail_remaining: Arc<AtomicUsize>,
-}
+pub struct CaptureSink(Capture<CohortMembershipChange>);
 
 impl CaptureSink {
     pub fn new() -> Self {
@@ -183,33 +177,11 @@ impl CaptureSink {
     }
 
     pub fn failing_first(n: usize) -> Self {
-        Self {
-            changes: Arc::default(),
-            markers: Arc::default(),
-            fail_remaining: Arc::new(AtomicUsize::new(n)),
-        }
+        Self(Capture::failing_first(n))
     }
 
     pub fn changes(&self) -> Vec<CohortMembershipChange> {
-        self.changes
-            .lock()
-            .expect("CaptureSink mutex poisoned")
-            .clone()
-    }
-
-    pub fn markers(&self) -> Vec<ReconcileCompleteMarker> {
-        self.markers
-            .lock()
-            .expect("CaptureSink mutex poisoned")
-            .clone()
-    }
-
-    fn should_fail(&self) -> bool {
-        self.fail_remaining
-            .fetch_update(Ordering::SeqCst, Ordering::SeqCst, |n| {
-                (n > 0).then(|| n - 1)
-            })
-            .is_ok()
+        self.0.recorded()
     }
 }
 
@@ -219,36 +191,7 @@ impl MembershipSink for CaptureSink {
         &self,
         changes: Vec<CohortMembershipChange>,
     ) -> Vec<Result<(), KafkaProduceError>> {
-        if self.should_fail() {
-            return changes
-                .into_iter()
-                .map(|_| Err(KafkaProduceError::KafkaProduceCanceled))
-                .collect();
-        }
-        let acks = (0..changes.len()).map(|_| Ok(())).collect();
-        self.changes
-            .lock()
-            .expect("CaptureSink mutex poisoned")
-            .extend(changes);
-        acks
-    }
-
-    async fn produce_markers(
-        &self,
-        markers: Vec<ReconcileCompleteMarker>,
-    ) -> Vec<Result<(), KafkaProduceError>> {
-        if self.should_fail() {
-            return markers
-                .into_iter()
-                .map(|_| Err(KafkaProduceError::KafkaProduceCanceled))
-                .collect();
-        }
-        let acks = (0..markers.len()).map(|_| Ok(())).collect();
-        self.markers
-            .lock()
-            .expect("CaptureSink mutex poisoned")
-            .extend(markers);
-        acks
+        self.0.produce(changes)
     }
 }
 
@@ -300,16 +243,6 @@ mod tests {
             condition_hash: HASH,
             kind,
         }
-    }
-
-    fn reconcile_complete_marker(partition: u16) -> ReconcileCompleteMarker {
-        ReconcileCompleteMarker::new(
-            TeamId(42),
-            CohortId(91204),
-            partition,
-            RunId(Uuid::nil()),
-            TS.to_string(),
-        )
     }
 
     #[test]
@@ -537,42 +470,5 @@ mod tests {
         let second = sink.produce(vec![change.clone()]).await;
         assert!(second.iter().all(Result::is_ok), "second flush succeeds");
         assert_eq!(sink.changes(), vec![change]);
-    }
-
-    #[tokio::test]
-    async fn capture_sink_records_markers_and_shares_failure_order_across_message_types() {
-        let sink = CaptureSink::failing_first(1);
-        let change = CohortMembershipChange {
-            team_id: 42,
-            cohort_id: 91204,
-            person_id: "p".to_string(),
-            last_updated: TS.to_string(),
-            status: MembershipStatus::Entered,
-            origin: Some(ChangeOrigin::Reconcile),
-            run_id: Some(RunId(Uuid::nil())),
-        };
-        let marker = reconcile_complete_marker(7);
-
-        let first = sink.produce(vec![change]).await;
-        assert!(first.iter().all(Result::is_err), "first flush fails");
-        assert!(sink.changes().is_empty(), "a failed flush records nothing");
-
-        let second = sink.produce_markers(vec![marker.clone()]).await;
-        assert!(second.iter().all(Result::is_ok), "second flush succeeds");
-        assert_eq!(sink.markers(), vec![marker]);
-    }
-
-    #[tokio::test]
-    async fn capture_sink_retries_a_failed_marker_without_recording_the_failed_attempt() {
-        let sink = CaptureSink::failing_first(1);
-        let marker = reconcile_complete_marker(7);
-
-        let first = sink.produce_markers(vec![marker.clone()]).await;
-        assert!(first.iter().all(Result::is_err), "first flush fails");
-        assert!(sink.markers().is_empty(), "a failed flush records nothing");
-
-        let second = sink.produce_markers(vec![marker.clone()]).await;
-        assert!(second.iter().all(Result::is_ok), "retry succeeds");
-        assert_eq!(sink.markers(), vec![marker]);
     }
 }

@@ -1,13 +1,14 @@
 import {
   ArrowClockwiseIcon,
+  ChatCircleIcon,
   DotsThreeIcon,
-  GitForkIcon,
   LinkIcon,
   PencilSimpleIcon,
   PushPinIcon,
   TrashIcon,
   XIcon,
 } from "@phosphor-icons/react";
+import { useHostTRPC } from "@posthog/host-router/react";
 import {
   AlertDialog,
   AlertDialogClose,
@@ -25,55 +26,58 @@ import {
 import { ANALYTICS_EVENTS } from "@posthog/shared/analytics-events";
 import { ChannelBreadcrumb } from "@posthog/ui/features/canvas/components/ChannelBreadcrumb";
 import { iconForTemplate } from "@posthog/ui/features/canvas/components/canvasTemplateIcon";
-import {
-  channelPageIcon,
-  channelPageLabel,
-} from "@posthog/ui/features/canvas/components/channelPages";
 import { NewCanvasMenu } from "@posthog/ui/features/canvas/components/NewCanvasMenu";
 import { deleteCanvasWithUndo } from "@posthog/ui/features/canvas/deleteCanvasWithUndo";
 import { CanvasFrameHost } from "@posthog/ui/features/canvas/freeform/CanvasFrameHost";
+import { canvasCommentTaskId } from "@posthog/ui/features/canvas/freeform/canvasCommentTask";
 import { useCanvasFrameStore } from "@posthog/ui/features/canvas/freeform/canvasFrameStore";
 import { CANVAS_QUERY_KEY } from "@posthog/ui/features/canvas/freeform/freeformDataBridge";
 import { useChannels } from "@posthog/ui/features/canvas/hooks/useChannels";
 import { useChannelsLayout } from "@posthog/ui/features/canvas/hooks/useChannelsLayout";
 import { useChannelTasks } from "@posthog/ui/features/canvas/hooks/useChannelTasks";
 import {
+  useCanvasVersions,
   useDashboard,
   useDashboardMutations,
 } from "@posthog/ui/features/canvas/hooks/useDashboards";
+import { useCanvasChatPanelStore } from "@posthog/ui/features/canvas/stores/canvasChatPanelStore";
 import {
   useDashboardEditStore,
   useIsDashboardEditing,
 } from "@posthog/ui/features/canvas/stores/dashboardEditStore";
-import {
-  useFreeformChatStore,
-  useFreeformThread,
-} from "@posthog/ui/features/canvas/stores/freeformChatStore";
 import { copyCanvasLink } from "@posthog/ui/features/canvas/utils/copyCanvasLink";
+import {
+  RightPanel,
+  SWITCHER_WIDTH_PX,
+} from "@posthog/ui/features/navigation/components/RightPanel";
+import {
+  CONTENT_CHROME_RIGHT_VAR,
+  useRightPanelOpen,
+} from "@posthog/ui/features/navigation/rightPanelSide";
+import { buildCommentThreads } from "@posthog/ui/features/sessions/components/commentViewTypes";
+import { useCommentsQuery } from "@posthog/ui/features/sessions/components/useComments";
+import {
+  MentionAvailabilityProvider,
+  PRIVATE_SPACE_MENTIONS_DISABLED,
+} from "@posthog/ui/features/sessions/mentionAvailability";
 import { TaskHeaderActions } from "@posthog/ui/features/task-detail/components/TaskHeaderActions";
 import { useTasks } from "@posthog/ui/features/tasks/useTasks";
 import { toast } from "@posthog/ui/primitives/toast";
 import { track } from "@posthog/ui/shell/analytics";
 import { useHeaderStore } from "@posthog/ui/shell/headerStore";
-import { Box, Flex } from "@radix-ui/themes";
-import { useQueryClient } from "@tanstack/react-query";
+import { Flex } from "@radix-ui/themes";
+import { useIsMutating, useQueryClient } from "@tanstack/react-query";
 import {
   Outlet,
   useNavigate,
   useParams,
   useRouterState,
 } from "@tanstack/react-router";
-import { type ReactNode, useState } from "react";
+import { type CSSProperties, type ReactNode, useState } from "react";
 
-function threadIdFor(dashboardId: string): string {
-  return `dashboard:${dashboardId}`;
-}
-
-// Edit toggle + autosave status + Fork for a canvas. Freeform
-// autosaves every turn, so the toolbar shows a saving spinner rather than a Save
-// button. When the user undoes to an older version, the autosave status is
-// replaced by Revert (adopt the viewed version, dropping newer ones) + Cancel
-// (jump back to the latest). Fork copies the current code to a new record.
+// Edit toggle + autosave status for a canvas. Source is server-versioned now —
+// version browsing and revert live in the canvas view's own toolbar — so the
+// only autosave surfaced here is the author-context buffer's saveContext.
 function FreeformEditControls({
   channelId,
   dashboardId,
@@ -88,16 +92,16 @@ function FreeformEditControls({
   const containerNoun = spacesLayout ? "space" : "channel";
   const editing = useIsDashboardEditing(dashboardId);
   const setEditing = useDashboardEditStore((s) => s.setEditing);
+  const openChat = useCanvasChatPanelStore((state) => state.openChat);
   const { dashboard } = useDashboard(dashboardId);
-  const { forkFreeform, isCreating, setPinned, invalidateDashboards } =
-    useDashboardMutations();
+  const { setPinned, invalidateDashboards } = useDashboardMutations();
   const isPinned = dashboard?.pinnedAt != null;
   // "Delete…" opens a confirmation rather than deleting inline — the canvas and
   // its version history go away for everyone in the space.
   const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false);
 
-  // Once confirmed the canvas vanishes from every list and we leave for the
-  // space's artifacts list, but the delete isn't sent until the undo toast's
+  // Once confirmed the canvas vanishes from every list and we return to the
+  // space, but the delete isn't sent until the undo toast's
   // timer runs out — Undo simply cancels it.
   const confirmDelete = () => {
     setConfirmDeleteOpen(false);
@@ -109,7 +113,7 @@ function FreeformEditControls({
       invalidate: invalidateDashboards,
     });
     void navigate({
-      to: "/website/$channelId/artifacts",
+      to: "/website/$channelId",
       params: { channelId },
     });
   };
@@ -122,7 +126,6 @@ function FreeformEditControls({
           surface: "canvas",
           channel_id: channelId,
           dashboard_id: dashboardId,
-          kind: "freeform",
           success: true,
         }),
       )
@@ -132,7 +135,6 @@ function FreeformEditControls({
           surface: "canvas",
           channel_id: channelId,
           dashboard_id: dashboardId,
-          kind: "freeform",
           success: false,
         });
         toast.error(
@@ -144,11 +146,13 @@ function FreeformEditControls({
       });
   };
 
-  const threadId = threadIdFor(dashboardId);
-  const { code, versions, currentVersionId, isSaving } =
-    useFreeformThread(threadId);
-  const revert = useFreeformChatStore((s) => s.revert);
-  const goToLatest = useFreeformChatStore((s) => s.goToLatest);
+  // Any in-flight saveContext mutation (the side panel's context editor
+  // commits through it) drives the toolbar's autosave spinner.
+  const trpc = useHostTRPC();
+  const isSavingContext =
+    useIsMutating({
+      mutationKey: trpc.dashboards.saveContext.mutationKey(),
+    }) > 0;
 
   const queryClient = useQueryClient();
   const remountFrame = useCanvasFrameStore((s) => s.remount);
@@ -161,103 +165,18 @@ function FreeformEditControls({
       surface: "canvas",
       channel_id: channelId,
       dashboard_id: dashboardId,
-      kind: "freeform",
     });
     void queryClient.invalidateQueries({ queryKey: [CANVAS_QUERY_KEY] });
     remountFrame(dashboardId);
   };
 
-  const hasCode = code.length > 0;
-  // Viewing the head version (or there's no history yet) → autosave is live.
-  // Otherwise the user has undone to an older version and is browsing.
-  const onLatest =
-    versions.length === 0 || currentVersionId === versions.at(-1)?.id;
-
-  const onFork = async () => {
-    if (!code) return;
-    try {
-      const name = `${dashboard?.name ?? "Canvas"} (fork)`;
-      const record = await forkFreeform(
-        channelId,
-        name,
-        code,
-        versions,
-        currentVersionId ?? undefined,
-      );
-      track(ANALYTICS_EVENTS.DASHBOARD_ACTION, {
-        action_type: "fork",
-        surface: "canvas",
-        channel_id: channelId,
-        dashboard_id: dashboardId,
-        kind: "freeform",
-        success: true,
-      });
-      setEditing(record.id, true);
-      void navigate({
-        to: "/website/$channelId/dashboards/$dashboardId",
-        params: { channelId, dashboardId: record.id },
-      });
-    } catch (error) {
-      track(ANALYTICS_EVENTS.DASHBOARD_ACTION, {
-        action_type: "fork",
-        surface: "canvas",
-        channel_id: channelId,
-        dashboard_id: dashboardId,
-        kind: "freeform",
-        success: false,
-      });
-      toast.error("Couldn't fork canvas", {
-        description: error instanceof Error ? error.message : String(error),
-      });
-    }
-  };
-
   return (
     <Flex align="center" gap="2" className="no-drag">
-      {editing &&
-        hasCode &&
-        (onLatest ? (
-          // Autosave status — a non-interactive button showing a spinner while a
-          // save is in flight, "Saved" otherwise.
-          <Button variant="outline" size="sm" disabled loading={isSaving}>
-            Saved
-          </Button>
-        ) : (
-          <>
-            <Button
-              variant="primary"
-              size="sm"
-              onClick={() => {
-                track(ANALYTICS_EVENTS.DASHBOARD_ACTION, {
-                  action_type: "revert",
-                  surface: "canvas",
-                  channel_id: channelId,
-                  dashboard_id: dashboardId,
-                  kind: "freeform",
-                });
-                revert(threadId);
-              }}
-            >
-              Revert to this version
-            </Button>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => goToLatest(threadId)}
-            >
-              Cancel
-            </Button>
-          </>
-        ))}
       {editing && (
-        <Button
-          variant="outline"
-          size="sm"
-          disabled={!hasCode || isCreating}
-          onClick={onFork}
-        >
-          <GitForkIcon size={14} />
-          Save as fork
+        // Autosave status — a non-interactive button showing a spinner while a
+        // context save is in flight, "Saved" otherwise.
+        <Button variant="outline" size="sm" disabled loading={isSavingContext}>
+          Saved
         </Button>
       )}
       <DropdownMenu>
@@ -344,9 +263,9 @@ function FreeformEditControls({
             surface: "canvas",
             channel_id: channelId,
             dashboard_id: dashboardId,
-            kind: "freeform",
             editing: !editing,
           });
+          if (!editing) openChat();
           setEditing(dashboardId, !editing);
         }}
       >
@@ -375,8 +294,26 @@ function CanvasBreadcrumb({
   trailing?: ReactNode;
 }) {
   const { dashboard } = useDashboard(dashboardId);
+  const { versions } = useCanvasVersions(dashboardId);
   const { renameDashboard } = useDashboardMutations();
+  const openComments = useCanvasChatPanelStore((state) => state.openComments);
   const name = dashboard?.name ?? "Canvas";
+  const commentTarget = {
+    scope: "desktop_canvas" as const,
+    itemId: dashboardId,
+  };
+  const commentTaskId = canvasCommentTaskId(
+    dashboard?.generationTaskId,
+    versions,
+  );
+  const comments = useCommentsQuery(
+    commentTaskId ? commentTarget : null,
+    commentTaskId ?? "",
+    { live: true },
+  );
+  const openCommentCount = buildCommentThreads(comments.data ?? []).filter(
+    (thread) => !thread.resolved,
+  ).length;
 
   return (
     <ChannelBreadcrumb
@@ -391,7 +328,20 @@ function CanvasBreadcrumb({
       leafLabel={name}
       editScopeKey={dashboardId}
       onRename={(next) => void renameDashboard(dashboardId, next)}
-      trailing={trailing}
+      trailing={
+        <>
+          {commentTaskId && (
+            <Button size="sm" variant="outline" onClick={openComments}>
+              <ChatCircleIcon />
+              Comments
+              {openCommentCount > 0 && (
+                <span className="tabular-nums">{openCommentCount}</span>
+              )}
+            </Button>
+          )}
+          {trailing}
+        </>
+      }
     />
   );
 }
@@ -413,6 +363,7 @@ export function WebsiteLayout() {
   const channelId = params.channelId;
   const dashboardId = params.dashboardId;
   const taskId = params.taskId;
+  const rightPanelOpen = useRightPanelOpen(taskId);
   const base = channelId ? `/website/${channelId}` : "/website";
 
   const { data: tasks } = useTasks();
@@ -422,6 +373,11 @@ export function WebsiteLayout() {
     : undefined;
 
   const { channels } = useChannels();
+  const mentionsDisabledReason =
+    channels.find((channel) => channel.id === channelId)?.channelType ===
+    "personal"
+      ? PRIVATE_SPACE_MENTIONS_DISABLED
+      : null;
   const channelName = channelId
     ? (channels.find((c) => c.id === channelId)?.name ??
       (spacesLayout ? "Space" : "Channel"))
@@ -445,32 +401,26 @@ export function WebsiteLayout() {
       {/* Title bar for non-canvas views: every channel scene (task detail,
           new task, CONTEXT.md) pushes its "# channel / leaf" breadcrumb into
           the header store, as do channel-less mirrored pages (Home, Skills, …).
-          Hidden when the canvas toolbar is showing (grid / a single canvas). */}
-      {!showToolbar && headerContent && (
-        <Flex
-          align="center"
-          gap="2"
-          className="h-10 shrink-0 border-gray-6 border-b px-3"
-        >
-          <Flex
-            align="center"
-            justify="between"
-            className="h-full min-w-0 flex-1 overflow-hidden"
-          >
+          Hidden when the canvas toolbar is showing (grid / a single canvas),
+          and skipped entirely when there is neither a title nor a session's
+          actions to carry. */}
+      {!showToolbar && (headerContent || channelTask) && (
+        <div className="flex h-10 shrink-0 items-center gap-2 border-gray-6 border-b px-3">
+          <div className="flex h-full min-w-0 flex-1 items-center justify-between overflow-hidden">
             {headerContent}
-          </Flex>
+          </div>
+          {/* Rendered without a wrapper: the actions cap themselves at half the
+              bar, and a wrapper that hugs their content resolves that
+              percentage against itself, which clips them. */}
           {channelTask && <TaskHeaderActions task={channelTask} />}
-        </Flex>
+        </div>
       )}
 
       {/* Single canvas toolbar: the "# channel / canvas" breadcrumb (left) and
-          canvas actions (Edit / Save as fork / New canvas) on the right.
+          canvas actions (Edit / New canvas) on the right.
           Freeform canvases own their own date control in-app (DateTimePicker). */}
       {showToolbar && channelId && (
-        <Flex
-          align="center"
-          className="h-10 shrink-0 border-border border-b px-3"
-        >
+        <div className="flex h-10 shrink-0 items-center border-border border-b px-3">
           {isDashboardDetail && dashboardId ? (
             <CanvasBreadcrumb
               channelName={channelName}
@@ -487,16 +437,38 @@ export function WebsiteLayout() {
             <ChannelBreadcrumb
               channelName={channelName}
               channelId={channelId}
-              leafIcon={channelPageIcon("canvases", { size: 12 })}
-              leafLabel={channelPageLabel("canvases")}
+              leafLabel="Canvases"
               trailing={<NewCanvasMenu channelId={channelId} />}
             />
           )}
-        </Flex>
+        </div>
       )}
-      <Box flexGrow="1" overflow="hidden">
-        <Outlet />
-      </Box>
+      {/* The right panel's switcher pins itself to this row's top right, so the
+          row is its positioning context. `isolate` keeps the switcher's stacking
+          rank inside the row, where it only has to beat the panel's own layer,
+          rather than reaching the app's dialogs and popovers. While the panel is
+          closed the switcher floats over the content pane, so the row publishes
+          how much of its right edge is spoken for and the pane's own chrome
+          stops short of it. */}
+      <div
+        className="relative isolate flex min-h-0 flex-1 overflow-hidden"
+        style={
+          {
+            [CONTENT_CHROME_RIGHT_VAR]: rightPanelOpen
+              ? "0px"
+              : `${SWITCHER_WIDTH_PX}px`,
+          } as CSSProperties
+        }
+      >
+        <div className="min-w-0 flex-1 overflow-hidden">
+          <MentionAvailabilityProvider disabledReason={mentionsDisabledReason}>
+            <Outlet />
+          </MentionAvailabilityProvider>
+        </div>
+        {/* One panel at a time beside the content: the session's timeline,
+            artifacts, comments, or changes, as a push column. */}
+        {spacesLayout && <RightPanel />}
+      </div>
       {/* Warm-iframe pool for canvases. Mounted once here so it persists across
           every in-space navigation; overlays itself onto the active canvas's
           placeholder and stays warm-but-hidden otherwise. */}
