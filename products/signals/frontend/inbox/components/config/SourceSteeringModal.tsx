@@ -47,7 +47,7 @@ export function SourceSteeringModal({ sourceConfig, sourceLabel, onClose }: Sour
             isOpen
             onClose={handleClose}
             title={`Steering rules for ${sourceLabel}`}
-            description="Most records from this source count as actionable and can become reports. Your rules narrow that. They apply from the next sync and don't remove anything already in your inbox."
+            description="Most records from this source count as actionable and can become reports. Your rules change what gets kept. They apply from the next sync and don't remove anything already in your inbox."
             width={560}
             hasUnsavedInput={sourceSteeringChanged}
             footer={
@@ -105,14 +105,14 @@ export function SourceSteeringModal({ sourceConfig, sourceLabel, onClose }: Sour
                     </LemonField>
                     <LemonField
                         name="steering"
-                        label="What should we skip?"
-                        help="Plain language works. Leave it empty to keep only the default behavior above."
+                        label="Your rules for this source"
+                        help="Include, exclude, or prioritize. Plain language works. Leave it empty to keep only the default behavior above."
                     >
                         <LemonTextArea
                             minRows={4}
                             maxRows={10}
                             maxLength={SOURCE_STEERING_MAX_LENGTH}
-                            placeholder="Ignore issues labeled chore or internal. Release checklists are never actionable."
+                            placeholder="Ignore issues labeled chore or internal. Anything mentioning billing is always actionable."
                             disabled={isSourceSteeringSubmitting}
                             data-attr="signal-source-steering-rules"
                         />

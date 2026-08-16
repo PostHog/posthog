@@ -335,7 +335,7 @@ function Expansion({
                     <span className="text-xs text-secondary">
                         {state.sourceConfig && sourceSteeringIsSet(state.sourceConfig)
                             ? 'Steering rules are on for this source.'
-                            : 'Tell this source which records to skip.'}
+                            : 'Tell this source what matters and what to skip.'}
                     </span>
                     <LemonButton
                         type="secondary"

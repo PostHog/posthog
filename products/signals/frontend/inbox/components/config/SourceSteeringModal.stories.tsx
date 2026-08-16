@@ -47,7 +47,7 @@ export const NoRulesYet: Story = {
 export const RulesSet: Story = {
     args: {
         config: {
-            steering: 'Ignore issues labeled chore or internal. Release checklists are never actionable.',
+            steering: 'Ignore issues labeled chore or internal. Anything mentioning billing is always actionable.',
             default_not_actionable: true,
         },
     },
