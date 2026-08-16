@@ -1119,6 +1119,42 @@ class TestSurvey(APIBaseTest):
         assert survey.internal_targeting_flag is not None
         assert survey.internal_targeting_flag.active is True
 
+    def test_saving_survey_restores_soft_deleted_internal_targeting_flag(self):
+        # A survey's internal targeting flag can be soft-deleted out from under it (e.g. a
+        # single-flag delete). The FK still resolves the dead row, so a plain re-save would
+        # write to a corpse and leave the survey invisible. The save must restore the flag.
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/surveys/",
+            data={
+                "name": "Survey with dead internal flag",
+                "type": "popover",
+                "questions": [{"type": "open", "question": "How are we doing?"}],
+                "start_date": datetime.now() - timedelta(days=1),
+            },
+            format="json",
+        )
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        survey = Survey.objects.get(id=response.json()["id"])
+        flag_id = survey.internal_targeting_flag_id
+        assert flag_id is not None
+
+        # Simulate the corrupted state: the internal flag is soft-deleted.
+        FeatureFlag.objects.filter(id=flag_id).update(deleted=True)
+
+        # Re-save the survey.
+        patch = self.client.patch(
+            f"/api/projects/{self.team.id}/surveys/{survey.id}/",
+            data={"name": "Survey with dead internal flag (edited)"},
+            format="json",
+        )
+        assert patch.status_code == status.HTTP_200_OK, patch.json()
+
+        # The flag is restored in place (same id), not left dead or replaced.
+        survey.refresh_from_db()
+        assert survey.internal_targeting_flag_id == flag_id
+        restored_flag = FeatureFlag.objects_including_soft_deleted.get(id=flag_id)
+        assert restored_flag.deleted is False
+
     def test_adding_iterations_to_existing_survey_updates_internal_targeting_flag(self):
         # Step 1: Create a survey WITHOUT iterations
         response = self.client.post(
