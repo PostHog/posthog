@@ -400,6 +400,20 @@ describe("reportCharts", () => {
   });
 
   it.each([
+    [0.04, "0.04"],
+    [0.004, "0.004"],
+    [-0.04, "-0.04"],
+    [999.96, "1K"],
+    [999999, "1M"],
+    [999999999, "1B"],
+  ])(
+    "keeps a small nonzero headline visible and promotes at the unit boundary (%d -> %s)",
+    (last, expected) => {
+      expect(chartHeadlineStat(headlineSeries([[last]]))?.value).toBe(expected);
+    },
+  );
+
+  it.each([
     [
       "a categorical chart has no latest value",
       headlineSeries([[1, 2, 3]], false),

@@ -98,7 +98,7 @@ export type ReportChartData =
   | { type: "table"; columns: string[]; rows: unknown[][] }
   | { type: "empty" };
 
-/** 87342 -> "87.3K"; keeps small numbers plain. */
+/** 87342 -> "87.3K"; keeps small numbers plain without reading a nonzero value as 0. */
 function compactChartValue(value: number): string {
   const abs = Math.abs(value);
   const format = (scaled: number, suffix: string): string => {
@@ -106,10 +106,18 @@ function compactChartValue(value: number): string {
       scaled >= 100 ? Math.round(scaled) : Number(scaled.toFixed(1));
     return `${rounded}${suffix}`;
   };
-  if (abs >= 1e9) return format(value / 1e9, "B");
-  if (abs >= 1e6) return format(value / 1e6, "M");
-  if (abs >= 1e3) return format(value / 1e3, "K");
-  return Number.isInteger(value) ? String(value) : value.toFixed(1);
+  // Enter each unit where the one below would round up to 1000 at its display
+  // precision, so a value never shows a four-digit mantissa ("1000K" -> "1M").
+  if (abs >= 999.5e6) return format(value / 1e9, "B");
+  if (abs >= 999.5e3) return format(value / 1e6, "M");
+  if (abs >= 999.95) return format(value / 1e3, "K");
+  if (Number.isInteger(value)) return String(value);
+  // A small nonzero value must not read as "0.0" beside a delta chip; when one
+  // decimal rounds to zero, fall back to two significant figures (0.04, 0.004).
+  const oneDecimal = value.toFixed(1);
+  return Number.parseFloat(oneDecimal) === 0
+    ? `${Number(value.toPrecision(2))}`
+    : oneDecimal;
 }
 
 export interface ChartHeadlineStat {
