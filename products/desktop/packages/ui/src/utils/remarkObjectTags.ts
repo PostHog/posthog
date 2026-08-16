@@ -24,6 +24,19 @@ import { resolveObjectKindName } from "./objectKinds";
  * else keeps react-markdown's default behavior.
  */
 
+/**
+ * Ceiling on block-display conversions per document. Every block card
+ * executes an authenticated query on mount, so an unbounded tag count would
+ * let one message fan out arbitrarily many concurrent queries; past the cap a
+ * block tag degrades to an inline chip, which fetches only on hover.
+ */
+const MAX_BLOCK_TAGS = 10;
+
+/** Mutable per-document budget threaded through the transform. */
+interface TransformState {
+  blockBudget: number;
+}
+
 const OPEN_TAG_RE = /^<([a-z][\w-]*)((?:\s+[a-z][\w-]*\s*=\s*"[^"]*")*)\s*>$/;
 const COMPLETE_TAG_RE =
   /^<([a-z][\w-]*)((?:\s+[a-z][\w-]*\s*=\s*"[^"]*")*)\s*(?:\/>|>([\s\S]*?)<\/\1\s*>)$/;
@@ -134,10 +147,17 @@ function blockNode(tag: ParsedTag): RootContent | null {
   };
 }
 
-function convert(tag: ParsedTag, inFlow: boolean): RootContent | null {
-  if (inFlow && tag.attrs.display === "block") {
+function convert(
+  tag: ParsedTag,
+  inFlow: boolean,
+  state: TransformState,
+): RootContent | null {
+  if (inFlow && tag.attrs.display === "block" && state.blockBudget > 0) {
     const block = blockNode(tag);
-    if (block) return block;
+    if (block) {
+      state.blockBudget--;
+      return block;
+    }
   }
   const inline = inlineNode(tag);
   if (!inline) return null;
@@ -163,12 +183,13 @@ function consumeHtml(
   children: RootContent[],
   index: number,
   inFlow: boolean,
+  state: TransformState,
 ): { nodes: RootContent[]; nextIndex: number } | null {
   const value = (children[index] as { value: string }).value;
 
   const complete = matchCompleteTag(value);
   if (complete) {
-    const node = convert(complete, inFlow);
+    const node = convert(complete, inFlow, state);
     return { nodes: node ? [node] : [], nextIndex: index + 1 };
   }
 
@@ -184,6 +205,7 @@ function consumeHtml(
         const node = convert(
           { kind: open.kind, attrs: open.attrs, labelNodes: label },
           inFlow,
+          state,
         );
         return { nodes: node ? [node] : [], nextIndex: j + 1 };
       }
@@ -203,31 +225,38 @@ function consumeHtml(
  * `<hogql display="block">SELECT ...</hogql>` arrives as a paragraph of
  * inline html; without the lift it would downgrade to an inline chip.
  */
-function liftParagraphBlockTag(paragraph: Parent): RootContent | null {
+function liftParagraphBlockTag(
+  paragraph: Parent,
+  state: TransformState,
+): RootContent | null {
+  if (state.blockBudget <= 0) return null;
   const kids = paragraph.children as RootContent[];
   if (kids.length === 0) return null;
 
+  let block: RootContent | null = null;
   if (kids.length === 1 && kids[0].type === "html") {
     const tag = matchCompleteTag(kids[0].value);
-    return tag && tag.attrs.display === "block" ? blockNode(tag) : null;
+    block = tag && tag.attrs.display === "block" ? blockNode(tag) : null;
+  } else {
+    const first = kids[0];
+    const last = kids[kids.length - 1];
+    if (first.type !== "html" || last.type !== "html") return null;
+    const open = matchOpenTag(first.value);
+    if (
+      !open ||
+      open.attrs.display !== "block" ||
+      last.value.trim() !== `</${open.tag}>`
+    ) {
+      return null;
+    }
+    block = blockNode({
+      kind: open.kind,
+      attrs: open.attrs,
+      labelNodes: kids.slice(1, -1) as PhrasingContent[],
+    });
   }
-
-  const first = kids[0];
-  const last = kids[kids.length - 1];
-  if (first.type !== "html" || last.type !== "html") return null;
-  const open = matchOpenTag(first.value);
-  if (
-    !open ||
-    open.attrs.display !== "block" ||
-    last.value.trim() !== `</${open.tag}>`
-  ) {
-    return null;
-  }
-  return blockNode({
-    kind: open.kind,
-    attrs: open.attrs,
-    labelNodes: kids.slice(1, -1) as PhrasingContent[],
-  });
+  if (block) state.blockBudget--;
+  return block;
 }
 
 /**
@@ -242,13 +271,17 @@ const FLOW_CONTAINERS = new Set([
   "footnoteDefinition",
 ]);
 
-function transformChildren(parent: Parent, inFlow: boolean): void {
+function transformChildren(
+  parent: Parent,
+  inFlow: boolean,
+  state: TransformState,
+): void {
   const out: RootContent[] = [];
   const children = parent.children as RootContent[];
   for (let i = 0; i < children.length; i++) {
     const child = children[i];
     if (child.type === "html") {
-      const consumed = consumeHtml(children, i, inFlow);
+      const consumed = consumeHtml(children, i, inFlow, state);
       if (consumed) {
         out.push(...consumed.nodes);
         i = consumed.nextIndex - 1;
@@ -256,14 +289,18 @@ function transformChildren(parent: Parent, inFlow: boolean): void {
       }
     }
     if (inFlow && child.type === "paragraph") {
-      const lifted = liftParagraphBlockTag(child as Parent);
+      const lifted = liftParagraphBlockTag(child as Parent, state);
       if (lifted) {
         out.push(lifted);
         continue;
       }
     }
     if ("children" in child) {
-      transformChildren(child as Parent, FLOW_CONTAINERS.has(child.type));
+      transformChildren(
+        child as Parent,
+        FLOW_CONTAINERS.has(child.type),
+        state,
+      );
     }
     out.push(child);
   }
@@ -272,6 +309,6 @@ function transformChildren(parent: Parent, inFlow: boolean): void {
 
 export function remarkObjectTags() {
   return (tree: Root): void => {
-    transformChildren(tree, true);
+    transformChildren(tree, true, { blockBudget: MAX_BLOCK_TAGS });
   };
 }

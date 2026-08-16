@@ -149,6 +149,20 @@ describe("object tags in agent markdown", () => {
     // The label text still flows through; only the tags themselves vanish.
     expect(screen.getByText(/thing/)).toBeDefined();
   });
+
+  it("caps block cards per message; overflow degrades to inline chips", () => {
+    // Every block card executes a query on mount, so one message must not
+    // fan out unbounded concurrent queries. Past the cap (10) a block tag
+    // renders as a hover-gated inline chip instead.
+    const tags = Array.from(
+      { length: 12 },
+      (_, i) => `<hogql display="block" title="Q${i}">SELECT ${i}</hogql>\n`,
+    ).join("\n");
+    renderMarkdown(tags);
+    expect(screen.getAllByTestId("report-chart")).toHaveLength(10);
+    // The two overflow tags fall back to the inline chip's default label.
+    expect(screen.getAllByText("SQL query")).toHaveLength(2);
+  });
 });
 
 describe("object tags in untrusted markdown (default)", () => {
