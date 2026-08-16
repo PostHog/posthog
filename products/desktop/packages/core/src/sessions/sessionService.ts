@@ -6462,7 +6462,7 @@ export class SessionService {
         type: "user_message",
         content: seedContent,
         timestamp: Date.now(),
-        ...(isResumeRun ? { pinToTop: false } : {}),
+        pinToTop: !isResumeRun,
       });
     }
     if (hasCurrentRunUserPrompt || isTerminalRun) {

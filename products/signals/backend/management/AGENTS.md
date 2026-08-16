@@ -159,6 +159,7 @@ Idempotent — skips any report that already has a `task_run` artefact referenci
 ## Tips
 
 - Compare runs by saving output: `list_signal_reports --json > run_baseline.json`
+- `emit_signals_from_fixture` and `emit_signals_from_llm` apply the team's `SignalSourceConfig.config` steering keys (`steering`, `default_not_actionable`) like production does — clear them on the source's config row for an unsteered baseline
 - Read each command's source for all available flags — they are in this directory
 - If you are looking for the local-only debug commands `analyze_report.py`, `select_repo.py`, or `parse_sandbox_log.py`, those are documented in `../report_generation/AGENTS.md`
 - **If you change any command or the flow, update this file to match**
