@@ -131,6 +131,33 @@ describe("EvidenceHoverCard", () => {
     );
   });
 
+  it("hangs bar-sparkline negatives below the shared zero baseline", () => {
+    renderInTheme(
+      <EvidenceHoverCard
+        target={{ kind: "hogql", id: "SELECT 1" }}
+        url={null}
+        preview={{
+          title: "change by category",
+          spark: { points: [-10, 5], render: "bar" },
+        }}
+      >
+        per-category change
+      </EvidenceHoverCard>,
+    );
+    const bars = screen
+      .getByTestId("evidence-sparkline")
+      .querySelectorAll("rect");
+    expect(bars).toHaveLength(2);
+    const y = (el: Element) => Number(el.getAttribute("y"));
+    const h = (el: Element) => Number(el.getAttribute("height"));
+    // Zero line sits at y≈10.67: the -10 bar hangs below it with real height
+    // (not the 0.5 clamp it collapsed to when measured from the chart bottom),
+    // and the +5 bar rises from that same baseline.
+    expect(y(bars[0])).toBeCloseTo(10.67, 1);
+    expect(h(bars[0])).toBeCloseTo(17.33, 1);
+    expect(y(bars[1]) + h(bars[1])).toBeCloseTo(10.67, 1);
+  });
+
   it("expands the truncated SQL footer into the full query on click", () => {
     const sql =
       "SELECT toDate(timestamp) AS day, count() FROM events GROUP BY day";

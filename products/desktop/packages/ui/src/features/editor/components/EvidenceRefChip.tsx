@@ -58,6 +58,10 @@ function Sparkline({
   if (render === "bar") {
     const step = SPARK_W / points.length;
     const gap = Math.min(step * 0.25, 2);
+    // Bars grow from the zero line, so a negative point extends below it.
+    // Measuring to the chart bottom instead would shrink or invert them once
+    // any point is negative (min drops below 0 and lifts the zero line).
+    const baseline = scaleY(0);
     return (
       <svg
         viewBox={`0 0 ${SPARK_W} ${SPARK_H}`}
@@ -67,18 +71,21 @@ function Sparkline({
         aria-label="Column sparkline"
         data-testid="evidence-sparkline"
       >
-        {points.map((point, index) => (
-          <rect
-            // biome-ignore lint/suspicious/noArrayIndexKey: static series, never reorders
-            key={index}
-            x={index * step + gap / 2}
-            width={step - gap}
-            y={scaleY(point)}
-            height={Math.max(SPARK_H - SPARK_PAD - scaleY(point), 0.5)}
-            fill={SPARK_COLOR}
-            fillOpacity={0.85}
-          />
-        ))}
+        {points.map((point, index) => {
+          const y = scaleY(point);
+          return (
+            <rect
+              // biome-ignore lint/suspicious/noArrayIndexKey: static series, never reorders
+              key={index}
+              x={index * step + gap / 2}
+              width={step - gap}
+              y={Math.min(y, baseline)}
+              height={Math.max(Math.abs(y - baseline), 0.5)}
+              fill={SPARK_COLOR}
+              fillOpacity={0.85}
+            />
+          );
+        })}
       </svg>
     );
   }
