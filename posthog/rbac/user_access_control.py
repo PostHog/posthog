@@ -528,7 +528,7 @@ def model_to_resource(model: Model) -> Optional[APIScopeObject]:
 
 
 @cache
-def _fallback_parent_field(model: type[Model], parent_resource: APIScopeObject) -> Optional[ForeignKey]:
+def _fallback_parent_fk(model: type[Model], parent_resource: APIScopeObject) -> Optional[ForeignKey]:
     """`model`'s foreign key to `parent_resource`, if it has one.
 
     Found by introspection rather than a declared field map so the relationship is read off the
@@ -549,7 +549,7 @@ def fallback_parent_object_id(obj: Model, parent_resource: APIScopeObject) -> Op
     None is what makes a self-managed table skip its source tiers rather than inherit from a
     source it doesn't have.
     """
-    field = _fallback_parent_field(type(obj), parent_resource)
+    field = _fallback_parent_fk(type(obj), parent_resource)
     if field is None:
         return None
     parent_id = getattr(obj, field.attname, None)
@@ -562,7 +562,7 @@ def fallback_parent_object(obj: Model, parent_resource: APIScopeObject) -> Optio
     Read off the object's own relation — Django caches it on the instance — so callers that
     only need to display the parent never refetch it by id.
     """
-    field = _fallback_parent_field(type(obj), parent_resource)
+    field = _fallback_parent_fk(type(obj), parent_resource)
     if field is None:
         return None
     return getattr(obj, field.name, None)
