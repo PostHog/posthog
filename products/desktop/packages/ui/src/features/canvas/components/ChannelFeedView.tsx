@@ -740,10 +740,15 @@ const FeedItem = memo(function FeedItem({
     [task, messages],
   );
   // Only conversational human rows count as comments — agent/system rows
-  // (turn_complete, thread-state events) would inflate the count and render
-  // authorless "U" bubbles in the facepile.
+  // (turn_complete) would inflate the count and render authorless "U" bubbles
+  // in the facepile, and human-authored event rows (comment announcements like
+  // comment_state_changed) are activity, not something a person typed. Same
+  // rule as buildThreadTimeline's human-message classification.
   const humanMessages = useMemo(
-    () => messages.filter((m) => (m.author_kind ?? "human") === "human"),
+    () =>
+      messages.filter(
+        (m) => !m.event && (m.author_kind ?? "human") === "human",
+      ),
     [messages],
   );
   // The starter leads the facepile — it's how the card attributes the task
