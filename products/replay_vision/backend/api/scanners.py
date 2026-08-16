@@ -263,7 +263,7 @@ class ReplayScannerSerializer(TaggedItemSerializerMixin, UserAccessControlSerial
         required=False,
         max_length=_MAX_TAGS,
         help_text=(
-            "Organizational tags for this scanner. Distinct from a classifier's tag vocabulary in scanner_config. "
+            "Organizational tags for this scanner. Distinct from a classifier's categories in scanner_config. "
             "Tags cannot contain commas."
         ),
     )
@@ -1184,7 +1184,7 @@ class SuggestTagsRequestSerializer(serializers.Serializer):
         required=False,
         default=list,
         max_length=200,
-        help_text="The current tag vocabulary, so suggestions never duplicate a tag the user already has.",
+        help_text="The categories already configured, so suggestions never duplicate one the user has.",
     )
     multi_label = serializers.BooleanField(
         required=False,
@@ -1894,7 +1894,7 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vi
         """Suggest classifier tags grounded in the scanner's own observations and the org's product data."""
         # Suggestions read recording-derived observation reasoning, so gate on session_recording read.
         if not self.user_access_control.check_access_level_for_resource("session_recording", required_level="viewer"):
-            raise PermissionDenied("Suggesting classifier tags requires session_recording read access.")
+            raise PermissionDenied("Suggesting categories requires session_recording read access.")
 
         body = SuggestTagsRequestSerializer(data=request.data)
         body.is_valid(raise_exception=True)

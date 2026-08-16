@@ -121,7 +121,6 @@ class ScannerDraft:
     scanner_type: str
     scanner_config: dict[str, Any]
     rationale: str
-    # RecordingsQuery narrowing which sessions get scanned; None means every session.
     query: dict[str, Any] | None
 
 
