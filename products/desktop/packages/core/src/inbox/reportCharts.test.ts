@@ -296,6 +296,22 @@ describe("reportCharts", () => {
     ).toMatchObject({ type: "table" });
   });
 
+  it("auto display: a numeric grid wider than the series cap stays a table", () => {
+    // 16 numeric metrics past the date key exceed the 15-series cap; plotting
+    // would silently drop columns, so keep the full grid as a table.
+    const columns = [
+      "day",
+      ...Array.from({ length: 16 }, (_, i) => `m${i + 1}`),
+    ];
+    const results = [
+      ["2026-08-01", ...Array.from({ length: 16 }, (_, i) => i)],
+      ["2026-08-02", ...Array.from({ length: 16 }, (_, i) => i + 1)],
+    ];
+    expect(
+      shapeReportChartData({ columns, results }, runPlan(hogqlNode())),
+    ).toMatchObject({ type: "table", columns });
+  });
+
   it("returns empty for a response with no rows", () => {
     expect(
       shapeReportChartData({ columns: [], results: [] }, runPlan(hogqlNode())),

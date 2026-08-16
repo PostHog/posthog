@@ -325,8 +325,11 @@ function shapeHogQLResponse(
   // numbers is a bar chart, anything else stays a table.
   let effectiveRender = render;
   if (render === "auto" && rows.length >= 2) {
+    // A grid wider than MAX_SERIES would lose its extra columns to the series
+    // cap below, so keep it a table rather than plot a partial chart, the way
+    // pivotBreakdownGrid already falls back for too many breakdowns.
     const chartable =
-      rows.every(numericTail) ||
+      (rows.every(numericTail) && width - 1 <= MAX_SERIES) ||
       (width === 3 && firstColumnDates && !numericTail(rows[0]));
     if (chartable && firstColumnDates) {
       effectiveRender = "line";
