@@ -10,10 +10,10 @@ from posthog.models.file_system.file_system import FileSystem
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.team.team import Team
 from posthog.models.user import User
+from posthog.rbac.subject_access_control import SubjectAccessControl
 from posthog.rbac.user_access_control import (
     RESOURCE_INHERITANCE_MAP,
     AccessSource,
-    SubjectAccessControl,
     UserAccessControl,
     UserAccessControlSerializerMixin,
     get_effective_access_level_for_member,

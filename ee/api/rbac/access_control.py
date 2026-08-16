@@ -13,12 +13,12 @@ from posthog.api.documentation import extend_schema
 from posthog.constants import AvailableFeature
 from posthog.models.organization import OrganizationMembership
 from posthog.models.team.team import Team
+from posthog.rbac.subject_access_control import SubjectAccessControl
 from posthog.rbac.user_access_control import (
     ACCESS_CONTROL_LEVELS_RESOURCE,
     ACCESS_CONTROL_MAX_OBJECTS_PER_RESOURCE,
     AccessSource,
     ResolvedAccess,
-    SubjectAccessControl,
     UserAccessControl,
     default_access_level,
     fallback_parent_object,
