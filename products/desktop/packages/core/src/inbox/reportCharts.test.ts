@@ -169,6 +169,52 @@ describe("reportCharts", () => {
     });
   });
 
+  it("sorts a descending-date HogQL grid so the headline reads the latest bucket", () => {
+    const data = shapeReportChartData(
+      {
+        columns: ["day", "errors"],
+        results: [
+          ["2026-08-03", 30],
+          ["2026-08-02", 20],
+          ["2026-08-01", 10],
+        ],
+      },
+      runPlan(hogqlNode({ display: "ActionsLineGraph" })),
+    );
+    expect(data).toMatchObject({
+      type: "series",
+      isTimeSeries: true,
+      labels: ["2026-08-01", "2026-08-02", "2026-08-03"],
+      series: [{ label: "errors", data: [10, 20, 30] }],
+    });
+    // The latest bucket is 30 (up from 20), not the first row's 10.
+    expect(chartHeadlineStat(data)).toMatchObject({
+      value: "30",
+      delta: { direction: "up" },
+    });
+  });
+
+  it("sorts an out-of-order breakdown grid before pivoting", () => {
+    const data = shapeReportChartData(
+      {
+        columns: ["day", "browser", "count"],
+        results: [
+          ["2026-08-02", "Chrome", 7],
+          ["2026-08-01", "Chrome", 5],
+          ["2026-08-01", "Safari", 2],
+        ],
+      },
+      runPlan(hogqlNode({ display: "ActionsBar" })),
+    );
+    expect(data).toMatchObject({
+      labels: ["2026-08-01", "2026-08-02"],
+      series: [
+        { label: "Chrome", data: [5, 7] },
+        { label: "Safari", data: [2, 0] },
+      ],
+    });
+  });
+
   it("keeps a categorical grid as a bar chart with string labels", () => {
     const data = shapeReportChartData(
       {

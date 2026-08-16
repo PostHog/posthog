@@ -328,9 +328,23 @@ function shapeHogQLResponse(
   }
 
   if (effectiveRender === "line" || effectiveRender === "bar") {
-    if (width === 3 && firstColumnDates && !numericTail(rows[0])) {
-      const pivoted = pivotBreakdownGrid(rows, columns);
-      if (pivoted && rows.every((row) => asFiniteNumber(row[2]) !== null)) {
+    // A time series has to plot oldest -> newest, but a HogQL result can arrive
+    // in any order (ClickHouse GROUP BY with no ORDER BY, or ORDER BY ... DESC).
+    // Sort date-keyed rows chronologically so the chart, sparkline, and headline
+    // all read the true latest bucket; categorical grids keep the query's order.
+    const chartRows = firstColumnDates
+      ? [...rows].sort((a, b) => {
+          const x = String(a[0]);
+          const y = String(b[0]);
+          return x < y ? -1 : x > y ? 1 : 0;
+        })
+      : rows;
+    if (width === 3 && firstColumnDates && !numericTail(chartRows[0])) {
+      const pivoted = pivotBreakdownGrid(chartRows, columns);
+      if (
+        pivoted &&
+        chartRows.every((row) => asFiniteNumber(row[2]) !== null)
+      ) {
         return {
           type: "series",
           render: effectiveRender,
@@ -341,12 +355,12 @@ function shapeHogQLResponse(
         };
       }
     }
-    if (width >= 2 && rows.every(numericTail)) {
-      const labels = normalizeDayLabels(rows.map((row) => String(row[0])));
+    if (width >= 2 && chartRows.every(numericTail)) {
+      const labels = normalizeDayLabels(chartRows.map((row) => String(row[0])));
       const series = columns.slice(1, 1 + MAX_SERIES).map((column, index) => ({
         key: `column-${index}`,
         label: column || `Series ${index + 1}`,
-        data: rows.map((row) => asFiniteNumber(row[index + 1]) ?? 0),
+        data: chartRows.map((row) => asFiniteNumber(row[index + 1]) ?? 0),
       }));
       return {
         type: "series",
