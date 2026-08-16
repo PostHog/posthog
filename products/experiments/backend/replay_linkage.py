@@ -271,6 +271,17 @@ def exposed_distinct_ids_select(linkage: ExperimentExposureLinkage) -> ast.Selec
         preaggregation_job_ids=linkage.preaggregation_job_ids,
     ).select_query()
 
+    # The distinct-id expansion must not aggregate the team's whole mapping table: its memory
+    # scales with the team's total distinct ids rather than with the exposed population, which
+    # OOMs the recordings request on the largest teams. So a prefilter first nominates the
+    # distinct ids that ever mapped to an exposed person (a row-level scan, no aggregation
+    # state), and argMax then resolves the latest mapping over every version row of those
+    # candidates only. Filtering rows by person_id directly instead would resurrect stale
+    # mappings: a distinct id reassigned away from an exposed person keeps its old rows, and
+    # argMax over just those would report the old person as current. The prefilter is a
+    # superset (it ignores variant and reassignment), and the join keeps only candidates whose
+    # latest person really is exposed.
+    #
     # The WHERE on variant also drops entities attributed MULTIPLE_VARIANT_KEY under "exclude"
     # handling, matching who the analysis counts. Both join sides are pre-grouped, so each
     # distinct id carries exactly one exposure row and min() merely satisfies the GROUP BY.
@@ -286,18 +297,29 @@ def exposed_distinct_ids_select(linkage: ExperimentExposureLinkage) -> ast.Selec
                 argMax(is_deleted, version) AS is_deleted
             FROM raw_person_distinct_ids
             WHERE team_id = {team_id}
+                AND distinct_id IN (
+                    SELECT distinct_id
+                    FROM raw_person_distinct_ids
+                    WHERE team_id = {prefilter_team_id}
+                        AND person_id IN (SELECT entity_id FROM exposures)
+                )
             GROUP BY distinct_id
             HAVING is_deleted = 0
         ) AS pdi
-        INNER JOIN ({exposure_select}) AS exposures ON exposures.entity_id = pdi.person_id
+        INNER JOIN exposures ON exposures.entity_id = pdi.person_id
         WHERE exposures.variant IN {requested_variants}
         GROUP BY pdi.distinct_id
         """,
         placeholders={
             "team_id": ast.Constant(value=linkage.context.team.pk),
-            "exposure_select": exposure_select,
+            "prefilter_team_id": ast.Constant(value=linkage.context.team.pk),
             "requested_variants": ast.Constant(value=linkage.requested_variants),
         },
     )
     assert isinstance(query, ast.SelectQuery)
+    # Both the prefilter and the join read the exposed population, and ClickHouse substitutes a
+    # plain CTE at each reference rather than computing it once, so a bare `WITH` would scan the
+    # exposure source twice. MATERIALIZED computes it once and reuses the result, which keeps the
+    # live path to a single events scan and holds only the exposed rows in memory.
+    query.ctes = {"exposures": ast.CTE(name="exposures", expr=exposure_select, cte_type="subquery", materialized=True)}
     return query
