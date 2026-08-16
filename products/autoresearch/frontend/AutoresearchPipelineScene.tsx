@@ -39,7 +39,6 @@ import {
 import { DailyVolumeChart } from './DailyVolumeChart'
 import {
     AutoresearchIterationStatusEnumApi,
-    AutoresearchModelApi,
     AutoresearchPipelineApi,
     AutoresearchSuggestionApi,
     AutoresearchTrainingRunApi,
@@ -100,11 +99,25 @@ function OverviewTab(): JSX.Element {
                 />
             </div>
             {champion && (
-                <div className="grid grid-cols-2 gap-4 md:grid-cols-3">
-                    <MetricCard label="Champion holdout AUC" value={champion.holdout_score?.toFixed(3) ?? '—'} />
-                    <MetricCard label="Champion realized AUC" value={champion.realized_score?.toFixed(3) ?? '—'} />
-                    <MetricCard label="Calibration error" value={champion.calibration_error?.toFixed(3) ?? '—'} />
-                </div>
+                <>
+                    <div className="flex items-center gap-2">
+                        <span className="text-sm font-semibold text-muted">Champion model</span>
+                        {champion.is_preliminary && (
+                            <Tooltip title="Promoted on holdout AUC alone. Realized metrics confirm it once prediction horizons elapse.">
+                                <LemonTag type="warning">Preliminary</LemonTag>
+                            </Tooltip>
+                        )}
+                    </div>
+                    <div className="grid grid-cols-2 gap-4 md:grid-cols-3">
+                        <MetricCard label="Holdout AUC" value={champion.holdout_score?.toFixed(3) ?? '—'} />
+                        <MetricCard label="Realized AUC" value={champion.realized_score?.toFixed(3) ?? '—'} />
+                        <MetricCard label="Calibration error" value={champion.calibration_error?.toFixed(3) ?? '—'} />
+                    </div>
+                    <FeatureImportanceChart explanation={champion.model_explanation} />
+                    {champion.agent_description && (
+                        <div className="text-sm text-muted italic">"{champion.agent_description}"</div>
+                    )}
+                </>
             )}
             <div className="border rounded p-4">
                 <DetailRow label="Output person property">
@@ -445,7 +458,8 @@ function TrainingTab(): JSX.Element {
 interface FeatureImportance {
     name: string
     direction?: string
-    importance: number
+    importance?: number
+    note?: string
 }
 
 /** Pull the typed top-features list + note out of the loosely-typed model_explanation JSON. */
@@ -461,29 +475,41 @@ function parseExplanation(explanation: unknown): { features: FeatureImportance[]
             if (!f || typeof f !== 'object') {
                 return null
             }
-            const { name, direction, importance } = f as Record<string, unknown>
-            if (typeof name !== 'string' || typeof importance !== 'number') {
+            const { name, direction, importance, note: featureNote } = f as Record<string, unknown>
+            if (typeof name !== 'string') {
                 return null
             }
-            return { name, direction: typeof direction === 'string' ? direction : undefined, importance }
+            return {
+                name,
+                direction: typeof direction === 'string' ? direction : undefined,
+                importance: typeof importance === 'number' ? importance : undefined,
+                note: typeof featureNote === 'string' ? featureNote : undefined,
+            }
         })
         .filter((f): f is FeatureImportance => f !== null)
-        .sort((a, b) => b.importance - a.importance)
+    // The agent already lists features strongest-first; only re-rank when it gave numbers.
+    if (features.some((f) => f.importance != null)) {
+        features.sort((a, b) => (b.importance ?? 0) - (a.importance ?? 0))
+    }
     return { features, note }
 }
 
-/** Horizontal bar chart of a model's top feature importances, coloured by direction. */
+/**
+ * A model's top feature drivers: importance bars when the agent supplied numeric
+ * importances, otherwise a ranked list with the agent's per-feature notes.
+ */
 function FeatureImportanceChart({ explanation }: { explanation: unknown }): JSX.Element | null {
     const { features, note } = parseExplanation(explanation)
     if (features.length === 0) {
         return null
     }
-    const bars = (
+    const hasImportances = features.some((f) => f.importance != null)
+    const content = (
         <div className="space-y-2">
             <div className="text-xs text-muted">
                 <span style={{ color: 'var(--success)' }}>● raises</span>{' '}
-                <span style={{ color: 'var(--danger)' }}>● lowers</span> the prediction · bars on a fixed 0-1 importance
-                scale
+                <span style={{ color: 'var(--danger)' }}>● lowers</span> the prediction
+                {hasImportances ? ' · bars on a fixed 0-1 importance scale' : ' · strongest first'}
             </div>
             <div className="space-y-1">
                 {features.map((f) => {
@@ -491,24 +517,31 @@ function FeatureImportanceChart({ explanation }: { explanation: unknown }): JSX.
                     return (
                         <div key={f.name} className="flex items-center gap-2 text-sm">
                             <div className="w-48 shrink-0 truncate font-mono text-xs" title={f.name}>
+                                <span style={{ color: isNegative ? 'var(--danger)' : 'var(--success)' }}>● </span>
                                 {f.name}
                             </div>
-                            <div
-                                className="flex-1 rounded h-4 overflow-hidden"
-                                style={{ backgroundColor: 'var(--border)' }}
-                            >
-                                <Tooltip
-                                    title={`${isNegative ? 'Lowers' : 'Raises'} the prediction · importance ${f.importance.toFixed(3)}`}
+                            {hasImportances ? (
+                                <div
+                                    className="flex-1 rounded h-4 overflow-hidden"
+                                    style={{ backgroundColor: 'var(--border)' }}
                                 >
-                                    <div
-                                        className="h-full rounded"
-                                        style={{
-                                            width: `${Math.min(100, Math.max(2, f.importance * 100))}%`,
-                                            backgroundColor: isNegative ? 'var(--danger)' : 'var(--success)',
-                                        }}
-                                    />
-                                </Tooltip>
-                            </div>
+                                    <Tooltip
+                                        title={`${isNegative ? 'Lowers' : 'Raises'} the prediction · importance ${(f.importance ?? 0).toFixed(3)}`}
+                                    >
+                                        <div
+                                            className="h-full rounded"
+                                            style={{
+                                                width: `${Math.min(100, Math.max(2, (f.importance ?? 0) * 100))}%`,
+                                                backgroundColor: isNegative ? 'var(--danger)' : 'var(--success)',
+                                            }}
+                                        />
+                                    </Tooltip>
+                                </div>
+                            ) : (
+                                <div className="flex-1 min-w-0 truncate text-xs text-muted" title={f.note}>
+                                    {f.note}
+                                </div>
+                            )}
                         </div>
                     )
                 })}
@@ -520,64 +553,8 @@ function FeatureImportanceChart({ explanation }: { explanation: unknown }): JSX.
         <LemonCollapse
             size="small"
             defaultActiveKey="features"
-            panels={[{ key: 'features', header: 'Top feature drivers', content: bars }]}
+            panels={[{ key: 'features', header: 'Top feature drivers', content }]}
         />
-    )
-}
-
-function ModelsTab(): JSX.Element {
-    const { models, modelsLoading } = useValues(autoresearchPipelineLogic)
-    if (modelsLoading) {
-        return <Spinner />
-    }
-    if (models.length === 0) {
-        return (
-            <EmptyTab icon={<IconGraph />} title="No models yet">
-                Start a training run to create the first champion model. Champions and challengers you accumulate appear
-                here with their offline and realized scores.
-            </EmptyTab>
-        )
-    }
-    return (
-        <div className="space-y-3">
-            {models.map((model: AutoresearchModelApi) => (
-                <div key={model.id} className="border rounded p-4 space-y-2">
-                    <div className="flex items-center gap-2">
-                        <LemonTag
-                            type={
-                                model.role === AutoresearchModelRoleEnumApi.Champion
-                                    ? 'success'
-                                    : model.role === AutoresearchModelRoleEnumApi.Challenger
-                                      ? 'highlight'
-                                      : 'default'
-                            }
-                        >
-                            {model.role}
-                        </LemonTag>
-                        {model.is_preliminary && <LemonTag type="warning">Preliminary</LemonTag>}
-                        <span className="text-xs text-muted font-mono">{model.recipe_hash.slice(0, 12)}</span>
-                    </div>
-                    <div className="grid grid-cols-3 gap-3 text-sm">
-                        <div>
-                            <div className="text-muted text-xs">Holdout AUC</div>
-                            <div className="font-semibold">{model.holdout_score?.toFixed(3) ?? '—'}</div>
-                        </div>
-                        <div>
-                            <div className="text-muted text-xs">Realized AUC</div>
-                            <div className="font-semibold">{model.realized_score?.toFixed(3) ?? '—'}</div>
-                        </div>
-                        <div>
-                            <div className="text-muted text-xs">Calibration error</div>
-                            <div className="font-semibold">{model.calibration_error?.toFixed(3) ?? '—'}</div>
-                        </div>
-                    </div>
-                    <FeatureImportanceChart explanation={model.model_explanation} />
-                    {model.agent_description && (
-                        <div className="text-sm text-muted italic">"{model.agent_description}"</div>
-                    )}
-                </div>
-            ))}
-        </div>
     )
 }
 
@@ -1055,7 +1032,6 @@ export function AutoresearchPipelineScene(): JSX.Element {
     const tabs: LemonTab<AutoresearchPipelineTab>[] = [
         { key: 'overview', label: 'Overview', content: <OverviewTab /> },
         { key: 'training', label: 'Training', content: <TrainingTab /> },
-        { key: 'models', label: 'Models', content: <ModelsTab /> },
         { key: 'predictions', label: 'Predictions', content: <PredictionsTab /> },
         { key: 'online_performance', label: 'Online performance', content: <OnlinePerformanceTab /> },
         { key: 'suggestions', label: 'Suggestions', content: <SuggestionsTab /> },

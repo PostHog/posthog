@@ -10,7 +10,7 @@ The product is mostly a backend, and the UI is deliberately thin — it reads st
 | ------------------------------- | ----------------------------------------------------------------------------------------------------------------------- |
 | `AutoresearchScene.tsx`         | `/autoresearch` — the pipeline list, with row actions (archive, pause, resume, delete) and the "New model" entry point. |
 | `AutoresearchNewScene.tsx`      | `/autoresearch/new` — the create form.                                                                                  |
-| `AutoresearchPipelineScene.tsx` | `/autoresearch/:id` — one pipeline: its models, training runs, iterations, runs, and predictions.                       |
+| `AutoresearchPipelineScene.tsx` | `/autoresearch/:id` — one pipeline: overview with champion drivers, training runs, predictions, online performance.     |
 | `autoresearchLogic.ts`          | List logic — loads pipelines, lifecycle actions, and setup-status detection for the empty-state gate.                   |
 | `autoresearchNewLogic.ts`       | Create form — a `kea-forms` form that validates the target, then calls the generated `autoresearchCreate`.              |
 | `autoresearchPipelineLogic.ts`  | Detail logic.                                                                                                           |

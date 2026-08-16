@@ -38,18 +38,11 @@ export interface AutoresearchPipelineLogicProps {
     id: string
 }
 
-export type AutoresearchPipelineTab =
-    | 'overview'
-    | 'training'
-    | 'models'
-    | 'predictions'
-    | 'online_performance'
-    | 'suggestions'
+export type AutoresearchPipelineTab = 'overview' | 'training' | 'predictions' | 'online_performance' | 'suggestions'
 
 const AUTORESEARCH_PIPELINE_TABS: AutoresearchPipelineTab[] = [
     'overview',
     'training',
-    'models',
     'predictions',
     'online_performance',
     'suggestions',
