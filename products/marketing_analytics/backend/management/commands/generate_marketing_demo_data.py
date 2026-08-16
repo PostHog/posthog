@@ -88,7 +88,7 @@ class Command(BaseCommand):
         now = timezone.now()
 
         if options["dry_run"]:
-            self._print_plan(days_past, scale)
+            self._print_plan(days_past, scale, connect_all=options["connect_all"])
             return
 
         # Ahead of the event write: the per-table check in `register_table` fires too late to keep a
@@ -207,21 +207,23 @@ class Command(BaseCommand):
             "Kafka delivery is async: give ClickHouse a minute before expecting all events in the dashboard."
         )
 
-    def _print_plan(self, days_past: int, scale: float) -> None:
+    def _print_plan(self, days_past: int, scale: float, *, connect_all: bool) -> None:
         daily_sessions = sum(c.daily_sessions for c in CAMPAIGNS) + sum(c.daily_sessions for c in FREE_CHANNELS)
         self.stdout.write(f"Would generate ~{round(daily_sessions * scale)} sessions/day for {days_past} days:")
         for campaign in CAMPAIGNS:
             self.stdout.write(f"  [{campaign.platform}] {campaign.name}: {campaign.scenario or 'traffic'}")
         for channel in FREE_CHANNELS:
             self.stdout.write(f"  [free] {channel.key}: {channel.scenario or 'traffic'}")
+        # Mirror the real run's source of truth so the summary matches what --connect-all creates.
+        unconnected = frozenset() if connect_all else health.UNCONNECTED_PLATFORMS
         native_tables = sum(
             len(columns)
             for platform, (_method, _prefix, columns) in warehouse.NATIVE_SPECS.items()
-            if platform not in health.UNCONNECTED_PLATFORMS
+            if platform not in unconnected
         )
-        connected = len(health.PLATFORM_STATES) - len(health.UNCONNECTED_PLATFORMS)
+        connected = len(health.PLATFORM_STATES) - len(unconnected)
         self.stdout.write(
             f"Plus: health fixtures for {connected} connected platforms, "
-            f"{len(health.UNCONNECTED_PLATFORMS)} left unconnected (events_only), "
+            f"{len(unconnected)} left unconnected (events_only), "
             f"{native_tables + 2} warehouse tables, conversion goals, flags."
         )
