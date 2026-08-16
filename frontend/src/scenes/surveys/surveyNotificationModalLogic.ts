@@ -112,7 +112,7 @@ export type OpenSurveyNotificationDialogPayload = {
     notification?: HogFunctionType | null
     intent?: SurveyNotificationModalIntent
 }
-type SurveyNotificationContext = Pick<Survey, 'id' | 'name' | 'questions' | 'enable_partial_responses'>
+type SurveyNotificationContext = Pick<Survey, 'id' | 'name' | 'questions' | 'enable_partial_responses' | 'type'>
 type SurveyNotificationFormErrors = Partial<Record<Exclude<keyof SurveyNotificationForm, 'responseFilters'>, string>>
 
 const MAX_EXAMPLE_QUESTIONS = 3

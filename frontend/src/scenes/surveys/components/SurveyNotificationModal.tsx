@@ -27,7 +27,7 @@ import {
 } from 'scenes/surveys/surveyNotificationModalLogic'
 import { urls } from 'scenes/urls'
 
-import { CyclotronJobTestInvocationResult, SurveyQuestionType } from '~/types'
+import { CyclotronJobTestInvocationResult, SurveyQuestionType, SurveyType } from '~/types'
 
 function TestResultPanel({
     loading,
@@ -356,6 +356,14 @@ export function SurveyNotificationModal({ surveyId }: { surveyId: string }): JSX
                                 Notifications send when a survey is completed or dismissed after at least one response.
                                 If someone closes it without answering or leaves it open forever, nothing is sent.
                             </div>
+                            {survey.type === SurveyType.API ? (
+                                <LemonBanner type="info">
+                                    Your own app sends the <code>survey sent</code> event for an API survey, so PostHog
+                                    can't tell a completed response from an abandoned one on its own. Notifications only
+                                    fire on events that include <code>$survey_completed: true</code>, so set it when
+                                    someone submits a completed response.
+                                </LemonBanner>
+                            ) : null}
                         </div>
 
                         {notificationForm.destination === 'slack' ? (
