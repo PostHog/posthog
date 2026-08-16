@@ -11,6 +11,17 @@ from pydantic.fields import FieldInfo
 
 from products.signals.backend.enums import ReportPriority, SignalSourceProduct, SignalSourceType
 
+# ── Source-config steering keys ─────────────────────────────────────────────────
+# Public keys of `SignalSourceConfig.config` shared by every emission source. Defined here
+# (not in `emission/`) so the serializer can validate them without importing the emission
+# package, whose __init__ eagerly registers every emitter and must stay off the web path.
+
+STEERING_KEY = "steering"
+DEFAULT_NOT_ACTIONABLE_KEY = "default_not_actionable"
+# Server-side cap on steering text. The serializer rejects longer input; reads truncate
+# defensively so a row written by another path cannot bloat every gate prompt.
+STEERING_MAX_LENGTH = 2000
+
 
 class ContractModel(BaseModel):
     # Emitted payloads are validated against these models at the emit boundary; unknown fields are
@@ -71,6 +82,9 @@ class SessionProblemSignalInput(SignalInputBase):
 # ── LLM analytics ───────────────────────────────────────────────────────────────
 
 
+# Read-only: no emitter writes `llm_analytics/evaluation` signals any more (only whole eval reports
+# do), but signals ingested while that path existed keep this payload shape, and the inbox card that
+# renders them is generated from this model.
 class LlmEvalSignalExtra(SignalExtraBase):
     evaluation_id: str
     target_event_id: str | None = None
@@ -78,12 +92,6 @@ class LlmEvalSignalExtra(SignalExtraBase):
     trace_id: str
     model: str | None = None
     provider: str | None = None
-
-
-class LlmEvaluationSignalInput(SignalInputBase):
-    source_type: Literal[SignalSourceType.EVALUATION]
-    source_product: Literal[SignalSourceProduct.LLM_ANALYTICS]
-    extra: LlmEvalSignalExtra
 
 
 class LlmEvalReportSignalExtra(SignalExtraBase):
@@ -973,7 +981,6 @@ class GoogleSearchConsoleSearchOpportunitySignalInput(SignalInputBase):
 
 SignalInput = Annotated[
     SessionProblemSignalInput
-    | LlmEvaluationSignalInput
     | LlmEvaluationReportSignalInput
     | ZendeskTicketSignalInput
     | GithubIssueSignalInput
@@ -1030,7 +1037,6 @@ SignalInput = Annotated[
 
 SIGNAL_INPUT_VARIANTS: tuple[type[SignalInputBase], ...] = (
     SessionProblemSignalInput,
-    LlmEvaluationSignalInput,
     LlmEvaluationReportSignalInput,
     ZendeskTicketSignalInput,
     GithubIssueSignalInput,
