@@ -270,14 +270,6 @@ def exposed_distinct_ids_select(linkage: ExperimentExposureLinkage) -> ast.Selec
         context=linkage.context,
         preaggregation_job_ids=linkage.preaggregation_job_ids,
     ).select_query()
-    # A second instance for the prefilter below: an AST node can only sit at one place in the
-    # tree, and on the preaggregated path the doubled read is a few thousand rows. On the live
-    # path it doubles the exposure events scan, which stays affordable for the same reason the
-    # scan is allowed at all: teams too large for it are refused in _resolve_preaggregation_job_ids.
-    exposure_prefilter_select = ExposureQueryBuilder(
-        context=linkage.context,
-        preaggregation_job_ids=linkage.preaggregation_job_ids,
-    ).select_query()
 
     # The distinct-id expansion must not aggregate the team's whole mapping table: its memory
     # scales with the team's total distinct ids rather than with the exposed population, which
@@ -309,22 +301,25 @@ def exposed_distinct_ids_select(linkage: ExperimentExposureLinkage) -> ast.Selec
                     SELECT distinct_id
                     FROM raw_person_distinct_ids
                     WHERE team_id = {prefilter_team_id}
-                        AND person_id IN (SELECT entity_id FROM ({exposure_prefilter_select}))
+                        AND person_id IN (SELECT entity_id FROM exposures)
                 )
             GROUP BY distinct_id
             HAVING is_deleted = 0
         ) AS pdi
-        INNER JOIN ({exposure_select}) AS exposures ON exposures.entity_id = pdi.person_id
+        INNER JOIN exposures ON exposures.entity_id = pdi.person_id
         WHERE exposures.variant IN {requested_variants}
         GROUP BY pdi.distinct_id
         """,
         placeholders={
             "team_id": ast.Constant(value=linkage.context.team.pk),
             "prefilter_team_id": ast.Constant(value=linkage.context.team.pk),
-            "exposure_select": exposure_select,
-            "exposure_prefilter_select": exposure_prefilter_select,
             "requested_variants": ast.Constant(value=linkage.requested_variants),
         },
     )
     assert isinstance(query, ast.SelectQuery)
+    # Both the prefilter and the join read the exposed population, and ClickHouse substitutes a
+    # plain CTE at each reference rather than computing it once, so a bare `WITH` would scan the
+    # exposure source twice. MATERIALIZED computes it once and reuses the result, which keeps the
+    # live path to a single events scan and holds only the exposed rows in memory.
+    query.ctes = {"exposures": ast.CTE(name="exposures", expr=exposure_select, cte_type="subquery", materialized=True)}
     return query
