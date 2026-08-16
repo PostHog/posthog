@@ -340,13 +340,13 @@ def _probe_proxy(proxy_record: ProxyRecord) -> CheckActivityOutput:
         # is its own, separate from whatever the POST resolved, so the domain can answer the first
         # lookup correctly and point somewhere internal by this one. SNI stays on the hostname so
         # certificate verification still checks the name the customer configured.
-        allowed, _reason, pinned_ips = validate_url_and_pin_ips(f"{probe_base}/")
-        if not allowed:
+        verdict = validate_url_and_pin_ips(f"{probe_base}/")
+        if not verdict.allowed:
             return CheckActivityOutput(
                 errors=["Proxy domain does not resolve to a public address"],
                 warnings=[],
             )
-        chosen_ip = select_pinned_ip(pinned_ips)
+        chosen_ip = select_pinned_ip(verdict.pinned_ips)
         # An empty set means validation was bypassed (dev mode), so fall back to the hostname.
         connect_host = str(chosen_ip) if chosen_ip is not None else proxy_record.domain
 
