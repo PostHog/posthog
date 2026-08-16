@@ -1969,21 +1969,47 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vi
         body = DraftScannerRequestSerializer(data=request.data)
         body.is_valid(raise_exception=True)
 
+        goal = body.validated_data["goal"]
+        # The goal is customer text, so only its length goes into telemetry.
+        draft_properties: dict[str, Any] = {"goal_length": len(goal), "team_id": self.team_id}
+
         try:
             drafted = draft_scanner_from_goal(
                 team=self.team,
                 user=cast(User, request.user),
-                goal=body.validated_data["goal"],
+                goal=goal,
                 user_access_control=self.user_access_control,
                 # Core memory's own API is INTERNAL (session-only), so scoped tokens must not
                 # receive its content through the draft either.
                 include_business_context=get_authenticator_scopes(request.successful_authenticator) is None,
             )
         except DraftError:
+            # Report failures too, so model errors don't read as user abandonment.
+            report_user_action(
+                cast(User, request.user),
+                "replay_vision_scanner_drafted",
+                {**draft_properties, "success": False},
+                team=self.team,
+                request=request,
+            )
             return Response(
                 {"detail": "Couldn't draft a scanner right now. Try again in a moment."},
                 status=status.HTTP_503_SERVICE_UNAVAILABLE,
             )
+
+        report_user_action(
+            cast(User, request.user),
+            "replay_vision_scanner_drafted",
+            {
+                **draft_properties,
+                "success": True,
+                "scanner_type": drafted.scanner_type,
+                # Whether the goal mapped to a real event filter or fell back to no targeting.
+                "has_query": bool(drafted.query),
+            },
+            team=self.team,
+            request=request,
+        )
 
         return Response(
             DraftScannerResponseSerializer(

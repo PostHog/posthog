@@ -3972,6 +3972,9 @@ importers:
       lodash.uniqby:
         specifier: ^4.7.0
         version: 4.7.0
+      posthog-js:
+        specifier: 'catalog:'
+        version: 1.417.1
       react:
         specifier: 18.3.1
         version: 18.3.1
