@@ -348,18 +348,23 @@ describe('replayScannersLogic', () => {
             })
         })
 
-        it('a persisted toggle completes and shows a success toast with the new state', async () => {
-            const successToast = jest.spyOn(lemonToast, 'success')
-            logic.actions.loadScannersSuccess(scanners, scanners.length)
+        it.each([
+            { id: 'a', initialState: 'enabled', expectedMessage: 'Scanner disabled' },
+            { id: 'b', initialState: 'disabled', expectedMessage: 'Scanner enabled' },
+        ])(
+            'a persisted toggle of a scanner that starts $initialState completes and shows a "$expectedMessage" toast',
+            async ({ id, expectedMessage }) => {
+                const successToast = jest.spyOn(lemonToast, 'success')
+                logic.actions.loadScannersSuccess(scanners, scanners.length)
 
-            // Scanner 'a' starts enabled, so this toggle disables it.
-            await expectLogic(logic, () => logic.actions.toggleScannerEnabled('a')).toDispatchActions([
-                'toggleScannerEnabledDone',
-            ])
+                await expectLogic(logic, () => logic.actions.toggleScannerEnabled(id)).toDispatchActions([
+                    'toggleScannerEnabledDone',
+                ])
 
-            expect(successToast).toHaveBeenCalledWith('Scanner disabled')
-            expect(logic.values.togglingIds).toEqual([])
-        })
+                expect(successToast).toHaveBeenCalledWith(expectedMessage)
+                expect(logic.values.togglingIds).toEqual([])
+            }
+        )
 
         it('a failed toggle reverts the row and shows an error toast', async () => {
             useMocks({
