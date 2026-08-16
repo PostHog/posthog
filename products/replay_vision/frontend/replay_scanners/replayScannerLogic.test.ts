@@ -78,7 +78,7 @@ describe('replayScannerLogic', () => {
         it('new scanner starts as monitor with empty prompt and default sampling', () => {
             expect(logic.values.scanner).toMatchObject({
                 id: 'new',
-                name: '',
+                name: 'MockHog App + Marketing monitor',
                 enabled: true,
                 scanner_type: 'monitor',
                 scanner_config: { prompt: '' },
@@ -101,16 +101,24 @@ describe('replayScannerLogic', () => {
     })
 
     describe('draftScannerFromGoal', () => {
-        it('seeds the form from the AI draft and routes to the configure step', async () => {
+        // The box renders on the editor's template step and on the zero-scanner empty state.
+        it.each([
+            ['the template step', urls.replayVisionScannerTemplate('new')],
+            ['the empty scanner list', urls.replayVision()],
+        ])('seeds the form from the AI draft and routes to the details step from %s', async (_origin, path) => {
             const draft = {
                 name: 'User intent',
                 description: 'Tags each session by intent.',
                 scanner_type: 'classifier',
                 scanner_config: { prompt: 'Classify the session by intent.', tags: ['browsing'], multi_label: false },
                 rationale: 'A classifier fits because you want the mix of visit intents.',
+                query: {
+                    kind: 'RecordingsQuery',
+                    events: [{ type: 'events', id: 'signed_up', name: 'signed_up', order: 0 }],
+                },
             }
             draftSpy.mockReturnValue([200, draft])
-            router.actions.push(urls.replayVisionScannerTemplate('new'))
+            router.actions.push(path)
             logic.actions.setGoalDraftInput('understand what users come here to do')
 
             await expectLogic(logic, () =>
@@ -124,9 +132,10 @@ describe('replayScannerLogic', () => {
                 description: draft.description,
                 scanner_type: draft.scanner_type,
                 scanner_config: draft.scanner_config,
+                query: draft.query,
             })
             // The test router prefixes paths with /project/:id, so match on the suffix.
-            expect(router.values.location.pathname).toContain(urls.replayVisionScannerConfigure('new'))
+            expect(router.values.location.pathname).toContain(urls.replayVisionScannerDetails('new'))
 
             // The rationale stays available for the configure step, until a template pick replaces the draft.
             expect(logic.values.goalDraft?.rationale).toEqual(draft.rationale)
@@ -162,7 +171,10 @@ describe('replayScannerLogic', () => {
                 .toFinishAllListeners()
 
             expect(logic.values.goalDraft).toBeNull()
-            expect(logic.values.scanner).toMatchObject({ name: '', scanner_type: 'monitor' })
+            expect(logic.values.scanner).toMatchObject({
+                name: 'MockHog App + Marketing monitor',
+                scanner_type: 'monitor',
+            })
             expect(router.values.location.pathname).toEqual(pathBefore)
         })
     })
@@ -308,19 +320,16 @@ describe('replayScannerLogic', () => {
                 name: 'Test scanner',
                 scanner_config: { prompt: 'Q?' },
             })
-            logic.actions.setSubmitIntent('advance')
             await expectLogic(logic, () => logic.actions.submitScanner()).toFinishAllListeners()
             expect(router.values.location.pathname).toContain('/replay-vision/new/triggers')
-            expect(logic.values.submitIntent).toBe('save')
         })
 
         it('advance does not mark the draft as saved, so the unsaved-changes guard stays armed', async () => {
             router.actions.push('/replay-vision/new/configure')
             logic.actions.setScannerValues({ name: 'Draft scanner', scanner_config: { prompt: 'Q?' } })
-            logic.actions.setSubmitIntent('advance')
             await expectLogic(logic, () => logic.actions.submitScanner()).toFinishAllListeners()
             // The draft must not be adopted as the saved baseline — no API write happened.
-            expect(logic.values.originalScanner?.name).toBe('')
+            expect(logic.values.originalScanner?.name).toBe('MockHog App + Marketing monitor')
             expect(logic.values.hasUnsavedChanges).toBe(true)
         })
 
@@ -332,11 +341,18 @@ describe('replayScannerLogic', () => {
             expect(router.values.location.pathname).toContain('/replay-vision/new/triggers')
         })
 
+        it('keeps the ?template param when advancing, so the type stays fixed to the template', async () => {
+            router.actions.push(`${urls.replayVisionScannerConfigure('new')}?template=dead_end`)
+            logic.actions.setScannerValues({ name: 'Test scanner', scanner_config: { prompt: 'Q?' } })
+            await expectLogic(logic, () => logic.actions.submitScanner()).toFinishAllListeners()
+            expect(router.values.location.pathname).toContain('/replay-vision/new/triggers')
+            expect(router.values.searchParams.template).toEqual('dead_end')
+        })
+
         it('advances from the step the editor scene reports, even when the URL matches no step', async () => {
             router.actions.push('/replay-vision/new/not-a-step')
             scannerEditorSceneLogic.actions.setStep('configure')
             logic.actions.setScannerValues({ name: 'Test scanner', scanner_config: { prompt: 'Q?' } })
-            logic.actions.setSubmitIntent('advance')
             await expectLogic(logic, () => logic.actions.submitScanner()).toFinishAllListeners()
             expect(router.values.location.pathname).toContain('/replay-vision/new/triggers')
         })
@@ -344,10 +360,24 @@ describe('replayScannerLogic', () => {
         it('routes a rejected submit to the step that renders the errored fields', async () => {
             // Defaults leave name and prompt empty, both configure-owned.
             router.actions.push('/replay-vision/new/triggers')
-            logic.actions.setSubmitIntent('advance')
             await expectLogic(logic, () => logic.actions.submitScanner()).toFinishAllListeners()
             expect(createSpy).not.toHaveBeenCalled()
             expect(router.values.location.pathname).toContain('/replay-vision/new/configure')
+        })
+
+        it('submitting the final step creates the scanner, lands on it, and announces the first scan', async () => {
+            const success = jest.spyOn(lemonToast, 'success')
+            router.actions.push('/replay-vision/new/budget')
+            scannerEditorSceneLogic.actions.setStep('budget')
+            logic.actions.setScannerValues({ name: 'Test scanner', scanner_config: { prompt: 'Q?' } })
+            await expectLogic(logic, () => logic.actions.submitScanner()).toFinishAllListeners()
+            expect(createSpy).toHaveBeenCalledTimes(1)
+            expect(router.values.location.pathname).toContain('/replay-vision/created-scanner')
+            // The toast must tell the same story as the Overview's first-scan pending panel.
+            expect(success).toHaveBeenCalledWith(
+                'Scanner created. First scan in progress.',
+                expect.objectContaining({ button: expect.objectContaining({ label: 'Scan a recording now' }) })
+            )
         })
     })
 
@@ -490,11 +520,6 @@ describe('replayScannerLogic', () => {
     describe('validation errors', () => {
         it.each([
             {
-                name: 'flags missing name',
-                setup: () => undefined,
-                expectedErrors: { name: 'Name is required' },
-            },
-            {
                 name: 'flags missing prompt',
                 setup: () => undefined,
                 expectedErrors: { scanner_config: expect.objectContaining({ prompt: 'Prompt is required' }) },
@@ -567,7 +592,7 @@ describe('replayScannerLogic', () => {
                     })
                 },
                 expectedErrors: {
-                    scanner_config: expect.objectContaining({ tags: expect.stringContaining('at least one tag') }),
+                    scanner_config: expect.objectContaining({ tags: expect.stringContaining('at least one category') }),
                 },
             },
             {
@@ -583,7 +608,7 @@ describe('replayScannerLogic', () => {
                     })
                 },
                 expectedErrors: {
-                    scanner_config: expect.objectContaining({ tags: 'Tags must be unique' }),
+                    scanner_config: expect.objectContaining({ tags: 'Categories must be unique' }),
                 },
             },
             {
@@ -599,7 +624,7 @@ describe('replayScannerLogic', () => {
                     })
                 },
                 expectedErrors: {
-                    scanner_config: expect.objectContaining({ tags: "Tags can't be blank" }),
+                    scanner_config: expect.objectContaining({ tags: "Categories can't be blank" }),
                 },
             },
         ])('$name', async ({ setup, expectedErrors }) => {
@@ -743,6 +768,30 @@ describe('replayScannerLogic', () => {
             })
         })
 
+        it('Enter on the details step advances rather than failing validation on unseen fields', async () => {
+            // A from-scratch scanner has an empty prompt, which only the configure step can fix.
+            router.actions.push(urls.replayVisionScannerDetails('new'))
+            scannerEditorSceneLogic.actions.setStep('details')
+            await expectLogic(logic, () => logic.actions.submitScanner()).toFinishAllListeners()
+            expect(router.values.location.pathname).toContain(urls.replayVisionScannerConfigure('new'))
+        })
+
+        it('keeps the ?template param when a rejected submit jumps to the errored step', async () => {
+            router.actions.push(`${urls.replayVisionScannerTriggers('new')}?template=dead_end`)
+            scannerEditorSceneLogic.actions.setStep('triggers')
+            logic.actions.setScannerValues({ scanner_config: { prompt: '' } })
+            await expectLogic(logic, () => logic.actions.submitScanner()).toFinishAllListeners()
+            expect(router.values.location.pathname).toContain(urls.replayVisionScannerConfigure('new'))
+            expect(router.values.searchParams.template).toEqual('dead_end')
+        })
+
+        it('Enter on an intermediate step advances instead of saving and leaving the wizard', async () => {
+            await expectLogic(editLogic, () => editLogic.actions.loadScanner()).toFinishAllListeners()
+            router.actions.push(urls.replayVisionScannerDetails('limited-1'))
+            await expectLogic(editLogic, () => editLogic.actions.submitScanner()).toFinishAllListeners()
+            expect(router.values.location.pathname).toContain(urls.replayVisionScannerConfigure('limited-1'))
+        })
+
         it('strips the form-only toggle from the update payload', async () => {
             let patchedBody: any
             useMocks({
@@ -754,6 +803,8 @@ describe('replayScannerLogic', () => {
                 },
             })
             await expectLogic(editLogic, () => editLogic.actions.loadScanner()).toFinishAllListeners()
+            // Only the final step persists; earlier ones advance, so save from where the button lives.
+            router.actions.push(urls.replayVisionScannerBudget('sid'))
             editLogic.actions.setScannerValues({ credit_limit_enabled: true, credit_limit: 100 })
             await expectLogic(editLogic, () => editLogic.actions.submitScanner()).toDispatchActions(['scannerSaved'])
             expect(patchedBody.credit_limit).toBe(100)
@@ -1045,6 +1096,23 @@ describe('replayScannerLogic', () => {
             await expectLogic(logic, () => logic.actions.setScannerValues({ name: 'Edited' })).toMatchValues({
                 hasUnsavedChanges: true,
             })
+        })
+    })
+
+    describe('scannerWatermarkRefreshed', () => {
+        // Guards the background watermark refresh against regressing to the full loadScannerSuccess
+        // path, which resets the form from the server and refires the observation loads.
+        it('advances the sweep watermark without resetting form edits or reloading observations', async () => {
+            logic.actions.loadScannerSuccess({ ...logic.values.scanner!, id: 'abc', name: 'Loaded' })
+            logic.actions.setScannerValues({ name: 'Edited' })
+
+            const refreshed = { ...logic.values.scanner!, name: 'Loaded', last_swept_at: '2026-08-13T10:00:00Z' }
+            // toDispatchActions moves the history pointer past the setup's own setScannerValues first.
+            await expectLogic(logic, () => logic.actions.scannerWatermarkRefreshed(refreshed))
+                .toDispatchActions(['scannerWatermarkRefreshed'])
+                .toNotHaveDispatchedActions(['setScannerValues', 'loadObservations', 'loadObservationStats'])
+            expect(logic.values.scanner?.name).toBe('Edited')
+            expect(logic.values.scanner?.last_swept_at).toBe('2026-08-13T10:00:00Z')
         })
     })
 

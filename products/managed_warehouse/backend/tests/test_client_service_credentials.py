@@ -48,6 +48,24 @@ class TestMakeDuckgresConninfoWithServiceCredential:
         assert "port=443" in conninfo
         assert "dbname=ducklake" in conninfo
         assert "sslmode=require" in conninfo
+        # Untagged callers still get the default so duckgres can tell them apart
+        # from customer clients (psql, their own application_name).
+        assert "application_name=posthog" in conninfo
+
+    @mock.patch(
+        "products.managed_warehouse.backend.client.get_duckgres_config_for_org",
+        side_effect=AssertionError("DuckgresServer row must not be consulted on the service-credential path"),
+    )
+    @mock.patch("products.managed_warehouse.backend.client.is_dev_mode", return_value=False)
+    def test_application_name_is_forwarded_on_service_credential_path(self, _dev, _config):
+        conninfo = make_duckgres_conninfo(
+            7,
+            organization_id="org-1",
+            service_credential=_credential("minted-plaintext", credential_id="svc_0123456789abcdef01234567"),
+            application_name="ducklake-register",
+        )
+
+        assert "application_name=ducklake-register" in conninfo
 
     @mock.patch(
         "products.managed_warehouse.backend.client.get_duckgres_config_for_org",
