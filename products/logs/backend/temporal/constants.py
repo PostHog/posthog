@@ -40,6 +40,12 @@ MAX_COHORTS_PER_BATCH = int(os.environ.get("LOGS_ALERTING_MAX_COHORTS_PER_BATCH"
 # Per-pod CH parallelism = max_concurrent_activities × MAX_CONCURRENT_COHORTS_PER_BATCH.
 MAX_CONCURRENT_COHORTS_PER_BATCH = int(os.environ.get("LOGS_ALERTING_MAX_CONCURRENT_COHORTS_PER_BATCH", "5"))
 
+# Threads backing the dedicated Postgres executor (`_ALERTING_DB_EXECUTOR` in
+# activities.py — see there for why the alerting DB work runs off the shared
+# event-loop executor). Defaults to asyncio's own default-executor size, so
+# intra-batch concurrency is unchanged.
+LOGS_ALERTING_DB_POOL_SIZE = int(os.environ.get("LOGS_ALERTING_DB_POOL_SIZE", str(min(32, (os.cpu_count() or 1) + 4))))
+
 # How long the per-cohort flush barrier waits for the Kafka broker to ack
 # dispatched notifications before treating them as undelivered (state rolls
 # back and the next cycle retries). The flush drains the process-wide internal

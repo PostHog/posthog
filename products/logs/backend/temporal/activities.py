@@ -7,6 +7,7 @@ import contextlib
 import dataclasses
 from collections import defaultdict
 from collections.abc import Iterator, Sequence
+from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime, timedelta
 from itertools import batched
 from uuid import UUID
@@ -71,6 +72,7 @@ from products.logs.backend.logs_url_params import build_logs_url_params
 from products.logs.backend.models import LogsAlertConfiguration, LogsAlertEvent
 from products.logs.backend.temporal.constants import (
     EMIT_SIGNAL_CONCURRENCY,
+    LOGS_ALERTING_DB_POOL_SIZE,
     MAX_ALERT_COHORT_SIZE,
     MAX_COHORTS_PER_BATCH,
     MAX_CONCURRENT_COHORTS_PER_BATCH,
@@ -80,6 +82,7 @@ from products.logs.backend.temporal.metrics import (
     increment_check_errors,
     increment_checkpoint_unavailable,
     increment_checks_total,
+    increment_cohort_failure,
     increment_cohort_query_fallback,
     increment_cohort_save_fallback,
     increment_notification_failures,
@@ -97,6 +100,19 @@ from products.logs.backend.temporal.metrics import (
 )
 
 logger = structlog.get_logger(__name__)
+
+# Dedicated thread pool for this worker's Postgres work. Django connections are
+# thread-local, so the hazard is the shared event-loop default executor: it also
+# runs asyncio.to_thread and other coroutines, which interleave with the alerting
+# ORM/query work on the same threads and reset connections on entry/exit. Routing
+# every per-cohort call here keeps that work on threads it alone drives, with a
+# connection lifecycle no other task disturbs. It is the executor asgiref runs on,
+# not a pool nested inside a pooled call, so it does not reintroduce the
+# cancellation deadlock that removed intra-batch thread-pool fan-out (see constants.py).
+_ALERTING_DB_EXECUTOR = ThreadPoolExecutor(
+    max_workers=LOGS_ALERTING_DB_POOL_SIZE,
+    thread_name_prefix="logs-alerting-db",
+)
 
 
 def _log_metric_failure(label: str, e: BaseException, **context: object) -> None:
@@ -367,7 +383,7 @@ async def discover_cohorts_activity(input: DiscoverCohortsInput) -> DiscoverCoho
     full `select_related('team')` would OOM. Team objects are loaded later, only
     inside `evaluate_cohort_batch_activity`, scoped to a small batch.
     """
-    return await database_sync_to_async_pool(_discover_cohorts_sync)()
+    return await database_sync_to_async_pool(_discover_cohorts_sync, executor=_ALERTING_DB_EXECUTOR)()
 
 
 def _discover_cohorts_sync() -> DiscoverCohortsOutput:
@@ -600,11 +616,13 @@ async def evaluate_cohort_batch_activity(input: EvaluateCohortBatchInput) -> Eva
     now = datetime.now(UTC)
 
     all_alert_ids = {aid for manifest in input.manifests for aid in manifest.alert_ids}
-    alerts_by_id = await database_sync_to_async_pool(_load_alerts_for_batch)(all_alert_ids)
+    alerts_by_id = await database_sync_to_async_pool(_load_alerts_for_batch, executor=_ALERTING_DB_EXECUTOR)(
+        all_alert_ids
+    )
 
-    cohort_query_async = database_sync_to_async_pool(_run_cohort_query)
-    save_cohort_async = database_sync_to_async_pool(_save_cohort_outcomes)
-    dispatch_async = database_sync_to_async_pool(_dispatch_for_alert)
+    cohort_query_async = database_sync_to_async_pool(_run_cohort_query, executor=_ALERTING_DB_EXECUTOR)
+    save_cohort_async = database_sync_to_async_pool(_save_cohort_outcomes, executor=_ALERTING_DB_EXECUTOR)
+    dispatch_async = database_sync_to_async_pool(_dispatch_for_alert, executor=_ALERTING_DB_EXECUTOR)
 
     semaphore = asyncio.Semaphore(MAX_CONCURRENT_COHORTS_PER_BATCH)
 
@@ -663,6 +681,7 @@ async def evaluate_cohort_batch_activity(input: EvaluateCohortBatchInput) -> Eva
                     )
                     for slo_handle in slo_handles.values():
                         slo_handle.fail(failure_phase="cohort_query")
+                    _safe_record("cohort_failure counter", increment_cohort_failure, "query")
                     local_stats["errored"] += len(cohort.alerts)
                     return local_stats, local_notified
 
@@ -756,6 +775,7 @@ async def evaluate_cohort_batch_activity(input: EvaluateCohortBatchInput) -> Eva
                 except Exception as e:
                     logger.exception("Cohort bulk save failed (non-recoverable)", team_id=cohort.team_id)
                     capture_exception(e, {"team_id": cohort.team_id, "phase": "bulk_save"})
+                    _safe_record("cohort_failure counter", increment_cohort_failure, "save")
                     for dispatched_alert in dispatched:
                         slo_handles[str(dispatched_alert.evaluation.alert.id)].fail(failure_phase="save")
                     local_stats["errored"] += len(dispatched)
@@ -837,7 +857,7 @@ async def emit_alert_signals_activity(input: EmitAlertSignalsInput) -> int:
         return 0
 
     team_ids = {na.team_id for na in input.notified}
-    teams = await database_sync_to_async_pool(_load_teams_for_signals)(team_ids)
+    teams = await database_sync_to_async_pool(_load_teams_for_signals, executor=_ALERTING_DB_EXECUTOR)(team_ids)
 
     semaphore = asyncio.Semaphore(EMIT_SIGNAL_CONCURRENCY)
     completed = 0

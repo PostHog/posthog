@@ -215,6 +215,21 @@ def record_cohort_size(size: int) -> None:
 
 CohortSaveFallbackReason = typing.Literal["integrity_error"]
 CohortQueryFallbackReason = typing.Literal["batched_failure", "transient_no_fallback"]
+CohortFailurePhase = typing.Literal["query", "save"]
+
+
+def increment_cohort_failure(phase: CohortFailurePhase) -> None:
+    """Counts unrecoverable failures that error every alert in a cohort for the
+    cycle, split by phase. One connection race can surface as a different stack
+    each time (its own error-tracking fingerprint); this counter makes the class
+    countable regardless of where the stack lands.
+    """
+    meter = get_metric_meter({"phase": phase})
+    counter = meter.create_counter(
+        "logs_alerting_cohort_failure_total",
+        "Cohort-wide failures that errored every alert in the cohort for this cycle",
+    )
+    counter.add(1)
 
 
 def increment_cohort_save_fallback(reason: CohortSaveFallbackReason) -> None:
