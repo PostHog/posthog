@@ -516,7 +516,6 @@ const AgentRow = memo(function AgentRow({
 
 export function AgentsRoster(): JSX.Element {
     const {
-        sessionAnalysisConfig,
         conversationsConfig,
         evalReportsConfig,
         anomalyInvestigationConfig,
@@ -531,7 +530,6 @@ export function AgentsRoster(): JSX.Element {
         errorTrackingTypeStates,
         visionScanners,
         visionScannersLoading,
-        isSessionAnalysisToggling,
         isConversationsToggling,
         isEvalReportsToggling,
         isAnomalyInvestigationToggling,
@@ -546,7 +544,6 @@ export function AgentsRoster(): JSX.Element {
         enablingTool,
     } = useValues(signalSourcesLogic)
     const {
-        toggleSessionAnalysis,
         toggleConversations,
         toggleErrorTracking,
         toggleErrorTrackingType,
@@ -557,7 +554,6 @@ export function AgentsRoster(): JSX.Element {
         toggleScannerSignals,
         initiateDataWarehouseSourceToggle,
         enableSourceTool,
-        openSessionAnalysisSetup,
         loadToolDataEvents,
     } = useActions(signalSourcesLogic)
     const { featureFlags } = useValues(featureFlagLogic)
@@ -627,14 +623,6 @@ export function AgentsRoster(): JSX.Element {
                         entities: scannerEntities,
                         entitiesLoading: visionScanners === null && visionScannersLoading,
                     }
-                case 'session_replay':
-                    return {
-                        ...base,
-                        armed: !!sessionAnalysisConfig?.enabled,
-                        loading: isSessionAnalysisToggling,
-                        requiresSetup: false,
-                        syncStatus: sessionAnalysisConfig?.status,
-                    }
                 case 'llm_analytics':
                     return {
                         ...base,
@@ -687,8 +675,6 @@ export function AgentsRoster(): JSX.Element {
             scannerEntities,
             visionScanners,
             visionScannersLoading,
-            sessionAnalysisConfig,
-            isSessionAnalysisToggling,
             evalReportsConfig,
             isEvalReportsToggling,
             anomalyInvestigationConfig,
@@ -722,9 +708,6 @@ export function AgentsRoster(): JSX.Element {
                 case 'conversations':
                     toggleConversations()
                     return
-                case 'session_replay':
-                    toggleSessionAnalysis()
-                    return
                 case 'llm_analytics':
                     toggleEvalReports()
                     return
@@ -748,7 +731,6 @@ export function AgentsRoster(): JSX.Element {
         [
             toggleErrorTracking,
             toggleConversations,
-            toggleSessionAnalysis,
             toggleEvalReports,
             toggleCiSignals,
             toggleAnomalyInvestigation,
@@ -804,9 +786,7 @@ export function AgentsRoster(): JSX.Element {
                                 onToggle={handleToggle}
                                 onToggleEntity={handleToggleEntity}
                                 onEnableTool={(tool) => tool.enablement && enableSourceTool(tool.enablement)}
-                                onConfigureFilters={
-                                    agent.source === 'session_replay' ? openSessionAnalysisSetup : undefined
-                                }
+                                onConfigureFilters={undefined}
                                 onRetryData={loadToolDataEvents}
                             />
                         ))}

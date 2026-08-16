@@ -134,6 +134,7 @@ from posthog.shared_link_user import SharedLinkUser
 from posthog.user_permissions import UserPermissionsSerializerMixin
 from posthog.utils import (
     filters_override_requested_by_client,
+    generate_cache_key_prefix,
     refresh_requested_by_client,
     relative_date_parse,
     str_to_bool,
@@ -1302,8 +1303,19 @@ class InsightSerializer(InsightBasicSerializer):
 
         # Check if we have an expected cache key from the image exporter
         export_cache_keys: dict[int, str] | None = self.context.get("export_cache_keys")
-        if export_cache_keys and insight.id in export_cache_keys:
-            expected_cache_key = export_cache_keys[insight.id]
+        expected_cache_key = (export_cache_keys or {}).get(insight.id)
+        # The cache key is unauthenticated input carried on the render URL, and the store it indexes is
+        # shared across teams. `generate_cache_key` prefixes every key with the team it was computed for,
+        # so a key that doesn't carry this insight's team can't be one the runner would produce for it.
+        if expected_cache_key and not expected_cache_key.startswith(generate_cache_key_prefix(insight.team_id)):
+            logger.error(
+                "export_cache_key_team_mismatch",
+                insight_id=insight.id,
+                expected_cache_key=expected_cache_key,
+                message="Cache key does not belong to the insight's team - falling back to normal calculation",
+            )
+            expected_cache_key = None
+        if expected_cache_key:
             entry = QueryCache(team_id=insight.team_id, cache_key=expected_cache_key).lookup().entry
             cached_response = entry.as_full_response() if entry else None
             if cached_response:

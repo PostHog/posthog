@@ -544,6 +544,55 @@ export const SummarizerOverview: StoryObj = {
     parameters: { pageUrl: urls.replayVision(summarizerScanner.id) },
 }
 
+// The scan-drought banner: current version 4 has no marker, and the sweep watermark sits past the
+// last config change, so the page warns that the filters matched nothing. No other story renders it.
+export const ScannerScanDrought: StoryObj = {
+    parameters: { pageUrl: urls.replayVision(summarizerScanner.id) },
+    decorators: [
+        mswDecorator({
+            get: {
+                '/api/projects/:team_id/vision/scanners/:id/': scanner({
+                    id: summarizerScanner.id,
+                    name: 'Confused checkout',
+                    scanner_type: 'monitor',
+                    scanner_config: { prompt: 'Did the user struggle?' },
+                    scanner_version: 4,
+                    sampling_rate: 0.1,
+                    updated_at: '2026-05-10T00:00:00Z',
+                    last_swept_at: '2026-05-12T00:00:00Z',
+                    created_by: alice,
+                }),
+                '/api/projects/:team_id/vision/scanners/:id/observations/stats/': {
+                    ...summarizerStats,
+                    summarizer: null,
+                    monitor: { yes_total: 12, no_total: 130, inconclusive_total: 0 },
+                    labels: {
+                        ...summarizerStats.labels,
+                        version_markers: [
+                            {
+                                date: '2026-05-01',
+                                version: 3,
+                                prompt: 'Did the user struggle?',
+                                scanner_config: { prompt: 'Did the user struggle?' },
+                                scanner_type: 'monitor',
+                                model: 'gemini-3.7-flash',
+                                provider: 'google',
+                                emits_signals: false,
+                                query: null,
+                                sampling_rate: 1,
+                                sampling_mode: 'comprehensive',
+                                up: 6,
+                                down: 2,
+                                total: 142,
+                            },
+                        ],
+                    },
+                } satisfies ObservationStatsApi,
+            },
+        }),
+    ],
+}
+
 export const ScannerObservations: StoryObj = {
     parameters: { pageUrl: `${urls.replayVision(summarizerScanner.id)}?tab=observations` },
 }
@@ -589,6 +638,10 @@ export const ScannerTemplates: StoryObj = {
     parameters: { pageUrl: urls.replayVisionTemplates() },
 }
 
+export const ScannerEditorDetails: StoryObj = {
+    parameters: { pageUrl: urls.replayVisionScannerDetails(summarizerScanner.id) },
+}
+
 export const ScannerEditorConfigure: StoryObj = {
     parameters: { pageUrl: urls.replayVisionScannerConfigure(summarizerScanner.id) },
 }
@@ -611,6 +664,10 @@ export const ScannerEditorConfigureLiteStandardPro: StoryObj = {
 
 export const ScannerEditorTriggers: StoryObj = {
     parameters: { pageUrl: urls.replayVisionScannerTriggers(summarizerScanner.id) },
+}
+
+export const ScannerEditorBudget: StoryObj = {
+    parameters: { pageUrl: urls.replayVisionScannerBudget(summarizerScanner.id) },
 }
 
 export const ActionEditorAlert: StoryObj = {

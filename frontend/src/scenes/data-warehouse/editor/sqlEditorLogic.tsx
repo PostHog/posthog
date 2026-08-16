@@ -75,6 +75,8 @@ import {
     DataModelingNode,
     DataWarehouseSavedQuery,
     DataWarehouseSavedQueryDraft,
+    DataWarehouseSavedQueryIncremental,
+    DataWarehouseSavedQueryIncrementalCheck,
     ExportContext,
     ExternalDataSource,
     QueryBasedInsightModel,
@@ -107,6 +109,7 @@ import { connectionSelectorLogic } from './connectionSelectorLogic'
 import { draftsLogic } from './draftsLogic'
 import { fixSQLErrorsLogic } from './fixSQLErrorsLogic'
 import type { Response } from './fixSQLErrorsLogic'
+import { IncrementalConfigFields } from './IncrementalConfigFields'
 import { findInnermostSelectAtOffset, findQueryAtCursor, type QueryRange, splitQueries } from './multiQueryUtils'
 import { OutputTab, outputPaneLogic } from './outputPaneLogic'
 import { resolveSaveCandidates as resolveSaveCandidatesPure, SaveTargetCycler } from './SaveTargetCycler'
@@ -623,12 +626,18 @@ export interface sqlEditorLogicActions {
     loadDataWarehouseSavedQueryFolders: () => any // dataWarehouseViewsLogic
     materializeDataWarehouseSavedQuery: (
         viewId: string,
-        syncFrequency?: import('~/types').DataModelingSyncInterval | undefined
+        syncFrequency?: import('~/types').DataModelingSyncInterval | undefined,
+        incremental?: DataWarehouseSavedQueryIncremental | undefined
     ) => {
+        incremental: DataWarehouseSavedQueryIncremental | undefined
         syncFrequency: import('~/types').DataModelingSyncInterval | undefined
         viewId: string
     } // dataWarehouseViewsLogic
-    runDataWarehouseSavedQuery: (viewId: string) => {
+    runDataWarehouseSavedQuery: (
+        viewId: string,
+        fullRefresh?: boolean | undefined
+    ) => {
+        fullRefresh: boolean | undefined
         viewId: string
     } // dataWarehouseViewsLogic
     updateDataWarehouseSavedQuery: (
@@ -947,11 +956,13 @@ export interface sqlEditorLogicActions {
         dagId?: string,
         folderId?: string | null,
         isTest?: any,
-        queryOverride?: string
+        queryOverride?: string,
+        incremental?: DataWarehouseSavedQueryIncremental
     ) => {
         dagId: string | undefined
         folderId: string | null | undefined
         fromDraft: string | undefined
+        incremental: DataWarehouseSavedQueryIncremental | undefined
         isTest: any
         materializeAfterSave: any
         name: string
@@ -1285,7 +1296,8 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
             dagId?: string,
             folderId?: string | null,
             isTest = false,
-            queryOverride?: string
+            queryOverride?: string,
+            incremental?: DataWarehouseSavedQueryIncremental
         ) => ({
             name,
             materializeAfterSave,
@@ -1294,6 +1306,7 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
             folderId,
             isTest,
             queryOverride,
+            incremental,
         }),
         saveAsInsight: true,
         saveAsInsightSubmit: (name: string, queryOverride?: string) => ({
@@ -2125,6 +2138,20 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                     current: candidates.queries[candidates.initialIndex],
                 }
 
+                // Checked once as the dialog opens rather than on every keystroke: it only depends
+                // on the SQL being saved, which cannot change while the dialog is up. A failure
+                // leaves the incremental fields hidden, so the view saves as a normal full refresh.
+                let incrementalCheck: DataWarehouseSavedQueryIncrementalCheck | null = null
+                if (values.featureFlags[FEATURE_FLAGS.DATA_MODELING_INCREMENTAL_VIEWS]) {
+                    try {
+                        incrementalCheck = await api.dataWarehouseSavedQueries.checkIncremental({
+                            query: selectedRef.current ?? values.queryInput ?? '',
+                        })
+                    } catch {
+                        incrementalCheck = null
+                    }
+                }
+
                 const folderOptions: { value: string | null; label: string }[] = [
                     { value: null, label: 'No folder' },
                     ...values.dataWarehouseSavedQueryFolders.map((folder) => ({
@@ -2166,6 +2193,10 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                         folderId: null,
                         isTest: false,
                         materializeAfterSave,
+                        incrementalEnabled: false,
+                        incrementalKey: incrementalCheck?.key_candidates[0] ?? null,
+                        incrementalUniqueKey: [],
+                        incrementalLookbackSeconds: 0,
                         dagId: multiDagEnabled
                             ? (values.dags.find((d) => d.id === values.selectedDagId)?.id ?? values.dags[0]?.id ?? null)
                             : undefined,
@@ -2269,17 +2300,20 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                                 )}
                                 <LemonField name="materializeAfterSave" className="mt-2">
                                     {({ value, onChange }) => (
-                                        <div className="flex items-center gap-2">
-                                            <LemonCheckbox
-                                                checked={value}
-                                                onChange={onChange}
-                                                data-attr="sql-editor-input-save-view-materialize"
-                                                label="Materialize this view"
-                                            />
-                                            <Tooltip title="Pre-compute the results into a table for faster queries. Syncs daily by default — you can adjust the frequency later in the view's materialization settings.">
-                                                <span className="text-muted cursor-pointer">&#9432;</span>
-                                            </Tooltip>
-                                        </div>
+                                        <>
+                                            <div className="flex items-center gap-2">
+                                                <LemonCheckbox
+                                                    checked={value}
+                                                    onChange={onChange}
+                                                    data-attr="sql-editor-input-save-view-materialize"
+                                                    label="Materialize this view"
+                                                />
+                                                <Tooltip title="Pre-compute the results into a table for faster queries. Syncs daily by default — you can adjust the frequency later in the view's materialization settings.">
+                                                    <span className="text-muted cursor-pointer">&#9432;</span>
+                                                </Tooltip>
+                                            </div>
+                                            {value && <IncrementalConfigFields check={incrementalCheck} />}
+                                        </>
                                     )}
                                 </LemonField>
                                 <SaveTargetCycler
@@ -2293,6 +2327,12 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                     errors: {
                         viewName: validateSavedQueryName,
                         dagId: (dagId) => (multiDagEnabled && !dagId ? 'Please select a DAG' : undefined),
+                        incrementalKey: (key, { incrementalEnabled, materializeAfterSave: materialize }) =>
+                            incrementalEnabled && materialize && !key ? 'Select the incremental column' : undefined,
+                        incrementalUniqueKey: (uniqueKey, { incrementalEnabled, materializeAfterSave: materialize }) =>
+                            incrementalEnabled && materialize && !uniqueKey?.length
+                                ? 'Select at least one unique key column'
+                                : undefined,
                     },
                     onSubmit: async ({
                         viewName,
@@ -2300,7 +2340,20 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                         folderId,
                         isTest,
                         materializeAfterSave: shouldMaterialize,
+                        incrementalEnabled,
+                        incrementalKey,
+                        incrementalUniqueKey,
+                        incrementalLookbackSeconds,
                     }) => {
+                        const incremental =
+                            shouldMaterialize && incrementalEnabled && incrementalKey && incrementalUniqueKey?.length
+                                ? {
+                                      enabled: true,
+                                      incremental_key: incrementalKey,
+                                      unique_key: incrementalUniqueKey,
+                                      lookback_seconds: incrementalLookbackSeconds ?? 0,
+                                  }
+                                : undefined
                         await asyncActions.saveAsViewSubmit(
                             viewName,
                             shouldMaterialize ?? false,
@@ -2308,7 +2361,8 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                             dagId,
                             folderId,
                             isTest ?? false,
-                            selectedRef.current
+                            selectedRef.current,
+                            incremental
                         )
                         if (multiDagEnabled && dagId) {
                             dataModelingLogic.actions.setSelectedDagId(dagId)
@@ -2325,6 +2379,7 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                 folderId,
                 isTest = false,
                 queryOverride,
+                incremental,
             }) => {
                 const biEditorState = getActiveBIEditorState()
                 const query: HogQLQuery = values.sourceQuery.source
@@ -2361,6 +2416,7 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                         ...(folderId ? { folder_id: folderId } : {}),
                         ...(dagId ? { dag_id: dagId } : {}),
                         ...(isTest ? { is_test: true } : {}),
+                        ...(incremental ? { incremental } : {}),
                     })
                     captureBIEditorQuerySaved(biEditorState, 'view', 'create')
 
