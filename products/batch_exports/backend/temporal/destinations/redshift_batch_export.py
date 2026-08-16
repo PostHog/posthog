@@ -648,7 +648,7 @@ class CopyParameters:
 @dataclasses.dataclass
 class ConnectionParameters:
     user: str
-    password: str
+    password: str = dataclasses.field(repr=False)
     host: str
     port: int
     database: str

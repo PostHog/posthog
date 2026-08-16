@@ -95,9 +95,9 @@ class SSHTunnel:
     port: int | str
     auth_type: Literal["password", "keypair"]
     username: str | None
-    password: str | None
-    private_key: str | None
-    passphrase: str | None
+    password: str | None = dataclasses.field(repr=False)
+    private_key: str | None = dataclasses.field(repr=False)
+    passphrase: str | None = dataclasses.field(repr=False)
 
     @classmethod
     def from_config(cls: type[typing.Self], config: SSHTunnelConfig) -> typing.Self:

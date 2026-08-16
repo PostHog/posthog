@@ -1325,7 +1325,7 @@ class BigQueryInsertInputs(BatchExportInsertInputs):
     dataset_id: str
     table_id: str
     project_id: str | None = None
-    private_key: str | None = None
+    private_key: str | None = dataclasses.field(default=None, repr=False)
     private_key_id: str | None = None
     token_uri: str | None = None
     client_email: str | None = None

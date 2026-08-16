@@ -2,7 +2,7 @@ import json
 import types
 import typing
 import datetime as dt
-from dataclasses import Field, asdict, dataclass, fields
+from dataclasses import Field, asdict, dataclass, field, fields
 from uuid import UUID
 
 from django.conf import settings
@@ -289,7 +289,7 @@ class S3BatchExportInputs(BaseBatchExportInputs):
     region: str
     prefix: str
     aws_access_key_id: str | None = None
-    aws_secret_access_key: str | None = None
+    aws_secret_access_key: str | None = field(default=None, repr=False)
     compression: str | None = None
     file_format: str = "JSONLines"
     max_file_size_mb: int | None = None
@@ -312,7 +312,7 @@ class S3FamilyBaseInputs(BaseBatchExportInputs):
     region: str
     prefix: str
     aws_access_key_id: str | None = None
-    aws_secret_access_key: str | None = None
+    aws_secret_access_key: str | None = field(default=None, repr=False)
     compression: str | None = None
     file_format: str = "JSONLines"
     max_file_size_mb: int | None = None
@@ -377,9 +377,9 @@ class SnowflakeBatchExportInputs(BaseBatchExportInputs):
     user: str | None = None
     table_name: str = "events"
     authentication_type: str = "password"
-    password: str | None = None
-    private_key: str | None = None
-    private_key_passphrase: str | None = None
+    password: str | None = field(default=None, repr=False)
+    private_key: str | None = field(default=None, repr=False)
+    private_key_passphrase: str | None = field(default=None, repr=False)
     role: str | None = None
 
 
@@ -394,7 +394,7 @@ class PostgresBatchExportInputs(BaseBatchExportInputs):
     user: str | None = None
     host: str | None = None
     port: int | None = 5432
-    password: str | None = None
+    password: str | None = field(default=None, repr=False)
     has_self_signed_cert: bool = False
 
 
@@ -404,8 +404,8 @@ IAMRole = str
 @dataclass
 class AWSCredentials:
     aws_access_key_id: str
-    aws_secret_access_key: str
-    aws_session_token: str | None = None
+    aws_secret_access_key: str = field(repr=False)
+    aws_session_token: str | None = field(default=None, repr=False)
 
 
 @dataclass
@@ -426,7 +426,7 @@ class RedshiftBatchExportInputs(BaseBatchExportInputs):
     """Inputs for Redshift export workflow."""
 
     user: str
-    password: str
+    password: str = field(repr=False)
     host: str
     database: str
     schema: str = "public"
@@ -479,7 +479,7 @@ class BigQueryBatchExportInputs(BaseBatchExportInputs):
     dataset_id: str
     table_id: str = "events"
     project_id: str | None = None
-    private_key: str | None = None
+    private_key: str | None = field(default=None, repr=False)
     private_key_id: str | None = None
     token_uri: str | None = None
     client_email: str | None = None

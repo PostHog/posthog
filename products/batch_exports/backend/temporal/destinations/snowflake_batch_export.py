@@ -486,9 +486,9 @@ class SnowflakeInsertInputs(BatchExportInsertInputs):
     user: str | None = None
     account: str | None = None
     authentication_type: str = "password"
-    password: str | None = None
-    private_key: str | None = None
-    private_key_passphrase: str | None = None
+    password: str | None = dataclasses.field(default=None, repr=False)
+    private_key: str | None = dataclasses.field(default=None, repr=False)
+    private_key_passphrase: str | None = dataclasses.field(default=None, repr=False)
     role: str | None = None
 
 

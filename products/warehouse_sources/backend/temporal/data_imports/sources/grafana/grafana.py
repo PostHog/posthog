@@ -103,9 +103,9 @@ class GrafanaAuth:
     # Grafana Cloud and self-hosted); "basic" sends HTTP Basic credentials (self-hosted OSS only —
     # Grafana Cloud rejects basic auth on the HTTP API).
     method: str
-    token: Optional[str] = None
+    token: Optional[str] = dataclasses.field(default=None, repr=False)
     username: Optional[str] = None
-    password: Optional[str] = None
+    password: Optional[str] = dataclasses.field(default=None, repr=False)
 
 
 @dataclasses.dataclass

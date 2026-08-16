@@ -2,7 +2,7 @@ import copy
 import hmac
 import hashlib
 from collections.abc import Callable
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, field
 from typing import Any, Literal, Union
 from urllib.parse import quote, urlencode
 
@@ -88,7 +88,7 @@ class ResourceConfig:
 
 @dataclass
 class InstallationCredentials:
-    access_token: str
+    access_token: str = field(repr=False)
     token_type: str
 
 

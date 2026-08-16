@@ -60,9 +60,9 @@ class MetabaseAuth:
     # "api_key" sends a static X-API-Key header; "session" mints a short-lived token via
     # POST /api/session and sends it as X-Metabase-Session (for instances older than v0.47).
     method: str
-    api_key: Optional[str] = None
+    api_key: Optional[str] = dataclasses.field(default=None, repr=False)
     username: Optional[str] = None
-    password: Optional[str] = None
+    password: Optional[str] = dataclasses.field(default=None, repr=False)
 
 
 def normalize_host(host: str) -> str:

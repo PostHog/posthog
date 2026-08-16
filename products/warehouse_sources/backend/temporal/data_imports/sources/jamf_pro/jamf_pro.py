@@ -144,9 +144,9 @@ class JamfProResumeConfig:
 class JamfProCredentials:
     method: Literal["client_credentials", "basic"]
     client_id: str | None = None
-    client_secret: str | None = None
+    client_secret: str | None = dataclasses.field(default=None, repr=False)
     username: str | None = None
-    password: str | None = None
+    password: str | None = dataclasses.field(default=None, repr=False)
 
 
 def normalize_host(host: str) -> str:

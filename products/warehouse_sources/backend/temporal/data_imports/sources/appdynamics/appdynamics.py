@@ -70,9 +70,9 @@ class AppdynamicsAuth:
 
     account_name: str
     api_client_name: Optional[str] = None
-    api_client_secret: Optional[str] = None
+    api_client_secret: Optional[str] = dataclasses.field(default=None, repr=False)
     username: Optional[str] = None
-    password: Optional[str] = None
+    password: Optional[str] = dataclasses.field(default=None, repr=False)
 
     @property
     def uses_oauth(self) -> bool:

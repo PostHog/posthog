@@ -123,9 +123,9 @@ class QualtricsResumeConfig:
 @dataclasses.dataclass
 class QualtricsCredentials:
     method: Literal["api_token", "oauth_client_credentials"]
-    api_token: str | None = None
+    api_token: str | None = dataclasses.field(default=None, repr=False)
     client_id: str | None = None
-    client_secret: str | None = None
+    client_secret: str | None = dataclasses.field(default=None, repr=False)
 
     def secret_values(self) -> tuple[str, ...]:
         return tuple(value for value in (self.api_token, self.client_secret) if value)

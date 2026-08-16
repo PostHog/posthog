@@ -31,7 +31,7 @@ class S3Location:
     bucket: str
     prefix: str = ""
     access_key_id: str | None = None
-    secret_access_key: str | None = None
+    secret_access_key: str | None = field(default=None, repr=False)
     region: str | None = None
     # Custom S3-compatible endpoint (MinIO, SeaweedFS, Cloudflare R2, ...). None uses AWS.
     endpoint_url: str | None = None
@@ -67,7 +67,7 @@ class BootstrapConfig:
 
     project_name: str
     email: str = ""
-    password: str = ""
+    password: str = field(default="", repr=False)
     tables: list[TableImportConfig] = field(default_factory=list)
     batch_size: int = 10_000
 

@@ -1,6 +1,6 @@
 import shlex
 import threading
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import UTC, datetime
 
 from django.conf import settings
@@ -184,8 +184,8 @@ class _LaunchParams:
     actor_user_id: int | None
     agentsh_domains: list[str] | None
     protected_base_branch: str | None
-    event_ingest_token: str | None
-    task_run_session_token: str | None
+    event_ingest_token: str | None = field(repr=False)
+    task_run_session_token: str | None = field(repr=False)
     event_ingest_url: str | None
     event_ingest_keep_stream_open: bool
 

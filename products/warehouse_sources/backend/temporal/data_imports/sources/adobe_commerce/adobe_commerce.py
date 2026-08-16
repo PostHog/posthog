@@ -113,9 +113,9 @@ class AdobeCommerceResumeConfig:
 @dataclasses.dataclass
 class AdobeCommerceCredentials:
     method: Literal["access_token", "admin"]
-    access_token: str | None = None
+    access_token: str | None = dataclasses.field(default=None, repr=False)
     username: str | None = None
-    password: str | None = None
+    password: str | None = dataclasses.field(default=None, repr=False)
 
     def secret_values(self) -> tuple[str, ...]:
         return tuple(v for v in (self.access_token, self.password) if v)

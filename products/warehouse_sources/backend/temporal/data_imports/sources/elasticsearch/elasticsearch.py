@@ -37,8 +37,8 @@ class ElasticsearchRetryableError(Exception):
 @dataclasses.dataclass
 class ElasticsearchAuth:
     username: Optional[str] = None
-    password: Optional[str] = None
-    api_key: Optional[str] = None
+    password: Optional[str] = dataclasses.field(default=None, repr=False)
+    api_key: Optional[str] = dataclasses.field(default=None, repr=False)
 
 
 def normalize_host(host: str) -> str:
