@@ -185,16 +185,19 @@ pub fn match_property(
 
     // first match operators that don't require a value
     match operator {
-        OperatorType::IsSet => return Ok(matching_property_values.contains_key(key)),
+        // Explicit JSON null counts as unset, matching HogQL / cohort filter semantics (#29916).
+        OperatorType::IsSet => {
+            return Ok(matches!(match_value, Some(value) if !value.is_null()));
+        }
         OperatorType::IsNotSet => {
             return if partial_props {
-                if matching_property_values.contains_key(key) {
-                    Ok(false)
-                } else {
-                    Err(FlagMatchingError::InconclusiveOperatorMatch)
+                match match_value {
+                    Some(value) if value.is_null() => Ok(true),
+                    Some(_) => Ok(false),
+                    None => Err(FlagMatchingError::InconclusiveOperatorMatch),
                 }
             } else {
-                Ok(!matching_property_values.contains_key(key))
+                Ok(match_value.map_or(true, |value| value.is_null()))
             }
         }
         _ => {}
@@ -1125,7 +1128,7 @@ mod test_match_properties {
         )
         .expect("expected match to exist"));
 
-        assert!(match_property(
+        assert!(!match_property(
             &property_a,
             &HashMap::from([("key".to_string(), json!(null))]),
             true
@@ -2016,7 +2019,7 @@ mod test_match_properties {
             extra: Default::default(),
         };
 
-        assert!(match_property(
+        assert!(!match_property(
             &property_b,
             &HashMap::from([("key".to_string(), json!(null))]),
             true

@@ -318,11 +318,13 @@ def _materialized_head_expr(
 
     if source.kind == "property_group":
         # has(map, key) ? map[key] : null — guard the map read so a missing key returns NULL, not the map's '' default.
+        # JSONExtractKeysAndValues(..., 'String') stores JSON null as '', so scrub '' → NULL. Leave the literal
+        # string "null" intact so is_set matches HogQL JSON semantics (string "null" is set; JSON null is not).
         has_field = _synthetic_column_field(field_type, source.column, is_nullable=True)
         get_field = _synthetic_column_field(field_type, source.column, is_nullable=True)
         if has_field is None or get_field is None:
             return None
-        return ast.Call(
+        raw = ast.Call(
             name="if",
             args=[
                 ast.Call(name="has", args=[has_field, ast.Constant(value=first_key)]),
@@ -330,6 +332,7 @@ def _materialized_head_expr(
                 ast.Constant(value=None),
             ],
         )
+        return ast.Call(name="nullIf", args=[raw, _sentinel("")])
 
     column_field = _synthetic_column_field(field_type, source.column, is_nullable=source.is_nullable)
     if column_field is None:
@@ -898,8 +901,8 @@ class ClickHousePropertyResolver(CloningVisitor):
         if optimized_json_has is not None:
             return optimized_json_has
 
-        # `isNull` / `isNotNull` / `JSONHas` on a property-group property can be answered by `has(map, key)` alone,
-        # without reading the values subcolumn — so it stays eligible for the keys bloom-filter index.
+        # `isNull` / `isNotNull` / `JSONHas` on a property-group property can usually be answered from the map.
+        # For is-set / is-not-set we also inspect the value: JSON null is stored as '' in Map(String, String).
         optimized = self._optimize_property_group_call(node)
         if optimized is not None:
             return optimized
@@ -1232,8 +1235,11 @@ class ClickHousePropertyResolver(CloningVisitor):
             prop = self._property_group_property(node.args[0])
             if prop is None:
                 return None
-            has_expr = prop.group_has()
-            return _call("not", [has_expr]) if node.name == "isNull" else has_expr
+            # JSON null is stored as '' in Map(String, String) property groups. Key presence alone is not enough:
+            # is_set requires a non-empty value; is_not_set includes missing keys and empty (JSON-null) values.
+            value_is_empty = _call("equals", [prop.group_value(), _sentinel("")])
+            is_not_set = _call("or", [_call("not", [prop.group_has()]), value_is_empty])
+            return is_not_set if node.name == "isNull" else _call("not", [is_not_set])
 
         if node.name == "JSONHas" and len(node.args) == 2 and isinstance(node.args[1], ast.Constant):
             # JSONHas(blob, key): the key is the literal second arg, and the first arg is the blob Field. Resolve the
@@ -1281,8 +1287,8 @@ class ClickHousePropertyResolver(CloningVisitor):
         value = constant_expr.value
         if node.op == ast.CompareOperationOp.Eq:
             if value is None:
-                # `= NULL` means the key is absent: not(has(map, key)). Avoids reading the values subcolumn.
-                return _call("not", [prop.group_has()])
+                # is_not_set: missing key OR empty map value (JSON null is stored as '').
+                return _call("or", [_call("not", [prop.group_has()]), _call("equals", [prop.group_value(), _sentinel("")])])
             if value is True:
                 # Booleans are stored as the strings 'true'/'false' in the group map; compare against those so the
                 # comparison stays index-eligible.
@@ -1299,8 +1305,11 @@ class ClickHousePropertyResolver(CloningVisitor):
 
         # NotEq
         if value is None:
-            # `!= NULL` means the key is present: has(map, key). Uses the keys index, skips the values subcolumn.
-            return prop.group_has()
+            # is_set: key present with a non-empty value. JSON null → '' must not count as set (#29916).
+            return _call(
+                "and",
+                [prop.group_has(), _call("notEquals", [prop.group_value(), _sentinel("")])],
+            )
         return None
 
     def _optimize_property_group_in(self, node: ast.CompareOperation) -> ast.Expr | None:
