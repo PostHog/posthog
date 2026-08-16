@@ -50,14 +50,14 @@ PUSH_SUBSCRIPTION_DISCARD_COUNTER = Counter(
 
 logger = structlog.get_logger(__name__)
 
-# Discarding a registration is this endpoint's normal case: a device re-posts on every app open, and
-# almost no project has a push integration, so the discard runs a few thousand times a minute. The
-# counter above carries that volume. The log line exists to name the project behind it, which is the
-# same team and app_id every time, so emitting it per request buys nothing and costs millions of Loki
-# lines a day. One line per team per window keeps the identification and drops the repetition.
+# Discarding a registration is this endpoint's normal case: a device registers on app open whether or
+# not its project has a push integration, and most don't. The counter above carries that volume. The
+# log line exists to name the project behind it, and that is the same team and app_id every time, so
+# emitting it per request restates one fact indefinitely. One line per team per window keeps the
+# identification and drops the repetition.
 _DISCARD_LOG_WINDOW_SECONDS = 60
 
-# The same volume runs _find_integrations, a JSONB filter, on every request. Cache the team's
+# That same path runs _find_integrations, a JSONB filter, on every request. Cache the team's
 # configured app_ids so a registration for an app_id the team has never configured — the common case
 # — answers from cache instead. Keyed on the team alone: the value is a small bounded list, whereas
 # keying on the request's app_id would let one public project token mint unbounded entries.

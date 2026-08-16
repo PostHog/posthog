@@ -303,8 +303,8 @@ class TestPushSubscriptionsAPI(BaseTest):
     @patch("products.messaging.backend.api.push_subscriptions.capture_internal")
     def test_discard_is_logged_once_per_window_and_counted_every_time(self, mock_capture: MagicMock):
         # The log names the project behind the discards, so it has to survive. It also has to stay
-        # bounded: discarding is this endpoint's most common request, so a line per discard is
-        # millions of Loki lines a day restating one fact. The counter carries the volume.
+        # bounded: discarding is this endpoint's most common request, so a line per discard restates
+        # one fact indefinitely. The counter carries the volume.
         counter = PUSH_SUBSCRIPTION_DISCARD_COUNTER.labels(reason="no_integration")
         before = counter._value.get()
         payload = {
