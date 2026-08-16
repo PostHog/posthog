@@ -95,6 +95,10 @@
                                     "maxItems": 32,
                                     "type": "array"
                                 },
+                                "agentRequests": {
+                                    "default": false,
+                                    "type": "boolean"
+                                },
                                 "captureEvents": {
                                     "items": {
                                         "maxLength": 200,
