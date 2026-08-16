@@ -65,16 +65,11 @@ def _is_secret_name(name: str) -> bool:
 
 
 def _hides_repr(value: ast.expr | None) -> bool:
-    """True when the field default is a field(...) call carrying repr=False, or a sensitive() call."""
+    """True when the field default is a field(...) call carrying repr=False."""
     if not isinstance(value, ast.Call):
         return False
     dotted = _dotted_name(value.func)
-    if dotted is None:
-        return False
-    # sensitive() from posthog.dataclasses sets repr=False itself
-    if dotted == "sensitive" or dotted.endswith(".sensitive"):
-        return True
-    if dotted != "field" and not dotted.endswith(".field"):
+    if dotted is None or (dotted != "field" and not dotted.endswith(".field")):
         return False
     return any(
         kw.arg == "repr" and isinstance(kw.value, ast.Constant) and kw.value.value is False for kw in value.keywords
