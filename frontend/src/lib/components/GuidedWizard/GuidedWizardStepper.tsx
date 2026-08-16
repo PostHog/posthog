@@ -16,6 +16,8 @@ export interface GuidedWizardStepperProps<Step extends string> {
     currentStep: Step
     onStepClick?: (step: Step) => void
     stepErrors?: Partial<Record<Step, string[]>>
+    /** Steps that stay in the sequence for consistent numbering but can't be navigated to, keyed to the reason why. */
+    disabledSteps?: Partial<Record<Step, string>>
     className?: string
     'aria-label'?: string
 }
@@ -25,6 +27,7 @@ export function GuidedWizardStepper<Step extends string>({
     currentStep,
     onStepClick,
     stepErrors = {},
+    disabledSteps = {},
     className,
     'aria-label': ariaLabel = 'Wizard progress',
 }: GuidedWizardStepperProps<Step>): JSX.Element {
@@ -47,12 +50,15 @@ export function GuidedWizardStepper<Step extends string>({
                 const isCurrent = currentStep === step.step
                 const hasErrors = (stepErrors[step.step]?.length ?? 0) > 0
                 const isBlocked = currentStepHasErrors && index > currentOrder
+                const disabledReason = disabledSteps[step.step]
 
                 const button = (
                     <button
                         type="button"
-                        onClick={() => handleStepClick(step.step, index)}
+                        onClick={() => !disabledReason && handleStepClick(step.step, index)}
+                        // aria-disabled instead of disabled so the tooltip explaining why still shows on hover
                         disabled={isBlocked}
+                        aria-disabled={isBlocked || !!disabledReason}
                         data-attr={step.dataAttr}
                         className={cn(
                             'group flex items-center gap-1.5 px-2 py-1 rounded',
@@ -60,7 +66,9 @@ export function GuidedWizardStepper<Step extends string>({
                             'focus:outline-none focus-visible:ring-1 focus-visible:ring-accent',
                             isBlocked
                                 ? 'opacity-50 cursor-not-allowed'
-                                : 'hover:bg-fill-button-tertiary-hover active:scale-[0.98]'
+                                : disabledReason
+                                  ? 'opacity-50 cursor-default'
+                                  : 'hover:bg-fill-button-tertiary-hover active:scale-[0.98]'
                         )}
                         aria-current={isCurrent ? 'step' : undefined}
                     >
@@ -121,7 +129,13 @@ export function GuidedWizardStepper<Step extends string>({
                         )}
 
                         {/* Step */}
-                        {isBlocked ? <Tooltip title="Fix errors before proceeding">{button}</Tooltip> : button}
+                        {isBlocked ? (
+                            <Tooltip title="Fix errors before proceeding">{button}</Tooltip>
+                        ) : disabledReason ? (
+                            <Tooltip title={disabledReason}>{button}</Tooltip>
+                        ) : (
+                            button
+                        )}
                     </div>
                 )
             })}

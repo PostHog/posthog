@@ -1,3 +1,4 @@
+import time
 from typing import Any
 
 from django.db import IntegrityError, transaction
@@ -14,9 +15,14 @@ from products.replay_vision.backend.enqueue_claims import release_enqueue_claim
 from products.replay_vision.backend.models.replay_observation import ObservationStatus, ReplayObservation
 from products.replay_vision.backend.models.replay_scanner import ReplayScanner
 from products.replay_vision.backend.models.replay_scanner_backfill import BackfillStatus, ReplayScannerBackfill
-from products.replay_vision.backend.quota import quota_state
+from products.replay_vision.backend.quota import compute_scanner_budget, current_period_bounds, quota_state
 from products.replay_vision.backend.temporal.decorators import track_activity
-from products.replay_vision.backend.temporal.metrics import record_consent_skip, record_quota_exhausted_skip
+from products.replay_vision.backend.temporal.metrics import (
+    record_consent_skip,
+    record_quota_exhausted_skip,
+    record_scanner_admission_lock_wait,
+    record_scanner_limit_reached,
+)
 from products.replay_vision.backend.temporal.snapshots import BackfillScannerSnapshot, ScannerSnapshot
 from products.replay_vision.backend.temporal.types import CreateObservationInputs, CreateObservationOutput
 
@@ -39,6 +45,39 @@ def create_observation_activity(inputs: CreateObservationInputs) -> CreateObserv
             workflow_id=inputs.workflow_id,
             backfill_id=inputs.backfill_id,
         )
+
+
+def _reclaim_own_pending_insert(inputs: CreateObservationInputs) -> CreateObservationOutput | None:
+    """A still-PENDING row stamped with our own workflow id is our earlier lost-result insert."""
+    existing = ReplayObservation.objects.filter(scanner_id=inputs.scanner_id, session_id=inputs.session_id).first()
+    if existing is None or existing.workflow_id != inputs.workflow_id or existing.status != ObservationStatus.PENDING:
+        return None
+    # Route through the validator so a malformed legacy snapshot surfaces as a tagged non-retryable error.
+    existing_snapshot = ScannerSnapshot.load_for(existing.id, existing.scanner_snapshot)
+    return CreateObservationOutput(
+        observation_id=existing.id,
+        was_created=True,
+        scanner_type=existing_snapshot.scanner_type,
+    )
+
+
+def _retake_failed_row(inputs: CreateObservationInputs, row_fields: dict[str, Any]) -> CreateObservationOutput | None:
+    """Retake the session's FAILED row for a backfill, so the failed scan re-runs.
+
+    Filtered on FAILED so a concurrent success wins and this no-ops."""
+    retaken = ReplayObservation.objects.filter(
+        scanner_id=inputs.scanner_id, session_id=inputs.session_id, status=ObservationStatus.FAILED
+    ).update(**row_fields)
+    if not retaken:
+        return None
+    existing = ReplayObservation.objects.get(scanner_id=inputs.scanner_id, session_id=inputs.session_id)
+    # Route through the validator so a malformed snapshot surfaces as a tagged non-retryable error.
+    existing_snapshot = ScannerSnapshot.load_for(existing.id, existing.scanner_snapshot)
+    return CreateObservationOutput(
+        observation_id=existing.id,
+        was_created=True,
+        scanner_type=existing_snapshot.scanner_type,
+    )
 
 
 def _create_observation(inputs: CreateObservationInputs) -> CreateObservationOutput:
@@ -127,8 +166,56 @@ def _create_observation(inputs: CreateObservationInputs) -> CreateObservationOut
         "backfill": backfill,
     }
 
+    # Resolved before the lock to shrink the in-lock window; the period is stable for the admission decision.
+    period = current_period_bounds(scanner.team.organization_id) if scanner.credit_limit is not None else None
     try:
         with transaction.atomic():
+            # Capped scanners serialize admissions on the row lock so concurrent applies cannot overshoot
+            # the cap; uncapped scanners keep the lock-free path. The limit is re-read under the lock.
+            if scanner.credit_limit is not None:
+                lock_started = time.monotonic()
+                locked = (
+                    ReplayScanner.objects.select_for_update().filter(pk=scanner.pk).only("pk", "credit_limit").first()
+                )
+                # Admissions on a busy capped scanner serialize here; the wait is visible, not guessed at.
+                record_scanner_admission_lock_wait(time.monotonic() - lock_started)
+                if locked is not None and locked.credit_limit is not None:
+                    scanner_budget = compute_scanner_budget(scanner, period)
+                    # Priced from `priced_model` (the frozen snapshot model for backfills), matching
+                    # what the observation will actually charge, not the scanner's current model.
+                    if scanner_budget.would_exceed(observation_credits_for_model(priced_model)):
+                        # A retry's own first insert counts as in-flight spend, so reclaim it instead of
+                        # stranding it PENDING. Only the own-reclaim case returns here; any other existing
+                        # row (including a retakeable FAILED one, which would spend fresh budget) falls
+                        # through to the capped skip.
+                        reclaimed_output = _reclaim_own_pending_insert(inputs)
+                        if reclaimed_output is not None:
+                            return reclaimed_output
+                        record_scanner_limit_reached("admission")
+                        activity.logger.info(
+                            "Skipping observation: scanner credit limit reached",
+                            extra={
+                                "scanner_id": str(inputs.scanner_id),
+                                "team_id": inputs.team_id,
+                                "session_id": inputs.session_id,
+                                "credit_limit": scanner_budget.credit_limit,
+                                "credits_used": scanner_budget.credits_used,
+                            },
+                        )
+                        return CreateObservationOutput(
+                            observation_id=None,
+                            was_created=False,
+                            scanner_type=scanner.scanner_type,
+                        )
+                    # A retake spends fresh budget, so on a capped scanner it must commit under this
+                    # lock. It cannot wait for the IntegrityError handler: the conflict aborts the
+                    # transaction, so the handler's retake would run unlocked and a concurrent
+                    # sibling's budget read could miss its in-flight spend, overshooting the cap.
+                    if backfill is not None:
+                        retaken_output = _retake_failed_row(inputs, row_fields)
+                        if retaken_output is not None:
+                            return retaken_output
+
             observation = ReplayObservation.objects.create(
                 scanner=scanner,
                 team=scanner.team,
@@ -149,7 +236,8 @@ def _create_observation(inputs: CreateObservationInputs) -> CreateObservationOut
         # Route through the validator so a malformed legacy snapshot surfaces as a tagged non-retryable error.
         existing_snapshot = ScannerSnapshot.load_for(existing.id, existing.scanner_snapshot)
         # A backfill quotes sessions whose earlier scan failed, so retake that row rather than report progress
-        # for a scan that never re-runs. Filtered on FAILED so a concurrent success wins and this no-ops.
+        # for a scan that never re-runs. Capped scanners retake under the admission lock before the insert;
+        # this unlocked path serves uncapped scanners, which tolerate no lock on admission either.
         retaken = bool(
             backfill is not None
             and existing.status == ObservationStatus.FAILED

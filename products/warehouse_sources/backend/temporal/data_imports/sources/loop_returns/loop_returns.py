@@ -34,6 +34,12 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.loop_retur
 
 logger = logging.getLogger(__name__)
 
+# Loop versions its API by date in the URL path (`/api/2026-07/...`). `v1` is a legacy
+# convenience alias for the `2026-07` GA release, kept for backward compatibility and being
+# phased out; new integrations pin the explicit date version.
+API_VERSION_V1 = "v1"
+API_VERSION_2026_07 = "2026-07"
+
 API_HOST = "https://api.loopreturns.com"
 AUTH_HEADER = "X-Authorization"
 PROBE_TIMEOUT_SECONDS = 30

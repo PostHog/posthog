@@ -64,6 +64,30 @@ describe('GuidedWizardStepper', () => {
         expect(await screen.findByText('Something is wrong')).toBeInTheDocument()
     })
 
+    it('ignores clicks on a disabled step and explains why in a tooltip', async () => {
+        const onStepClick = jest.fn()
+        render(
+            <GuidedWizardStepper
+                steps={STEPS}
+                currentStep="second"
+                onStepClick={onStepClick}
+                disabledSteps={{ first: 'This step is locked' }}
+            />
+        )
+
+        const disabledButton = screen.getByText('First').closest('button')!
+        expect(disabledButton).toHaveAttribute('aria-disabled', 'true')
+        fireEvent.click(disabledButton)
+        expect(onStepClick).not.toHaveBeenCalled()
+
+        // aria-disabled (not disabled) keeps the button hoverable so the tooltip can explain the lock
+        fireEvent.pointerEnter(disabledButton, { pointerType: 'mouse' })
+        fireEvent.mouseEnter(disabledButton)
+        fireEvent.pointerMove(disabledButton, { pointerType: 'mouse' })
+        fireEvent.mouseMove(disabledButton)
+        expect(await screen.findByText('This step is locked')).toBeInTheDocument()
+    })
+
     it('blocks forward navigation but allows going back when the current step has errors', () => {
         const onStepClick = jest.fn()
         render(

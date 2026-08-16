@@ -14,6 +14,8 @@ compatibility: >
 allowed_tools:
   - emit_report
   - edit_report
+scout-tags:
+  - ai-observability
 metadata:
   owner_team: signals
   scope: llm_analytics
@@ -71,7 +73,7 @@ The lenses below are the surfaces worth watching. **Do not run all of them every
 When a lens flags something, don't report the top-line number — localize and sample:
 
 - **Localize.** Slice the contributing `$ai_generation` / `$ai_trace` events by a dimension (model, `$ai_span_name`, tool, user, `ai_product`, a custom dim) to show _which_ slice drove the move — that's the difference between "cost is up" and a reportable finding.
-- **Sample.** Pull one or two representative traces via `query-llm-trace` (or a failing generation sampled from the raw `$ai_evaluation` rows) and cite concrete trace / generation / evaluation IDs in the evidence. `llma-evaluation-summary-create` groups failures into patterns with example IDs when it's available, but it's billed and can 500 — don't depend on it.
+- **Sample.** Pull one or two representative traces via `query-llm-trace` (or a failing generation sampled from the raw `$ai_evaluation` rows) and cite concrete trace / generation / evaluation IDs in the evidence. `llma-evaluation-summary-create` groups failures into patterns with example IDs when it's available, but it's billed and can 500 — don't depend on it. A trace you cite links to `/ai-observability/traces/<trace_id>`: use the `_posthogUrl` on the query result. If you only have an id from raw SQL, call `query-llm-trace` with that id and the relevant date range, then use its `_posthogUrl`; if the trace cannot be fetched, cite the bare id. Never build the link by serializing the trace query into `/insights/new#q=…`, which opens an empty insight because `TraceQuery` isn't an insight source.
 - **Group as a pattern** when a trend spans many traces: describe the shared shape (same model + same span, same tool error, same prompt version) rather than listing rows.
 
 ### Save memory as you go

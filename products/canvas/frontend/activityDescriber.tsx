@@ -117,6 +117,21 @@ export function canvasActivityDescriber(logItem: ActivityLogItem, asNotification
         }
     }
 
+    if (logItem.activity === 'drafted') {
+        const capabilitiesChange = (logItem.detail.changes || []).find((change) => change.field === 'capabilities')
+        const parts = capabilitiesChange ? describeCapabilitiesChange(capabilitiesChange) : []
+        return {
+            description: (
+                <>
+                    {actor} drafted a new version of canvas {canvasName}
+                    {parts.length === 1 ? <> that</> : null}
+                    {parts.length > 1 ? <> that changes its declared capabilities:</> : null}
+                    {parts.length > 0 ? inlineOrList(parts) : null}
+                </>
+            ),
+        }
+    }
+
     if (logItem.activity === 'reverted') {
         return {
             description: (
