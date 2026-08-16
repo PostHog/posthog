@@ -768,7 +768,7 @@ class TestUserAccessControlProperties(BaseAccessControlPropertyTest):
 
         uac = self._fresh_uac()
         allowlisted = uac.allowlisted_resource_ids_by_scope.get(resource)
-        blocked = uac.blocked_resource_ids_by_scope.get(resource, set())
+        blocked = uac.blocked_resource_ids_by_scope.get(resource, frozenset())
         model_has_creator = model_has_created_by(model_cls)
 
         def guard_admits(object_id: str) -> bool:
