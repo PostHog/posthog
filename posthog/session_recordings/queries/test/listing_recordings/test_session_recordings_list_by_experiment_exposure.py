@@ -1,5 +1,6 @@
 import json
 from datetime import UTC, datetime, timedelta
+from typing import cast
 
 from freezegun import freeze_time
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, flush_persons_and_events
@@ -10,8 +11,12 @@ from rest_framework.exceptions import PermissionDenied, ValidationError
 
 from posthog.schema import RecordingsQuery
 
+from posthog.hogql.constants import HogQLGlobalSettings
+
 from posthog.clickhouse.client import sync_execute
 from posthog.constants import AvailableFeature
+from posthog.exceptions import ClickHouseClusterMemoryLimitExceeded, ClickHouseQueryMemoryLimitExceeded
+from posthog.hogql_queries.insights.paginators import HogQLCursorPaginator
 from posthog.models import User
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.team.extensions import get_or_create_team_extension
@@ -30,10 +35,16 @@ from posthog.session_recordings.session_recording_api import list_recordings_fro
 from posthog.session_recordings.sql.session_replay_event_sql import TRUNCATE_SESSION_REPLAY_EVENTS_TABLE_SQL
 from posthog.test.persons import add_distinct_id, create_person
 
+# The facade's transitive pydantic.v1 import must happen at module scope, outside the class's
+# frozen time: freezegun's FakeDate breaks pydantic.v1's metaclass construction, and the
+# runner otherwise defers this import to the first test that resolves a linkage.
+import products.experiments.backend.facade.replay  # noqa: F401
 from products.analytics_platform.backend.lazy_computation.lazy_computation_executor import LazyComputationResult
+from products.cohorts.backend.models.cohort import Cohort
 from products.experiments.backend.hogql_queries.experiment_exposure_query_builder import ExposureQueryBuilder
 from products.experiments.backend.models.experiment import Experiment
 from products.experiments.backend.models.team_experiments_config import TeamExperimentsConfig
+from products.experiments.backend.replay_linkage import ACTIVATION_LIVE_SCAN_MAX_MEMORY_BYTES
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 
 from ee.models.rbac.access_control import AccessControl
@@ -579,6 +590,74 @@ class TestSessionRecordingsListByExperimentExposure(ClickhouseTestMixin, APIBase
                 ["session-after-activation"],
             )
         ensure_mock.assert_not_called()
+
+    def test_activation_mode_with_uncalculated_cohort_asks_to_retry(self) -> None:
+        # An uncalculated cohort's membership rows are only partially inserted, so a live
+        # activation scan filtered by it would silently undercount the exposed population;
+        # the linkage must refuse with the retryable cohort error instead.
+        self._enable_precomputation()
+        cohort = Cohort.objects.create(team=self.team, name="mid first calculation", is_static=False)
+        experiment = self._create_experiment(
+            exposure_criteria={
+                "activation_config": {
+                    "kind": "ExperimentEventExposureConfig",
+                    "event": "task_completed",
+                    "properties": [{"key": "id", "type": "cohort", "value": cohort.pk}],
+                }
+            }
+        )
+
+        with self.assertRaises(ValidationError) as error_context:
+            filter_recordings_by(
+                team=self.team,
+                recordings_filter={"experiment_exposure": {"experiment_id": experiment.id}},
+                user=self.user,
+            )
+        self.assertIn("hasn't finished calculating", str(error_context.exception.detail))
+
+    def test_activation_live_scan_runs_memory_bounded_and_refuses_over_budget(self) -> None:
+        # Precomputing teams get no unbounded live path: the listing query must carry the
+        # activation budget's memory ceiling, and a scan killed by it must render the
+        # budget's refusal rather than a raw ClickHouse memory error.
+        self._enable_precomputation()
+        experiment = self._create_experiment(
+            exposure_criteria={
+                "activation_config": {
+                    "kind": "ExperimentEventExposureConfig",
+                    "event": "task_completed",
+                    "properties": [],
+                }
+            }
+        )
+
+        executed_settings: list[HogQLGlobalSettings] = []
+
+        def record_settings_and_hit_the_ceiling(*args: object, **kwargs: object) -> None:
+            executed_settings.append(cast(HogQLGlobalSettings, kwargs["settings"]))
+            raise ClickHouseQueryMemoryLimitExceeded()
+
+        with patch.object(HogQLCursorPaginator, "execute_hogql_query", side_effect=record_settings_and_hit_the_ceiling):
+            with self.assertRaises(ValidationError) as error_context:
+                filter_recordings_by(
+                    team=self.team,
+                    recordings_filter={"experiment_exposure": {"experiment_id": experiment.id}},
+                    user=self.user,
+                )
+        self.assertEqual(executed_settings[0].max_memory_usage, ACTIVATION_LIVE_SCAN_MAX_MEMORY_BYTES)
+
+        # Cluster-wide memory pressure is transient and not this query's fault; translating it
+        # into the budget's permanent-sounding refusal would tell users to stop retrying a
+        # request that would succeed in minutes.
+        with patch.object(
+            HogQLCursorPaginator, "execute_hogql_query", side_effect=ClickHouseClusterMemoryLimitExceeded()
+        ):
+            with self.assertRaises(ClickHouseClusterMemoryLimitExceeded):
+                filter_recordings_by(
+                    team=self.team,
+                    recordings_filter={"experiment_exposure": {"experiment_id": experiment.id}},
+                    user=self.user,
+                )
+        self.assertIn("too much exposure data", str(error_context.exception.detail))
 
     def test_young_experiments_scan_live_even_on_precomputing_teams(self) -> None:
         # Started 6 hours before the frozen now, under the 12-hour precompute minimum. The

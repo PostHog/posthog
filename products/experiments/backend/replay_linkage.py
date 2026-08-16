@@ -24,9 +24,9 @@ The exposure scan window is deliberately the full experiment window, unbounded. 
 would change who counts as exposed relative to the analysis. The expensive cases are handled
 instead: precomputing teams read the preaggregated table (converging in TTL-capped chunks for
 long-running experiments), activation-mode exposures always resolve with a live scan because
-they have no preaggregated form, and where neither the preaggregated read nor an affordable
-live scan is available the query is refused with a ValidationError rather than left to time
-out.
+they have no preaggregated form (carrying an explicit memory budget on precomputing teams),
+and where neither the preaggregated read nor an affordable live scan is available the query
+is refused with a ValidationError rather than left to time out.
 """
 
 from dataclasses import dataclass
@@ -77,6 +77,15 @@ COHORT_NOT_CALCULATED_MESSAGE = (
     "This experiment's exposure criteria reference a cohort that hasn't finished calculating. "
     "Try again when the cohort is ready."
 )
+LIVE_SCAN_OVER_BUDGET_MESSAGE = (
+    "This experiment has too much exposure data to resolve while loading recordings. "
+    "Contact support if you need recordings for this experiment."
+)
+
+# Sized an order of magnitude above the peak observed on the largest precompute-enabled team
+# (#83514), so it fires only for a scan far outside anything measured, where hitting the
+# ceiling turns cluster-level memory pressure into the budget's refusal instead.
+ACTIVATION_LIVE_SCAN_MAX_MEMORY_BYTES = 4 * 1024**3
 
 
 def validate_experiment_exposure_access(
@@ -114,6 +123,21 @@ def validate_experiment_exposure_access(
 
 
 @dataclass(frozen=True, kw_only=True)
+class LiveScanBudget:
+    """Resource ceiling for the query embedding a live exposure scan, with the refusal to
+    render when the ceiling is hit.
+
+    Set when the scan runs on a team where precomputation normally bounds exposure reads, so
+    the synchronous recordings-list run is explicitly bounded instead of relying on cluster
+    defaults. Composition callers that execute the linkage's AST through their own async or
+    batch pipelines run under those pipelines' limits and may ignore the budget.
+    """
+
+    max_memory_bytes: int
+    over_budget_message: str
+
+
+@dataclass(frozen=True, kw_only=True)
 class ExperimentExposureLinkage:
     """A validated experiment-exposure filter, resolved to how its population will be read.
 
@@ -125,6 +149,8 @@ class ExperimentExposureLinkage:
     requested_variants: list[str]
     # Set = read the preaggregated exposures written by these jobs. None = live events scan.
     preaggregation_job_ids: list[str] | None
+    # Ceiling the executing query must apply when the live scan needs explicit bounding.
+    live_scan_budget: LiveScanBudget | None = None
 
 
 def resolve_exposure_linkage(team: Team, *, experiment_id: int, variant: str | None) -> ExperimentExposureLinkage:
@@ -190,17 +216,23 @@ def resolve_exposure_linkage(team: Team, *, experiment_id: int, variant: str | N
         cuped_config=CupedQueryConfig(),
         activation_config=exposure_params.activation_config,
     )
+    read = _resolve_exposure_read(team, experiment, context)
     return ExperimentExposureLinkage(
         context=context,
         requested_variants=requested_variants,
-        preaggregation_job_ids=_resolve_preaggregation_job_ids(team, experiment, context),
+        preaggregation_job_ids=read.preaggregation_job_ids,
+        live_scan_budget=read.live_scan_budget,
     )
 
 
-def _resolve_preaggregation_job_ids(
-    team: Team, experiment: Experiment, context: ExperimentQueryContext
-) -> list[str] | None:
-    """Preaggregation job ids covering the experiment window, or None for a live scan.
+@dataclass(frozen=True, kw_only=True)
+class _ExposureRead:
+    preaggregation_job_ids: list[str] | None
+    live_scan_budget: LiveScanBudget | None
+
+
+def _resolve_exposure_read(team: Team, experiment: Experiment, context: ExperimentQueryContext) -> _ExposureRead:
+    """How the exposed population will be read: preaggregation job ids, or a live scan.
 
     The eligibility gates mirror the exposures-chart runner's, but the fallback posture
     inverts: the analysis can always fall back to a direct scan, because it runs through
@@ -211,7 +243,8 @@ def _resolve_preaggregation_job_ids(
     is refused instead of silently attempting the scan that precomputation exists to
     avoid. Activation mode is the exception: it has no preaggregated form at all, and
     its live scan stays affordable because its memory is bounded by the exposed
-    population, so it scans live rather than being permanently refused.
+    population, so it scans live under an explicit memory budget rather than being
+    permanently refused.
     """
     config = get_or_create_team_extension(team, TeamExperimentsConfig)
     # Below the minimum runtime the analysis skips precomputation too: the scan window is
@@ -221,20 +254,29 @@ def _resolve_preaggregation_job_ids(
         experiment.start_date, experiment.end_date
     ):
         tag_queries(experiment_exposures_path="direct_scan")
-        return None
+        return _ExposureRead(preaggregation_job_ids=None, live_scan_budget=None)
+
+    if has_uncalculated_cohorts(team, experiment.exposure_criteria):
+        # Both reads below see the cohort's partially-inserted membership: a precompute build
+        # would freeze the torn snapshot for the frozen-band TTL, and the activation live scan
+        # would silently undercount. Transient, so the error says to retry.
+        raise ValidationError(COHORT_NOT_CALCULATED_MESSAGE)
 
     if has_activation_config(experiment.exposure_criteria):
         # The flag-to-activation ordering crosses the per-day cache buckets, so activation
         # exposures have no preaggregated form. Their live scan stays affordable even on the
         # largest teams, because it is bounded by the experiment window's activation events
         # and the distinct-id expansion's memory scales with the exposed population, so they
-        # scan live instead of being refused.
+        # scan live instead of being refused. The budget keeps the scan explicitly bounded:
+        # one that outgrows the ceiling is refused instead of pressuring the cluster.
         tag_queries(experiment_exposures_path="direct_scan_activation")
-        return None
-    if has_uncalculated_cohorts(team, experiment.exposure_criteria):
-        # A build during the cohort's first materialization would freeze a torn membership
-        # snapshot for the frozen-band TTL; transient, so the error says to retry.
-        raise ValidationError(COHORT_NOT_CALCULATED_MESSAGE)
+        return _ExposureRead(
+            preaggregation_job_ids=None,
+            live_scan_budget=LiveScanBudget(
+                max_memory_bytes=ACTIVATION_LIVE_SCAN_MAX_MEMORY_BYTES,
+                over_budget_message=LIVE_SCAN_OVER_BUDGET_MESSAGE,
+            ),
+        )
 
     query_string, placeholders = ExposureQueryBuilder(context=context).precomputation_query()
     assert experiment.start_date is not None
@@ -261,7 +303,10 @@ def _resolve_preaggregation_job_ids(
         raise ValidationError(EXPOSURES_STILL_COMPUTING_MESSAGE)
 
     tag_queries(experiment_exposures_path="precomputed")
-    return [str(job_id) for job_id in result.job_ids]
+    return _ExposureRead(
+        preaggregation_job_ids=[str(job_id) for job_id in result.job_ids],
+        live_scan_budget=None,
+    )
 
 
 def exposed_distinct_ids_select(linkage: ExperimentExposureLinkage) -> ast.SelectQuery:

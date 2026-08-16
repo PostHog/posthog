@@ -4,7 +4,7 @@ from typing import TYPE_CHECKING, Any, Literal, Optional, Union, cast
 import structlog
 from dateutil.relativedelta import relativedelta
 from opentelemetry import trace
-from rest_framework.exceptions import PermissionDenied
+from rest_framework.exceptions import PermissionDenied, ValidationError
 
 from posthog.schema import (
     HogQLQueryModifiers,
@@ -19,6 +19,7 @@ from posthog.hogql.constants import HogQLGlobalSettings
 from posthog.hogql.parser import parse_select
 from posthog.hogql.property import property_to_expr
 
+from posthog.exceptions import ClickHouseClusterMemoryLimitExceeded, ClickHouseQueryMemoryLimitExceeded
 from posthog.exceptions_capture import capture_exception
 from posthog.hogql_queries.insights.paginators import HogQLCursorPaginator, HogQLHasMorePaginator
 from posthog.models import Team, User
@@ -227,20 +228,37 @@ class SessionRecordingListFromQuery(SessionRecordingsListingBaseQuery):
         self._resolve_experiment_exposure()
         query = self.get_query()
 
+        settings_args: dict[str, int] = {}
+        if self._max_execution_time is not None:
+            settings_args["max_execution_time"] = self._max_execution_time
+        live_scan_budget = (
+            self._experiment_exposure_linkage.live_scan_budget if self._experiment_exposure_linkage else None
+        )
+        if live_scan_budget is not None:
+            settings_args["max_memory_usage"] = live_scan_budget.max_memory_bytes
+
         with tracer.start_as_current_span("SessionRecordingListFromQuery.paginate"):
-            paginated_response = self._paginator.execute_hogql_query(
-                # TODO I guess the paginator needs to know how to handle union queries or all callers are supposed to collapse them or .... 🤷
-                query=cast(ast.SelectQuery, query),
-                team=self._team,
-                user=self._user,
-                query_type="SessionRecordingListQuery",
-                modifiers=self._hogql_query_modifiers,
-                settings=HogQLGlobalSettings(
-                    **(
-                        {"max_execution_time": self._max_execution_time} if self._max_execution_time is not None else {}
-                    ),
-                ),
-            )
+            try:
+                paginated_response = self._paginator.execute_hogql_query(
+                    # TODO I guess the paginator needs to know how to handle union queries or all callers are supposed to collapse them or .... 🤷
+                    query=cast(ast.SelectQuery, query),
+                    team=self._team,
+                    user=self._user,
+                    query_type="SessionRecordingListQuery",
+                    modifiers=self._hogql_query_modifiers,
+                    settings=HogQLGlobalSettings(**settings_args),
+                )
+            except ClickHouseClusterMemoryLimitExceeded:
+                # Cluster-wide pressure, not this query outgrowing its budget; the transient
+                # error's own retry guidance is the correct rendering.
+                raise
+            except ClickHouseQueryMemoryLimitExceeded:
+                if live_scan_budget is None:
+                    raise
+                # The budget's ceiling was hit, so the linkage's live scan outgrew what this
+                # synchronous endpoint may spend; the raw ClickHouse error would render as an
+                # unactionable 500 here.
+                raise ValidationError(live_scan_budget.over_budget_message)
 
         # After the results are in, check whether the exclusion blocklist hit its row cap,
         # because past the cap the query silently under-excludes. No-op without negated entities, and
