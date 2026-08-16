@@ -1820,6 +1820,7 @@ export const getTreeItemsNew = (): FileSystemImport[] => [
 export type ProductTreePath =
     | 'AI gateway'
     | 'Apps'
+    | 'Autoresearch'
     | 'Business knowledge'
     | 'Clusters'
     | 'Code review'
