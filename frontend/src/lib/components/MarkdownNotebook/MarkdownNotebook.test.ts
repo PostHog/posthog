@@ -4482,11 +4482,11 @@ aXbc
         fireEvent.click(container.querySelector('button[aria-label="Comment on selection"]') as HTMLButtonElement)
 
         const markdown = onChange.mock.calls[onChange.mock.calls.length - 1][0] as string
-        const refId = markdown.match(/<Comment ref="([^"]+)" replies={\[\]} \/>/)?.[1]
+        const refId = markdown.match(/<Comment showFilters ref="([^"]+)" replies={\[\]} \/>/)?.[1]
         expect(refId).toBeTruthy()
         expect(markdown).toEqual(`${TEST_NOTEBOOK_TITLE_MARKDOWN}
 
-<Comment ref="${refId}" replies={[]} />
+<Comment showFilters ref="${refId}" replies={[]} />
 
 Numbers <ref id="${refId}">look</ref> off here`)
     })
@@ -4505,11 +4505,11 @@ Numbers <ref id="${refId}">look</ref> off here`)
         fireEvent.click(container.querySelector('button[aria-label="Comment on selection"]') as HTMLButtonElement)
 
         const markdown = onChange.mock.calls[onChange.mock.calls.length - 1][0] as string
-        const refId = markdown.match(/<Comment ref="([^"]+)" replies={\[\]} \/>/)?.[1]
+        const refId = markdown.match(/<Comment showFilters ref="([^"]+)" replies={\[\]} \/>/)?.[1]
         expect(refId).toBeTruthy()
         expect(markdown).toEqual(`${TEST_NOTEBOOK_TITLE_MARKDOWN}
 
-<Comment ref="${refId}" replies={[]} />
+<Comment showFilters ref="${refId}" replies={[]} />
 
 \`\`\`js ref=${refId}:6-12
 const answer = 42
@@ -4530,11 +4530,11 @@ const answer = 42
         fireEvent.click(container.querySelector('button[aria-label="Comment on selection"]') as HTMLButtonElement)
 
         const markdown = onChange.mock.calls[onChange.mock.calls.length - 1][0] as string
-        const refId = markdown.match(/<Comment ref="([^"]+)" replies={\[\]} \/>/)?.[1]
+        const refId = markdown.match(/<Comment showFilters ref="([^"]+)" replies={\[\]} \/>/)?.[1]
         expect(refId).toBeTruthy()
         expect(markdown).toEqual(`# <ref id="${refId}">Noteb</ref>ook title
 
-<Comment ref="${refId}" replies={[]} />
+<Comment showFilters ref="${refId}" replies={[]} />
 
 Body text`)
     })
@@ -4556,7 +4556,7 @@ Body text`)
 
         expect(onChange).toHaveBeenLastCalledWith(`${TEST_NOTEBOOK_TITLE_MARKDOWN}
 
-<Comment replies={[]} />
+<Comment showFilters replies={[]} />
 
 <Query query={{"kind":"DataTableNode"}} />`)
     })
@@ -4628,11 +4628,11 @@ Body text`)
         fireEvent.click(container.querySelector('button[aria-label="Comment on selection"]') as HTMLButtonElement)
 
         const markdown = onChange.mock.calls[onChange.mock.calls.length - 1][0] as string
-        const refId = markdown.match(/<Comment ref="([^"]+)" replies={\[\]} \/>/)?.[1]
+        const refId = markdown.match(/<Comment showFilters ref="([^"]+)" replies={\[\]} \/>/)?.[1]
         expect(refId).toBeTruthy()
         expect(markdown).toEqual(`${TEST_NOTEBOOK_TITLE_MARKDOWN}
 
-<Comment ref="${refId}" replies={[]} />
+<Comment showFilters ref="${refId}" replies={[]} />
 
 <ref id="${refId}">Intro paragraph</ref>
 
