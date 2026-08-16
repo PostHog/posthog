@@ -529,6 +529,7 @@ export interface experimentLogicValues {
     experimentManualErrors: Record<string, any>
     experimentMathAggregationForTrends: () => CountPerActorMathType | PropertyMathType | undefined
     experimentMissing: boolean
+    experimentLoadError: boolean
     experimentTouched: boolean
     experimentTouches: Record<string, boolean>
     experimentUpdate: Experiment | null
@@ -1070,6 +1071,9 @@ export interface experimentLogicActions {
     setExperimentMissing: () => {
         value: true
     }
+    setExperimentLoadError: () => {
+        value: true
+    }
     setExperimentValue: (
         key: FieldName,
         value: any
@@ -1507,6 +1511,7 @@ export const experimentLogic = kea<experimentLogicType>([
     })),
     actions({
         setExperimentMissing: true,
+        setExperimentLoadError: true,
         setExperiment: (experiment: Partial<Experiment>) => ({ experiment }),
         createExperiment: (draft?: boolean, folder?: string | null) => ({ draft, folder }),
         setCreateExperimentLoading: (loading: boolean) => ({ loading }),
@@ -2073,7 +2078,17 @@ export const experimentLogic = kea<experimentLogicType>([
         experimentMissing: [
             false,
             {
+                // The latch must never outlive the request that set it: every fresh load clears it,
+                // so a stale 404 from an earlier background refresh cannot keep blanking the scene.
+                loadExperiment: () => false,
                 setExperimentMissing: () => true,
+            },
+        ],
+        experimentLoadError: [
+            false,
+            {
+                loadExperiment: () => false,
+                setExperimentLoadError: () => true,
             },
         ],
         unmodifiedExperiment: [
@@ -3671,7 +3686,6 @@ export const experimentLogic = kea<experimentLogicType>([
     loaders(({ actions, values, cache }) => ({
         experiment: {
             loadExperiment: async (payload?: { triggeredBy?: ExperimentTriggeredBy }) => {
-                void payload?.triggeredBy
                 if (values.experimentId && values.experimentId !== 'new') {
                     try {
                         let response: Experiment = await api.get(
@@ -3708,10 +3722,20 @@ export const experimentLogic = kea<experimentLogicType>([
                         return responseWithMetricsOrdering
                     } catch (error: any) {
                         if (error.status === 404) {
-                            actions.setExperimentMissing()
-                        } else {
-                            throw error
+                            // A 404 on the user's own page load means the experiment does not exist:
+                            // show the full NotFound scene. A 404 from a background refresh of an
+                            // experiment already on screen is spurious — keep the loaded data and
+                            // surface a retryable inline error rather than blanking the scene.
+                            const isPageLoad = payload?.triggeredBy === 'page_load'
+                            const alreadyLoaded = typeof values.experiment?.id === 'number'
+                            if (isPageLoad && !alreadyLoaded) {
+                                actions.setExperimentMissing()
+                                return NEW_EXPERIMENT
+                            }
+                            actions.setExperimentLoadError()
+                            return values.experiment
                         }
+                        throw error
                     }
                 }
                 return NEW_EXPERIMENT

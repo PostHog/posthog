@@ -35,7 +35,10 @@ export function ReleaseConditionsModal(): JSX.Element {
                     </LemonButton>
                     <LemonButton
                         onClick={async () => {
-                            await saveSidebarExperimentFeatureFlag(featureFlag)
+                            await saveSidebarExperimentFeatureFlag({
+                                updatedFlag: featureFlag,
+                                experimentId: typeof experiment.id === 'number' ? experiment.id : undefined,
+                            })
 
                             const currentFlag = experiment.feature_flag
                             if (currentFlag && featureFlag) {

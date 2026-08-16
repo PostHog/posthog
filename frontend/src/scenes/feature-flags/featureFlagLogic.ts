@@ -1344,7 +1344,10 @@ export interface featureFlagLogicActions {
         featureFlag: FeatureFlagType
         payload?: Partial<FeatureFlagType>
     }
-    saveSidebarExperimentFeatureFlag: (updatedFlag: Partial<FeatureFlagType>) => Partial<FeatureFlagType>
+    saveSidebarExperimentFeatureFlag: (params: { updatedFlag: Partial<FeatureFlagType>; experimentId?: number }) => {
+        updatedFlag: Partial<FeatureFlagType>
+        experimentId?: number
+    }
     saveSidebarExperimentFeatureFlagFailure: (
         error: string,
         errorObject?: any
@@ -1354,10 +1357,16 @@ export interface featureFlagLogicActions {
     }
     saveSidebarExperimentFeatureFlagSuccess: (
         featureFlag: FeatureFlagType,
-        payload?: Partial<FeatureFlagType>
+        payload?: {
+            updatedFlag: Partial<FeatureFlagType>
+            experimentId?: number
+        }
     ) => {
         featureFlag: FeatureFlagType
-        payload?: Partial<FeatureFlagType>
+        payload?: {
+            updatedFlag: Partial<FeatureFlagType>
+            experimentId?: number
+        }
     }
     saveTagsInline: (tags: string[]) => {
         tags: string[]
@@ -2904,7 +2913,12 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                     throw error
                 }
             },
-            saveSidebarExperimentFeatureFlag: async (updatedFlag: Partial<FeatureFlagType>) => {
+            saveSidebarExperimentFeatureFlag: async ({
+                updatedFlag,
+            }: {
+                updatedFlag: Partial<FeatureFlagType>
+                experimentId?: number
+            }) => {
                 const flag = cleanFlag(updatedFlag)
 
                 const preparedFlag = indexToVariantKeyFeatureFlagPayloads(flag)
@@ -3603,18 +3617,19 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             }
             // For non-approval errors, let the global error handler show the toast to avoid duplicates
         },
-        saveSidebarExperimentFeatureFlagSuccess: ({ featureFlag }) => {
+        saveSidebarExperimentFeatureFlagSuccess: ({ featureFlag, payload }) => {
             lemonToast.success('Release conditions updated')
             actions.updateFlag(featureFlag)
             actions.editFeatureFlag(false)
             actions.closeSidePanel()
 
-            const currentPath = router.values.currentLocation.pathname
-            const experimentId = currentPath.split('/').pop()
-
-            if (experimentId) {
-                eventUsageLogic.actions.reportExperimentReleaseConditionsUpdated(parseInt(experimentId))
-                experimentLogic({ experimentId: parseInt(experimentId) }).actions.loadExperiment()
+            // Reload the experiment the modal was opened for. Reading the id from the payload avoids
+            // scraping it off the URL, which also carries an optional form-mode segment and produced
+            // a NaN id that reloaded a phantom logic instead of the experiment on screen.
+            const experimentId = payload?.experimentId
+            if (typeof experimentId === 'number') {
+                eventUsageLogic.actions.reportExperimentReleaseConditionsUpdated(experimentId)
+                experimentLogic({ experimentId }).actions.loadExperiment()
             }
         },
         deleteFeatureFlag: async ({ featureFlag }) => {

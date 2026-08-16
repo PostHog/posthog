@@ -19,7 +19,13 @@ import {
 import { initKeaTests } from '~/test/init'
 import { Experiment, MultivariateFlagVariant } from '~/types'
 
-import { ExperimentSavedMetric, ExperimentWarning, experimentLogic, getDisplayOrderedIndices } from './experimentLogic'
+import {
+    ExperimentSavedMetric,
+    ExperimentWarning,
+    FORM_MODES,
+    experimentLogic,
+    getDisplayOrderedIndices,
+} from './experimentLogic'
 
 jest.mock('lib/lemon-ui/LemonToast/LemonToast', () => ({
     lemonToast: {
@@ -108,6 +114,78 @@ describe('experimentLogic', () => {
         logic = experimentLogic()
         logic.mount()
         await expectLogic(userLogic).toFinishAllListeners()
+    })
+
+    describe('experiment not found handling', () => {
+        // A draft (unlaunched) experiment avoids the results refresh a launched one kicks off on load.
+        const draftExperiment = { ...experiment, start_date: null } as Experiment
+
+        it('shows the full not-found scene when the user’s own page load 404s', async () => {
+            useMocks({ get: { '/api/projects/:team/experiments/:id': () => [404, {}] } })
+            const missingLogic = experimentLogic({ experimentId: 123, formMode: FORM_MODES.update })
+            missingLogic.mount()
+
+            await expectLogic(missingLogic, () => {
+                missingLogic.actions.loadExperiment({ triggeredBy: 'page_load' })
+            })
+                .toDispatchActions(['setExperimentMissing'])
+                .toMatchValues({ experimentMissing: true, experimentLoadError: false })
+        })
+
+        it('keeps the loaded experiment and shows a retryable error when a background refresh 404s', async () => {
+            let callCount = 0
+            useMocks({
+                get: {
+                    '/api/projects/:team/experiments/:id': () => {
+                        callCount++
+                        return callCount === 1 ? [200, draftExperiment] : [404, {}]
+                    },
+                },
+            })
+            const bgLogic = experimentLogic({ experimentId: experiment.id, formMode: FORM_MODES.update })
+            bgLogic.mount()
+
+            await expectLogic(bgLogic, () => {
+                bgLogic.actions.loadExperiment({ triggeredBy: 'page_load' })
+            })
+                .toDispatchActions(['loadExperimentSuccess'])
+                .toMatchValues({ experimentMissing: false, experimentLoadError: false })
+
+            await expectLogic(bgLogic, () => {
+                bgLogic.actions.loadExperiment({ triggeredBy: 'config_change' })
+            })
+                .toDispatchActions(['setExperimentLoadError', 'loadExperimentSuccess'])
+                .toMatchValues({ experimentMissing: false, experimentLoadError: true })
+
+            // The scene must not be blanked: the experiment the user was reading is still loaded.
+            expect(typeof bgLogic.values.experiment.id).toBe('number')
+        })
+
+        it('clears the missing latch on the next load so a stale 404 cannot outlive its request', async () => {
+            let callCount = 0
+            useMocks({
+                get: {
+                    '/api/projects/:team/experiments/:id': () => {
+                        callCount++
+                        return callCount === 1 ? [404, {}] : [200, draftExperiment]
+                    },
+                },
+            })
+            const recoverLogic = experimentLogic({ experimentId: experiment.id, formMode: FORM_MODES.update })
+            recoverLogic.mount()
+
+            await expectLogic(recoverLogic, () => {
+                recoverLogic.actions.loadExperiment({ triggeredBy: 'page_load' })
+            })
+                .toDispatchActions(['setExperimentMissing', 'loadExperimentSuccess'])
+                .toMatchValues({ experimentMissing: true })
+
+            await expectLogic(recoverLogic, () => {
+                recoverLogic.actions.loadExperiment({ triggeredBy: 'manual' })
+            })
+                .toDispatchActions(['loadExperimentSuccess'])
+                .toMatchValues({ experimentMissing: false })
+        })
     })
 
     describe('loadPrimaryMetricsResults', () => {

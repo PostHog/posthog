@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonTab, LemonTabs } from '@posthog/lemon-ui'
+import { LemonBanner, LemonTab, LemonTabs } from '@posthog/lemon-ui'
 
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -102,7 +102,8 @@ const VariantsTab = (): JSX.Element => {
 }
 
 export function ExperimentView(): JSX.Element {
-    const { experimentLoading, experimentId, experiment, exposureCriteria, showDebugPanel } = useValues(experimentLogic)
+    const { experimentLoading, experimentLoadError, experimentId, experiment, exposureCriteria, showDebugPanel } =
+        useValues(experimentLogic)
     const {
         setExperiment,
         setExposureCriteria,
@@ -111,6 +112,7 @@ export function ExperimentView(): JSX.Element {
         addSharedMetricsToExperiment,
         removeSharedMetricFromExperiment,
         removeMetric,
+        loadExperiment,
     } = useActions(experimentLogic)
 
     const { activeTabKey, availableTabs } = useValues(experimentSceneLogic)
@@ -151,6 +153,18 @@ export function ExperimentView(): JSX.Element {
                 <LoadingState />
             ) : (
                 <>
+                    {experimentLoadError && (
+                        <LemonBanner
+                            type="error"
+                            className="mb-4"
+                            action={{
+                                children: 'Retry',
+                                onClick: () => loadExperiment({ triggeredBy: 'manual' }),
+                            }}
+                        >
+                            Couldn't refresh this experiment. What you see may be out of date.
+                        </LemonBanner>
+                    )}
                     <ExperimentWarningBanner />
                     {showDebugPanel && (
                         <div className="mb-4">
