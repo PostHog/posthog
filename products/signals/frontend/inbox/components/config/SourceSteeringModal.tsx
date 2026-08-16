@@ -11,8 +11,8 @@ import { SourceSteeringModalLogicProps, sourceSteeringModalLogic } from '../../l
 import { SOURCE_STEERING_MAX_LENGTH, SignalSourceConfig } from '../../types'
 
 // LemonRadio keys must be React keys, so the boolean `default_not_actionable` postures get names.
-const INCLUDE_BY_DEFAULT = 'include_by_default'
-const ONLY_MATCHING = 'only_matching'
+const LENIENT = 'lenient'
+const STRICT = 'strict'
 
 export interface SourceSteeringModalProps {
     sourceConfig: SignalSourceConfig
@@ -25,7 +25,7 @@ export function SourceSteeringModal({ sourceConfig, sourceLabel, onClose }: Sour
     const formId = useId()
     const logicProps: SourceSteeringModalLogicProps = { sourceConfig, onClose }
     const logic = sourceSteeringModalLogic(logicProps)
-    const { isSourceSteeringSubmitting, sourceSteering, sourceSteeringValidationErrors } = useValues(logic)
+    const { isSourceSteeringSubmitting, sourceSteeringValidationErrors } = useValues(logic)
 
     const handleClose = (): void => {
         if (isSourceSteeringSubmitting) {
@@ -38,6 +38,9 @@ export function SourceSteeringModal({ sourceConfig, sourceLabel, onClose }: Sour
         typeof sourceSteeringValidationErrors.steering === 'string'
             ? sourceSteeringValidationErrors.steering
             : undefined
+    // Freeze the fields while the save is in flight: the submit already captured the form values,
+    // so edits made during the request would be silently dropped by a success that closes the modal.
+    const savingReason = isSourceSteeringSubmitting ? 'Saving your rules' : undefined
 
     return (
         <LemonModal
@@ -79,18 +82,28 @@ export function SourceSteeringModal({ sourceConfig, sourceLabel, onClose }: Sour
                     <LemonField name="defaultNotActionable" label="Default behavior">
                         {({ value, onChange }) => (
                             <LemonRadio
-                                value={value ? ONLY_MATCHING : INCLUDE_BY_DEFAULT}
-                                onChange={(posture: string) => onChange(posture === ONLY_MATCHING)}
+                                value={value ? STRICT : LENIENT}
+                                onChange={(posture: string) => onChange(posture === STRICT)}
                                 options={[
-                                    { value: INCLUDE_BY_DEFAULT, label: 'Include everything except what I list' },
-                                    { value: ONLY_MATCHING, label: 'Only include what matches my rules' },
+                                    {
+                                        value: LENIENT,
+                                        label: 'Include everything except what I list',
+                                        description: 'When in doubt, a record is kept.',
+                                        disabledReason: savingReason,
+                                    },
+                                    {
+                                        value: STRICT,
+                                        label: "Only include what's clearly actionable",
+                                        description: 'When in doubt, a record is skipped.',
+                                        disabledReason: savingReason,
+                                    },
                                 ]}
                             />
                         )}
                     </LemonField>
                     <LemonField
                         name="steering"
-                        label={sourceSteering.defaultNotActionable ? 'What should we include?' : 'What should we skip?'}
+                        label="What should we skip?"
                         help="Plain language works. Leave it empty to keep only the default behavior above."
                     >
                         <LemonTextArea
@@ -98,6 +111,7 @@ export function SourceSteeringModal({ sourceConfig, sourceLabel, onClose }: Sour
                             maxRows={10}
                             maxLength={SOURCE_STEERING_MAX_LENGTH}
                             placeholder="Ignore issues labeled chore or internal. Release checklists are never actionable."
+                            disabled={isSourceSteeringSubmitting}
                             data-attr="signal-source-steering-rules"
                         />
                     </LemonField>

@@ -3,6 +3,7 @@ import { expectLogic } from 'kea-test-utils'
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
+import { signalSourcesLogic } from '../signalSourcesLogic'
 import { SOURCE_STEERING_MAX_LENGTH, SignalSourceConfig, SignalSourceProduct, SignalSourceType } from '../types'
 import { sourceSteeringModalLogic } from './sourceSteeringModalLogic'
 
@@ -22,15 +23,17 @@ describe('sourceSteeringModalLogic', () => {
     let logic: ReturnType<typeof sourceSteeringModalLogic.build>
     let patchBodies: Record<string, any>[]
     let onClose: jest.Mock
+    let reloadFails: boolean
 
     beforeEach(() => {
         patchBodies = []
+        reloadFails = false
         useMocks({
             get: {
-                '/api/projects/:team_id/signals/source_configs/': () => [
-                    200,
-                    { results: [sourceConfig], count: 1, next: null, previous: null },
-                ],
+                '/api/projects/:team_id/signals/source_configs/': () =>
+                    reloadFails
+                        ? [500, { detail: 'Internal server error' }]
+                        : [200, { results: [sourceConfig], count: 1, next: null, previous: null }],
             },
             patch: {
                 '/api/projects/:team_id/signals/source_configs/:id/': async ({ request }) => {
@@ -69,6 +72,23 @@ describe('sourceSteeringModalLogic', () => {
             },
         ])
         expect(onClose).toHaveBeenCalled()
+    })
+
+    it('caches the saved config from the response even when the list reload fails', async () => {
+        signalSourcesLogic.actions.loadSourceConfigsSuccess([sourceConfig])
+        reloadFails = true
+
+        logic.actions.setSourceSteeringValue('steering', 'fresh rules')
+        await expectLogic(logic, () => {
+            logic.actions.submitSourceSteering()
+        }).toDispatchActions(['submitSourceSteeringSuccess'])
+        await expectLogic(signalSourcesLogic).toDispatchActions(['loadSourceConfigsFailure'])
+
+        expect(signalSourcesLogic.values.sourceConfigs?.[0]?.config).toEqual({
+            recording_filters: { events: [] },
+            steering: 'fresh rules',
+            default_not_actionable: false,
+        })
     })
 
     it('shows the saved rules when the same source is reopened after a config reload', () => {
