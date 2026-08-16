@@ -2,11 +2,13 @@ import { MakeLogicType, actions, afterMount, connect, kea, key, listeners, path,
 import { loaders } from 'kea-loaders'
 import { actionToUrl, router, urlToAction } from 'kea-router'
 
+import api from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { Scene } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
+import { hogql } from '~/queries/utils'
 import { Breadcrumb } from '~/types'
 
 import {
@@ -57,6 +59,12 @@ const AUTORESEARCH_PIPELINE_TABS: AutoresearchPipelineTab[] = [
 
 function isPipelineTab(value: string | undefined): value is AutoresearchPipelineTab {
     return value !== undefined && (AUTORESEARCH_PIPELINE_TABS as string[]).includes(value)
+}
+
+/** One decile of the latest scoring run's predicted probabilities: `lower` ≤ p < `lower` + 0.1. */
+export interface ProbabilityBucket {
+    lower: number
+    users: number
 }
 
 /** Metrics stored in AutoresearchRun.metrics for validation runs. */
@@ -154,6 +162,10 @@ export interface autoresearchPipelineLogicValues {
     onlinePerformanceRows: OnlinePerformanceRow[]
     pipeline: AutoresearchPipelineApi | null
     pipelineLoading: boolean
+    probabilityDistribution: ProbabilityBucket[] | null
+    probabilityDistributionError: boolean
+    probabilityDistributionLoading: boolean
+    probabilityHistogram: ProbabilityBucket[] | null
     reportByRun: Record<string, string | null>
     reportByRunLoading: boolean
     runs: AutoresearchRunApi[]
@@ -220,6 +232,27 @@ export interface autoresearchPipelineLogicActions {
         payload?: any
     ) => {
         pipeline: AutoresearchPipelineApi | null
+        payload?: any
+    }
+    loadProbabilityDistribution: () => any
+    loadProbabilityDistributionFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    loadProbabilityDistributionSuccess: (
+        probabilityDistribution: {
+            lower: number
+            users: number
+        }[],
+        payload?: any
+    ) => {
+        probabilityDistribution: {
+            lower: number
+            users: number
+        }[]
         payload?: any
     }
     loadRunArtifacts: ({ runId }: { runId: string }) => {
@@ -439,6 +472,7 @@ export interface autoresearchPipelineLogicMeta {
         breadcrumbs: (pipeline: AutoresearchPipelineApi | null) => Breadcrumb[]
         validationRuns: (runs: AutoresearchRunApi[]) => AutoresearchRunApi[]
         onlinePerformanceRows: (validationRuns: AutoresearchRunApi[]) => OnlinePerformanceRow[]
+        probabilityHistogram: (probabilityDistribution: ProbabilityBucket[] | null) => ProbabilityBucket[] | null
     }
 }
 
@@ -486,6 +520,13 @@ export const autoresearchPipelineLogic = kea<autoresearchPipelineLogicType>([
             CreateSuggestionPriorityEnumApi.Consider as CreateSuggestionPriorityEnumApi,
             {
                 setSuggestionPriority: (_, { priority }) => priority,
+            },
+        ],
+        probabilityDistributionError: [
+            false,
+            {
+                loadProbabilityDistribution: () => false,
+                loadProbabilityDistributionFailure: () => true,
             },
         ],
     }),
@@ -647,6 +688,41 @@ export const autoresearchPipelineLogic = kea<autoresearchPipelineLogicType>([
                 },
             },
         ],
+        probabilityDistribution: [
+            null as ProbabilityBucket[] | null,
+            {
+                loadProbabilityDistribution: async () => {
+                    // One row per person: a same-day rescore emits another event, and only the latest score should count.
+                    const response = await api.queryHogQL(
+                        hogql`
+                            SELECT least(floor(p * 10), 9) AS bucket, count() AS users
+                            FROM (
+                                SELECT
+                                    coalesce(nullIf(properties.$autoresearch_person_id, ''), distinct_id) AS person_id,
+                                    argMax(toFloat(properties.$autoresearch_p_y), timestamp) AS p
+                                FROM events
+                                WHERE event = 'autoresearch_prediction'
+                                  AND properties.$autoresearch_pipeline_id = ${props.id}
+                                  AND toDate(timestamp) = (
+                                      SELECT max(toDate(timestamp))
+                                      FROM events
+                                      WHERE event = 'autoresearch_prediction'
+                                        AND properties.$autoresearch_pipeline_id = ${props.id}
+                                  )
+                                GROUP BY person_id
+                            )
+                            GROUP BY bucket
+                            ORDER BY bucket
+                        `,
+                        { productKey: 'autoresearch', name: 'autoresearch_probability_distribution' }
+                    )
+                    return (response.results ?? []).map((row: any[]) => ({
+                        lower: Number(row[0]) / 10,
+                        users: Number(row[1]),
+                    }))
+                },
+            },
+        ],
         suggestionSubmitResult: [
             null as AutoresearchSuggestionApi | null,
             {
@@ -718,8 +794,27 @@ export const autoresearchPipelineLogic = kea<autoresearchPipelineLogicType>([
                 return rows
             },
         ],
+        probabilityHistogram: [
+            (s) => [s.probabilityDistribution],
+            (probabilityDistribution: ProbabilityBucket[] | null): ProbabilityBucket[] | null => {
+                if (!probabilityDistribution) {
+                    return null
+                }
+                const usersByDecile = new Map(probabilityDistribution.map((b) => [Math.round(b.lower * 10), b.users]))
+                return Array.from({ length: 10 }, (_, decile) => ({
+                    lower: decile / 10,
+                    users: usersByDecile.get(decile) ?? 0,
+                }))
+            },
+        ],
     }),
     listeners(({ actions, values }) => ({
+        loadPipelineSuccess: ({ pipeline }) => {
+            // The distribution query is only worth running once the pipeline has ever scored.
+            if (pipeline?.last_scored_at && !values.probabilityDistribution && !values.probabilityDistributionLoading) {
+                actions.loadProbabilityDistribution()
+            }
+        },
         startTrainingSuccess: () => {
             actions.loadTrainingRuns()
             actions.loadPipeline()
@@ -743,6 +838,7 @@ export const autoresearchPipelineLogic = kea<autoresearchPipelineLogicType>([
         scoreNowSuccess: ({ scoreResult }) => {
             actions.loadRuns()
             actions.loadPipeline()
+            actions.loadProbabilityDistribution()
             const scored = scoreResult?.rows_scored
             lemonToast.success(scored != null ? `Scored ${scored.toLocaleString()} users` : 'Scoring run started')
         },

@@ -46,6 +46,7 @@ import {
     IterationTrailApi,
     AutoresearchModelRoleEnumApi,
 } from './generated/api.schemas'
+import { ProbabilityHistogram } from './ProbabilityHistogram'
 
 export const scene: SceneExport = {
     component: AutoresearchPipelineScene,
@@ -594,6 +595,10 @@ function PersonLink({ value }: { value: unknown }): JSX.Element {
     return <Link to={urls.personByUUID(personId)}>{personId}</Link>
 }
 
+function PercentCell({ value }: { value: unknown }): JSX.Element {
+    return value == null ? <>—</> : <>{String(value)}%</>
+}
+
 /** Top/bottom-N users by predicted probability for a pipeline, grouped by person. */
 function ProbabilityUsersTable({
     pipelineId,
@@ -605,7 +610,13 @@ function ProbabilityUsersTable({
     return (
         <Query
             readOnly
-            context={{ columns: { person_id: { title: 'Person', render: PersonLink } } }}
+            context={{
+                columns: {
+                    person_id: { title: 'Person', render: PersonLink },
+                    probability: { title: 'Probability', render: PercentCell },
+                    last_scored: { title: 'Last scored' },
+                },
+            }}
             query={{
                 kind: NodeKind.DataTableNode,
                 source: {
@@ -619,7 +630,7 @@ function ProbabilityUsersTable({
                         )
                         SELECT
                             coalesce(nullIf(properties.$autoresearch_person_id, ''), distinct_id) AS person_id,
-                            round(argMax(toFloat(properties.$autoresearch_p_y), timestamp), 4) AS probability,
+                            round(100 * argMax(toFloat(properties.$autoresearch_p_y), timestamp), 1) AS probability,
                             max(timestamp) AS last_scored
                         FROM events
                         WHERE event = 'autoresearch_prediction'
@@ -634,6 +645,29 @@ function ProbabilityUsersTable({
             }}
         />
     )
+}
+
+function ProbabilityDistributionPanel(): JSX.Element {
+    const { probabilityHistogram, probabilityDistributionError } = useValues(autoresearchPipelineLogic)
+
+    if (probabilityDistributionError) {
+        return (
+            <p className="text-sm text-muted mb-0">
+                Couldn't load the probability distribution. Refresh the page to try again.
+            </p>
+        )
+    }
+    if (probabilityHistogram == null) {
+        return <LemonSkeleton className="h-52" />
+    }
+    if (probabilityHistogram.every((bucket) => bucket.users === 0)) {
+        return (
+            <p className="text-sm text-muted mb-0">
+                No prediction events found for the latest scoring run. Score now to emit fresh predictions.
+            </p>
+        )
+    }
+    return <ProbabilityHistogram buckets={probabilityHistogram} />
 }
 
 function PredictionsTab(): JSX.Element {
@@ -672,40 +706,7 @@ function PredictionsTab(): JSX.Element {
                     {
                         key: 'distribution',
                         header: 'Probability distribution (latest scoring run)',
-                        content: (
-                            <Query
-                                readOnly
-                                query={{
-                                    kind: NodeKind.DataTableNode,
-                                    source: {
-                                        kind: NodeKind.HogQLQuery,
-                                        query: `
-                                            WITH latest AS (
-                                                SELECT max(toDate(timestamp)) AS d
-                                                FROM events
-                                                WHERE event = 'autoresearch_prediction'
-                                                  AND properties.$autoresearch_pipeline_id = {pipeline_id}
-                                            )
-                                            SELECT
-                                                concat(
-                                                    toString(least(floor(toFloat(properties.$autoresearch_p_y) * 10), 9) / 10),
-                                                    '–',
-                                                    toString(least(floor(toFloat(properties.$autoresearch_p_y) * 10), 9) / 10 + 0.1)
-                                                ) AS probability_bucket,
-                                                count() AS users,
-                                                repeat('▇', toInt(round(40 * count() / max(count()) OVER ()))) AS distribution
-                                            FROM events
-                                            WHERE event = 'autoresearch_prediction'
-                                              AND properties.$autoresearch_pipeline_id = {pipeline_id}
-                                              AND toDate(timestamp) = (SELECT d FROM latest)
-                                            GROUP BY probability_bucket
-                                            ORDER BY probability_bucket
-                                        `,
-                                        values,
-                                    },
-                                }}
-                            />
-                        ),
+                        content: <ProbabilityDistributionPanel />,
                     },
                     {
                         key: 'highest',
@@ -723,6 +724,13 @@ function PredictionsTab(): JSX.Element {
                         content: (
                             <Query
                                 readOnly
+                                context={{
+                                    columns: {
+                                        day: { title: 'Day' },
+                                        users_scored: { title: 'Users scored' },
+                                        avg_probability: { title: 'Average probability', render: PercentCell },
+                                    },
+                                }}
                                 query={{
                                     kind: NodeKind.DataTableNode,
                                     source: {
@@ -731,7 +739,7 @@ function PredictionsTab(): JSX.Element {
                                             SELECT
                                                 toDate(timestamp) AS day,
                                                 count() AS users_scored,
-                                                round(avg(toFloat(properties.$autoresearch_p_y)), 4) AS avg_probability
+                                                round(100 * avg(toFloat(properties.$autoresearch_p_y)), 1) AS avg_probability
                                             FROM events
                                             WHERE event = 'autoresearch_prediction'
                                               AND properties.$autoresearch_pipeline_id = {pipeline_id}

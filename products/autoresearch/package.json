@@ -11,6 +11,9 @@
         "kea-subscriptions": "catalog:",
         "zod": "^4.0.0"
     },
+    "devDependencies": {
+        "@storybook/react": "catalog:"
+    },
     "peerDependencies": {
         "@posthog/icons": "catalog:",
         "@posthog/lemon-ui": "*",
