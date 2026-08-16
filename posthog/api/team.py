@@ -87,7 +87,7 @@ from posthog.permissions import (
     TeamMemberStrictManagementPermission,
     UserCanCreateProjectPermission,
 )
-from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
+from posthog.rbac.access_control_api_mixin import AccessControlSettingsViewSetMixin, AccessControlViewSetMixin
 from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
 from posthog.scopes import APIScopeObjectOrNotSupported
 from posthog.session_recordings.data_retention import (
@@ -110,7 +110,6 @@ from posthog.utils import (
 from products.customer_analytics.backend.facade.team_extension import TeamCustomerAnalyticsConfig
 from products.feature_flags.backend.models.evaluation_context import EvaluationContext, normalize_context_name
 from products.logs.backend.models import TeamLogsConfig
-from products.signals.backend.models import SignalSourceConfig
 from products.workflows.backend.models.team_workflows_config import EmailTrackingConsentMode, TeamWorkflowsConfig
 
 tracer = trace.get_tracer(__name__)
@@ -1912,22 +1911,6 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
             set_team_in_cache(instance.api_token, instance)
         updated_team = instance
 
-        if "proactive_tasks_enabled" in validated_data:
-            # Backward compat for old proactive tasks enabled field, remove after February 2026
-            if validated_data["proactive_tasks_enabled"]:
-                SignalSourceConfig.objects.get_or_create(
-                    team=instance,
-                    source_product=SignalSourceConfig.SourceProduct.SESSION_REPLAY,
-                    source_type=SignalSourceConfig.SourceType.SESSION_ANALYSIS_CLUSTER,
-                    defaults={"enabled": True, "config": {}, "created_by": self.context["request"].user},
-                )
-            else:
-                SignalSourceConfig.objects.filter(
-                    team=instance,
-                    source_product=SignalSourceConfig.SourceProduct.SESSION_REPLAY,
-                    source_type=SignalSourceConfig.SourceType.SESSION_ANALYSIS_CLUSTER,
-                ).delete()
-
         changes = dict_changes_between("Team", before_update, after_update, use_field_exclusions=True)
 
         log_activity(
@@ -2134,7 +2117,9 @@ class EvaluationContextSuggestionResponseSerializer(serializers.Serializer):
     )
 
 
-class TeamViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.ModelViewSet):
+class TeamViewSet(
+    TeamAndOrgViewSetMixin, AccessControlSettingsViewSetMixin, AccessControlViewSetMixin, viewsets.ModelViewSet
+):
     """
     Projects for the current organization.
     """

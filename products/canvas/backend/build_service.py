@@ -42,6 +42,7 @@ from posthog.models.user import User
 from posthog.ph_client import ph_background_capture
 from posthog.storage import object_storage
 
+from products.canvas.backend import error_reports
 from products.canvas.backend.capabilities import CapabilityWidening, capability_widening
 from products.canvas.backend.contract import CANVAS_BUILDER_DIR, contract_limits
 from products.canvas.backend.models import Canvas, CanvasBuild, CanvasSourceVersion
@@ -506,6 +507,37 @@ def publish_source_project(
     )
 
     return canvas, version, build, first_publish
+
+
+def publish_current_source_version(
+    canvas: Canvas,
+    expected_current_version_id: str | UUID,
+    *,
+    user: User | None = None,
+    was_impersonated: bool = False,
+) -> tuple[Canvas, CanvasBuild]:
+    """Queue a build for the current source version without changing source or metadata."""
+    with transaction.atomic(), team_scope(canvas.team_id):
+        canvas = _claim_canvas_head(
+            canvas,
+            has_expected_version=True,
+            expected_version_id=expected_current_version_id,
+        )
+        if canvas.current_source_version_id is None:
+            raise CanvasVersionConflict(None)
+        version = CanvasSourceVersion.objects.for_team(canvas.team_id).get(
+            pk=canvas.current_source_version_id,
+            canvas_id=canvas.id,
+        )
+        build = _queue_build(version)
+    _log_canvas_activity(
+        canvas,
+        user=user,
+        was_impersonated=was_impersonated,
+        activity="published",
+        detail=Detail(name=canvas.name),
+    )
+    return canvas, build
 
 
 def revert_to_version(
@@ -1033,6 +1065,7 @@ def _finish_failed(stale_build: CanvasBuild, diagnostics: list[dict[str, Any]]) 
         max(0, (build.finished_at - build.created_at).total_seconds())
     )
     _capture_build_completed(build, outcome="failed")
+    error_reports.report_build_failure(build)
 
 
 def sweep_canvas_builds() -> dict[str, int]:

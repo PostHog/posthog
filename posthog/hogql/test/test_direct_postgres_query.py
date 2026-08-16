@@ -1053,11 +1053,8 @@ class TestDirectPostgresQuery(APIBaseTest):
             f"USE {escape_postgres_identifier(source.job_inputs['schema'])}"
         )
 
-    @patch("posthog.hogql.query.capture_exception")
     @patch("posthog.hogql.direct_sql.postgres_adapter.psycopg.connect")
-    def test_send_raw_query_executes_raw_query_and_preserves_hogql_when_printable(
-        self, mock_connect, mock_capture_exception
-    ):
+    def test_send_raw_query_executes_raw_query_without_hogql_preparation(self, mock_connect):
         source = ExternalDataSource.objects.create(
             team=self.team,
             source_id="source_id",
@@ -1092,21 +1089,21 @@ class TestDirectPostgresQuery(APIBaseTest):
             send_raw_query=True,
         )
 
-        response = executor.execute()
+        with patch.object(HogQLQueryExecutor, "_prepare_execution") as mock_prepare_execution:
+            response = executor.execute()
 
         self.assertEqual(response.results, [(1,)])
         self.assertEqual(response.clickhouse, "SELECT 1 AS value")
         self.assertEqual(response.columns, ["value"])
-        self.assertIsNotNone(response.hogql)
+        self.assertIsNone(response.hogql)
+        mock_prepare_execution.assert_not_called()
         mocked_connection.execute.assert_called_once_with(
             f"SET search_path TO {escape_postgres_identifier(source.job_inputs['schema'])}"
         )
         mocked_cursor.execute.assert_called_once_with("SELECT 1 AS value", None)
-        mock_capture_exception.assert_not_called()
 
-    @patch("posthog.hogql.query.capture_exception")
     @patch("posthog.hogql.direct_sql.postgres_adapter.psycopg.connect")
-    def test_send_raw_query_captures_parse_failures_after_success(self, mock_connect, mock_capture_exception):
+    def test_send_raw_query_unsupported_by_hogql_succeeds_without_hogql(self, mock_connect):
         source = ExternalDataSource.objects.create(
             team=self.team,
             source_id="source_id",
@@ -1148,11 +1145,9 @@ class TestDirectPostgresQuery(APIBaseTest):
         self.assertEqual(response.columns, ["value"])
         self.assertIsNone(response.hogql)
         mocked_cursor.execute.assert_called_once_with("SELECT 1 IS TRUE AS value", None)
-        mock_capture_exception.assert_called_once()
 
-    @patch("posthog.hogql.query.capture_exception")
     @patch("posthog.hogql.direct_sql.postgres_adapter.psycopg.connect")
-    def test_send_raw_query_uses_catalog_for_duckdb_without_schema(self, mock_connect, mock_capture_exception):
+    def test_send_raw_query_uses_catalog_for_duckdb_without_schema(self, mock_connect):
         source = ExternalDataSource.objects.create(
             team=self.team,
             source_id="source_id",
@@ -1193,7 +1188,6 @@ class TestDirectPostgresQuery(APIBaseTest):
         self.assertEqual(response.results, [(1,)])
         mocked_connection.execute.assert_called_once_with("USE ducklake")
         mocked_cursor.execute.assert_called_once_with("SELECT 1 AS value", None)
-        mock_capture_exception.assert_not_called()
 
     @patch("posthog.hogql.direct_sql.postgres_adapter.psycopg.connect")
     def test_send_raw_query_skips_session_setup_when_schema_is_blank(self, mock_connect):
@@ -1236,6 +1230,9 @@ class TestDirectPostgresQuery(APIBaseTest):
         self.assertEqual(response.results, [(1,)])
         mocked_connection.execute.assert_called_once_with("SELECT current_database(), version()")
         mocked_cursor.execute.assert_called_once_with("SELECT 1 AS value", None)
+        timing_keys = {timing.k for timing in response.timings or []}
+        self.assertTrue(any(key.endswith("/postgres_connection_metadata") for key in timing_keys))
+        self.assertFalse(any(key.endswith("/postgres_session_setup") for key in timing_keys))
 
     @patch("posthog.hogql.direct_sql.postgres_adapter.psycopg.connect")
     def test_send_raw_query_handles_statements_without_result_set(self, mock_connect):
@@ -1617,7 +1614,24 @@ class TestDirectPostgresQuery(APIBaseTest):
 
         response = executor.execute()
 
-        self.assertTrue(any(timing.k.endswith("/postgres_execute") for timing in response.timings or []))
+        timing_keys = {timing.k for timing in response.timings or []}
+        for timing_suffix in (
+            "/postgres_source_validation",
+            "/postgres_source_helpers_import",
+            "/postgres_source_config",
+            "/postgres_source_capability",
+            "/postgres_source_registry",
+            "/postgres_source_parse_config",
+            "/postgres_ssh_validation",
+            "/postgres_host_validation",
+            "/postgres_execute",
+            "/postgres_tunnel_open",
+            "/postgres_connect",
+            "/postgres_session_setup",
+            "/postgres_query_execute",
+            "/postgres_query_fetch",
+        ):
+            self.assertTrue(any(key.endswith(timing_suffix) for key in timing_keys))
 
     @patch("posthog.hogql.direct_sql.postgres_adapter.psycopg.connect")
     def test_execute_direct_postgres_query_reraises_unexpected_errors(self, mock_connect):
