@@ -891,11 +891,25 @@ class TestCanvasActivityLog(CanvasAPIBaseTest):
         assert first.status_code == status.HTTP_200_OK, first.json()
 
         default_capabilities = {
-            "posthog": {"insights": [], "inlineQueries": False, "captureEvents": [], "state": [], "actions": []},
+            "posthog": {
+                "insights": [],
+                "inlineQueries": False,
+                "captureEvents": [],
+                "state": [],
+                "actions": [],
+                "agentRequests": False,
+            },
             "network": {"origins": []},
         }
         widened_capabilities = {
-            "posthog": {"insights": ["abc123"], "inlineQueries": True, "captureEvents": [], "state": [], "actions": []},
+            "posthog": {
+                "insights": ["abc123"],
+                "inlineQueries": True,
+                "captureEvents": [],
+                "state": [],
+                "actions": [],
+                "agentRequests": False,
+            },
             "network": {"origins": []},
         }
         widened = self._project("export default function C() { return 2 }")
@@ -1287,7 +1301,7 @@ class TestCanvasErrorReports(CanvasAPIBaseTest):
             patcher.start()
             self.addCleanup(patcher.stop)
 
-    def _authored_canvas(self) -> tuple[str, str, Task]:
+    def _authored_canvas(self, *, agent_requests: bool = False) -> tuple[str, str, Task]:
         task = Task.objects.create(
             team=self.team,
             channel=self.channel,
@@ -1297,7 +1311,18 @@ class TestCanvasErrorReports(CanvasAPIBaseTest):
             origin_product=Task.OriginProduct.USER_CREATED,
         )
         canvas_id = self._create_canvas()
-        assert self._publish(canvas_id).status_code == status.HTTP_200_OK
+        project = self._project()
+        if agent_requests:
+            project["capabilities"] = {
+                "posthog": {
+                    "insights": [],
+                    "inlineQueries": False,
+                    "captureEvents": [],
+                    "agentRequests": True,
+                },
+                "network": {"origins": []},
+            }
+        assert self._publish(canvas_id, project).status_code == status.HTTP_200_OK
         build_id = str(CanvasBuild.objects.unscoped().get(canvas_id=canvas_id).id)
         Canvas.objects.unscoped().filter(id=canvas_id).update(generation_task_id=task.id)
         return canvas_id, build_id, task
@@ -1313,6 +1338,13 @@ class TestCanvasErrorReports(CanvasAPIBaseTest):
         return self.client.post(
             f"/api/projects/{self.team.id}/canvases/{canvas_id}/request_fix/",
             {"build_id": build_id, **payload},
+            format="json",
+        )
+
+    def _request_agent(self, canvas_id: str, prompt: str):
+        return self.client.post(
+            f"/api/projects/{self.team.id}/canvases/{canvas_id}/request_agent/",
+            {"prompt": prompt},
             format="json",
         )
 
@@ -1384,6 +1416,100 @@ class TestCanvasErrorReports(CanvasAPIBaseTest):
         assert dispatch.call_count == 1
         assert dispatch.call_args.kwargs["run_id"] == str(run.id)
         assert dispatch.call_args.kwargs["skip_user_check"] is True
+
+    def test_request_agent_starts_creator_run_with_exact_prompt(self):
+        canvas_id, _, task = self._authored_canvas(agent_requests=True)
+        prompt = "Make the status card blue."
+
+        with (
+            patch("products.tasks.backend.temporal.client.execute_task_processing_workflow"),
+            self.captureOnCommitCallbacks(execute=True),
+        ):
+            response = self._request_agent(canvas_id, prompt)
+
+        assert response.status_code == status.HTTP_202_ACCEPTED, response.json()
+        assert response.json() == {"request_outcome": "new_run", "task_id": str(task.id)}
+        agent_prompt = TaskRun.objects.get(task=task).state["pending_user_message"]
+        assert prompt in agent_prompt
+        assert "canvas-draft-create" in agent_prompt
+        update = TaskThreadMessage.objects.for_team(self.team.id).get(content="Run requested from the canvas")
+        assert update.author_id == self.user.id
+
+    def test_scoped_keys_need_task_write_to_request_the_agent(self):
+        # The dispatched run executes with the creator's credentials, so a
+        # canvas:write-only token must not be able to start or steer it.
+        canvas_id, _, _task = self._authored_canvas(agent_requests=True)
+        raw_key = generate_random_token_personal()
+        PersonalAPIKey.objects.create(
+            label="canvas-agent", user=self.user, secure_value=hash_key_value(raw_key), scopes=["canvas:write"]
+        )
+        self.client.logout()
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/canvases/{canvas_id}/request_agent/",
+            {"prompt": "Make it blue."},
+            format="json",
+            HTTP_AUTHORIZATION=f"Bearer {raw_key}",
+        )
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN, response.json()
+
+    def test_repeat_agent_request_does_not_duplicate_the_thread_entry(self):
+        # A deduplicated repeat (already_queued) produced no new run, so it must
+        # not add a second "Run requested" record to the author-facing thread.
+        canvas_id, _, task = self._authored_canvas(agent_requests=True)
+
+        with (
+            patch("products.tasks.backend.temporal.client.execute_task_processing_workflow"),
+            patch("products.tasks.backend.facade.api.signal_task_run_user_message", return_value=False),
+            self.captureOnCommitCallbacks(execute=True),
+        ):
+            first = self._request_agent(canvas_id, "Make it blue.")
+            repeat = self._request_agent(canvas_id, "Make it blue.")
+
+        assert first.json()["request_outcome"] == "new_run", first.json()
+        assert repeat.json()["request_outcome"] == "already_queued", repeat.json()
+        entries = TaskThreadMessage.objects.for_team(self.team.id).filter(content="Run requested from the canvas")
+        assert entries.count() == 1
+
+    def test_request_agent_reports_non_creator_request_without_starting_run(self):
+        canvas_id, _, task = self._authored_canvas(agent_requests=True)
+        teammate = User.objects.create_and_join(self.organization, "viewer@example.com", None)
+        self.client.force_login(teammate)
+
+        response = self._request_agent(canvas_id, "Summarize the board.")
+
+        assert response.status_code == status.HTTP_202_ACCEPTED, response.json()
+        assert response.json()["request_outcome"] == "reported"
+        assert not TaskRun.objects.filter(task=task).exists()
+        update = TaskThreadMessage.objects.for_team(self.team.id).get(content__contains="Summarize the board.")
+        assert update.author_id == teammate.id
+        assert "Summarize the board." in update.content
+
+    def test_request_agent_reports_miss_when_authoring_task_not_visible(self):
+        # A teammate can reach the endpoint through a canvas they can see while the
+        # authoring task is deleted (and so invisible to them); the request can't be
+        # filed, so the endpoint must surface the miss, not report a false delivery.
+        canvas_id, _, task = self._authored_canvas(agent_requests=True)
+        Task.objects.filter(id=task.id).update(deleted=True)
+        teammate = User.objects.create_and_join(self.organization, "viewer2@example.com", None)
+        self.client.force_login(teammate)
+
+        response = self._request_agent(canvas_id, "Summarize the board.")
+
+        assert response.status_code == status.HTTP_409_CONFLICT, response.json()
+        assert (
+            not TaskThreadMessage.objects.for_team(self.team.id)
+            .filter(content__contains="Summarize the board.")
+            .exists()
+        )
+
+    def test_request_agent_requires_declared_capability(self):
+        canvas_id, _, _ = self._authored_canvas()
+
+        response = self._request_agent(canvas_id, "Change the canvas.")
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN
 
     def test_request_fix_prompt_never_carries_unsafe_error_type(self):
         # The requester's error_type flows into the agent prompt; a hostile

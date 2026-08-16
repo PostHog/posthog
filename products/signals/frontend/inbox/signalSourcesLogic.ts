@@ -340,6 +340,9 @@ export interface signalSourcesLogicActions {
     openSourcesModal: () => {
         value: true
     }
+    replaceSourceConfig: (config: SignalSourceConfig) => {
+        config: SignalSourceConfig
+    }
     setAllScannerSignals: (enabled: boolean) => {
         enabled: boolean
     }
@@ -502,6 +505,7 @@ export const signalSourcesLogic = kea<signalSourcesLogicType>([
         toggleSignalSource: (params: ToggleSignalSourceParams) => ({ params }),
         toggleSignalSourceSuccess: (params: ToggleSignalSourceParams) => ({ params }),
         toggleSignalSourceFailure: (params: ToggleSignalSourceParams, error: string) => ({ params, error }),
+        replaceSourceConfig: (config: SignalSourceConfig) => ({ config }),
         toggleErrorTracking: true,
         toggleErrorTrackingComplete: true,
         toggleErrorTrackingType: (sourceType: SignalSourceType) => ({ sourceType }),
@@ -646,6 +650,10 @@ export const signalSourcesLogic = kea<signalSourcesLogicType>([
             },
         ],
         sourceConfigs: {
+            // A save endpoint returned the row: reflect it immediately so consumers don't read
+            // stale config while the follow-up list reload is in flight (or after it failed).
+            replaceSourceConfig: (state: SignalSourceConfig[] | null, { config }: { config: SignalSourceConfig }) =>
+                state ? state.map((c) => (c.id === config.id ? config : c)) : state,
             toggleHealthChecks: (state: SignalSourceConfig[] | null) =>
                 toggleSourceConfigState(state, SignalSourceProduct.HealthChecks, SignalSourceType.HealthIssue),
             toggleEvalReports: (state: SignalSourceConfig[] | null) =>
