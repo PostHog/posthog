@@ -1344,7 +1344,12 @@ export interface featureFlagLogicActions {
         featureFlag: FeatureFlagType
         payload?: Partial<FeatureFlagType>
     }
-    saveSidebarExperimentFeatureFlag: (params: { updatedFlag: Partial<FeatureFlagType>; experimentId?: number }) => {
+    saveSidebarExperimentFeatureFlag: ({
+        updatedFlag,
+    }: {
+        experimentId?: number
+        updatedFlag: Partial<FeatureFlagType>
+    }) => {
         updatedFlag: Partial<FeatureFlagType>
         experimentId?: number
     }

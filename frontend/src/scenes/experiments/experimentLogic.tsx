@@ -525,11 +525,11 @@ export interface experimentLogicValues {
     experimentErrors: DeepPartialMap<Experiment, ValidationErrorType>
     experimentHasErrors: boolean
     experimentId: Experiment['id']
+    experimentLoadError: boolean
     experimentLoading: boolean
     experimentManualErrors: Record<string, any>
     experimentMathAggregationForTrends: () => CountPerActorMathType | PropertyMathType | undefined
     experimentMissing: boolean
-    experimentLoadError: boolean
     experimentTouched: boolean
     experimentTouches: Record<string, boolean>
     experimentUpdate: Experiment | null
@@ -1065,13 +1065,13 @@ export interface experimentLogicActions {
     setExperiment: (experiment: Partial<Experiment>) => {
         experiment: Partial<Experiment>
     }
+    setExperimentLoadError: () => {
+        value: true
+    }
     setExperimentManualErrors: (errors: Record<string, any>) => {
         errors: Record<string, any>
     }
     setExperimentMissing: () => {
-        value: true
-    }
-    setExperimentLoadError: () => {
         value: true
     }
     setExperimentValue: (
