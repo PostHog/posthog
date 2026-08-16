@@ -229,6 +229,12 @@ tools:
         param_overrides:
             id:
                 description: ID of the canvas the project is for.
+    canvases-actions-invoke:
+        operation: canvases_actions_invoke
+        enabled: false
+    canvases-actions-retrieve:
+        operation: canvases_actions_retrieve
+        enabled: false
     canvases-build-action-create:
         operation: canvases_build_action_create
         enabled: false
@@ -243,6 +249,12 @@ tools:
         enabled: false
     canvases-revert-create:
         operation: canvases_revert_create
+        enabled: false
+    canvases-state-retrieve:
+        operation: canvases_state_retrieve
+        enabled: false
+    canvases-state-set:
+        operation: canvases_state_set
         enabled: false
     canvases-versions-retrieve:
         operation: canvases_versions_retrieve

@@ -245,6 +245,7 @@
                 "external_id",
                 "created_at",
                 "updated_at",
+                "churned_at",
                 "stripe_customer_id",
                 "hubspot_deal_id",
                 "billing_id",
@@ -552,6 +553,10 @@
                         "$ref": "#/definitions/AccountsTableFilter"
                     },
                     "type": "array"
+                },
+                "includeChurned": {
+                    "description": "Include churned accounts. Churned accounts are hidden by default.",
+                    "type": "boolean"
                 },
                 "kind": {
                     "const": "AccountsTableQuery",
@@ -47711,6 +47716,10 @@
         "ScatterChartSettings": {
             "additionalProperties": false,
             "properties": {
+                "showBestFit": {
+                    "description": "Whether to draw a least-squares fit line through each series' points.",
+                    "type": "boolean"
+                },
                 "xScale": {
                     "description": "X-axis scale. A `logarithmic` axis can't place a non-positive value, so those points are dropped.",
                     "enum": ["linear", "logarithmic"],
