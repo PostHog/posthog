@@ -8,6 +8,7 @@ import {
     LemonSelect,
     LemonSkeleton,
     LemonTab,
+    LemonTable,
     LemonTabs,
     LemonTag,
     LemonTextArea,
@@ -39,54 +40,19 @@ import {
     AutoresearchIterationStatusEnumApi,
     AutoresearchModelApi,
     AutoresearchPipelineApi,
-    AutoresearchPipelineStatusEnumApi,
     AutoresearchSuggestionApi,
     AutoresearchTrainingRunApi,
     CreateSuggestionPriorityEnumApi,
     IterationTrailApi,
     AutoresearchModelRoleEnumApi,
 } from './generated/api.schemas'
+import { PipelineStatusTag } from './PipelineStatusTag'
 import { ProbabilityHistogram } from './ProbabilityHistogram'
 
 export const scene: SceneExport = {
     component: AutoresearchPipelineScene,
     logic: autoresearchPipelineLogic,
     paramsToProps: ({ params: { id } }): AutoresearchPipelineLogicProps => ({ id }),
-}
-
-function StatusBadge({ status }: { status: AutoresearchPipelineStatusEnumApi }): JSX.Element {
-    const typeMap: Record<
-        AutoresearchPipelineStatusEnumApi,
-        'default' | 'success' | 'warning' | 'highlight' | 'completion'
-    > = {
-        draft: 'default',
-        bootstrapping: 'highlight',
-        running: 'success',
-        converged: 'completion',
-        paused: 'warning',
-        archived: 'default',
-    }
-    const labelMap: Record<AutoresearchPipelineStatusEnumApi, string> = {
-        draft: 'Draft',
-        bootstrapping: 'Bootstrapping',
-        running: 'Running',
-        converged: 'Converged',
-        paused: 'Paused',
-        archived: 'Archived',
-    }
-    const descriptionMap: Record<AutoresearchPipelineStatusEnumApi, string> = {
-        draft: 'Created but never trained. Start a training run to find a first champion.',
-        bootstrapping: 'First training run in progress — no champion has been promoted yet.',
-        running: 'Live: a champion is promoted and the population is scored on schedule.',
-        converged: 'Champion is stable (budget spent or improvement plateaued); still scoring on schedule.',
-        paused: 'Scheduled scoring is on hold. Resume to continue scoring.',
-        archived: 'Retired. No training or scoring runs.',
-    }
-    return (
-        <Tooltip title={descriptionMap[status]}>
-            <LemonTag type={typeMap[status]}>{labelMap[status]}</LemonTag>
-        </Tooltip>
-    )
 }
 
 /** Shared empty-state block: an icon, a headline, supporting copy, and an optional CTA. */
@@ -121,7 +87,7 @@ function OverviewTab(): JSX.Element {
         <div className="space-y-4">
             <div className="flex items-center gap-2">
                 <span className="text-sm font-semibold text-muted">Status</span>
-                <StatusBadge status={pipeline.status} />
+                <PipelineStatusTag status={pipeline.status} />
             </div>
             <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
                 <MetricCard label="Target event" value={pipeline.target_event} />
@@ -139,18 +105,46 @@ function OverviewTab(): JSX.Element {
                     <MetricCard label="Calibration error" value={champion.calibration_error?.toFixed(3) ?? '—'} />
                 </div>
             )}
-            <div className="space-y-1">
-                <div className="text-sm font-semibold text-muted">Output person property</div>
-                <code className="text-sm">{pipeline.output_person_property ?? '—'}</code>
-            </div>
-            <div className="space-y-1">
-                <div className="text-sm font-semibold text-muted">Last scored</div>
-                <div className="text-sm">
+            <div className="border rounded p-4">
+                <DetailRow label="Output person property">
+                    <code>{pipeline.output_person_property ?? '—'}</code>
+                </DetailRow>
+                <DetailRow label="Training population">
+                    <span className="font-mono text-xs">{populationSummary(pipeline.training_population)}</span>
+                </DetailRow>
+                <DetailRow label="Inference population">
+                    <span className="font-mono text-xs">{populationSummary(pipeline.inference_population)}</span>
+                </DetailRow>
+                <DetailRow label="Last scored">
                     {pipeline.last_scored_at ? dayjs(pipeline.last_scored_at).fromNow() : 'Never'}
-                </div>
+                </DetailRow>
+                <DetailRow label="Created">
+                    {dayjs(pipeline.created_at).format('MMM D, YYYY')}
+                    {pipeline.created_by?.first_name ? ` by ${pipeline.created_by.first_name}` : ''}
+                </DetailRow>
             </div>
+            <p className="text-sm text-muted">
+                Editing the target, populations, and budget in the UI is coming soon. For now, use the{' '}
+                <code>autoresearch</code> API or MCP tools, or recreate the pipeline.
+            </p>
         </div>
     )
+}
+
+function DetailRow({ label, children }: { label: string; children: React.ReactNode }): JSX.Element {
+    return (
+        <div className="flex justify-between items-start gap-4 py-2 border-b last:border-0">
+            <div className="text-sm font-semibold text-muted">{label}</div>
+            <div className="text-sm text-right">{children}</div>
+        </div>
+    )
+}
+
+function populationSummary(population: AutoresearchPipelineApi['training_population']): string {
+    if (!population || typeof population !== 'object' || Object.keys(population).length === 0) {
+        return 'All users'
+    }
+    return JSON.stringify(population)
 }
 
 function MetricCard({ label, value }: { label: string; value: string }): JSX.Element {
@@ -202,7 +196,7 @@ function ArtifactViewerModal(): JSX.Element {
                 </CodeSnippet>
             ) : (
                 <div className="text-muted text-sm">
-                    Binary file — {viewedArtifact ? humanizeBytes(viewedArtifact.sizeBytes) : ''}. Not previewable here.
+                    Binary file ({viewedArtifact ? humanizeBytes(viewedArtifact.sizeBytes) : ''}). No preview available.
                 </div>
             )}
         </LemonModal>
@@ -487,7 +481,7 @@ function FeatureImportanceChart({ explanation }: { explanation: unknown }): JSX.
         <div className="space-y-2">
             <div className="text-xs text-muted">
                 <span style={{ color: 'var(--success)' }}>● raises</span>{' '}
-                <span style={{ color: 'var(--danger)' }}>● lowers</span> the prediction · bars on a fixed 0–1 importance
+                <span style={{ color: 'var(--danger)' }}>● lowers</span> the prediction · bars on a fixed 0-1 importance
                 scale
             </div>
             <div className="space-y-1">
@@ -862,7 +856,7 @@ function OnlinePerformanceTab(): JSX.Element {
         <div className="space-y-4">
             <p className="text-sm text-muted">
                 Realized performance measured after each prediction horizon elapses. AUC and lift here reflect actual
-                user outcomes, not just holdout estimates.
+                user outcomes rather than holdout estimates.
             </p>
             <div className="flex flex-wrap gap-3">
                 <MetricTrendCard
@@ -880,64 +874,45 @@ function OnlinePerformanceTab(): JSX.Element {
                     floor={0}
                 />
             </div>
-            <table className="w-full text-sm border-collapse">
-                <thead>
-                    <tr className="border-b text-left">
-                        <th className="py-2 pr-4 text-xs font-semibold text-muted uppercase tracking-wide">
-                            Prediction date
-                        </th>
-                        <th className="py-2 pr-4 text-xs font-semibold text-muted uppercase tracking-wide">Model</th>
-                        <th className="py-2 pr-4 text-xs font-semibold text-muted uppercase tracking-wide">
-                            Users scored
-                        </th>
-                        <th className="py-2 pr-4 text-xs font-semibold text-muted uppercase tracking-wide">
-                            Realized AUC
-                        </th>
-                        <th className="py-2 pr-4 text-xs font-semibold text-muted uppercase tracking-wide">
-                            Brier score
-                        </th>
-                        <th className="py-2 pr-4 text-xs font-semibold text-muted uppercase tracking-wide">
-                            Calibration error
-                        </th>
-                        <th className="py-2 pr-4 text-xs font-semibold text-muted uppercase tracking-wide">
-                            Lift at 10%
-                        </th>
-                        <th className="py-2 pr-4 text-xs font-semibold text-muted uppercase tracking-wide">
-                            Lift at 20%
-                        </th>
-                    </tr>
-                </thead>
-                <tbody>
-                    {onlinePerformanceRows.map((row: OnlinePerformanceRow) => (
-                        <tr key={`${row.run_id}-${row.model_role}`} className="border-b last:border-0">
-                            <td className="py-2 pr-4 font-mono">{row.prediction_date}</td>
-                            <td className="py-2 pr-4">
-                                <LemonTag
-                                    type={
-                                        row.model_role === 'champion'
-                                            ? 'success'
-                                            : row.model_role === 'challenger'
-                                              ? 'highlight'
-                                              : 'default'
-                                    }
-                                >
-                                    {row.model_role}
-                                </LemonTag>
-                            </td>
-                            <td className="py-2 pr-4">{row.n_scored.toLocaleString()}</td>
-                            <td className="py-2 pr-4 font-semibold">{fmt(row.realized_auc)}</td>
-                            <td className="py-2 pr-4">{fmt(row.brier_score)}</td>
-                            <td className="py-2 pr-4">{fmt(row.calibration_error)}</td>
-                            <td className="py-2 pr-4">{fmt(row.lift_at_10, 2)}×</td>
-                            <td className="py-2 pr-4">{fmt(row.lift_at_20, 2)}×</td>
-                        </tr>
-                    ))}
-                </tbody>
-            </table>
+            <LemonTable
+                dataSource={onlinePerformanceRows}
+                rowKey={(row) => `${row.run_id}-${row.model_role}`}
+                columns={[
+                    {
+                        title: 'Prediction date',
+                        render: (_, row) => <span className="font-mono">{row.prediction_date}</span>,
+                    },
+                    {
+                        title: 'Model',
+                        render: (_, row) => (
+                            <LemonTag
+                                type={
+                                    row.model_role === 'champion'
+                                        ? 'success'
+                                        : row.model_role === 'challenger'
+                                          ? 'highlight'
+                                          : 'default'
+                                }
+                            >
+                                {row.model_role}
+                            </LemonTag>
+                        ),
+                    },
+                    { title: 'Users scored', render: (_, row) => row.n_scored.toLocaleString() },
+                    {
+                        title: 'Realized AUC',
+                        render: (_, row) => <span className="font-semibold">{fmt(row.realized_auc)}</span>,
+                    },
+                    { title: 'Brier score', render: (_, row) => fmt(row.brier_score) },
+                    { title: 'Calibration error', render: (_, row) => fmt(row.calibration_error) },
+                    { title: 'Lift at 10%', render: (_, row) => `${fmt(row.lift_at_10, 2)}×` },
+                    { title: 'Lift at 20%', render: (_, row) => `${fmt(row.lift_at_20, 2)}×` },
+                ]}
+            />
             <p className="text-xs text-muted">
-                Realized AUC: higher is better. Brier score and calibration error (ECE): lower is better — ECE measures
+                Realized AUC: higher is better. Brier score and calibration error (ECE): lower is better. ECE measures
                 how far predicted probabilities drift from observed rates. Lift at k%: ratio of positives in the top k%
-                vs a random sample — 2× means twice as many conversions as random.
+                vs a random sample, so 2× means twice as many conversions as random.
             </p>
         </div>
     )
@@ -996,7 +971,7 @@ function SuggestionsTab(): JSX.Element {
             {suggestionsLoading ? (
                 <Spinner />
             ) : suggestions.length === 0 ? (
-                <div className="text-muted text-sm">No suggestions yet — send one above to steer the next run.</div>
+                <div className="text-muted text-sm">No suggestions yet. Send one above to steer the next run.</div>
             ) : (
                 <div className="space-y-2">
                     {suggestions.map((s: AutoresearchSuggestionApi) => (
@@ -1026,59 +1001,6 @@ function SuggestionsTab(): JSX.Element {
                     ))}
                 </div>
             )}
-        </div>
-    )
-}
-
-function SettingRow({ label, children }: { label: string; children: React.ReactNode }): JSX.Element {
-    return (
-        <div className="flex justify-between items-start gap-4 py-2 border-b last:border-0">
-            <div className="text-sm font-semibold text-muted">{label}</div>
-            <div className="text-sm text-right">{children}</div>
-        </div>
-    )
-}
-
-function populationSummary(population: AutoresearchPipelineApi['training_population']): string {
-    if (!population || typeof population !== 'object' || Object.keys(population).length === 0) {
-        return 'All users'
-    }
-    return JSON.stringify(population)
-}
-
-function SettingsTab(): JSX.Element {
-    const { pipeline } = useValues(autoresearchPipelineLogic)
-    if (!pipeline) {
-        return <LemonSkeleton className="h-40" />
-    }
-    return (
-        <div className="space-y-4">
-            <div className="border rounded p-4">
-                <SettingRow label="Target event">
-                    <code>{pipeline.target_event}</code>
-                </SettingRow>
-                <SettingRow label="Prediction horizon">{pipeline.horizon_days ?? '—'} days</SettingRow>
-                <SettingRow label="Training lookback">{pipeline.training_lookback_days ?? '—'} days</SettingRow>
-                <SettingRow label="Output person property">
-                    <code>{pipeline.output_person_property ?? '—'}</code>
-                </SettingRow>
-                <SettingRow label="Iteration budget">
-                    {pipeline.iteration_budget_remaining} / {pipeline.iteration_budget ?? '—'} remaining
-                </SettingRow>
-                <SettingRow label="Training population">
-                    <span className="font-mono text-xs">{populationSummary(pipeline.training_population)}</span>
-                </SettingRow>
-                <SettingRow label="Inference population">
-                    <span className="font-mono text-xs">{populationSummary(pipeline.inference_population)}</span>
-                </SettingRow>
-                <SettingRow label="Created">
-                    {dayjs(pipeline.created_at).format('MMM D, YYYY')} by {pipeline.created_by?.first_name ?? 'unknown'}
-                </SettingRow>
-            </div>
-            <p className="text-sm text-muted">
-                Editing the target, populations, schedule, and budget from the UI is coming soon. For now, adjust these
-                with the <code>autoresearch</code> API or MCP tools, or recreate the pipeline.
-            </p>
         </div>
     )
 }
@@ -1149,7 +1071,6 @@ export function AutoresearchPipelineScene(): JSX.Element {
         { key: 'predictions', label: 'Predictions', content: <PredictionsTab /> },
         { key: 'online_performance', label: 'Online performance', content: <OnlinePerformanceTab /> },
         { key: 'suggestions', label: 'Suggestions', content: <SuggestionsTab /> },
-        { key: 'settings', label: 'Settings', content: <SettingsTab /> },
     ]
 
     const heading = pipeline?.name ?? (pipelineLoading ? '' : 'Pipeline')

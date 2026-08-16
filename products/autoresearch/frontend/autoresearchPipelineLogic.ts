@@ -45,7 +45,6 @@ export type AutoresearchPipelineTab =
     | 'predictions'
     | 'online_performance'
     | 'suggestions'
-    | 'settings'
 
 const AUTORESEARCH_PIPELINE_TABS: AutoresearchPipelineTab[] = [
     'overview',
@@ -54,7 +53,6 @@ const AUTORESEARCH_PIPELINE_TABS: AutoresearchPipelineTab[] = [
     'predictions',
     'online_performance',
     'suggestions',
-    'settings',
 ]
 
 function isPipelineTab(value: string | undefined): value is AutoresearchPipelineTab {
@@ -824,7 +822,7 @@ export const autoresearchPipelineLogic = kea<autoresearchPipelineLogicType>([
             lemonToast.error('Could not start training run')
         },
         pausePipelineSuccess: () => {
-            lemonToast.success('Pipeline paused — daily scoring is on hold')
+            lemonToast.success('Pipeline paused. Daily scoring is on hold.')
         },
         pausePipelineFailure: () => {
             lemonToast.error('Could not pause the pipeline')
@@ -843,11 +841,11 @@ export const autoresearchPipelineLogic = kea<autoresearchPipelineLogicType>([
             lemonToast.success(scored != null ? `Scored ${scored.toLocaleString()} users` : 'Scoring run started')
         },
         scoreNowFailure: () => {
-            lemonToast.error('Could not score users — train a champion model first')
+            lemonToast.error('Could not score users. Train a champion model first.')
         },
         submitSuggestionSuccess: () => {
             actions.loadSuggestions()
-            lemonToast.success('Suggestion sent — the agent will pick it up on its next run')
+            lemonToast.success('Suggestion sent. The agent will pick it up on its next run.')
         },
         submitSuggestionFailure: () => {
             lemonToast.error('Could not submit the suggestion')

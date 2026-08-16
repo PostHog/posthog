@@ -214,7 +214,7 @@ export const autoresearchNewLogic = kea<autoresearchNewLogicType>([
             }),
             submit: async (payload: NewPipelineFormValues) => {
                 if (!values.currentTeamId) {
-                    lemonToast.error('No active team — cannot create pipeline')
+                    lemonToast.error('Select a project before creating a pipeline')
                     return
                 }
                 if (values.validationLoading || !values.validation) {
@@ -224,7 +224,7 @@ export const autoresearchNewLogic = kea<autoresearchNewLogicType>([
                     return
                 }
                 if (!values.validation.can_proceed) {
-                    lemonToast.error('Validation flagged blocking errors — fix them before creating.')
+                    lemonToast.error('Validation found blocking errors. Fix them before creating.')
                     return
                 }
                 const { target_event, target_definition } = targetRequestFields(payload)

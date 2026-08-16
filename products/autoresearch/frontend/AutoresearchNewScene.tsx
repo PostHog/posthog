@@ -81,7 +81,7 @@ function ValidationPanel(): JSX.Element {
                                         <span>
                                             For each user in the training population we pick a random reference point in
                                             their history and check whether the target event fired in the following
-                                            "Prediction horizon" days. Base rate is the fraction labeled positive — the
+                                            "Prediction horizon" days. Base rate is the fraction labeled positive: the
                                             conversion rate the model is trained to predict.
                                             <br />
                                             <br />
@@ -244,7 +244,7 @@ export function AutoresearchNewScene(): JSX.Element {
                         <LemonField
                             name="inference_population"
                             label="Prediction population"
-                            info="Who the model scores daily. Often a different group from training — e.g. train on signed-up users with history, predict on brand new users. Leave empty to score all identified users."
+                            info="Who the model scores daily. Often a different group from training, e.g. train on signed-up users with history, predict on brand new users. Leave empty to score all identified users."
                         >
                             {({ value, onChange }) => (
                                 <PropertyFilters

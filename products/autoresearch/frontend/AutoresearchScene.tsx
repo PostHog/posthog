@@ -2,7 +2,7 @@ import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 
 import { IconPause, IconPlay, IconPlus, IconTrash } from '@posthog/icons'
-import { LemonButton, LemonDialog, LemonTable, LemonTableColumn, LemonTag, Tooltip } from '@posthog/lemon-ui'
+import { LemonButton, LemonDialog, LemonTable, LemonTableColumn } from '@posthog/lemon-ui'
 
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
 import { dayjs } from 'lib/dayjs'
@@ -17,42 +17,13 @@ import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { ProductKey } from '~/queries/schema/schema-general'
 
 import { autoresearchLogic } from './autoresearchLogic'
-import { AutoresearchPipelineApi, AutoresearchPipelineStatusEnumApi } from './generated/api.schemas'
+import { AutoresearchPipelineApi } from './generated/api.schemas'
+import { PipelineStatusTag } from './PipelineStatusTag'
 
 export const scene: SceneExport = {
     component: AutoresearchScene,
     logic: autoresearchLogic,
     productKey: ProductKey.AUTORESEARCH,
-}
-
-const STATUS_TAG_TYPE: Record<
-    AutoresearchPipelineStatusEnumApi,
-    'default' | 'success' | 'warning' | 'danger' | 'highlight' | 'completion'
-> = {
-    draft: 'default',
-    bootstrapping: 'highlight',
-    running: 'success',
-    converged: 'completion',
-    paused: 'warning',
-    archived: 'default',
-}
-
-const STATUS_LABEL: Record<AutoresearchPipelineStatusEnumApi, string> = {
-    draft: 'Draft',
-    bootstrapping: 'Bootstrapping',
-    running: 'Running',
-    converged: 'Converged',
-    paused: 'Paused',
-    archived: 'Archived',
-}
-
-const STATUS_DESCRIPTION: Record<AutoresearchPipelineStatusEnumApi, string> = {
-    draft: 'Created but never trained. Start a training run to find a first champion.',
-    bootstrapping: 'First training run in progress — no champion has been promoted yet.',
-    running: 'Live: a champion is promoted and the population is scored on schedule.',
-    converged: 'Champion is stable (budget spent or improvement plateaued); still scoring on schedule.',
-    paused: 'Scheduled scoring is on hold. Resume to continue scoring.',
-    archived: 'Retired. No training or scoring runs.',
 }
 
 export function AutoresearchScene(): JSX.Element {
@@ -84,11 +55,7 @@ export function AutoresearchScene(): JSX.Element {
         {
             title: 'Status',
             dataIndex: 'status',
-            render: (_, record: AutoresearchPipelineApi) => (
-                <Tooltip title={STATUS_DESCRIPTION[record.status]}>
-                    <LemonTag type={STATUS_TAG_TYPE[record.status]}>{STATUS_LABEL[record.status]}</LemonTag>
-                </Tooltip>
-            ),
+            render: (_, record: AutoresearchPipelineApi) => <PipelineStatusTag status={record.status} />,
         },
         createdByColumn() as unknown as LemonTableColumn<
             AutoresearchPipelineApi,
@@ -128,7 +95,7 @@ export function AutoresearchScene(): JSX.Element {
                             <LemonButton
                                 size="small"
                                 icon={<IconPause />}
-                                tooltip="Pause — put daily scoring on hold"
+                                tooltip="Pause daily scoring"
                                 loading={mutating}
                                 disabledReason={mutating ? 'Another change is still saving' : undefined}
                                 onClick={(e) => {

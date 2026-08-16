@@ -122,7 +122,7 @@ export const autoresearchLogic = kea<autoresearchLogicType>([
             actions.setPipelineMutating(pipeline.id, true)
             try {
                 await autoresearchPauseCreate(String(values.currentTeamId), pipeline.id)
-                lemonToast.success(`Paused "${pipeline.name}" — daily scoring is on hold`)
+                lemonToast.success(`Paused "${pipeline.name}". Daily scoring is on hold.`)
                 actions.loadPipelines()
             } catch (error: any) {
                 lemonToast.error(error?.detail ?? error?.data?.detail ?? 'Failed to pause pipeline')
