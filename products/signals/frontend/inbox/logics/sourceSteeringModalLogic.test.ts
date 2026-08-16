@@ -71,6 +71,19 @@ describe('sourceSteeringModalLogic', () => {
         expect(onClose).toHaveBeenCalled()
     })
 
+    it('shows the saved rules when the same source is reopened after a config reload', () => {
+        logic.unmount()
+        const reloaded = {
+            ...sourceConfig,
+            config: { ...sourceConfig.config, steering: 'saved rules', default_not_actionable: true },
+            updated_at: '2026-08-02T00:00:00Z',
+        }
+        logic = sourceSteeringModalLogic({ sourceConfig: reloaded, onClose })
+        logic.mount()
+
+        expect(logic.values.sourceSteering).toEqual({ steering: 'saved rules', defaultNotActionable: true })
+    })
+
     it('rejects rules over the server cap without issuing a request', async () => {
         logic.actions.setSourceSteeringValue('steering', 'x'.repeat(SOURCE_STEERING_MAX_LENGTH + 1))
         await expectLogic(logic, () => {
