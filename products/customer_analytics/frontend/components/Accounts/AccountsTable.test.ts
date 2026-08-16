@@ -1,6 +1,6 @@
 import type { CustomPropertyDefinitionApi } from 'products/customer_analytics/frontend/generated/api.schemas'
 
-import { buildHistoryDisplay, getCanonicalPropertyTab } from './AccountsTable'
+import { buildHistoryDisplay, getCanonicalPropertyTab, isRowExpansionClick } from './AccountsTable'
 
 const DAY = 24 * 60 * 60
 const NOW_MS = 1_800_000_000_000
@@ -59,5 +59,45 @@ describe('getCanonicalPropertyTab', () => {
 
     it('does not link a canonical property with no tab of its own', () => {
         expect(getCanonicalPropertyTab(definition('Some future canonical property', true))).toBeUndefined()
+    })
+})
+
+describe('isRowExpansionClick', () => {
+    // The row handler sees clicks bubbled from anything inside it, and LemonButton doesn't stop them.
+    const target = (html: string, selector: string): Element => {
+        const host = document.createElement('tr')
+        host.innerHTML = html
+        return host.querySelector(selector)!
+    }
+
+    it('toggles for ordinary row content', () => {
+        expect(isRowExpansionClick(target('<td><span class="cell">Acme</span></td>', '.cell'))).toBe(true)
+    })
+
+    it('leaves the expansion chevron to the expandable config, so it toggles once', () => {
+        // TableRow already toggles from onRowExpand/onRowCollapse; toggling here too would expand
+        // and immediately collapse the row.
+        expect(
+            isRowExpansionClick(target('<td class="LemonTable__toggle"><button class="chevron"/></td>', '.chevron'))
+        ).toBe(false)
+    })
+
+    it.each([
+        ['the account name link', '<td><a class="t" href="/x">Acme</a></td>'],
+        ['a tag chip', '<td><div class="t" role="button">enterprise</div></td>'],
+        ['the MemberSelect trigger', '<td><button class="t">Unassigned</button></td>'],
+        ['an inline input', '<td><input class="t"/></td>'],
+    ])('leaves %s to its own handler', (_label, html) => {
+        expect(isRowExpansionClick(target(html, '.t'))).toBe(false)
+    })
+
+    it('ignores a click on a descendant of a control rather than the control itself', () => {
+        expect(isRowExpansionClick(target('<td><button><span class="t">Unassigned</span></button></td>', '.t'))).toBe(
+            false
+        )
+    })
+
+    it('does not toggle for a non-element target', () => {
+        expect(isRowExpansionClick(null)).toBe(false)
     })
 })

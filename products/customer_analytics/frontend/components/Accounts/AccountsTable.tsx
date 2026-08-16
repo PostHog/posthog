@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 import posthog from 'posthog-js'
-import { useMemo } from 'react'
+import { HTMLProps, useMemo } from 'react'
 
 import { IconCheck, IconX } from '@posthog/icons'
 import { LemonButton, LemonColorGlyph, LemonSkeleton, LemonTable, ProfilePicture } from '@posthog/lemon-ui'
@@ -23,6 +23,7 @@ import { urls } from 'scenes/urls'
 import { tagsModel } from '~/models/tagsModel'
 import { DataNodeLogicProps, dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { DataTable } from '~/queries/nodes/DataTable/DataTable'
+import type { DataTableRow } from '~/queries/nodes/DataTable/dataTableLogic'
 import { DataTableNode } from '~/queries/schema/schema-general'
 import { QueryContext, QueryContextColumn, QueryContextColumnComponent } from '~/queries/types'
 
@@ -42,6 +43,35 @@ import { AccountsEvents } from './constants'
 
 // Shape the name renderer uses from the keyed AccountsTableRow identity fields.
 type AccountNameCell = { name: string; external_id: string | null; id: string }
+
+// Clicks from controls inside a row aren't row clicks. Filtering by origin rather than adding
+// `stopPropagation()` per control matters because `LemonButton` doesn't stop propagation by default.
+// `.LemonTable__toggle` is the chevron's cell — `TableRow` already toggles expansion there, so letting
+// it through would expand and immediately collapse.
+const INTERACTIVE_CLICK_TARGET_SELECTOR = [
+    'a',
+    'button',
+    'input',
+    'select',
+    'textarea',
+    'label',
+    '[contenteditable="true"]',
+    '[role="button"]',
+    '[role="checkbox"]',
+    '[role="menuitem"]',
+    '[role="option"]',
+    '[role="switch"]',
+    '[role="tab"]',
+    '.LemonTable__toggle',
+].join(', ')
+
+/** Whether a click that reached the row should toggle expansion, or belongs to a control inside it. */
+export function isRowExpansionClick(target: EventTarget | null): boolean {
+    if (!(target instanceof Element)) {
+        return false
+    }
+    return !target.closest(INTERACTIVE_CLICK_TARGET_SELECTOR)
+}
 
 const COLUMN_WIDTHS = {
     name: '240px',
@@ -104,15 +134,20 @@ function NameCell({ record }: { record: unknown }): JSX.Element {
                 <span className="font-semibold">{name}</span>
             )}
             {externalId ? (
-                <CopyToClipboardInline
-                    explicitValue={externalId}
-                    iconStyle={{ color: 'var(--color-accent)' }}
-                    iconSize="xsmall"
-                    description="account ID"
-                    className="text-xs text-muted"
-                >
-                    {externalId}
-                </CopyToClipboardInline>
+                // The copy text is a `<span>`, so the row's interactive-target filter doesn't catch it.
+                // The stop goes on a wrapper: `CopyToClipboardInline` spreads caller props over its own
+                // `onClick`, so passing one here would replace copying rather than guard it.
+                <span onClick={(event) => event.stopPropagation()}>
+                    <CopyToClipboardInline
+                        explicitValue={externalId}
+                        iconStyle={{ color: 'var(--color-accent)' }}
+                        iconSize="xsmall"
+                        description="account ID"
+                        className="text-xs text-muted"
+                    >
+                        {externalId}
+                    </CopyToClipboardInline>
+                </span>
             ) : null}
         </div>
     )
@@ -548,6 +583,37 @@ function useExpandable(): QueryContext<DataTableNode>['expandable'] {
 
 const SKELETON_ROW_COUNT = 5
 
+// Toggles expansion from the row body, the way the name and chevron already do. `TableRow` also derives
+// its `cursor-pointer` hover affordance from the presence of this `onClick`.
+function useRowProps(): QueryContext<DataTableNode>['rowProps'] {
+    const { isAccountExpanded } = useValues(accountsExpansionLogic)
+    const { toggleAccountExpanded } = useActions(accountsExpansionLogic)
+    return useMemo(
+        () =>
+            (record: unknown): Omit<HTMLProps<HTMLTableRowElement>, 'key'> => {
+                // `rowProps` gets the row wrapper, so read the account off `result` as the expandable
+                // config does. Label and malformed rows get no handler instead of throwing.
+                const cell = getNameCell((record as DataTableRow | undefined)?.result)
+                if (!cell) {
+                    return {}
+                }
+                return {
+                    onClick: (event) => {
+                        if (!isRowExpansionClick(event.target)) {
+                            return
+                        }
+                        if (!isAccountExpanded(cell.id)) {
+                            // Match the name cell: track opens, not collapses.
+                            posthog.capture(AccountsEvents.AccountOpened)
+                        }
+                        toggleAccountExpanded(cell.id)
+                    },
+                }
+            },
+        [isAccountExpanded, toggleAccountExpanded]
+    )
+}
+
 const SKELETON_COLUMNS: LemonTableColumns<{ key: number }> = [
     {
         title: 'Account',
@@ -612,6 +678,7 @@ export function AccountsTable(): JSX.Element {
     )
     const contextColumns = useContextColumns()
     const expandable = useExpandable()
+    const rowProps = useRowProps()
     // A null source means the query is still waiting on the relationship
     // definitions — same skeleton as the initial fetch, not an empty table.
     if ((responseLoading || !accountsQuerySource) && !response) {
@@ -628,6 +695,7 @@ export function AccountsTable(): JSX.Element {
                 context={{
                     columns: contextColumns,
                     expandable,
+                    rowProps,
                     dataTableRowsTransformer: sortedRowsTransformer,
                     dataNodeLogicKey: ACCOUNTS_TABLE_DATA_NODE_KEY,
                     emptyStateHeading: 'There are no matching accounts for this query',
