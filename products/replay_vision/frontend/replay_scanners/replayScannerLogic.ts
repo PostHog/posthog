@@ -17,6 +17,7 @@ import type { DeepPartial, DeepPartialMap, FieldName, ValidationErrorType } from
 import { loaders } from 'kea-loaders'
 import { actionToUrl, beforeUnload, router, urlToAction } from 'kea-router'
 import { CombinedLocation } from 'kea-router/lib/utils'
+import posthog from 'posthog-js'
 
 import api from 'lib/api'
 import { scrollToFormError } from 'lib/forms/scrollToFormError'
@@ -1606,6 +1607,17 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                 persistDraft()
             },
 
+            // The AI counterpart of startFromTemplate's capture. Fires on the request, not the result,
+            // so an abandoned or failed draft still counts as having entered the path.
+            draftScannerFromGoal: ({ goal }) => {
+                posthog.capture('replay_vision_scanner_creation_started', {
+                    creation_method: 'ai',
+                    template_key: null,
+                    // Length only. The goal itself is customer text and stays out of the event.
+                    goal_length: goal.trim().length,
+                })
+            },
+
             // A successful AI draft seeds the wizard form, then the configure step opens for review.
             draftScannerFromGoalSuccess: ({ goalDraft }) => {
                 if (!goalDraft) {
@@ -1679,6 +1691,12 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                 persistDraft()
             },
             startFromTemplate: ({ templateKey }) => {
+                // Paired with the AI capture in draftScannerFromGoal: the two entry points a user can
+                // pick between, so the funnel to replay_vision_scanner_created can be split by path.
+                posthog.capture('replay_vision_scanner_creation_started', {
+                    creation_method: templateKey ? 'template' : 'scratch',
+                    template_key: templateKey,
+                })
                 clearScannerDraft()
                 actions.setScannerDraftSavedAt(null)
                 // An experiment prefill (targeted query, scoped name) has to survive the template
