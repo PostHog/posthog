@@ -1,0 +1,163 @@
+# Golden-dataset eval for Replay Vision scanner prompts (products/replay_vision/evals).
+#
+# Advisory only, never a required check: Gemini scores are a directional signal, not a merge gate.
+# The dataset (real dogfood session recordings) is collected fresh on the ephemeral runner each run,
+# which re-verifies AI data-processing consent; it is never cached, uploaded as an artifact, or
+# otherwise persisted. Only aggregate scores reach the step summary.
+# Without the REPLAY_VISION_EVAL_POSTHOG_API_KEY secret the job skips green, so forks and
+# not-yet-configured environments are unaffected.
+name: Replay Vision Evals
+
+on:
+    pull_request:
+        paths:
+            - '.github/workflows/ci-replay-vision-evals.yml'
+            - 'products/replay_vision/backend/temporal/scanners/prompts/**'
+            - 'products/replay_vision/evals/**'
+    workflow_dispatch:
+        inputs:
+            per_type:
+                description: 'Cases to collect per scanner type'
+                default: '5'
+                type: string
+            trials:
+                description: 'Trials per case, for variance on Gemini nondeterminism'
+                default: '1'
+                type: string
+
+concurrency:
+    group: ${{ github.workflow }}-${{ github.head_ref || github.ref }}
+    cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+    contents: read
+
+env:
+    DATASET_DIR: /tmp/replay-vision-golden-dataset
+
+jobs:
+    golden-eval:
+        name: Golden-dataset scanner eval
+        timeout-minutes: 60
+        runs-on: ubuntu-latest
+        # Fork PRs have no secrets, so the eval can only run on internal branches.
+        if: github.repository == 'PostHog/posthog' && (github.event_name == 'workflow_dispatch' || github.event.pull_request.head.repo.fork == false)
+        env:
+            DOCKERHUB_USERNAME: ${{ vars.DOCKERHUB_USER }}
+            DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
+            COLLECTION_API_KEY: ${{ secrets.REPLAY_VISION_EVAL_POSTHOG_API_KEY }}
+
+        steps:
+            - name: Check collection key
+              id: gate
+              run: |
+                  if [ -z "$COLLECTION_API_KEY" ]; then
+                      echo "enabled=false" >> "$GITHUB_OUTPUT"
+                      echo "::notice::REPLAY_VISION_EVAL_POSTHOG_API_KEY is not set; skipping the golden-dataset eval"
+                  else
+                      echo "enabled=true" >> "$GITHUB_OUTPUT"
+                  fi
+
+            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              if: steps.gate.outputs.enabled == 'true'
+
+            - name: Log in to Docker Hub
+              if: steps.gate.outputs.enabled == 'true' && env.DOCKERHUB_USERNAME != '' && env.DOCKERHUB_TOKEN != ''
+              uses: docker/login-action@4907a6ddec9925e35a0a9e82d7399ccc52663121 # v4.1.0
+              with:
+                  username: ${{ vars.DOCKERHUB_USER }}
+                  password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+            - name: Start stack with Docker Compose
+              if: steps.gate.outputs.enabled == 'true'
+              env:
+                  COMPOSE_FILE: docker-compose.dev.yml:docker-compose.profiles.yml
+              run: bin/ci-wait-for-docker launch --down
+
+            - name: Wait for Docker services
+              if: steps.gate.outputs.enabled == 'true'
+              env:
+                  COMPOSE_FILE: docker-compose.dev.yml:docker-compose.profiles.yml
+              run: bin/ci-wait-for-docker wait
+
+            - name: Set up Python
+              if: steps.gate.outputs.enabled == 'true'
+              uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
+              with:
+                  python-version-file: 'pyproject.toml'
+
+            - name: Install uv
+              if: steps.gate.outputs.enabled == 'true'
+              uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7.6.0
+              with:
+                  version: '0.11.28' # pinned: unpinned setup-uv calls GH API on every job, exhausts rate limit
+                  enable-cache: true
+                  cache-dependency-glob: uv.lock
+                  save-cache: false
+
+            - name: Install python dependencies
+              if: steps.gate.outputs.enabled == 'true'
+              shell: bash
+              run: UV_PROJECT_ENVIRONMENT=$pythonLocation uv sync --frozen --dev
+
+            - name: Install Rust
+              if: steps.gate.outputs.enabled == 'true'
+              uses: dtolnay/rust-toolchain@3c5f7ea28cd621ae0bf5283f0e981fb97b8a7af9
+              with:
+                  toolchain: 1.91.1
+                  components: cargo
+
+            - name: Install sqlx-cli
+              if: steps.gate.outputs.enabled == 'true'
+              uses: ./.github/actions/setup-sqlx-cli
+
+            - name: Add service hostnames to /etc/hosts
+              if: steps.gate.outputs.enabled == 'true'
+              run: sudo echo "127.0.0.1 db redis7 kafka clickhouse clickhouse-coordinator objectstorage seaweedfs temporal" | sudo tee -a /etc/hosts
+
+            - name: Collect golden dataset
+              if: steps.gate.outputs.enabled == 'true'
+              env:
+                  POSTHOG_API_KEY: ${{ secrets.REPLAY_VISION_EVAL_POSTHOG_API_KEY }}
+                  DEBUG: '1'
+              run: |
+                  python -m products.replay_vision.evals.collect \
+                      --project-id 2 \
+                      --per-type "${{ inputs.per_type || '3' }}" \
+                      --max-observations 50 \
+                      --output "$DATASET_DIR"
+
+            - name: Run scanner quality suite
+              if: steps.gate.outputs.enabled == 'true'
+              env:
+                  REPLAY_VISION_EVAL_DATASET: /tmp/replay-vision-golden-dataset
+                  GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+                  BRAINTRUST_API_KEY: ${{ secrets.BRAINTRUST_API_KEY }}
+                  # The one-shot preflight name for a plain Anthropic key (used directly, no gateway).
+                  LLM_GATEWAY_ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+                  # The summary_alignment judge (autoevals) calls its model with the OpenAI client.
+                  OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+              run: |
+                  python -m products.posthog_ai.eval_harness.harness eval_scanner_quality \
+                      --trials "${{ inputs.trials || '1' }}" 2>&1 | tee /tmp/eval-output.log
+
+            - name: Publish score summary
+              # Publish whatever the run produced, including on failure; the suite is private, so
+              # scores exist only in this runner's local logs.
+              if: always() && steps.gate.outputs.enabled == 'true'
+              run: |
+                  {
+                      echo "## Replay Vision scanner eval"
+                      echo ""
+                      echo "Scores compare fresh scans against recorded outputs and human thumbs labels."
+                      echo "Directional signal only: Gemini is nondeterministic and the dataset is re-sampled per run."
+                      echo ""
+                      echo '```'
+                      tail -n 80 /tmp/eval-output.log 2>/dev/null || echo "no eval output produced"
+                      echo '```'
+                  } >> "$GITHUB_STEP_SUMMARY"
+
+            - name: Remove dataset
+              # The runner is ephemeral anyway; this just makes the no-persistence guarantee explicit.
+              if: always()
+              run: rm -rf "$DATASET_DIR"

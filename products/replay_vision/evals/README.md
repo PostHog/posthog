@@ -53,6 +53,13 @@ Use `--trials N` for variance on Gemini nondeterminism and `--eval <case-substri
 
 `output_stability` and `labeled_outcome` deliberately pull in opposite directions, so read them as a pair: a prompt change that only adds churn shows up as `labeled_outcome` flat or up while `output_stability` drops.
 
+## CI
+
+`.github/workflows/ci-replay-vision-evals.yml` runs a small version of this loop on PRs that touch the prompt templates or the evals themselves, and on manual dispatch with bigger `per_type`/`trials` knobs.
+It collects a fresh dataset on the ephemeral runner (so consent is re-verified every run; nothing is cached, uploaded, or persisted), runs the suite, and writes the score table to the job's step summary.
+It is advisory and never a required check: Gemini is nondeterministic and the dataset is re-sampled per run, so treat the scores as a directional signal.
+The job needs the `REPLAY_VISION_EVAL_POSTHOG_API_KEY` repo secret (a personal API key with scanner, session recording, export, and query read access to the dogfood project); without it the job skips green.
+
 ## Data handling
 
 The dataset contains real session recordings and event data.
