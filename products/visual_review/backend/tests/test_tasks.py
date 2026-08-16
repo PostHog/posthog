@@ -426,7 +426,7 @@ class TestCountProcessedDiffs(VisualReviewTeamScopedTestMixin, BaseTest):
                 commit_sha=f"count-{_name}",
                 branch=f"count-{_name}",
                 pr_number=None,
-                snapshots=[{"identifier": _name, "content_hash": f"hash-{_name}"}],
+                snapshots=[SnapshotManifestItem(identifier=_name, content_hash=f"hash-{_name}")],
             ),
             team_id=repo.team_id,
         )

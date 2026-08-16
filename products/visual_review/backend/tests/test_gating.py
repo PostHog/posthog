@@ -22,7 +22,7 @@ from parameterized import parameterized
 
 from products.visual_review.backend import logic
 from products.visual_review.backend.facade import api
-from products.visual_review.backend.facade.contracts import CreateRunInput
+from products.visual_review.backend.facade.contracts import CreateRunInput, SnapshotManifestItem
 from products.visual_review.backend.facade.enums import ReviewState, RunStatus, RunType, SnapshotResult
 from products.visual_review.backend.models import QuarantinedIdentifier, Run
 from products.visual_review.backend.tests.conftest import PRODUCT_DATABASES
@@ -66,18 +66,18 @@ class TestGatingInvariants:
         mocker.patch("products.visual_review.backend.tasks.tasks.process_run_diffs.delay")
 
     def _build_run(self, result: str, action: str | None, purpose: str = "review") -> Run:
-        snapshots: list[dict] = []
+        snapshots: list[SnapshotManifestItem] = []
         baseline: dict[str, str] = {}
 
         if result == "changed":
-            snapshots = [{"identifier": "target", "content_hash": "current_hash"}]
+            snapshots = [SnapshotManifestItem(identifier="target", content_hash="current_hash")]
             baseline = {"target": "baseline_hash"}
         elif result == "new":
-            snapshots = [{"identifier": "target", "content_hash": "current_hash"}]
+            snapshots = [SnapshotManifestItem(identifier="target", content_hash="current_hash")]
         elif result == "removed":
             baseline = {"target": "baseline_hash"}
         elif result == "unchanged":
-            snapshots = [{"identifier": "target", "content_hash": "same_hash"}]
+            snapshots = [SnapshotManifestItem(identifier="target", content_hash="same_hash")]
             baseline = {"target": "same_hash"}
 
         self.mocker.patch(

@@ -12,7 +12,7 @@ from parameterized import parameterized
 
 from products.visual_review.backend import logic
 from products.visual_review.backend.db import WRITER_DB
-from products.visual_review.backend.facade.contracts import CreateRunInput
+from products.visual_review.backend.facade.contracts import CreateRunInput, SnapshotManifestItem
 from products.visual_review.backend.facade.enums import ReviewDecision, ReviewState, RunStatus, RunType, SnapshotResult
 from products.visual_review.backend.models import Repo, Run, RunSnapshot
 from products.visual_review.backend.tests.conftest import PRODUCT_DATABASES
@@ -139,8 +139,8 @@ class TestRunOperations:
                 branch="main",
                 pr_number=42,
                 snapshots=[
-                    {"identifier": "Button-primary", "content_hash": "hash1"},
-                    {"identifier": "Button-secondary", "content_hash": "hash2"},
+                    SnapshotManifestItem(identifier="Button-primary", content_hash="hash1"),
+                    SnapshotManifestItem(identifier="Button-secondary", content_hash="hash2"),
                 ],
                 baseline_hashes={},
             ),
@@ -169,8 +169,8 @@ class TestRunOperations:
                 branch="feat",
                 pr_number=None,
                 snapshots=[
-                    {"identifier": "snap1", "content_hash": "existing"},
-                    {"identifier": "snap2", "content_hash": "new"},
+                    SnapshotManifestItem(identifier="snap1", content_hash="existing"),
+                    SnapshotManifestItem(identifier="snap2", content_hash="new"),
                 ],
                 baseline_hashes={},
             ),
@@ -193,7 +193,7 @@ class TestRunOperations:
                 commit_sha="abc",
                 branch="main",
                 pr_number=None,
-                snapshots=[{"identifier": "Button", "content_hash": "new_hash"}],
+                snapshots=[SnapshotManifestItem(identifier="Button", content_hash="new_hash")],
                 baseline_hashes={"Button": "baseline_hash"},
             ),
             team_id=repo.team_id,
@@ -225,9 +225,9 @@ class TestRunOperations:
                 branch="main",
                 pr_number=None,
                 snapshots=[
-                    {"identifier": "unchanged", "content_hash": "same_hash"},
-                    {"identifier": "new", "content_hash": "brand_new"},
-                    {"identifier": "changed", "content_hash": "different"},
+                    SnapshotManifestItem(identifier="unchanged", content_hash="same_hash"),
+                    SnapshotManifestItem(identifier="new", content_hash="brand_new"),
+                    SnapshotManifestItem(identifier="changed", content_hash="different"),
                 ],
                 baseline_hashes={
                     "unchanged": "same_hash",
@@ -358,7 +358,7 @@ class TestRunOperations:
                 commit_sha="abc",
                 branch="main",
                 pr_number=None,
-                snapshots=[{"identifier": "kept", "content_hash": "h1"}],
+                snapshots=[SnapshotManifestItem(identifier="kept", content_hash="h1")],
             ),
             team_id=repo.team_id,
         )
@@ -383,7 +383,7 @@ class TestRunOperations:
                 commit_sha="abc",
                 branch="feature-x",
                 pr_number=7,
-                snapshots=[{"identifier": "kept", "content_hash": "h1"}],
+                snapshots=[SnapshotManifestItem(identifier="kept", content_hash="h1")],
                 is_partial=True,
             ),
             team_id=repo.team_id,
@@ -408,7 +408,7 @@ class TestRunOperations:
                 commit_sha="abc",
                 branch="master",
                 pr_number=None,
-                snapshots=[{"identifier": "kept", "content_hash": "h1"}],
+                snapshots=[SnapshotManifestItem(identifier="kept", content_hash="h1")],
                 is_partial=True,
             ),
             team_id=repo.team_id,
@@ -439,7 +439,7 @@ class TestRunOperations:
                 commit_sha="deadbeef123",
                 branch="master",
                 pr_number=None,
-                snapshots=[{"identifier": "A", "content_hash": "h1"}],
+                snapshots=[SnapshotManifestItem(identifier="A", content_hash="h1")],
             ),
             team_id=repo.team_id,
         )
@@ -476,7 +476,7 @@ class TestRunOperations:
                 commit_sha="abc",
                 branch="main",
                 pr_number=None,
-                snapshots=[{"identifier": "btn", "content_hash": "h1"}],
+                snapshots=[SnapshotManifestItem(identifier="btn", content_hash="h1")],
                 purpose="observe",
             ),
             team_id=repo.team_id,
@@ -537,8 +537,8 @@ class TestRunOperations:
                 branch="main",
                 pr_number=None,
                 snapshots=[
-                    {"identifier": "changed1", "content_hash": "h1"},
-                    {"identifier": "new1", "content_hash": "h2"},
+                    SnapshotManifestItem(identifier="changed1", content_hash="h1"),
+                    SnapshotManifestItem(identifier="new1", content_hash="h2"),
                 ],
                 baseline_hashes={"changed1": "old"},
             ),
@@ -636,7 +636,7 @@ class TestApproveRun:
                 commit_sha="abc",
                 branch="main",
                 pr_number=None,
-                snapshots=[{"identifier": "Button", "content_hash": "new_hash"}],
+                snapshots=[SnapshotManifestItem(identifier="Button", content_hash="new_hash")],
                 baseline_hashes={"Button": "old_hash"},
             ),
             team_id=repo.team_id,
@@ -676,7 +676,10 @@ class TestApproveRun:
                 commit_sha="abc",
                 branch="main",
                 pr_number=None,
-                snapshots=[{"identifier": "A", "content_hash": "ha"}, {"identifier": "B", "content_hash": "hb"}],
+                snapshots=[
+                    SnapshotManifestItem(identifier="A", content_hash="ha"),
+                    SnapshotManifestItem(identifier="B", content_hash="hb"),
+                ],
                 baseline_hashes={"A": "olda", "B": "oldb"},
             ),
             team_id=repo.team_id,
@@ -767,7 +770,7 @@ class TestApproveSnapshots:
                 commit_sha="abc",
                 branch="main",
                 pr_number=None,
-                snapshots=[{"identifier": "Button", "content_hash": "new_hash"}],
+                snapshots=[SnapshotManifestItem(identifier="Button", content_hash="new_hash")],
                 baseline_hashes={"Button": "old_hash"},
             ),
             team_id=repo.team_id,
@@ -813,7 +816,7 @@ class TestToleratedHashes:
                 commit_sha="abc",
                 branch="main",
                 pr_number=None,
-                snapshots=[{"identifier": identifier, "content_hash": current_hash}],
+                snapshots=[SnapshotManifestItem(identifier=identifier, content_hash=current_hash)],
                 baseline_hashes={identifier: baseline_hash},
             ),
             team_id=repo.team_id,
@@ -851,7 +854,7 @@ class TestToleratedHashes:
                 commit_sha="abc",
                 branch="main",
                 pr_number=None,
-                snapshots=[{"identifier": "Button", "content_hash": "same"}],
+                snapshots=[SnapshotManifestItem(identifier="Button", content_hash="same")],
                 baseline_hashes={"Button": "same"},
             ),
             team_id=repo.team_id,
@@ -959,9 +962,9 @@ class TestGetRunSnapshots:
                 branch="main",
                 pr_number=None,
                 snapshots=[
-                    {"identifier": "A-component", "content_hash": "h1"},
-                    {"identifier": "B-component", "content_hash": "h2"},
-                    {"identifier": "C-component", "content_hash": "h3"},
+                    SnapshotManifestItem(identifier="A-component", content_hash="h1"),
+                    SnapshotManifestItem(identifier="B-component", content_hash="h2"),
+                    SnapshotManifestItem(identifier="C-component", content_hash="h3"),
                 ],
                 baseline_hashes={},
             ),
@@ -996,7 +999,7 @@ class TestCommitStatusChecks:
                 commit_sha="abc123",
                 branch="main",
                 pr_number=1,
-                snapshots=[{"identifier": "snap", "content_hash": "h1"}],
+                snapshots=[SnapshotManifestItem(identifier="snap", content_hash="h1")],
                 baseline_hashes={},
             ),
             team_id=github_repo.team_id,
@@ -1016,7 +1019,7 @@ class TestCommitStatusChecks:
                 commit_sha="abc123",
                 branch="main",
                 pr_number=1,
-                snapshots=[{"identifier": "snap", "content_hash": "same"}],
+                snapshots=[SnapshotManifestItem(identifier="snap", content_hash="same")],
                 baseline_hashes={"snap": "same"},
             ),
             team_id=github_repo.team_id,
@@ -1042,7 +1045,7 @@ class TestCommitStatusChecks:
                 commit_sha="abc123",
                 branch="feature-x",
                 pr_number=7,
-                snapshots=[{"identifier": "snap", "content_hash": "same"}],
+                snapshots=[SnapshotManifestItem(identifier="snap", content_hash="same")],
                 baseline_hashes={"snap": "same"},
                 is_partial=True,
             ),
@@ -1079,8 +1082,8 @@ class TestCommitStatusChecks:
                 branch="main",
                 pr_number=1,
                 snapshots=[
-                    {"identifier": "changed", "content_hash": "new_h"},
-                    {"identifier": "added", "content_hash": "brand_new"},
+                    SnapshotManifestItem(identifier="changed", content_hash="new_h"),
+                    SnapshotManifestItem(identifier="added", content_hash="brand_new"),
                 ],
                 baseline_hashes={"changed": "old_h"},
             ),
@@ -1120,7 +1123,7 @@ class TestCommitStatusChecks:
                 commit_sha="abc111",
                 branch="main",
                 pr_number=1,
-                snapshots=[{"identifier": "changed", "content_hash": "new_h"}],
+                snapshots=[SnapshotManifestItem(identifier="changed", content_hash="new_h")],
                 baseline_hashes={"changed": "old_h"},
             ),
             team_id=github_repo.team_id,
@@ -1134,7 +1137,7 @@ class TestCommitStatusChecks:
                 commit_sha="abc222",
                 branch="main",
                 pr_number=1,
-                snapshots=[{"identifier": "changed", "content_hash": "newer_h"}],
+                snapshots=[SnapshotManifestItem(identifier="changed", content_hash="newer_h")],
                 baseline_hashes={"changed": "old_h"},
             ),
             team_id=github_repo.team_id,
@@ -1158,7 +1161,7 @@ class TestCommitStatusChecks:
                 commit_sha="abc123",
                 branch="main",
                 pr_number=1,
-                snapshots=[{"identifier": "changed", "content_hash": "new_h"}],
+                snapshots=[SnapshotManifestItem(identifier="changed", content_hash="new_h")],
                 baseline_hashes={"changed": "old_h"},
             ),
             team_id=github_repo.team_id,
@@ -1172,10 +1175,28 @@ class TestCommitStatusChecks:
     @pytest.mark.parametrize(
         "enable_pr_comments, pr_number, snapshots, baseline_hashes, purpose",
         [
-            (False, 1, [{"identifier": "changed", "content_hash": "new_h"}], {"changed": "old_h"}, "review"),
-            (True, None, [{"identifier": "changed", "content_hash": "new_h"}], {"changed": "old_h"}, "review"),
-            (True, 1, [{"identifier": "snap", "content_hash": "same"}], {"snap": "same"}, "review"),
-            (True, 1, [{"identifier": "changed", "content_hash": "new_h"}], {"changed": "old_h"}, "observe"),
+            (
+                False,
+                1,
+                [SnapshotManifestItem(identifier="changed", content_hash="new_h")],
+                {"changed": "old_h"},
+                "review",
+            ),
+            (
+                True,
+                None,
+                [SnapshotManifestItem(identifier="changed", content_hash="new_h")],
+                {"changed": "old_h"},
+                "review",
+            ),
+            (True, 1, [SnapshotManifestItem(identifier="snap", content_hash="same")], {"snap": "same"}, "review"),
+            (
+                True,
+                1,
+                [SnapshotManifestItem(identifier="changed", content_hash="new_h")],
+                {"changed": "old_h"},
+                "observe",
+            ),
         ],
         ids=["toggle_off", "no_pr", "no_changes", "observe_purpose"],
     )
@@ -1245,8 +1266,8 @@ class TestCommitStatusChecks:
                 branch="master",
                 pr_number=None,
                 snapshots=[
-                    {"identifier": "changed", "content_hash": "new_h"},
-                    {"identifier": "added", "content_hash": "brand_new"},
+                    SnapshotManifestItem(identifier="changed", content_hash="new_h"),
+                    SnapshotManifestItem(identifier="added", content_hash="brand_new"),
                 ],
                 baseline_hashes={"changed": "old_h"},
                 purpose="observe",
@@ -1280,7 +1301,7 @@ class TestCommitStatusChecks:
                 commit_sha="abc123",
                 branch="master",
                 pr_number=None,
-                snapshots=[{"identifier": "snap", "content_hash": "same"}],
+                snapshots=[SnapshotManifestItem(identifier="snap", content_hash="same")],
                 baseline_hashes={"snap": "same"},
                 purpose="observe",
             ),
@@ -1307,7 +1328,7 @@ class TestCommitStatusChecks:
                 commit_sha="abc123",
                 branch="main",
                 pr_number=None,
-                snapshots=[{"identifier": "snap", "content_hash": "new_h"}],
+                snapshots=[SnapshotManifestItem(identifier="snap", content_hash="new_h")],
                 baseline_hashes={"snap": "old_h"},
             ),
             team_id=github_repo.team_id,
@@ -1331,7 +1352,7 @@ class TestCommitStatusChecks:
                 commit_sha="abc123",
                 branch="main",
                 pr_number=None,
-                snapshots=[{"identifier": "snap", "content_hash": "new_h"}],
+                snapshots=[SnapshotManifestItem(identifier="snap", content_hash="new_h")],
                 baseline_hashes={"snap": "old_h"},
             ),
             team_id=github_repo.team_id,
@@ -1365,7 +1386,7 @@ class TestCommitStatusChecks:
                 commit_sha="abc123",
                 branch="main",
                 pr_number=1,
-                snapshots=[{"identifier": "snap", "content_hash": "h1"}],
+                snapshots=[SnapshotManifestItem(identifier="snap", content_hash="h1")],
                 baseline_hashes={},
             ),
             team_id=repo.team_id,
@@ -1388,7 +1409,7 @@ class TestCommitStatusChecks:
                 commit_sha="abc123",
                 branch="main",
                 pr_number=1,
-                snapshots=[{"identifier": "snap", "content_hash": "h1"}],
+                snapshots=[SnapshotManifestItem(identifier="snap", content_hash="h1")],
                 baseline_hashes={},
             ),
             team_id=repo.team_id,
@@ -1415,7 +1436,7 @@ class TestRunSupersession:
                 commit_sha=commit_sha,
                 branch=branch,
                 pr_number=1,
-                snapshots=[{"identifier": "snap", "content_hash": commit_sha}],
+                snapshots=[SnapshotManifestItem(identifier="snap", content_hash=commit_sha)],
                 baseline_hashes={},
             ),
             team_id=repo.team_id,
@@ -1525,7 +1546,7 @@ class TestRunSupersession:
                 commit_sha="clean",
                 branch="feat/x",
                 pr_number=1,
-                snapshots=[{"identifier": "snap", "content_hash": "same"}],
+                snapshots=[SnapshotManifestItem(identifier="snap", content_hash="same")],
                 baseline_hashes={"snap": "same"},
             ),
             team_id=repo.team_id,
@@ -1573,7 +1594,7 @@ class TestQuarantineStamping:
         identifiers_and_hashes: list of (identifier, content_hash)
         baseline: dict of identifier -> baseline_hash (for _resolve_baselines mock)
         """
-        snapshots = [{"identifier": ident, "content_hash": h} for ident, h in identifiers_and_hashes]
+        snapshots = [SnapshotManifestItem(identifier=ident, content_hash=h) for ident, h in identifiers_and_hashes]
         run, _ = logic.create_run(
             CreateRunInput(
                 repo_id=repo.id,
@@ -1778,7 +1799,7 @@ class TestRecomputeRun:
         return logic.create_repo(team_id=team.id, repo_external_id=77777, repo_full_name="org/test-repo")
 
     def _create_completed_run(self, repo, mocker, identifiers_and_hashes, baseline=None, metadata=None):
-        snapshots = [{"identifier": ident, "content_hash": h} for ident, h in identifiers_and_hashes]
+        snapshots = [SnapshotManifestItem(identifier=ident, content_hash=h) for ident, h in identifiers_and_hashes]
         run, _ = logic.create_run(
             CreateRunInput(
                 repo_id=repo.id,
@@ -2266,8 +2287,8 @@ class TestMergeBaseBaselineHealing:
                 branch="my-branch",
                 pr_number=1,
                 snapshots=[
-                    {"identifier": "existing", "content_hash": "h1"},
-                    {"identifier": "healed", "content_hash": "h2"},
+                    SnapshotManifestItem(identifier="existing", content_hash="h1"),
+                    SnapshotManifestItem(identifier="healed", content_hash="h2"),
                 ],
             ),
             team_id=repo.team_id,
@@ -2324,9 +2345,9 @@ class TestMergeBaseBaselineHealing:
                 branch="master",
                 pr_number=None,
                 snapshots=[
-                    {"identifier": "story1", "content_hash": "h1"},
-                    {"identifier": "story2", "content_hash": "h2"},
-                    {"identifier": "story3", "content_hash": "h3"},
+                    SnapshotManifestItem(identifier="story1", content_hash="h1"),
+                    SnapshotManifestItem(identifier="story2", content_hash="h2"),
+                    SnapshotManifestItem(identifier="story3", content_hash="h3"),
                 ],
             ),
             team_id=repo.team_id,
@@ -2354,7 +2375,7 @@ class TestMergeBaseBaselineHealing:
                 commit_sha="abc",
                 branch="my-branch",
                 pr_number=1,
-                snapshots=[{"identifier": "flaky", "content_hash": "branch_hash"}],
+                snapshots=[SnapshotManifestItem(identifier="flaky", content_hash="branch_hash")],
             ),
             team_id=repo.team_id,
         )
@@ -2604,7 +2625,7 @@ class TestVerifyUploadsAndCreateArtifacts:
                 commit_sha="sha",
                 branch="main",
                 pr_number=None,
-                snapshots=[{"identifier": "Card", "content_hash": server_hash}],
+                snapshots=[SnapshotManifestItem(identifier="Card", content_hash=server_hash)],
             ),
             team_id=repo.team_id,
         )
@@ -2629,12 +2650,14 @@ class TestVerifyUploadsAndCreateArtifacts:
 
         def create_run_with_images(count: int, color_offset: int) -> tuple[Run, dict[str, bytes]]:
             images: dict[str, bytes] = {}
-            snapshots: list[dict[str, str]] = []
+            snapshots: list[SnapshotManifestItem] = []
             for index in range(count):
                 png = self._png((color_offset + index, 20, 30, 255))
                 content_hash = hash_image(png)
                 images[content_hash] = png
-                snapshots.append({"identifier": f"Card-{color_offset}-{index}", "content_hash": content_hash})
+                snapshots.append(
+                    SnapshotManifestItem(identifier=f"Card-{color_offset}-{index}", content_hash=content_hash)
+                )
 
             run, _ = logic.create_run(
                 CreateRunInput(
@@ -2668,11 +2691,11 @@ class TestVerifyUploadsAndCreateArtifacts:
         from products.visual_review.backend.hashing import hash_image
 
         mocker.patch.object(logic, "ARTIFACT_HASH_BATCH_SIZE", 2)
-        snapshots: list[dict[str, str]] = []
+        snapshots: list[SnapshotManifestItem] = []
         for index, color in enumerate([(10, 20, 30, 255), (40, 50, 60, 255), (70, 80, 90, 255)]):
             content_hash = hash_image(self._png(color))
             logic.get_or_create_artifact(repo.id, content_hash, f"visual_review/{content_hash}")
-            snapshots.append({"identifier": f"Card-{index}", "content_hash": content_hash})
+            snapshots.append(SnapshotManifestItem(identifier=f"Card-{index}", content_hash=content_hash))
 
         run, _ = logic.create_run(
             CreateRunInput(
@@ -2708,8 +2731,8 @@ class TestVerifyUploadsAndCreateArtifacts:
                 branch="main",
                 pr_number=None,
                 snapshots=[
-                    {"identifier": "Good", "content_hash": good_hash},
-                    {"identifier": "Bad", "content_hash": bad_claim},
+                    SnapshotManifestItem(identifier="Good", content_hash=good_hash),
+                    SnapshotManifestItem(identifier="Bad", content_hash=bad_claim),
                 ],
             ),
             team_id=repo.team_id,
@@ -2734,7 +2757,7 @@ class TestVerifyUploadsAndCreateArtifacts:
                 commit_sha="sha",
                 branch="main",
                 pr_number=None,
-                snapshots=[{"identifier": "Card", "content_hash": "a" * 64}],
+                snapshots=[SnapshotManifestItem(identifier="Card", content_hash="a" * 64)],
             ),
             team_id=repo.team_id,
         )
