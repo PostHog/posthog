@@ -1970,7 +1970,7 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vi
         body.is_valid(raise_exception=True)
 
         goal = body.validated_data["goal"]
-        # The goal itself is customer text, so only its length travels with the telemetry below.
+        # The goal is customer text, so only its length goes into telemetry.
         draft_properties: dict[str, Any] = {"goal_length": len(goal), "team_id": self.team_id}
 
         try:
@@ -1984,8 +1984,7 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vi
                 include_business_context=get_authenticator_scopes(request.successful_authenticator) is None,
             )
         except DraftError:
-            # Reported as its own event rather than skipped, so the AI path's failure rate is
-            # visible next to its conversion rate instead of looking like user abandonment.
+            # Report failures too, so model errors don't read as user abandonment.
             report_user_action(
                 cast(User, request.user),
                 "replay_vision_scanner_drafted",
@@ -2005,7 +2004,7 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vi
                 **draft_properties,
                 "success": True,
                 "scanner_type": drafted.scanner_type,
-                # Whether the goal mapped to a real event filter, or the draft fell back to no targeting.
+                # Whether the goal mapped to a real event filter or fell back to no targeting.
                 "has_query": bool(drafted.query),
             },
             team=self.team,

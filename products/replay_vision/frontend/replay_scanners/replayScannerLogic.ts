@@ -1607,13 +1607,12 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                 persistDraft()
             },
 
-            // The AI counterpart of startFromTemplate's capture. Fires on the request, not the result,
-            // so an abandoned or failed draft still counts as having entered the path.
+            // Fires on request rather than result, so failed drafts still count as entering the AI path.
             draftScannerFromGoal: ({ goal }) => {
                 posthog.capture('replay_vision_scanner_creation_started', {
                     creation_method: 'ai',
                     template_key: null,
-                    // Length only. The goal itself is customer text and stays out of the event.
+                    // The goal is customer text, so only its length is captured.
                     goal_length: goal.trim().length,
                 })
             },
@@ -1691,8 +1690,7 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                 persistDraft()
             },
             startFromTemplate: ({ templateKey }) => {
-                // Paired with the AI capture in draftScannerFromGoal: the two entry points a user can
-                // pick between, so the funnel to replay_vision_scanner_created can be split by path.
+                // Counterpart of the AI capture, so the creation funnel can split by path.
                 posthog.capture('replay_vision_scanner_creation_started', {
                     creation_method: templateKey ? 'template' : 'scratch',
                     template_key: templateKey,

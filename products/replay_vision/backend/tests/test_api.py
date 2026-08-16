@@ -1056,9 +1056,7 @@ class TestScannerLifecycleTelemetry(_VisionAPITestCase):
     def test_draft_reports_outcome(
         self, _name: str, error: Exception | None, expected_status: int, expected_success: bool
     ) -> None:
-        # Scanners drafted by AI and scanners started from a template both land on the same
-        # create event, so this is the only event that marks the AI path. A failed draft that
-        # reported nothing would be indistinguishable from the user walking away.
+        # A draft that reports nothing would read as user abandonment instead of a model failure.
         self.organization.is_ai_data_processing_approved = True
         self.organization.save()
         drafted = ScannerDraft(

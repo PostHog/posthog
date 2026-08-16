@@ -1261,8 +1261,7 @@ describe('replayScannerLogic', () => {
     })
 
     describe('creation path telemetry', () => {
-        // Both paths finish on the same replay_vision_scanner_created event, so these events are
-        // the only thing separating "set up with AI" from picking a template.
+        // Both paths end on the same created event, so these captures are the only path marker.
         it.each([
             ['dead_end', 'template'],
             [null, 'scratch'],
