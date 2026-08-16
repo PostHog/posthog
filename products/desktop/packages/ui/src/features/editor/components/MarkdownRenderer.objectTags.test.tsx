@@ -104,6 +104,22 @@ describe("object tags in agent markdown", () => {
     expect(screen.getByText("One-liner")).toBeDefined();
   });
 
+  it.each([
+    [
+      "a list item",
+      '- Signups jumped:\n\n  <hogql display="block" title="Nested chart">SELECT 1</hogql>\n',
+    ],
+    [
+      "a blockquote",
+      '> Note:\n>\n> <hogql display="block" title="Nested chart">SELECT 1</hogql>\n',
+    ],
+  ])("renders a block tag nested in %s as a chart card", (_where, content) => {
+    renderMarkdown(content);
+    expect(screen.getByTestId("report-chart")).toBeDefined();
+    expect(screen.getByText("Nested chart")).toBeDefined();
+    expect(screen.queryByText(/SELECT 1/)).toBeNull();
+  });
+
   it("leaves tags inside code fences literal", () => {
     const { container } = renderMarkdown(
       'Example:\n\n```xml\n<insight id="9pQx3">label</insight>\n```\n',

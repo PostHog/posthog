@@ -125,15 +125,15 @@ function blockNode(tag: ParsedTag): RootContent | null {
   return { type: "code", lang: "posthog-chart", value: JSON.stringify(spec) };
 }
 
-function convert(tag: ParsedTag, atRoot: boolean): RootContent | null {
-  if (atRoot && tag.attrs.display === "block") {
+function convert(tag: ParsedTag, inFlow: boolean): RootContent | null {
+  if (inFlow && tag.attrs.display === "block") {
     const block = blockNode(tag);
     if (block) return block;
   }
   const inline = inlineNode(tag);
   if (!inline) return null;
   // A chip at block level needs a paragraph around it to flow as text.
-  return atRoot
+  return inFlow
     ? ({ type: "paragraph", children: [inline] } as RootContent)
     : (inline as RootContent);
 }
@@ -153,13 +153,13 @@ function startsKnownTag(value: string): boolean {
 function consumeHtml(
   children: RootContent[],
   index: number,
-  atRoot: boolean,
+  inFlow: boolean,
 ): { nodes: RootContent[]; nextIndex: number } | null {
   const value = (children[index] as { value: string }).value;
 
   const complete = matchCompleteTag(value);
   if (complete) {
-    const node = convert(complete, atRoot);
+    const node = convert(complete, inFlow);
     return { nodes: node ? [node] : [], nextIndex: index + 1 };
   }
 
@@ -174,7 +174,7 @@ function consumeHtml(
         const label = children.slice(index + 1, j) as PhrasingContent[];
         const node = convert(
           { kind: open.kind, attrs: open.attrs, labelNodes: label },
-          atRoot,
+          inFlow,
         );
         return { nodes: node ? [node] : [], nextIndex: j + 1 };
       }
@@ -221,20 +221,32 @@ function liftParagraphBlockTag(paragraph: Parent): RootContent | null {
   });
 }
 
-function transformChildren(parent: Parent, atRoot: boolean): void {
+/**
+ * MDAST containers whose children are block content, so a lifted chart code
+ * node is valid inside them. Phrasing containers (paragraph, heading,
+ * emphasis) are absent on purpose: a block tag nested in their inline flow
+ * stays an inline chip rather than becoming an invalid nested block.
+ */
+const FLOW_CONTAINERS = new Set([
+  "listItem",
+  "blockquote",
+  "footnoteDefinition",
+]);
+
+function transformChildren(parent: Parent, inFlow: boolean): void {
   const out: RootContent[] = [];
   const children = parent.children as RootContent[];
   for (let i = 0; i < children.length; i++) {
     const child = children[i];
     if (child.type === "html") {
-      const consumed = consumeHtml(children, i, atRoot);
+      const consumed = consumeHtml(children, i, inFlow);
       if (consumed) {
         out.push(...consumed.nodes);
         i = consumed.nextIndex - 1;
         continue;
       }
     }
-    if (atRoot && child.type === "paragraph") {
+    if (inFlow && child.type === "paragraph") {
       const lifted = liftParagraphBlockTag(child as Parent);
       if (lifted) {
         out.push(lifted);
@@ -242,7 +254,7 @@ function transformChildren(parent: Parent, atRoot: boolean): void {
       }
     }
     if ("children" in child) {
-      transformChildren(child as Parent, false);
+      transformChildren(child as Parent, FLOW_CONTAINERS.has(child.type));
     }
     out.push(child);
   }
