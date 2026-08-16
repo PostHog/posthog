@@ -145,7 +145,11 @@ pub fn start_coordinator_with_deadline(
             name: name.to_string(),
             leader_lease_ttl,
             keepalive_interval: Duration::from_secs(keepalive_secs),
-            election_retry_interval: Duration::from_secs(1),
+            // Short enough that a failover never waits on the leader-key
+            // watch alone.
+            standby_poll_interval: Duration::from_millis(500),
+            run_retry_backoff: Duration::from_millis(10),
+            backoff_decay_window: Duration::from_secs(300),
             rebalance_debounce_interval: Duration::from_millis(100),
             reconcile_interval: Duration::from_millis(500),
             // Callers default this to a day: these tests deliberately
@@ -160,7 +164,10 @@ pub fn start_coordinator_with_deadline(
         None,
     );
     let token = cancel.child_token();
-    tokio::spawn(async move { coordinator.run(token).await })
+    tokio::spawn(async move {
+        coordinator.run(token).await;
+        Ok(())
+    })
 }
 
 pub struct PodHandles {
@@ -686,7 +693,10 @@ pub fn start_coordinator_reconcile_parked(
         None,
     );
     let token = cancel.child_token();
-    tokio::spawn(async move { coordinator.run(token).await })
+    tokio::spawn(async move {
+        coordinator.run(token).await;
+        Ok(())
+    })
 }
 
 pub fn start_coordinator_with_debounce(
@@ -705,7 +715,10 @@ pub fn start_coordinator_with_debounce(
         None,
     );
     let token = cancel.child_token();
-    tokio::spawn(async move { coordinator.run(token).await })
+    tokio::spawn(async move {
+        coordinator.run(token).await;
+        Ok(())
+    })
 }
 
 pub fn start_pod_slow(
@@ -801,14 +814,27 @@ pub async fn store_at(endpoint: &str, prefix: &str) -> Arc<PersonhogStore> {
 
 /// A byte-forwarding TCP proxy for fault-injecting a component's etcd
 /// connection: `sever` breaks every live connection (in-flight streams
-/// error; reconnects still succeed), and `set_blackholed(true)` also
-/// kills new connections on accept, so recovery is impossible until it
-/// is lifted.
+/// error; reconnects still succeed), `set_blackholed(true)` also kills
+/// new connections on accept, so recovery is impossible until it is
+/// lifted, and `set_hanging(true)` accepts them and then does nothing.
+///
+/// The three are different failures, and the difference matters. Severed
+/// and blackholed both fail *fast* — the client gets a reset and an error
+/// it can act on. Hanging is the silent partition: the connection is
+/// established, the request goes out, and no answer ever comes, so a
+/// caller with no timeout of its own waits for the transport rather than
+/// for anything it chose.
 pub struct FlakyProxy {
     /// Endpoint URL to hand to `store_at`.
     pub endpoint: String,
     conns: Arc<StdMutex<Vec<tokio::task::JoinHandle<()>>>>,
+    /// Accepted-and-parked sockets, held open so the peer sees a live
+    /// connection that never answers. Dropping them would turn the hang
+    /// into a reset, which is the failure this mode exists to not be.
+    parked: Arc<StdMutex<Vec<TcpStream>>>,
     blackholed: Arc<AtomicBool>,
+    hanging: Arc<AtomicBool>,
+    accepted: Arc<AtomicUsize>,
     listener: tokio::task::JoinHandle<()>,
 }
 
@@ -818,16 +844,30 @@ impl FlakyProxy {
         let endpoint = format!("http://{}", socket.local_addr().expect("proxy addr"));
         let conns: Arc<StdMutex<Vec<tokio::task::JoinHandle<()>>>> =
             Arc::new(StdMutex::new(Vec::new()));
+        let parked: Arc<StdMutex<Vec<TcpStream>>> = Arc::new(StdMutex::new(Vec::new()));
         let blackholed = Arc::new(AtomicBool::new(false));
+        let hanging = Arc::new(AtomicBool::new(false));
+        let accepted = Arc::new(AtomicUsize::new(0));
+        let accepted_bg = Arc::clone(&accepted);
         let conns_bg = Arc::clone(&conns);
+        let parked_bg = Arc::clone(&parked);
         let blackholed_bg = Arc::clone(&blackholed);
+        let hanging_bg = Arc::clone(&hanging);
         let listener = tokio::spawn(async move {
             loop {
                 let Ok((mut client, _)) = socket.accept().await else {
                     return;
                 };
+                accepted_bg.fetch_add(1, Ordering::SeqCst);
                 if blackholed_bg.load(Ordering::SeqCst) {
                     drop(client);
+                    continue;
+                }
+                if hanging_bg.load(Ordering::SeqCst) {
+                    // Held rather than dropped: the peer must see a
+                    // connection that is open and silent, not one that
+                    // was refused.
+                    parked_bg.lock().unwrap().push(client);
                     continue;
                 }
                 let pump = tokio::spawn(async move {
@@ -842,9 +882,22 @@ impl FlakyProxy {
         Self {
             endpoint,
             conns,
+            parked,
             blackholed,
+            hanging,
+            accepted,
             listener,
         }
+    }
+
+    /// How many connections the proxy has accepted since it started.
+    ///
+    /// A blackholed proxy drops each one immediately, so a client that
+    /// keeps retrying keeps climbing this — which is what makes "it is
+    /// still trying" a fact a test can wait on rather than a duration it
+    /// hopes is long enough.
+    pub fn accepted(&self) -> usize {
+        self.accepted.load(Ordering::SeqCst)
     }
 
     /// Break every live connection; the streams running over them error
@@ -858,12 +911,23 @@ impl FlakyProxy {
     pub fn set_blackholed(&self, blackholed: bool) {
         self.blackholed.store(blackholed, Ordering::SeqCst);
     }
+
+    /// Accept new connections and then answer nothing on them.
+    ///
+    /// The silent partition: a caller that sets no timeout of its own
+    /// waits for the transport to give up rather than for a deadline it
+    /// chose, which is what makes an unraced etcd call outlast the budget
+    /// its component was given.
+    pub fn set_hanging(&self, hanging: bool) {
+        self.hanging.store(hanging, Ordering::SeqCst);
+    }
 }
 
 impl Drop for FlakyProxy {
     fn drop(&mut self) {
         self.listener.abort();
         self.sever();
+        self.parked.lock().unwrap().clear();
     }
 }
 

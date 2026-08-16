@@ -5,6 +5,33 @@ use std::time::Duration;
 use common_kafka::config::KafkaConfig;
 use envconfig::Envconfig;
 use personhog_coordination::authority::AuthorityClock;
+use personhog_coordination::pod::{
+    PodConfig, DRAIN_SETUP_BOUND, REVOKE_TIMEOUT, SHUTDOWN_FENCE_BOUND,
+};
+
+/// How long the lifecycle manager lets the coordination component exit
+/// gracefully, and the global window both phases must fit. Defined here
+/// rather than at the registration sites because
+/// `validate_lease_timescales` checks the pod's whole teardown — drain,
+/// fence, keepalive join, revoke — against the coordination budget, and
+/// a budget defined where only some of those terms are visible is how
+/// the sum came to be understated.
+pub const COORDINATION_GRACEFUL_SHUTDOWN: Duration = Duration::from_secs(55);
+/// The phase-1 components' shared budget: the gRPC server and the
+/// producer stop in parallel after coordination finishes.
+pub const PHASE1_GRACEFUL_SHUTDOWN: Duration = Duration::from_secs(15);
+/// Phase 0 (coordination) plus phase 1, with slack. Must stay under the
+/// chart's termination grace period so shutdown concludes process-side.
+pub const GLOBAL_SHUTDOWN_TIMEOUT: Duration = Duration::from_secs(75);
+
+// The global window must fit both phases with room, or the manager's
+// own deadline fires before the phases it supervises — the understated
+// sum this file's validation exists to refuse, one level up. Checked at
+// compile time because every term is a constant.
+const _: () = assert!(
+    COORDINATION_GRACEFUL_SHUTDOWN.as_secs() + PHASE1_GRACEFUL_SHUTDOWN.as_secs()
+        < GLOBAL_SHUTDOWN_TIMEOUT.as_secs()
+);
 
 #[derive(Envconfig, Clone)]
 pub struct Config {
@@ -580,7 +607,47 @@ impl Config {
                 self.lease_ttl,
             ));
         }
+        // The pod's graceful exit — the drain, the shutdown-path fence,
+        // one keepalive round's join, then the bounded revoke — has to
+        // fit the coordination component's budget, or the lifecycle
+        // manager abandons the component mid-teardown and phase 1 kills
+        // the server and producer while this pod is still the registered
+        // owner. The drain, fence, and revoke bounds are constants; the
+        // keepalive join is the one term an operator can move.
+        // Every term but the keepalive join is a constant; the join is
+        // the one an operator can move. The drain term reads the same
+        // `base_pod_config` the running pod is built from, so a future
+        // drain knob cannot decouple the validated sum from the deployed
+        // one.
+        let drain = self.base_pod_config().drain_timeout;
+        let teardown =
+            DRAIN_SETUP_BOUND + drain + SHUTDOWN_FENCE_BOUND + heartbeat + REVOKE_TIMEOUT;
+        if teardown >= COORDINATION_GRACEFUL_SHUTDOWN {
+            return Err(format!(
+                "the pod's teardown ({teardown:?} = setup {DRAIN_SETUP_BOUND:?} + drain \
+                 {drain:?} + fence {SHUTDOWN_FENCE_BOUND:?} + a {heartbeat:?} keepalive join \
+                 + revoke {REVOKE_TIMEOUT:?}) must finish inside the coordination \
+                 component's {COORDINATION_GRACEFUL_SHUTDOWN:?} graceful shutdown budget; \
+                 lower HEARTBEAT_INTERVAL_SECS"
+            ));
+        }
         Ok(())
+    }
+
+    /// The coordination-relevant half of the pod's configuration, shared
+    /// by `main`'s construction and the teardown validation above so the
+    /// two cannot drift: a drain or heartbeat knob added here is summed
+    /// by the validation automatically, where one added at the
+    /// construction site would be invisible to it.
+    pub fn base_pod_config(&self) -> PodConfig {
+        PodConfig {
+            lease_ttl: self.lease_ttl,
+            heartbeat_interval: self.heartbeat_interval(),
+            // Zero would park every warm on an unobtainable permit and
+            // wedge handoffs; treat it as fully sequential instead.
+            warm_concurrency: self.warm_concurrency.max(1),
+            ..Default::default()
+        }
     }
 
     /// Every relation the fenced produce path depends on, checked at
@@ -779,11 +846,46 @@ mod tests {
 }
 
 #[cfg(test)]
+mod lease_timescale_tests {
+    use super::*;
+
+    /// The pod's teardown must fit the coordination component's budget,
+    /// and the keepalive join is the one term an operator can move. A
+    /// heartbeat the renewal margin accepts can still blow the budget —
+    /// that band is exactly what a check on the margin alone missed.
+    #[test]
+    fn a_teardown_the_shutdown_budget_cannot_fit_is_refused() {
+        let mut config =
+            Config::init_from_hashmap(&std::collections::HashMap::new()).expect("defaults");
+        config.lease_ttl = 30;
+        // Inside the 20s renewal margin, so the pair check passes — but
+        // setup (5s) + drain (30s) + fence (3s) + a 16s join + revoke
+        // (5s) = 59s overruns the 55s budget. Sixteen, not a rounder
+        // number, because it discriminates on every term: without the
+        // setup bound the sum is 54s, which a broken validation would
+        // accept — a 17s join sums to exactly 55s either way and pins
+        // nothing about the setup term.
+        config.heartbeat_interval_secs = 16;
+        assert!(config.validate_lease_timescales().is_err());
+
+        config.heartbeat_interval_secs = 10;
+        assert!(
+            config.validate_lease_timescales().is_ok(),
+            "the default heartbeat must fit the budget"
+        );
+    }
+}
+
+#[cfg(test)]
 mod fencing_timescale_tests {
     use super::*;
 
+    /// The envconfig defaults with no environment behind them, so an
+    /// ambient variable in a developer's shell cannot change what these
+    /// tests assert.
     fn fenced(lease_ttl: i64) -> Config {
-        let mut config = Config::init_from_env().expect("defaults");
+        let mut config =
+            Config::init_from_hashmap(&std::collections::HashMap::new()).expect("defaults");
         config.kafka_transactional_fencing = true;
         config.lease_gated_authority = true;
         config.lease_ttl = lease_ttl;

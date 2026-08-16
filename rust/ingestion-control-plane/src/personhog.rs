@@ -33,6 +33,20 @@ pub struct RawKv {
     pub lease: i64,
 }
 
+/// The freeze-quorum membership a handoff requires, from the same
+/// snapshot. `None` — nothing recorded, or a reference whose record is
+/// absent — is the coordinator's own fallback: require every live
+/// router.
+fn resolve_quorum<'a>(
+    quorums: &'a HashMap<String, Vec<String>>,
+    handoff: &'a HandoffState,
+) -> Option<&'a [String]> {
+    match &handoff.freeze_quorum_ref {
+        Some(id) => quorums.get(id).map(Vec::as_slice),
+        None => handoff.freeze_quorum.as_deref(),
+    }
+}
+
 /// The coordination prefix, parsed into records. Unparseable or unknown
 /// keys are carried as findings instead of failing the snapshot — an ops
 /// tool must render a broken keyspace, not error on it.
@@ -42,6 +56,9 @@ pub struct RawSnapshot {
     pub routers: Vec<(RegisteredRouter, i64)>,
     pub assignments: Vec<PartitionAssignment>,
     pub handoffs: Vec<HandoffState>,
+    /// Freeze-quorum membership by record id, so a handoff that refers
+    /// to one can be judged from the same snapshot.
+    pub freeze_quorums: HashMap<String, Vec<String>>,
     pub freeze_acks: Vec<RouterFreezeAck>,
     pub drained_acks: Vec<PodDrainedAck>,
     pub warmed_acks: Vec<PodWarmedAck>,
@@ -89,6 +106,10 @@ pub fn parse_snapshot(kvs: &[RawKv], prefix: &str, revision: i64) -> RawSnapshot
         } else if suffix.starts_with("handoffs/") {
             if let Some(handoff) = parse::<HandoffState>(kv, errors) {
                 snapshot.handoffs.push(handoff);
+            }
+        } else if let Some(id) = suffix.strip_prefix("freeze_quorums/") {
+            if let Some(members) = parse::<Vec<String>>(kv, errors) {
+                snapshot.freeze_quorums.insert(id.to_string(), members);
             }
         } else if suffix.starts_with("freeze_acks/") {
             if let Some(ack) = parse::<RouterFreezeAck>(kv, errors) {
@@ -223,13 +244,14 @@ fn waiting_on(
     freeze_acks: &[RouterFreezeAck],
     drained_acks: &[PodDrainedAck],
     warmed_acks: &[PodWarmedAck],
+    quorum: Option<&[String]>,
 ) -> Option<String> {
     match handoff.phase {
         HandoffPhase::Freezing => {
-            if freeze_quorum_met(routers, freeze_acks, handoff) {
+            if freeze_quorum_met(routers, freeze_acks, handoff, quorum) {
                 Some("freeze quorum met; waiting on the coordinator to advance".to_string())
             } else {
-                let missing = missing_freeze_ackers(routers, freeze_acks, handoff);
+                let missing = missing_freeze_ackers(routers, freeze_acks, handoff, quorum);
                 Some(format!(
                     "waiting on freeze acks from {}",
                     missing.join(", ")
@@ -424,6 +446,7 @@ pub fn derive_view(
                 &freeze_acks,
                 &drained_acks,
                 &warmed_acks,
+                resolve_quorum(&raw.freeze_quorums, h),
             );
             let new_owner_registered = pod_registered(&h.new_owner);
 
@@ -473,7 +496,12 @@ pub fn derive_view(
                 phase_age_secs: age,
                 past_deadline,
                 waiting_on: waiting,
-                missing_freeze_ackers: missing_freeze_ackers(&routers, &freeze_acks, h),
+                missing_freeze_ackers: missing_freeze_ackers(
+                    &routers,
+                    &freeze_acks,
+                    h,
+                    resolve_quorum(&raw.freeze_quorums, h),
+                ),
                 old_owner_registered: h.old_owner.as_deref().map(pod_registered),
                 new_owner_registered,
             }

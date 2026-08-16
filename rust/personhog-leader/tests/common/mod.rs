@@ -100,7 +100,11 @@ pub fn start_coordinator(
             name: "coordinator-0".to_string(),
             leader_lease_ttl: 10,
             keepalive_interval: Duration::from_secs(3),
-            election_retry_interval: Duration::from_secs(1),
+            // Short enough that a failover never waits on the leader-key
+            // watch alone.
+            standby_poll_interval: Duration::from_millis(500),
+            run_retry_backoff: Duration::from_millis(10),
+            backoff_decay_window: Duration::from_secs(300),
             rebalance_debounce_interval: Duration::from_millis(100),
             reconcile_interval: Duration::from_millis(500),
             // Effectively disabled: these tests park handoffs to assert
@@ -113,7 +117,10 @@ pub fn start_coordinator(
         None,
     );
     let token = cancel.child_token();
-    tokio::spawn(async move { coordinator.run(token).await })
+    tokio::spawn(async move {
+        coordinator.run(token).await;
+        Ok(())
+    })
 }
 
 // ── Router (for ack quorum) ─────────────────────────────────

@@ -48,17 +48,28 @@ fn production_handoff(p: Partition, h: &Handoff) -> HandoffState {
         phase: h.phase,
         started_at: 0,
         handoff_id: h.id.to_string(),
-        // The model always captures a snapshot (its Rebalance mirrors
-        // the production coordinator, which always writes one). The
-        // production `None` legacy fallback is a serialization concern
-        // pinned by unit tests, not a reachable state here. With
-        // `RouterJoin` in the action space the snapshot diverges from
-        // the live registry, and the production quorum predicate below
-        // is exercised on exactly that divergence.
-        freeze_quorum: Some(h.quorum.iter().map(|r| router_name(*r)).collect()),
+        // Membership lives beside the record in production, so the
+        // record carries neither form. `production_quorum` supplies it
+        // to the predicates that need it.
+        freeze_quorum: None,
+        freeze_quorum_ref: None,
         created_at_ms: 0,
         phase_entered_at_ms: 0,
     }
+}
+
+/// The membership a model handoff was created with, in the form the
+/// production quorum predicates take.
+///
+/// The model always captures a snapshot (its Rebalance mirrors the
+/// production coordinator, which always writes one). The production
+/// `None` fallback — an unrecorded membership — is a serialization
+/// concern pinned by unit tests, not a reachable state here. With
+/// `RouterJoin` in the action space the snapshot diverges from the live
+/// registry, and the production quorum predicate is exercised on
+/// exactly that divergence.
+fn production_quorum(h: &Handoff) -> Vec<String> {
+    h.quorum.iter().map(|r| router_name(*r)).collect()
 }
 
 /// Which produce-path protection the model runs with.
@@ -793,7 +804,12 @@ impl HandoffModel {
                         })
                     })
                     .collect();
-                if !freeze_quorum_met(&routers, &acks, &production_handoff(p, h)) {
+                if !freeze_quorum_met(
+                    &routers,
+                    &acks,
+                    &production_handoff(p, h),
+                    Some(&production_quorum(h)),
+                ) {
                     return None;
                 }
                 // Initial assignments (no old owner) skip the drain

@@ -3,8 +3,35 @@ use std::str::FromStr;
 
 use envconfig::Envconfig;
 use personhog_coordination::authority::AuthorityClock;
+use personhog_coordination::coordinator::REVOKE_TIMEOUT as COORDINATOR_REVOKE_TIMEOUT;
 use std::net::SocketAddr;
 use std::time::Duration;
+
+/// How long the lifecycle manager lets the coordinator component exit
+/// gracefully. Lives here rather than at the registration site because
+/// `validate_lease_timescales` has to check the teardown against it, and
+/// a budget defined where only one of the two is visible is how the
+/// revoke came to be bounded by the whole of it.
+pub const COORDINATOR_GRACEFUL_SHUTDOWN: Duration = Duration::from_secs(5);
+/// The gRPC server's phase-0 budget: it drains first while the
+/// coordination components keep serving its in-flight requests.
+pub const GRPC_GRACEFUL_SHUTDOWN: Duration = Duration::from_secs(15);
+/// The phase-1 coordination components' shared budget (routing table,
+/// coordinator, discovery, in parallel).
+pub const PHASE1_GRACEFUL_SHUTDOWN: Duration = Duration::from_secs(5);
+/// Both phases plus slack; kept under the chart's 40s termination grace
+/// so shutdown concludes process-side.
+pub const GLOBAL_SHUTDOWN_TIMEOUT: Duration = Duration::from_secs(25);
+
+// The global window must fit both phases with room, or the manager's
+// deadline fires before the phases it supervises. Compile-time, because
+// every term is a constant.
+const _: () = assert!(
+    GRPC_GRACEFUL_SHUTDOWN.as_secs() + PHASE1_GRACEFUL_SHUTDOWN.as_secs()
+        < GLOBAL_SHUTDOWN_TIMEOUT.as_secs()
+);
+const _: () =
+    assert!(COORDINATOR_GRACEFUL_SHUTDOWN.as_secs() <= PHASE1_GRACEFUL_SHUTDOWN.as_secs());
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ReplicaDiscoveryMode {
@@ -261,10 +288,13 @@ pub struct Config {
     pub coordinator_enabled: bool,
 
     /// Lease TTL for the coordinator leader election. A crashed leader
-    /// blocks every handoff until this expires and a survivor's campaign
-    /// fires, so the worst-case coordinator outage is roughly this plus
-    /// the election retry interval. Graceful exits revoke the lease and
-    /// fail over immediately.
+    /// blocks every handoff until this expires and a survivor takes
+    /// over. Survivors watch the leader key, so a succession follows the
+    /// key's deletion rather than a retry tick, and this TTL is what
+    /// bounds an ordinary outage. It also caps the wait a survivor paced
+    /// by repeated bad endings can add on top, so the worst case is
+    /// roughly twice this rather than unbounded in the pace. Graceful
+    /// exits revoke the lease and fail over immediately.
     #[envconfig(default = "5")]
     pub coordinator_lease_ttl: i64,
 
@@ -274,9 +304,25 @@ pub struct Config {
     #[envconfig(default = "1")]
     pub coordinator_keepalive_secs: u64,
 
-    /// Retry interval between a standby candidate's election campaigns.
-    #[envconfig(default = "1")]
-    pub coordinator_election_retry_secs: u64,
+    /// How long a standby candidate waits on its leader-key watch before
+    /// re-reading the key, and the base of the growing retry a candidate
+    /// backs off on when it cannot read the election at all. Bounds how
+    /// long a watch that stalls without erroring can hide an opening.
+    #[envconfig(default = "5")]
+    pub coordinator_standby_poll_secs: u64,
+
+    /// Base wait before campaigning again after a leadership term ended
+    /// badly. Doubles per consecutive bad ending, capped at the
+    /// coordinator lease TTL so a paced candidate is never slower to take
+    /// an open election than to wait out a crashed leader's lease.
+    #[envconfig(default = "500")]
+    pub coordinator_run_retry_backoff_ms: u64,
+
+    /// How long without a bad ending before that pace starts over.
+    /// Without it a bad spell leaves every candidate at the cap long
+    /// after etcd recovered.
+    #[envconfig(default = "300")]
+    pub coordinator_backoff_decay_secs: u64,
 
     /// Debounce interval (ms) for batching pod events before rebalancing
     #[envconfig(default = "1000")]
@@ -294,7 +340,8 @@ pub struct Config {
     /// satisfy its quorum: nothing else removes one whose new owner is
     /// alive, and an in-flight handoff pins its partition, so without
     /// this it waits for a human. Sized well above healthy handoffs,
-    /// which complete in seconds.
+    /// which complete in seconds. Zero disables the backstop entirely —
+    /// a wedged handoff then really does wait for a human.
     #[envconfig(default = "120")]
     pub coordinator_handoff_deadline_secs: u64,
 
@@ -314,10 +361,25 @@ pub struct Config {
 mod tests {
     use super::*;
 
+    /// The envconfig defaults with no environment behind them, so an
+    /// ambient `COORDINATOR_*` or `LEASE_TTL` in a developer's shell
+    /// cannot change what these tests assert.
+    fn default_config() -> Config {
+        Config::init_from_hashmap(&std::collections::HashMap::new()).expect("defaults")
+    }
+
     fn leased(lease_ttl: i64, heartbeat_interval_secs: u64) -> Config {
-        let mut config = Config::init_from_env().expect("defaults");
+        let mut config = default_config();
         config.lease_ttl = lease_ttl;
         config.heartbeat_interval_secs = heartbeat_interval_secs;
+        config
+    }
+
+    /// `leased`, in leader mode — where the coordinator can exist and
+    /// its knobs are therefore live.
+    fn leader_leased(lease_ttl: i64, heartbeat_interval_secs: u64) -> Config {
+        let mut config = leased(lease_ttl, heartbeat_interval_secs);
+        config.router_mode = RouterMode::Leader;
         config
     }
 
@@ -327,19 +389,22 @@ mod tests {
     /// handoff that needs its freeze ack with it.
     #[test]
     fn a_zero_heartbeat_is_refused() {
-        assert!(leased(10, 0).validate_lease_timescales().is_err());
+        assert!(leader_leased(10, 0).validate_lease_timescales().is_err());
+        // A replica router registers no lease, so the same pair is dead
+        // config there and must not refuse startup.
+        assert!(leased(10, 0).validate_lease_timescales().is_ok());
     }
 
     /// A heartbeat past the renewal margin exhausts the lease by sleeping,
     /// with the same result.
     #[test]
     fn a_heartbeat_the_lease_cannot_fit_is_refused() {
-        assert!(leased(10, 30).validate_lease_timescales().is_err());
+        assert!(leader_leased(10, 30).validate_lease_timescales().is_err());
     }
 
     #[test]
     fn a_heartbeat_well_inside_the_margin_is_accepted() {
-        assert!(leased(10, 2).validate_lease_timescales().is_ok());
+        assert!(leader_leased(10, 2).validate_lease_timescales().is_ok());
     }
 
     /// The coordinator election lease runs the same keepalive on its own
@@ -347,7 +412,7 @@ mod tests {
     /// self-fencing loop, stalling every handoff behind the coordinator.
     #[test]
     fn a_coordinator_keepalive_the_lease_cannot_fit_is_refused() {
-        let mut config = leased(10, 2);
+        let mut config = leader_leased(10, 2);
         config.coordinator_lease_ttl = 10;
         config.coordinator_keepalive_secs = 30;
         assert!(config.validate_lease_timescales().is_err());
@@ -356,11 +421,130 @@ mod tests {
         config.coordinator_keepalive_secs = 2;
         assert!(config.validate_lease_timescales().is_ok());
 
-        // A disabled coordinator never reads these knobs, so they must
-        // not be able to refuse startup.
+        // A coordinator that cannot exist never reads these knobs, so
+        // they must not be able to refuse startup — whether it is
+        // disabled by flag or by the router running in replica mode.
         config.coordinator_keepalive_secs = 0;
         config.coordinator_enabled = false;
         assert!(config.validate_lease_timescales().is_ok());
+        config.coordinator_enabled = true;
+        config.router_mode = RouterMode::Replica;
+        assert!(config.validate_lease_timescales().is_ok());
+    }
+
+    /// The router now sets every coordinator knob explicitly, so its
+    /// envconfig defaults — not `CoordinatorConfig::default()` — are what
+    /// production runs on. The reasoning for each number still lives on
+    /// the protocol's `Default` impl, which nothing else would notice
+    /// drifting from these. Every shared knob is pinned; a partial list
+    /// would leave the drift it exists to catch silent for the rest.
+    #[test]
+    fn the_router_defaults_match_the_protocols_own() {
+        let config = default_config();
+        let protocol = personhog_coordination::coordinator::CoordinatorConfig::default();
+
+        assert_eq!(config.coordinator_lease_ttl, protocol.leader_lease_ttl);
+        assert_eq!(
+            config.coordinator_keepalive_interval(),
+            protocol.keepalive_interval
+        );
+        assert_eq!(
+            config.coordinator_standby_poll_interval(),
+            protocol.standby_poll_interval
+        );
+        assert_eq!(
+            config.coordinator_run_retry_backoff(),
+            protocol.run_retry_backoff
+        );
+        assert_eq!(
+            config.coordinator_backoff_decay_window(),
+            protocol.backoff_decay_window
+        );
+        assert_eq!(
+            config.coordinator_rebalance_debounce_interval(),
+            protocol.rebalance_debounce_interval
+        );
+        assert_eq!(
+            config.coordinator_reconcile_interval(),
+            protocol.reconcile_interval
+        );
+        assert_eq!(
+            config.coordinator_handoff_deadline(),
+            protocol.handoff_deadline
+        );
+        assert_eq!(
+            config.coordinator_warming_deadline(),
+            protocol.warming_deadline
+        );
+    }
+
+    /// A zero reconcile interval panics the interval it drives, and the
+    /// panic retries through the whole run budget and then the process —
+    /// forever. Leader-mode only: a replica router never reads these.
+    #[test]
+    fn a_zero_router_pace_is_refused_in_leader_mode() {
+        let mut config = leased(10, 2);
+        config.router_mode = RouterMode::Leader;
+        config.router_reconcile_secs = 0;
+        assert!(config.validate_lease_timescales().is_err());
+
+        config.router_reconcile_secs = 5;
+        config.router_run_retry_backoff_ms = 0;
+        assert!(config.validate_lease_timescales().is_err());
+
+        config.router_run_retry_backoff_ms = 500;
+        assert!(config.validate_lease_timescales().is_ok());
+
+        // Dead config on a replica router must not refuse startup.
+        config.router_reconcile_secs = 0;
+        config.router_mode = RouterMode::Replica;
+        assert!(config.validate_lease_timescales().is_ok());
+    }
+
+    /// Each of the coordinator's three paced knobs is either a wait or
+    /// the window a wait decays over, so a zero turns the loop it paces
+    /// into one that runs as fast as etcd will answer — a standby reading
+    /// the leader key and creating a watch back to back, or a candidate
+    /// campaigning with a lease grant, a transaction and a revoke every
+    /// turn. None of them has a floor at the point of use.
+    #[test]
+    fn a_zero_coordinator_pace_is_refused() {
+        for zero in [
+            |c: &mut Config| c.coordinator_standby_poll_secs = 0,
+            |c: &mut Config| c.coordinator_run_retry_backoff_ms = 0,
+            |c: &mut Config| c.coordinator_backoff_decay_secs = 0,
+        ] {
+            let mut config = leader_leased(10, 2);
+            zero(&mut config);
+            assert!(
+                config.validate_lease_timescales().is_err(),
+                "a zero pace must refuse startup"
+            );
+        }
+    }
+
+    /// The coordinator's graceful exit joins its keepalive and then
+    /// revokes the election lease, and the lifecycle manager abandons the
+    /// component when its budget runs out. The keepalive join is not
+    /// raced against cancellation, so a keepalive interval close to the
+    /// renewal margin can spend the budget before the revoke is even
+    /// reached — leaving the successor to wait out the lease TTL that the
+    /// revoke exists to spare it.
+    #[test]
+    fn a_coordinator_teardown_that_cannot_fit_its_shutdown_budget_is_refused() {
+        let mut config = leader_leased(10, 2);
+        config.coordinator_lease_ttl = 5;
+        // Inside the renewal margin (3.33s), so the keepalive pair is
+        // valid — but a 3s join plus the 2s revoke reaches the whole 5s
+        // budget, which is the case a check on the revoke alone misses.
+        config.coordinator_keepalive_secs = 3;
+        assert!(config.validate_lease_timescales().is_err());
+
+        config.coordinator_keepalive_secs = 1;
+        assert!(
+            config.validate_lease_timescales().is_ok(),
+            "a teardown that fits must be accepted"
+        );
     }
 
     // ── ReplicaDiscoveryMode ──────────────────────────────────────────────────
@@ -541,16 +725,46 @@ impl Config {
     /// own pair of knobs, so it gets the same refusal: a coordinator
     /// that keeps fencing itself stalls every handoff behind it.
     pub fn validate_lease_timescales(&self) -> Result<(), String> {
-        Self::validate_keepalive_pair(
-            "HEARTBEAT_INTERVAL_SECS",
-            self.heartbeat_interval(),
-            "LEASE_TTL",
-            self.lease_ttl,
-        )?;
-        // Only where a coordinator can actually run: refusing startup
-        // over knobs a disabled coordinator never reads would turn dead
-        // config into an outage.
-        if !self.coordinator_enabled {
+        // Everything here is the routing table's, and the routing table
+        // only exists in leader mode — a replica router registers no
+        // lease and reads none of these, and refusing startup over dead
+        // config would turn it into an outage.
+        if self.router_mode == RouterMode::Leader {
+            Self::validate_keepalive_pair(
+                "HEARTBEAT_INTERVAL_SECS",
+                self.heartbeat_interval(),
+                "LEASE_TTL",
+                self.lease_ttl,
+            )?;
+            // The reconcile interval's zero panics
+            // `tokio::time::interval_at`, which ends the run, which
+            // retries the panic through the whole budget and then
+            // restarts the process — forever.
+            for (name, value) in [
+                ("ROUTER_RECONCILE_SECS", self.router_reconcile_interval()),
+                (
+                    "ROUTER_RUN_RETRY_BACKOFF_MS",
+                    Duration::from_millis(self.router_run_retry_backoff_ms),
+                ),
+                (
+                    "STASH_MAX_WAIT_MS",
+                    Duration::from_millis(self.stash_max_wait_ms),
+                ),
+            ] {
+                if value.is_zero() {
+                    return Err(format!(
+                        "{name} must be greater than zero: a zero either panics the \
+                         interval it drives, turns its retries into a hot loop, or \
+                         expires every stashed request the moment it arrives"
+                    ));
+                }
+            }
+        }
+        // Only where a coordinator can actually run — which takes both
+        // the flag and leader mode, since replica routers never register
+        // one: refusing startup over knobs a coordinator that cannot
+        // exist never reads would turn dead config into an outage.
+        if !self.coordinator_enabled || self.router_mode != RouterMode::Leader {
             return Ok(());
         }
         Self::validate_keepalive_pair(
@@ -558,7 +772,57 @@ impl Config {
             self.coordinator_keepalive_interval(),
             "COORDINATOR_LEASE_TTL",
             self.coordinator_lease_ttl,
-        )
+        )?;
+        for (name, value) in [
+            (
+                "COORDINATOR_STANDBY_POLL_SECS",
+                self.coordinator_standby_poll_interval(),
+            ),
+            (
+                "COORDINATOR_RUN_RETRY_BACKOFF_MS",
+                self.coordinator_run_retry_backoff(),
+            ),
+            (
+                "COORDINATOR_BACKOFF_DECAY_SECS",
+                self.coordinator_backoff_decay_window(),
+            ),
+            // Not a pace, but the same refusal for a worse failure: a
+            // zero period panics `tokio::time::interval`, and the panic
+            // ends the term, which retries the panic — a coordinator
+            // that never coordinates and never stops campaigning.
+            (
+                "COORDINATOR_RECONCILE_SECS",
+                self.coordinator_reconcile_interval(),
+            ),
+        ] {
+            if value.is_zero() {
+                return Err(format!(
+                    "{name} must be greater than zero: every one of these paces a loop or \
+                     is the window a pace decays over, and a zero either hot-loops against \
+                     etcd or panics the interval it drives"
+                ));
+            }
+        }
+        // The coordinator's graceful exit has to fit the budget the
+        // lifecycle manager gives it, and the revoke is only its last
+        // step. Ahead of it the keepalive join runs unraced against
+        // cancellation for at most one renewal round, which is bounded
+        // by the keepalive interval — the pair check above has already
+        // guaranteed the interval sits under the renewal margin, so the
+        // margin never binds here. Every other await between observing
+        // cancellation and the revoke is raced against it. Checked here
+        // because this is where both halves of the relation are known.
+        let keepalive_bound = self.coordinator_keepalive_interval();
+        let teardown = keepalive_bound + COORDINATOR_REVOKE_TIMEOUT;
+        if teardown >= COORDINATOR_GRACEFUL_SHUTDOWN {
+            return Err(format!(
+                "the coordinator's teardown ({teardown:?} = a {keepalive_bound:?} keepalive \
+                 join plus a {COORDINATOR_REVOKE_TIMEOUT:?} lease revoke) must finish inside \
+                 its {COORDINATOR_GRACEFUL_SHUTDOWN:?} graceful shutdown budget; lower \
+                 COORDINATOR_KEEPALIVE_SECS"
+            ));
+        }
+        Ok(())
     }
 
     fn validate_keepalive_pair(
@@ -590,8 +854,16 @@ impl Config {
         Duration::from_secs(self.coordinator_keepalive_secs)
     }
 
-    pub fn coordinator_election_retry_interval(&self) -> Duration {
-        Duration::from_secs(self.coordinator_election_retry_secs)
+    pub fn coordinator_standby_poll_interval(&self) -> Duration {
+        Duration::from_secs(self.coordinator_standby_poll_secs)
+    }
+
+    pub fn coordinator_run_retry_backoff(&self) -> Duration {
+        Duration::from_millis(self.coordinator_run_retry_backoff_ms)
+    }
+
+    pub fn coordinator_backoff_decay_window(&self) -> Duration {
+        Duration::from_secs(self.coordinator_backoff_decay_secs)
     }
 
     pub fn coordinator_rebalance_debounce_interval(&self) -> Duration {

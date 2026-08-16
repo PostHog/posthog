@@ -272,6 +272,13 @@ impl Default for RoutingTableConfig {
 /// `RouterFreezeAck` so the coordinator can collect freeze quorum. At
 /// `Complete` the table flips to the new owner and `drain_stash` flushes
 /// any buffered requests through the standard forwarding path.
+/// How long any of the routing table's lease revokes may take before
+/// its exit path stops waiting. The routing table's own bound, not the
+/// coordinator's constant: they happen to agree today, but each answers
+/// to its own component budget, and sharing one number across two
+/// budgets is how a retune of either silently reshapes the other.
+const REVOKE_TIMEOUT: Duration = Duration::from_secs(2);
+
 pub struct RoutingTable {
     store: Arc<PersonhogStore>,
     config: RoutingTableConfig,
@@ -401,7 +408,9 @@ impl RoutingTable {
     /// joined, lease revoked best-effort (an unreachable etcd lets it
     /// lapse by TTL, which quorums already treat as departure) — so the
     /// supervisor above can always start the next attempt from a clean
-    /// slate.
+    /// slate. The cancellation exits before registration are the one
+    /// shape apart: nothing exists to tear down yet, and the mid-
+    /// registration exit revokes its own lease inline.
     ///
     /// The `handler` implements stashing and drain. It's invoked on handoff
     /// phase transitions: `begin_stash` at Freezing, `drain_stash` at Complete.
@@ -417,10 +426,31 @@ impl RoutingTable {
         // stall every handoff frozen in the meantime.
         const BOOTSTRAP_DEADLINE: Duration = Duration::from_secs(30);
 
-        // Register this router so the coordinator can count it for ack quorum
+        // Register this router so the coordinator can count it for ack
+        // quorum. Both calls race cancellation, and each abandons
+        // differently: a dropped grant leaves at most an unreferenced
+        // lease that expires on its TTL, while a dropped registration
+        // can still land server-side — a quorum member that will never
+        // ack, stalling every freeze created in the next TTL window —
+        // so past the grant the known lease is revoked on the way out.
         let granted_at = Instant::now();
-        let lease_id = self.store.grant_lease(self.config.lease_ttl).await?;
-        self.register_router(lease_id).await?;
+        let lease_id = tokio::select! {
+            _ = cancel.cancelled() => return Ok(()),
+            granted = self.store.grant_lease(self.config.lease_ttl) => granted?,
+        };
+        let registered = tokio::select! {
+            _ = cancel.cancelled() => {
+                drop(tokio::time::timeout(REVOKE_TIMEOUT, self.store.revoke_lease(lease_id)).await);
+                return Ok(());
+            }
+            registered = self.register_router(lease_id) => registered,
+        };
+        if let Err(e) = registered {
+            // A failed registration may also have half-landed; revoking
+            // clears it rather than leaving the lease to its TTL.
+            drop(tokio::time::timeout(REVOKE_TIMEOUT, self.store.revoke_lease(lease_id)).await);
+            return Err(e);
+        }
 
         // From here to the supervised select below, this router is
         // registered — counted in every freeze quorum — but not yet
@@ -454,17 +484,17 @@ impl RoutingTable {
         };
         let (pods_stream, handoff_stream) = tokio::select! {
             _ = cancel.cancelled() => {
-                drop(self.store.revoke_lease(lease_id).await);
+                drop(tokio::time::timeout(REVOKE_TIMEOUT, self.store.revoke_lease(lease_id)).await);
                 return Ok(());
             }
             r = tokio::time::timeout(BOOTSTRAP_DEADLINE, bootstrap) => match r {
                 Ok(Ok(streams)) => streams,
                 Ok(Err(e)) => {
-                    drop(self.store.revoke_lease(lease_id).await);
+                    drop(tokio::time::timeout(REVOKE_TIMEOUT, self.store.revoke_lease(lease_id)).await);
                     return Err(e);
                 }
                 Err(_) => {
-                    drop(self.store.revoke_lease(lease_id).await);
+                    drop(tokio::time::timeout(REVOKE_TIMEOUT, self.store.revoke_lease(lease_id)).await);
                     return Err(Error::invalid_state(format!(
                         "router bootstrap exceeded {BOOTSTRAP_DEADLINE:?} while registered"
                     )));
@@ -604,9 +634,12 @@ impl RoutingTable {
         // next TTL window stalls waiting for a freeze ack this router
         // will never write. Still best-effort — an unreachable etcd lets
         // the lease lapse by TTL — but loudly so: this line is the proof
-        // a graceful shutdown reached its deregistration.
-        match self.store.revoke_lease(lease_id).await {
-            Ok(()) => {
+        // a graceful shutdown reached its deregistration. Bounded,
+        // because an etcd that hangs rather than erring would otherwise
+        // spend this component's whole shutdown budget here and turn the
+        // proof into a lifecycle-abandonment log.
+        match tokio::time::timeout(REVOKE_TIMEOUT, self.store.revoke_lease(lease_id)).await {
+            Ok(Ok(())) => {
                 metrics::counter!(
                     "personhog_coordination_router_deregistered_total",
                     "outcome" => "revoked"
@@ -617,7 +650,7 @@ impl RoutingTable {
                     "router deregistered, freeze quorums no longer count it"
                 );
             }
-            Err(e) => {
+            Ok(Err(e)) => {
                 metrics::counter!(
                     "personhog_coordination_router_deregistered_total",
                     "outcome" => "revoke_failed"
@@ -628,6 +661,19 @@ impl RoutingTable {
                     error = %e,
                     "router lease revoke failed; registration lapses by TTL and \
                      freezes created meanwhile stall on it"
+                );
+            }
+            Err(_) => {
+                metrics::counter!(
+                    "personhog_coordination_router_deregistered_total",
+                    "outcome" => "revoke_failed"
+                )
+                .increment(1);
+                tracing::warn!(
+                    router = %self.config.router_name,
+                    "router lease revoke unanswered after {REVOKE_TIMEOUT:?}; the request may \
+                     still land — if it does not, registration lapses by TTL and freezes \
+                     created meanwhile stall on it"
                 );
             }
         }
@@ -746,7 +792,7 @@ impl RoutingTable {
             tokio::select! {
                 _ = cancel.cancelled() => return Ok(()),
                 msg = stream.message() => {
-                    let resp = msg?.ok_or_else(|| Error::invalid_state("pod watch stream ended".to_string()))?;
+                    let resp = util::live_watch_response(msg?, "pod")?;
                     for event in resp.events() {
                         if event.event_type() != EventType::Put {
                             continue;
@@ -863,7 +909,7 @@ impl RoutingTable {
                     }
                 }
                 msg = stream.message() => {
-                    let resp = msg?.ok_or_else(|| Error::invalid_state("handoff watch stream ended".to_string()))?;
+                    let resp = util::live_watch_response(msg?, "handoff")?;
                     for event in resp.events() {
                         match event.event_type() {
                             EventType::Put => {

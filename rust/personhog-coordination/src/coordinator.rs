@@ -1,4 +1,6 @@
+use std::collections::hash_map::DefaultHasher;
 use std::collections::{HashMap, HashSet};
+use std::hash::{Hash, Hasher};
 use std::str::from_utf8;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -31,7 +33,26 @@ pub struct CoordinatorConfig {
     pub name: String,
     pub leader_lease_ttl: i64,
     pub keepalive_interval: Duration,
-    pub election_retry_interval: Duration,
+    /// How long a standby candidate waits on its leader-key watch before
+    /// re-reading the key. The watch is what normally wakes a candidate;
+    /// this is the bound on how long a stalled one can hide an opening.
+    ///
+    /// Also the base of the retry ladder a candidate climbs when it
+    /// cannot observe the election at all. Failing to read is not a
+    /// failed term — this candidate never held anything — so it does
+    /// not spend the pace below; its retries start at this interval and
+    /// grow to a small multiple of it (see `observation_retry_pace`).
+    pub standby_poll_interval: Duration,
+
+    pub run_retry_backoff: Duration,
+    /// How long without a bad ending before the pace starts over.
+    ///
+    /// Paces only — nothing escalates, so this decides how fast the
+    /// coordinator recovers, not whether it survives. Without it the
+    /// count never falls, so a bad spell in the morning leaves every
+    /// candidate at the cap, and an isolated failure that evening costs
+    /// the cap instead of the base while the cluster sits leaderless.
+    pub backoff_decay_window: Duration,
     /// How long to wait after the first pod event before rebalancing, to batch
     /// rapid pod registrations into a single rebalance.
     pub rebalance_debounce_interval: Duration,
@@ -80,15 +101,30 @@ impl Default for CoordinatorConfig {
         Self {
             name: "coordinator-0".to_string(),
             // A crashed leader blocks every handoff until its election
-            // lease expires and a survivor's next campaign fires, so the
-            // worst-case coordinator outage is ttl + retry. 5s + 1s keeps
-            // that near the pod-crash detection window, while the 1s
-            // keepalive gives the leader several attempts within the TTL
-            // before it abdicates. Graceful exits don't wait on any of
-            // this — the lease is revoked on the way out.
+            // lease expires and a survivor takes over. Standbys watch the
+            // leader key, so the succession follows the key's deletion
+            // rather than a retry tick, and the TTL is what bounds the
+            // outage. 5s keeps that near the pod-crash detection window,
+            // while the 1s keepalive gives the leader several attempts
+            // within the TTL before it abdicates. Graceful exits don't
+            // wait on any of this — the lease is revoked on the way out.
             leader_lease_ttl: 5,
             keepalive_interval: Duration::from_secs(1),
-            election_retry_interval: Duration::from_secs(1),
+            // How long a standby trusts its watch before re-reading the
+            // leader key. This bounds the leaderless window if a watch
+            // ever stalls without erroring, and it is the only etcd
+            // traffic an idle standby generates, so it buys a wide safety
+            // margin cheaply: one key read and one watch stream per
+            // candidate per interval, against a campaign per candidate
+            // per retry.
+            standby_poll_interval: Duration::from_secs(5),
+            // The base of the wait after a term ends badly. It doubles
+            // per consecutive bad ending, capped at the lease TTL, so a
+            // wedged coordinator settles into retrying at that cap rather
+            // than hot-looping — and a paced candidate is never slower to
+            // take an open election than to wait out a crashed leader.
+            run_retry_backoff: Duration::from_millis(500),
+            backoff_decay_window: Duration::from_secs(300),
             rebalance_debounce_interval: Duration::from_secs(1),
             reconcile_interval: Duration::from_secs(5),
             handoff_deadline: Duration::from_secs(120),
@@ -122,6 +158,231 @@ pub struct Coordinator {
     k8s_awareness: Option<Arc<K8sAwareness>>,
 }
 
+/// How long the election lease revoke may take before shutdown stops
+/// waiting for it.
+///
+/// INVARIANT: the teardown this sits at the end of — one keepalive
+/// round's join, then this revoke — must fit inside the graceful
+/// shutdown budget the host binary gives the coordinator component,
+/// with room to spare. The router's `validate_lease_timescales` refuses
+/// startup on a configuration that breaks the relation; a bound equal
+/// to the budget would be redundant with it, since the lifecycle
+/// manager abandons the component at its deadline either way.
+///
+/// Deliberately not the pod's number, though the pod bounds both of its
+/// revokes the same way. Matching the constant across two processes
+/// with different budgets is what put this one at its ceiling. What a
+/// successful revoke buys is bounded and small — the successor not
+/// waiting out one lease TTL — and the only reason a revoke is ever
+/// slow is an unwell etcd, which is also when the successor's own
+/// campaign is slow, so the saving shrinks exactly when it is paid for.
+pub const REVOKE_TIMEOUT: Duration = Duration::from_secs(2);
+
+/// How much of a paced wait the per-candidate offset may remove. Wide
+/// enough to separate candidates that failed together, small enough that
+/// the pace still restrains a wedged one.
+const JITTER_FRACTION: f64 = 0.25;
+
+/// A stable fraction in [0, 1) derived from a candidate's name.
+///
+/// The disturbances that end terms are shared — an etcd slowdown ends
+/// every candidate's term at once — so without this the whole fleet walks
+/// the same ladder and fires its campaigns in the same instant, against
+/// an etcd that has just recovered. Decorrelating candidates is the
+/// entire goal, and per-candidate is enough to achieve it, so this is
+/// derived rather than random: a fixed offset spreads the fleet just as
+/// well and leaves the wait reproducible in a test.
+fn jitter_offset(name: &str) -> f64 {
+    let mut hasher = DefaultHasher::new();
+    name.hash(&mut hasher);
+    // Keep the 53 bits an f64 can hold exactly, so the ratio is a uniform
+    // fraction rather than a rounded one.
+    (hasher.finish() >> 11) as f64 / (1u64 << 53) as f64
+}
+
+/// Shorten a wait by this candidate's own offset.
+///
+/// Downward only, so a caller's own bound on the wait still holds after
+/// jittering and no site needs a second clamp.
+fn jittered(wait: Duration, name: &str) -> Duration {
+    wait.mul_f64(1.0 - JITTER_FRACTION * jitter_offset(name))
+}
+
+/// How much a blind candidate's retry may grow past the standby poll
+/// interval. Sized by fleet arithmetic: an outage blinds every candidate
+/// at once, so the fleet's read rate against a recovering etcd is
+/// candidates divided by this cap — a couple hundred candidates settle
+/// near seven reads a second at the default interval, where a flat
+/// retry would hold forty. The price is recovery detection when reads
+/// themselves fail, bounded at six intervals in the worst case; a
+/// candidate that can still read keeps the fallback cadence through
+/// the pace (`read_through_pace`), so a paced watch never detects an
+/// opening slower than a stalled one.
+const OBSERVATION_BACKOFF_FACTOR: u32 = 6;
+
+/// The wait before re-reading the election after failing to observe it
+/// — a failed read, a failed watch creation, or a watch lost before it
+/// proved itself; all three climb this one ladder.
+///
+/// Grows per consecutive blind attempt from the standby poll interval —
+/// the rate a healthy standby already polls at, so the first retries
+/// cost etcd nothing it was not already serving — and caps at a small
+/// multiple of it, because at fleet scale even the healthy rate is real
+/// load to hold against a recovering etcd. Jittered downward so the
+/// fleet, blinded together by the same outage, does not re-read in
+/// lockstep. A genuine observation — a watch surviving its window or
+/// delivering the opening, or an open-election read — resets it.
+///
+/// Deliberately not `pace_after_ending`: a blind candidate held nothing
+/// and spent only reads, so it neither pays the ending pace nor lands
+/// in the run-failure series, and its cap answers to read load rather
+/// than to the lease TTL.
+fn observation_retry_pace(config: &CoordinatorConfig, consecutive: u32) -> Duration {
+    let cap = config
+        .standby_poll_interval
+        .saturating_mul(OBSERVATION_BACKOFF_FACTOR);
+    let paced = config
+        .standby_poll_interval
+        .saturating_mul(2u32.saturating_pow(consecutive.saturating_sub(1).min(16)))
+        .min(cap);
+    jittered(paced, &config.name)
+}
+
+/// A blind spell's position on the observation-retry ladder.
+///
+/// Held as its own type rather than a loose counter in `run` so the
+/// contract that matters — a completed observation starts the ladder
+/// over — is a method a unit test can hold, not a line a refactor can
+/// drop with every suite staying green while every once-blind candidate
+/// pays the capped pace forever.
+pub struct BlindSpell(u32);
+
+impl Default for BlindSpell {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl BlindSpell {
+    pub fn new() -> Self {
+        Self(0)
+    }
+
+    /// The blindness is over: a watch delivered the opening, the
+    /// election was read open, or a watch survived its whole window.
+    /// Survival is the weakest of the three — a stalled watch survives
+    /// too, and the fallback re-read is what bounds that — but it costs
+    /// a full interval at the healthy cadence with no loss, which is
+    /// the churn this ladder paces having stopped. A watch merely
+    /// *created* does not count; see the reset sites in
+    /// `await_election_opening` for why.
+    pub fn observed(&mut self) {
+        self.0 = 0;
+    }
+
+    /// Another failure to observe the election — a read or watch-create
+    /// error, or a watch lost before proving itself; returns how long
+    /// to wait before the next attempt.
+    pub fn failed(&mut self, config: &CoordinatorConfig) -> Duration {
+        self.0 = self.0.saturating_add(1);
+        observation_retry_pace(config, self.0)
+    }
+
+    pub fn consecutive(&self) -> u32 {
+        self.0
+    }
+}
+
+/// The wait before campaigning again after a term ended badly, growing
+/// while endings keep arriving.
+///
+/// A free function over the config so both the ladder and the invariant
+/// below can be checked without standing up a store.
+///
+/// Every bad ending shares one pace: an abdication, a failed term, and
+/// a campaign that failed before winning all spent etcd writes — a
+/// grant, a transaction, a revoke — and the writes are what the pace
+/// restrains. Keeping one counter means none can be slowed by another's
+/// history in a way the code does not say out loud. What does not reach
+/// here is a candidate that could not observe the election at all: it
+/// climbs `observation_retry_pace`'s ladder instead, having spent only
+/// reads.
+///
+/// INVARIANT: the wait never exceeds `leader_lease_ttl`. A term that
+/// ended has already released the election, so this wait delays a
+/// succession that is open right now. Pacing past the lease TTL would
+/// make a candidate slower to take a free election than it would have
+/// been to wait out a crashed leader's lease, which inverts what the TTL
+/// is for.
+fn pace_after_ending(
+    config: &CoordinatorConfig,
+    consecutive: &mut u32,
+    last: &mut Option<Instant>,
+) -> Duration {
+    let quiet = last.is_none_or(|at| at.elapsed() >= config.backoff_decay_window);
+    *last = Some(Instant::now());
+    *consecutive = if quiet {
+        1
+    } else {
+        consecutive.saturating_add(1)
+    };
+    let cap = Duration::from_secs(config.leader_lease_ttl.max(0) as u64);
+    let paced = config
+        .run_retry_backoff
+        .saturating_mul(2u32.saturating_pow(consecutive.saturating_sub(1)))
+        .min(cap);
+    jittered(paced, &config.name)
+}
+
+/// A cancellation this coordinator intends, and what to attribute it to
+/// once it has landed.
+///
+/// Counted after the transaction rather than when the plan is built: a
+/// concurrent coordinator can win the same partition, and counting at
+/// intent attributes cancellations this coordinator never made — to
+/// named routers, in the case of the missing-acker counter.
+struct Cancellation {
+    reason: &'static str,
+    missing_ackers: Vec<String>,
+}
+
+impl Cancellation {
+    fn record(&self) {
+        counter!(
+            "personhog_coordination_handoffs_cancelled_total",
+            "reason" => self.reason,
+        )
+        .increment(1);
+        for router in &self.missing_ackers {
+            counter!(
+                "personhog_coordination_freeze_ack_missing_total",
+                "router" => router.clone(),
+            )
+            .increment(1);
+        }
+    }
+}
+
+/// A cancellation with no successor and no live owner to reaffirm
+/// toward, applied as its own guarded transaction after the plan.
+struct FallbackDelete {
+    predecessor: HandoffState,
+    mod_revision: i64,
+    cancellation: Cancellation,
+}
+
+/// Why a standby stopped waiting on the leader-key watch.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Woke {
+    /// The leader key was deleted: the election is open.
+    Opened,
+    /// The fallback interval elapsed; re-read in case the watch is
+    /// stalled without having errored.
+    Fallback,
+    /// The stream ended or errored, so it can no longer be trusted.
+    StreamLost,
+}
+
 /// What prompted a phase-advance evaluation. Only ack-triggered
 /// evaluations record the ack-to-advance span: a departure or tick can
 /// legitimately advance a handoff on acks that arrived long before, and
@@ -150,27 +411,375 @@ impl Coordinator {
     /// Run the coordinator loop. Continuously attempts leader election;
     /// when elected, runs the coordination loop until leadership is lost
     /// or cancellation is requested.
-    pub async fn run(&self, cancel: CancellationToken) -> Result<()> {
+    pub async fn run(&self, cancel: CancellationToken) {
         util::preregister_coordinator_metrics();
+        // Paces retries only — nothing here escalates. It grows while
+        // bad endings keep arriving and starts over after a quiet
+        // window, so a wedged coordinator settles at the cap while an
+        // isolated failure long after a bad spell still costs the base.
+        let mut consecutive_endings = 0u32;
+        let mut last_ending: Option<Instant> = None;
+        // Blind spells are counted separately from endings: a candidate
+        // that cannot read the election held nothing, so it must not
+        // spend the ending pace — but at fleet scale its retries are
+        // still load, so they grow on their own ladder.
+        let mut blind = BlindSpell::new();
         loop {
             if cancel.is_cancelled() {
-                return Ok(());
+                return;
             }
-            // Awaited to completion, never raced against cancellation:
-            // dropping try_lead mid-cleanup would strand the election
-            // lease until TTL expiry, stalling every handoff while the
-            // next coordinator's campaign waits it out. try_lead observes
-            // `cancel` internally and returns promptly on shutdown.
-            match self.try_lead(cancel.clone()).await {
-                Ok(true) => tracing::info!(name = %self.config.name, "leadership ended normally"),
-                Ok(false) => {}
+            // Campaign only into an opening. A campaign costs a lease
+            // grant, a transaction and a revoke whether or not it wins,
+            // and every standby pays it: polling the election is the
+            // fleet's largest source of etcd writes, and it scales with
+            // the fleet rather than with how often leadership changes.
+            //
+            let attempt = match self.await_election_opening(&cancel, &mut blind).await {
+                Ok(()) if cancel.is_cancelled() => return,
+                // Awaited to completion, never raced against
+                // cancellation: dropping try_lead mid-cleanup would
+                // strand the election lease until TTL expiry, stalling
+                // every handoff while the next coordinator's campaign
+                // waits it out. try_lead observes `cancel` internally and
+                // returns promptly on shutdown.
+                // The blind reset already happened inside
+                // `await_election_opening` — at watch survival, or at
+                // the open-election return.
+                Ok(()) => self.try_lead(cancel.clone()).await,
+                // Failing to observe the election is not a failed term.
+                // This candidate never held authority, and a candidate
+                // that cannot read etcd could not have won a campaign
+                // either, so it must not spend the ending pace or land
+                // in the run-failure series. It retries on its own
+                // ladder instead — see `observation_retry_pace`.
+                // Shutdown first: a connection torn down as the process
+                // exits errors here rather than losing the race against
+                // `cancel`, and counting that would put a sample on every
+                // rollout into a series that is supposed to mean etcd is
+                // in trouble.
+                Err(_) if cancel.is_cancelled() => return,
                 Err(e) => {
-                    tracing::warn!(name = %self.config.name, error = %e, "leader loop ended with error")
+                    counter!("personhog_coordination_election_observation_failures_total")
+                        .increment(1);
+                    let wait = blind.failed(&self.config);
+                    tracing::warn!(
+                        name = %self.config.name,
+                        error = %e,
+                        consecutive = blind.consecutive(),
+                        wait = ?wait,
+                        "could not observe the election; retrying"
+                    );
+                    if self.wait_or_shutdown(&cancel, wait).await {
+                        return;
+                    }
+                    continue;
+                }
+            };
+            match attempt {
+                Ok(true) => {
+                    tracing::info!(name = %self.config.name, "leadership ended normally");
+                }
+                Ok(false) => {}
+                Err(e) if e.is_leadership_lost() => {
+                    tracing::info!(name = %self.config.name, "abdicated; a successor takes over");
+                    // Counted so a lease that cannot renew — which
+                    // reaches this arm every term, each one paying a full
+                    // bootstrap to lead for a renewal margin and stop —
+                    // is visible as the flap it is.
+                    counter!("personhog_coordination_abdications_total").increment(1);
+                    // Paced like any other bad ending. `try_lead` revoked
+                    // on the way out, so the key this candidate would
+                    // wait on is already gone; without a growing pace a
+                    // lease that cannot renew flaps at a fixed rate
+                    // forever, and no term lasts long enough to move a
+                    // handoff through its phases.
+                    let wait = self.pace_after_ending(&mut consecutive_endings, &mut last_ending);
+                    if self.wait_or_shutdown(&cancel, wait).await {
+                        return;
+                    }
+                }
+                Err(e) => {
+                    let wait = self.pace_after_ending(&mut consecutive_endings, &mut last_ending);
+                    util::record_run_failure(
+                        "coordinator",
+                        &self.config.name,
+                        consecutive_endings,
+                        &e,
+                    );
+                    if self.wait_or_shutdown(&cancel, wait).await {
+                        return;
+                    }
+                }
+            }
+        }
+    }
+
+    /// This candidate's own [`pace_after_ending`], which carries the
+    /// contract and the invariant.
+    fn pace_after_ending(&self, consecutive: &mut u32, last: &mut Option<Instant>) -> Duration {
+        pace_after_ending(&self.config, consecutive, last)
+    }
+
+    /// Wait, or report that shutdown arrived first.
+    async fn wait_or_shutdown(&self, cancel: &CancellationToken, delay: Duration) -> bool {
+        tokio::select! {
+            _ = cancel.cancelled() => true,
+            _ = tokio::time::sleep(delay) => false,
+        }
+    }
+
+    /// Give up the election lease, bounded.
+    ///
+    /// Cleanup on a path whose usual reason for existing is an unwell
+    /// etcd, and the store sets no request timeout of its own — so
+    /// unbounded this waits out the whole outage, holding the shutdown
+    /// past the termination grace period the charts allow. The lease
+    /// expires on its TTL regardless; all a successful revoke buys is
+    /// the next candidate not waiting for it.
+    async fn revoke_election_lease(&self, lease_id: i64) -> Result<()> {
+        tokio::time::timeout(REVOKE_TIMEOUT, self.store.revoke_lease(lease_id))
+            .await
+            .unwrap_or_else(|_| {
+                tracing::warn!(
+                    name = %self.config.name,
+                    lease_id,
+                    "election lease revoke timed out; it expires on its TTL"
+                );
+                Ok(())
+            })
+    }
+
+    /// Block until this candidate has something to campaign for: no
+    /// leader is recorded, or the one that is recorded goes away.
+    /// Returns immediately on cancellation, leaving the caller to notice
+    /// it and stop.
+    ///
+    /// Standing by costs one read per fallback interval and a watch that
+    /// is idle until leadership actually changes, in place of a campaign
+    /// per retry interval. The fallback re-read is what keeps a watch
+    /// that stalls without erroring from parking a candidate forever,
+    /// and a lost watch keeps that same read cadence while the blind
+    /// ladder paces its re-creation, so the leaderless window stays
+    /// bounded by the fallback interval in the worst case either way.
+    pub async fn await_election_opening(
+        &self,
+        cancel: &CancellationToken,
+        blind: &mut BlindSpell,
+    ) -> Result<()> {
+        loop {
+            // The revision this answer was read at anchors the watch, so
+            // a leader that vanishes between the read and the watch
+            // attaching is still delivered rather than missed.
+            //
+            // Both etcd calls are raced against cancellation: the store
+            // sets no request timeout of its own, so against a dark etcd
+            // each would otherwise run to the transport's own bound —
+            // several times the graceful-shutdown budget this component
+            // gets, and a standby is inside one of these almost all the
+            // time.
+            let read = tokio::select! {
+                _ = cancel.cancelled() => return Ok(()),
+                read = self.store.get_leader_with_revision() => read,
+            };
+            let (leader, revision) = read?;
+            let Some(leader) = leader else {
+                // An open election ends the spell too: the candidate
+                // read the state it exists to observe and is about to
+                // act on it. Without this, a candidate that cycles
+                // between open elections and failed campaigns — a
+                // write-path-only outage — would carry a stale count
+                // into its next read blip and pay the capped pace
+                // despite weeks of successful reads. The campaign
+                // failures themselves pace on the ending ladder.
+                blind.observed();
+                return Ok(());
+            };
+            tracing::debug!(
+                name = %self.config.name,
+                leader = %leader.holder,
+                "another coordinator is leader, standing by"
+            );
+
+            let stream = tokio::select! {
+                _ = cancel.cancelled() => return Ok(()),
+                stream = self.store.watch_leader_from(revision + 1) => stream,
+            };
+            let mut stream = stream?;
+            // Deliberately no reset here. A created watch proves
+            // nothing: etcd under watcher pressure accepts the create
+            // and cancels the watcher with its first response, so a
+            // reset at creation would zero the ladder every cycle of
+            // exactly the mode it exists to pace. The spell ends only
+            // when the watch proves itself — surviving to its fallback,
+            // or delivering the opening — in the match below.
+            // A deadline for the whole wait, not a gap between messages.
+            // Constructed per iteration of the inner loop, this would
+            // restart on every response and stop bounding anything the
+            // moment something writes the leader key at any rate.
+            let fallback_at = tokio::time::Instant::now() + self.config.standby_poll_interval;
+            let woke = loop {
+                let message = tokio::select! {
+                    _ = cancel.cancelled() => return Ok(()),
+                    _ = tokio::time::sleep_until(fallback_at) => break Woke::Fallback,
+                    message = stream.message() => message,
+                };
+                // A stream that ends or errors leaves this candidate
+                // blind, so re-read rather than trusting it further.
+                let response = match message {
+                    Ok(Some(response)) => response,
+                    Ok(None) => {
+                        tracing::debug!(
+                            name = %self.config.name,
+                            "leader watch stream ended; re-reading"
+                        );
+                        break Woke::StreamLost;
+                    }
+                    Err(e) => {
+                        tracing::debug!(
+                            name = %self.config.name,
+                            error = %e,
+                            "leader watch stream failed; re-reading"
+                        );
+                        break Woke::StreamLost;
+                    }
+                };
+                // etcd cancels an individual watcher with an ordinary
+                // response — on compaction, or under watcher pressure —
+                // and leaves the stream open. Nothing further is ever
+                // delivered to that watcher, so a candidate that kept
+                // awaiting it would look idle rather than blind and would
+                // learn of an opening only when the fallback fired.
+                if response.canceled() {
+                    tracing::debug!(
+                        name = %self.config.name,
+                        reason = response.cancel_reason(),
+                        compact_revision = response.compact_revision(),
+                        "leader watch cancelled by etcd; re-reading"
+                    );
+                    break Woke::StreamLost;
+                }
+                if response
+                    .events()
+                    .iter()
+                    .any(|event| event.event_type() == EventType::Delete)
+                {
+                    break Woke::Opened;
+                }
+            };
+            match woke {
+                // A delivered opening is a real observation; a watch
+                // that lives out its whole window is weaker — a stalled
+                // watch survives too, and the fallback re-read below is
+                // what bounds that — but a full interval at the healthy
+                // cadence with no loss means the churn the ladder paces
+                // has stopped. Either ends the spell.
+                Woke::Opened => {
+                    blind.observed();
+                    return Ok(());
+                }
+                // The fallback is meant to re-read at once; that is what
+                // it is for.
+                Woke::Fallback => {
+                    blind.observed();
+                }
+                // Counted, because the fallback makes this state
+                // invisible otherwise: an etcd flapping watchers costs
+                // one interval of detection per flap and no error, so
+                // without a series it is indistinguishable from a
+                // healthy fleet.
+                //
+                // A loss is also a blind failure, on the same ladder the
+                // read and watch-create errors climb — watcher pressure
+                // usually presents as a create that succeeds and cancels
+                // immediately, not as a create that errs. What the
+                // ladder paces is only the watch re-creation, because
+                // that is what is failing and what feeds the pressure;
+                // the reads keep the fallback cadence throughout, since
+                // reads still work in this mode and a watch etcd
+                // cancels must not detect an opening any slower than
+                // one that merely stalls. The first loss after a
+                // healthy stretch still re-reads at the original
+                // deadline — one blip is ambiguous, and a stream lost
+                // late in the window must not defer the re-read the
+                // fallback would have run anyway — while consecutive
+                // losses park on the growing pace, reading each
+                // interval, so a sustained flap backs the watcher churn
+                // off to the cap without slowing succession. Survival
+                // resets the ladder above, so an isolated blip weeks
+                // later is prompt again.
+                Woke::StreamLost => {
+                    // Shutdown first, as at the run-level arm: a
+                    // connection torn down as the process exits errors
+                    // the stream before losing the race against
+                    // `cancel`, and counting that would put a sample on
+                    // every rollout into a series that is supposed to
+                    // mean etcd is cancelling or dropping watches.
+                    if cancel.is_cancelled() {
+                        return Ok(());
+                    }
+                    counter!("personhog_coordination_election_watch_interruptions_total")
+                        .increment(1);
+                    let pace = blind.failed(&self.config);
+                    if blind.consecutive() <= 1 {
+                        tokio::select! {
+                            _ = cancel.cancelled() => return Ok(()),
+                            _ = tokio::time::sleep_until(fallback_at) => {}
+                        }
+                    } else {
+                        tracing::warn!(
+                            name = %self.config.name,
+                            consecutive = blind.consecutive(),
+                            pace = ?pace,
+                            "leader watch lost again; pacing its re-creation"
+                        );
+                        if self.read_through_pace(cancel, blind, pace).await? {
+                            return Ok(());
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    /// Wait out a blind pace without going blind to the election. The
+    /// pace delays watch re-creation only, so this parks for `pace`
+    /// while still reading the leader key at the fallback cadence, and
+    /// takes an opening the moment a read finds one. Returns whether
+    /// the caller should stop waiting: an observed opening (which ends
+    /// the spell, as any completed observation does) or cancellation;
+    /// `false` means the pace ran out without an observed opening, and
+    /// the watch should be re-created.
+    async fn read_through_pace(
+        &self,
+        cancel: &CancellationToken,
+        blind: &mut BlindSpell,
+        pace: Duration,
+    ) -> Result<bool> {
+        let pace_deadline = tokio::time::Instant::now() + pace;
+        loop {
+            let next_read = tokio::time::Instant::now() + self.config.standby_poll_interval;
+            if next_read >= pace_deadline {
+                tokio::select! {
+                    _ = cancel.cancelled() => return Ok(true),
+                    _ = tokio::time::sleep_until(pace_deadline) => return Ok(false),
                 }
             }
             tokio::select! {
-                _ = cancel.cancelled() => return Ok(()),
-                _ = tokio::time::sleep(self.config.election_retry_interval) => {}
+                _ = cancel.cancelled() => return Ok(true),
+                _ = tokio::time::sleep_until(next_read) => {}
+            }
+            let read = tokio::select! {
+                _ = cancel.cancelled() => return Ok(true),
+                read = self.store.get_leader() => read,
+            };
+            // A read that finds no leader is a completed observation —
+            // an opening to campaign for. One that finds the incumbent
+            // is deliberately not: in a watcher-pressure episode these
+            // reads succeed every interval, and a reset on them would
+            // hold the ladder at zero for the whole episode.
+            if read?.is_none() {
+                blind.observed();
+                return Ok(true);
             }
         }
     }
@@ -181,18 +790,39 @@ impl Coordinator {
     /// election immediately instead of stranding it until TTL expiry.
     /// `run` relies on that by awaiting this call to completion.
     async fn try_lead(&self, cancel: CancellationToken) -> Result<bool> {
+        // Every campaign costs etcd a lease grant, a transaction and,
+        // when it loses, a revoke. Against wins, this is what says
+        // whether the fleet is electing or merely polling.
+        counter!("personhog_coordination_election_campaigns_total").increment(1);
         let granted_at = Instant::now();
-        let lease_id = self.store.grant_lease(self.config.leader_lease_ttl).await?;
+        // Both campaign calls race cancellation: the store sets no
+        // request timeout, so unraced they would hold shutdown for the
+        // transport's own bound against a hanging etcd — several times
+        // the graceful budget this component gets. A grant abandoned
+        // mid-flight can leave a lease server-side; nothing hangs off
+        // it, and it expires on its TTL.
+        let lease_id = tokio::select! {
+            _ = cancel.cancelled() => return Ok(false),
+            granted = self.store.grant_lease(self.config.leader_lease_ttl) => granted?,
+        };
 
-        let acquired = match self
-            .store
-            .try_acquire_leadership(&self.config.name, lease_id)
-            .await
-        {
-            Ok(acquired) => acquired,
-            Err(e) => {
-                drop(self.store.revoke_lease(lease_id).await);
-                return Err(e);
+        let acquired = tokio::select! {
+            // The CAS may still land server-side after this arm wins;
+            // the revoke tears the lease down, and the key is
+            // lease-bound, so either way nothing outlives shutdown
+            // longer than the TTL.
+            _ = cancel.cancelled() => {
+                drop(self.revoke_election_lease(lease_id).await);
+                return Ok(false);
+            }
+            acquired = self.store.try_acquire_leadership(&self.config.name, lease_id) => {
+                match acquired {
+                    Ok(acquired) => acquired,
+                    Err(e) => {
+                        drop(self.revoke_election_lease(lease_id).await);
+                        return Err(e);
+                    }
+                }
             }
         };
 
@@ -200,7 +830,7 @@ impl Coordinator {
             tracing::debug!(name = %self.config.name, "another coordinator is leader, standing by");
             // Nothing hangs off the lease; revoke it rather than leaking
             // one lease per election retry from every standby candidate.
-            drop(self.store.revoke_lease(lease_id).await);
+            drop(self.revoke_election_lease(lease_id).await);
             return Ok(false);
         }
 
@@ -255,6 +885,19 @@ impl Coordinator {
         };
 
         let result = tokio::select! {
+            // Raced here as well as inside the loop, because the loop
+            // only observes cancellation once it reaches its select —
+            // its bootstrap (revision anchor, watch creation, initial
+            // reconcile) is a run of store calls with no timeout of
+            // their own, and the keepalive cannot preempt them on
+            // shutdown: its token is a child of `cancel`, so a graceful
+            // exit stops it without ever firing `lease_lost`. Dropping
+            // the loop future mid-bootstrap aborts its JoinSet tasks and
+            // closes its streams; every downstream effect is idempotent
+            // (CAS-guarded phase transitions, tolerant cleanup), and the
+            // teardown below still runs, which is the whole point — the
+            // revoke is what spares the successor the lease TTL.
+            _ = cancel.cancelled() => Ok(()),
             _ = lease_lost.cancelled() => Err(Error::leadership_lost()),
             result = self.run_coordination_loop(cancel.clone()) => result,
         };
@@ -265,7 +908,7 @@ impl Coordinator {
 
         // Revoke so the next candidate's campaign wins immediately instead
         // of waiting out the lease TTL.
-        drop(self.store.revoke_lease(lease_id).await);
+        drop(self.revoke_election_lease(lease_id).await);
 
         reset_coordinator_gauges();
 
@@ -424,7 +1067,7 @@ impl Coordinator {
                 _ = cancel.cancelled() => return Ok(()),
                 _ = replan.notified() => {}
                 msg = stream.message() => {
-                    let resp = msg?.ok_or_else(|| Error::invalid_state("pod watch stream ended".to_string()))?;
+                    let resp = util::live_watch_response(msg?, "pod")?;
                     Self::log_pod_events(&resp);
                 }
             }
@@ -436,7 +1079,7 @@ impl Coordinator {
                     _ = cancel.cancelled() => return Ok(()),
                     _ = tokio::time::sleep_until(deadline) => break,
                     msg = stream.message() => {
-                        let resp = msg?.ok_or_else(|| Error::invalid_state("pod watch stream ended".to_string()))?;
+                        let resp = util::live_watch_response(msg?, "pod")?;
                         Self::log_pod_events(&resp);
                     }
                 }
@@ -473,7 +1116,7 @@ impl Coordinator {
             tokio::select! {
                 _ = cancel.cancelled() => return Ok(()),
                 msg = stream.message() => {
-                    let resp = msg?.ok_or_else(|| Error::invalid_state("handoff watch stream ended".to_string()))?;
+                    let resp = util::live_watch_response(msg?, "handoff")?;
                     for event in resp.events() {
                         if event.event_type() == EventType::Put {
                             match parse_watch_value::<HandoffState>(event) {
@@ -526,7 +1169,7 @@ impl Coordinator {
             tokio::select! {
                 _ = cancel.cancelled() => return Ok(()),
                 msg = stream.message() => {
-                    let resp = msg?.ok_or_else(|| Error::invalid_state(format!("{kind} ack watch stream ended")))?;
+                    let resp = util::live_watch_response(msg?, kind)?;
                     for event in resp.events() {
                         if event.event_type() == EventType::Put {
                             let partition = event.kv().and_then(|kv| {
@@ -562,9 +1205,7 @@ impl Coordinator {
             tokio::select! {
                 _ = cancel.cancelled() => return Ok(()),
                 msg = stream.message() => {
-                    let resp = msg?.ok_or_else(|| {
-                        Error::invalid_state("router watch stream ended".to_string())
-                    })?;
+                    let resp = util::live_watch_response(msg?, "router")?;
                     let departed = resp
                         .events()
                         .iter()
@@ -592,14 +1233,26 @@ impl Coordinator {
         cancel: CancellationToken,
     ) -> Result<()> {
         let mut tick = tokio::time::interval(interval);
+        // As the pod's and router's passes do. The default replays every
+        // missed tick back to back, which would fire this body's read
+        // fan-out — one pass per in-flight handoff — in a tight loop
+        // exactly when etcd is too slow to have kept up with it.
+        tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
         loop {
             tokio::select! {
                 _ = cancel.cancelled() => return Ok(()),
                 _ = tick.tick() => {
+                    // Listed before the handoffs, which is what makes
+                    // the sweep below safe: every handoff that existed
+                    // when these ids were read appears in the newer
+                    // handoff list, and a membership written after this
+                    // read is not a candidate at all.
+                    let quorum_candidates = store.list_freeze_quorum_ids().await;
                     let handoffs = store.list_handoffs().await?;
                     for handoff in &handoffs {
                         Self::handle_handoff_update_static(&store, handoff).await?;
-                        Self::check_phase_advance(&store, handoff.partition, AdvanceTrigger::Other).await?;
+                        Self::check_phase_advance(&store, handoff.partition, AdvanceTrigger::Other)
+                            .await?;
                     }
                     // Advancement first, planning second: a handoff that
                     // can still progress gets every chance to before the
@@ -629,6 +1282,81 @@ impl Coordinator {
                             tracing::debug!(error = %e, "skipping cluster gauge refresh");
                         }
                     }
+                    // Last, with the gauge refresh, because it is
+                    // housekeeping by the same standard: only its two
+                    // reads above need their order, while its deletes
+                    // are a round trip per orphan that a read-only etcd
+                    // would otherwise charge ahead of every handoff and
+                    // the planner wake.
+                    Self::collect_stale_freeze_quorums(&store, quorum_candidates, &handoffs).await;
+                }
+            }
+        }
+    }
+
+    /// Delete the freeze-quorum records no live handoff refers to.
+    ///
+    /// Housekeeping, so every failure is logged and dropped: a record
+    /// left behind costs a few kilobytes until the next tick, and one
+    /// deleted while still referenced only makes its handoff fall back
+    /// to requiring every live router. Neither can advance a handoff
+    /// early, which is why this runs without a transaction.
+    ///
+    /// Note what observes a record deleted in error. A coordinator that
+    /// still holds it cached keeps using the correct membership and says
+    /// nothing — the cache neutralizes the mistake rather than reporting
+    /// it. `unresolved_freeze_quorums_total` covers a process that has
+    /// to read (a fresh leader, or one whose entry was evicted), and the
+    /// collection counter here covers the rate at which records go.
+    async fn collect_stale_freeze_quorums(
+        store: &PersonhogStore,
+        candidates: Result<Vec<String>>,
+        handoffs: &[HandoffState],
+    ) {
+        let candidates = match candidates {
+            Ok(ids) => ids,
+            Err(e) => {
+                // Counted for the same reason the delete failure below
+                // is, and more urgently: this one suppresses every delete
+                // rather than one, so a sweep that never runs is
+                // otherwise indistinguishable from a sweep with nothing
+                // to collect — both leave the collection counter flat.
+                counter!(
+                    "personhog_coordination_freeze_quorum_sweep_failures_total",
+                    "stage" => "list"
+                )
+                .increment(1);
+                tracing::debug!(error = %e, "skipping freeze quorum sweep");
+                return;
+            }
+        };
+        let referenced: HashSet<&str> = handoffs
+            .iter()
+            .filter_map(|h| h.freeze_quorum_ref.as_deref())
+            .collect();
+        for id in candidates
+            .iter()
+            .filter(|id| !referenced.contains(id.as_str()))
+        {
+            match store.delete_freeze_quorum(id).await {
+                Ok(()) => {
+                    // The cheap half of the sweep's observability: a
+                    // rate here that outpaces plan creation is the shape
+                    // a sweep collecting records it should have spared
+                    // would take.
+                    counter!("personhog_coordination_freeze_quorums_collected_total").increment(1);
+                    tracing::debug!(quorum_id = %id, "collected unreferenced freeze quorum");
+                }
+                Err(e) => {
+                    // Counted, not only logged: the router runs at INFO,
+                    // so a sweep whose every delete fails is otherwise
+                    // silent while its backlog grows one record per plan.
+                    counter!(
+                        "personhog_coordination_freeze_quorum_sweep_failures_total",
+                        "stage" => "delete"
+                    )
+                    .increment(1);
+                    tracing::debug!(quorum_id = %id, error = %e, "freeze quorum sweep failed")
                 }
             }
         }
@@ -661,10 +1389,11 @@ impl Coordinator {
             HandoffPhase::Freezing => {
                 let routers = store.list_routers().await?;
                 let freeze_acks = store.list_freeze_acks(partition).await?;
+                let quorum = store.resolve_freeze_quorum(&handoff).await?;
 
                 // Quorum semantics live in `protocol::freeze_quorum_met`
                 // (shared with the stateright model).
-                if freeze_quorum_met(&routers, &freeze_acks, &handoff) {
+                if freeze_quorum_met(&routers, &freeze_acks, &handoff, quorum.as_deref()) {
                     // Initial assignments (no old owner) skip Draining
                     // entirely — there's no inflight to wait for. Advance
                     // straight to Warming.
@@ -705,8 +1434,12 @@ impl Coordinator {
                     tracing::info!(
                         partition,
                         handoff_id = %handoff.handoff_id,
-                        missing_freeze_ackers =
-                            ?missing_freeze_ackers(&routers, &freeze_acks, &handoff),
+                        missing_freeze_ackers = ?missing_freeze_ackers(
+                            &routers,
+                            &freeze_acks,
+                            &handoff,
+                            quorum.as_deref()
+                        ),
                         "freeze quorum not yet met"
                     );
                 }
@@ -903,6 +1636,10 @@ impl Coordinator {
         // come and go (see `HandoffState::freeze_quorum`).
         let routers = store.list_routers().await?;
         let freeze_quorum: Vec<String> = routers.iter().map(|r| r.router_name.clone()).collect();
+        // One record for the whole plan: the membership is the same for
+        // every handoff it creates, and inlining it per handoff is what
+        // made a large plan exceed etcd's maximum request size.
+        let freeze_quorum_id = util::new_handoff_id();
 
         let now = util::now_seconds();
         let handoff_objects: Vec<HandoffState> = plan
@@ -919,7 +1656,8 @@ impl Coordinator {
                 phase: HandoffPhase::Freezing,
                 started_at: now,
                 handoff_id: util::new_handoff_id(),
-                freeze_quorum: Some(freeze_quorum.clone()),
+                freeze_quorum: None,
+                freeze_quorum_ref: Some(freeze_quorum_id.clone()),
                 created_at_ms: now_ms,
                 phase_entered_at_ms: now_ms,
             })
@@ -945,14 +1683,24 @@ impl Coordinator {
             .collect();
         let mut creations: Vec<HandoffState> = Vec::new();
         let mut replacements: Vec<HandoffReplacement> = Vec::new();
-        let mut fallback_deletes: Vec<(HandoffState, i64)> = Vec::new();
+        let mut fallback_deletes: Vec<FallbackDelete> = Vec::new();
         let mut replaced_dispositions: Vec<&'static str> = Vec::new();
+        // Held until the plan transaction lands; see `Cancellation`.
+        let mut planned_cancellations: Vec<Cancellation> = Vec::new();
 
         for handoff in handoff_objects {
             match cancelled_by_partition.remove(&handoff.partition) {
                 Some((predecessor, mod_revision)) => {
-                    Self::log_cancellation(store, &routers, &predecessor, &registered, "successor")
-                        .await;
+                    planned_cancellations.push(
+                        Self::describe_cancellation(
+                            store,
+                            &routers,
+                            &predecessor,
+                            &registered,
+                            "successor",
+                        )
+                        .await,
+                    );
                     replacements.push(HandoffReplacement {
                         handoff,
                         expected_mod_revision: mod_revision,
@@ -968,8 +1716,16 @@ impl Coordinator {
                 .filter(|owner| registered.contains(owner.as_str()));
             match owner {
                 Some(owner) => {
-                    Self::log_cancellation(store, &routers, &predecessor, &registered, "reaffirm")
-                        .await;
+                    planned_cancellations.push(
+                        Self::describe_cancellation(
+                            store,
+                            &routers,
+                            &predecessor,
+                            &registered,
+                            "reaffirm",
+                        )
+                        .await,
+                    );
                     replacements.push(HandoffReplacement {
                         handoff: HandoffState {
                             partition: predecessor.partition,
@@ -982,7 +1738,12 @@ impl Coordinator {
                             phase: HandoffPhase::Complete,
                             started_at: now,
                             handoff_id: util::new_handoff_id(),
+                            // A reaffirm requires no acks at all, which
+                            // an empty membership states directly — no
+                            // record to resolve, and never the legacy
+                            // fallback.
                             freeze_quorum: Some(Vec::new()),
+                            freeze_quorum_ref: None,
                             created_at_ms: now_ms,
                             phase_entered_at_ms: now_ms,
                         },
@@ -991,9 +1752,19 @@ impl Coordinator {
                     replaced_dispositions.push("reaffirm");
                 }
                 None => {
-                    Self::log_cancellation(store, &routers, &predecessor, &registered, "delete")
-                        .await;
-                    fallback_deletes.push((predecessor, mod_revision));
+                    let cancellation = Self::describe_cancellation(
+                        store,
+                        &routers,
+                        &predecessor,
+                        &registered,
+                        "delete",
+                    )
+                    .await;
+                    fallback_deletes.push(FallbackDelete {
+                        predecessor,
+                        mod_revision,
+                        cancellation,
+                    });
                 }
             }
         }
@@ -1035,9 +1806,25 @@ impl Coordinator {
             })
             .collect();
 
+        let references_quorum = creations
+            .iter()
+            .chain(replacements.iter().map(|r| &r.handoff))
+            .any(|handoff| handoff.freeze_quorum_ref.is_some());
         if (!creations.is_empty() || !replacements.is_empty())
             && !store
-                .apply_plan(&[], &creations, &replacements, &preconditions)
+                .apply_plan(
+                    &[],
+                    &creations,
+                    &replacements,
+                    &preconditions,
+                    // A plan whose cancellations all resolve to reaffirms
+                    // creates no handoff that refers to a membership, and
+                    // that is the common shape when a wedged freeze had
+                    // sound placement. Writing one anyway leaves a record
+                    // for the next sweep to delete, during the mass
+                    // cancellation when etcd is least well.
+                    references_quorum.then_some((&freeze_quorum_id, &freeze_quorum)),
+                )
                 .await?
         {
             // A concurrent invocation (the empty-set re-trigger racing a
@@ -1061,6 +1848,9 @@ impl Coordinator {
                 "handoff created"
             );
         }
+        for cancellation in &planned_cancellations {
+            cancellation.record();
+        }
         for disposition in &replaced_dispositions {
             counter!(
                 "personhog_coordination_handoffs_replaced_total",
@@ -1074,11 +1864,15 @@ impl Coordinator {
         // its own, which is what the safety argument needs, and a stale
         // guard only ever skips a cancel for a record that changed under
         // us.
-        for (predecessor, mod_revision) in fallback_deletes {
+        for delete in fallback_deletes {
             if store
-                .delete_handoff_and_acks_if_unchanged(predecessor.partition, mod_revision)
+                .delete_handoff_and_acks_if_unchanged(
+                    delete.predecessor.partition,
+                    delete.mod_revision,
+                )
                 .await?
             {
+                delete.cancellation.record();
                 counter!(
                     "personhog_coordination_handoffs_replaced_total",
                     "disposition" => "delete",
@@ -1113,23 +1907,36 @@ impl Coordinator {
     /// one specific non-acking router, and naming it turns the diagnosis
     /// into reading a label. Attribution is best-effort; a failed ack
     /// read must not block the replacement.
-    async fn log_cancellation(
+    /// Describe a cancellation and log the intent, returning what to
+    /// count once it has actually happened.
+    async fn describe_cancellation(
         store: &PersonhogStore,
         routers: &[RegisteredRouter],
         predecessor: &HandoffState,
         registered: &HashSet<&str>,
         disposition: &'static str,
-    ) {
+    ) -> Cancellation {
         let reason = if registered.contains(predecessor.new_owner.as_str()) {
             "phase_deadline"
         } else {
             "dead_new_owner"
         };
+        // Attribution only. A read that fails here must not be turned
+        // into an answer: `None` means "no membership recorded", which
+        // widens the requirement to every live router, so a transient
+        // error would name every one of them as a blocker — during the
+        // mass cancellation when etcd is least well and the accusation
+        // is least true.
         let missing_ackers = if predecessor.phase == HandoffPhase::Freezing {
-            match store.list_freeze_acks(predecessor.partition).await {
-                Ok(acks) => missing_freeze_ackers(routers, &acks, predecessor),
-                Err(e) => {
-                    tracing::warn!(error = %e, "could not read freeze acks for attribution");
+            match (
+                store.resolve_freeze_quorum(predecessor).await,
+                store.list_freeze_acks(predecessor.partition).await,
+            ) {
+                (Ok(quorum), Ok(acks)) => {
+                    missing_freeze_ackers(routers, &acks, predecessor, quorum.as_deref())
+                }
+                (Err(e), _) | (_, Err(e)) => {
+                    tracing::warn!(error = %e, "could not attribute the missing freeze acks");
                     Vec::new()
                 }
             }
@@ -1146,17 +1953,9 @@ impl Coordinator {
             missing_freeze_ackers = ?missing_ackers,
             "cancelling handoff by replacement"
         );
-        counter!(
-            "personhog_coordination_handoffs_cancelled_total",
-            "reason" => reason,
-        )
-        .increment(1);
-        for router in &missing_ackers {
-            counter!(
-                "personhog_coordination_freeze_ack_missing_total",
-                "router" => router.clone(),
-            )
-            .increment(1);
+        Cancellation {
+            reason,
+            missing_ackers,
         }
     }
 
@@ -1536,6 +2335,174 @@ fn base_policy(status: PodStatus) -> Option<PlacementPolicy> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn paced_config(name: &str) -> CoordinatorConfig {
+        CoordinatorConfig {
+            name: name.to_string(),
+            leader_lease_ttl: 5,
+            run_retry_backoff: Duration::from_millis(500),
+            backoff_decay_window: Duration::from_secs(300),
+            ..CoordinatorConfig::default()
+        }
+    }
+
+    /// The pace must never delay a campaign longer than the lease TTL it
+    /// sits inside. A term that ended released the election, so this wait
+    /// holds up a succession that is already open — past the TTL a paced
+    /// candidate is slower to take a free election than it would have
+    /// been to wait out a crashed leader's lease.
+    #[test]
+    fn the_pace_never_exceeds_the_lease_ttl_it_delays() {
+        let config = paced_config("coordinator-0");
+        let mut consecutive = 0;
+        let mut last = None;
+        let ttl = Duration::from_secs(config.leader_lease_ttl as u64);
+
+        for ending in 1..=20 {
+            let wait = pace_after_ending(&config, &mut consecutive, &mut last);
+            assert!(
+                wait <= ttl,
+                "ending {ending} paced {wait:?}, past the {ttl:?} lease TTL"
+            );
+        }
+    }
+
+    /// It still has to grow, or it is not a pace at all: a coordinator
+    /// that keeps failing would campaign as fast as it can against an
+    /// etcd that is already unwell.
+    #[test]
+    fn the_pace_grows_while_endings_keep_arriving() {
+        let config = paced_config("coordinator-0");
+        let mut consecutive = 0;
+        let mut last = None;
+
+        let first = pace_after_ending(&config, &mut consecutive, &mut last);
+        let second = pace_after_ending(&config, &mut consecutive, &mut last);
+        assert!(
+            second > first,
+            "a second ending inside the decay window must pace harder than the first"
+        );
+    }
+
+    /// And it has to start over once the endings stop, or a bad spell in
+    /// the morning leaves every candidate at the cap that evening.
+    #[test]
+    fn a_quiet_window_starts_the_pace_over() {
+        // A window the test can actually wait out, rather than rewinding
+        // `last` by subtracting from `Instant::now()` — that subtraction
+        // panics on a host whose monotonic clock is younger than the
+        // window, which a fresh CI VM's is.
+        let config = CoordinatorConfig {
+            backoff_decay_window: Duration::from_millis(5),
+            ..paced_config("coordinator-0")
+        };
+        let mut consecutive = 0;
+        let mut last = None;
+
+        let first = pace_after_ending(&config, &mut consecutive, &mut last);
+        pace_after_ending(&config, &mut consecutive, &mut last);
+        // An ending older than the decay window is the same evidence as
+        // never having had one.
+        std::thread::sleep(config.backoff_decay_window);
+        let after_quiet = pace_after_ending(&config, &mut consecutive, &mut last);
+
+        assert_eq!(
+            after_quiet, first,
+            "an ending after a quiet window must cost the base pace again"
+        );
+    }
+
+    /// A blind candidate's retry has to grow, because at fleet scale the
+    /// standby interval is real load: two hundred candidates re-reading
+    /// a recovering etcd every interval is forty reads a second held for
+    /// the whole outage. And it has to stop growing at the cap, because
+    /// every doubling past it buys nothing but slower recovery
+    /// detection.
+    #[test]
+    fn the_blind_retry_grows_to_its_cap_and_no_further() {
+        let config = paced_config("coordinator-0");
+        let cap = config
+            .standby_poll_interval
+            .saturating_mul(OBSERVATION_BACKOFF_FACTOR);
+
+        let first = observation_retry_pace(&config, 1);
+        assert!(
+            first <= config.standby_poll_interval,
+            "the first blind retry must cost no more than a healthy standby's poll"
+        );
+        let mut previous = first;
+        // Strict growth up to the attempt that reaches the cap (1x, 2x,
+        // 4x, then 8x clamps to the 6x cap); beyond it the pace holds.
+        for consecutive in 2..=4 {
+            let wait = observation_retry_pace(&config, consecutive);
+            assert!(
+                wait > previous,
+                "attempt {consecutive} must pace harder than the one before"
+            );
+            previous = wait;
+        }
+        for consecutive in [5, 7, 10, 100, u32::MAX] {
+            let wait = observation_retry_pace(&config, consecutive);
+            assert!(
+                wait <= cap,
+                "attempt {consecutive} paced {wait:?}, past the {cap:?} cap"
+            );
+        }
+    }
+
+    /// A completed observation must start the ladder over, or a
+    /// candidate that was ever blind pays the capped pace for the rest
+    /// of its life — the safe-but-wasteful degradation nothing else
+    /// would catch, since every retry still works.
+    #[test]
+    fn an_observed_election_starts_the_blind_ladder_over() {
+        let config = paced_config("coordinator-0");
+        let mut blind = BlindSpell::new();
+
+        let first = blind.failed(&config);
+        for _ in 0..5 {
+            blind.failed(&config);
+        }
+        assert!(
+            blind.failed(&config) > first,
+            "a long spell must be pacing above the base before the reset means anything"
+        );
+
+        blind.observed();
+        assert_eq!(
+            blind.failed(&config),
+            first,
+            "the first failure after an observed election must cost the base pace again"
+        );
+    }
+
+    /// Candidates fail together — one etcd slowdown ends every term at
+    /// once — so an unjittered pace walks the whole fleet up the same
+    /// ladder and fires their campaigns in the same instant, against an
+    /// etcd that has just recovered.
+    #[test]
+    fn candidates_pace_differently_from_one_another() {
+        let waits: HashSet<Duration> = ["router-0", "router-1", "router-2", "router-3"]
+            .iter()
+            .map(|name| {
+                let config = paced_config(name);
+                let (mut consecutive, mut last) = (0, None);
+                // Third ending: far enough up the ladder that the offset
+                // is a meaningful share of the wait.
+                for _ in 0..3 {
+                    pace_after_ending(&config, &mut consecutive, &mut last);
+                }
+                pace_after_ending(&config, &mut consecutive, &mut last)
+            })
+            .collect();
+
+        assert_eq!(
+            waits.len(),
+            4,
+            "every candidate at the same ladder position must wait a distinct time; \
+             two of four differing would still let most of the fleet campaign in lockstep"
+        );
+    }
 
     fn make_pod(name: &str) -> RegisteredPod {
         RegisteredPod {

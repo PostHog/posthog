@@ -153,8 +153,32 @@ pub struct HandoffState {
     /// falls back to requiring every live router. `Some([])` is a real
     /// snapshot — zero routers were registered at creation — and
     /// requires nobody.
+    /// Carried by records written before the membership moved into its
+    /// own key, and read for those. One current path still writes it: a
+    /// reaffirm, which states an empty membership directly rather than
+    /// minting a record no handoff would ever resolve. Nothing reads that
+    /// value — a reaffirm is created at `Complete`, past every quorum
+    /// check — but the field is written, so treat "absent" rather than
+    /// "never written" as the thing this can be relied on for.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub freeze_quorum: Option<Vec<String>>,
+    /// The id of the record holding this handoff's quorum membership,
+    /// under `{prefix}freeze_quorums/{id}`.
+    ///
+    /// Every handoff a plan creates shares one membership — the registry
+    /// as the coordinator saw it — so inlining the names wrote the whole
+    /// router fleet once per partition. At a few hundred routers and a
+    /// few hundred partitions that reached megabytes: it exceeded etcd's
+    /// maximum request size and stopped the plan transaction outright,
+    /// and it was paid again by every list of handoffs.
+    ///
+    /// Resolution failure is not fatal. An id that no longer resolves
+    /// falls back to the same rule as a record with no membership at
+    /// all — require every live router — which is the stricter answer,
+    /// so a lost or garbage-collected record can only delay a handoff,
+    /// never advance one early.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub freeze_quorum_ref: Option<String>,
     /// Millisecond creation time. `started_at` (seconds) predates it and
     /// stays authoritative for the cancellation deadline — changing that
     /// field's units mid-roll would make old records' ages read as
@@ -380,6 +404,7 @@ mod tests {
             started_at: 1700000000,
             handoff_id: "1700000000000-0".to_string(),
             freeze_quorum: None,
+            freeze_quorum_ref: None,
             created_at_ms: 0,
             phase_entered_at_ms: 0,
             new_owner_address: None,
@@ -399,6 +424,7 @@ mod tests {
             started_at: 1700000000,
             handoff_id: "1700000000000-0".to_string(),
             freeze_quorum: None,
+            freeze_quorum_ref: None,
             created_at_ms: 0,
             phase_entered_at_ms: 0,
             new_owner_address: None,
