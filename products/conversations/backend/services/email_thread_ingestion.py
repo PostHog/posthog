@@ -34,7 +34,7 @@ class EmailAddress:
 
 
 @dataclass(frozen=True, kw_only=True)
-class ParsedInboundEmail:
+class ParsedEmail:
     message_id: str
     in_reply_to: str | None
     references: tuple[str, ...]
@@ -66,7 +66,7 @@ def _mailgun_source_id(message_id: str) -> str:
     return f"sha256:{sha256(message_id.encode()).hexdigest()}"
 
 
-def _find_existing_message(*, team_id: int, email: ParsedInboundEmail) -> EmailThreadMessage | None:
+def _find_existing_message(*, team_id: int, email: ParsedEmail) -> EmailThreadMessage | None:
     return (
         EmailThreadMessage.objects.for_team(team_id)
         .select_related("thread")
@@ -75,7 +75,7 @@ def _find_existing_message(*, team_id: int, email: ParsedInboundEmail) -> EmailT
     )
 
 
-def _find_thread(*, team_id: int, email: ParsedInboundEmail) -> EmailThread | None:
+def _find_thread(*, team_id: int, email: ParsedEmail) -> EmailThread | None:
     message_candidates = tuple(
         dict.fromkeys(candidate for candidate in (email.in_reply_to, *reversed(email.references)) if candidate)
     )
@@ -105,7 +105,7 @@ def _find_thread(*, team_id: int, email: ParsedInboundEmail) -> EmailThread | No
     return None
 
 
-def _get_or_create_thread(*, team_id: int, email: ParsedInboundEmail) -> EmailThread:
+def _get_or_create_thread(*, team_id: int, email: ParsedEmail) -> EmailThread:
     existing_thread = _find_thread(team_id=team_id, email=email)
     if existing_thread is not None:
         return existing_thread
@@ -124,7 +124,7 @@ def _upsert_participants(
     team_id: int,
     thread: EmailThread,
     channel: EmailChannel,
-    email: ParsedInboundEmail,
+    email: ParsedEmail,
 ) -> None:
     owner = channel.owner
     if owner is None:
@@ -182,13 +182,13 @@ def _upsert_participants(
             participant.save(update_fields=[*update_fields, "updated_at"])
 
 
-def _message_content(*, thread: EmailThread, email: ParsedInboundEmail) -> str:
+def _message_content(*, thread: EmailThread, email: ParsedEmail) -> str:
     if thread.message_count > 0:
         return email.stripped_text or email.body_plain
     return email.body_plain or email.stripped_text
 
 
-def _update_thread_summary(*, thread: EmailThread, email: ParsedInboundEmail, content: str) -> None:
+def _update_thread_summary(*, thread: EmailThread, email: ParsedEmail, content: str) -> None:
     update_fields = ["message_count", "updated_at"]
     thread.message_count += 1
 
@@ -212,7 +212,8 @@ def _ingest_customer_email_once(
     *,
     team_id: int,
     channel: EmailChannel,
-    email: ParsedInboundEmail,
+    email: ParsedEmail,
+    direction: EmailThreadMessageDirection,
 ) -> EmailThreadIngestionResult:
     existing_message = _find_existing_message(team_id=team_id, email=email)
     if existing_message is not None:
@@ -253,7 +254,7 @@ def _ingest_customer_email_once(
         to_recipients=[recipient.as_dict() for recipient in email.to_recipients],
         cc_recipients=[recipient.as_dict() for recipient in email.cc_recipients],
         sender_authenticated=email.sender_authenticated,
-        direction=EmailThreadMessageDirection.INBOUND,
+        direction=direction,
         source_type="mailgun",
         source_id=_mailgun_source_id(email.message_id),
     )
@@ -266,11 +267,17 @@ def ingest_customer_email(
     *,
     team_id: int,
     channel: EmailChannel,
-    email: ParsedInboundEmail,
+    email: ParsedEmail,
+    direction: EmailThreadMessageDirection,
 ) -> EmailThreadIngestionResult:
     try:
         with transaction.atomic():
-            result = _ingest_customer_email_once(team_id=team_id, channel=channel, email=email)
+            result = _ingest_customer_email_once(
+                team_id=team_id,
+                channel=channel,
+                email=email,
+                direction=direction,
+            )
     except IntegrityError:
         existing_message = _find_existing_message(team_id=team_id, email=email)
         if existing_message is None:

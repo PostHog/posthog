@@ -24,7 +24,7 @@ from products.conversations.backend.models import (
 )
 from products.conversations.backend.services.email_thread_ingestion import (
     EmailAddress,
-    ParsedInboundEmail,
+    ParsedEmail,
     _upsert_participants,
 )
 from products.conversations.backend.services.email_threads import delete_email_thread
@@ -257,7 +257,7 @@ class TestEmailThreadPersistence(BaseTest):
             domain="example.com",
         )
         thread = self._create_thread()
-        email = ParsedInboundEmail(
+        email = ParsedEmail(
             message_id="<root@example.com>",
             in_reply_to=None,
             references=(),

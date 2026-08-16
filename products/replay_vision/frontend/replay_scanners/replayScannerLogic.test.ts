@@ -1,5 +1,6 @@
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
+import posthog from 'posthog-js'
 
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { teamLogic } from 'scenes/teamLogic'
@@ -1256,6 +1257,33 @@ describe('replayScannerLogic', () => {
             } finally {
                 sidLogic.unmount()
             }
+        })
+    })
+
+    describe('creation path telemetry', () => {
+        // Both paths end on the same created event, so these captures are the only path marker.
+        it.each([
+            ['dead_end', 'template'],
+            [null, 'scratch'],
+        ])('startFromTemplate(%s) reports the %s path', (templateKey, creationMethod) => {
+            const captureSpy = jest.spyOn(posthog, 'capture')
+            logic.actions.startFromTemplate(templateKey)
+            expect(captureSpy).toHaveBeenCalledWith('replay_vision_scanner_creation_started', {
+                creation_method: creationMethod,
+                template_key: templateKey,
+            })
+        })
+
+        it('drafting from a goal reports the AI path without the goal text', async () => {
+            const captureSpy = jest.spyOn(posthog, 'capture')
+            await expectLogic(logic, () => {
+                logic.actions.draftScannerFromGoal('  find users who get stuck  ')
+            }).toFinishAllListeners()
+            expect(captureSpy).toHaveBeenCalledWith('replay_vision_scanner_creation_started', {
+                creation_method: 'ai',
+                template_key: null,
+                goal_length: 'find users who get stuck'.length,
+            })
         })
     })
 })
