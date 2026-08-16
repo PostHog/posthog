@@ -42,8 +42,10 @@ function ScannerPromptField({
     caption?: string
 }): JSX.Element {
     const logic = replayScannerLogic({ id: scannerId })
-    const { scanner } = useValues(logic)
+    const { scanner, isNew, goalDraft } = useValues(logic)
     const { setScannerValue } = useActions(logic)
+    // The AI already wrote this prompt one step ago, so offering to write it reads as a no-op.
+    const promptWasDrafted = isNew && !!goalDraft
 
     const onDraftedPrompt = useCallback(
         (toolOutput: { prompt?: string; error?: string }) => {
@@ -64,7 +66,9 @@ function ScannerPromptField({
         contextDescription: scanner
             ? { text: `${scannerTypeLabel(scanner.scanner_type)} scanner`, icon: iconForType('session_replay') }
             : undefined,
-        initialMaxPrompt: 'Help me write the prompt for this scanner',
+        initialMaxPrompt: promptWasDrafted
+            ? 'Help me rewrite the prompt for this scanner'
+            : 'Help me write the prompt for this scanner',
         callback: onDraftedPrompt,
     })
 
@@ -94,7 +98,7 @@ function ScannerPromptField({
                         onClick={() => openMax()}
                         data-attr="replay-vision-write-prompt-with-ai"
                     >
-                        Write with PostHog AI
+                        {promptWasDrafted ? 'Rewrite with PostHog AI' : 'Write with PostHog AI'}
                     </LemonButton>
                 )}
             </div>
@@ -124,7 +128,7 @@ function ClassifierTagSuggestions({ scannerId }: { scannerId: string }): JSX.Ele
     return (
         <LemonCard className="space-y-2">
             <div className="flex items-center justify-between">
-                <span className="text-sm font-medium">Suggested tags</span>
+                <span className="text-sm font-medium">Suggested categories</span>
                 <div className="flex items-center gap-1">
                     <LemonButton size="xsmall" type="secondary" onClick={() => acceptAllTagSuggestions()}>
                         Add all
@@ -146,7 +150,7 @@ function ClassifierTagSuggestions({ scannerId }: { scannerId: string }): JSX.Ele
                                 size="xsmall"
                                 type="secondary"
                                 icon={<IconPlus />}
-                                tooltip="Add to vocabulary"
+                                tooltip="Add to categories"
                                 onClick={() => acceptTagSuggestion(suggestion.tag)}
                             />
                             <div className="flex-1 min-w-0">
@@ -169,12 +173,14 @@ function ClassifierTagSuggestions({ scannerId }: { scannerId: string }): JSX.Ele
 /** Tag-vocabulary field with an AI entry point that suggests grounded tags to add. */
 function ClassifierTagsField({ scannerId }: { scannerId: string }): JSX.Element {
     const logic = replayScannerLogic({ id: scannerId })
-    const { scanner, tagSuggestionsLoading } = useValues(logic)
+    const { scanner, isNew, goalDraft, tagSuggestionsLoading } = useValues(logic)
     const { loadTagSuggestions, clearClassifierTags } = useActions(logic)
 
     const config = scanner?.scanner_config as ClassifierScannerConfig | undefined
     const hasPrompt = !!config?.prompt?.trim()
     const hasTags = (config?.tags ?? []).length > 0
+    // The draft already filled these in, so the offer is more of them, not a first set.
+    const categoriesWereDrafted = isNew && !!goalDraft && !!config?.tags?.length
 
     return (
         <div className="space-y-2">
@@ -182,14 +188,14 @@ function ClassifierTagsField({ scannerId }: { scannerId: string }): JSX.Element 
                 name="scanner_config.tags"
                 label={
                     <span className="flex w-full flex-wrap items-center justify-between gap-2">
-                        Tag vocabulary
+                        Categories
                         <span className="flex flex-wrap items-center gap-1">
                             <LemonButton
                                 size="xsmall"
                                 type="secondary"
-                                disabledReason={hasTags ? undefined : 'No tags to clear'}
+                                disabledReason={hasTags ? undefined : 'No categories to clear'}
                                 onClick={() => clearClassifierTags()}
-                                data-attr="replay-vision-clear-tag-vocabulary"
+                                data-attr="replay-vision-clear-categories"
                             >
                                 Clear all
                             </LemonButton>
@@ -204,7 +210,9 @@ function ClassifierTagsField({ scannerId }: { scannerId: string }): JSX.Element 
                                 onClick={() => loadTagSuggestions()}
                                 data-attr="replay-vision-suggest-tags-with-ai"
                             >
-                                Suggest tags with PostHog AI
+                                {categoriesWereDrafted
+                                    ? 'Suggest more categories'
+                                    : 'Suggest categories with PostHog AI'}
                             </LemonButton>
                         </span>
                     </span>
@@ -214,7 +222,7 @@ function ClassifierTagsField({ scannerId }: { scannerId: string }): JSX.Element 
                     <LemonInputSelect
                         mode="multiple"
                         allowCustomValues
-                        placeholder="Type a tag and press enter..."
+                        placeholder="Type a category and press enter..."
                         value={(value as string[]) ?? []}
                         onChange={onChange}
                         options={((value as string[]) ?? []).map((t) => ({ key: t, label: t }))}
@@ -222,8 +230,7 @@ function ClassifierTagsField({ scannerId }: { scannerId: string }): JSX.Element 
                 )}
             </LemonField>
             <div className="text-xs text-muted">
-                The classifier picks from these tags when labeling each session. If you started from a template, these
-                are example tags. Edit or clear them to fit your product.
+                If you started from a template, these categories are examples. Edit or clear them to fit your product.
             </div>
             <ClassifierTagSuggestions scannerId={scannerId} />
         </div>
@@ -284,8 +291,8 @@ export function ScannerTypeConfigEditor({ scannerId }: { scannerId: string }): J
             <div className="space-y-4">
                 <ScannerPromptField
                     scannerId={scannerId}
-                    placeholder="Categorize this session by what the user came to do: first-time setup, regular work, exploring features, or troubleshooting a problem. If they did several, tag the one they spent the most time on."
-                    caption="Your prompt tells the agent how to decide which of your tags fit each session. Include anything the agent should know about your product or this flow."
+                    placeholder="Categorize this session by what the user came to do: first-time setup, regular work, exploring features, or troubleshooting a problem. If they did several, pick the one they spent the most time on."
+                    caption="Your prompt tells the agent how to decide which of your categories fit each session. Include anything the agent should know about your product or this flow."
                 />
                 <ClassifierTagsField scannerId={scannerId} />
                 <LemonField name="scanner_config.multi_label">
@@ -293,9 +300,9 @@ export function ScannerTypeConfigEditor({ scannerId }: { scannerId: string }): J
                         <div className="flex items-center gap-2">
                             <LemonSwitch checked={!!value} onChange={onChange} />
                             <div>
-                                <div className="text-sm font-medium">Allow multiple tags per session</div>
+                                <div className="text-sm font-medium">Allow multiple categories per session</div>
                                 <div className="text-xs text-muted">
-                                    Otherwise the model picks exactly one tag from your vocabulary.
+                                    Otherwise the model picks exactly one of your categories.
                                 </div>
                             </div>
                         </div>
@@ -306,9 +313,9 @@ export function ScannerTypeConfigEditor({ scannerId }: { scannerId: string }): J
                         <div className="flex items-center gap-2">
                             <LemonSwitch checked={!!value} onChange={onChange} />
                             <div>
-                                <div className="text-sm font-medium">Allow freeform tags</div>
+                                <div className="text-sm font-medium">Allow freeform categories</div>
                                 <div className="text-xs text-muted">
-                                    Lets the model emit tags outside your tag vocabulary.
+                                    Lets the model use categories outside the ones you defined.
                                 </div>
                             </div>
                         </div>

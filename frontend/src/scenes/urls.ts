@@ -257,6 +257,7 @@ export const urls = {
     codeCanvasLink: (channelId: string, dashboardId: string): string => `/code/canvas/${channelId}/${dashboardId}`,
     codeChannelLink: (channelId: string, taskId?: string): string =>
         `/code/channel/${channelId}${taskId ? `/tasks/${taskId}` : ''}`,
+    codeTaskLink: (taskId: string): string => `/code/task/${taskId}`,
     integration: (slug: string): string => `/integrations/${slug}`,
     integrationsRedirect: (kind: string): string => `/integrations/${kind}/callback`,
     stripeConfirmInstall: (): string => '/integrations/stripe/confirm-install',
@@ -316,6 +317,7 @@ export const urls = {
             ? `/health/alerts?preset_kinds=${encodeURIComponent(presetKinds.join(','))}`
             : '/health/alerts',
     webAnalyticsBotAnalytics: (): string => '/web/bots',
+    webAnalyticsPagePerformance: (): string => '/web/page-performance',
     webAnalyticsHealth: (): string => '/web/health',
     webAnalyticsRecap: (): string => '/web/recap',
     pipelineStatus: (): string => '/health/pipeline-status',

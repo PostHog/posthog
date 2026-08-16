@@ -3,7 +3,7 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 10 enabled ops
+ * PostHog API - MCP 11 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
@@ -111,6 +111,12 @@ export const canvasesDraftCreateBodyProjectOneCapabilitiesOnePosthogCaptureEvent
 
 export const canvasesDraftCreateBodyProjectOneCapabilitiesOnePosthogCaptureEventsMax = 100
 
+export const canvasesDraftCreateBodyProjectOneCapabilitiesOnePosthogStateMax = 2
+
+export const canvasesDraftCreateBodyProjectOneCapabilitiesOnePosthogActionsItemMax = 64
+
+export const canvasesDraftCreateBodyProjectOneCapabilitiesOnePosthogActionsMax = 32
+
 export const canvasesDraftCreateBodyProjectOneCapabilitiesOneNetworkOriginsItemMax = 2048
 
 export const canvasesDraftCreateBodyProjectOneCapabilitiesOneNetworkOriginsMax = 20
@@ -182,6 +188,24 @@ export const CanvasesDraftCreateBody = /* @__PURE__ */ zod
                                         )
                                 )
                                 .max(canvasesDraftCreateBodyProjectOneCapabilitiesOnePosthogCaptureEventsMax),
+                            state: zod
+                                .array(zod.enum(['user', 'shared']).describe('\* `user` - user\n\* `shared` - shared'))
+                                .max(canvasesDraftCreateBodyProjectOneCapabilitiesOnePosthogStateMax)
+                                .optional()
+                                .describe(
+                                    "State scopes the canvas may use via ph.state: 'user' (private to each viewer) and\/or 'shared' (one value per canvas, team-visible)."
+                                ),
+                            actions: zod
+                                .array(
+                                    zod
+                                        .string()
+                                        .max(canvasesDraftCreateBodyProjectOneCapabilitiesOnePosthogActionsItemMax)
+                                )
+                                .max(canvasesDraftCreateBodyProjectOneCapabilitiesOnePosthogActionsMax)
+                                .optional()
+                                .describe(
+                                    "Registered action verbs the canvas may invoke via ph.actions (e.g. 'annotations.create', 'tasks.create'). Each executes as the viewer; declaring one shows it in the promote review."
+                                ),
                         }),
                         network: zod.object({
                             origins: zod
@@ -338,6 +362,12 @@ export const canvasesPublishCreateBodyProjectOneCapabilitiesOnePosthogCaptureEve
 
 export const canvasesPublishCreateBodyProjectOneCapabilitiesOnePosthogCaptureEventsMax = 100
 
+export const canvasesPublishCreateBodyProjectOneCapabilitiesOnePosthogStateMax = 2
+
+export const canvasesPublishCreateBodyProjectOneCapabilitiesOnePosthogActionsItemMax = 64
+
+export const canvasesPublishCreateBodyProjectOneCapabilitiesOnePosthogActionsMax = 32
+
 export const canvasesPublishCreateBodyProjectOneCapabilitiesOneNetworkOriginsItemMax = 2048
 
 export const canvasesPublishCreateBodyProjectOneCapabilitiesOneNetworkOriginsMax = 20
@@ -411,6 +441,24 @@ export const CanvasesPublishCreateBody = /* @__PURE__ */ zod
                                         )
                                 )
                                 .max(canvasesPublishCreateBodyProjectOneCapabilitiesOnePosthogCaptureEventsMax),
+                            state: zod
+                                .array(zod.enum(['user', 'shared']).describe('\* `user` - user\n\* `shared` - shared'))
+                                .max(canvasesPublishCreateBodyProjectOneCapabilitiesOnePosthogStateMax)
+                                .optional()
+                                .describe(
+                                    "State scopes the canvas may use via ph.state: 'user' (private to each viewer) and\/or 'shared' (one value per canvas, team-visible)."
+                                ),
+                            actions: zod
+                                .array(
+                                    zod
+                                        .string()
+                                        .max(canvasesPublishCreateBodyProjectOneCapabilitiesOnePosthogActionsItemMax)
+                                )
+                                .max(canvasesPublishCreateBodyProjectOneCapabilitiesOnePosthogActionsMax)
+                                .optional()
+                                .describe(
+                                    "Registered action verbs the canvas may invoke via ph.actions (e.g. 'annotations.create', 'tasks.create'). Each executes as the viewer; declaring one shows it in the promote review."
+                                ),
                         }),
                         network: zod.object({
                             origins: zod
@@ -446,6 +494,24 @@ export const CanvasesPublishCreateBody = /* @__PURE__ */ zod
             ),
     })
     .describe('Payload for publishing a complete canvas source project.')
+
+/**
+ * Queue a build for the current source version without changing source or metadata.
+ */
+export const CanvasesPublishCurrentVersionCreateParams = /* @__PURE__ */ zod.object({
+    id: zod.string().describe('A UUID string identifying this canvas.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const CanvasesPublishCurrentVersionCreateBody = /* @__PURE__ */ zod.object({
+    expected_current_version_id: zod
+        .string()
+        .describe('Current source version to publish. A changed head returns a 409 version_conflict.'),
+})
 
 /**
  * Read the canvas's source project and its `current_version_id`.
@@ -495,6 +561,12 @@ export const canvasesValidateCreateBodyProjectOneCapabilitiesOnePosthogInsightsM
 export const canvasesValidateCreateBodyProjectOneCapabilitiesOnePosthogCaptureEventsItemMax = 200
 
 export const canvasesValidateCreateBodyProjectOneCapabilitiesOnePosthogCaptureEventsMax = 100
+
+export const canvasesValidateCreateBodyProjectOneCapabilitiesOnePosthogStateMax = 2
+
+export const canvasesValidateCreateBodyProjectOneCapabilitiesOnePosthogActionsItemMax = 64
+
+export const canvasesValidateCreateBodyProjectOneCapabilitiesOnePosthogActionsMax = 32
 
 export const canvasesValidateCreateBodyProjectOneCapabilitiesOneNetworkOriginsItemMax = 2048
 
@@ -567,6 +639,24 @@ export const CanvasesValidateCreateBody = /* @__PURE__ */ zod
                                         )
                                 )
                                 .max(canvasesValidateCreateBodyProjectOneCapabilitiesOnePosthogCaptureEventsMax),
+                            state: zod
+                                .array(zod.enum(['user', 'shared']).describe('\* `user` - user\n\* `shared` - shared'))
+                                .max(canvasesValidateCreateBodyProjectOneCapabilitiesOnePosthogStateMax)
+                                .optional()
+                                .describe(
+                                    "State scopes the canvas may use via ph.state: 'user' (private to each viewer) and\/or 'shared' (one value per canvas, team-visible)."
+                                ),
+                            actions: zod
+                                .array(
+                                    zod
+                                        .string()
+                                        .max(canvasesValidateCreateBodyProjectOneCapabilitiesOnePosthogActionsItemMax)
+                                )
+                                .max(canvasesValidateCreateBodyProjectOneCapabilitiesOnePosthogActionsMax)
+                                .optional()
+                                .describe(
+                                    "Registered action verbs the canvas may invoke via ph.actions (e.g. 'annotations.create', 'tasks.create'). Each executes as the viewer; declaring one shows it in the promote review."
+                                ),
                         }),
                         network: zod.object({
                             origins: zod

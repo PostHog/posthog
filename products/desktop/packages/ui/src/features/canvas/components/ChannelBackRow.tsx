@@ -62,6 +62,7 @@ export function ChannelBackRow({ channelId }: { channelId: string }) {
   const current = channels.find((c) => c.id === channelId);
   const showStar = current != null && current.channelType !== "personal";
   const glyph = channelGlyph(current?.name, {
+    personal: current?.channelType === "personal",
     size: 14,
     space: spacesLayout,
     className: "text-muted-foreground",
@@ -91,7 +92,10 @@ export function ChannelBackRow({ channelId }: { channelId: string }) {
               // the star. Padding rather than a spacer element: quill hides an
               // empty one (`empty:hidden`), which is how the shortcut hint ended
               // up sitting beneath the star.
-              className={cn("w-full gap-1.5 text-left", showStar && "pr-8")}
+              className={cn(
+                "w-full gap-1.5 pr-1 text-left",
+                showStar && "pr-8",
+              )}
             >
               <CaretLeftIcon
                 size={12}
