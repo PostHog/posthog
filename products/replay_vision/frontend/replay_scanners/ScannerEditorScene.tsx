@@ -362,8 +362,7 @@ function ConfigureStep(): JSX.Element {
                     {namingVariant
                         ? 'Higher tiers tend to produce higher-quality observations, but cost more per observation.'
                         : 'Newer models tend to produce higher-quality observations, but cost more per observation.'}{' '}
-                    <CreditPriceNote dataAttr="vision-pricing-link-model-picker" />{' '}
-                    <RequestModelButton />
+                    <CreditPriceNote dataAttr="vision-pricing-link-model-picker" /> <RequestModelButton />
                 </div>
             </div>
 
