@@ -2290,6 +2290,29 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
 
             resetFlowFromHogFlow: ({ hogFlow }) => {
                 try {
+                    // One target handle per incoming edge, spread across the step's top edge, so
+                    // converging edges land on distinct points. They previously shared a single
+                    // centre handle, which stacked every reconnect anchor on identical coordinates:
+                    // you could only ever grab the last-rendered edge, so a branch whose outputs all
+                    // point at the same step could not be untangled by hand.
+                    //
+                    // A step with one incoming edge keeps the centre position, so the common case
+                    // looks exactly as it did.
+                    const incomingByNodeId = hogFlow.edges.reduce<Record<string, string[]>>((acc, edge) => {
+                        acc[edge.to] = acc[edge.to] ?? []
+                        acc[edge.to].push(getEdgeId(edge))
+                        return acc
+                    }, {})
+                    const targetHandleIdByEdgeId: Record<string, string> = {}
+                    const targetHandlePositionById: Record<string, { id: string; x: number }[]> = {}
+                    Object.entries(incomingByNodeId).forEach(([nodeId, edgeIds]) => {
+                        targetHandlePositionById[nodeId] = edgeIds.map((edgeId, index) => {
+                            const handleId = `target_${nodeId}_${index}`
+                            targetHandleIdByEdgeId[edgeId] = handleId
+                            return { id: handleId, x: (NODE_WIDTH * (index + 1)) / (edgeIds.length + 1) }
+                        })
+                    })
+
                     const edges: HogFlowActionEdge[] = hogFlow.edges.map((edge) => {
                         const isOnlyEdgeForNode = hogFlow.edges.filter((e) => e.from === edge.from).length === 1
                         const edgeSourceAction = hogFlow.actions.find((action) => action.id === edge.from)
@@ -2321,7 +2344,7 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
                                       : getBranchLabel(edgeSourceAction, edge),
                             },
                             labelShowBg: false,
-                            targetHandle: `target_${edge.to}`,
+                            targetHandle: targetHandleIdByEdgeId[getEdgeId(edge)] ?? `target_${edge.to}`,
                             sourceHandle:
                                 edge.type === 'continue'
                                     ? `continue_${edge.from}`
@@ -2340,6 +2363,8 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
                         if (action.id === TRIGGER_NODE_ID) {
                             return
                         }
+                        // The centre handle is the drop target for a step nothing points at, and the
+                        // fallback for any edge whose per-edge handle is missing.
                         handlesByIdByNodeId[action.id] = {
                             [`target_${action.id}`]: {
                                 id: `target_${action.id}`,
@@ -2348,6 +2373,16 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
                                 ...TOP_HANDLE_POSITION,
                             },
                         }
+                        // One handle per incoming edge, so their reconnect anchors don't stack.
+                        ;(targetHandlePositionById[action.id] ?? []).forEach(({ id, x }) => {
+                            handlesByIdByNodeId[action.id][id] = {
+                                id,
+                                type: 'target',
+                                position: Position.Top,
+                                x,
+                                y: TOP_HANDLE_POSITION.y,
+                            }
+                        })
                     })
 
                     edges.forEach((edge) => {
@@ -2365,11 +2400,17 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
                             ...BOTTOM_HANDLE_POSITION,
                         }
 
+                        // Keep the per-edge x assigned above; only fall back to the centre for a
+                        // handle that wasn't derived from the incoming-edge spread.
+                        const spreadHandle = (targetHandlePositionById[edge.target] ?? []).find(
+                            (handle) => handle.id === edge.targetHandle
+                        )
                         handlesByIdByNodeId[edge.target][edge.targetHandle ?? ''] = {
                             id: edge.targetHandle,
                             type: 'target',
                             position: Position.Top,
-                            ...TOP_HANDLE_POSITION,
+                            x: spreadHandle?.x ?? TOP_HANDLE_POSITION.x,
+                            y: TOP_HANDLE_POSITION.y,
                         }
                     })
 
