@@ -808,6 +808,10 @@ const FeedItem = memo(function FeedItem({
         onOpenThread(task);
       }}
       onKeyDown={(event) => {
+        // Only when the card itself has focus: descendant buttons (title, PR
+        // and comment chips, the prompt toggle) bubble their key events here,
+        // and preventDefault would swallow their own Enter/Space activation.
+        if (event.target !== event.currentTarget) return;
         if (event.key === "Enter" || event.key === " ") {
           event.preventDefault();
           markRead();
