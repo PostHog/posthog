@@ -34,7 +34,8 @@ _EMPTY_TURN_RETRY_NUDGE = "\n\nPlease respond now with the JSON object matching 
 _ModelT = TypeVar("_ModelT", bound=BaseModel)
 
 
-@dataclass
+# Mutable: per-turn log offsets (`log_lines_seen`, `printed_lines`) are updated in place.
+@dataclass(frozen=False)
 class MultiTurnSession:
     task: Task
     task_run: TaskRun
