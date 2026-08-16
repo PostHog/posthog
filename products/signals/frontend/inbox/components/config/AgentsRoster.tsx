@@ -524,8 +524,21 @@ const AgentRow = memo(function AgentRow({
                         />
                     ) : null}
                 </div>
-                <IconChevronRight
-                    className={`shrink-0 text-muted transition-transform ${expanded ? 'rotate-90' : ''}`}
+                {/* A real button inside the clickable row, so keyboard users can reach the
+                    expansion (and the controls inside it, like steering). */}
+                <LemonButton
+                    size="xsmall"
+                    icon={
+                        <IconChevronRight
+                            className={`shrink-0 text-muted transition-transform ${expanded ? 'rotate-90' : ''}`}
+                        />
+                    }
+                    onClick={(e) => {
+                        e.stopPropagation()
+                        onExpand()
+                    }}
+                    aria-expanded={expanded}
+                    aria-label={`${expanded ? 'Collapse' : 'Expand'} ${agent.label}`}
                 />
             </div>
             {expanded && (

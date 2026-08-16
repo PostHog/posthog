@@ -39,7 +39,8 @@ describe('sourceSteeringModalLogic', () => {
                 '/api/projects/:team_id/signals/source_configs/:id/': async ({ request }) => {
                     const body = (await request.json()) as Record<string, any>
                     patchBodies.push(body)
-                    return [200, { ...sourceConfig, ...body }]
+                    // The serializer recomputes the sync status on every response.
+                    return [200, { ...sourceConfig, ...body, status: 'completed' }]
                 },
             },
         })
@@ -103,6 +104,7 @@ describe('sourceSteeringModalLogic', () => {
             steering: 'fresh rules',
             default_not_actionable: false,
         })
+        expect(signalSourcesLogic.values.sourceConfigs?.[0]?.status).toEqual('completed')
     })
 
     it('shows the saved rules when the same source is reopened after a config reload', () => {

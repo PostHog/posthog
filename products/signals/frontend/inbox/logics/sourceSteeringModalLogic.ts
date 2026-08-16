@@ -188,6 +188,8 @@ export const sourceSteeringModalLogic: LogicWrapper<sourceSteeringModalLogicType
                     enabled: updated.enabled ?? sourceConfig.enabled,
                     config: updated.config ?? config,
                     updated_at: updated.updated_at,
+                    // The generated type widens the serializer's sync status to string | null.
+                    status: (updated.status ?? null) as SignalSourceConfig['status'],
                 })
                 actions.loadSourceConfigs()
                 logicProps.onClose()
