@@ -188,15 +188,14 @@ export function limitCanvasCommentHighlights(
 
 // host -> iframe
 export const hostToCanvasMessageSchema = z.discriminatedUnion("type", [
-  // First frame: hand the iframe its source + the run mode. The iframe does not
-  // fetch its own code; the host injects it so the host controls what runs.
+  // First frame: hand the iframe its source. The iframe does not fetch its own
+  // code; the host injects it so the host controls what runs. Only the srcDoc
+  // authoring sandbox takes an `init` — a published canvas is a built artifact
+  // that boots itself and only receives the frames below.
   z.object({
     channel: z.literal(CANVAS_CHANNEL),
     type: z.literal("init"),
     code: z.string(),
-    // "edit" = author in-app (full-API shim, CDN packages, open egress).
-    // "view" = published/shared (frozen named queries, closed egress).
-    mode: z.enum(["edit", "view"]),
     // Present when analytics/replay should run in the iframe. Absent = no capture.
     analytics: canvasAnalyticsConfigSchema.optional(),
     // The appearance to render in. Carried on `init` so the first render is
@@ -266,7 +265,16 @@ export const canvasToHostMessageSchema = z.discriminatedUnion("type", [
     channel: z.literal(CANVAS_CHANNEL),
     type: z.literal("data-request"),
     id: z.string().min(1).max(128),
-    method: z.enum(["query", "loadInsight", "capture", "run"]),
+    method: z.enum([
+      "query",
+      "loadInsight",
+      "capture",
+      "run",
+      "stateGet",
+      "stateSet",
+      "stateList",
+      "actionInvoke",
+    ]),
     payload: z.unknown(),
   }),
   // A runtime/compile error from inside the iframe, surfaced so the host can

@@ -774,9 +774,15 @@ export class CdpApi {
 
             const invocation = createHogFlowInvocation(triggerGlobals, compoundConfiguration, filterGlobals)
 
-            invocation.state.currentAction = current_action_id
+            // Real event ingestion evaluates trigger filters before creating an invocation. A test run has to
+            // execute the trigger action itself so callers can verify whether their supplied globals match.
+            // Without this explicit position, executeCurrentAction starts after the trigger by design.
+            const startingActionId =
+                current_action_id ??
+                compoundConfiguration.actions?.find((action: HogFlowAction) => action.type === 'trigger')?.id
+            invocation.state.currentAction = startingActionId
                 ? {
-                      id: current_action_id,
+                      id: startingActionId,
                       startedAtTimestamp: Date.now(),
                   }
                 : undefined
@@ -823,8 +829,8 @@ export class CdpApi {
             const result = await this.hogFlowExecutor.executeCurrentAction(invocation, { hogExecutorOptions: options })
 
             res.json({
-                nextActionId: result.invocation.state.currentAction?.id,
-                status: result.error ? 'error' : 'success',
+                nextActionId: result.skipped ? null : result.invocation.state.currentAction?.id,
+                status: result.error ? 'error' : result.skipped ? 'skipped' : 'success',
                 errors: result.error ? [result.error] : [],
                 logs: [...result.logs, ...logs],
                 variables: result.invocation.state.variables ?? {},

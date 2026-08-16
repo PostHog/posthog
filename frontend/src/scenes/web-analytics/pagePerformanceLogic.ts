@@ -66,6 +66,8 @@ import type { DateFilterState } from './webAnalyticsLogic'
 
 const PAGE_PERFORMANCE_EVENTS = "('$pageview', '$screen', '$http_log')"
 
+const HUMAN_EVENTS = "('$pageview', '$screen')"
+
 const PAGE_TABLE_LIMIT = 20
 
 const PAGE_CANDIDATE_LIMIT = 200
@@ -293,7 +295,7 @@ LIMIT ${PAGE_TABLE_LIMIT}
 `
 }
 
-const buildOverviewQuery = (window: PagePerformanceWindow, pathExpr: string): string => {
+const buildOverviewHumanQuery = (window: PagePerformanceWindow, pathExpr: string): string => {
     const { cur, prev, full } = windowPredicates(window)
     const pageKey = pageKeyExpr(pathExpr)
 
@@ -305,9 +307,25 @@ SELECT
     uniqIf(person_id, (${GOOGLE_VIEW}) AND ${prev}) AS google_previous,
     uniqIf(person_id, (${AI_VIEW}) AND ${cur}) AS llm,
     uniqIf(person_id, (${AI_VIEW}) AND ${prev}) AS llm_previous,
-    countIf((${CRAWLER}) AND ${cur}) AS crawls,
-    countIf((${CRAWLER}) AND ${prev}) AS crawls_previous,
     uniqIf(${pageKey}, (${HUMAN_VIEW}) AND ${cur}) AS pages
+FROM events
+WHERE and(
+    event IN ${HUMAN_EVENTS},
+    properties.$pathname IS NOT NULL,
+    properties.$pathname != '',
+    (${full}),
+    {filters}
+)
+`
+}
+
+const buildOverviewCrawlerQuery = (window: PagePerformanceWindow): string => {
+    const { cur, prev, full } = windowPredicates(window)
+
+    return `
+SELECT
+    countIf((${CRAWLER}) AND ${cur}) AS crawls,
+    countIf((${CRAWLER}) AND ${prev}) AS crawls_previous
 FROM events
 WHERE and(
     event IN ${PAGE_PERFORMANCE_EVENTS},
@@ -391,18 +409,21 @@ export interface pagePerformanceLogicValues {
     aiSectionQueries: AiSectionQueries
     breakdownModal: PagePerformanceBreakdownState | null
     breakdownQuery: DataTableNode | null
+    candidatesError: string | null
+    candidatesInput: string
+    candidatesLoading: boolean
     footerText: string
     goalLabel: string | null
     orderBy: PagePerformanceOrderBy
     overviewCards: OverviewItem[]
+    overviewCrawlerQuery: string
+    overviewError: string | null
+    overviewHumanQuery: string
+    overviewInput: string
     overviewLoading: boolean
-    overviewQuery: string
     overviewTotals: OverviewTotals | null
     pageCandidateQuery: WebStatsTableQuery
     pageCandidates: string[] | null
-    pageDataError: string | null
-    pageDataInput: string
-    pageDataLoading: boolean
     pageTableQuery: DataTableNode
     pathExpr: string
     previousPathExpr: string
@@ -414,17 +435,22 @@ export interface pagePerformanceLogicActions {
     closeBreakdown: () => {
         value: true
     }
-    loadPageData: () => {
+    loadOverview: () => {
         value: true
     }
-    loadPageDataFailure: (error: string) => {
+    loadOverviewFailure: (error: string) => {
         error: string
     }
-    loadPageDataSuccess: (
-        overviewTotals: OverviewTotals,
-        pageCandidates: string[]
-    ) => {
+    loadOverviewSuccess: (overviewTotals: OverviewTotals) => {
         overviewTotals: OverviewTotals
+    }
+    loadCandidates: () => {
+        value: true
+    }
+    loadCandidatesFailure: (error: string) => {
+        error: string
+    }
+    loadCandidatesSuccess: (pageCandidates: string[]) => {
         pageCandidates: string[]
     }
     openBreakdown: (breakdown: PagePerformanceBreakdownState) => {
@@ -464,8 +490,10 @@ export interface pagePerformanceLogicMeta {
             conversionGoal: WebAnalyticsConversionGoal | null,
             compareFilter: CompareFilter
         ) => AiSectionQueries
-        overviewQuery: (window: PagePerformanceWindow, pathExpr: string) => string
-        pageDataInput: (overviewQuery: string, pageCandidateQuery: WebStatsTableQuery) => string
+        overviewHumanQuery: (window: PagePerformanceWindow, pathExpr: string) => string
+        overviewCrawlerQuery: (window: PagePerformanceWindow) => string
+        overviewInput: (overviewHumanQuery: string, overviewCrawlerQuery: string, filterTestAccounts: boolean) => string
+        candidatesInput: (pageCandidateQuery: WebStatsTableQuery) => string
         breakdownQuery: (
             breakdownModal: PagePerformanceBreakdownState | null,
             window: PagePerformanceWindow,
@@ -512,12 +540,12 @@ export const pagePerformanceLogic = kea<pagePerformanceLogicType>([
         setOrderBy: (column: string, direction: 'ASC' | 'DESC') => ({ column, direction }),
         openBreakdown: (breakdown: PagePerformanceBreakdownState) => ({ breakdown }),
         closeBreakdown: true,
-        loadPageData: true,
-        loadPageDataFailure: (error: string) => ({ error }),
-        loadPageDataSuccess: (overviewTotals: OverviewTotals, pageCandidates: string[]) => ({
-            overviewTotals,
-            pageCandidates,
-        }),
+        loadOverview: true,
+        loadOverviewFailure: (error: string) => ({ error }),
+        loadOverviewSuccess: (overviewTotals: OverviewTotals) => ({ overviewTotals }),
+        loadCandidates: true,
+        loadCandidatesFailure: (error: string) => ({ error }),
+        loadCandidatesSuccess: (pageCandidates: string[]) => ({ pageCandidates }),
     }),
     reducers({
         orderBy: [
@@ -536,38 +564,45 @@ export const pagePerformanceLogic = kea<pagePerformanceLogicType>([
         overviewTotals: [
             null as OverviewTotals | null,
             {
-                loadPageData: () => null,
-                loadPageDataSuccess: (_, { overviewTotals }) => overviewTotals,
+                loadOverview: () => null,
+                loadOverviewSuccess: (_, { overviewTotals }) => overviewTotals,
             },
         ],
-        pageCandidates: [
-            null as string[] | null,
-            {
-                loadPageData: () => null,
-                loadPageDataSuccess: (_, { pageCandidates }) => pageCandidates,
-            },
-        ],
-        pageDataError: [
+        overviewError: [
             null as string | null,
             {
-                loadPageData: () => null,
-                loadPageDataFailure: (_, { error }) => error,
-            },
-        ],
-        pageDataLoading: [
-            false,
-            {
-                loadPageData: () => true,
-                loadPageDataSuccess: () => false,
-                loadPageDataFailure: () => false,
+                loadOverview: () => null,
+                loadOverviewFailure: (_, { error }) => error,
             },
         ],
         overviewLoading: [
             false,
             {
-                loadPageData: () => true,
-                loadPageDataSuccess: () => false,
-                loadPageDataFailure: () => false,
+                loadOverview: () => true,
+                loadOverviewSuccess: () => false,
+                loadOverviewFailure: () => false,
+            },
+        ],
+        pageCandidates: [
+            null as string[] | null,
+            {
+                loadCandidates: () => null,
+                loadCandidatesSuccess: (_, { pageCandidates }) => pageCandidates,
+            },
+        ],
+        candidatesError: [
+            null as string | null,
+            {
+                loadCandidates: () => null,
+                loadCandidatesFailure: (_, { error }) => error,
+            },
+        ],
+        candidatesLoading: [
+            false,
+            {
+                loadCandidates: () => true,
+                loadCandidatesSuccess: () => false,
+                loadCandidatesFailure: () => false,
             },
         ],
     }),
@@ -808,14 +843,22 @@ export const pagePerformanceLogic = kea<pagePerformanceLogicType>([
                 }
             },
         ],
-        overviewQuery: [
+        overviewHumanQuery: [
             (s) => [s.window, s.pathExpr],
-            (window: PagePerformanceWindow, pathExpr: string): string => buildOverviewQuery(window, pathExpr),
+            (window: PagePerformanceWindow, pathExpr: string): string => buildOverviewHumanQuery(window, pathExpr),
         ],
-        pageDataInput: [
-            (s) => [s.overviewQuery, s.pageCandidateQuery],
-            (overviewQuery: string, pageCandidateQuery: WebStatsTableQuery): string =>
-                JSON.stringify([overviewQuery, pageCandidateQuery]),
+        overviewCrawlerQuery: [
+            (s) => [s.window],
+            (window: PagePerformanceWindow): string => buildOverviewCrawlerQuery(window),
+        ],
+        overviewInput: [
+            (s) => [s.overviewHumanQuery, s.overviewCrawlerQuery, s.filterTestAccounts],
+            (overviewHumanQuery: string, overviewCrawlerQuery: string, filterTestAccounts: boolean): string =>
+                JSON.stringify([overviewHumanQuery, overviewCrawlerQuery, filterTestAccounts]),
+        ],
+        candidatesInput: [
+            (s) => [s.pageCandidateQuery],
+            (pageCandidateQuery: WebStatsTableQuery): string => JSON.stringify(pageCandidateQuery),
         ],
         breakdownQuery: [
             (s) => [s.breakdownModal, s.window, s.filterTestAccounts, s.pathExpr],
@@ -898,68 +941,104 @@ export const pagePerformanceLogic = kea<pagePerformanceLogicType>([
         ],
     })),
     listeners(({ values, actions, cache }) => ({
-        loadPageData: async (_, breakpoint) => {
+        loadOverview: async (_, breakpoint) => {
             await breakpoint(300)
-            cache.disposables.dispose('pageDataRequest')
+            cache.disposables.dispose('overviewRequest')
             const abortController = new AbortController()
-            cache.disposables.add(() => abortController.abort(), 'pageDataRequest')
+            cache.disposables.add(() => () => abortController.abort(), 'overviewRequest', {
+                pauseOnPageHidden: false,
+            })
 
-            const overviewNode: HogQLQuery = {
+            const humanNode: HogQLQuery = {
                 kind: NodeKind.HogQLQuery,
-                query: values.overviewQuery,
+                query: values.overviewHumanQuery,
+                filters: { filterTestAccounts: values.filterTestAccounts },
+                tags: WEB_ANALYTICS_DEFAULT_QUERY_TAGS,
+            }
+            const crawlerNode: HogQLQuery = {
+                kind: NodeKind.HogQLQuery,
+                query: values.overviewCrawlerQuery,
                 filters: { filterTestAccounts: values.filterTestAccounts },
                 tags: WEB_ANALYTICS_DEFAULT_QUERY_TAGS,
             }
             try {
-                const [overviewResponse, candidatesResponse] = await Promise.all([
-                    performQuery(overviewNode, { signal: abortController.signal }),
-                    performQuery(values.pageCandidateQuery, { signal: abortController.signal }),
+                const [humanResponse, crawlerResponse] = await Promise.all([
+                    performQuery(humanNode, { signal: abortController.signal }),
+                    performQuery(crawlerNode, { signal: abortController.signal }),
                 ])
                 breakpoint()
-                const row = overviewResponse.results?.[0] ?? []
-                const columns: string[] = overviewResponse.columns ?? []
-                const at = (name: string): number => {
-                    const idx = columns.indexOf(name)
-                    return idx >= 0 ? Number(row[idx] ?? 0) : 0
+                const readColumn = (response: typeof humanResponse): ((name: string) => number) => {
+                    const row = response.results?.[0] ?? []
+                    const columns: string[] = response.columns ?? []
+                    return (name: string): number => {
+                        const idx = columns.indexOf(name)
+                        return idx >= 0 ? Number(row[idx] ?? 0) : 0
+                    }
                 }
+                const human = readColumn(humanResponse)
+                const crawler = readColumn(crawlerResponse)
+                actions.loadOverviewSuccess({
+                    visitors: human('visitors'),
+                    visitorsPrevious: human('visitors_previous'),
+                    google: human('google'),
+                    googlePrevious: human('google_previous'),
+                    llm: human('llm'),
+                    llmPrevious: human('llm_previous'),
+                    crawls: crawler('crawls'),
+                    crawlsPrevious: crawler('crawls_previous'),
+                    pages: human('pages'),
+                })
+            } catch (error) {
+                if ((error instanceof Error && isBreakpoint(error)) || isAbortedRequest(error)) {
+                    return
+                }
+                actions.loadOverviewFailure(error instanceof Error ? error.message : 'Could not load page performance')
+            }
+        },
+        loadCandidates: async (_, breakpoint) => {
+            await breakpoint(300)
+            cache.disposables.dispose('candidatesRequest')
+            const abortController = new AbortController()
+            cache.disposables.add(() => () => abortController.abort(), 'candidatesRequest', {
+                pauseOnPageHidden: false,
+            })
+            try {
+                const candidatesResponse = await performQuery(values.pageCandidateQuery, {
+                    signal: abortController.signal,
+                })
+                breakpoint()
                 const pageCandidates = (candidatesResponse.results ?? []).flatMap((candidate) => {
                     if (!Array.isArray(candidate) || typeof candidate[0] !== 'string' || candidate[0] === '') {
                         return []
                     }
                     return [candidate[0]]
                 })
-                actions.loadPageDataSuccess(
-                    {
-                        visitors: at('visitors'),
-                        visitorsPrevious: at('visitors_previous'),
-                        google: at('google'),
-                        googlePrevious: at('google_previous'),
-                        llm: at('llm'),
-                        llmPrevious: at('llm_previous'),
-                        crawls: at('crawls'),
-                        crawlsPrevious: at('crawls_previous'),
-                        pages: at('pages'),
-                    },
-                    pageCandidates
-                )
+                actions.loadCandidatesSuccess(pageCandidates)
             } catch (error) {
                 if ((error instanceof Error && isBreakpoint(error)) || isAbortedRequest(error)) {
                     return
                 }
-                actions.loadPageDataFailure(error instanceof Error ? error.message : 'Could not load page performance')
+                actions.loadCandidatesFailure(
+                    error instanceof Error ? error.message : 'Could not load page performance'
+                )
             }
         },
         reloadAll: () => {
-            actions.loadPageData()
+            actions.loadOverview()
+            actions.loadCandidates()
         },
     })),
     subscriptions(({ actions }) => ({
-        pageDataInput: () => {
-            actions.loadPageData()
+        overviewInput: () => {
+            actions.loadOverview()
+        },
+        candidatesInput: () => {
+            actions.loadCandidates()
         },
     })),
     afterMount(({ actions }) => {
-        actions.loadPageData()
+        actions.loadOverview()
+        actions.loadCandidates()
     }),
 ])
 

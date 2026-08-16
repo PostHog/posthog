@@ -143,7 +143,7 @@
     "node-addon-api": "^8.5.0",
     "node-machine-id": "^1.1.12",
     "node-pty": "1.1.0",
-    "posthog-node": "^5.35.6",
+    "posthog-node": "^5.49.1",
     "radix-themes-tw": "0.2.3",
     "react": "19.2.6",
     "react-dom": "19.2.6",
