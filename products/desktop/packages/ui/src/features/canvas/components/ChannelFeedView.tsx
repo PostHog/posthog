@@ -3,6 +3,7 @@ import {
   ArrowSquareOutIcon,
   ChatCircleIcon,
   GitBranchIcon,
+  GitPullRequestIcon,
   PlusIcon,
   RobotIcon,
 } from "@phosphor-icons/react";
@@ -13,6 +14,7 @@ import {
 } from "@posthog/core/canvas/runStatus";
 import { buildThreadTimeline } from "@posthog/core/canvas/threadTimeline";
 import type { PrCheck } from "@posthog/core/git/router-schemas";
+import { parsePrNumber } from "@posthog/core/git-interaction/prStatus";
 import { xmlToPlainText } from "@posthog/core/message-editor/content";
 import {
   AvatarGroup,
@@ -58,6 +60,7 @@ import {
 import { FileIcon } from "@posthog/ui/primitives/FileIcon";
 import { useInView } from "@posthog/ui/primitives/hooks/useInView";
 import { openExternalUrl } from "@posthog/ui/shell/openExternal";
+import { parseHttpsUrl } from "@posthog/ui/utils/posthogLinks";
 import { Text } from "@radix-ui/themes";
 import { Link } from "@tanstack/react-router";
 import {
@@ -645,26 +648,28 @@ function PrPopoverRow({ url }: { url: string }) {
   );
 }
 
+// The closed chip renders from the URL alone — no data fetch. usePrArtifact
+// starts a per-PR GitHub details query (a `gh` subprocess per distinct PR),
+// and the feed mounts every card, so the state/title/CI lookups stay inside
+// the hover card, which mounts only when opened.
 function PrChip({ url }: { url: string }) {
-  const { safeUrl, prNumber, stateLabel, Icon, iconColor } = usePrArtifact(url);
+  const parsed = parseHttpsUrl(url);
+  const safeUrl = parsed?.origin === "https://github.com" ? parsed.href : null;
   if (!safeUrl) return null;
+  const prNumber = parsePrNumber(safeUrl);
   return (
     <HoverPopover
       trigger={
         <button
           type="button"
           className={CHIP_CLASS}
-          title={stateLabel ?? "Pull request"}
+          title="Pull request"
           onClick={(event) => {
             event.stopPropagation();
             openExternalUrl(safeUrl);
           }}
         >
-          <span
-            className="size-1.5 rounded-full"
-            style={{ backgroundColor: iconColor }}
-          />
-          <Icon size={12} />
+          <GitPullRequestIcon size={12} />
           {prNumber ? `#${prNumber}` : "PR"}
         </button>
       }
