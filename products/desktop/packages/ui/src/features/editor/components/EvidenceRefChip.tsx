@@ -383,11 +383,11 @@ export function EvidenceRefChip({
           url ? (
             // Keep the truthful role: Enter follows the link (opens the
             // object in PostHog), it does not act as a popover button.
+            // biome-ignore lint/a11y/useSemanticElements: the element already is an <a>; the explicit role restores link semantics the popover trigger's role="button" would override
             <a
               href={url}
               onClick={openInPostHog}
-              // biome-ignore lint/a11y/noRedundantRoles: the popover trigger injects role="button"; this restores the anchor's real semantics
-              // biome-ignore lint/a11y/useSemanticElements: see above — the element already is an <a>
+              // biome-ignore lint/a11y/noRedundantRoles: not redundant — the popover trigger injects role="button" without it
               role="link"
               className={refClass}
             >
