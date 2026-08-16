@@ -1,9 +1,9 @@
+import { Popover } from "@base-ui/react/popover";
 import { getCloudUrlFromRegion } from "@posthog/shared";
 import { type MouseEvent, type ReactNode, useId, useState } from "react";
 import { useOptionalAuthenticatedClient } from "../../../features/auth/authClient";
 import { useAuthStateValue } from "../../../features/auth/store";
 import { useAuthenticatedQuery } from "../../../hooks/useAuthenticatedQuery";
-import { Tooltip } from "../../../primitives/Tooltip";
 import { openExternalUrl } from "../../../shell/openExternal";
 import {
   type EvidenceLinkTarget,
@@ -25,11 +25,17 @@ import {
  * inline like the icon's svg, while a bottom border runs under the full
  * reference on every wrapped line fragment.
  *
- * The reference carries only `kind/id`. Hovering mounts the card, which
- * resolves the object's live name and status through the PostHog API (for
- * `hogql`, runs the query); clicking opens the object in PostHog at a URL
- * derived from the reference and the current project. Nothing about the
- * object is stored in the message itself.
+ * The reference carries only `kind/id`. Hovering or focusing mounts the card,
+ * which resolves the object's live name and status through the PostHog API
+ * (for `hogql`, runs the query); clicking a linked reference opens the object
+ * in PostHog at a URL derived from the reference and the current project.
+ * Nothing about the object is stored in the message itself.
+ *
+ * The card is a Base UI popover, not a tooltip: it holds real controls (the
+ * query toggle, "Open in PostHog"), so it must be a focus-managed overlay —
+ * Tab moves from the chip into the card and operates its buttons, Escape
+ * closes, and assistive tech sees an interactive popup rather than the whole
+ * card flattened into description text.
  */
 
 const SPARK_W = 100;
@@ -342,8 +348,9 @@ export function EvidenceRefChip({
   const meta = getObjectKind(target.kind);
   const KindIcon = meta.icon;
   const url = useEvidenceUrl(target.kind, target.id);
+  const [open, setOpen] = useState(false);
 
-  const open = (event: MouseEvent<HTMLAnchorElement>) => {
+  const openInPostHog = (event: MouseEvent<HTMLAnchorElement>) => {
     event.preventDefault();
     if (url) openExternalUrl(url);
   };
@@ -362,22 +369,54 @@ export function EvidenceRefChip({
   );
 
   return (
-    <Tooltip
-      content={
-        <EvidenceHoverCardLoader target={target} url={url}>
-          {children}
-        </EvidenceHoverCardLoader>
-      }
-      contentClassName="block p-0"
-      sideOffset={8}
-    >
-      {url ? (
-        <a href={url} onClick={open} className={refClass}>
-          {inner}
-        </a>
-      ) : (
-        <span className={refClass}>{inner}</span>
+    <Popover.Root open={open} onOpenChange={setOpen}>
+      <Popover.Trigger
+        openOnHover
+        delay={200}
+        closeDelay={100}
+        nativeButton={false}
+        // Focus opens the card the way the tooltip used to, so a keyboard
+        // user can preview a linked reference whose Enter action navigates
+        // to PostHog instead of toggling the popover.
+        onFocus={() => setOpen(true)}
+        render={
+          url ? (
+            // Keep the truthful role: Enter follows the link (opens the
+            // object in PostHog), it does not act as a popover button.
+            <a
+              href={url}
+              onClick={openInPostHog}
+              // biome-ignore lint/a11y/noRedundantRoles: the popover trigger injects role="button"; this restores the anchor's real semantics
+              // biome-ignore lint/a11y/useSemanticElements: see above — the element already is an <a>
+              role="link"
+              className={refClass}
+            >
+              {inner}
+            </a>
+          ) : (
+            // No page to link to: the reference is a real popover trigger
+            // (focusable, Enter/Space opens the card), since the card's
+            // "Open in PostHog" action is the only route to the object.
+            <span className={`${refClass} cursor-pointer`}>{inner}</span>
+          )
+        }
+      />
+      {open && (
+        <Popover.Portal>
+          {/* Self-styled like primitives/Tooltip: quill's popover CSS isn't
+              loaded on every surface that renders chips (see ChatMarkdown). */}
+          <Popover.Positioner side="top" sideOffset={8} className="z-[9999]">
+            <Popover.Popup
+              className="dark rounded-[6px] border border-(--gray-4) bg-(--gray-2) text-(--gray-12) outline-none"
+              style={{ boxShadow: "0 4px 12px rgba(0, 0, 0, 0.25)" }}
+            >
+              <EvidenceHoverCardLoader target={target} url={url}>
+                {children}
+              </EvidenceHoverCardLoader>
+            </Popover.Popup>
+          </Popover.Positioner>
+        </Popover.Portal>
       )}
-    </Tooltip>
+    </Popover.Root>
   );
 }

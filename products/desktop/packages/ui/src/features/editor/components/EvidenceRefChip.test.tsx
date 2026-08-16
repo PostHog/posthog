@@ -6,6 +6,20 @@ vi.mock("../../../shell/openExternal", () => ({
   openExternalUrl: vi.fn(),
 }));
 
+// The hover card resolves its preview through the app shell; without it the
+// loader renders the static card, which is all the chip tests need.
+vi.mock("../../auth/authClient", () => ({
+  useOptionalAuthenticatedClient: () => null,
+}));
+vi.mock("../../../hooks/useAuthenticatedQuery", () => ({
+  useAuthenticatedQuery: () => ({
+    isPending: true,
+    isError: false,
+    isFetched: false,
+    data: undefined,
+  }),
+}));
+
 import { openExternalUrl } from "../../../shell/openExternal";
 import { ANONYMOUS_AUTH_STATE, useAuthStore } from "../../auth/store";
 import { EvidenceHoverCard, EvidenceRefChip } from "./EvidenceRefChip";
@@ -68,12 +82,48 @@ describe("EvidenceRefChip", () => {
     // Guards the whole path: url transform must keep the scheme and the `a`
     // component must dispatch to the chip instead of an external link.
     renderInTheme(
-      <MarkdownRenderer content="The [coupon funnel](evidence:insight/9pQx3) dropped." />,
+      <MarkdownRenderer
+        content="The [coupon funnel](evidence:insight/9pQx3) dropped."
+        renderObjectTags
+      />,
     );
     expect(screen.getByText("coupon funnel")).toBeDefined();
     // Without auth context the reference is not a link at all — a plain
     // external-link fallback would render one.
     expect(screen.queryByRole("link")).toBeNull();
+  });
+
+  it("opens the card from keyboard focus on a linked reference", () => {
+    signIn();
+    renderInTheme(
+      <EvidenceRefChip target={{ kind: "insight", id: "9pQx3" }}>
+        Checkout funnel
+      </EvidenceRefChip>,
+    );
+    const link = screen.getByRole("link", { name: "Checkout funnel" });
+    fireEvent.focus(link);
+    // The card is a focus-managed dialog, not a tooltip: its controls are
+    // real elements a keyboard user can Tab to.
+    expect(screen.getByRole("dialog")).toBeDefined();
+    expect(
+      screen.getByRole("button", { name: /Open in PostHog/ }),
+    ).toBeDefined();
+  });
+
+  it("gives an unlinked reference a focusable trigger that opens the card", () => {
+    // A flag cited by key or an event cited by name has no chip URL, so the
+    // card's "Open in PostHog" is the only route to the object; the trigger
+    // must therefore be reachable and operable by keyboard.
+    signIn();
+    renderInTheme(
+      <EvidenceRefChip target={{ kind: "event", id: "cart_saved" }}>
+        cart_saved events
+      </EvidenceRefChip>,
+    );
+    const trigger = screen.getByRole("button", { name: "cart_saved events" });
+    expect(trigger.getAttribute("tabindex")).toBe("0");
+    fireEvent.click(trigger);
+    expect(screen.getByRole("dialog")).toBeDefined();
   });
 });
 
