@@ -549,10 +549,10 @@ def fallback_parent_object_id(obj: Model, parent_resource: APIScopeObject) -> Op
     None is what makes a self-managed table skip its source tiers rather than inherit from a
     source it doesn't have.
     """
-    field = _fallback_parent_fk(type(obj), parent_resource)
-    if field is None:
+    fk = _fallback_parent_fk(type(obj), parent_resource)
+    if fk is None:
         return None
-    parent_id = getattr(obj, field.attname, None)
+    parent_id = getattr(obj, fk.attname, None)
     return str(parent_id) if parent_id is not None else None
 
 
@@ -562,10 +562,10 @@ def fallback_parent_object(obj: Model, parent_resource: APIScopeObject) -> Optio
     Read off the object's own relation — Django caches it on the instance — so callers that
     only need to display the parent never refetch it by id.
     """
-    field = _fallback_parent_fk(type(obj), parent_resource)
-    if field is None:
+    fk = _fallback_parent_fk(type(obj), parent_resource)
+    if fk is None:
         return None
-    return getattr(obj, field.name, None)
+    return getattr(obj, fk.name, None)
 
 
 @frozen
