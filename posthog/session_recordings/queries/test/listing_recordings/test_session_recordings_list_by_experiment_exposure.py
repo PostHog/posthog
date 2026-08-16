@@ -35,16 +35,16 @@ from posthog.session_recordings.session_recording_api import list_recordings_fro
 from posthog.session_recordings.sql.session_replay_event_sql import TRUNCATE_SESSION_REPLAY_EVENTS_TABLE_SQL
 from posthog.test.persons import add_distinct_id, create_person
 
-# The facade's transitive pydantic.v1 import must happen at module scope, outside the class's
-# frozen time: freezegun's FakeDate breaks pydantic.v1's metaclass construction, and the
-# runner otherwise defers this import to the first test that resolves a linkage.
-import products.experiments.backend.facade.replay  # noqa: F401
 from products.analytics_platform.backend.lazy_computation.lazy_computation_executor import LazyComputationResult
 from products.cohorts.backend.models.cohort import Cohort
+
+# Importing the facade at module scope also keeps its transitive pydantic.v1 import outside the
+# class's frozen time: freezegun's FakeDate breaks pydantic.v1's metaclass construction, and the
+# runner otherwise defers this import to the first test that resolves a linkage.
+from products.experiments.backend.facade.replay import ACTIVATION_LIVE_SCAN_MAX_MEMORY_BYTES
 from products.experiments.backend.hogql_queries.experiment_exposure_query_builder import ExposureQueryBuilder
 from products.experiments.backend.models.experiment import Experiment
 from products.experiments.backend.models.team_experiments_config import TeamExperimentsConfig
-from products.experiments.backend.replay_linkage import ACTIVATION_LIVE_SCAN_MAX_MEMORY_BYTES
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 
 from ee.models.rbac.access_control import AccessControl
