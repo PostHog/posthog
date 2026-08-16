@@ -1,18 +1,31 @@
+from collections import defaultdict
+from collections.abc import Sequence
 from functools import cached_property
 from typing import Any, Optional, cast
 
-from django.db.models import Model, Q
+from django.db.models import F, Model, Q
 
-from posthog.models import OrganizationMembership, Team, User
+from posthog.constants import AvailableFeature
+from posthog.models import Organization, OrganizationMembership, Team, User
 from posthog.rbac.user_access_control import (
+    EE_AVAILABLE,
+    NO_ACCESS_LEVEL,
     RESOURCE_INHERITANCE_MAP,
     RESOURCES_WITHOUT_RESOURCE_LEVEL_CONTROLS,
+    AccessControlLevel,
     ResolvedAccess,
     UserAccessControl,
     _AccessControl,
+    default_access_level,
     model_to_resource,
 )
 from posthog.scopes import APIScopeObject
+
+try:
+    from ee.models.rbac.access_control import AccessControl
+    from ee.models.rbac.role import RoleMembership
+except ImportError:
+    pass
 
 
 class SubjectAccessControl(UserAccessControl):
@@ -119,6 +132,52 @@ class SubjectAccessControl(UserAccessControl):
             return rows
         return [ac for ac in rows if not self._is_subject_row(ac)]
 
+    def _applies_to_subject(self, access_control: _AccessControl) -> bool:
+        """In-memory twin of this class's `_filter_options`: whether a row is one the subject's
+        resolution may see (a default rule, the subject's own rule, or one of their roles')."""
+        if access_control.organization_member_id is None and access_control.role_id is None:
+            return True
+        if self._subject_member is not None and access_control.organization_member_id == self._subject_member.id:
+            return access_control.role_id is None
+        return access_control.organization_member_id is None and str(access_control.role_id) in {
+            str(role_id) for role_id in self._user_role_ids
+        }
+
+    @staticmethod
+    def team_access_controls(team: Team) -> list[_AccessControl]:
+        """Every rule on the team, un-narrowed — the pool subjects are seeded from. The same query
+        as `_cached_access_controls` minus its per-principal narrowing, which each subject applies
+        in memory instead (`preload_access_controls`), so "the team's rules" is decided once."""
+        if not EE_AVAILABLE:
+            return []
+        return list(
+            AccessControl.objects.annotate(_team_organization_id=F("team__organization_id")).filter(team_id=team.id)
+        )
+
+    def preload_access_controls(
+        self,
+        rows: Sequence[_AccessControl],
+        *,
+        requesting_membership: Optional[OrganizationMembership] = None,
+        subject_role_ids: Optional[Sequence[str]] = None,
+    ) -> None:
+        """Answer this subject's lookups for its team from `rows` already loaded by the caller (one
+        query for many subjects) instead of the database — the caller's guard against a query per
+        subject. Rows are narrowed to the subject in memory first, exactly as `_filter_options`
+        would in the query the preload stands in for.
+
+        The two per-instance lookups that don't vary by subject can be seeded too, as
+        `for_team_ids` seeds its siblings: the requesting user's membership, and (for a member
+        subject) the member's role ids when the caller already prefetched them.
+        """
+        assert self._team is not None
+        if requesting_membership is not None:
+            self.__dict__["_organization_membership"] = requesting_membership
+        if subject_role_ids is not None:
+            self.__dict__["_user_role_ids"] = list(subject_role_ids) if self.rbac_supported else []
+        # Team-scoped lookups are served from _cached_access_controls, so that is what to seed
+        self.__dict__["_cached_access_controls"] = [ac for ac in rows if self._applies_to_subject(ac)]
+
     def _is_subject_row(self, access_control: _AccessControl) -> bool:
         """Whether this row is the subject's own — the kind of rule "No override" would remove."""
         if self._subject_member is not None:
@@ -153,3 +212,121 @@ class SubjectAccessControl(UserAccessControl):
         if self._ignore_org_admin:
             return False
         return bool(self._subject_member and self._subject_member.level >= OrganizationMembership.Level.ADMIN)
+
+
+def get_project_scoped_visible_membership_ids(
+    organization: Organization, requesting_membership: OrganizationMembership
+) -> Optional[set[str]]:
+    """Membership ids a restricted (non-org-admin) member may see: their own, plus members with
+    project-scoped access (explicit grant, role, or project default — no org-admin bypass) to any
+    project the requester has access to. Returns None when every member is visible, so callers can
+    skip filtering without materializing the roster."""
+    # Without the entitlement, stale AccessControl rules in the DB must be ignored, not enforced —
+    # every project falls back to its default access, so every member is visible.
+    if not organization.is_feature_available(AvailableFeature.ACCESS_CONTROL):
+        return None
+
+    teams = list(organization.teams.all())
+    team_ids = [team.id for team in teams]
+    role_based_access = organization.is_feature_available(AvailableFeature.ROLE_BASED_ACCESS)
+
+    # One query for every project rule in the org. Each (team, member) resolution below is served
+    # from this pool in memory, so the walk runs per pair without a query per pair. A project rule
+    # is an object rule on the team (resource_id = the team's id) — the shape enforcement reads.
+    project_rows = list(
+        AccessControl.objects.filter(
+            team_id__in=team_ids, resource="project", resource_id__in=[str(team_id) for team_id in team_ids]
+        )
+    )
+    default_by_team: dict[int, AccessControlLevel] = {}
+    member_overrides: dict[tuple[int, str], AccessControlLevel] = {}
+    role_overrides: dict[tuple[int, str], AccessControlLevel] = {}
+    for ac in project_rows:
+        if ac.organization_member_id is None and ac.role_id is None:
+            default_by_team[ac.team_id] = ac.access_level
+        elif ac.organization_member_id:
+            member_overrides[(ac.team_id, str(ac.organization_member_id))] = ac.access_level
+        elif ac.role_id and role_based_access:
+            role_overrides[(ac.team_id, str(ac.role_id))] = ac.access_level
+
+    # A member's effective access can differ from the team default only if a rule mentions them —
+    # directly, or via a role they hold. Everyone else has exactly the default outcome, so only
+    # rule-mentioned candidates need individual evaluation.
+    candidate_role_ids: dict[str, list[str]] = defaultdict(list)
+    referenced_role_ids = {role_id for (_, role_id) in role_overrides}
+    if referenced_role_ids:
+        for rm in RoleMembership.objects.filter(role_id__in=referenced_role_ids):
+            if rm.organization_member_id:
+                candidate_role_ids[str(rm.organization_member_id)].append(str(rm.role_id))
+    candidate_ids = {membership_id for (_, membership_id) in member_overrides} | set(candidate_role_ids)
+
+    requester_id = str(requesting_membership.id)
+    memberships_by_id = {
+        str(m.id): m
+        for m in OrganizationMembership.objects.filter(
+            organization=organization, id__in=[*candidate_ids, requester_id]
+        ).select_related("user")
+    }
+    teams_by_id = {team.id: team for team in teams}
+
+    def has_scoped_access(team_id: int, membership_id: str) -> bool:
+        # The project walk enforcement runs (explicit member/role rows win over the team default),
+        # for this member as the subject, answered from the pool above. The org-admin bypass is
+        # ignored: being an admin is not being granted anything on this project.
+        team = teams_by_id[team_id]
+        subject = SubjectAccessControl(
+            requesting_membership.user, team, member=memberships_by_id[membership_id], ignore_org_admin=True
+        )
+        # The member's roles were loaded above for candidate narrowing (only roles a project rule
+        # names can matter, and none count without the entitlement) — hand them over rather than
+        # let each subject query them again
+        subject.preload_access_controls(
+            project_rows,
+            requesting_membership=requesting_membership,
+            subject_role_ids=candidate_role_ids.get(membership_id, []),
+        )
+        return subject.get_user_access_level(team) not in (None, NO_ACCESS_LEVEL)
+
+    accessible_team_ids = [team_id for team_id in team_ids if has_scoped_access(team_id, requester_id)]
+
+    open_team_accessible = any(
+        default_by_team.get(team_id, default_access_level("project")) != NO_ACCESS_LEVEL
+        for team_id in accessible_team_ids
+    )
+    if open_team_accessible:
+        # An open team makes every non-candidate visible; a candidate is hidden only if every
+        # accessible team denies them (dead branch under max-wins, real under more-specific-wins).
+        hidden = {
+            membership_id
+            for membership_id in candidate_ids
+            if all(not has_scoped_access(team_id, membership_id) for team_id in accessible_team_ids)
+        }
+        if not hidden:
+            return None
+        all_ids = {
+            str(membership_id)
+            for membership_id in OrganizationMembership.objects.filter(organization=organization).values_list(
+                "id", flat=True
+            )
+        }
+        return (all_ids - hidden) | {requester_id}
+
+    # Only private teams are accessible: non-candidates have the "none" default everywhere.
+    visible = {requester_id}
+    for membership_id in candidate_ids:
+        if any(has_scoped_access(team_id, membership_id) for team_id in accessible_team_ids):
+            visible.add(membership_id)
+    return visible
+
+
+def restricted_visible_membership_ids(organization: Organization, user: User) -> Optional[set[str]]:
+    """Membership ids `user` may see when the org restricts member list visibility, or None when
+    unrestricted (the setting is enabled, or the user is an org admin)."""
+    if organization.members_can_see_org_members:
+        return None
+    membership = OrganizationMembership.objects.filter(organization=organization, user_id=user.id).first()
+    if membership is None:
+        return set()
+    if membership.level >= OrganizationMembership.Level.ADMIN:
+        return None
+    return get_project_scoped_visible_membership_ids(organization, membership)

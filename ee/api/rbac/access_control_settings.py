@@ -354,9 +354,14 @@ class AccessControlSettingsViewSetMixin(_GenericViewSet):
         if request.query_params.get("role_id"):
             roles = roles.filter(id=self._get_role(request, team).id)
 
+        # One query for the team's rules; every role below resolves from it
+        settings_rows = SubjectAccessControl.team_access_controls(team)
+        requesting_membership = user_access_control._organization_membership
+
         results = []
         for role in roles:
             subject = SubjectAccessControl(user_access_control.user, team, role_id=str(role.id))
+            subject.preload_access_controls(settings_rows, requesting_membership=requesting_membership)
             results.append(
                 {
                     "role_id": role.id,
@@ -397,17 +402,29 @@ class AccessControlSettingsViewSetMixin(_GenericViewSet):
             not team.organization.members_can_see_org_members and not user_access_control.is_organization_admin
         )
 
+        # One query for the team's rules; every member below resolves from it
+        settings_rows = SubjectAccessControl.team_access_controls(team)
+        requesting_membership = user_access_control._organization_membership
+
         results = []
         for membership in memberships:
+            # role_memberships is prefetched on the queryset, so seeding from it costs no query
+            role_ids = [str(rm.role_id) for rm in membership.role_memberships.all()]
             subject = SubjectAccessControl(user_access_control.user, team, member=membership)
+            subject.preload_access_controls(
+                settings_rows, requesting_membership=requesting_membership, subject_role_ids=role_ids
+            )
 
             # When the org restricts member list visibility, project members only see users with
             # project-scoped access (explicit grant, role, or default) — org admins aren't implied in
             if hide_non_project_members:
                 project_scoped = SubjectAccessControl(
                     user_access_control.user, team, member=membership, ignore_org_admin=True
-                ).get_user_access_level(team)
-                if project_scoped in (None, "none"):
+                )
+                project_scoped.preload_access_controls(
+                    settings_rows, requesting_membership=requesting_membership, subject_role_ids=role_ids
+                )
+                if project_scoped.get_user_access_level(team) in (None, "none"):
                     continue
 
             user = membership.user

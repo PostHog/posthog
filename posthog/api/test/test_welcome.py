@@ -80,13 +80,19 @@ class TestWelcomeEndpoint(APIBaseTest):
         project_mate = User.objects.create_and_join(self.organization, "mate@example.com", None, "Mate")
         User.objects.create_and_join(self.organization, "hidden@example.com", None, "Hidden")
         # Private project: default "none" with explicit grants for the requester and one project mate
-        AccessControl.objects.create(team=self.team, resource="project", access_level="none")
+        AccessControl.objects.create(
+            team=self.team, resource="project", resource_id=str(self.team.id), access_level="none"
+        )
         for membership in (
             self.organization_membership,
             project_mate.organization_memberships.get(organization=self.organization),
         ):
             AccessControl.objects.create(
-                team=self.team, resource="project", organization_member=membership, access_level="member"
+                team=self.team,
+                resource="project",
+                resource_id=str(self.team.id),
+                organization_member=membership,
+                access_level="member",
             )
         self.organization.available_product_features = [
             {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}

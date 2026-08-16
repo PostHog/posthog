@@ -3,6 +3,8 @@ import json
 from unittest.mock import MagicMock, patch
 
 from django.apps import apps
+from django.db import connection
+from django.test.utils import CaptureQueriesContext
 
 from parameterized import parameterized
 from rest_framework import status
@@ -1780,7 +1782,9 @@ class TestAccessControlDefaultsEndpoint(BaseAccessControlTest):
 
         # Create another team and set different defaults directly in DB
         other_team = Team.objects.create(organization=self.organization, name="Other Team")
-        AccessControl.objects.create(team=other_team, resource="project", access_level="admin")
+        AccessControl.objects.create(
+            team=other_team, resource="project", resource_id=str(other_team.id), access_level="admin"
+        )
         AccessControl.objects.create(team=other_team, resource="dashboard", access_level="editor")
 
         # Request should only return current team's defaults
@@ -1913,7 +1917,9 @@ class TestAccessControlRolesEndpoint(BaseAccessControlTest):
 
         # Create another team and set different role override directly in DB
         other_team = Team.objects.create(organization=self.organization, name="Other Team")
-        AccessControl.objects.create(team=other_team, resource="project", role=self.role, access_level="admin")
+        AccessControl.objects.create(
+            team=other_team, resource="project", resource_id=str(other_team.id), role=self.role, access_level="admin"
+        )
 
         # Request should only return current team's role overrides
         res = self.client.get("/api/projects/@current/access_control_roles")
@@ -1958,6 +1964,29 @@ class TestAccessControlMembersEndpoint(BaseAccessControlTest):
         self.user2 = self._create_user("user2@example.com")
         self.user2_membership = self.user2.organization_memberships.get(organization=self.organization)
         self.role = Role.objects.create(name="Engineering", organization=self.organization)
+
+    def _query_count(self, url: str) -> int:
+        with CaptureQueriesContext(connection) as ctx:
+            res = self.client.get(url)
+        assert res.status_code == status.HTTP_200_OK, res.json()
+        return len(ctx.captured_queries)
+
+    def test_query_count_does_not_grow_with_members(self):
+        # Every member resolves through the walker; a per-member fetch creeping back in would make
+        # this page N+1 (it was, before the rules were preloaded once for all subjects)
+        for i in range(3):
+            user = self._create_user(f"early{i}@example.com")
+            membership = user.organization_memberships.get(organization=self.organization)
+            RoleMembership.objects.create(user=user, role=self.role, organization_member=membership)
+        with_few = self._query_count("/api/projects/@current/access_control_members")
+
+        for i in range(12):
+            user = self._create_user(f"late{i}@example.com")
+            membership = user.organization_memberships.get(organization=self.organization)
+            RoleMembership.objects.create(user=user, role=self.role, organization_member=membership)
+        with_many = self._query_count("/api/projects/@current/access_control_members")
+
+        assert with_many <= with_few
 
     def _find_member(self, results, membership_id):
         return next((m for m in results if str(m["organization_membership_id"]) == str(membership_id)), None)
