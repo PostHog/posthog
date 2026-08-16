@@ -897,6 +897,104 @@ describe('CDP API', () => {
         })
     })
 
+    describe('hogflow trigger test invocations', () => {
+        const accountPropertyChangedFlowConfiguration = {
+            id: 'account-property-changed-flow',
+            team_id: 0,
+            name: 'Account property changed flow',
+            actions: [
+                {
+                    id: 'trigger_node',
+                    name: 'Trigger',
+                    type: 'trigger',
+                    config: {
+                        type: 'event',
+                        filters: {
+                            events: [
+                                {
+                                    id: '$account_custom_property_changed',
+                                    name: 'Account custom property changed',
+                                    type: 'events',
+                                    order: 0,
+                                    properties: [
+                                        { key: 'property_name', value: 'Plan', operator: 'exact', type: 'event' },
+                                        { key: 'current_value', value: 'enterprise', operator: 'exact', type: 'event' },
+                                    ],
+                                },
+                            ],
+                            properties: [],
+                            // properties.current_value == 'enterprise' AND properties.property_name == 'Plan'
+                            bytecode: [
+                                '_H',
+                                1,
+                                32,
+                                'enterprise',
+                                32,
+                                'current_value',
+                                32,
+                                'properties',
+                                1,
+                                2,
+                                11,
+                                32,
+                                'Plan',
+                                32,
+                                'property_name',
+                                32,
+                                'properties',
+                                1,
+                                2,
+                                11,
+                                3,
+                                2,
+                            ],
+                        },
+                    },
+                },
+                { id: 'exit_node', name: 'Exit', type: 'exit', config: {} },
+            ],
+            edges: [{ from: 'trigger_node', to: 'exit_node', type: 'continue' }],
+        }
+
+        it.each([
+            ['matching', 'enterprise', 'success', 'exit_node'],
+            ['non-matching', 'free', 'skipped', null],
+        ])(
+            'reports a %s current_value filter result',
+            async (_, currentValue, expectedStatus, expectedNextActionId) => {
+                const res = await supertest(app)
+                    .post(`/api/projects/${team.id}/hog_flows/new/invocations`)
+                    .send({
+                        globals: {
+                            ...globals,
+                            event: {
+                                ...globals.event!,
+                                event: '$account_custom_property_changed',
+                                properties: {
+                                    ...globals.event!.properties,
+                                    property_name: 'Plan',
+                                    current_value: currentValue,
+                                },
+                            },
+                        },
+                        mock_async_functions: true,
+                        configuration: { ...accountPropertyChangedFlowConfiguration, team_id: team.id },
+                    })
+
+                expect(res.status).toEqual(200)
+                expect(res.body.status).toEqual(expectedStatus)
+                expect(res.body.nextActionId).toEqual(expectedNextActionId)
+                if (expectedStatus === 'skipped') {
+                    expect(res.body.logs).toEqual(
+                        expect.arrayContaining([
+                            expect.objectContaining({ message: 'Workflow trigger did not match the event.' }),
+                        ])
+                    )
+                }
+            }
+        )
+    })
+
     describe('hogflow wait_until_condition test invocations', () => {
         // Matches events whose name equals `eventName` - same shape the serializer compiles
         // for an "events to wait for" entry.

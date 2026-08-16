@@ -1,4 +1,5 @@
 import os
+from datetime import UTC, datetime
 
 from freezegun import freeze_time
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
@@ -6,6 +7,7 @@ from unittest.mock import ANY, Mock, patch
 
 from django.db import connection
 from django.test.utils import CaptureQueriesContext
+from django.utils import timezone
 
 from boto3 import resource
 from botocore.config import Config
@@ -181,6 +183,7 @@ class TestErrorTracking(APIBaseTest):
         }
         assert issue.status == ErrorTrackingIssue.Status.RESOLVED
         assert issue.severity == ErrorTrackingIssue.Severity.HIGH
+        assert issue.state_updated_at == datetime(2025, 1, 1, tzinfo=UTC)
 
         self._assert_logs_the_activity(
             issue.id,
@@ -216,6 +219,39 @@ class TestErrorTracking(APIBaseTest):
                 }
             ],
         )
+
+    @parameterized.expand(
+        [
+            ("severity", {"severity": "high"}),
+            ("name", {"name": "Updated issue"}),
+            ("description", {"description": "Updated description"}),
+        ]
+    )
+    @freeze_time("2025-01-02")
+    def test_issue_update_stamps_clickhouse_visible_fields(self, _name: str, fields: dict[str, str]) -> None:
+        issue = self.create_issue(["fingerprint"])
+
+        response = self.client.patch(
+            f"/api/environments/{self.team.id}/error_tracking/issues/{issue.id}",
+            data=fields,
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        issue.refresh_from_db()
+        assert issue.state_updated_at == datetime(2025, 1, 2, tzinfo=UTC)
+
+    @freeze_time("2025-01-02")
+    def test_issue_update_does_not_stamp_unchanged_state(self) -> None:
+        issue = self.create_issue(["fingerprint"])
+
+        response = self.client.patch(
+            f"/api/environments/{self.team.id}/error_tracking/issues/{issue.id}",
+            data={"status": "active", "severity": None, "name": None, "description": None},
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        issue.refresh_from_db()
+        assert issue.state_updated_at is None
 
     def test_issue_update_rejects_deprecated_status(self):
         issue = self.create_issue(["fingerprint"])
@@ -696,13 +732,18 @@ class TestErrorTracking(APIBaseTest):
         issue = self.create_issue()
 
         self.assertEqual(ErrorTrackingIssueAssignment.objects.count(), 0)
+        before_assignment = timezone.now()
         self.client.patch(
             f"/api/environments/{self.team.id}/error_tracking/issues/{issue.id}/assign",
             data={"assignee": {"id": self.user.id, "type": "user"}},
         )
+        after_assignment = timezone.now()
         # assigns the issue
         self.assertEqual(ErrorTrackingIssueAssignment.objects.count(), 1)
         self.assertEqual(ErrorTrackingIssueAssignment.objects.filter(issue=issue, user_id=self.user.id).count(), 1)
+        issue.refresh_from_db()
+        assert issue.state_updated_at is not None
+        assert before_assignment <= issue.state_updated_at <= after_assignment
 
         self._assert_logs_the_activity(
             issue.id,
@@ -732,12 +773,17 @@ class TestErrorTracking(APIBaseTest):
             ],
         )
 
+        before_unassignment = timezone.now()
         self.client.patch(
             f"/api/environments/{self.team.id}/error_tracking/issues/{issue.id}/assign",
             data={"assignee": None},
         )
+        after_unassignment = timezone.now()
         # deletes the assignment
         self.assertEqual(ErrorTrackingIssueAssignment.objects.count(), 0)
+        issue.refresh_from_db()
+        assert issue.state_updated_at is not None
+        assert before_unassignment <= issue.state_updated_at <= after_unassignment
 
         other_team = self.create_team_with_organization(organization=self.organization)
         response = self.client.patch(
@@ -746,6 +792,41 @@ class TestErrorTracking(APIBaseTest):
         )
         # cannot assign issues from other teams
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
+    @patch("products.error_tracking.backend.logic.issue_mutations.sync_issues_to_clickhouse")
+    @patch("products.error_tracking.backend.logic.issue_mutations.dispatch_issue_assigned_realtime")
+    @patch("products.error_tracking.backend.logic.issue_mutations.send_error_tracking_issue_assigned")
+    def test_assigning_same_user_with_string_id_does_not_mutate_issue(
+        self, mock_email: Mock, mock_realtime: Mock, mock_sync: Mock
+    ) -> None:
+        issue = self.create_issue()
+        ErrorTrackingIssueAssignment.objects.create(issue=issue, team=self.team, user=self.user)
+
+        response = self.client.patch(
+            f"/api/environments/{self.team.id}/error_tracking/issues/{issue.id}/assign",
+            data={"assignee": {"id": str(self.user.id), "type": "user"}},
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        issue.refresh_from_db()
+        assert issue.state_updated_at is None
+        self._assert_logs_the_activity(issue.id, [])
+        mock_email.delay.assert_not_called()
+        mock_realtime.assert_not_called()
+        mock_sync.assert_not_called()
+
+    def test_unassigning_unassigned_issue_does_not_mutate_issue(self) -> None:
+        issue = self.create_issue()
+
+        response = self.client.patch(
+            f"/api/environments/{self.team.id}/error_tracking/issues/{issue.id}/assign",
+            data={"assignee": None},
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        issue.refresh_from_db()
+        assert issue.state_updated_at is None
+        self._assert_logs_the_activity(issue.id, [])
 
     @patch("products.error_tracking.backend.logic.issue_mutations.dispatch_issue_assigned_realtime")
     @patch("products.error_tracking.backend.logic.issue_mutations.send_error_tracking_issue_assigned")
@@ -762,20 +843,33 @@ class TestErrorTracking(APIBaseTest):
     def test_error_tracking_issue_bulk_resolve(self):
         issue_one = self.create_issue()
         issue_two = self.create_issue()
+        unchanged_issue = self.create_issue()
+        ErrorTrackingIssue.objects.filter(id=unchanged_issue.id).update(status=ErrorTrackingIssue.Status.RESOLVED)
 
         self.assertEqual(issue_one.status, ErrorTrackingIssue.Status.ACTIVE)
         self.assertEqual(issue_two.status, ErrorTrackingIssue.Status.ACTIVE)
 
+        before_update = timezone.now()
         self.client.post(
             f"/api/environments/{self.team.id}/error_tracking/issues/bulk",
-            data={"ids": [issue_one.id, issue_two.id], "action": "set_status", "status": "resolved"},
+            data={
+                "ids": [issue_one.id, issue_two.id, unchanged_issue.id],
+                "action": "set_status",
+                "status": "resolved",
+            },
         )
+        after_update = timezone.now()
 
         issue_one.refresh_from_db()
         issue_two.refresh_from_db()
+        unchanged_issue.refresh_from_db()
 
         self.assertEqual(issue_one.status, ErrorTrackingIssue.Status.RESOLVED)
         self.assertEqual(issue_two.status, ErrorTrackingIssue.Status.RESOLVED)
+        assert issue_one.state_updated_at is not None
+        assert before_update <= issue_one.state_updated_at <= after_update
+        assert issue_two.state_updated_at == issue_one.state_updated_at
+        assert unchanged_issue.state_updated_at is None
 
     def test_error_tracking_issue_bulk_assign(self):
         issue_one = self.create_issue()
@@ -785,6 +879,7 @@ class TestErrorTracking(APIBaseTest):
         role = Role.objects.create(name="Team role", organization=self.organization)
         role.members.set([self.user])
 
+        before_update = timezone.now()
         self.client.post(
             f"/api/environments/{self.team.id}/error_tracking/issues/bulk",
             data={
@@ -793,11 +888,17 @@ class TestErrorTracking(APIBaseTest):
                 "assignee": {"id": role.id, "type": "role"},
             },
         )
+        after_update = timezone.now()
 
         self.assertEqual(len(ErrorTrackingIssueAssignment.objects.filter(issue=issue_one, user=self.user)), 0)
         self.assertEqual(
             len(ErrorTrackingIssueAssignment.objects.filter(issue__in=[issue_one, issue_two], role=role)), 2
         )
+        issue_one.refresh_from_db()
+        issue_two.refresh_from_db()
+        assert issue_one.state_updated_at is not None
+        assert before_update <= issue_one.state_updated_at <= after_update
+        assert issue_two.state_updated_at == issue_one.state_updated_at
 
     def test_can_start_bulk_symbol_set_upload(self) -> None:
         chunk_id_one = uuid7()

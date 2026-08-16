@@ -11,6 +11,8 @@ from datetime import datetime, timedelta
 from typing import TYPE_CHECKING, Any, Literal, NamedTuple, NoReturn, Optional, Self, cast
 from urllib.parse import parse_qs, urlencode, urlparse
 
+from posthog.dataclasses import frozen
+
 from products.workflows.backend.providers import MAILDEV_MOCK_DNS_RECORDS
 
 if TYPE_CHECKING:
@@ -2211,7 +2213,7 @@ class SlackIntegration:
         return config
 
 
-@dataclass(frozen=True, kw_only=True, slots=True)
+@frozen
 class SlackRequestSignature:
     signature: str
     timestamp: str
@@ -3404,6 +3406,15 @@ def invalidate_github_repository_caches_for_installation(installation_id: str | 
     ).update(repository_cache_updated_at=None)
 
 
+def github_account_type(owner_type: str | None) -> str | None:
+    """Normalize GitHub's account ``type`` ("Organization" / "User") to org vs personal."""
+    if owner_type == "Organization":
+        return "organization"
+    if owner_type == "User":
+        return "personal"
+    return None
+
+
 class GitHubIntegration(GitHubIntegrationBase):
     integration: Integration
 
@@ -3469,6 +3480,34 @@ class GitHubIntegration(GitHubIntegrationBase):
         if integration.errors:
             integration.errors = ""
             integration.save()
+
+        # Every other kind reports this from IntegrationSerializer.create(). GitHub also gets created
+        # through its App installation callback and through agentic provisioning, which never reach
+        # that serializer, so this is the one place every GitHub connect passes through.
+        # IntegrationSerializer.create() skips github for the same reason: its own github branch ends
+        # up here, and reporting in both would count one connection twice.
+        if created and created_by is not None:
+            from posthog.event_usage import (  # noqa: PLC0415 — posthog.event_usage imports posthog.models
+                report_user_action,
+            )
+
+            owner_type = dot_get(installation_access.installation_info, "account.type", None)
+            try:
+                report_user_action(
+                    created_by,
+                    "integration created",
+                    {
+                        "integration_kind": "github",
+                        "is_overwrite": False,
+                        "repo_owner_type": owner_type,
+                        "account_type": github_account_type(owner_type),
+                    },
+                    team=integration.team,
+                )
+            except Exception:
+                # The integration row is already committed. Raising here would report a connection
+                # that actually succeeded as a failure.
+                logger.exception("github_integration: failed to report integration created")
 
         invalidate_github_repository_caches_for_installation(installation_id)
 

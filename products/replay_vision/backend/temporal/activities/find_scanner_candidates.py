@@ -1,3 +1,4 @@
+import time
 import datetime as dt
 
 from django.utils import timezone
@@ -11,7 +12,8 @@ from posthog.schema import RecordingsQuery
 from posthog.rbac.user_access_control import UserAccessControl
 
 from products.replay_vision.backend.models.replay_observation import ReplayObservation
-from products.replay_vision.backend.models.replay_scanner import ReplayScanner
+from products.replay_vision.backend.models.replay_scanner import SETTLE_INTERVAL, ReplayScanner
+from products.replay_vision.backend.queries import excluded_sessions
 from products.replay_vision.backend.queries.scanner_candidate_query import (
     DEFAULT_CANDIDATE_LIMIT,
     SWEEP_EVENTS_LOOKBACK,
@@ -19,9 +21,15 @@ from products.replay_vision.backend.queries.scanner_candidate_query import (
     CandidateSession,
     ScannerCandidateQuery,
 )
-from products.replay_vision.backend.temporal.constants import DEEP_SWEEP_INTERVAL, DEEP_SWEEP_MAX_EXECUTION_SECONDS
+from products.replay_vision.backend.temporal.constants import (
+    DEEP_SWEEP_INTERVAL,
+    DEEP_SWEEP_MAX_EXECUTION_SECONDS,
+    FIND_SCANNER_CANDIDATES_TIMEOUT,
+    SCANNER_SCHEDULE_INTERVAL,
+)
 from products.replay_vision.backend.temporal.decorators import track_activity
 from products.replay_vision.backend.temporal.metrics import record_sweep_outcome
+from products.replay_vision.backend.temporal.read_meter_types import sweep_spend_bytes_24h, sweep_throttle_factor
 from products.replay_vision.backend.temporal.sweep_types import (
     CandidateSessionPayload,
     FindScannerCandidatesInputs,
@@ -54,6 +62,12 @@ def find_scanner_candidates_activity(inputs: FindScannerCandidatesInputs) -> Fin
             f"ReplayScanner {inputs.scanner_id} has malformed query: {exc}", non_retryable=True
         ) from exc
 
+    if _throttled(scanner):
+        record_sweep_outcome("throttled")
+        # No watermark advance, so the next executed sweep covers the skipped range in one query.
+        return FindScannerCandidatesOutput(candidates=[], saturated=False)
+
+    started_at = time.monotonic()
     limit = inputs.candidate_limit if inputs.candidate_limit is not None else DEFAULT_CANDIDATE_LIMIT
     candidate_query = ScannerCandidateQuery(
         team=scanner.team,
@@ -65,10 +79,25 @@ def find_scanner_candidates_activity(inputs: FindScannerCandidatesInputs) -> Fin
         last_seen_session_id=scanner.last_seen_session_id or None,
         candidate_limit=limit,
         events_lookback=SWEEP_EVENTS_LOOKBACK,
+        # Exclusion is applied below against the fetched batch instead.
+        skip_negative_blocklists=True,
+        scanner_id=str(scanner.id),
     )
-    candidates = candidate_query.run()
-    # A full batch means there may be more past the keyset; the next sweep resumes from the last candidate.
-    saturated = len(candidates) == limit
+    fetched = candidate_query.run()
+    # A full batch means there may be more past the keyset; the next sweep resumes from the last row.
+    # Measured before exclusion, since the keyset walks what was fetched, not what survived.
+    saturated = len(fetched) == limit
+
+    # Deliberately not wrapped: the in-query blocklists are off, so a swallowed failure here would
+    # dispatch the batch unfiltered. Returns empty when the scanner excludes nothing.
+    excluded = excluded_sessions.excluded_session_ids(
+        team=scanner.team,
+        candidate_query=candidate_query,
+        candidates=fetched,
+        scanner_id=str(scanner.id),
+        seconds_remaining=FIND_SCANNER_CANDIDATES_TIMEOUT.total_seconds() - (time.monotonic() - started_at),
+    )
+    candidates = [c for c in fetched if c.session_id not in excluded]
 
     # Deep candidates dispatch alongside fast ones, so the two share one in-flight budget: the deep
     # pass gets whatever headroom the fast pass left. At zero there is nothing left to dispatch, which
@@ -92,6 +121,8 @@ def find_scanner_candidates_activity(inputs: FindScannerCandidatesInputs) -> Fin
         candidates=[CandidateSessionPayload(session_id=c.session_id, session_end=c.session_end) for c in candidates],
         saturated=saturated,
         swept_through=candidate_query.settle_cutoff,
+        keyset_end=fetched[-1].session_end if fetched else None,
+        keyset_session_id=fetched[-1].session_id if fetched else "",
         deep_candidates=[
             CandidateSessionPayload(session_id=c.session_id, session_end=c.session_end) for c in deep_candidates
         ],
@@ -101,6 +132,23 @@ def find_scanner_candidates_activity(inputs: FindScannerCandidatesInputs) -> Fin
 
 # Past this the exclusion list stops being complete, so holding the watermark could stall the walk.
 _DEEP_SWEEP_MAX_EXCLUSIONS = 20_000
+
+
+def _throttled(scanner: ReplayScanner) -> bool:
+    """True when this tick should be skipped to keep the scanner inside its 24h read budget.
+
+    The factor stretches the effective cadence: factor N means one executed sweep per N schedule
+    intervals. Distance is measured watermark-to-settle-horizon, so a saturated keyset walk (watermark
+    lagging behind the horizon) is never throttled harder while it drains its backlog.
+    """
+    now = dt.datetime.now(dt.UTC)
+    factor = sweep_throttle_factor(
+        sweep_spend_bytes_24h(scanner.sweep_read_bytes_by_hour, now),
+        scanner.sweep_throttle_factor_override,
+    )
+    if factor <= 1:
+        return False
+    return (now - SETTLE_INTERVAL) - scanner.last_swept_at < SCANNER_SCHEDULE_INTERVAL * factor
 
 
 def _deep_sweep(
@@ -140,6 +188,7 @@ def _deep_sweep(
         exclude_session_ids=observed_session_ids,
         candidate_limit=limit,
         max_execution_time_seconds=DEEP_SWEEP_MAX_EXECUTION_SECONDS,
+        scanner_id=str(scanner.id),
     )
     deep_candidates = deep_query.run()
     if len(deep_candidates) == limit and len(observed_session_ids) < _DEEP_SWEEP_MAX_EXCLUSIONS:

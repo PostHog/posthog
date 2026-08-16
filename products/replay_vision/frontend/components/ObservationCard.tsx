@@ -250,7 +250,7 @@ export function ObservationPrimaryOutput({
                 <div className="flex flex-col gap-1">
                     <div className="flex flex-wrap gap-1">
                         {empty ? (
-                            <span className="text-muted text-sm">No tags</span>
+                            <span className="text-muted text-sm">No categories</span>
                         ) : (
                             <>
                                 {fixedTags.map((tag, index) => (
@@ -269,7 +269,7 @@ export function ObservationPrimaryOutput({
         if (configuredTags.length === 0 && empty) {
             return (
                 <div className="flex flex-col gap-1">
-                    <span className="text-muted text-sm">No tags</span>
+                    <span className="text-muted text-sm">No categories</span>
                     {prompt && <span className={promptClass}>{prompt}</span>}
                 </div>
             )

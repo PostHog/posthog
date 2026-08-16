@@ -834,7 +834,6 @@ describe('Tool Filtering - Feature Flags', () => {
                 'logs-anomalies',
                 'logs-patterns-view',
                 'llm-analytics-datasets',
-                'replay-video-based-summarization',
                 'tracing',
                 'visual-review',
                 'user-interviews',
@@ -859,6 +858,7 @@ describe('Tool Filtering - Feature Flags', () => {
                 'warehouse-person-properties',
                 'streamlit-apps',
                 'posthog-connect',
+                'experiment-behavior-comparison',
             ])
         )
         expect(flags).toHaveLength(29)

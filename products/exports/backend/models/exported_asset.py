@@ -1,3 +1,4 @@
+import re
 import secrets
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -33,6 +34,18 @@ DATASET_EXPORT_KIND = "dataset"
 SEVEN_DAYS = timedelta(days=7)
 SIX_MONTHS = timedelta(days=180)
 TWELVE_MONTHS = timedelta(days=365)
+
+
+# The rasterizer interpolates this id into an internal recording API path, so anything that could
+# change the shape of that path has to be rejected: separators, percent escapes, and a dot-only id,
+# which is a relative segment that URL normalization collapses. Kept in step with SESSION_ID_RE in
+# nodejs/src/session-replay/recording-rasterizer/capture/config.ts.
+SESSION_RECORDING_ID_RE = re.compile(r"(?!\.+\Z)[A-Za-z0-9_.:-]{1,200}")
+
+
+def is_valid_session_recording_id(session_recording_id: object) -> bool:
+    # fullmatch, not match: `$` would also accept a trailing newline.
+    return isinstance(session_recording_id, str) and bool(SESSION_RECORDING_ID_RE.fullmatch(session_recording_id))
 
 
 def get_default_access_token() -> str:

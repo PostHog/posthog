@@ -44,7 +44,7 @@ class ScannerModel(models.TextChoices):
 
     GEMINI_3_5_FLASH_LITE = "gemini-3.5-flash-lite", "Gemini 3.5 Flash Lite"
     GEMINI_3_FLASH_PREVIEW = "gemini-3-flash-preview", "Gemini 3 Flash"
-    GEMINI_3_6_FLASH = "gemini-3.6-flash", "Gemini 3.6 Flash"
+    GEMINI_3_7_FLASH = "gemini-3.7-flash", "Gemini 3.7 Flash"
 
 
 class ScannerOrigin(models.TextChoices):
@@ -156,6 +156,16 @@ class ReplayScanner(UUIDModel):
         blank=True,
         help_text="Watermark for the periodic full-events-lookback catch-up sweep; null until the first regular sweep initializes it.",
     )
+    sweep_read_bytes_by_hour = models.JSONField(
+        null=True,
+        blank=True,
+        help_text="ClickHouse read bytes per hour bucket (ISO hour -> bytes), maintained by the read-metering workflow; drives the sweep throttle.",
+    )
+    sweep_throttle_factor_override = models.PositiveSmallIntegerField(
+        null=True,
+        blank=True,
+        help_text="Manual cadence-stretch multiplier; overrides the computed read-budget throttle. 1 disables throttling; null means automatic.",
+    )
 
     # Shape: ScannerExperimentTargetingSerializer. Stored because the compiled `query` speaks flag
     # keys, so the experiment association isn't recoverable from it. Not version-tracked; scanning
@@ -183,6 +193,20 @@ class ReplayScanner(UUIDModel):
         null=True,
         blank=True,
         help_text="When the estimate was last computed. Refreshed on config saves and by the sweep when stale.",
+    )
+
+    # Not "monthly": this resets with the org's billing period, which is only a calendar month
+    # until billing syncs a real one. See quota.current_period_bounds.
+    credit_limit = models.PositiveIntegerField(
+        null=True,
+        blank=True,
+        validators=[MinValueValidator(1)],
+        help_text="Optional cap on this scanner's own credit spend per billing period. Null means no scanner-level cap.",
+    )
+    limit_notified_period_start = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text="Billing period start this scanner was last reported as having reached its credit limit. Keeps the notification to one per period.",
     )
 
     created_at = models.DateTimeField(auto_now_add=True)
@@ -219,6 +243,12 @@ class ReplayScanner(UUIDModel):
             models.CheckConstraint(
                 condition=models.Q(sampling_rate__gte=0.0) & models.Q(sampling_rate__lte=1.0),
                 name="replay_scanner_sampling_rate_range",
+            ),
+            # A stray 0 would read as "block every observation" to the quota check, and be
+            # indistinguishable from an unset cap. NULL stays valid: it means no scanner-level cap.
+            models.CheckConstraint(
+                condition=models.Q(credit_limit__isnull=True) | models.Q(credit_limit__gte=1),
+                name="replay_scanner_credit_limit_positive",
             ),
         ]
         indexes = [
@@ -261,10 +291,23 @@ class ReplayScanner(UUIDModel):
                     type(self)
                     .all_origins.select_for_update()
                     .filter(pk=self.pk)
-                    .only("scanner_version", "enabled", *relevant)
+                    .only(
+                        "scanner_version",
+                        "enabled",
+                        "last_swept_at",
+                        "last_seen_session_id",
+                        "limit_notified_period_start",
+                        *relevant,
+                    )
                     .first()
                 )
                 if old is not None:
+                    if update_fields is None:
+                        # The sweep writes these via targeted updates; a stale full save must not
+                        # clobber a concurrent sweep's watermark or notification stamp.
+                        self.last_swept_at = old.last_swept_at
+                        self.last_seen_session_id = old.last_seen_session_id
+                        self.limit_notified_period_start = old.limit_notified_period_start
                     changed = {f for f in relevant if getattr(old, f) != getattr(self, f)}
                     extra_fields = []
                     if changed:
