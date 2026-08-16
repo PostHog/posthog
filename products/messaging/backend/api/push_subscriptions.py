@@ -100,6 +100,7 @@ def _rejection_response(
     status_code: int,
     team_id: int | None = None,
     app_id: str | None = None,
+    detail: str | None = None,
     exc_info: bool = False,
 ) -> HttpResponse:
     # request.method is an arbitrary attacker-controlled token on the method_not_allowed path (any
@@ -117,6 +118,7 @@ def _rejection_response(
         method=request.method,
         team_id=team_id,
         app_id=app_id,
+        detail=detail,
         exc_info=exc_info,
     )
     return cors_response(
@@ -215,6 +217,12 @@ def push_subscriptions(request: Request):
         if not value or not isinstance(value, str)
     ]
     if missing_fields:
+        # absent vs empty vs invalid separates an SDK that never sends the field (contract drift)
+        # from a client bridge passing an empty or mistyped value: they need different fixes.
+        field_detail = ",".join(
+            f"{field_name}:{'absent' if field_name not in data else 'empty' if data[field_name] == '' else 'invalid'}"
+            for field_name in missing_fields
+        )
         return _rejection_response(
             request,
             f"Missing required fields: {', '.join(missing_fields)}.",
@@ -222,6 +230,7 @@ def push_subscriptions(request: Request):
             code="missing_fields",
             status_code=status.HTTP_400_BAD_REQUEST,
             team_id=team.id,
+            detail=field_detail,
         )
 
     assert isinstance(distinct_id, str)
