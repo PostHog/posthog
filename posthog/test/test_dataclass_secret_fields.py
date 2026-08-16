@@ -46,11 +46,13 @@ def _dotted_name(node: ast.expr) -> str | None:
     return None
 
 
-def _is_dataclass_decorator(decorator: ast.expr) -> bool:
-    """A stdlib @dataclass or posthog @frozen decorator (pydantic handled at file level)."""
+def _is_dataclass_decorator(decorator: ast.expr, pydantic_names: set[str]) -> bool:
+    """A stdlib @dataclass or posthog @frozen decorator; names bound by pydantic imports are excluded."""
     target = decorator.func if isinstance(decorator, ast.Call) else decorator
     dotted = _dotted_name(target)
     if dotted is None or "pydantic" in dotted:
+        return False
+    if dotted.split(".")[0] in pydantic_names:
         return False
     return dotted in ("dataclass", "frozen") or dotted.endswith((".dataclass", ".frozen"))
 
@@ -74,8 +76,20 @@ def _hides_repr(value: ast.expr | None) -> bool:
     )
 
 
-def _imports_pydantic_dataclass(tree: ast.Module) -> bool:
-    return any(isinstance(node, ast.ImportFrom) and node.module == "pydantic.dataclasses" for node in ast.walk(tree))
+def _pydantic_bound_names(tree: ast.Module) -> set[str]:
+    """Local names bound by pydantic imports. Resolving decorator provenance per class (instead of
+    skipping the whole module) keeps stdlib dataclasses inspected in mixed modules where
+    `from pydantic.dataclasses import dataclass` would otherwise be indistinguishable by name."""
+    names: set[str] = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.ImportFrom):
+            if node.module and (node.module == "pydantic" or node.module.startswith("pydantic.")):
+                names.update(alias.asname or alias.name for alias in node.names)
+        elif isinstance(node, ast.Import):
+            for alias in node.names:
+                if alias.name == "pydantic" or alias.name.startswith("pydantic."):
+                    names.add(alias.asname or alias.name.split(".")[0])
+    return names
 
 
 def _is_test_file(path: Path) -> bool:
@@ -95,13 +109,12 @@ def collect_violations() -> list[str]:
                 tree = ast.parse(source)
             except SyntaxError:
                 continue
-            if _imports_pydantic_dataclass(tree):
-                continue
+            pydantic_names = _pydantic_bound_names(tree)
             relpath = path.relative_to(REPO_ROOT).as_posix()
             for node in ast.walk(tree):
                 if not isinstance(node, ast.ClassDef):
                     continue
-                if not any(_is_dataclass_decorator(decorator) for decorator in node.decorator_list):
+                if not any(_is_dataclass_decorator(decorator, pydantic_names) for decorator in node.decorator_list):
                     continue
                 for stmt in node.body:
                     if not isinstance(stmt, ast.AnnAssign) or not isinstance(stmt.target, ast.Name):

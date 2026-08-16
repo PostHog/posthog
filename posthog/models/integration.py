@@ -6,7 +6,7 @@ import base64
 import hashlib
 import secrets
 from collections.abc import Iterable, Mapping
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import datetime, timedelta
 from typing import TYPE_CHECKING, Any, Literal, NamedTuple, NoReturn, Optional, Self, cast
 from urllib.parse import parse_qs, urlencode, urlparse
@@ -881,8 +881,11 @@ class OauthIntegration:
         config = cls._build_oauth_config(kind, region)
         fallback = settings.OAUTH_CLIENT_FALLBACKS.get(kind)
         if fallback and fallback.get("client_secret"):
-            config.client_secret_fallback = fallback["client_secret"]
-            config.client_id_fallback = fallback.get("client_id") or config.client_id
+            config = replace(
+                config,
+                client_secret_fallback=fallback["client_secret"],
+                client_id_fallback=fallback.get("client_id") or config.client_id,
+            )
         return config
 
     @classmethod
