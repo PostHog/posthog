@@ -5,6 +5,10 @@ import type {
   TaskThreadMessage,
 } from "@posthog/shared/domain-types";
 import { ActivityTimeline } from "@posthog/ui/features/canvas/components/ActivityTimeline";
+import {
+  CommitFilesList,
+  DetailBlock,
+} from "@posthog/ui/features/canvas/components/activityRows";
 import type { Meta, StoryObj } from "@storybook/react-vite";
 
 const shy = {
@@ -87,6 +91,56 @@ const messages: TaskThreadMessage[] = [
   ),
   event(
     "e6",
+    "commits_pushed",
+    {
+      run_id: "run-1",
+      branch: "shy/activity-events",
+      repository: "PostHog/posthog",
+      total: 2,
+      head_sha: "9c2f1aa",
+      commits: [
+        {
+          sha: "5a0a28b",
+          subject: "feat(desktop): draw activity events on the timeline",
+          url: "https://github.com/PostHog/posthog/commit/5a0a28b",
+        },
+        {
+          sha: "9c2f1aa",
+          subject: "fix(desktop): keep the timeline scroll anchored",
+          url: "https://github.com/PostHog/posthog/commit/9c2f1aa",
+        },
+      ],
+    },
+    "2026-08-05T14:45:00Z",
+  ),
+  {
+    ...event(
+      "e6b",
+      "comment_added",
+      {
+        comment_id: "c-1",
+        root_comment_id: "c-1",
+        scope: "task_artifact",
+        item_id: "artifact-1",
+      },
+      "2026-08-05T15:00:00Z",
+    ),
+    author_kind: "human",
+    author: shy,
+  } as TaskThreadMessage,
+  event(
+    "e6c",
+    "artifact_revised",
+    {
+      artifact_id: "artifact-1",
+      name: "activity-events.html",
+      artifact_type: "document",
+      version: 3,
+    },
+    "2026-08-05T15:10:00Z",
+  ),
+  event(
+    "e7",
     "pr_merged",
     {
       pr_url: "https://github.com/PostHog/posthog/pull/80060",
@@ -184,4 +238,46 @@ export const FullTimeline: Story = {
     commentThreads,
     currentUserId: ben.id,
   },
+};
+
+/** The changed-file list a commit row shows once GitHub answers. In the timeline
+ *  above the fetch never resolves (no workspace-server in Storybook), so the
+ *  presentational list is shown on its own here. */
+export const CommitFiles: StoryObj = {
+  render: () => (
+    <div className="p-3">
+      <DetailBlock>
+        <CommitFilesList
+          files={[
+            {
+              path: "products/desktop/packages/core/src/canvas/activityEvents.ts",
+              status: "added",
+              linesAdded: 210,
+              linesRemoved: 0,
+            },
+            {
+              path: "products/desktop/packages/ui/src/features/canvas/components/activityRows.tsx",
+              status: "modified",
+              linesAdded: 96,
+              linesRemoved: 30,
+            },
+            {
+              path: "products/desktop/packages/core/src/canvas/rows/ActivityBead.tsx",
+              status: "renamed",
+              originalPath:
+                "products/desktop/packages/ui/src/features/canvas/Bead.tsx",
+              linesAdded: 4,
+              linesRemoved: 4,
+            },
+            {
+              path: "products/desktop/packages/core/src/canvas/activityFlags.ts",
+              status: "deleted",
+              linesAdded: 0,
+              linesRemoved: 41,
+            },
+          ]}
+        />
+      </DetailBlock>
+    </div>
+  ),
 };

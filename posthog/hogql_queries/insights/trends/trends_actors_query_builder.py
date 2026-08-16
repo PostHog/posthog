@@ -432,11 +432,14 @@ class TrendsActorsQueryBuilder:
 
             # use previous day/week/... for time_frame
             if self.is_compare_previous:
-                if self.is_compare_to:
+                delta_mappings = None if self.is_compare_to else date_range.date_from_delta_mappings()  # type: ignore
+                if delta_mappings is None:
+                    # Either an explicit compare_to offset, or an "all time" range, which starts at the
+                    # earliest event and so has no relative delta to step back by. Both shift the frame
+                    # by the gap between the two periods' starts instead.
                     self.time_frame = query_from + (self.time_frame - self.trends_date_range.date_from())
                 else:
-                    relative_delta = relativedelta(**date_range.date_from_delta_mappings())  # type: ignore
-                    previous_time_frame = self.time_frame - relative_delta
+                    previous_time_frame = self.time_frame - relativedelta(**delta_mappings)
                     if self.is_hourly:
                         self.time_frame = previous_time_frame
                     else:

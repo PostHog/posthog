@@ -210,6 +210,8 @@ async def create_task_and_trigger(
     internal: bool = False,
     workflow_id_prefix: str | None = None,
     mcp_builtin_agent_key: MCPBuiltInAgentKey | None = None,
+    mcp_credential_owner_id: int | None = None,
+    mcp_gateway_server_ids: list[str] | None = None,
 ):
     title = f"[sandbox_prompt:{step_name}] {description[:80]}" if step_name else description[:100]
     team = await sync_to_async(Team.objects.get)(id=context.team_id)
@@ -242,6 +244,8 @@ async def create_task_and_trigger(
         workflow_id_prefix=workflow_id_prefix,
         github_read_access=context.github_read_access,
         mcp_builtin_agent_key=mcp_builtin_agent_key,
+        mcp_credential_owner_id=mcp_credential_owner_id,
+        mcp_gateway_server_ids=mcp_gateway_server_ids,
         interaction_origin=context.interaction_origin,
     )
     # lambda wrap: task.latest_run is a lazy ORM property; sync_to_async needs a callable

@@ -3,7 +3,6 @@ import {
   ArrowRightIcon,
   CaretDownIcon,
   CaretRightIcon,
-  ChartBarIcon,
   DotsThreeIcon,
   FileTextIcon,
   LinkIcon,
@@ -61,7 +60,6 @@ import {
   TaskRowContextMenu,
   type TaskRowMenuProps,
 } from "@posthog/ui/features/canvas/components/TaskRowMenu";
-import { trackAndCreateCanvas } from "@posthog/ui/features/canvas/createCanvasAnalytics";
 import { useBlockedSessionCount } from "@posthog/ui/features/canvas/hooks/useBlockedSessionCount";
 import { useChannelStarToggle } from "@posthog/ui/features/canvas/hooks/useChannelStars";
 import {
@@ -71,7 +69,6 @@ import {
 } from "@posthog/ui/features/canvas/hooks/useChannels";
 import { useChannelsLayout } from "@posthog/ui/features/canvas/hooks/useChannelsLayout";
 import { useChannelTaskStatus } from "@posthog/ui/features/canvas/hooks/useChannelTaskStatus";
-import { useCreateAndOpenDashboard } from "@posthog/ui/features/canvas/hooks/useDashboards";
 import {
   NO_TASKS,
   type SpaceTasks,
@@ -84,7 +81,10 @@ import {
   useSpaceTaskActionsContext,
 } from "@posthog/ui/features/canvas/hooks/useSpaceTaskActions";
 import { useStarredChannelSlots } from "@posthog/ui/features/canvas/hooks/useStarredChannelSlots";
-import { PERSONAL_CHANNEL_NAME } from "@posthog/ui/features/canvas/hooks/useTaskChannels";
+import {
+  PERSONAL_CHANNEL_LABEL,
+  PERSONAL_CHANNEL_NAME,
+} from "@posthog/ui/features/canvas/hooks/useTaskChannels";
 import { useIsChannelUnread } from "@posthog/ui/features/canvas/hooks/useUnreadChannels";
 import { useUnreadSessionCount } from "@posthog/ui/features/canvas/hooks/useUnreadSessionCount";
 import {
@@ -237,6 +237,15 @@ const SESSION_PREFETCH_DELAY_MS = 250;
  * of its own outranks it and stays muted under the keyboard while brightening
  * under the pointer.
  */
+/**
+ * What the keyboard calls the personal row before the channel list has loaded.
+ *
+ * The row is provisioned server-side with the first fetch, so until then it has
+ * no id to be identified by. The rendered row and the keyboard's flat node list
+ * both have to spell this, and they have to agree.
+ */
+const PERSONAL_ROW_VALUE = "personal-row";
+
 const ROW_LABEL_TONE =
   "text-muted-foreground group-hover/button:text-foreground group-data-highlighted/button:text-foreground";
 
@@ -941,8 +950,7 @@ const ChannelSection = memo(
     const isActive = pathname === base || pathname.startsWith(`${base}/`);
     // Lifted so the hover button group stays visible while the menu is open.
     const [menuOpen, setMenuOpen] = useState(false);
-    // The "+" dropdown (New task / New canvas). Keeps the hover actions pinned
-    // while open.
+    // Keep the hover actions pinned while the create menu is open.
     const [newMenuOpen, setNewMenuOpen] = useState(false);
     const { reveal, hoverProps, focusProps } = useOverflowTickerReveal();
     const hasAttention = unreadSessions > 0 || blockedSessions > 0;
@@ -951,7 +959,6 @@ const ChannelSection = memo(
       undefined,
     );
     useEffect(() => () => clearTimeout(prefetchTimer.current), []);
-    const createAndOpenCanvas = useCreateAndOpenDashboard(channel.id);
     // Shared by the "..." dropdown and the right-click context menu so both offer
     // the same star / edit / rename / delete actions.
     const {
@@ -985,6 +992,7 @@ const ChannelSection = memo(
     );
 
     const glyph = channelGlyph(channel.name, {
+      personal: channel.channelType === "personal",
       size: 14,
       space: spacesLayout,
       weight: isUnread ? "bold" : undefined,
@@ -1121,8 +1129,7 @@ const ChannelSection = memo(
               </ContextMenuContent>
             </ContextMenu>
           </SpaceHoverCard>
-          {/* Hover actions: the "+" dropdown (New task / New canvas) and the
-            options menu. Stay visible while either is open. */}
+          {/* Hover actions stay visible while either menu is open. */}
           <div className="absolute top-1 right-1">
             <ButtonGroup>
               <DropdownMenu open={newMenuOpen} onOpenChange={setNewMenuOpen}>
@@ -1168,21 +1175,6 @@ const ChannelSection = memo(
                   >
                     <FileTextIcon size={14} />
                     New task
-                  </DropdownMenuItem>
-                  <DropdownMenuItem
-                    onClick={() => {
-                      // Create + open a canvas with the default template directly;
-                      // the canvas's own composer drives what gets built.
-                      trackAndCreateCanvas(
-                        channel.id,
-                        undefined,
-                        "sidebar",
-                        () => void createAndOpenCanvas(),
-                      );
-                    }}
-                  >
-                    <ChartBarIcon size={14} />
-                    New canvas
                   </DropdownMenuItem>
                 </DropdownMenuContent>
               </DropdownMenu>
@@ -1283,11 +1275,11 @@ const ChannelSection = memo(
     ),
 );
 
-// The user's private "#me" channel, pinned above the shared channel list.
+// The user's private channel, named personal, is pinned above the shared list.
 // Provisioned lazily server-side when the channel list is fetched, so the row
 // only has to find it — there is no client-side create.
 /**
- * Opening the "me" row, shared by the row itself and the search results.
+ * Opening the personal row, shared by the row itself and the search results.
  *
  * The personal channel appears with the first channel-list fetch; until then
  * the row's actions have nothing truthful to act on, so they explain rather
@@ -1305,8 +1297,9 @@ function useOpenPersonalChannel(): {
   const ensureChannelId = (): string | undefined => {
     const meChannel = channels.find((c) => c.channelType === "personal");
     if (!meChannel) {
-      toast.error("Couldn't open me", {
-        description: "Your personal channel is still loading.",
+      toast.error("Couldn't open personal space", {
+        description:
+          "Your personal space is still loading. Try again in a moment.",
       });
       return undefined;
     }
@@ -1368,7 +1361,7 @@ const PersonalChannelRow = memo(function PersonalChannelRow({
   const pathname = useRouterState({ select: (s) => s.location.pathname });
   const { channels } = useChannels();
   const { ensureChannelId, openPersonalChannel } = useOpenPersonalChannel();
-  // The "+" dropdown (New task / New canvas), mirroring a shared channel row.
+  // The create dropdown mirrors a shared channel row.
   const [newMenuOpen, setNewMenuOpen] = useState(false);
 
   // Personal channels are provisioned lazily server-side when the channel list
@@ -1377,7 +1370,6 @@ const PersonalChannelRow = memo(function PersonalChannelRow({
   const isUnread = useIsChannelUnread()(meChannel?.id);
   const unreadSessions = useUnreadSessionCount()(meChannel?.id);
   const blockedSessions = useBlockedSessionCount()(meChannel?.id);
-  const createAndOpenCanvas = useCreateAndOpenDashboard(meChannel?.id);
   const isActive =
     !!meChannel &&
     (pathname === `/website/${meChannel.id}` ||
@@ -1394,54 +1386,38 @@ const PersonalChannelRow = memo(function PersonalChannelRow({
     openTaskInput({ channelId });
   };
 
-  const newCanvas = () => {
-    const channelId = ensureChannelId();
-    if (!channelId) return;
-    trackAndCreateCanvas(
-      channelId,
-      undefined,
-      "sidebar",
-      () => void createAndOpenCanvas({ channelId }),
-    );
-  };
-
-  // No glyph in the list of spaces: nothing else in that column carries one, and
-  // a lock on this row alone would start its name a glyph's width right of every
-  // other. `channelGlyph` keeps the lock for a private channel whatever the
-  // layout, so dropping it is this row's call. It still appears everywhere the
-  // space is named on its own — the back row, the breadcrumb.
-  const glyph = spacesLayout
-    ? null
-    : channelGlyph(PERSONAL_CHANNEL_NAME, {
-        size: 14,
-        weight: isUnread ? "bold" : undefined,
-        className: cn(
-          "shrink-0",
-          isUnread || isActive
-            ? "text-foreground"
-            : "text-muted-foreground group-hover/button:text-foreground",
-        ),
-      });
+  // The one row in the list that carries a glyph, and it earns the exception:
+  // this is the space nobody else can see, and the lock is the only thing that
+  // says so. Its name starts a glyph's width right of the others, which is the
+  // cost of marking it.
+  const glyph = channelGlyph(PERSONAL_CHANNEL_LABEL, {
+    personal: true,
+    size: 14,
+    weight: isUnread ? "bold" : undefined,
+    className: cn(
+      "shrink-0",
+      isUnread || isActive
+        ? "text-foreground"
+        : "text-muted-foreground group-hover/button:text-foreground",
+    ),
+  });
 
   return (
     <>
       <Box className="group/chan relative">
         <SpaceRowSurface
           asOption={spacesLayout}
-          // "me" is provisioned server-side with the first list fetch, so before
-          // it loads there is no id to identify the option by — its name is
-          // unique among spaces either way.
-          optionValue={meChannel?.id ?? PERSONAL_CHANNEL_NAME}
+          optionValue={meChannel?.id ?? PERSONAL_ROW_VALUE}
           data-selected={(isActive && !expanded) || undefined}
           onClick={openPersonalChannel}
-          // "me" is a starred space among the others now, so it takes the same
+          // Personal is a starred space among the others, so it takes the same
           // inset rather than sitting out at the heading's margin.
           className={spacesLayout ? "pl-2" : undefined}
         >
           {onToggleExpanded && meChannel && (
             <SpaceDisclosure
               expanded={expanded}
-              spaceName={PERSONAL_CHANNEL_NAME}
+              spaceName={PERSONAL_CHANNEL_LABEL}
               onToggle={() => onToggleExpanded(meChannel.id)}
             />
           )}
@@ -1453,7 +1429,7 @@ const PersonalChannelRow = memo(function PersonalChannelRow({
               isUnread || isActive ? "text-foreground" : ROW_LABEL_TONE,
             )}
           >
-            {PERSONAL_CHANNEL_NAME}
+            {PERSONAL_CHANNEL_LABEL}
           </span>
           <span className="mt-[2px] flex shrink-0 items-center gap-1">
             <SpaceAttentionDot
@@ -1479,7 +1455,7 @@ const PersonalChannelRow = memo(function PersonalChannelRow({
                       <Button
                         variant="outline"
                         size="icon-xs"
-                        aria-label={`New in ${PERSONAL_CHANNEL_NAME}`}
+                        aria-label={`New in ${PERSONAL_CHANNEL_LABEL}`}
                         className={cn(
                           "gap-1 transition-opacity group-hover:border-border",
                           newMenuOpen
@@ -1504,10 +1480,6 @@ const PersonalChannelRow = memo(function PersonalChannelRow({
               <DropdownMenuItem onClick={newTask}>
                 <FileTextIcon size={14} />
                 New task
-              </DropdownMenuItem>
-              <DropdownMenuItem onClick={newCanvas}>
-                <ChartBarIcon size={14} />
-                New canvas
               </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
@@ -1631,8 +1603,8 @@ function ChannelGroup({
   );
 }
 
-// The channel list — the list pane of the sidebar slider. The private "#me"
-// channel is pinned at the top; starred channels surface in their own section
+// The channel list is the list pane of the sidebar slider. The personal channel
+// is pinned at the top; starred channels surface in their own section
 // so the ones you use most stay in reach; the rest sit under a "Channels"
 // label. Creating anything goes through the floating ChannelsFab, mounted by
 // the sidebar outside this scroll region.
@@ -1656,7 +1628,7 @@ export function ChannelsList() {
   const matches = (name: string) =>
     !normalizedQuery || name.toLowerCase().includes(normalizedQuery);
 
-  // The personal channel renders as the pinned "#me" row, not a shared channel.
+  // The personal channel renders as a pinned row, not a shared channel.
   const me = allChannels.find((c) => c.channelType === "personal");
   const channels = allChannels.filter((c) => c.channelType !== "personal");
   const starred = channels.filter((c) => c.starred);
@@ -1666,7 +1638,10 @@ export function ChannelsList() {
   // stand between you and the row you already named, and an empty "Starred"
   // heading reads as a result that isn't there.
   const searchResults = channels.filter((c) => matches(c.name));
-  const meMatches = matches(PERSONAL_CHANNEL_NAME);
+  // Its old name too, so someone who still types "me" lands on it. A search
+  // alias, not a second identity: nothing else matches on the old name.
+  const meMatches =
+    matches(PERSONAL_CHANNEL_LABEL) || matches(PERSONAL_CHANNEL_NAME);
   const noMatches =
     normalizedQuery !== "" && !meMatches && !searchResults.length;
 
@@ -1707,9 +1682,7 @@ export function ChannelsList() {
   // A collapsed group or space renders no rows, so it contributes none.
   const collapsedSections = useSidebarStore((s) => s.collapsedSections);
   const toggleSection = useSidebarStore((s) => s.toggleSection);
-  // "me" is provisioned server-side with the first list fetch; before it loads
-  // it has no id to go by.
-  const meValue = me?.id ?? PERSONAL_CHANNEL_NAME;
+  const meValue = me?.id ?? PERSONAL_ROW_VALUE;
   const starredValue = sectionValue(STARRED_SECTION_ID);
   const channelsValue = sectionValue(CHANNELS_SECTION_ID);
   const spaceNodes = (
@@ -1756,7 +1729,7 @@ export function ChannelsList() {
         // section is open — a folded section is still somewhere ↓ can land and
         // → can open.
         { kind: "section", value: starredValue, sectionId: STARRED_SECTION_ID },
-        // "me" leads the starred section rather than floating above it: it is
+        // Personal leads the starred section rather than floating above it. It is
         // the space you always keep, so it belongs with the ones you chose to
         // keep. Folding the section away takes it with them.
         ...(collapsedSections.has(STARRED_SECTION_ID)
@@ -1906,7 +1879,7 @@ export function ChannelsList() {
     </>
   ) : (
     <>
-      {/* Always rendered: "me" lives here, so the section is never empty. */}
+      {/* Always rendered: personal lives here, so the section is never empty. */}
       <ChannelGroup
         sectionId={STARRED_SECTION_ID}
         label="Starred"

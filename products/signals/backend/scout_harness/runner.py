@@ -47,6 +47,7 @@ from products.signals.backend.scout_harness.skill_loader import (
     LoadedSkill,
     load_skill_for_run,
     resolve_report_channel_variant,
+    resolve_scout_acting_user_id,
     skill_uses_report_channel,
 )
 from products.signals.backend.scout_harness.team_limits import github_read_access_for_team, withheld_skills_for_team
@@ -244,14 +245,21 @@ async def arun_signals_scout(
             skip_reason="prior run still in progress",
         )
 
-    # Resolve the acting user up front. Scouts don't clone a repo on the cadence path, so they
-    # don't need a GitHub integration — `resolve_acting_user_id_for_team` prefers the GitHub
-    # creator when present but falls back to any active org member, so a team that never connected
-    # GitHub still runs (these dominated the fleet failure rate when the run instead crashed ~5s
-    # into `_spawn_and_run` and booked a bogus `failed`). The only remaining short-circuit is the
-    # genuine "no active user to act as" case; like the withheld / in-flight skips it leaves no
-    # row, no lifecycle event, and a `skip_reason` the coordinator can surface — not a failure.
-    user_id = await database_sync_to_async(resolve_acting_user_id_for_team, thread_sensitive=False)(team.id)
+    # Resolve the acting user up front: the skill's creator (else the config's enabler/creator)
+    # when one resolves, so a scout's runs, and the AI spend attributed off the task row, land on
+    # the human who authored or enabled the scout instead of pooling on one team-level default
+    # user. Scouts don't clone a repo on the cadence path, so they don't need a GitHub integration
+    # — the `resolve_acting_user_id_for_team` fallback prefers the GitHub creator when present but
+    # falls back to any active org member, so a team that never connected GitHub still runs (these
+    # dominated the fleet failure rate when the run instead crashed ~5s into `_spawn_and_run` and
+    # booked a bogus `failed`). The only remaining short-circuit is the genuine "no active user to
+    # act as" case; like the withheld / in-flight skips it leaves no row, no lifecycle event, and
+    # a `skip_reason` the coordinator can surface — not a failure.
+    user_id = await database_sync_to_async(resolve_scout_acting_user_id, thread_sensitive=False)(
+        team, skill.name, config
+    )
+    if user_id is None:
+        user_id = await database_sync_to_async(resolve_acting_user_id_for_team, thread_sensitive=False)(team.id)
     if user_id is None:
         logger.info(
             "signals_scout: skipping run, no active user to act as for team",
@@ -677,6 +685,12 @@ async def _spawn_and_run(
         verbose=verbose,
         origin_product=tasks_facade.TaskOriginProduct.SIGNALS_SCOUT,
         mcp_builtin_agent_key="scout",
+        # No credential owner on purpose: a scout is a team resource, so its runs mount only
+        # connections members shared to the whole team, never anyone's personal grants. That
+        # keeps runs identical no matter who created or edits the scout, and covers ownerless
+        # coordinator-discovered scouts. The per-scout selection below picks which of those
+        # team-shared servers this scout's runs mount. Empty selects none.
+        mcp_gateway_server_ids=[str(server_id) for server_id in (config.mcp_gateway_server_ids or [])],
         # Tag every scout $ai_generation with its stage AND its scout, so scout spend is both
         # splittable out of the ai_product='signals' bucket (scouts carry no signal_report_id)
         # and attributable to one scout. `ai_stage` is the only run-shaped value the harness

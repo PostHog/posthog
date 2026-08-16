@@ -14,10 +14,12 @@ from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.data_modeling.activities import (
     UPSTREAM_NAMES_IN_SKIP_REASON,
     GetDAGStructureInputs,
+    NotifyDAGMaterializationFailuresInputs,
     PreemptDAGRunInputs,
     RecordSkippedDataModelingJobsInputs,
     SkippedDataModelingNode,
     get_dag_structure_activity,
+    notify_dag_materialization_failures_activity,
     preempt_dag_run_activity,
     record_skipped_data_modeling_jobs_activity,
 )
@@ -461,6 +463,19 @@ class ExecuteDAGWorkflow(PostHogWorkflow):
         get_dag_node_count_metric("skipped").record(skipped_nodes)
 
         await self._run_data_quality_checks(inputs, node_results)
+
+        if failed_nodes:
+            await temporalio.workflow.execute_activity(
+                notify_dag_materialization_failures_activity,
+                NotifyDAGMaterializationFailuresInputs(
+                    team_id=inputs.team_id,
+                    dag_id=inputs.dag_id,
+                    parent_workflow_id=temporalio.workflow.info().workflow_id,
+                    run_started_at=start_time.isoformat(),
+                ),
+                start_to_close_timeout=dt.timedelta(minutes=5),
+                retry_policy=temporalio.common.RetryPolicy(maximum_attempts=3),
+            )
 
         return ExecuteDAGResult(
             dag_id=inputs.dag_id,

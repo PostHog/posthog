@@ -3,6 +3,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { PostHogAPIClient } from "../../../posthog-api";
+import { createNotification } from "../../../sagas/test-fixtures";
 import type { StoredEntry } from "../../../types";
 import {
   conversationTurnsToJsonlEntries,
@@ -115,6 +116,47 @@ describe("rebuildConversation", () => {
       },
     ];
     expect(rebuildConversation(entries)).toEqual([]);
+  });
+
+  it.each([
+    { method: "_posthog/conversation_cleared" },
+    { method: "__posthog/conversation_cleared" },
+  ])("drops turns before a $method marker (/clear boundary)", ({ method }) => {
+    const turns = rebuildConversation([
+      entry("user_message", { content: { type: "text", text: "old" } }),
+      entry("agent_message", {
+        content: { type: "text", text: "old reply" },
+      }),
+      createNotification(method, { sessionId: "sdk-new" }),
+      entry("user_message", { content: { type: "text", text: "new" } }),
+      entry("agent_message", {
+        content: { type: "text", text: "new reply" },
+      }),
+    ]);
+
+    expect(turns).toHaveLength(2);
+    expect(turns[0]).toMatchObject({
+      role: "user",
+      content: [{ type: "text", text: "new" }],
+    });
+    expect(turns[1]).toMatchObject({
+      role: "assistant",
+      content: [{ type: "text", text: "new reply" }],
+    });
+  });
+
+  it("drops an in-progress assistant turn at a clear marker", () => {
+    const turns = rebuildConversation([
+      entry("user_message", { content: { type: "text", text: "old" } }),
+      entry("agent_message_chunk", {
+        content: { type: "text", text: "partial" },
+      }),
+      createNotification("_posthog/conversation_cleared", {
+        sessionId: "sdk-new",
+      }),
+    ]);
+
+    expect(turns).toEqual([]);
   });
 
   it("produces a single user turn from user_message", () => {

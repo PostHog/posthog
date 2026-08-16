@@ -20,6 +20,7 @@ import { VisionDocsLink } from '../../components/DocsLink'
 import type { BackfillStatusEnumApi, ReplayScannerBackfillApi } from '../../generated/api.schemas'
 import { formatCreditCount, formatCredits } from '../../utils/credits'
 import { backfillsLogic, isBackfillActive } from '../backfillsLogic'
+import { replayScannerLogic } from '../replayScannerLogic'
 import { ReplayScannerTab } from '../replayScannerSceneLogic'
 import type { ScannerCreatedBy } from '../types'
 import { BackfillCostEstimate } from './BackfillCostEstimate'
@@ -70,8 +71,24 @@ export function ScannerBackfillsTab({ scannerId }: { scannerId: string }): JSX.E
         windowDateTo,
     } = useValues(logic)
     const { requestEstimate, createBackfill, cancelBackfill, resumeBackfill, setWindowRange } = useActions(logic)
+    const { scanner } = useValues(replayScannerLogic({ id: scannerId }))
 
     const activeBackfill = backfills.find(isBackfillActive)
+
+    // A capped or disabled scanner holds its running backfill without changing the row's status, so
+    // the row itself has to say why nothing is progressing.
+    const runningHold = scanner?.limit_reached
+        ? {
+              label: "Waiting on the scanner's credit limit",
+              tooltip:
+                  'The backfill is on hold and resumes when the credit limit resets at the start of the next billing period.',
+          }
+        : scanner && !scanner.enabled
+          ? {
+                label: 'Waiting on the scanner to be enabled',
+                tooltip: 'The backfill is on hold and resumes when the scanner is enabled again.',
+            }
+          : null
 
     const estimateWindow = (dateFrom: string | null, dateTo: string | null): void => {
         setWindowRange(dateFrom, dateTo)
@@ -117,9 +134,16 @@ export function ScannerBackfillsTab({ scannerId }: { scannerId: string }): JSX.E
             title: 'Status',
             key: 'status',
             render: (_, backfill) => (
-                <LemonTag type={BACKFILL_STATUS_TAG[backfill.status].type}>
-                    {BACKFILL_STATUS_TAG[backfill.status].label}
-                </LemonTag>
+                <div className="flex items-center gap-1 flex-wrap">
+                    <LemonTag type={BACKFILL_STATUS_TAG[backfill.status].type}>
+                        {BACKFILL_STATUS_TAG[backfill.status].label}
+                    </LemonTag>
+                    {backfill.status === 'running' && runningHold && (
+                        <Tooltip title={runningHold.tooltip}>
+                            <LemonTag type="warning">{runningHold.label}</LemonTag>
+                        </Tooltip>
+                    )}
+                </div>
             ),
         },
         {

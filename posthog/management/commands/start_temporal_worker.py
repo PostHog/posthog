@@ -113,10 +113,6 @@ from posthog.temporal.session_replay.enforce_max_replay_retention import (
     ENFORCE_MAX_REPLAY_RETENTION_ACTIVITIES,
     ENFORCE_MAX_REPLAY_RETENTION_WORKFLOWS,
 )
-from posthog.temporal.session_replay.gemini_cleanup_sweep import (
-    GEMINI_CLEANUP_SWEEP_ACTIVITIES,
-    GEMINI_CLEANUP_SWEEP_WORKFLOWS,
-)
 from posthog.temporal.session_replay.rasterize_recording import (
     RASTERIZE_RECORDING_ACTIVITIES,
     RASTERIZE_RECORDING_WORKFLOWS,
@@ -124,15 +120,6 @@ from posthog.temporal.session_replay.rasterize_recording import (
 from posthog.temporal.session_replay.replay_count_metrics import (
     REPLAY_COUNT_METRICS_ACTIVITIES,
     REPLAY_COUNT_METRICS_WORKFLOWS,
-)
-from posthog.temporal.session_replay.session_summary import SESSION_SUMMARY_ACTIVITIES, SESSION_SUMMARY_WORKFLOWS
-from posthog.temporal.session_replay.session_summary_group import (
-    SESSION_SUMMARY_GROUP_ACTIVITIES,
-    SESSION_SUMMARY_GROUP_WORKFLOWS,
-)
-from posthog.temporal.session_replay.summarization_sweep import (
-    SUMMARIZATION_SWEEP_ACTIVITIES,
-    SUMMARIZATION_SWEEP_WORKFLOWS,
 )
 from posthog.temporal.session_replay.surfacing_score_export_sweep import (
     SURFACING_SCORE_EXPORT_SWEEP_ACTIVITIES,
@@ -430,26 +417,18 @@ _task_queue_specs = [
     ),
     (
         settings.SESSION_REPLAY_TASK_QUEUE,
-        GEMINI_CLEANUP_SWEEP_WORKFLOWS
-        + COUNT_PLAYLIST_ITEMS_WORKFLOWS
+        COUNT_PLAYLIST_ITEMS_WORKFLOWS
         + DELETE_RECORDINGS_WORKFLOWS
         + ENFORCE_MAX_REPLAY_RETENTION_WORKFLOWS
         + RASTERIZE_RECORDING_WORKFLOWS
         + REPLAY_COUNT_METRICS_WORKFLOWS
-        + SESSION_SUMMARY_WORKFLOWS
-        + SESSION_SUMMARY_GROUP_WORKFLOWS
-        + SUMMARIZATION_SWEEP_WORKFLOWS
         + SURFACING_SCORE_EXPORT_SWEEP_WORKFLOWS
         + SURFACING_SCORING_SWEEP_WORKFLOWS,
-        GEMINI_CLEANUP_SWEEP_ACTIVITIES
-        + COUNT_PLAYLIST_ITEMS_ACTIVITIES
+        COUNT_PLAYLIST_ITEMS_ACTIVITIES
         + DELETE_RECORDINGS_ACTIVITIES
         + ENFORCE_MAX_REPLAY_RETENTION_ACTIVITIES
         + RASTERIZE_RECORDING_ACTIVITIES
         + REPLAY_COUNT_METRICS_ACTIVITIES
-        + SESSION_SUMMARY_ACTIVITIES
-        + SESSION_SUMMARY_GROUP_ACTIVITIES
-        + SUMMARIZATION_SWEEP_ACTIVITIES
         + SURFACING_SCORE_EXPORT_SWEEP_ACTIVITIES
         + SURFACING_SCORING_SWEEP_ACTIVITIES,
     ),
