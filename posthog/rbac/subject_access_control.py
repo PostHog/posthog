@@ -157,9 +157,13 @@ class SubjectAccessControl(UserAccessControl):
             return True
         if self._subject_member is not None and access_control.organization_member_id == self._subject_member.id:
             return access_control.role_id is None
-        return access_control.organization_member_id is None and str(access_control.role_id) in {
-            str(role_id) for role_id in self._user_role_ids
-        }
+        return (
+            access_control.organization_member_id is None and str(access_control.role_id) in self._role_ids_as_strings
+        )
+
+    @cached_property
+    def _role_ids_as_strings(self) -> frozenset[str]:
+        return frozenset(str(role_id) for role_id in self._user_role_ids)
 
     @staticmethod
     def team_access_controls(team: Team) -> list[_AccessControl]:
