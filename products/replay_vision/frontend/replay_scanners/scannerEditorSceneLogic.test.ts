@@ -88,6 +88,18 @@ describe('scannerEditorSceneLogic', () => {
             })
         })
 
+        it('keeps the template param on the back-arrow crumb, so going back preserves the type lock', async () => {
+            router.actions.push(urls.replayVisionScannerConfigure('new'), { template: 'dead_end' })
+            await expectLogic(logic).toMatchValues({
+                breadcrumbs: expect.arrayContaining([
+                    expect.objectContaining({
+                        key: 'new-scanner',
+                        path: `${urls.replayVisionTemplates()}?template=dead_end`,
+                    }),
+                ]),
+            })
+        })
+
         it('shows no step crumb on the template step, so the back arrow exits to the list', async () => {
             router.actions.push(urls.replayVisionScannerTemplate('new'))
             await expectLogic(logic).toMatchValues({

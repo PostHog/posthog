@@ -106,7 +106,12 @@ export interface scannerEditorSceneLogicActions {
 export interface scannerEditorSceneLogicMeta {
     __keaTypeGenInternalSelectorTypes: {
         isNew: (scannerId: string) => boolean
-        breadcrumbs: (scannerId: string, isNew: boolean, step: ScannerEditorStep) => Breadcrumb[]
+        breadcrumbs: (
+            scannerId: string,
+            isNew: boolean,
+            step: ScannerEditorStep,
+            searchParams: Record<string, any>
+        ) => Breadcrumb[]
     }
 }
 
@@ -147,8 +152,13 @@ export const scannerEditorSceneLogic = kea<scannerEditorSceneLogicType>([
     selectors({
         isNew: [(s) => [s.scannerId], (scannerId: string): boolean => scannerId === 'new'],
         breadcrumbs: [
-            (s) => [s.scannerId, s.isNew, s.step],
-            (scannerId: string, isNew: boolean, step: ScannerEditorStep): Breadcrumb[] => {
+            (s) => [s.scannerId, s.isNew, s.step, router.selectors.searchParams],
+            (
+                scannerId: string,
+                isNew: boolean,
+                step: ScannerEditorStep,
+                searchParams: Record<string, any>
+            ): Breadcrumb[] => {
                 const crumbs: Breadcrumb[] = [
                     {
                         key: 'replay-vision',
@@ -160,7 +170,11 @@ export const scannerEditorSceneLogic = kea<scannerEditorSceneLogicType>([
                 if (isNew) {
                     // The back arrow targets the second-to-last crumb, so past the template step the
                     // 'New scanner' crumb points at the template picker and the current step trails it.
-                    crumbs.push({ key: 'new-scanner', name: 'New scanner', path: urls.replayVisionTemplates() })
+                    crumbs.push({
+                        key: 'new-scanner',
+                        name: 'New scanner',
+                        path: scannerStepUrlWithParams('template', scannerId, searchParams),
+                    })
                     if (step !== 'template') {
                         crumbs.push({ key: 'new-scanner-step', name: STEP_LABELS[step] })
                     }
