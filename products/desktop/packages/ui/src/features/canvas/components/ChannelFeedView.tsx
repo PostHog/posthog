@@ -11,6 +11,7 @@ import {
   RUN_STATUS_LABELS,
   runStatusVariant,
 } from "@posthog/core/canvas/runStatus";
+import { buildThreadTimeline } from "@posthog/core/canvas/threadTimeline";
 import type { PrCheck } from "@posthog/core/git/router-schemas";
 import { xmlToPlainText } from "@posthog/core/message-editor/content";
 import {
@@ -724,18 +725,20 @@ const FeedItem = memo(function FeedItem({
       ),
     [task.latest_run?.output, taskData?.cloudPrUrl],
   );
-  const artifacts = useMemo(
-    () =>
-      buildRows(task, [], []).filter(
-        (row) => row.kind === "canvas" || row.kind === "file",
-      ),
-    [task],
-  );
   const { messages } = useTaskThread(task.id, {
     pollIntervalMs: FEED_REPLIES_POLL_INTERVAL_MS,
     enabled: inView,
     markActivityRead: false,
   });
+  // Canvas artifacts only exist as thread timeline announcements, so the rows
+  // are built from the thread; file rows come from the run outputs either way.
+  const artifacts = useMemo(
+    () =>
+      buildRows(task, buildThreadTimeline(messages), []).filter(
+        (row) => row.kind === "canvas" || row.kind === "file",
+      ),
+    [task, messages],
+  );
   // Only conversational human rows count as comments — agent/system rows
   // (turn_complete, thread-state events) would inflate the count and render
   // authorless "U" bubbles in the facepile.
