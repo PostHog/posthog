@@ -32,7 +32,7 @@ from posthog.exceptions_capture import capture_exception
 from posthog.models import PropertyDefinition
 from posthog.models.organization import OrganizationMembership
 from posthog.models.team.team import Team
-from posthog.rbac.subject_access_control import SubjectAccessControl
+from posthog.rbac.subject_access_control import SubjectAccessControl, team_access_controls
 from posthog.rbac.user_access_control import (
     ACCESS_CONTROL_LEVELS_RESOURCE,
     ACCESS_CONTROL_RESOURCES,
@@ -343,7 +343,7 @@ class AccessControlSettingsViewSetMixin(_GenericViewSet):
             roles = roles.filter(id=self._get_role(request, team).id)
 
         # One query for the team's rules; every role below resolves from it
-        settings_rows = SubjectAccessControl.team_access_controls(team)
+        settings_rows = team_access_controls(team)
         requesting_membership = user_access_control._organization_membership
 
         results = []
@@ -391,7 +391,7 @@ class AccessControlSettingsViewSetMixin(_GenericViewSet):
         )
 
         # One query for the team's rules; every member below resolves from it
-        settings_rows = SubjectAccessControl.team_access_controls(team)
+        settings_rows = team_access_controls(team)
         requesting_membership = user_access_control._organization_membership
 
         results = []

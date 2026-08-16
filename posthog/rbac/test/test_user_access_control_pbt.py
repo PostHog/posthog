@@ -24,6 +24,7 @@ from posthog.constants import AvailableFeature
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.team.team import Team
 from posthog.models.user import User
+from posthog.rbac.subject_access_control import SubjectAccessControl, team_access_controls
 from posthog.rbac.user_access_control import (
     ACCESS_CONTROL_RESOURCES,
     NO_ACCESS_LEVEL,
@@ -745,6 +746,28 @@ class TestUserAccessControlProperties(BaseAccessControlPropertyTest):
         assert resource_access and resource_access.access_level == highest_access_level(effective)
         assert uac.get_user_access_level(obj) == highest_access_level(resource)
         assert uac.check_can_modify_access_levels_for_object(obj) is True
+
+    @given(team_rows=project_rows(), subject_kind=st.sampled_from(["member", "role"]), role_based_access=st.booleans())
+    @settings(max_examples=100, deadline=None, suppress_health_check=SUPPRESSED_HEALTH_CHECKS)
+    def test_seeded_subject_agrees_with_its_own_query(self, team_rows, subject_kind, role_based_access):
+        # A subject seeded from a wide pool narrows it in memory (`_applies_to_subject`) where the
+        # unseeded subject narrows in the query (`_filter_options`). The two are written separately
+        # and must never drift: same rows visible, same project resolution.
+        self._set_role_based_access(role_based_access)
+        self._materialize_project_rows(team_rows)
+        subject_kwargs = (
+            {"member": self._membership(self.other_user)}
+            if subject_kind == "member"
+            else {"role_id": str(self.role_a.id)}
+        )
+
+        queried = SubjectAccessControl(self.user, self.team, **subject_kwargs)
+        seeded = SubjectAccessControl(self.user, self.team, **subject_kwargs)
+        seeded.preload_access_controls(team_access_controls(self.team))
+
+        assert {ac.id for ac in seeded._cached_access_controls} == {ac.id for ac in queried._cached_access_controls}
+        assert seeded.get_user_access_level(self.team) == queried.get_user_access_level(self.team)
+        assert seeded.has_project_scoped_access(self.team) == queried.has_project_scoped_access(self.team)
 
     @given(
         team_rows=project_rows(),

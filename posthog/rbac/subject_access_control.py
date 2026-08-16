@@ -34,6 +34,17 @@ _masked_resource: ContextVar[Optional[APIScopeObject]] = ContextVar("subject_mas
 _suspend_org_admin: ContextVar[bool] = ContextVar("subject_suspend_org_admin", default=False)
 
 
+def team_access_controls(team: Team) -> list[_AccessControl]:
+    """Every rule on the team, un-narrowed — the pool subjects are seeded from. The same query as
+    `UserAccessControl._cached_access_controls` minus its per-principal narrowing, which each subject
+    applies in memory instead (`preload_access_controls`), so "the team's rules" is decided once."""
+    if not EE_AVAILABLE:
+        return []
+    return list(
+        AccessControl.objects.annotate(_team_organization_id=F("team__organization_id")).filter(team_id=team.id)
+    )
+
+
 class SubjectAccessControl(UserAccessControl):
     """Resolves access for a subject rather than for the requesting user.
 
@@ -159,17 +170,6 @@ class SubjectAccessControl(UserAccessControl):
     @cached_property
     def _role_ids_as_strings(self) -> frozenset[str]:
         return frozenset(str(role_id) for role_id in self._user_role_ids)
-
-    @staticmethod
-    def team_access_controls(team: Team) -> list[_AccessControl]:
-        """Every rule on the team, un-narrowed — the pool subjects are seeded from. The same query
-        as `_cached_access_controls` minus its per-principal narrowing, which each subject applies
-        in memory instead (`preload_access_controls`), so "the team's rules" is decided once."""
-        if not EE_AVAILABLE:
-            return []
-        return list(
-            AccessControl.objects.annotate(_team_organization_id=F("team__organization_id")).filter(team_id=team.id)
-        )
 
     def preload_access_controls(
         self,
