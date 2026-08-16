@@ -2281,12 +2281,7 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             command_payload["id"] = request_id
 
         try:
-            agent_response = self._proxy_command_to_agent_server(
-                sandbox_url=connection.sandbox_url,
-                connection_token=connection.connection_token,
-                sandbox_connect_token=connection.sandbox_connect_token,
-                payload=command_payload,
-            )
+            agent_response = self._proxy_command_to_agent_server(connection, payload=command_payload)
 
             tasks_facade.capture_relay_command_telemetry(
                 pk, task_id, self.team_id, method=method, params=params, success=agent_response.ok
@@ -2372,25 +2367,27 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
 
     @staticmethod
     def _proxy_command_to_agent_server(
-        sandbox_url: str,
-        connection_token: str | None,
-        sandbox_connect_token: str | None,
+        connection: tasks_contracts.TaskRunSandboxConnectionDTO,
         payload: dict,
     ) -> http_requests.Response:
+        # The caller has already rejected runs without an active sandbox.
+        if not connection.sandbox_url:
+            raise ValueError("Cannot proxy a command without a sandbox URL")
+
         headers = {
             "Content-Type": "application/json",
-            "Authorization": f"Bearer {connection_token}",
+            "Authorization": f"Bearer {connection.connection_token}",
         }
 
-        command_url = f"{sandbox_url.rstrip('/')}/command"
+        command_url = f"{connection.sandbox_url.rstrip('/')}/command"
 
         # Modal connect tokens use Authorization: Bearer for tunnel auth,
         # which conflicts with the JWT auth the agent server expects.
         # Pass the Modal token as a query parameter instead so both
         # auth mechanisms can coexist.
         params = {}
-        if sandbox_connect_token:
-            params["_modal_connect_token"] = sandbox_connect_token
+        if connection.sandbox_connect_token:
+            params["_modal_connect_token"] = connection.sandbox_connect_token
 
         return http_requests.post(
             command_url,
