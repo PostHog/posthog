@@ -1,4 +1,5 @@
 from collections.abc import Callable
+from dataclasses import asdict
 from typing import TYPE_CHECKING, Any, cast
 
 from django.db.models import Model
@@ -69,6 +70,46 @@ class OrganizationMemberField(serializers.PrimaryKeyRelatedField):
             ),
         )
         super().__init__(**kwargs)
+
+
+class ResolvedAccessSerializer(serializers.Serializer):
+    """A resolved access level with the rule that supplied it — the wire form of `ResolvedAccess`."""
+
+    access_level = serializers.CharField(help_text="The access level that applies.")
+    source = serializers.ChoiceField(  # type: ignore[assignment]  # field named `source` shadows DRF Field.source
+        choices=[
+            "object",
+            "parent_object",
+            "resource",
+            "parent_resource",
+            "system_default",
+            "org_admin",
+            "creator",
+            "org_membership",
+        ],
+        help_text="How the level was derived: a rule on the object, its parent object, the resource, the parent "
+        "resource, the built-in default, or one of the bypasses (org admin, creator, organization membership).",
+    )
+    source_subject = serializers.ChoiceField(
+        choices=["member", "role", "default"],
+        allow_null=True,
+        help_text="Whose rule decided: a member's own, a role's, or the default for everyone. Null when no rule did.",
+    )
+    source_resource = serializers.CharField(help_text="The resource the deciding rule belongs to.")
+    source_resource_id = serializers.CharField(
+        allow_null=True,
+        help_text="The deciding rule's object id, when it is an object-level rule (e.g. the source a table inherits from).",
+    )
+
+
+class InheritedAccessSerializer(ResolvedAccessSerializer):
+    """The level an object falls back to without its own override, plus a display name for the parent it
+    comes through when there is one."""
+
+    source_display_name = serializers.CharField(
+        allow_null=True,
+        help_text="A human name for the parent object the level comes through (e.g. a table's source type).",
+    )
 
 
 class UserAccessInfoSerializer(serializers.Serializer):
@@ -374,14 +415,9 @@ class AccessControlViewSetMixin(_GenericViewSet):
             # panel, which has no inherited tier to fall back to.
             inherited = SubjectAccessControl(user_access_control.user, team).inherited_access_for_object(obj)
             payload["inherited_access"] = (
-                {
-                    "access_level": inherited.access_level,
-                    "source": inherited.source,
-                    "source_subject": inherited.source_subject,
-                    "source_resource": inherited.source_resource,
-                    "source_resource_id": inherited.source_resource_id,
-                    "source_display_name": _inherited_source_display_name(obj, inherited),
-                }
+                InheritedAccessSerializer(
+                    {**asdict(inherited), "source_display_name": _inherited_source_display_name(obj, inherited)}
+                ).data
                 if inherited
                 else None
             )
