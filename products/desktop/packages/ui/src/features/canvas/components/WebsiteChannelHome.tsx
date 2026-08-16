@@ -33,6 +33,7 @@ import {
   type ThreadPanelTab,
   useThreadPanelStore,
 } from "@posthog/ui/features/canvas/stores/threadPanelStore";
+import { openRightPanelSide } from "@posthog/ui/features/navigation/rightPanelSide";
 import { SuggestedPromptCard } from "@posthog/ui/features/task-detail/components/SuggestedPromptCard";
 import { taskDetailQuery } from "@posthog/ui/features/tasks/queries";
 import { useSetHeaderContent } from "@posthog/ui/hooks/useSetHeaderContent";
@@ -202,12 +203,17 @@ export function WebsiteChannelHome({ channelId }: { channelId: string }) {
   );
 
   // Under the spaces chrome there is no thread dock to peek into, so the feed
-  // opens the session itself and the right panel carries what the dock used to.
+  // opens the session itself and the right panel carries what the dock used to
+  // — including a chip's tab, which lands on the matching panel side there.
   const handleOpenThread = useCallback(
-    (task: Task, tab?: ThreadPanelTab) =>
-      spacesLayout
-        ? handleOpenFull(task.id)
-        : openThread(channelId, task.id, tab ? { tab } : undefined),
+    (task: Task, tab?: ThreadPanelTab) => {
+      if (spacesLayout) {
+        if (tab) openRightPanelSide(tab, task.id);
+        handleOpenFull(task.id);
+        return;
+      }
+      openThread(channelId, task.id, tab ? { tab } : undefined);
+    },
     [channelId, openThread, spacesLayout, handleOpenFull],
   );
 

@@ -859,7 +859,11 @@ const FeedItem = memo(function FeedItem({
             <PrChip key={url} url={url} />
           ))}
           {prUrls.length > visiblePrCount && (
-            <OverflowChip label={`+${prUrls.length - visiblePrCount} PRs`}>
+            <OverflowChip
+              label={`+${prUrls.length - visiblePrCount} ${
+                prUrls.length - visiblePrCount === 1 ? "PR" : "PRs"
+              }`}
+            >
               {prUrls.slice(visiblePrCount).map((url) => (
                 <PrPopoverRow key={url} url={url} />
               ))}
@@ -884,7 +888,11 @@ const FeedItem = memo(function FeedItem({
             </button>
           ))}
           {artifacts.length > 2 && (
-            <OverflowChip label={`+${artifacts.length - 2} files`}>
+            <OverflowChip
+              label={`+${artifacts.length - 2} ${
+                artifacts.length - 2 === 1 ? "file" : "files"
+              }`}
+            >
               {artifacts.slice(2).map((artifact) => (
                 <button
                   key={artifact.key}
@@ -936,7 +944,15 @@ const FeedItem = memo(function FeedItem({
           {authors.length > 0 && (
             <HoverPopover
               trigger={
-                <span className="inline-flex cursor-default">
+                // A real button: the popover trigger expects native button
+                // semantics, and it gives keyboard users a way to open the
+                // participant list.
+                <button
+                  type="button"
+                  aria-label="Participants"
+                  className="inline-flex cursor-default"
+                  onClick={(event) => event.stopPropagation()}
+                >
                   {/* reverse: the stack sits at the card's right edge, so the
                       hover expansion must spread left, into the card — the
                       default spreads right, off the edge and clipped. */}
@@ -945,7 +961,7 @@ const FeedItem = memo(function FeedItem({
                       <UserAvatar key={author.uuid} user={author} size="xs" />
                     ))}
                   </AvatarGroup>
-                </span>
+                </button>
               }
               content={
                 <div className="flex flex-col gap-1.5">
