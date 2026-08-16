@@ -87,6 +87,7 @@ import type {
   SignalReport,
   SignalReportArtefact,
   SignalReportArtefactsResponse,
+  SignalReportRefundReason,
   SignalReportSignalsResponse,
   SignalReportStatus,
   SignalReportsQueryParams,
@@ -109,6 +110,7 @@ import type {
   TaskThreadMessage,
   UserBasic,
 } from "@posthog/shared/domain-types";
+import { buildPosthogProjectHeaderRecord } from "@posthog/shared/posthog-property-headers";
 import {
   buildAgentAnalyticsQueries,
   type HogQLGrid,
@@ -122,6 +124,7 @@ import {
 } from "./fetcher";
 import { createApiClient, type Schemas } from "./generated";
 import type {
+  McpAgentGrantScope,
   McpAuditCounts,
   McpAuditEvent,
   McpAuditPage,
@@ -188,6 +191,8 @@ export type UsageLimitType = "burst" | "sustained" | null;
 
 // Stable message so callers recognize this after a saga reduces the error to a string.
 export const CLOUD_USAGE_LIMIT_ERROR_MESSAGE = "Cloud usage limit reached";
+export const DESKTOP_BILLING_LIMIT_ERROR_CODE =
+  "posthog_code_billing_limit_exceeded";
 
 export const SESSION_LOGS_MAX_PAGE_SIZE = 5000;
 
@@ -204,6 +209,17 @@ export interface TaskListOptions {
   channel?: string;
   /** Caller-side cap for surfaces that only show the newest few. */
   limit?: number;
+}
+
+export interface TaskSearchResult {
+  id: string;
+  kind: "task" | "pull_request" | "artifact" | "channel";
+  title: string;
+  subtitle: string;
+  task_id: string | null;
+  task_run_id: string | null;
+  channel_id: string | null;
+  metadata: Record<string, unknown>;
 }
 
 export interface TaskSessionStorageAccess {
@@ -1591,11 +1607,15 @@ export class PostHogAPIClient {
   async getCloudTaskConfigOptions(
     adapter: Adapter = "claude",
   ): Promise<CloudTaskConfigOption[]> {
+    const teamId = await this.getTeamId();
     const url = new URL(`${getCloudTaskGatewayUrl(this.apiHost)}/v1/models`);
     const response = await this.api.fetcher.fetch({
       method: "get",
       url,
       path: url.pathname,
+      parameters: {
+        header: buildPosthogProjectHeaderRecord(teamId),
+      },
     });
     return buildCloudTaskConfigOptions(
       normalizeGatewayModelsResponse(await response.json()),
@@ -1731,6 +1751,76 @@ export class PostHogAPIClient {
         `Failed to disconnect GitHub integration: ${response.statusText}`,
       );
     }
+  }
+
+  /** The user's linked Slack identities. Empty until they run the Sign-in-with-Slack flow. */
+  async listSlackUserIntegrations(): Promise<
+    {
+      slack_user_id: string;
+      slack_team_id: string;
+      slack_team_name: string | null;
+    }[]
+  > {
+    const urlPath = `/api/users/@me/integrations/`;
+    const url = new URL(`${this.api.baseUrl}${urlPath}`);
+    url.searchParams.set("kind", "slack");
+    const response = await this.api.fetcher.fetch({
+      method: "get",
+      url,
+      path: urlPath,
+    });
+    if (!response.ok) {
+      throw new Error(
+        `Failed to list Slack integrations: ${response.statusText}`,
+      );
+    }
+    const data = (await response.json()) as {
+      results?: {
+        slack_user_id: string;
+        slack_team_id: string;
+        slack_team_name: string | null;
+      }[];
+    };
+    return data.results ?? [];
+  }
+
+  /**
+   * `POST .../integrations/slack/start`. Returns the Sign-in-with-Slack URL; Slack tells the
+   * callback which user authorized, so nobody types a Slack ID.
+   */
+  async startSlackUserIntegrationConnect(
+    teamId?: number,
+  ): Promise<{ install_url: string }> {
+    const id = teamId ?? (await this.getTeamId());
+    const urlPath = `/api/users/@me/integrations/slack/start/`;
+    const url = new URL(`${this.api.baseUrl}${urlPath}`);
+    const response = await this.api.fetcher.fetch({
+      method: "post",
+      url,
+      path: urlPath,
+      overrides: { body: JSON.stringify({ team_id: id }) },
+    });
+    if (!response.ok) {
+      const err = (await response.json().catch(() => ({}))) as {
+        detail?: unknown;
+      };
+      throw new Error(
+        typeof err.detail === "string"
+          ? err.detail
+          : `Failed to start Slack connect: ${response.statusText}`,
+      );
+    }
+    return (await response.json()) as { install_url: string };
+  }
+
+  /** Patch the user's server-side notification settings. Merged server-side, so pass only the keys you change. */
+  async updateNotificationSettings(
+    settings: Record<string, unknown>,
+  ): Promise<void> {
+    await this.api.patch("/api/users/{uuid}/", {
+      path: { uuid: "@me" },
+      body: { notification_settings: settings } as Record<string, unknown>,
+    });
   }
 
   async switchOrganization(orgId: string): Promise<void> {
@@ -2180,6 +2270,19 @@ export class PostHogAPIClient {
     return (await this.getTasksPage(options)).tasks;
   }
 
+  async searchTasks(query: string, limit = 20): Promise<TaskSearchResult[]> {
+    const teamId = await this.getTeamId();
+    const path = `/api/projects/${teamId}/tasks/search/`;
+    const url = new URL(`${this.api.baseUrl}${path}`);
+    url.searchParams.set("q", query);
+    url.searchParams.set("limit", String(limit));
+    const response = await this.api.fetcher.fetch({ method: "get", url, path });
+    if (!response.ok) {
+      throw new Error(`Failed to search tasks: ${response.statusText}`);
+    }
+    return (await response.json()) as TaskSearchResult[];
+  }
+
   /**
    * The same list with the total behind it, for surfaces that ask for a short
    * page and still have to say how much they are not showing.
@@ -2419,13 +2522,15 @@ export class PostHogAPIClient {
     const teamId = await this.getTeamId();
     const { origin_product: originProduct, ...taskOptions } = options;
 
-    const data = await this.api.post(`/api/projects/{project_id}/tasks/`, {
-      path: { project_id: teamId.toString() },
-      body: {
-        ...taskOptions,
-        origin_product: originProduct ?? "user_created",
-      } as unknown as Schemas.Task,
-    });
+    const data = await this.withCloudUsageLimitCheck(() =>
+      this.api.post(`/api/projects/{project_id}/tasks/`, {
+        path: { project_id: teamId.toString() },
+        body: {
+          ...taskOptions,
+          origin_product: originProduct ?? "user_created",
+        } as unknown as Schemas.Task,
+      }),
+    );
 
     return normalizeTaskResponse(data, { teamId });
   }
@@ -2485,15 +2590,22 @@ export class PostHogAPIClient {
     return (await response.json()) as TaskChannel[];
   }
 
-  // Resolve-or-create a public channel by name (idempotent server-side).
-  async resolveTaskChannel(name: string): Promise<TaskChannel> {
+  // Resolve-or-create a public channel by name (idempotent server-side). `star`
+  // only applies when this call creates the channel; an existing one keeps the
+  // requester's star as it was.
+  async resolveTaskChannel(
+    name: string,
+    options: { star: boolean },
+  ): Promise<TaskChannel> {
     const teamId = await this.getTeamId();
     const urlPath = `/api/projects/${teamId}/task_channels/`;
     const response = await this.api.fetcher.fetch({
       method: "post",
       url: new URL(`${this.api.baseUrl}${urlPath}`),
       path: urlPath,
-      overrides: { body: JSON.stringify({ name }) },
+      overrides: {
+        body: JSON.stringify({ name, star: options.star }),
+      },
     });
     if (!response.ok) {
       throw new Error(`Failed to resolve task channel: ${response.statusText}`);
@@ -2967,6 +3079,7 @@ export class PostHogAPIClient {
     } catch (error) {
       if (error instanceof CloudCommandError) throw error;
       if (error instanceof ApiRequestError) {
+        this.throwIfCloudUsageLimit(error);
         const backendError = cloudCommandBackendError(error.body);
         throw new CloudCommandError(
           method,
@@ -3039,34 +3152,36 @@ export class PostHogAPIClient {
     const teamId = await this.getTeamId();
     const urlPath = `/api/projects/${teamId}/tasks/warm/`;
     const url = new URL(`${this.api.baseUrl}${urlPath}`);
-    const response = await this.api.fetcher.fetch({
-      method: "post",
-      url,
-      path: urlPath,
-      overrides: {
-        body: JSON.stringify({
-          repository: options.repository,
-          repositories: options.repositories,
-          github_integration: options.github_integration,
-          branch: options.branch ?? null,
-          runtime_adapter: options.runtime_adapter ?? null,
-          model: options.model ?? null,
-          reasoning_effort: options.reasoning_effort ?? null,
-          ...(options.context_window
-            ? { context_window: options.context_window }
-            : {}),
-          ...(options.fast_mode != null
-            ? { fast_mode: options.fast_mode }
-            : {}),
-          ...(options.sandbox_environment_id
-            ? { sandbox_environment_id: options.sandbox_environment_id }
-            : {}),
-          ...(options.custom_image_id
-            ? { custom_image_id: options.custom_image_id }
-            : {}),
-        }),
-      },
-    });
+    const response = await this.withCloudUsageLimitCheck(() =>
+      this.api.fetcher.fetch({
+        method: "post",
+        url,
+        path: urlPath,
+        overrides: {
+          body: JSON.stringify({
+            repository: options.repository,
+            repositories: options.repositories,
+            github_integration: options.github_integration,
+            branch: options.branch ?? null,
+            runtime_adapter: options.runtime_adapter ?? null,
+            model: options.model ?? null,
+            reasoning_effort: options.reasoning_effort ?? null,
+            ...(options.context_window
+              ? { context_window: options.context_window }
+              : {}),
+            ...(options.fast_mode != null
+              ? { fast_mode: options.fast_mode }
+              : {}),
+            ...(options.sandbox_environment_id
+              ? { sandbox_environment_id: options.sandbox_environment_id }
+              : {}),
+            ...(options.custom_image_id
+              ? { custom_image_id: options.custom_image_id }
+              : {}),
+          }),
+        },
+      }),
+    );
     if (!response.ok) {
       throw new Error(`Failed to warm task: ${response.statusText}`);
     }
@@ -3359,11 +3474,13 @@ export class PostHogAPIClient {
     const url = new URL(
       `${this.api.baseUrl}/api/projects/${teamId}/tasks/${taskId}/runs/${runId}/resume_in_cloud/`,
     );
-    const response = await this.api.fetcher.fetch({
-      method: "post",
-      url,
-      path: `/api/projects/${teamId}/tasks/${taskId}/runs/${runId}/resume_in_cloud/`,
-    });
+    const response = await this.withCloudUsageLimitCheck(() =>
+      this.api.fetcher.fetch({
+        method: "post",
+        url,
+        path: `/api/projects/${teamId}/tasks/${taskId}/runs/${runId}/resume_in_cloud/`,
+      }),
+    );
 
     if (!response.ok) {
       throw new Error(`Failed to resume run in cloud: ${response.statusText}`);
@@ -4311,6 +4428,41 @@ export class PostHogAPIClient {
   }
 
   /**
+   * Refund a report's billed PR. The server freezes the billing path, archives
+   * the report, and kicks off the billing credit when one is due; it also
+   * enforces eligibility, so callers only gate for display.
+   */
+  async refundSignalReport(
+    reportId: string,
+    input: { reason: SignalReportRefundReason; note?: string },
+  ): Promise<SignalReport> {
+    const teamId = await this.getTeamId();
+    const path = `/api/projects/${teamId}/signals/reports/${reportId}/refund/`;
+    const url = new URL(`${this.api.baseUrl}${path}`);
+
+    // The shared fetcher throws `Failed request: [<status>] <json-body>` for any non-2xx, so
+    // unwrap that into the endpoint's clean `error` message (e.g. the eligibility failures)
+    // rather than surfacing the raw string.
+    let response: Response;
+    try {
+      response = await this.api.fetcher.fetch({
+        method: "post",
+        url,
+        path,
+        overrides: {
+          body: JSON.stringify(input),
+        },
+      });
+    } catch (error) {
+      throw new Error(
+        extractRequestErrorMessage(error, "Failed to refund this report's PR"),
+      );
+    }
+
+    return (await response.json()) as SignalReport;
+  }
+
+  /**
    * Edit a report's suggested reviewers. The server appends a new `suggested_reviewers` status
    * artefact (latest-wins), canonicalizes each entry to a lowercase `github_login`, and carries
    * `relevant_commits` / `github_name` forward from the current reviewers for surviving logins.
@@ -5083,6 +5235,11 @@ export class PostHogAPIClient {
     options: {
       gateway_server_id: string;
       enabled: boolean;
+      /**
+       * Reach of the caller's own share. The server defaults an omitted
+       * scope to "personal", so re-enabling without it resets a team share.
+       */
+      scope?: McpAgentGrantScope;
       /** Agent-scope tool policies to set alongside the grant. */
       policies?: McpToolPolicyEntry[];
     },
@@ -5178,26 +5335,29 @@ export class PostHogAPIClient {
     try {
       return await fn();
     } catch (error) {
-      const parsed = this.parseFetcherError(error);
-      if (
-        parsed &&
-        parsed.status === 429 &&
-        parsed.body.code === "usage_limit_exceeded"
-      ) {
-        const limitType = parsed.body.limit_type;
-        throw new CloudUsageLimitError({
-          limitType:
-            limitType === "burst" || limitType === "sustained"
-              ? limitType
-              : null,
-          resetAt:
-            typeof parsed.body.reset_at === "string"
-              ? parsed.body.reset_at
-              : null,
-          isPro: parsed.body.is_pro === true,
-        });
-      }
+      this.throwIfCloudUsageLimit(error);
       throw error;
+    }
+  }
+
+  private throwIfCloudUsageLimit(error: unknown): void {
+    const parsed = this.parseFetcherError(error);
+    if (
+      parsed &&
+      parsed.status === 429 &&
+      (parsed.body.code === "usage_limit_exceeded" ||
+        parsed.body.code === DESKTOP_BILLING_LIMIT_ERROR_CODE)
+    ) {
+      const limitType = parsed.body.limit_type;
+      throw new CloudUsageLimitError({
+        limitType:
+          limitType === "burst" || limitType === "sustained" ? limitType : null,
+        resetAt:
+          typeof parsed.body.reset_at === "string"
+            ? parsed.body.reset_at
+            : null,
+        isPro: parsed.body.is_pro === true,
+      });
     }
   }
 
@@ -6849,6 +7009,34 @@ export class PostHogAPIClient {
       throw new Error(data.error);
     }
     return { results: data.results ?? [], columns: data.columns ?? [] };
+  }
+
+  /**
+   * Runs an arbitrary typed query node (TrendsQuery, HogQLQuery, ...) against
+   * the team's project and returns the raw response. `refresh: "blocking"`
+   * serves a fresh-enough cached result and computes synchronously otherwise —
+   * the same mode PostHog insights use. Backs inbox report charts, whose query
+   * nodes are scout-authored and arrive unparsed.
+   */
+  async runQuery(
+    query: Record<string, unknown>,
+  ): Promise<Record<string, unknown>> {
+    const teamId = await this.getTeamId();
+    const path = `/api/projects/${teamId}/query/`;
+    const url = new URL(`${this.api.baseUrl}${path}`);
+    const response = await this.api.fetcher.fetch({
+      method: "post",
+      url,
+      path,
+      overrides: {
+        body: JSON.stringify({ query, refresh: "blocking" }),
+      },
+    });
+    const data = (await response.json()) as Record<string, unknown>;
+    if (typeof data.error === "string" && data.error) {
+      throw new Error(data.error);
+    }
+    return data;
   }
 
   /**

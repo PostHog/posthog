@@ -85,6 +85,13 @@ class GoogleSheetsSource(SimpleSource[GoogleSheetsSourceConfig]):
             "APIError: [502]",
             "APIError: [503]",
             "APIError: [504]",
+            # `_retry_on_transient_api_error` also retries a dropped connection or read timeout
+            # (`requests.exceptions.ConnectionError`/`Timeout`/`ChunkedEncodingError`) before
+            # re-raising once that budget is exhausted. urllib3 wraps all of those as "... Max
+            # retries exceeded with url: ..." regardless of the underlying cause (refused
+            # connection, read timeout, dropped socket), so match that stable prefix rather than
+            # the per-request URL or nested error detail.
+            "Max retries exceeded with url",
         }
 
     def get_schemas(

@@ -3,7 +3,8 @@ import json
 from contextlib import suppress
 
 from posthog.settings.access import SECRET_KEY
-from posthog.settings.utils import get_from_env, get_list
+from posthog.settings.base_variables import TEST
+from posthog.settings.utils import get_from_env, get_list, str_to_bool
 
 # Used mostly by the hobby install to have some feature flags enabled by default
 # NOTE: This only affects the frontend, the same FFs will still be considered disabled on the backend
@@ -47,6 +48,23 @@ FEATURE_FLAG_LAST_CALLED_AT_SYNC_CHUNK_MINUTES: int = max(
 FEATURE_FLAG_LAST_CALLED_AT_SYNC_MAX_LOOKBACK_HOURS: int = max(
     1,
     get_from_env("FEATURE_FLAG_LAST_CALLED_AT_SYNC_MAX_LOOKBACK_HOURS", 6, type_cast=int),
+)
+# The sync reads distributed_events_recent, which either replica of the batch-export shard can
+# answer, so rows inserted moments ago may be missing from whichever one serves a given query.
+# Ending the scan window this far before now keeps the checkpoint from advancing past those
+# rows, so a row still missing at read time is picked up by the next run instead of being
+# skipped for good.
+FEATURE_FLAG_LAST_CALLED_AT_SYNC_REPLICATION_BUFFER_SECONDS: int = max(
+    0,
+    get_from_env("FEATURE_FLAG_LAST_CALLED_AT_SYNC_REPLICATION_BUFFER_SECONDS", 60, type_cast=int),
+)
+# Per-chunk ClickHouse execution cap. sync_execute sets no max_execution_time of its own, so
+# without this a hung query is bounded only by the server profile, and a run can outlive the
+# 30-minute lock that stops two of these from overlapping. Prod chunks take a few seconds each
+# and whole runs peak under two minutes, so this only trips on a genuine hang.
+FEATURE_FLAG_LAST_CALLED_AT_SYNC_QUERY_TIMEOUT_SECONDS: int = max(
+    1,
+    get_from_env("FEATURE_FLAG_LAST_CALLED_AT_SYNC_QUERY_TIMEOUT_SECONDS", 120, type_cast=int),
 )
 
 # Feature flag cache refresh settings
@@ -95,7 +113,9 @@ TEAM_METADATA_CACHE_VERIFICATION_GRACE_PERIOD_MINUTES: int = get_from_env(
 # Defaults are set well above observed production maximums to avoid impacting
 # normal usage while protecting against extreme outliers.
 
-# Maximum number of feature flags allowed per team
+# Maximum number of feature flags allowed per team. This is the fleet-wide default: staff can
+# raise or lower it for a single team via TeamFeatureFlagsConfig.max_feature_flags_override.
+# MAX_FEATURE_FLAG_FILTER_SIZE_BYTES below has no per-team override.
 MAX_FEATURE_FLAGS_PER_TEAM: int = get_from_env("MAX_FEATURE_FLAGS_PER_TEAM", 2000, type_cast=int)
 
 # Maximum size in bytes for a single flag's filters JSON
@@ -104,6 +124,20 @@ MAX_FEATURE_FLAG_FILTER_SIZE_BYTES: int = get_from_env(
     512 * 1024,
     type_cast=int,  # 512KB
 )
+
+# Staged rollout switch for feature flag filters validation (#50084). When off (the
+# production default for now), the new structural and cross-field filter tiers on the flag
+# API log violations (`feature_flag_filters_enforcement_bypassed`) instead of rejecting
+# them. Not gated by this switch: the pre-enforcement type/bounds checks
+# (_reject_serde_unsafe_filters — the cache-poisoning class) and contextual checks (cohort
+# existence, circular dependencies, size limits) always reject, so off means exactly the
+# protection that predated enforcement, plus observation logging. Rollout: ship with the
+# default off, compare the bypass-log volume against the audit's per-rule predictions for
+# a few days of live traffic (the audit measured stored data, never request-shaped input),
+# then enable via env var. The follow-up flip PR removes this switch and the now-redundant
+# _reject_serde_unsafe_filters. Defaults on under TEST so the suite validates the enforced
+# behavior.
+FEATURE_FLAG_FILTERS_ENFORCEMENT: bool = get_from_env("FEATURE_FLAG_FILTERS_ENFORCEMENT", TEST, type_cast=str_to_bool)
 
 # Team ID for the local-evaluation canary. Unset disables the canary task.
 FEATURE_FLAGS_CANARY_TEAM_ID: int | None = get_from_env("FEATURE_FLAGS_CANARY_TEAM_ID", optional=True, type_cast=int)
