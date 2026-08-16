@@ -1,6 +1,6 @@
 import { APIScopeObject, AccessControlLevel, EffectiveAccessControlEntry } from '~/types'
 
-import { getEntryId, getInheritedReasonTooltip, getLevelOptionsForResource } from './helpers'
+import { getEntryId, getInheritedReasonTooltip, getLevelOptionsForResource, inheritedReasonOf } from './helpers'
 import { AccessControlMemberEntry, AccessControlRoleEntry, FormAccessLevel } from './types'
 
 const makeEntry = (
@@ -9,11 +9,21 @@ const makeEntry = (
 ): EffectiveAccessControlEntry => ({
     access_level: level,
     effective_access_level: level,
-    inherited_access_level: null,
-    inherited_access_level_reason: null,
+    inherited_access: null,
     minimum: AccessControlLevel.None,
     maximum: AccessControlLevel.Manager,
     ...overrides,
+})
+
+const inheritedFrom = (
+    level: AccessControlLevel,
+    reason: 'project_default' | 'role_override' | 'organization_admin' = 'project_default'
+): EffectiveAccessControlEntry['inherited_access'] => ({
+    access_level: level,
+    source: reason === 'organization_admin' ? 'org_admin' : 'resource',
+    source_subject: reason === 'organization_admin' ? null : reason === 'role_override' ? 'role' : 'default',
+    source_resource: 'project' as APIScopeObject,
+    source_resource_id: null,
 })
 
 const resourceLevels = [
@@ -117,16 +127,15 @@ describe('groupedAccessControlRuleModalLogic', () => {
             entry: { project: EffectiveAccessControlEntry }
         ): boolean {
             return (
-                formProjectLevel === entry.project.inherited_access_level &&
-                entry.project.inherited_access_level !== null
+                entry.project.inherited_access !== null &&
+                formProjectLevel === entry.project.inherited_access.access_level
             )
         }
 
         it('returns true when form level matches non-null inherited level', () => {
             const entry = {
                 project: makeEntry(AccessControlLevel.Member, {
-                    inherited_access_level: AccessControlLevel.Member,
-                    inherited_access_level_reason: 'project_default',
+                    inherited_access: inheritedFrom(AccessControlLevel.Member, 'project_default'),
                 }),
             }
             expect(isProjectLevelShowingInherited(AccessControlLevel.Member, entry)).toBe(true)
@@ -135,7 +144,7 @@ describe('groupedAccessControlRuleModalLogic', () => {
         it('returns false when form level differs from inherited', () => {
             const entry = {
                 project: makeEntry(AccessControlLevel.Admin, {
-                    inherited_access_level: AccessControlLevel.Member,
+                    inherited_access: inheritedFrom(AccessControlLevel.Member),
                 }),
             }
             expect(isProjectLevelShowingInherited(AccessControlLevel.Admin, entry)).toBe(false)
@@ -179,21 +188,20 @@ describe('groupedAccessControlRuleModalLogic', () => {
         function computeProjectLevelOptions(entry: {
             project: EffectiveAccessControlEntry
         }): { value: AccessControlLevel; label: string; disabledReason?: string }[] {
-            const { inherited_access_level, inherited_access_level_reason, minimum, maximum } = entry.project
+            const { inherited_access, minimum, maximum } = entry.project
             return getLevelOptionsForResource(projectLevels, {
                 minimum,
                 maximum,
-                inheritedLevel: inherited_access_level,
-                inheritedReason: inherited_access_level_reason,
+                inheritedLevel: inherited_access?.access_level ?? null,
+                inheritedReason: inheritedReasonOf(inherited_access),
                 resourceLabel: 'project',
             })
         }
 
-        it('uses inherited_access_level as minimum when present', () => {
+        it('uses the inherited level as minimum when present', () => {
             const entry = {
                 project: makeEntry(AccessControlLevel.Member, {
-                    inherited_access_level: AccessControlLevel.Member,
-                    inherited_access_level_reason: 'project_default',
+                    inherited_access: inheritedFrom(AccessControlLevel.Member, 'project_default'),
                     minimum: AccessControlLevel.None,
                 }),
             }
@@ -228,13 +236,15 @@ describe('groupedAccessControlRuleModalLogic', () => {
             resource: APIScopeObject,
             resourceLabel: string
         ): { value: AccessControlLevel | null; label: string; disabledReason?: string }[] {
-            const { access_level, inherited_access_level, inherited_access_level_reason, minimum, maximum } = entry
-                .resources[resource] as EffectiveAccessControlEntry
+            const { access_level, inherited_access, minimum, maximum } = entry.resources[
+                resource
+            ] as EffectiveAccessControlEntry
+            const inherited_access_level = inherited_access?.access_level ?? null
             const levelOptions = getLevelOptionsForResource(availableResourceLevels, {
                 minimum,
                 maximum,
-                inheritedLevel: inherited_access_level,
-                inheritedReason: inherited_access_level_reason,
+                inheritedLevel: inherited_access?.access_level ?? null,
+                inheritedReason: inheritedReasonOf(inherited_access),
                 resourceLabel,
             })
             const hasFormOverride = formResourceLevels[resource] !== null
@@ -249,8 +259,7 @@ describe('groupedAccessControlRuleModalLogic', () => {
             const entry = {
                 resources: {
                     dashboard: makeEntry(AccessControlLevel.Editor, {
-                        inherited_access_level: AccessControlLevel.Viewer,
-                        inherited_access_level_reason: 'project_default',
+                        inherited_access: inheritedFrom(AccessControlLevel.Viewer, 'project_default'),
                         maximum: AccessControlLevel.Editor,
                     }),
                 },
@@ -350,8 +359,7 @@ describe('groupedAccessControlRuleModalLogic', () => {
             const entry = {
                 resources: {
                     dashboard: makeEntry(AccessControlLevel.Viewer, {
-                        inherited_access_level: AccessControlLevel.Viewer,
-                        inherited_access_level_reason: 'project_default',
+                        inherited_access: inheritedFrom(AccessControlLevel.Viewer, 'project_default'),
                     }),
                 },
             }
@@ -414,20 +422,18 @@ describe('groupedAccessControlRuleModalLogic', () => {
             resources: Record<string, EffectiveAccessControlEntry>
         ): Record<string, AccessControlLevel | null> {
             return Object.fromEntries(
-                Object.entries(resources).map(([key, data]) => [key, data.inherited_access_level])
+                Object.entries(resources).map(([key, data]) => [key, data.inherited_access?.access_level ?? null])
             )
         }
 
         it('resets only resources without inherited access level', () => {
             const resources = {
                 dashboard: makeEntry(AccessControlLevel.Editor, {
-                    inherited_access_level: AccessControlLevel.Viewer,
-                    inherited_access_level_reason: 'project_default',
+                    inherited_access: inheritedFrom(AccessControlLevel.Viewer, 'project_default'),
                 }),
                 insight: makeEntry(AccessControlLevel.Manager),
                 action: makeEntry(AccessControlLevel.None, {
-                    inherited_access_level: AccessControlLevel.None,
-                    inherited_access_level_reason: 'role_override',
+                    inherited_access: inheritedFrom(AccessControlLevel.None, 'role_override'),
                 }),
             }
             const result = computeClearedLevels(resources)
@@ -445,21 +451,21 @@ describe('groupedAccessControlRuleModalLogic', () => {
             resourceEntry: EffectiveAccessControlEntry
         ): boolean {
             return (
-                displayedLevel === resourceEntry.inherited_access_level && resourceEntry.inherited_access_level !== null
+                resourceEntry.inherited_access !== null &&
+                displayedLevel === resourceEntry.inherited_access.access_level
             )
         }
 
         it('returns true when displayed matches non-null inherited', () => {
             const entry = makeEntry(AccessControlLevel.Viewer, {
-                inherited_access_level: AccessControlLevel.Viewer,
-                inherited_access_level_reason: 'project_default',
+                inherited_access: inheritedFrom(AccessControlLevel.Viewer, 'project_default'),
             })
             expect(isResourceLevelShowingInherited(AccessControlLevel.Viewer, entry)).toBe(true)
         })
 
         it('returns false when displayed differs from inherited', () => {
             const entry = makeEntry(AccessControlLevel.Editor, {
-                inherited_access_level: AccessControlLevel.Viewer,
+                inherited_access: inheritedFrom(AccessControlLevel.Viewer),
             })
             expect(isResourceLevelShowingInherited(AccessControlLevel.Editor, entry)).toBe(false)
         })

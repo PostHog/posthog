@@ -32,8 +32,6 @@ from posthog.rbac.user_access_control import (
     UserAccessControl,
     access_level_satisfied_for_resource,
     default_access_level,
-    get_effective_access_level_for_member,
-    get_effective_access_level_for_role,
     highest_access_level,
     minimum_access_level,
     model_to_resource,
@@ -69,18 +67,6 @@ def resource_with_levels(draw, n: int = 1):
     resource = draw(resources_st)
     level = st.sampled_from(ordered_access_levels(resource))
     return (resource, *(draw(level) for _ in range(n)))
-
-
-@st.composite
-def member_level_inputs(draw):
-    resource = draw(resources_st)
-    level = st.sampled_from(ordered_access_levels(resource))
-    return (
-        resource,
-        draw(st.none() | level),  # project default
-        draw(st.lists(level, max_size=4)),  # role overrides
-        draw(st.none() | level),  # member override
-    )
 
 
 def _max_level(levels: list[AccessControlLevel], order: list[AccessControlLevel]) -> Optional[AccessControlLevel]:
@@ -120,57 +106,6 @@ class TestAccessLevelHelpersProperties(TestCase):
             assert a == b
         if access_level_satisfied_for_resource(resource, a, b) and access_level_satisfied_for_resource(resource, b, c):
             assert access_level_satisfied_for_resource(resource, a, c)
-
-    @given(data=member_level_inputs())
-    @settings(max_examples=500, deadline=None, suppress_health_check=SUPPRESSED_HEALTH_CHECKS)
-    def test_org_admin_member_always_gets_highest(self, data):
-        resource, default_level, role_levels, member_level = data
-        result = get_effective_access_level_for_member(
-            resource, default_level, role_levels, member_level, is_org_admin=True
-        )
-        assert result.effective_access_level == highest_access_level(resource)
-        assert result.inherited_access_level == highest_access_level(resource)
-        assert result.inherited_access_level_reason == "organization_admin"
-
-    @given(data=member_level_inputs())
-    @settings(max_examples=500, deadline=None, suppress_health_check=SUPPRESSED_HEALTH_CHECKS)
-    def test_effective_member_level_is_max_of_inputs(self, data):
-        resource, default_level, role_levels, member_level = data
-        result = get_effective_access_level_for_member(
-            resource, default_level, role_levels, member_level, is_org_admin=False
-        )
-        provided = [level for level in [default_level, *role_levels, member_level] if level is not None]
-        assert result.effective_access_level == _max_level(provided, ordered_access_levels(resource))
-
-    @given(data=member_level_inputs())
-    @settings(max_examples=500, deadline=None, suppress_health_check=SUPPRESSED_HEALTH_CHECKS)
-    def test_effective_member_level_is_monotonic(self, data):
-        resource, default_level, role_levels, member_level = data
-        levels = ordered_access_levels(resource)
-        base = get_effective_access_level_for_member(
-            resource, default_level, role_levels, member_level, is_org_admin=False
-        )
-        for extra in levels:
-            extended = get_effective_access_level_for_member(
-                resource, default_level, [*role_levels, extra], member_level, is_org_admin=False
-            )
-            assert extended.effective_access_level is not None
-            if base.effective_access_level is not None:
-                assert levels.index(extended.effective_access_level) >= levels.index(base.effective_access_level)
-
-    @given(data=resource_with_levels(n=2), has_default=st.booleans(), has_role=st.booleans())
-    @settings(max_examples=500, deadline=None, suppress_health_check=SUPPRESSED_HEALTH_CHECKS)
-    def test_effective_role_level_is_max_of_inputs(self, data, has_default, has_role):
-        resource, default_level, role_level = data
-        default_arg = default_level if has_default else None
-        role_arg = role_level if has_role else None
-        result = get_effective_access_level_for_role(resource, default_arg, role_arg)
-
-        provided = [level for level in [default_arg, role_arg] if level is not None]
-        assert result.effective_access_level == _max_level(provided, ordered_access_levels(resource))
-        # The inherited reason is "project_default" exactly when a default level is present,
-        # regardless of whether a role override is also present.
-        assert (result.inherited_access_level_reason == "project_default") == (default_arg is not None)
 
 
 # ------------------------------------------------------------

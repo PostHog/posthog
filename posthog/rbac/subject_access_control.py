@@ -5,12 +5,14 @@ from django.db.models import Model, Q
 
 from posthog.models import OrganizationMembership, Team, User
 from posthog.rbac.user_access_control import (
+    RESOURCE_INHERITANCE_MAP,
     RESOURCES_WITHOUT_RESOURCE_LEVEL_CONTROLS,
     ResolvedAccess,
     UserAccessControl,
     _AccessControl,
     model_to_resource,
 )
+from posthog.scopes import APIScopeObject
 
 
 class SubjectAccessControl(UserAccessControl):
@@ -37,10 +39,27 @@ class SubjectAccessControl(UserAccessControl):
         *,
         member: Optional[OrganizationMembership] = None,
         role_id: Optional[str] = None,
+        ignore_org_admin: bool = False,
     ):
         super().__init__(user, team, organization_id)
         self._subject_member = member
         self._subject_role_id = role_id
+        # For "does this member have project-scoped access" questions, where being an org admin
+        # must not count as having been granted anything
+        self._ignore_org_admin = ignore_org_admin
+        # Set only for the duration of an inherited resolution: the resource whose subject rows
+        # are left out of every fetch (see _get_access_controls)
+        self._masked_resource: Optional[APIScopeObject] = None
+
+    def subject_rows(self, resource: APIScopeObject, resource_id: Optional[str]) -> list[_AccessControl]:
+        """The subject's own stored rules for a resource (resource-wide when resource_id is None)
+        — the rows a settings UI edits, as opposed to what resolves for the subject."""
+        filters = (
+            self._access_controls_filters_for_object(resource, resource_id)
+            if resource_id is not None
+            else self._access_controls_filters_for_resource(resource)
+        )
+        return [ac for ac in self._get_access_controls(filters) if self._is_subject_row(ac)]
 
     def inherited_access_for_object(self, obj: Model) -> Optional[ResolvedAccess]:
         """The access the subject would have if their override on this object were removed — the
@@ -51,13 +70,18 @@ class SubjectAccessControl(UserAccessControl):
         subject's own rows on this object left out — so the answer cannot disagree with how
         access would actually be enforced.
 
-        None when nothing sits above the object (the resources without resource-level
-        controls, e.g. a project) — that None is load-bearing for the UI, which must not
-        offer "No override" there.
+        None when the subject is the object's own default and nothing sits above the object
+        (the resources without resource-level controls, e.g. a project) — that None is
+        load-bearing for the UI, which must not offer "No override" on a project's default. A
+        member or role always has something to fall back to (the object's default, then the
+        system default), so their answer is never None on that account.
         """
         resource = model_to_resource(obj)
-        if not resource or resource in RESOURCES_WITHOUT_RESOURCE_LEVEL_CONTROLS:
+        if not resource:
             return None
+        if self._subject_member is None and self._subject_role_id is None:
+            if resource in RESOURCES_WITHOUT_RESOURCE_LEVEL_CONTROLS:
+                return None
 
         member = self._subject_member
         is_creator = member is not None and getattr(obj, "created_by", None) == member.user
@@ -74,6 +98,27 @@ class SubjectAccessControl(UserAccessControl):
             resource, rows, fallback_parent_id=self._fallback_parent_id(obj, resource)
         )
 
+    def inherited_access_for_resource(self, resource: APIScopeObject) -> Optional[ResolvedAccess]:
+        """The access the subject would have to `resource` if their resource-wide override were
+        removed — the resource-side twin of `inherited_access_for_object`.
+
+        The same resource resolution (`access_level_for_resource`), with the subject's own rows
+        for the resource left out of the fetch. `access_level_for_resource` fetches its own rows,
+        so the mask applies at the fetch layer for the duration of this call only.
+        """
+        target = RESOURCE_INHERITANCE_MAP.get(resource, resource)
+        self._masked_resource = target
+        try:
+            return self.access_level_for_resource(resource)
+        finally:
+            self._masked_resource = None
+
+    def _get_access_controls(self, filters: dict) -> list[_AccessControl]:
+        rows = super()._get_access_controls(filters)
+        if self._masked_resource is None or filters.get("resource") != self._masked_resource:
+            return rows
+        return [ac for ac in rows if not self._is_subject_row(ac)]
+
     def _is_subject_row(self, access_control: _AccessControl) -> bool:
         """Whether this row is the subject's own — the kind of rule "No override" would remove."""
         if self._subject_member is not None:
@@ -84,9 +129,10 @@ class SubjectAccessControl(UserAccessControl):
 
     @cached_property
     def _user_role_ids(self):
+        # Role rules are inert without the entitlement, for a member's roles and for a role subject alike
+        if not self.rbac_supported:
+            return []
         if self._subject_member is not None:
-            if not self.rbac_supported:
-                return []
             return list(
                 cast(Any, self._subject_member.user)
                 .role_memberships.filter(role__organization_id=self._organization_id)
@@ -104,4 +150,6 @@ class SubjectAccessControl(UserAccessControl):
 
     @property
     def is_organization_admin(self) -> bool:
+        if self._ignore_org_admin:
+            return False
         return bool(self._subject_member and self._subject_member.level >= OrganizationMembership.Level.ADMIN)
