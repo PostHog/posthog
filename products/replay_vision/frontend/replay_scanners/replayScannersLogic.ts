@@ -578,6 +578,7 @@ export const replayScannersLogic = kea<replayScannersLogicType>([
                 // spends no credits until the user reviews it in the editor.
                 const body: Record<string, unknown> = {
                     description: source.description,
+                    tags: source.tags,
                     scanner_type: source.scanner_type,
                     scanner_config: source.scanner_config,
                     sampling_rate: source.sampling_rate,
@@ -590,6 +591,9 @@ export const replayScannersLogic = kea<replayScannersLogicType>([
                 // Omit nullable fields entirely when unset, matching the editor's create payload.
                 if (source.query != null) {
                     body.query = source.query
+                }
+                if (source.credit_limit != null) {
+                    body.credit_limit = source.credit_limit
                 }
                 if (source.experiment_targeting != null) {
                     body.experiment_targeting = source.experiment_targeting

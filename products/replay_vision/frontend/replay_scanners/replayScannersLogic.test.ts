@@ -478,7 +478,10 @@ describe('replayScannersLogic', () => {
                     },
                 },
             })
-            logic.actions.loadScannersSuccess(scanners, scanners.length)
+            logic.actions.loadScannersSuccess(
+                [makeScanner({ id: 'a', tags: ['checkout', 'billing'], credit_limit: 500 })],
+                1
+            )
 
             await expectLogic(logic, () => logic.actions.duplicateScanner('a')).toFinishAllListeners()
 
@@ -486,6 +489,8 @@ describe('replayScannersLogic', () => {
             expect(bodies[0].name).toBe('Confused checkout (copy)')
             expect(bodies[0].enabled).toBe(false)
             expect(bodies[0].scanner_type).toBe('monitor')
+            expect(bodies[0].tags).toEqual(['checkout', 'billing'])
+            expect(bodies[0].credit_limit).toBe(500)
             // Server-managed fields and the null query must not be posted; the serializer owns them.
             for (const field of [
                 'id',
