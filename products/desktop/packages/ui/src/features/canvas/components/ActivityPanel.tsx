@@ -18,7 +18,7 @@ import { useCommentFocusRequest } from "@posthog/ui/features/sessions/useComment
 import { taskDetailQuery } from "@posthog/ui/features/tasks/queries";
 import { track } from "@posthog/ui/shell/analytics";
 import { useQuery } from "@tanstack/react-query";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 
 const ACTIVITY_TABS: readonly { key: ActivityTab; label: string }[] = [
   { key: "timeline", label: "Timeline" },
@@ -141,17 +141,20 @@ function ActivityConversation({
   useCommentFocusRequest(taskId, () => setTab("comments"));
 
   // A caller can open the panel pointed at a tab (the feed's comment chip
-  // lands on Comments, its "+N files" rows on Artifacts). Nonce-gated so the
-  // same chip re-applies after the user tabs away, and one-shot per request.
+  // lands on Comments, its "+N files" rows on Artifacts). Applied once, then
+  // consumed in the store — a local ref would reset when the panel remounts
+  // (collapse/expand) and replay the stale request over the user's tab pick.
   const tabRequest = useThreadPanelStore(
     (state) => state.tabRequestByTask[taskId],
   );
-  const seenTabRequestNonce = useRef<number | null>(null);
+  const consumeTabRequest = useThreadPanelStore(
+    (state) => state.consumeTabRequest,
+  );
   useEffect(() => {
-    if (!tabRequest || tabRequest.nonce === seenTabRequestNonce.current) return;
-    seenTabRequestNonce.current = tabRequest.nonce;
+    if (!tabRequest) return;
     setTab(tabRequest.tab);
-  }, [tabRequest]);
+    consumeTabRequest(taskId, tabRequest.nonce);
+  }, [tabRequest, consumeTabRequest, taskId]);
 
   return (
     <div className="flex h-full min-w-0 flex-col bg-gray-1">

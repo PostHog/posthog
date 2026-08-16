@@ -27,6 +27,9 @@ interface ThreadPanelState {
     taskId: string,
     opts?: { expand?: boolean; tab?: ThreadPanelTab },
   ) => void;
+  /** Acknowledge an applied tab request. Nonce-matched so a stale ack (from a
+   * panel that unmounted mid-flight) can't drop a newer request. */
+  consumeTabRequest: (taskId: string, nonce: number) => void;
   closeThread: (channelId: string) => void;
   setCollapsed: (collapsed: boolean) => void;
   setWidth: (width: number) => void;
@@ -50,6 +53,17 @@ export const useThreadPanelStore = create<ThreadPanelState>()(
           },
           ...(opts?.expand === false ? {} : { collapsed: false }),
         })),
+      consumeTabRequest: (taskId, nonce) =>
+        set((state) =>
+          state.tabRequestByTask[taskId]?.nonce === nonce
+            ? {
+                tabRequestByTask: {
+                  ...state.tabRequestByTask,
+                  [taskId]: undefined,
+                },
+              }
+            : state,
+        ),
       closeThread: (channelId) =>
         set((state) => ({
           openByChannel: { ...state.openByChannel, [channelId]: null },
