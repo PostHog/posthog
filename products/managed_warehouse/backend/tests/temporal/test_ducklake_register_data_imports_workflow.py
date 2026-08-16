@@ -183,7 +183,9 @@ def test_copy_activity_uses_s3_copy_and_local_duckgres_postgres_connection(monke
     monkeypatch.setattr(registration_module, "get_s3_client", lambda: s3)
     monkeypatch.setattr(registration_module, "_prepared_generation_is_current", lambda inputs: True)
     monkeypatch.setattr(registration_module, "is_dev_mode", lambda: True)
-    monkeypatch.setattr(registration_module, "make_duckgres_conninfo", lambda team_id: "postgresql://duckgres")
+    monkeypatch.setattr(
+        registration_module, "make_duckgres_conninfo", lambda team_id, **kwargs: "postgresql://duckgres"
+    )
 
     conn = MagicMock()
     conn.__enter__ = MagicMock(return_value=conn)

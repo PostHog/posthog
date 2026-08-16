@@ -548,7 +548,8 @@ def _should_publish_prepared_generation(inputs: DuckLakeRegisterDataImportsActiv
 @contextlib.contextmanager
 def _connect_to_duckgres_for_team(team_id: int) -> Iterator[psycopg.Connection]:
     if is_dev_mode():
-        with psycopg.connect(make_duckgres_conninfo(team_id), autocommit=True) as conn:
+        conninfo = make_duckgres_conninfo(team_id, application_name="ducklake-register")
+        with psycopg.connect(conninfo, autocommit=True) as conn:
             yield conn
         return
 
@@ -556,7 +557,7 @@ def _connect_to_duckgres_for_team(team_id: int) -> Iterator[psycopg.Connection]:
     server = get_duckgres_server_for_organization(organization_id)
     if server is None:
         raise ApplicationError(f"No DuckgresServer configured for team {team_id}", non_retryable=True)
-    with connect_to_duckgres(server) as conn:
+    with connect_to_duckgres(server, application_name="ducklake-register") as conn:
         yield conn
 
 
