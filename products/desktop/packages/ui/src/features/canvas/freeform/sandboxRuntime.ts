@@ -282,6 +282,12 @@ export function buildSandboxDocument(
       actions: {
         invoke: (verb, payload) => call("actionInvoke", { verb, payload: payload ?? {} }),
       },
+      // Ask the authoring agent for a change; the host shows the exact prompt
+      // and asks the viewer to approve before anything is dispatched:
+      // \`ph.agent.request("Make the square blue")\`.
+      agent: {
+        request: (prompt) => call("agentRequest", { prompt }),
+      },
       // Brokered by the host: PostHog-only https URLs, rate-limited, and
       // ignored while the canvas is unfocused (no auto-opens on load).
       openExternal: (url) => post({ type: "open-external", url }),

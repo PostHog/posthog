@@ -21,6 +21,7 @@ import {
   type CanvasAnalyticsConfig,
   type CanvasCommentHighlight,
   type CanvasTextSelection,
+  canvasAgentRequestInputSchema,
   limitCanvasCommentHighlights,
 } from "@posthog/core/canvas/freeformSchemas";
 import { textToContent } from "@posthog/core/message-editor/content";
@@ -90,6 +91,7 @@ import { Link } from "@tanstack/react-router";
 import { AnimatePresence, motion } from "framer-motion";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { BuiltCanvas } from "./BuiltCanvas";
+import { CanvasAgentRequestDialog } from "./CanvasAgentRequestDialog";
 import { CanvasBuildStatus } from "./CanvasBuildStatus";
 import { CanvasFramePlaceholder } from "./CanvasFramePlaceholder";
 import { CanvasGenerateHero } from "./CanvasGenerateHero";
@@ -544,11 +546,99 @@ export function FreeformCanvasView({
   // fresh signed artifactUrl — every 2s refetch) would churn the warm-frame
   // pool, which assumes stable callbacks. View-mode capability gating happens
   // in BuiltCanvas via the `capabilities` prop below.
+  const requestAgent = useMutation(
+    trpc.dashboards.requestAgent.mutationOptions(),
+  );
+  // The prompt is bound to the canvas that issued it: FreeformCanvasView is
+  // reused across navigation, so a dialog approved after switching canvases
+  // must not submit the old prompt against the newly selected canvas.
+  const [agentRequest, setAgentRequest] = useState<{
+    prompt: string;
+    dashboardId: string;
+  } | null>(null);
+  const agentRequestPromiseRef = useRef<{
+    resolve: (value: unknown) => void;
+    reject: (reason: Error) => void;
+  } | null>(null);
+  const dashboardIdRef = useRef(dashboardId);
+  useEffect(() => {
+    dashboardIdRef.current = dashboardId;
+    if (agentRequestPromiseRef.current) {
+      agentRequestPromiseRef.current.reject(
+        new Error("Agent request canceled: the canvas changed"),
+      );
+      agentRequestPromiseRef.current = null;
+      setAgentRequest(null);
+    }
+  }, [dashboardId]);
   const onDataRequest = useCallback(
-    (method: string, payload: unknown) =>
-      handleFreeformDataRequest(method, payload, queryClient, { dashboardId }),
+    (method: string, payload: unknown) => {
+      if (method !== "agentRequest") {
+        return handleFreeformDataRequest(method, payload, queryClient, {
+          dashboardId,
+        });
+      }
+      const input = canvasAgentRequestInputSchema.parse(payload);
+      if (agentRequestPromiseRef.current) {
+        throw new Error("Another agent request is awaiting approval");
+      }
+      setAgentRequest({
+        prompt: input.prompt,
+        dashboardId: dashboardIdRef.current,
+      });
+      return new Promise<unknown>((resolve, reject) => {
+        agentRequestPromiseRef.current = { resolve, reject };
+      });
+    },
     [queryClient, dashboardId],
   );
+  const cancelAgentRequest = useCallback(() => {
+    agentRequestPromiseRef.current?.reject(new Error("Agent request canceled"));
+    agentRequestPromiseRef.current = null;
+    setAgentRequest(null);
+  }, []);
+  useEffect(
+    () => () => {
+      agentRequestPromiseRef.current?.reject(
+        new Error("Canvas closed before the agent request was approved"),
+      );
+      agentRequestPromiseRef.current = null;
+    },
+    [],
+  );
+  const confirmAgentRequest = useCallback(async () => {
+    const pending = agentRequestPromiseRef.current;
+    if (!pending || agentRequest === null) return;
+    try {
+      const result = await requestAgent.mutateAsync({
+        id: agentRequest.dashboardId,
+        prompt: agentRequest.prompt,
+      });
+      pending.resolve(result);
+      // Navigation or unmount during the request may have rejected `pending`
+      // and stored a newer request in the ref. Only clear the shared dialog
+      // state when it still belongs to this request, so a stale continuation
+      // can't close a newer canvas's dialog and orphan its pending promise.
+      if (agentRequestPromiseRef.current === pending) {
+        setAgentRequest(null);
+        agentRequestPromiseRef.current = null;
+      }
+      toast.success(
+        result.requestOutcome === "reported"
+          ? "Request sent to the canvas creator"
+          : "Agent run started",
+      );
+    } catch (error) {
+      pending.reject(error instanceof Error ? error : new Error(String(error)));
+      if (agentRequestPromiseRef.current === pending) {
+        setAgentRequest(null);
+        agentRequestPromiseRef.current = null;
+      }
+      toast.error("Couldn't start the agent run", {
+        description: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }, [agentRequest, requestAgent]);
 
   // Dedupes the runtime-error capture without a store dependency: reading
   // runtimeError in the callbacks would change their identity on every
@@ -697,6 +787,12 @@ export function FreeformCanvasView({
 
   return (
     <Flex height="100%" overflow="hidden" position="relative">
+      <CanvasAgentRequestDialog
+        prompt={agentRequest?.prompt ?? null}
+        loading={requestAgent.isPending}
+        onCancel={cancelAgentRequest}
+        onConfirm={() => void confirmAgentRequest()}
+      />
       {/* When the embedded chat isn't visible — panel minimized, or still shut
           mid-slide-in (waitingForHeroExit) — a paused tool-permission request
           would have nowhere to go, so surface it as a modal. When the panel is
