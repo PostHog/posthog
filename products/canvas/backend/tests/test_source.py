@@ -205,6 +205,17 @@ class TestCanvasSourceAdapter(SimpleTestCase):
             ("localhost", "https://localhost:8010"),
             ("single_label", "https://intranet"),
             ("mdns_suffix", "https://printer.local"),
+            # Bypass spellings from the security review: browsers resolve these
+            # to loopback/LAN targets even though the strict IP parse rejects them.
+            ("trailing_dot_localhost", "https://localhost."),
+            ("trailing_dot_metadata", "https://169.254.169.254."),
+            ("trailing_dot_public", "https://api.example.com."),
+            ("ipv4_shorthand", "https://127.1"),
+            ("ipv4_octal", "https://0177.0.0.1"),
+            ("ipv4_leading_zero", "https://192.168.01.1"),
+            ("ipv4_hex_label", "https://1.2.3.0x10"),
+            ("ipv6_scope_id", "https://[fe80::1%eth0]"),
+            ("ipv6_global_scope_id", "https://[2606:4700:4700::1111%foo; img-src evil.example]"),
             # A delimiter in the hostname would break out of the connect-src it is
             # spliced into. This form carries no wildcard, so only the hostname
             # charset check rejects it.

@@ -54,14 +54,26 @@ def _is_public_network_host(hostname: str) -> bool:
     needs resolver or network-level controls.
     """
     try:
-        return ipaddress.ip_address(hostname).is_global
+        address = ipaddress.ip_address(hostname)
+        # A zone-scoped literal ("%eth0") is never a routable public origin,
+        # and the free-form scope text would otherwise reach the CSP verbatim.
+        return address.is_global and getattr(address, "scope_id", None) is None
     except ValueError:
         pass
+    # Browsers resolve "localhost." like "localhost", so a trailing dot must
+    # not dodge the checks below — require the canonical spelling outright.
+    if hostname.endswith("."):
+        return False
     if not _DNS_NAME_RE.fullmatch(hostname):
         return False
     if "." not in hostname:
         return False
-    return not hostname.rstrip(".").endswith((".local", ".localhost", ".internal", ".home.arpa"))
+    # Browsers parse a numeric or 0x-hex final label as an IPv4 address
+    # ("127.1", "0177.0.0.1", "0x7f.0.0.1") while a real DNS TLD is never
+    # all digits — only strict dotted-decimal literals may take the IP branch.
+    if re.fullmatch(r"[0-9]+|0x[0-9a-f]*", hostname.rsplit(".", 1)[-1]):
+        return False
+    return not hostname.endswith((".local", ".localhost", ".internal", ".home.arpa"))
 
 
 def canonical_network_origin(origin: Any) -> str | None:
