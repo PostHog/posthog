@@ -25,7 +25,7 @@ export function SourceSteeringModal({ sourceConfig, sourceLabel, onClose }: Sour
     const formId = useId()
     const logicProps: SourceSteeringModalLogicProps = { sourceConfig, onClose }
     const logic = sourceSteeringModalLogic(logicProps)
-    const { isSourceSteeringSubmitting, sourceSteeringValidationErrors } = useValues(logic)
+    const { isSourceSteeringSubmitting, sourceSteeringChanged, sourceSteeringValidationErrors } = useValues(logic)
 
     const handleClose = (): void => {
         if (isSourceSteeringSubmitting) {
@@ -49,6 +49,7 @@ export function SourceSteeringModal({ sourceConfig, sourceLabel, onClose }: Sour
             title={`Steering rules for ${sourceLabel}`}
             description="Most records from this source count as actionable and can become reports. Your rules narrow that. They apply from the next sync and don't remove anything already in your inbox."
             width={560}
+            hasUnsavedInput={sourceSteeringChanged}
             footer={
                 <>
                     <LemonButton
