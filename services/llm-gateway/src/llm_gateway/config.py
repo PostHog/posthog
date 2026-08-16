@@ -211,6 +211,15 @@ class Settings(BaseSettings):
 
     posthog_api_base_url: str = "https://us.posthog.com"
     plan_cache_ttl: int = 900  # 15 minutes
+
+    # PostHog Desktop entitlement gate on the posthog_code product. The gateway asks Django
+    # (has_tasks_access: the `tasks` flag or a redeemed invite) and denies a definitive "no".
+    # Kill switch, because a bad answer here blocks the product outright.
+    desktop_access_gate_enabled: bool = True
+    desktop_access_cache_ttl: int = 900  # 15 minutes
+    # Shorter, so a just-invited user isn't stuck behind a cached denial.
+    desktop_access_denied_cache_ttl: int = 60
+    desktop_access_request_timeout: float = 2.0
     # Billing recomputes quota at most hourly, so we tolerate slight overage rather than
     # a Django roundtrip on every billable request.
     quota_cache_ttl: int = 300  # 5 minutes

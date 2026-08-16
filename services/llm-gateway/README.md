@@ -261,6 +261,14 @@ OAuth access is permitted only for products with an explicit `allowed_applicatio
 
 Aliases: `twig`, `array` resolve to `posthog_code`; `slack-twig` resolves to `slack-posthog-code`.
 
+`posthog_code` additionally requires a PostHog Desktop entitlement. The OAuth application
+allowlist only proves the token was issued to the Desktop app, which any user can obtain via the
+consent flow — so the gateway also asks Django (`GET /api/code/invites/check-access/`, backed by
+`has_tasks_access`: the `tasks` flag or a redeemed invite) and rejects a definitive "no" with
+`403 code_access_required`. Server-minted sandbox tokens (carrying `internal_run:read`) are
+exempt, since their run already passed Django's own gate. The check fails open when Django can't
+answer, and `DESKTOP_ACCESS_GATE_ENABLED=false` disables it entirely.
+
 ### Adding a new product
 
 1. **Add to `PRODUCTS`** in `src/llm_gateway/products/config.py`:

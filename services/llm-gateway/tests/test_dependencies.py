@@ -542,3 +542,112 @@ class TestServerCredentialRequirementWiring:
             assert await enforce_product_access(request=request, user=user) is user
         finally:
             get_settings.cache_clear()
+
+
+class TestDesktopAccessGate:
+    """posthog_code is reachable with any consented PostHog Desktop OAuth token, so the
+    beta entitlement has to be checked here rather than inferred from the application id."""
+
+    def _oauth_user(self, scopes: list[str] | None = None) -> AuthenticatedUser:
+        return AuthenticatedUser(
+            user_id=7,
+            team_id=1,
+            auth_method="oauth_access_token",
+            distinct_id="test-distinct-id-7",
+            scopes=scopes if scopes is not None else ["llm_gateway:read"],
+            application_id=POSTHOG_CODE_US_APP_ID,
+        )
+
+    def _request(self, resolver_answer: bool | None, path: str = "/posthog_code/v1/messages") -> Request:
+        request = _make_request({"model": "claude-sonnet-5", "messages": []}, path=path)
+        resolver = MagicMock()
+        resolver.has_access = AsyncMock(return_value=resolver_answer)
+        request.app.state.desktop_access_resolver = resolver
+        return request
+
+    @pytest.mark.asyncio
+    async def test_unentitled_user_blocked(self) -> None:
+        from llm_gateway.config import get_settings
+
+        get_settings.cache_clear()
+        try:
+            with pytest.raises(HTTPException) as exc_info:
+                await enforce_product_access(request=self._request(False), user=self._oauth_user())
+            assert exc_info.value.status_code == 403
+            assert exc_info.value.detail["error"]["code"] == "code_access_required"
+        finally:
+            get_settings.cache_clear()
+
+    @pytest.mark.asyncio
+    async def test_entitled_user_allowed(self) -> None:
+        from llm_gateway.config import get_settings
+
+        get_settings.cache_clear()
+        try:
+            user = self._oauth_user()
+            assert await enforce_product_access(request=self._request(True), user=user) is user
+        finally:
+            get_settings.cache_clear()
+
+    @pytest.mark.asyncio
+    async def test_unknown_entitlement_fails_open(self) -> None:
+        # A Django outage must not take PostHog Desktop down for every entitled user.
+        from llm_gateway.config import get_settings
+
+        get_settings.cache_clear()
+        try:
+            user = self._oauth_user()
+            assert await enforce_product_access(request=self._request(None), user=user) is user
+        finally:
+            get_settings.cache_clear()
+
+    @pytest.mark.asyncio
+    async def test_server_minted_token_exempt(self) -> None:
+        # Sandbox runs already passed Django's own code_access_required_response gate,
+        # including the deliberate Inbox exemptions that work without the flag.
+        from llm_gateway.config import get_settings
+
+        get_settings.cache_clear()
+        try:
+            request = self._request(False)
+            user = self._oauth_user(["llm_gateway:read", "internal_run:read"])
+            assert await enforce_product_access(request=request, user=user) is user
+            request.app.state.desktop_access_resolver.has_access.assert_not_awaited()
+        finally:
+            get_settings.cache_clear()
+
+    @pytest.mark.asyncio
+    async def test_alias_path_is_gated(self) -> None:
+        # /array/ and /twig/ resolve to posthog_code; gating only the literal name
+        # would leave the aliases wide open.
+        from llm_gateway.config import get_settings
+
+        get_settings.cache_clear()
+        try:
+            with pytest.raises(HTTPException) as exc_info:
+                await enforce_product_access(
+                    request=self._request(False, path="/array/v1/messages"),
+                    user=self._oauth_user(),
+                )
+            assert exc_info.value.status_code == 403
+        finally:
+            get_settings.cache_clear()
+
+    @pytest.mark.asyncio
+    async def test_other_products_untouched(self) -> None:
+        from llm_gateway.config import get_settings
+
+        get_settings.cache_clear()
+        try:
+            request = self._request(False, path="/wizard/v1/messages")
+            user = AuthenticatedUser(
+                user_id=7,
+                team_id=1,
+                auth_method="personal_api_key",
+                distinct_id="test-distinct-id-7",
+                scopes=["llm_gateway:read"],
+            )
+            assert await enforce_product_access(request=request, user=user) is user
+            request.app.state.desktop_access_resolver.has_access.assert_not_awaited()
+        finally:
+            get_settings.cache_clear()

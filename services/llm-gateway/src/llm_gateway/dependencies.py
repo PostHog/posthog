@@ -14,12 +14,14 @@ from llm_gateway.auth.service import (
     InvalidProjectScopeError,
     UnauthorizedProjectScopeError,
     get_auth_service,
+    upstream_auth_header,
 )
 from llm_gateway.circuit_breaker import AnthropicCircuitBreaker
 from llm_gateway.config import get_settings
 from llm_gateway.flags import evaluate_flag
 from llm_gateway.products.config import (
     ALLOWED_PRODUCTS,
+    INTERNAL_RUN_SCOPE,
     check_free_tier_model_access,
     check_product_access,
     get_product_config,
@@ -34,7 +36,8 @@ from llm_gateway.request_context import (
     get_request_id,
     set_throttle_context,
 )
-from llm_gateway.services.plan_resolver import PlanInfo, resolve_plan_info
+from llm_gateway.services.desktop_access_resolver import DesktopAccessResolver
+from llm_gateway.services.plan_resolver import POSTHOG_CODE_PRODUCT, PlanInfo, resolve_plan_info
 from llm_gateway.services.quota_resolver import QuotaResourceStatus, resolve_quota_status
 
 logger = structlog.get_logger(__name__)
@@ -156,7 +159,54 @@ async def enforce_product_access(
 
     if not allowed:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=error)
+
+    await enforce_desktop_access(request, user, product)
     return user
+
+
+async def enforce_desktop_access(request: Request, user: AuthenticatedUser, product: str) -> None:
+    """Deny posthog_code to OAuth callers who aren't entitled to PostHog Desktop.
+
+    ``check_product_access`` only proves the token was issued to the PostHog Desktop OAuth
+    application, which any signed-up user can obtain by completing the consent flow — it
+    says nothing about beta membership. The entitlement itself (the `tasks` flag or a
+    redeemed invite) lives in Django, so ask Django rather than reimplementing it here.
+
+    Server-minted sandbox tokens are exempt: the run that minted one already passed
+    Django's own ``code_access_required_response`` gate, including the deliberate Inbox
+    exemptions (``task_exempt_from_code_access``) that must keep working without the flag.
+    """
+    settings = get_settings()
+    if not settings.desktop_access_gate_enabled or settings.debug:
+        return
+    if resolve_product_alias(product) != POSTHOG_CODE_PRODUCT:
+        return
+    if user.auth_method != "oauth_access_token":
+        return
+    if INTERNAL_RUN_SCOPE in (user.scopes or []):
+        return
+
+    resolver: DesktopAccessResolver | None = getattr(request.app.state, "desktop_access_resolver", None)
+    allowed = await resolver.has_access(user.user_id, upstream_auth_header(request)) if resolver else None
+
+    if allowed is None:
+        # Unknown, not denied — see DesktopAccessResolver.has_access.
+        logger.warning("desktop_access_check_unavailable", user_id=user.user_id, team_id=user.team_id)
+        return
+    if allowed:
+        return
+
+    logger.warning("desktop_access_denied", user_id=user.user_id, team_id=user.team_id)
+    raise HTTPException(
+        status_code=status.HTTP_403_FORBIDDEN,
+        detail={
+            "error": {
+                "message": "PostHog Desktop access is required to use this product.",
+                "type": "permission_error",
+                "code": "code_access_required",
+            }
+        },
+    )
 
 
 async def _extract_end_user_id_from_body(request: Request) -> str | None:
