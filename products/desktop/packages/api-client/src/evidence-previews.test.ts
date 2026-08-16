@@ -262,6 +262,20 @@ describe("evidence preview shaping", () => {
     expect(compactCount(10000000)).toBe("10M");
   });
 
+  // Guards the rounding boundary: the unit is picked after the mantissa
+  // rounds, so a value that rounds to 1000 of the lower unit promotes.
+  it.each([
+    [999499, "999K"],
+    [999500, "1M"],
+    [999999, "1M"],
+    [-999999, "-1M"],
+    [999499999, "999M"],
+    [999500000, "1B"],
+    [999999999, "1B"],
+  ])("formats %d as %s without a four-digit mantissa", (input, expected) => {
+    expect(compactCount(input)).toBe(expected);
+  });
+
   it("leads a stale flag with the verdict and PostHog's reason", () => {
     const preview = decorateFlagPreview(
       {

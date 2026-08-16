@@ -37,8 +37,11 @@ export function compactCount(value: number): string {
       scaled >= 100 ? Math.round(scaled) : Number(scaled.toFixed(1));
     return `${rounded}${suffix}`;
   };
-  if (abs >= 1e9) return format(value / 1e9, "B");
-  if (abs >= 1e6) return format(value / 1e6, "M");
+  // Enter each unit where the one below would round up to 1000 (999_999 ->
+  // "1000K"), so it promotes to the next unit ("1M") instead of showing a
+  // four-digit mantissa.
+  if (abs >= 999.5e6) return format(value / 1e9, "B");
+  if (abs >= 999.5e3) return format(value / 1e6, "M");
   if (abs >= 1e3) return format(value / 1e3, "K");
   return Number.isInteger(value) ? String(value) : value.toFixed(1);
 }
