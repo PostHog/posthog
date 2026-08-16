@@ -7,7 +7,7 @@ controls every product viewset mixes in stay in access_control.py.
 """
 
 from collections import defaultdict
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 from functools import cache
 from typing import TYPE_CHECKING, Any, cast
 
@@ -46,7 +46,12 @@ from posthog.rbac.user_access_control import (
 )
 from posthog.scopes import INTERNAL_API_SCOPE_OBJECTS, APIScopeObject
 
-from ee.api.rbac.access_control import AccessControlSerializer, AccessControlViewSetMixin, upsert_access_control
+from ee.api.rbac.access_control import (
+    AccessControlSerializer,
+    AccessControlViewSetMixin,
+    ResolvedAccessSerializer,
+    upsert_access_control,
+)
 from ee.models.rbac.access_control import AccessControl
 from ee.models.rbac.role import Role
 
@@ -174,19 +179,11 @@ class _DisplayModel:
 
 
 def _serialize_inherited(access: ResolvedAccess | None) -> dict[str, Any] | None:
-    if access is None:
-        return None
-    return {
-        "access_level": access.access_level,
-        "source": access.source,
-        "source_subject": access.source_subject,
-        "source_resource": access.source_resource,
-        "source_resource_id": access.source_resource_id,
-    }
+    return ResolvedAccessSerializer(asdict(access)).data if access else None
 
 
-def _saved_level(subject: SubjectAccessControl, resource: APIScopeObject, resource_id: str | None) -> str | None:
-    """The subject's own stored rule for the resource, if any — what the settings UI edits."""
+def _stored_level(subject: SubjectAccessControl, resource: APIScopeObject, resource_id: str | None) -> str | None:
+    """The subject's own stored rule for the resource, if any — the entry's editable `access_level`."""
     rows = subject.subject_rows(resource, resource_id)
     return rows[0].access_level if rows else None
 
@@ -194,7 +191,7 @@ def _saved_level(subject: SubjectAccessControl, resource: APIScopeObject, resour
 def _project_entry(subject: SubjectAccessControl, team: Team) -> dict[str, Any]:
     """Project access is an object-level question (the team is the object), never resource-wide."""
     return {
-        "access_level": _saved_level(subject, "project", str(team.id)),
+        "access_level": _stored_level(subject, "project", str(team.id)),
         "effective_access_level": subject.get_user_access_level(team),
         "inherited_access": _serialize_inherited(subject.inherited_access_for_object(team)),
         "minimum": minimum_access_level("project"),
@@ -205,7 +202,7 @@ def _project_entry(subject: SubjectAccessControl, team: Team) -> dict[str, Any]:
 def _resource_entry(subject: SubjectAccessControl, resource: APIScopeObject) -> dict[str, Any]:
     effective = subject.access_level_for_resource(resource)
     return {
-        "access_level": _saved_level(subject, resource, None),
+        "access_level": _stored_level(subject, resource, None),
         "effective_access_level": effective.access_level if effective else None,
         "inherited_access": _serialize_inherited(subject.inherited_access_for_resource(resource)),
         "minimum": minimum_access_level(resource),
@@ -417,15 +414,8 @@ class AccessControlSettingsViewSetMixin(_GenericViewSet):
 
             # When the org restricts member list visibility, project members only see users with
             # project-scoped access (explicit grant, role, or default) — org admins aren't implied in
-            if hide_non_project_members:
-                project_scoped = SubjectAccessControl(
-                    user_access_control.user, team, member=membership, ignore_org_admin=True
-                )
-                project_scoped.preload_access_controls(
-                    settings_rows, requesting_membership=requesting_membership, subject_role_ids=role_ids
-                )
-                if project_scoped.get_user_access_level(team) in (None, "none"):
-                    continue
+            if hide_non_project_members and not subject.has_project_scoped_access(team):
+                continue
 
             user = membership.user
             results.append(

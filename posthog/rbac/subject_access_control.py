@@ -1,5 +1,7 @@
 from collections import defaultdict
-from collections.abc import Sequence
+from collections.abc import Iterator, Sequence
+from contextlib import contextmanager
+from contextvars import ContextVar
 from functools import cached_property
 from typing import Any, Optional, cast
 
@@ -27,6 +29,11 @@ try:
 except ImportError:
     pass
 
+# Per-question state for a resolution in progress, scoped to a `with` block rather than kept on the
+# instance: the subject says whose access resolves; what to leave out for one question does not.
+_masked_resource: ContextVar[Optional[APIScopeObject]] = ContextVar("subject_masked_resource", default=None)
+_suspend_org_admin: ContextVar[bool] = ContextVar("subject_suspend_org_admin", default=False)
+
 
 class SubjectAccessControl(UserAccessControl):
     """Resolves access for a subject rather than for the requesting user.
@@ -52,17 +59,10 @@ class SubjectAccessControl(UserAccessControl):
         *,
         member: Optional[OrganizationMembership] = None,
         role_id: Optional[str] = None,
-        ignore_org_admin: bool = False,
     ):
         super().__init__(user, team, organization_id)
         self._subject_member = member
         self._subject_role_id = role_id
-        # For "does this member have project-scoped access" questions, where being an org admin
-        # must not count as having been granted anything
-        self._ignore_org_admin = ignore_org_admin
-        # Set only for the duration of an inherited resolution: the resource whose subject rows
-        # are left out of every fetch (see _get_access_controls)
-        self._masked_resource: Optional[APIScopeObject] = None
 
     def subject_rows(self, resource: APIScopeObject, resource_id: Optional[str]) -> list[_AccessControl]:
         """The subject's own stored rules for a resource (resource-wide when resource_id is None)
@@ -119,22 +119,40 @@ class SubjectAccessControl(UserAccessControl):
         for the resource left out of the fetch. `access_level_for_resource` fetches its own rows,
         so the mask applies at the fetch layer for the duration of this call only.
         """
-        target = RESOURCE_INHERITANCE_MAP.get(resource, resource)
-        self._masked_resource = target
-        try:
+        with self._subject_rows_masked_for(RESOURCE_INHERITANCE_MAP.get(resource, resource)):
             return self.access_level_for_resource(resource)
+
+    @contextmanager
+    def _subject_rows_masked_for(self, resource: APIScopeObject) -> Iterator[None]:
+        """Within the block, fetches for `resource` leave the subject's own rows out. Scoped to the
+        block (a context variable, not instance state), so it cannot leak into a later resolution."""
+        token = _masked_resource.set(resource)
+        try:
+            yield
         finally:
-            self._masked_resource = None
+            _masked_resource.reset(token)
 
     def _get_access_controls(self, filters: dict) -> list[_AccessControl]:
         rows = super()._get_access_controls(filters)
-        if self._masked_resource is None or filters.get("resource") != self._masked_resource:
+        masked = _masked_resource.get()
+        if masked is None or filters.get("resource") != masked:
             return rows
         return [ac for ac in rows if not self._is_subject_row(ac)]
 
+    def has_project_scoped_access(self, team: Team) -> bool:
+        """Whether the subject is granted access to the project by a rule — an explicit grant, a
+        role, or the project default — as opposed to reaching it through the org-admin bypass.
+        The visibility question: being an org admin is not being a member of the project."""
+        token = _suspend_org_admin.set(True)
+        try:
+            return self.get_user_access_level(team) not in (None, NO_ACCESS_LEVEL)
+        finally:
+            _suspend_org_admin.reset(token)
+
     def _applies_to_subject(self, access_control: _AccessControl) -> bool:
         """In-memory twin of this class's `_filter_options`: whether a row is one the subject's
-        resolution may see (a default rule, the subject's own rule, or one of their roles')."""
+        resolution may see (a default rule, the subject's own rule, or one of their roles').
+        Broader than `_is_subject_row`, which picks out only the subject's own rules."""
         if access_control.organization_member_id is None and access_control.role_id is None:
             return True
         if self._subject_member is not None and access_control.organization_member_id == self._subject_member.id:
@@ -209,7 +227,7 @@ class SubjectAccessControl(UserAccessControl):
 
     @property
     def is_organization_admin(self) -> bool:
-        if self._ignore_org_admin:
+        if _suspend_org_admin.get():
             return False
         return bool(self._subject_member and self._subject_member.level >= OrganizationMembership.Level.ADMIN)
 
@@ -274,9 +292,7 @@ def get_project_scoped_visible_membership_ids(
         # for this member as the subject, answered from the pool above. The org-admin bypass is
         # ignored: being an admin is not being granted anything on this project.
         team = teams_by_id[team_id]
-        subject = SubjectAccessControl(
-            requesting_membership.user, team, member=memberships_by_id[membership_id], ignore_org_admin=True
-        )
+        subject = SubjectAccessControl(requesting_membership.user, team, member=memberships_by_id[membership_id])
         # The member's roles were loaded above for candidate narrowing (only roles a project rule
         # names can matter, and none count without the entitlement) — hand them over rather than
         # let each subject query them again
@@ -285,7 +301,7 @@ def get_project_scoped_visible_membership_ids(
             requesting_membership=requesting_membership,
             subject_role_ids=candidate_role_ids.get(membership_id, []),
         )
-        return subject.get_user_access_level(team) not in (None, NO_ACCESS_LEVEL)
+        return subject.has_project_scoped_access(team)
 
     accessible_team_ids = [team_id for team_id in team_ids if has_scoped_access(team_id, requester_id)]
 

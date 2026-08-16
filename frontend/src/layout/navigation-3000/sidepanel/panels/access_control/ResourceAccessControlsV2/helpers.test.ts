@@ -1,6 +1,7 @@
 import { APIScopeObject, AccessControlLevel, EffectiveAccessControlEntry } from '~/types'
 
 import { getAccessSummaryTags, inheritedReasonOf } from './helpers'
+import { inheritedAccess } from './testUtils'
 import { AccessControlRoleEntry } from './types'
 
 const makeEffectiveEntry = (
@@ -17,17 +18,6 @@ const makeEffectiveEntry = (
 
 describe('helpers', () => {
     describe('inheritedReasonOf', () => {
-        const inherited = (
-            source: NonNullable<EffectiveAccessControlEntry['inherited_access']>['source'],
-            source_subject: NonNullable<EffectiveAccessControlEntry['inherited_access']>['source_subject']
-        ): EffectiveAccessControlEntry['inherited_access'] => ({
-            access_level: AccessControlLevel.Editor,
-            source,
-            source_subject,
-            source_resource: 'dashboard' as APIScopeObject,
-            source_resource_id: null,
-        })
-
         // The wire carries provenance; the settings copy only distinguishes three situations. A
         // wrong mapping here shows a member the wrong explanation and can unlock an admin's row.
         it.each([
@@ -37,7 +27,7 @@ describe('helpers', () => {
             ['object', 'default', 'project_default'],
             ['system_default', null, 'project_default'],
         ] as const)('%s / %s reads as %s', (source, subject, expected) => {
-            expect(inheritedReasonOf(inherited(source, subject))).toBe(expected)
+            expect(inheritedReasonOf(inheritedAccess(AccessControlLevel.Editor, source, subject))).toBe(expected)
         })
 
         it('has no reason when nothing is inherited', () => {
