@@ -23,8 +23,10 @@ The work splits in two, because recordings queries build their AST separately fr
 The exposure scan window is deliberately the full experiment window, unbounded. Narrowing it
 would change who counts as exposed relative to the analysis. The expensive cases are handled
 instead: precomputing teams read the preaggregated table (converging in TTL-capped chunks for
-long-running experiments), and where neither the preaggregated read nor an affordable live
-scan is available the query is refused with a ValidationError rather than left to time out.
+long-running experiments), activation-mode exposures always resolve with a live scan because
+they have no preaggregated form, and where neither the preaggregated read nor an affordable
+live scan is available the query is refused with a ValidationError rather than left to time
+out.
 """
 
 from dataclasses import dataclass
@@ -70,10 +72,6 @@ logger = structlog.get_logger(__name__)
 
 EXPOSURES_STILL_COMPUTING_MESSAGE = (
     "Exposed users for this experiment are still being computed. Try again in a few minutes."
-)
-ACTIVATION_NOT_PRECOMPUTABLE_MESSAGE = (
-    "This experiment counts exposure from an activation event, which can't be precomputed, "
-    "and this project is too large to resolve its exposed users live."
 )
 COHORT_NOT_CALCULATED_MESSAGE = (
     "This experiment's exposure criteria reference a cohort that hasn't finished calculating. "
@@ -206,11 +204,14 @@ def _resolve_preaggregation_job_ids(
 
     The eligibility gates mirror the exposures-chart runner's, but the fallback posture
     inverts: the analysis can always fall back to a direct scan, because it runs through
-    the async query pipeline with generous limits. This linkage runs inside a synchronous
-    recordings-list GET, where the production assessment showed the live scan cannot
-    complete on the largest teams. Precomputation being enabled is the team-level marker
-    for exactly those teams, so on them an unavailable preaggregated read is refused
-    instead of silently attempting the scan that precomputation exists to avoid.
+    the async query pipeline with generous limits, while this linkage runs inside a
+    synchronous recordings-list GET. Precomputation being enabled is the team-level
+    marker for the teams where the full-window live scan is a real cost, so on them a
+    transiently unavailable preaggregated read (still computing, cohort mid-calculation)
+    is refused instead of silently attempting the scan that precomputation exists to
+    avoid. Activation mode is the exception: it has no preaggregated form at all, and
+    its live scan stays affordable because its memory is bounded by the exposed
+    population, so it scans live rather than being permanently refused.
     """
     config = get_or_create_team_extension(team, TeamExperimentsConfig)
     # Below the minimum runtime the analysis skips precomputation too: the scan window is
@@ -224,9 +225,12 @@ def _resolve_preaggregation_job_ids(
 
     if has_activation_config(experiment.exposure_criteria):
         # The flag-to-activation ordering crosses the per-day cache buckets, so activation
-        # exposures can't be precomputed. A per-experiment live path for them is deliberately
-        # not built: activation mode is a negligible slice of running experiments.
-        raise ValidationError(ACTIVATION_NOT_PRECOMPUTABLE_MESSAGE)
+        # exposures have no preaggregated form. Their live scan stays affordable even on the
+        # largest teams, because it is bounded by the experiment window's activation events
+        # and the distinct-id expansion's memory scales with the exposed population, so they
+        # scan live instead of being refused.
+        tag_queries(experiment_exposures_path="direct_scan_activation")
+        return None
     if has_uncalculated_cohorts(team, experiment.exposure_criteria):
         # A build during the cohort's first materialization would freeze a torn membership
         # snapshot for the frozen-band TTL; transient, so the error says to retry.

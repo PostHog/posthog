@@ -532,7 +532,11 @@ class TestSessionRecordingsListByExperimentExposure(ClickhouseTestMixin, APIBase
                 )
         self.assertIn("still being computed", str(error_context.exception.detail))
 
-    def test_rejects_activation_mode_on_precomputing_teams(self) -> None:
+    def test_activation_mode_scans_live_even_on_precomputing_teams(self) -> None:
+        # Activation exposures have no preaggregated form, so on precomputing teams they must
+        # scan live rather than refuse, and must not reach ensure_precomputed: a cache built
+        # from the flag predicate alone would ignore the activation ordering and include the
+        # session between flag exposure and activation.
         self._enable_precomputation()
         experiment = self._create_experiment(
             exposure_criteria={
@@ -543,14 +547,38 @@ class TestSessionRecordingsListByExperimentExposure(ClickhouseTestMixin, APIBase
                 }
             }
         )
+        create_person(team=self.team, distinct_ids=["activated-user"])
+        flag_exposure_time = BASE_TIME + timedelta(minutes=30)
+        activation_time = BASE_TIME + timedelta(hours=3)
+        self._create_exposure_event("activated-user", flag_exposure_time, "test")
+        _create_event(
+            team=self.team,
+            event="task_completed",
+            distinct_id="activated-user",
+            timestamp=activation_time,
+            properties={},
+        )
+        flush_persons_and_events()
 
-        with self.assertRaises(ValidationError) as error_context:
-            filter_recordings_by(
-                team=self.team,
-                recordings_filter={"experiment_exposure": {"experiment_id": experiment.id}},
-                user=self.user,
+        self._produce_recording(
+            "activated-user",
+            "session-before-activation",
+            flag_exposure_time + timedelta(minutes=30),
+            flag_exposure_time + timedelta(minutes=45),
+        )
+        self._produce_recording(
+            "activated-user",
+            "session-after-activation",
+            activation_time + timedelta(minutes=30),
+            activation_time + timedelta(minutes=45),
+        )
+
+        with patch("products.experiments.backend.replay_linkage.ensure_precomputed") as ensure_mock:
+            self._assert_query_matches_session_ids(
+                {"experiment_exposure": {"experiment_id": experiment.id}},
+                ["session-after-activation"],
             )
-        self.assertIn("activation event", str(error_context.exception.detail))
+        ensure_mock.assert_not_called()
 
     def test_young_experiments_scan_live_even_on_precomputing_teams(self) -> None:
         # Started 6 hours before the frozen now, under the 12-hour precompute minimum. The
