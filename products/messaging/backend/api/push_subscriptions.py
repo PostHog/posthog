@@ -77,17 +77,15 @@ _encrypted_fields = EncryptedFieldMixin()
 _VERIFICATION_MODE_PRECEDENCE = {"disabled": 0, "optional": 1, "required": 2}
 
 
-def _is_first_discard_in_window(team_id: int, app_id: str) -> bool:
-    """Fixed-window counter, keyed on the window so a missed expiry can never wedge the log shut.
-    Fails open on a cache outage: losing the cache must not lose the only line naming the project."""
+def _is_first_discard_in_window(team_id: int) -> bool:
+    """Keyed on the team and the window only. app_id is request-controlled and can fill most of the
+    16 KiB body, and the project token that reaches this endpoint ships inside every copy of the app,
+    so keying on it would let anyone mint unbounded cache entries. Keyed on the window so a missed
+    expiry can never wedge the log shut, and fails open: losing the cache must not lose the only line
+    that names the project."""
     window = int(time.time()) // _DISCARD_LOG_WINDOW_SECONDS
-    key = f"push_subscriptions:discarded:{team_id}:{app_id}:{window}"
     try:
-        cache.add(key, 0, timeout=_DISCARD_LOG_WINDOW_SECONDS)
-        return cache.incr(key) == 1
-    except ValueError:
-        # The key expired between add and incr; this request is the window's first.
-        return True
+        return cache.add(f"push_subscriptions:discarded:{team_id}:{window}", 1, _DISCARD_LOG_WINDOW_SECONDS)
     except Exception:
         return True
 
@@ -282,7 +280,7 @@ def push_subscriptions(request: Request):
     # DELETE falls through: logout must clear any subscription stored while an integration existed.
     if not integrations and request.method == "POST":
         PUSH_SUBSCRIPTION_DISCARD_COUNTER.labels(reason="no_integration").inc()
-        if _is_first_discard_in_window(team.id, app_id):
+        if _is_first_discard_in_window(team.id):
             logger.info("push_subscription_discarded", reason="no_integration", team_id=team.id, app_id=app_id)
         return cors_response(
             request,

@@ -317,12 +317,17 @@ class TestPushSubscriptionsAPI(BaseTest):
         with capture_logs() as logs:
             for _ in range(5):
                 assert self._post(payload).status_code == status.HTTP_200_OK
+            # A different app_id from the same team stays inside the same window. app_id is
+            # request-controlled, so keying the window on it would let one public project token mint
+            # unbounded cache entries.
+            for _ in range(2):
+                assert self._post({**payload, "app_id": "another-project"}).status_code == status.HTTP_200_OK
 
         discard_logs = [log for log in logs if log["event"] == "push_subscription_discarded"]
         assert len(discard_logs) == 1
         assert discard_logs[0]["team_id"] == self.team.id
         assert discard_logs[0]["app_id"] == "nonexistent-project"
-        assert counter._value.get() == before + 5
+        assert counter._value.get() == before + 7
 
     @patch("products.messaging.backend.api.push_subscriptions.capture_internal")
     def test_team_isolation(self, mock_capture: MagicMock):
