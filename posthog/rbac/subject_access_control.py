@@ -1,5 +1,4 @@
 from collections import defaultdict
-from collections.abc import Sequence
 from contextvars import ContextVar
 from functools import cached_property
 from typing import Any, Optional, cast
@@ -177,20 +176,22 @@ class SubjectAccessControl(UserAccessControl):
 
     def preload_access_controls(
         self,
-        rows: Optional[Sequence[_AccessControl]] = None,
+        rows: Optional[list[_AccessControl]] = None,
         *,
         requesting_membership: Optional[OrganizationMembership] = None,
-        subject_role_ids: Optional[Sequence[str]] = None,
+        subject_role_ids: Optional[list[str]] = None,
     ) -> None:
-        """Answer this subject's lookups for its team from `rows` — a pool already loaded (a sibling
-        subject's `team_access_controls`, or the caller's own query) — instead of the database, so
-        many subjects share one query. Without `rows`, this subject loads the pool itself. Rows are
-        narrowed to the subject in memory first, exactly as `_filter_options` would in the query
-        the preload stands in for.
+        """Seed this subject's team pool (`_cached_access_controls`) from `rows` — a pool already
+        loaded (a sibling subject's `team_access_controls`, or the caller's own query) — instead of
+        the database, so many subjects share one query. Without `rows`, this subject loads the pool
+        itself. Rows are narrowed to the subject in memory first, exactly as `_filter_options` would
+        in the query the pool stands in for.
 
-        The two per-instance lookups that don't vary by subject can be seeded too, as
-        `for_team_ids` seeds its siblings: the requesting user's membership, and (for a member
-        subject) the member's role ids when the caller already prefetched them.
+        This seeds the pool; the base class's `preload_*` methods do the other half (pre-answering
+        specific lookups *from* the pool) and never write it — only `for_team_ids` does, the same way
+        as here. The two per-instance lookups that don't vary by subject are seeded as `for_team_ids`
+        seeds its siblings: the requesting user's membership, and (for a member subject) the member's
+        role ids when the caller already prefetched them.
         """
         assert self._team is not None
         if requesting_membership is not None:
