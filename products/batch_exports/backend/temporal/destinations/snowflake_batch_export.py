@@ -468,7 +468,7 @@ class SnowflakeTable(Table):
         return self
 
 
-@dataclasses.dataclass(kw_only=True)
+@dataclasses.dataclass(frozen=False, kw_only=True)
 class SnowflakeInsertInputs(BatchExportInsertInputs):
     """Inputs for Snowflake."""
 

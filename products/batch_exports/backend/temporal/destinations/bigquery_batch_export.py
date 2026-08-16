@@ -1318,7 +1318,7 @@ def _get_merge_settings(
     return MergeSettings(primary_key, version_key)
 
 
-@dataclasses.dataclass(kw_only=True)
+@dataclasses.dataclass(frozen=False, kw_only=True)
 class BigQueryInsertInputs(BatchExportInsertInputs):
     """Inputs for BigQuery."""
 

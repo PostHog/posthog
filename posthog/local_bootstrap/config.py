@@ -3,6 +3,8 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Literal
 
+from posthog.dataclasses import frozen
+
 # Mirrors the file formats and compression methods supported by the PostHog S3 batch export
 # feature (see products/batch_exports/.../destinations/constants.py). Kept as a local copy so the
 # bootstrapper has no import-time dependency on the Temporal batch-export package.
@@ -24,7 +26,7 @@ class BootstrapConfigError(Exception):
     """Raised when the import configuration is invalid (bad format, missing bucket, etc.)."""
 
 
-@dataclass
+@frozen
 class S3Location:
     """Where a dump lives and how to authenticate against it."""
 
@@ -61,7 +63,7 @@ class TableImportConfig:
             raise BootstrapConfigError(f"A bucket is required for the {self.table} table")
 
 
-@dataclass
+@frozen
 class BootstrapConfig:
     """Full configuration for a bootstrap run."""
 

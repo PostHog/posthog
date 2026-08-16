@@ -255,7 +255,7 @@ class BaseBatchExportInputs:
         return self.is_earliest_backfill
 
 
-@dataclass(kw_only=True)
+@dataclass(frozen=False, kw_only=True)
 class S3BatchExportInputs(BaseBatchExportInputs):
     """Inputs for S3 export workflow.
 
@@ -299,7 +299,7 @@ class S3BatchExportInputs(BaseBatchExportInputs):
     use_virtual_style_addressing: bool = False
 
 
-@dataclass(kw_only=True)
+@dataclass(frozen=False, kw_only=True)
 class S3FamilyBaseInputs(BaseBatchExportInputs):
     """Shared fields for every S3-family destination.
 
@@ -361,7 +361,7 @@ class FileDownloadBatchExportInputs(BaseBatchExportInputs):
     expires_in_seconds: int = 3600
 
 
-@dataclass(kw_only=True)
+@dataclass(frozen=False, kw_only=True)
 class SnowflakeBatchExportInputs(BaseBatchExportInputs):
     """Inputs for Snowflake export workflow.
 
@@ -383,7 +383,7 @@ class SnowflakeBatchExportInputs(BaseBatchExportInputs):
     role: str | None = None
 
 
-@dataclass(kw_only=True)
+@dataclass(frozen=False, kw_only=True)
 class PostgresBatchExportInputs(BaseBatchExportInputs):
     """Inputs for Postgres export workflow."""
 
@@ -401,7 +401,7 @@ class PostgresBatchExportInputs(BaseBatchExportInputs):
 IAMRole = str
 
 
-@dataclass
+@dataclass(frozen=False)
 class AWSCredentials:
     aws_access_key_id: str
     aws_secret_access_key: str = field(repr=False)
@@ -421,7 +421,7 @@ class RedshiftCopyInputs:
     bucket_credentials: AWSCredentials
 
 
-@dataclass(kw_only=True)
+@dataclass(frozen=False, kw_only=True)
 class RedshiftBatchExportInputs(BaseBatchExportInputs):
     """Inputs for Redshift export workflow."""
 
@@ -472,7 +472,7 @@ class RedshiftBatchExportInputs(BaseBatchExportInputs):
             )
 
 
-@dataclass(kw_only=True)
+@dataclass(frozen=False, kw_only=True)
 class BigQueryBatchExportInputs(BaseBatchExportInputs):
     """Inputs for BigQuery export workflow."""
 

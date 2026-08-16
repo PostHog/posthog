@@ -12,6 +12,8 @@ import requests
 from structlog.types import FilteringBoundLogger
 from urllib3.util.retry import Retry
 
+from posthog.dataclasses import frozen
+
 from products.warehouse_sources.backend.temporal.data_imports.sources.adobe_commerce.settings import (
     ADOBE_COMMERCE_ENDPOINTS,
     VALIDATION_PROBE_ENDPOINTS,
@@ -110,7 +112,7 @@ class AdobeCommerceResumeConfig:
     current_page: int
 
 
-@dataclasses.dataclass
+@frozen
 class AdobeCommerceCredentials:
     method: Literal["access_token", "admin"]
     access_token: str | None = dataclasses.field(default=None, repr=False)

@@ -177,7 +177,7 @@ class _PostgreSQLClientInputsProtocol(typing.Protocol):
     def tls(self) -> TLS: ...
 
 
-@dataclasses.dataclass(kw_only=True)
+@dataclasses.dataclass(frozen=False, kw_only=True)
 class PostgresInsertInputs(BatchExportInsertInputs):
     """Inputs for Postgres."""
 

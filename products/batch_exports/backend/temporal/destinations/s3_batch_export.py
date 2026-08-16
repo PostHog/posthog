@@ -165,7 +165,7 @@ async def _get_s3_integration(
     )
 
 
-@dataclasses.dataclass(kw_only=True)
+@dataclasses.dataclass(frozen=False, kw_only=True)
 class S3InsertInputs(BatchExportInsertInputs):
     """Inputs for S3 exports."""
 

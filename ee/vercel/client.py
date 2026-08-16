@@ -8,10 +8,12 @@ import structlog
 from requests import HTTPError, RequestException, Timeout
 from tenacity import retry, retry_if_exception, stop_after_attempt, wait_exponential
 
+from posthog.dataclasses import frozen
+
 logger = structlog.get_logger(__name__)
 
 
-@dataclass
+@frozen
 class SSOTokenResponse:
     access_token: str = field(repr=False)
     token_type: str
@@ -22,7 +24,7 @@ class SSOTokenResponse:
     error_description: str | None = None
 
 
-@dataclass
+@frozen
 class OAuthTokenResponse:
     access_token: str = field(repr=False)
     token_type: str

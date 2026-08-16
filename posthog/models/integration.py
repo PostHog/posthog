@@ -703,7 +703,7 @@ def aget_integration_by_id(integration_id: str, team_id: int) -> Integration | N
     return Integration.objects.get(id=integration_id, team_id=team_id)
 
 
-@dataclass
+@frozen
 class OauthConfig:
     authorize_url: str
     token_url: str

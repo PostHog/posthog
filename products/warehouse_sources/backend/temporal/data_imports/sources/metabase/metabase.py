@@ -8,6 +8,8 @@ import requests
 import structlog
 from structlog.types import FilteringBoundLogger
 
+from posthog.dataclasses import frozen
+
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import _is_host_safe
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
@@ -55,7 +57,7 @@ class MetabaseAuthError(Exception):
     pass
 
 
-@dataclasses.dataclass
+@frozen
 class MetabaseAuth:
     # "api_key" sends a static X-API-Key header; "session" mints a short-lived token via
     # POST /api/session and sends it as X-Metabase-Session (for instances older than v0.47).

@@ -19,6 +19,7 @@ import structlog
 from rest_framework import exceptions
 
 from posthog.cloud_utils import get_cached_instance_license
+from posthog.dataclasses import frozen
 from posthog.event_usage import report_user_signed_up
 from posthog.exceptions_capture import capture_exception
 from posthog.models.integration import Integration
@@ -86,7 +87,7 @@ class ResourceConfig:
     protocolSettings: dict[str, Any] | None = None
 
 
-@dataclass
+@frozen
 class InstallationCredentials:
     access_token: str = field(repr=False)
     token_type: str

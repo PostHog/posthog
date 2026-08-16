@@ -18,6 +18,7 @@ from structlog.contextvars import bind_contextvars
 from temporalio import activity, exceptions, workflow
 from temporalio.common import RetryPolicy
 
+from posthog.dataclasses import frozen
 from posthog.models import Team
 from posthog.models.integration import TLS, Authority, Credentials
 from posthog.temporal.common.base import PostHogWorkflow
@@ -645,7 +646,7 @@ class CopyParameters:
     authorization: IAMRole | AWSCredentials
 
 
-@dataclasses.dataclass
+@frozen
 class ConnectionParameters:
     user: str
     password: str = dataclasses.field(repr=False)

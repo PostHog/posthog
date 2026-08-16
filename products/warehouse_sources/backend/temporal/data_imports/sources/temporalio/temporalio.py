@@ -12,6 +12,7 @@ from structlog.types import FilteringBoundLogger
 from temporalio.client import Client
 from temporalio.service import RPCError, RPCStatusCode
 
+from posthog.dataclasses import frozen
 from posthog.temporal.common.client import connect
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
@@ -252,7 +253,7 @@ def _sanitize(obj):
     return {k: safe_convert(v) for k, v in obj.items()}
 
 
-@dataclasses.dataclass
+@frozen
 class FakeSettings:
     """Required to trick temporal.io client to think its reading from django settings"""
 

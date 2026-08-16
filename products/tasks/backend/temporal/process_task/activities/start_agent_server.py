@@ -8,6 +8,7 @@ from django.db import connection
 
 from temporalio import activity
 
+from posthog.dataclasses import frozen
 from posthog.models import Integration
 from posthog.models.integration import GitHubIntegration
 from posthog.models.user_integration import UserGitHubIntegration, UserIntegration
@@ -175,7 +176,7 @@ class StartAgentServerOutput:
     boot_total_ms: int | None = None
 
 
-@dataclass
+@frozen
 class _LaunchParams:
     mcp_configs: list[McpServerConfig]
     relayed_mcp_servers: list[str]
