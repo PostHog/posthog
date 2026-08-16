@@ -33,12 +33,6 @@ import { GatewayServersLoadError } from './GatewayServersHome'
 import { POLICY_OPTIONS, PolicySummary } from './gatewayUtils'
 import { mcpGatewayLogic } from './mcpGatewayLogic'
 
-const TOOL_POLICY_BACKGROUND_CLASSES: Record<MCPToolApprovalStateEnumApi, string> = {
-    approved: 'bg-success-highlight',
-    needs_approval: 'bg-warning-highlight',
-    do_not_use: 'bg-danger-highlight',
-}
-
 export const scene: SceneExport<(typeof gatewayServerLogic)['props']> = {
     component: GatewayServerRouteScene,
     paramsToProps: ({ params: { id } }) => ({ id }),
@@ -70,11 +64,11 @@ export function GatewayServerScene({
     const goBack = onBack ?? (() => router.actions.push(urls.mcpGateway()))
 
     if (!server && serverLoading) {
-        return <SceneContent>Loading…</SceneContent>
+        return <SceneContent className="mx-auto w-full max-w-[1200px]">Loading…</SceneContent>
     }
     if (!server && serversLoadFailed) {
         return (
-            <SceneContent>
+            <SceneContent className="mx-auto w-full max-w-[1200px]">
                 <LemonButton size="small" type="tertiary" icon={<IconArrowLeft />} onClick={goBack}>
                     Back to servers
                 </LemonButton>
@@ -83,7 +77,7 @@ export function GatewayServerScene({
         )
     }
     if (!server) {
-        return <SceneContent>Server not found.</SceneContent>
+        return <SceneContent className="mx-auto w-full max-w-[1200px]">Server not found.</SceneContent>
     }
 
     const connection = server.your_connection
@@ -120,7 +114,7 @@ export function GatewayServerScene({
     }
 
     return (
-        <SceneContent>
+        <SceneContent className="mx-auto w-full max-w-[1200px]">
             <LemonButton size="small" type="tertiary" icon={<IconArrowLeft />} onClick={goBack}>
                 Back to servers
             </LemonButton>
@@ -391,7 +385,7 @@ function ToolPoliciesSection(): JSX.Element {
                     No tools match “{toolSearch}”.
                 </div>
             ) : (
-                <div className="border rounded divide-y overflow-hidden">
+                <div className="border rounded divide-y overflow-hidden bg-surface-primary">
                     {displayedToolPolicies.map((policy) => (
                         <ToolPolicyRow key={policy.tool_name} policy={policy} />
                     ))}
@@ -477,7 +471,7 @@ function ToolPolicyRow({ policy }: { policy: ResolvedToolPolicyApi }): JSX.Eleme
         )
 
     return (
-        <div className={`flex items-start gap-2 transition-colors ${TOOL_POLICY_BACKGROUND_CLASSES[displayedState]}`}>
+        <div className="flex items-start gap-2">
             <div className="min-w-0 flex-1">
                 <LemonCollapse
                     embedded

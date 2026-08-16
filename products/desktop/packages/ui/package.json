@@ -91,7 +91,7 @@
     "inversify": "catalog:",
     "lru-cache": "^11.1.0",
     "lucide-react": "^1.7.0",
-    "posthog-js": "^1.378.0",
+    "posthog-js": "^1.417.1",
     "radix-themes-tw": "0.2.3",
     "react-hotkeys-hook": "^4.4.4",
     "react-markdown": "^10.1.0",

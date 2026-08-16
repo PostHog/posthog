@@ -92,6 +92,8 @@ export interface CanvasApi {
     readonly created_by: UserBasicApi
     readonly created_at: string
     readonly updated_at: string
+    /** Canonical link to the canvas in the PostHog app. The only valid way to link to a canvas — share this when pointing a user at it; never construct a canvas URL. */
+    readonly url: string
 }
 
 export interface PaginatedCanvasListApi {
@@ -139,6 +141,39 @@ export interface PatchedCanvasUpdateApi {
      * @nullable
      */
     generation_task_id?: string | null
+}
+
+/**
+ * Verb-specific arguments, validated against the verb's payload schema.
+ */
+export type CanvasActionInvokeApiPayload = { [key: string]: unknown }
+
+/**
+ * Payload for invoking one action verb.
+ */
+export interface CanvasActionInvokeApi {
+    /**
+     * Registered verb to invoke, e.g. 'tasks.create'.
+     * @maxLength 64
+     */
+    verb: string
+    /** Verb-specific arguments, validated against the verb's payload schema. */
+    payload?: CanvasActionInvokeApiPayload
+}
+
+/**
+ * Verb-specific result, e.g. {'task_id': ...} for tasks.create.
+ */
+export type CanvasActionResultApiResult = { [key: string]: unknown }
+
+/**
+ * Result of one action invocation.
+ */
+export interface CanvasActionResultApi {
+    /** The verb that executed. */
+    verb: string
+    /** Verb-specific result, e.g. {'task_id': ...} for tasks.create. */
+    result: CanvasActionResultApiResult
 }
 
 /**
@@ -357,6 +392,17 @@ export interface CanvasSourceAssetApi {
     content: string
 }
 
+/**
+ * * `user` - user
+ * * `shared` - shared
+ */
+export type CanvasStateScopeEnumApi = (typeof CanvasStateScopeEnumApi)[keyof typeof CanvasStateScopeEnumApi]
+
+export const CanvasStateScopeEnumApi = {
+    User: 'user',
+    Shared: 'shared',
+} as const
+
 export interface CanvasPostHogCapabilitiesApi {
     /**
      * @maxItems 100
@@ -369,6 +415,17 @@ export interface CanvasPostHogCapabilitiesApi {
      * @items.maxLength 200
      */
     captureEvents: string[]
+    /**
+     * State scopes the canvas may use via ph.state: 'user' (private to each viewer) and/or 'shared' (one value per canvas, team-visible).
+     * @maxItems 2
+     */
+    state?: CanvasStateScopeEnumApi[]
+    /**
+     * Registered action verbs the canvas may invoke via ph.actions (e.g. 'annotations.create', 'tasks.create'). Each executes as the viewer; declaring one shows it in the promote review.
+     * @maxItems 32
+     * @items.maxLength 64
+     */
+    actions?: string[]
 }
 
 export interface CanvasNetworkCapabilitiesApi {
@@ -444,6 +501,10 @@ export interface CanvasCapabilityWideningApi {
     inline_queries_enabled: boolean
     /** Network origins the draft newly declares it may reach. */
     network_origins_added: string[]
+    /** State scopes (user, shared) the draft newly declares for ph.state. */
+    state_scopes_added: string[]
+    /** Action verbs the draft newly declares it may invoke via ph.actions. */
+    actions_added: string[]
 }
 
 /**
@@ -566,6 +627,8 @@ export interface CanvasSummaryApi {
     published_build_id: string | null
     /** When the canvas was created. */
     created_at: string
+    /** Canonical link to the canvas in the PostHog app. The only valid way to link to a canvas — share this when pointing a user at it; never construct a canvas URL. */
+    readonly url: string
 }
 
 /**
@@ -634,6 +697,87 @@ export interface CanvasPublishCurrentVersionApi {
 }
 
 /**
+ * Payload for reporting a runtime error observed while rendering a canvas build.
+ */
+export interface CanvasReportErrorApi {
+    /** Id of the build that was rendering when the error occurred. */
+    build_id: string
+    /**
+     * Error class name only, for example TypeError. Values that are not a plain class-name identifier are recorded as 'unknown'. Full error messages and stack traces must stay client-side.
+     * @maxLength 64
+     */
+    error_type: string
+}
+
+/**
+ * * `filed` - filed
+ * * `duplicate` - duplicate
+ * * `no_authoring_task` - no_authoring_task
+ * * `skipped` - skipped
+ */
+export type ReportOutcomeEnumApi = (typeof ReportOutcomeEnumApi)[keyof typeof ReportOutcomeEnumApi]
+
+export const ReportOutcomeEnumApi = {
+    Filed: 'filed',
+    Duplicate: 'duplicate',
+    NoAuthoringTask: 'no_authoring_task',
+    Skipped: 'skipped',
+} as const
+
+/**
+ * Outcome of filing a canvas error report.
+ */
+export interface CanvasErrorReportResultApi {
+    /** filed: a new report row was written. duplicate: this build and error type were already reported. no_authoring_task: the canvas has no linked task to notify. skipped: thread updates are unavailable.
+     *
+     * * `filed` - filed
+     * * `duplicate` - duplicate
+     * * `no_authoring_task` - no_authoring_task
+     * * `skipped` - skipped */
+    report_outcome: ReportOutcomeEnumApi
+}
+
+/**
+ * Payload for asking the canvas's authoring agent to fix a failing build or runtime error.
+ */
+export interface CanvasRequestFixApi {
+    /** Id of the failing or erroring build the fix should address. */
+    build_id: string
+    /**
+     * Error class from the runtime report, when fixing a runtime error. Omit for a failed build; its diagnostics are read server-side.
+     * @maxLength 64
+     */
+    error_type?: string
+}
+
+/**
+ * * `signaled` - signaled
+ * * `new_run` - new_run
+ * * `already_queued` - already_queued
+ */
+export type DispatchOutcomeEnumApi = (typeof DispatchOutcomeEnumApi)[keyof typeof DispatchOutcomeEnumApi]
+
+export const DispatchOutcomeEnumApi = {
+    Signaled: 'signaled',
+    NewRun: 'new_run',
+    AlreadyQueued: 'already_queued',
+} as const
+
+/**
+ * Outcome of dispatching a canvas fix to the authoring agent.
+ */
+export interface CanvasFixRequestResultApi {
+    /** signaled: the task's live run received the request. new_run: a fresh agent run was started. already_queued: a fix run was already starting, so no new run was created.
+     *
+     * * `signaled` - signaled
+     * * `new_run` - new_run
+     * * `already_queued` - already_queued */
+    dispatch_outcome: DispatchOutcomeEnumApi
+    /** The authoring task the fix was routed to. */
+    task_id: string
+}
+
+/**
  * Payload for reverting the canvas's head to an existing source version.
  */
 export interface CanvasRevertApi {
@@ -659,6 +803,52 @@ export interface CanvasSourceResponseApi {
      * @nullable
      */
     current_version_id: string | null
+}
+
+/**
+ * One key of a canvas's runtime key-value state (the ph.state store).
+ */
+export interface CanvasStateEntryApi {
+    /** user: private to the viewer who wrote it. shared: one value per canvas, visible to every viewer.
+     *
+     * * `user` - user
+     * * `shared` - shared */
+    scope: CanvasStateScopeEnumApi
+    /**
+     * The entry's key, unique within its scope.
+     * @maxLength 200
+     */
+    key: string
+    /** The stored JSON value. */
+    value: unknown
+    /** When the entry was last written. */
+    updated_at: string
+}
+
+/**
+ * The canvas state readable by the caller.
+ */
+export interface CanvasStateResponseApi {
+    /** The canvas's shared entries plus the caller's own user-scoped entries. */
+    entries: CanvasStateEntryApi[]
+}
+
+/**
+ * Payload for writing (or deleting) one key of a canvas's runtime state.
+ */
+export interface CanvasStateSetApi {
+    /** Scope to write into; the canvas must declare it in capabilities.posthog.state.
+     *
+     * * `user` - user
+     * * `shared` - shared */
+    scope: CanvasStateScopeEnumApi
+    /**
+     * Key to write, unique within its scope.
+     * @maxLength 200
+     */
+    key: string
+    /** JSON value to store (at most 64 KB serialized), or null to delete the key. */
+    value: unknown
 }
 
 /**
@@ -717,6 +907,28 @@ export interface PaginatedCanvasVersionListApi {
     results: CanvasVersionApi[]
 }
 
+/**
+ * One registered action verb, as the host renders it before invoking.
+ */
+export interface CanvasActionDefinitionApi {
+    /** The verb's registry name, e.g. 'annotations.create'. */
+    verb: string
+    /** One line naming what invoking the verb does. */
+    summary: string
+    /** True when the verb deletes or disables something; the host must confirm with the viewer first. */
+    destructive: boolean
+    /** Authoring docs for the verb: payload and result shape, behavior, and the confirmation copy it warrants. */
+    usage: string
+}
+
+/**
+ * The action registry: every verb a canvas may declare and invoke.
+ */
+export interface CanvasActionsResponseApi {
+    /** Registered verbs, sorted by name. */
+    actions: CanvasActionDefinitionApi[]
+}
+
 export type CanvasesListParams = {
     /**
      * Only return canvases in this channel.
@@ -756,6 +968,20 @@ export type CanvasesSourceRetrieveParams = {
      */
     version_id?: string
 }
+
+export type CanvasesStateRetrieveParams = {
+    /**
+     * Only return entries in this scope.
+     */
+    scope?: CanvasesStateRetrieveScope
+}
+
+export type CanvasesStateRetrieveScope = (typeof CanvasesStateRetrieveScope)[keyof typeof CanvasesStateRetrieveScope]
+
+export const CanvasesStateRetrieveScope = {
+    Shared: 'shared',
+    User: 'user',
+} as const
 
 export type CanvasesVersionsRetrieveParams = {
     /**
