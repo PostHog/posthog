@@ -20,7 +20,6 @@ import { resolveSetup } from '../shared/useCases'
 import type { OnboardingExtraStepId, OnboardingUseCaseKey } from '../shared/useCases'
 import { wizardSyncUiLogic } from '../shared/wizard-sync/wizardSyncUiLogic'
 import { InstallationTrackerGate } from './components/InstallationTracker'
-import { ManualSetupButton } from './components/SelfDrivingInstallOptions'
 import { onboardingLogic } from './onboardingLogic'
 import { RoughMark } from './RoughMark'
 import { AIObservabilityStep } from './steps/AIObservabilityStep'
@@ -269,18 +268,15 @@ export function SelfDrivingOnboardingFlow(): JSX.Element {
                         <span />
                     )}
                     {!step.hideContinue && (
-                        <div className="flex items-center gap-2">
-                            {step.id === 'install' && <ManualSetupButton />}
-                            <LemonButton
-                                type="primary"
-                                status="alt"
-                                sideIcon={<IconArrowRight />}
-                                onClick={completeStep}
-                                loading={isLast && isCompleting}
-                            >
-                                {isLast ? 'Finish' : isFirst ? 'Get started' : 'Continue'}
-                            </LemonButton>
-                        </div>
+                        <LemonButton
+                            type="primary"
+                            status="alt"
+                            sideIcon={<IconArrowRight />}
+                            onClick={completeStep}
+                            loading={isLast && isCompleting}
+                        >
+                            {isLast ? 'Finish' : isFirst ? 'Get started' : 'Continue'}
+                        </LemonButton>
                     )}
                 </div>
             )}

@@ -134,11 +134,15 @@ export function SelfDrivingInstallOptions({ onContinue }: { onContinue: () => vo
 }
 
 /**
- * The manual escape hatch, rendered by the flow footer next to Continue on the install step.
- * Opens the legacy manual-setup dialog: the SDK grid, then per-SDK instructions. Picking an SDK
- * closes the grid and opens the instructions; closing the instructions reopens the grid.
+ * The manual escape hatch, a low-emphasis link inside the install step content. Opens the legacy
+ * manual-setup dialog: the SDK grid, then per-SDK instructions. Picking an SDK closes the grid and
+ * opens the instructions; "All SDKs" returns to the grid, while closing the dialog closes both.
+ *
+ * `onContinue` advances the self-driving flow. The instructions modal receives it so its "Continue"
+ * actually moves to the next step and reports a completion that happened — the legacy `NextButton`
+ * drives the legacy onboardingLogic, whose step state this flow does not use.
  */
-export function ManualSetupButton(): JSX.Element {
+export function ManualSetupButton({ onContinue }: { onContinue: () => void }): JSX.Element {
     const { reportOnboardingInstallModeSelected } = useActions(onboardingEventUsageLogic)
     const { setAvailableSDKInstructionsMap, selectSDK, setSearchTerm, setSelectedTag } = useActions(sdksLogic)
     const { filteredSDKs, selectedSDK, tags, searchTerm, selectedTag } = useValues(sdksLogic)
@@ -159,6 +163,11 @@ export function ManualSetupButton(): JSX.Element {
         setInstructionsOpen(true)
     }
 
+    const closeAll = (): void => {
+        setInstructionsOpen(false)
+        setGridOpen(false)
+    }
+
     return (
         <>
             <LemonButton
@@ -170,7 +179,7 @@ export function ManualSetupButton(): JSX.Element {
                 }}
                 data-attr="self-driving-manual-setup"
             >
-                Set up manually
+                Need to set up manually?
             </LemonButton>
             <LemonModal isOpen={gridOpen} onClose={() => setGridOpen(false)} title="Manual SDK setup" width="80vw">
                 <div className="p-4">
@@ -192,9 +201,14 @@ export function ManualSetupButton(): JSX.Element {
             {selectedSDK && (
                 <SDKInstructionsModal
                     isOpen={instructionsOpen && !gridOpen}
-                    onClose={() => {
+                    onClose={closeAll}
+                    onBack={() => {
                         setInstructionsOpen(false)
                         setGridOpen(true)
+                    }}
+                    onContinue={() => {
+                        closeAll()
+                        onContinue()
                     }}
                     sdk={selectedSDK}
                     sdkInstructionMap={ProductAnalyticsSDKInstructions}

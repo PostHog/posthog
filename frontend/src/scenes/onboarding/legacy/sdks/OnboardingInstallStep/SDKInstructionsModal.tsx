@@ -1,4 +1,4 @@
-import { IconArrowLeft } from '@posthog/icons'
+import { IconArrowLeft, IconArrowRight } from '@posthog/icons'
 import { LemonButton, LemonModal, SpinnerOverlay } from '@posthog/lemon-ui'
 
 import { type SDK, SDKInstructionsMap } from '~/types'
@@ -12,6 +12,11 @@ import { NextButton } from './NextButton'
 interface SDKInstructionsModalProps {
     isOpen: boolean
     onClose: () => void
+    /** The "All SDKs" action — return to the grid. Falls back to `onClose` when not set. */
+    onBack?: () => void
+    /** Advance the caller's own flow. When set, it replaces the legacy `NextButton`, which drives
+     * the legacy onboardingLogic and does nothing in flows that keep their own step state. */
+    onContinue?: () => void
     sdk?: SDK
     sdkInstructionMap: SDKInstructionsMap
     adblockResult: AdblockDetectionResult
@@ -23,6 +28,8 @@ interface SDKInstructionsModalProps {
 export function SDKInstructionsModal({
     isOpen,
     onClose,
+    onBack,
+    onContinue,
     sdk,
     sdkInstructionMap,
     adblockResult,
@@ -44,7 +51,7 @@ export function SDKInstructionsModal({
             ) : (
                 <div className="flex flex-col h-full">
                     <header className="p-4 flex items-center gap-2">
-                        <LemonButton icon={<IconArrowLeft />} onClick={onClose} size="xsmall">
+                        <LemonButton icon={<IconArrowLeft />} onClick={onBack ?? onClose} size="xsmall">
                             All SDKs
                         </LemonButton>
                     </header>
@@ -65,7 +72,19 @@ export function SDKInstructionsModal({
                         ) : (
                             <span />
                         )}
-                        <NextButton installationComplete={installationComplete} />
+                        {onContinue ? (
+                            <LemonButton
+                                data-attr="sdk-continue"
+                                type="primary"
+                                status="alt"
+                                sideIcon={<IconArrowRight />}
+                                onClick={onContinue}
+                            >
+                                Continue
+                            </LemonButton>
+                        ) : (
+                            <NextButton installationComplete={installationComplete} />
+                        )}
                     </footer>
                 </div>
             )}
