@@ -293,6 +293,10 @@ function EvidenceHoverCardLoader({
       staleTime: 5 * 60 * 1000,
       refetchOnWindowFocus: false,
       retry: 1,
+      // The card unmounts when the tooltip closes, so without this a preview
+      // that already failed would refetch on every hover (re-running a hogql
+      // or error lookup against /query/); the static fallback covers the miss.
+      retryOnMount: false,
     },
   );
   // No session means no lookup: show the static card, not an endless skeleton.
