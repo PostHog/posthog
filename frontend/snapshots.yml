@@ -5404,6 +5404,10 @@ snapshots:
         hash: v1.k794b7964.e55e3f17536c13f7561cd6275dc2c63e9950e7f83394de972364ba0b51211c58.S9fUa5v1eSxXT-D7D7lmS3os0kSj8a1gIhb7EPsivNc
     replay-tabs-home-success--second-recording-in-list--light:
         hash: v1.k794b7964.db9df524befb2d2b1f9115318d2a4ddc5cd5009ef1e38100a7511011634114b8.wlpOrqbKlF47Bul9gFvQ2fuD9OXN-TopZSNFM3Z7K2I
+    replay-vision-analysis-nudge--default--dark:
+        hash: v1.k794b7964.e21450a1b2054a36fab2a183fd4485190e7161c07830a04008b734f83ecabb1c.Hj2ygumZlfd2zAIz7tC6m7XoM-G15hY_amDmI_m-cJo
+    replay-vision-analysis-nudge--default--light:
+        hash: v1.k794b7964.7eff340ad050dbd7cf07813207e989e33fccb29ef9767e38f89d16b1d567017c.Kr8YaJd8YlDg3tPWTMYWt4vAxTb_HKQuhGUe4IKACDU
     scenes-app-ai-observability-clustercard--default--dark:
         hash: v1.k794b7964.745c8ac41b251f329b890d56d7b07fb31b4939a440a40eea7932f1081d3de702.ESnQVAOfySBfRJWfJsURYu-prgU3EUvQZCD62MyLlX4
     scenes-app-ai-observability-clustercard--default--light:
