@@ -1800,6 +1800,20 @@ class TestAccessControlRolesEndpoint(BaseAccessControlTest):
         self._org_membership(OrganizationMembership.Level.ADMIN)
         self.role = Role.objects.create(name="Engineering", organization=self.organization)
 
+    def test_query_count_does_not_grow_with_roles(self):
+        # Every role resolves through the walker from one shared pool; a per-role fetch creeping
+        # back in (e.g. each subject loading the team's rules itself) would make this page N+1
+        def query_count() -> int:
+            with CaptureQueriesContext(connection) as ctx:
+                res = self.client.get("/api/projects/@current/access_control_roles")
+            assert res.status_code == status.HTTP_200_OK, res.json()
+            return len(ctx.captured_queries)
+
+        with_few = query_count()
+        for i in range(10):
+            Role.objects.create(name=f"Role {i}", organization=self.organization)
+        assert query_count() <= with_few
+
     def _find_role(self, results, role_id):
         return next((r for r in results if str(r["role_id"]) == str(role_id)), None)
 

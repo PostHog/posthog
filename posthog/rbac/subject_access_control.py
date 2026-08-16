@@ -34,17 +34,6 @@ _masked_resource: ContextVar[Optional[APIScopeObject]] = ContextVar("subject_mas
 _suspend_org_admin: ContextVar[bool] = ContextVar("subject_suspend_org_admin", default=False)
 
 
-def team_access_controls(team: Team) -> list[_AccessControl]:
-    """Every rule on the team, un-narrowed — the pool subjects are seeded from. The same query as
-    `UserAccessControl._cached_access_controls` minus its per-principal narrowing, which each subject
-    applies in memory instead (`preload_access_controls`), so "the team's rules" is decided once."""
-    if not EE_AVAILABLE:
-        return []
-    return list(
-        AccessControl.objects.annotate(_team_organization_id=F("team__organization_id")).filter(team_id=team.id)
-    )
-
-
 class SubjectAccessControl(UserAccessControl):
     """Resolves access for a subject rather than for the requesting user.
 
@@ -171,17 +160,33 @@ class SubjectAccessControl(UserAccessControl):
     def _role_ids_as_strings(self) -> frozenset[str]:
         return frozenset(str(role_id) for role_id in self._user_role_ids)
 
+    @cached_property
+    def team_access_controls(self) -> list[_AccessControl]:
+        """Every rule on the team, un-narrowed — the pool this subject resolves from, and that
+        sibling subjects for the same team are seeded from (`preload_access_controls`). The same
+        query as `_cached_access_controls` minus its per-principal narrowing, which each subject
+        applies in memory instead: one query for many subjects rather than one per subject."""
+        assert self._team is not None
+        if not EE_AVAILABLE:
+            return []
+        return list(
+            AccessControl.objects.annotate(_team_organization_id=F("team__organization_id")).filter(
+                team_id=self._team.id
+            )
+        )
+
     def preload_access_controls(
         self,
-        rows: Sequence[_AccessControl],
+        rows: Optional[Sequence[_AccessControl]] = None,
         *,
         requesting_membership: Optional[OrganizationMembership] = None,
         subject_role_ids: Optional[Sequence[str]] = None,
     ) -> None:
-        """Answer this subject's lookups for its team from `rows` already loaded by the caller (one
-        query for many subjects) instead of the database — the caller's guard against a query per
-        subject. Rows are narrowed to the subject in memory first, exactly as `_filter_options`
-        would in the query the preload stands in for.
+        """Answer this subject's lookups for its team from `rows` — a pool already loaded (a sibling
+        subject's `team_access_controls`, or the caller's own query) — instead of the database, so
+        many subjects share one query. Without `rows`, this subject loads the pool itself. Rows are
+        narrowed to the subject in memory first, exactly as `_filter_options` would in the query
+        the preload stands in for.
 
         The two per-instance lookups that don't vary by subject can be seeded too, as
         `for_team_ids` seeds its siblings: the requesting user's membership, and (for a member
@@ -193,7 +198,8 @@ class SubjectAccessControl(UserAccessControl):
         if subject_role_ids is not None:
             self.__dict__["_user_role_ids"] = list(subject_role_ids) if self.rbac_supported else []
         # Team-scoped lookups are served from _cached_access_controls, so that is what to seed
-        self.__dict__["_cached_access_controls"] = [ac for ac in rows if self._applies_to_subject(ac)]
+        pool = rows if rows is not None else self.team_access_controls
+        self.__dict__["_cached_access_controls"] = [ac for ac in pool if self._applies_to_subject(ac)]
 
     def _is_subject_row(self, access_control: _AccessControl) -> bool:
         """Whether this row is the subject's own — the kind of rule "No override" would remove."""

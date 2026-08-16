@@ -24,7 +24,7 @@ from posthog.constants import AvailableFeature
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.team.team import Team
 from posthog.models.user import User
-from posthog.rbac.subject_access_control import SubjectAccessControl, team_access_controls
+from posthog.rbac.subject_access_control import SubjectAccessControl
 from posthog.rbac.user_access_control import (
     ACCESS_CONTROL_RESOURCES,
     NO_ACCESS_LEVEL,
@@ -763,7 +763,7 @@ class TestUserAccessControlProperties(BaseAccessControlPropertyTest):
 
         queried = SubjectAccessControl(self.user, self.team, **subject_kwargs)
         seeded = SubjectAccessControl(self.user, self.team, **subject_kwargs)
-        seeded.preload_access_controls(team_access_controls(self.team))
+        seeded.preload_access_controls()
 
         assert {ac.id for ac in seeded._cached_access_controls} == {ac.id for ac in queried._cached_access_controls}
         assert seeded.get_user_access_level(self.team) == queried.get_user_access_level(self.team)

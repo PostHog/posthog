@@ -32,7 +32,7 @@ from posthog.exceptions_capture import capture_exception
 from posthog.models import PropertyDefinition
 from posthog.models.organization import OrganizationMembership
 from posthog.models.team.team import Team
-from posthog.rbac.subject_access_control import SubjectAccessControl, team_access_controls
+from posthog.rbac.subject_access_control import SubjectAccessControl
 from posthog.rbac.user_access_control import (
     ACCESS_CONTROL_LEVELS_RESOURCE,
     ACCESS_CONTROL_RESOURCES,
@@ -342,14 +342,16 @@ class AccessControlSettingsViewSetMixin(_GenericViewSet):
         if request.query_params.get("role_id"):
             roles = roles.filter(id=self._get_role(request, team).id)
 
-        # One query for the team's rules; every role below resolves from it
-        settings_rows = team_access_controls(team)
+        # The first subject loads the team's rules once; the rest are seeded from its pool
+        team_rows = None
         requesting_membership = user_access_control._organization_membership
 
         results = []
         for role in roles:
             subject = SubjectAccessControl(user_access_control.user, team, role_id=str(role.id))
-            subject.preload_access_controls(settings_rows, requesting_membership=requesting_membership)
+            subject.preload_access_controls(team_rows, requesting_membership=requesting_membership)
+            if team_rows is None:
+                team_rows = subject.team_access_controls
             results.append(
                 {
                     "role_id": role.id,
@@ -390,8 +392,8 @@ class AccessControlSettingsViewSetMixin(_GenericViewSet):
             not team.organization.members_can_see_org_members and not user_access_control.is_organization_admin
         )
 
-        # One query for the team's rules; every member below resolves from it
-        settings_rows = team_access_controls(team)
+        # The first subject loads the team's rules once; the rest are seeded from its pool
+        team_rows = None
         requesting_membership = user_access_control._organization_membership
 
         results = []
@@ -400,8 +402,10 @@ class AccessControlSettingsViewSetMixin(_GenericViewSet):
             role_ids = [str(rm.role_id) for rm in membership.role_memberships.all()]
             subject = SubjectAccessControl(user_access_control.user, team, member=membership)
             subject.preload_access_controls(
-                settings_rows, requesting_membership=requesting_membership, subject_role_ids=role_ids
+                team_rows, requesting_membership=requesting_membership, subject_role_ids=role_ids
             )
+            if team_rows is None:
+                team_rows = subject.team_access_controls
 
             # When the org restricts member list visibility, project members only see users with
             # project-scoped access (explicit grant, role, or default) — org admins aren't implied in
