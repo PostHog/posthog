@@ -4,14 +4,28 @@ import { persist } from "zustand/middleware";
 
 const DEFAULT_PANEL_WIDTH = 360;
 
+export type ThreadPanelTab = "timeline" | "artifacts" | "comments";
+
+// Bumped per request so re-asking for the same tab re-applies even after the
+// user has navigated away from it.
+let tabRequestNonce = 0;
+
 interface ThreadPanelState {
   openByChannel: Record<string, string | null>;
+  /** Which tab the panel should land on for a task — set when a caller opens
+   * the thread pointed at a specific tab (e.g. the feed's comment chip),
+   * cleared by any tab-less open so a stale request can't hijack a later
+   * plain open. Consumed by ActivityPanel. */
+  tabRequestByTask: Record<
+    string,
+    { tab: ThreadPanelTab; nonce: number } | undefined
+  >;
   collapsed: boolean;
   width: number;
   openThread: (
     channelId: string,
     taskId: string,
-    opts?: { expand?: boolean },
+    opts?: { expand?: boolean; tab?: ThreadPanelTab },
   ) => void;
   closeThread: (channelId: string) => void;
   setCollapsed: (collapsed: boolean) => void;
@@ -22,11 +36,18 @@ export const useThreadPanelStore = create<ThreadPanelState>()(
   persist(
     (set) => ({
       openByChannel: {},
+      tabRequestByTask: {},
       collapsed: false,
       width: DEFAULT_PANEL_WIDTH,
       openThread: (channelId, taskId, opts) =>
         set((state) => ({
           openByChannel: { ...state.openByChannel, [channelId]: taskId },
+          tabRequestByTask: {
+            ...state.tabRequestByTask,
+            [taskId]: opts?.tab
+              ? { tab: opts.tab, nonce: ++tabRequestNonce }
+              : undefined,
+          },
           ...(opts?.expand === false ? {} : { collapsed: false }),
         })),
       closeThread: (channelId) =>
