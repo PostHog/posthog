@@ -279,6 +279,17 @@ class SubjectHealthSerializer(serializers.Serializer):
     checks_failing = serializers.IntegerField(help_text="How many of those checks last reported a failure.")
 
 
+@extend_schema_serializer(component_name="DataQualityRunRequest")
+class DataQualityRunRequestSerializer(serializers.Serializer):
+    """What to run in a project-wide suite run."""
+
+    check_ids = serializers.ListField(
+        child=serializers.UUIDField(),
+        required=False,
+        help_text="Ids of the checks to run. Omit to run every enabled check in the project.",
+    )
+
+
 @extend_schema_serializer(component_name="DataQualityGateConfig")
 class DataQualityGateConfigSerializer(serializers.Serializer):
     """The team-level materialization gate. Checks always run and warn; this only toggles blocking."""

@@ -7,45 +7,6 @@
  * PostHog API - generated
  * OpenAPI spec version: 1.0.0
  */
-export interface DataQualitySuiteRunApi {
-    readonly id: string
-    /** manual, materialization, or source_sync. */
-    readonly trigger: string
-    /** running, completed, failed, or empty (nothing matched the trigger). */
-    readonly status: string
-    /**
-     * 'table' or 'view' when the run targets exactly one subject, including a run of a single check on that subject; null for a run spanning several subjects.
-     * @nullable
-     */
-    readonly subject_type: string | null
-    /**
-     * Set when the run targets exactly one subject.
-     * @nullable
-     */
-    readonly subject_uuid: string | null
-    readonly workflow_id: string
-    readonly checks_passed: number
-    readonly checks_failed: number
-    readonly checks_errored: number
-    readonly checks_skipped: number
-    /** @nullable */
-    readonly started_at: string | null
-    /** @nullable */
-    readonly finished_at: string | null
-    /** Why the suite itself failed, as opposed to an individual check. */
-    readonly error: string
-    readonly created_at: string
-}
-
-export interface PaginatedDataQualitySuiteRunListApi {
-    count: number
-    /** @nullable */
-    next?: string | null
-    /** @nullable */
-    previous?: string | null
-    results: DataQualitySuiteRunApi[]
-}
-
 /**
  * * `table` - table
  * * `view` - view
@@ -77,53 +38,6 @@ export const CheckTypeEnumApi = {
     Freshness: 'freshness',
     CustomSql: 'custom_sql',
 } as const
-
-export interface DataQualityCheckRunApi {
-    readonly id: string
-    /**
-     * The definition executed. Nulled rather than cascaded so history outlives hard deletes.
-     * @nullable
-     */
-    readonly quality_check: string | null
-    readonly suite_run: string
-    readonly subject_type: SubjectTypeEnumApi
-    readonly subject_uuid: string
-    readonly subject_name: string
-    /** Which assertion this run made.
-     *
-     * * `not_null` - not_null
-     * * `unique` - unique
-     * * `accepted_values` - accepted_values
-     * * `relationships` - relationships
-     * * `row_count` - row_count
-     * * `freshness` - freshness
-     * * `custom_sql` - custom_sql */
-    readonly check_type: CheckTypeEnumApi
-    readonly column_name: string
-    /** passed, failed, errored, or skipped. */
-    readonly status: string
-    /**
-     * Rows violating the assertion. Null for bounds checks like row_count.
-     * @nullable
-     */
-    readonly failed_row_count: number | null
-    /**
-     * The check's headline number, recorded on passes too.
-     * @nullable
-     */
-    readonly observed_value: number | null
-    /** The HogQL that ran. Re-run it to see the offending rows. */
-    readonly compiled_query: string
-    /** Compilation or execution failure, when status is 'errored'. */
-    readonly error: string
-    /** @nullable */
-    readonly duration_ms: number | null
-    /** @nullable */
-    readonly started_at: string | null
-    /** @nullable */
-    readonly finished_at: string | null
-    readonly created_at: string
-}
 
 /**
  * * `error` - error
@@ -313,6 +227,116 @@ export interface PaginatedDataQualityCheckListApi {
 }
 
 /**
+ * Per-subject rollup, the same rule the information_schema.data_quality_health table uses.
+ */
+export interface DataQualitySubjectHealthApi {
+    /** 'table' or 'view'. */
+    subject_type: string
+    /** Id of the table or view. */
+    subject_uuid: string
+    /** failing (an error-severity check failed), erroring (a check could not run), warn (only warn-severity failures), healthy, or unknown (nothing has run yet). */
+    health: string
+    /** How many enabled, non-deleted checks cover this subject. */
+    checks_total: number
+    /** How many of those checks last reported a failure. */
+    checks_failing: number
+}
+
+export interface DataQualitySuiteRunApi {
+    readonly id: string
+    /** manual, materialization, or source_sync. */
+    readonly trigger: string
+    /** running, completed, failed, or empty (nothing matched the trigger). */
+    readonly status: string
+    /**
+     * 'table' or 'view' when the run targets exactly one subject; null for a check-scoped or multi-subject run.
+     * @nullable
+     */
+    readonly subject_type: string | null
+    /**
+     * Set when the run targets exactly one subject.
+     * @nullable
+     */
+    readonly subject_uuid: string | null
+    readonly workflow_id: string
+    readonly checks_passed: number
+    readonly checks_failed: number
+    readonly checks_errored: number
+    readonly checks_skipped: number
+    /** @nullable */
+    readonly started_at: string | null
+    /** @nullable */
+    readonly finished_at: string | null
+    /** Why the suite itself failed, as opposed to an individual check. */
+    readonly error: string
+    readonly created_at: string
+}
+
+export interface PaginatedDataQualitySuiteRunListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: DataQualitySuiteRunApi[]
+}
+
+/**
+ * What to run in a project-wide suite run.
+ */
+export interface DataQualityRunRequestApi {
+    /** Ids of the checks to run. Omit to run every enabled check in the project. */
+    check_ids?: string[]
+}
+
+export interface DataQualityCheckRunApi {
+    readonly id: string
+    /**
+     * The definition executed. Nulled rather than cascaded so history outlives hard deletes.
+     * @nullable
+     */
+    readonly quality_check: string | null
+    readonly suite_run: string
+    readonly subject_type: SubjectTypeEnumApi
+    readonly subject_uuid: string
+    readonly subject_name: string
+    /** Which assertion this run made.
+     *
+     * * `not_null` - not_null
+     * * `unique` - unique
+     * * `accepted_values` - accepted_values
+     * * `relationships` - relationships
+     * * `row_count` - row_count
+     * * `freshness` - freshness
+     * * `custom_sql` - custom_sql */
+    readonly check_type: CheckTypeEnumApi
+    readonly column_name: string
+    /** passed, failed, errored, or skipped. */
+    readonly status: string
+    /**
+     * Rows violating the assertion. Null for bounds checks like row_count.
+     * @nullable
+     */
+    readonly failed_row_count: number | null
+    /**
+     * The check's headline number, recorded on passes too.
+     * @nullable
+     */
+    readonly observed_value: number | null
+    /** The HogQL that ran. Re-run it to see the offending rows. */
+    readonly compiled_query: string
+    /** Compilation or execution failure, when status is 'errored'. */
+    readonly error: string
+    /** @nullable */
+    readonly duration_ms: number | null
+    /** @nullable */
+    readonly started_at: string | null
+    /** @nullable */
+    readonly finished_at: string | null
+    readonly created_at: string
+}
+
+/**
  * Type-specific configuration, validated against the check type's JSON schema.
  */
 export type PatchedDataQualityCheckApiConfig = { [key: string]: unknown }
@@ -429,20 +453,26 @@ export interface DataQualityCheckTypeApi {
     config_schema: DataQualityCheckTypeApiConfigSchema
 }
 
-/**
- * Per-subject rollup, the same rule the information_schema.data_quality_health table uses.
- */
-export interface DataQualitySubjectHealthApi {
-    /** 'table' or 'view'. */
-    subject_type: string
-    /** Id of the table or view. */
-    subject_uuid: string
-    /** failing (an error-severity check failed), erroring (a check could not run), warn (only warn-severity failures), healthy, or unknown (nothing has run yet). */
-    health: string
-    /** How many enabled, non-deleted checks cover this subject. */
-    checks_total: number
-    /** How many of those checks last reported a failure. */
-    checks_failing: number
+export type DataQualityChecksListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+}
+
+export type DataQualityRunsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
 }
 
 export type WarehouseSavedQueriesCheckSuiteRunsListParams = {

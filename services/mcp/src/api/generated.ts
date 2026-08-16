@@ -20894,6 +20894,14 @@ export namespace Schemas {
     }
 
     /**
+     * What to run in a project-wide suite run.
+     */
+    export interface DataQualityRunRequest {
+      /** Ids of the checks to run. Omit to run every enabled check in the project. */
+      check_ids?: string[];
+    }
+
+    /**
      * Per-subject rollup, the same rule the information_schema.data_quality_health table uses.
      */
     export interface DataQualitySubjectHealth {
@@ -87184,6 +87192,28 @@ export namespace Schemas {
      * Saved query to build lineage for, resolved to its node. Alternative to node_id.
      */
     saved_query_id?: string;
+    };
+
+    export type DataQualityChecksListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
+
+    export type DataQualityRunsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
     };
 
     export type DataWarehouseCheckDatabaseNameRetrieveParams = {

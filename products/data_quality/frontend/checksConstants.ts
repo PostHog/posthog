@@ -43,6 +43,12 @@ export const HEALTH_LABELS: Record<string, string> = {
     unknown: 'Not run yet',
 }
 
+/** Matches the vocabulary the lineage graph uses for the same objects, without importing across products. */
+export const SUBJECT_TYPE_TAGS: Record<string, { label: string; type: LemonTagType }> = {
+    table: { label: 'Table', type: 'default' },
+    view: { label: 'View', type: 'primary' },
+}
+
 export const SEVERITY_TAG_TYPES: Record<string, LemonTagType> = {
     error: 'danger',
     warn: 'warning',

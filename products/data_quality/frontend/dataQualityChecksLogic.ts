@@ -5,7 +5,6 @@ import { loaders } from 'kea-loaders'
 
 import { ApiError } from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
-import { pluralize } from 'lib/utils/strings'
 import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
 
 import { DataQualitySubjectRef, DataQualitySubjectType, checksApi } from './checksApi'
@@ -18,15 +17,11 @@ import type {
     DataQualitySuiteRunApi,
 } from './generated/api.schemas'
 import { CheckTypeEnumApi, DataQualityCheckSeverityEnumApi, SubjectTypeEnumApi } from './generated/api.schemas'
+import { POLL_TIMEOUT_MS, isTerminalSuiteRun, pollDelayMs, suiteRunSummary } from './suiteRuns'
 
 const CHECKS_LIMIT = 100
 const SUITE_RUNS_LIMIT = 20
-const FAST_POLL_INTERVAL_MS = 3000
-const SLOW_POLL_INTERVAL_MS = 15000
-const FAST_POLL_WINDOW_MS = 60_000
-const POLL_TIMEOUT_MS = 15 * 60_000
 const CHECK_NAME_PATTERN = /^[A-Za-z][A-Za-z0-9_]*$/
-const TERMINAL_SUITE_RUN_STATUSES = ['completed', 'failed', 'empty']
 
 export type CheckPendingKind = 'running' | 'deleting' | 'toggling' | 'loadingRuns' | 'loadingSuiteRunRuns'
 
@@ -78,10 +73,6 @@ export const EMPTY_CHECK_FORM: CheckFormValues = {
     rowCountMax: null,
     maxAgeMinutes: null,
     customSql: '',
-}
-
-export function isTerminalSuiteRun(suiteRun: DataQualitySuiteRunApi | null): boolean {
-    return !!suiteRun && TERMINAL_SUITE_RUN_STATUSES.includes(suiteRun.status)
 }
 
 function subjectRef(props: DataQualityChecksLogicProps): DataQualitySubjectRef {
@@ -151,22 +142,6 @@ function checkToForm(check: DataQualityCheckApi): CheckFormValues {
         maxAgeMinutes: (config.max_age_minutes as number) ?? null,
         customSql: (config.query as string) ?? '',
     }
-}
-
-export function suiteRunSummary(suiteRun: DataQualitySuiteRunApi): string {
-    const outcomes: [number, string][] = [
-        [suiteRun.checks_passed, 'passed'],
-        [suiteRun.checks_failed, 'failed'],
-        [suiteRun.checks_errored, 'errored'],
-        [suiteRun.checks_skipped, 'skipped'],
-    ]
-    if (suiteRun.checks_failed === 0 && suiteRun.checks_errored === 0 && suiteRun.checks_passed > 0) {
-        return `All ${pluralize(suiteRun.checks_passed, 'check')} passed`
-    }
-    return outcomes
-        .filter(([count]) => count > 0)
-        .map(([count, outcome]) => `${count} ${outcome}`)
-        .join(', ')
 }
 
 function checkSortRank(check: DataQualityCheckApi): number {
@@ -809,7 +784,7 @@ export const dataQualityChecksLogic = kea<dataQualityChecksLogicType>([
             actions.scheduleSuiteRunPoll()
         },
         scheduleSuiteRunPoll: () => {
-            const delay = cache.pollElapsedMs < FAST_POLL_WINDOW_MS ? FAST_POLL_INTERVAL_MS : SLOW_POLL_INTERVAL_MS
+            const delay = pollDelayMs(cache.pollElapsedMs)
             cache.disposables.add(() => {
                 const timeoutId = setTimeout(() => {
                     cache.pollElapsedMs += delay
