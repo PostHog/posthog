@@ -31,6 +31,14 @@ import { MarkdownRenderer } from "./MarkdownRenderer";
 function renderMarkdown(content: string) {
   return render(
     <Theme>
+      <MarkdownRenderer content={content} renderObjectTags />
+    </Theme>,
+  );
+}
+
+function renderUntrustedMarkdown(content: string) {
+  return render(
+    <Theme>
       <MarkdownRenderer content={content} />
     </Theme>,
   );
@@ -140,5 +148,34 @@ describe("object tags in agent markdown", () => {
     expect(screen.queryByTestId("report-chart")).toBeNull();
     // The label text still flows through; only the tags themselves vanish.
     expect(screen.getByText(/thing/)).toBeDefined();
+  });
+});
+
+describe("object tags in untrusted markdown (default)", () => {
+  it("does not render a block tag as a live chart card", () => {
+    renderUntrustedMarkdown(
+      'Here it is:\n\n<hogql display="block" title="DAU">\nSELECT 1\n</hogql>\n',
+    );
+    expect(screen.queryByTestId("report-chart")).toBeNull();
+  });
+
+  it("does not render a posthog-chart fence as a live chart card", () => {
+    const { container } = renderUntrustedMarkdown(
+      '```posthog-chart\n{"mode":"hogql","query":"SELECT 1"}\n```\n',
+    );
+    expect(screen.queryByTestId("report-chart")).toBeNull();
+    expect(container.querySelector("code")?.textContent).toContain(
+      '"mode":"hogql"',
+    );
+  });
+
+  it("does not render an evidence: link as a reference chip", () => {
+    const { container } = renderUntrustedMarkdown(
+      "See [errors today](evidence:hogql/SELECT%201).",
+    );
+    // The href is stripped by the default url transform, so the chip (whose
+    // hover preview would run the query) never mounts.
+    expect(container.querySelector('a[href^="evidence:"]')).toBeNull();
+    expect(screen.getByText("errors today")).toBeDefined();
   });
 });

@@ -51,6 +51,7 @@ describe("ChatMarkdown object tags", () => {
     const html = renderToStaticMarkup(
       <ChatMarkdown
         content={'The <insight id="9pQx3">checkout funnel</insight> dropped.'}
+        renderObjectTags
       />,
     );
     expect(html).toContain("checkout funnel");
@@ -65,11 +66,25 @@ describe("ChatMarkdown object tags", () => {
         content={
           '<hogql display="block" title="DAU, last 7 days">SELECT 1</hogql>'
         }
+        renderObjectTags
       />,
     );
     expect(html).toContain("report-chart");
     expect(html).toContain("DAU, last 7 days");
     expect(html).not.toContain("SELECT 1");
+  });
+
+  it("does not run object tags in untrusted content by default", () => {
+    // User bubbles and other non-agent surfaces render without the opt-in;
+    // their tags must never resolve to live queries or chart cards.
+    const html = renderToStaticMarkup(
+      <ChatMarkdown
+        content={
+          '<hogql display="block" title="DAU">SELECT 1</hogql>\n\n```posthog-chart\n{"mode":"hogql","query":"SELECT 1"}\n```'
+        }
+      />,
+    );
+    expect(html).not.toContain("report-chart");
   });
 });
 

@@ -1,5 +1,6 @@
 import { unescapeXmlAttr } from "@posthog/shared";
 import type { Parent, PhrasingContent, Root, RootContent } from "mdast";
+import { CHART_BLOCK_MARKER } from "./chartBlocks";
 import { resolveObjectKindName } from "./objectKinds";
 
 /**
@@ -122,7 +123,15 @@ function blockNode(tag: ParsedTag): RootContent | null {
     if (sessionId) spec = { mode: "replay", sessionId, title, caption };
   }
   if (!spec) return null;
-  return { type: "code", lang: "posthog-chart", value: JSON.stringify(spec) };
+  return {
+    type: "code",
+    lang: "posthog-chart",
+    value: JSON.stringify(spec),
+    // The marker is what lets the renderer trust this node: it can only be
+    // set from the AST, never from markdown text, so a hand-authored
+    // ```posthog-chart fence stays inert (see isGeneratedChartBlock).
+    data: { hProperties: { [CHART_BLOCK_MARKER]: "true" } },
+  };
 }
 
 function convert(tag: ParsedTag, inFlow: boolean): RootContent | null {

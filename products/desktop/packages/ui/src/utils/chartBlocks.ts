@@ -13,6 +13,23 @@
  * never store a stale copy of the numbers.
  */
 
+/**
+ * hast property remarkObjectTags stamps on the chart code nodes it generates.
+ * Chart-card dispatch requires it, so only plugin-generated blocks resolve to
+ * live queries: markdown text cannot set AST data, and the sanitize schemas on
+ * raw-HTML surfaces strip `data-*` from `code`, so a hand-authored
+ * ```posthog-chart fence or literal `<code data-posthog-chart>` stays inert.
+ */
+export const CHART_BLOCK_MARKER = "dataPosthogChart";
+
+/** True when a hast `code` element carries the {@link CHART_BLOCK_MARKER}. */
+export function isGeneratedChartBlock(node: unknown): boolean {
+  if (typeof node !== "object" || node === null) return false;
+  const properties = (node as { properties?: Record<string, unknown> })
+    .properties;
+  return properties?.[CHART_BLOCK_MARKER] != null;
+}
+
 const MAX_TITLE_LENGTH = 120;
 const MAX_CAPTION_LENGTH = 300;
 const MAX_QUERY_LENGTH = 20_000;
