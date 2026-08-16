@@ -3918,7 +3918,9 @@ function MarkdownNotebookEditor({
             id: makeEmptyParagraph(`comment-${nodes[firstSelectedIndex].id}`).id,
             type: 'component',
             tagName: 'Comment',
-            props: { ref: refId, replies: [] },
+            // `showFilters` opens the edit panel so the composer renders; without it the shell
+            // routes a fresh thread to the read-only view branch and there is nowhere to type.
+            props: { ref: refId, replies: [], showFilters: true },
         }
         const nextNodes = nodes.flatMap((node, index): NotebookBlockNode[] => {
             let updatedNode = node
@@ -4058,7 +4060,9 @@ function MarkdownNotebookEditor({
             id: makeEmptyParagraph(`comment-${nodeId}`).id,
             type: 'component',
             tagName: 'Comment',
-            props: { replies: [] },
+            // `showFilters` opens the edit panel so the composer renders; without it the shell
+            // routes a fresh thread to the read-only view branch and there is nowhere to type.
+            props: { replies: [], showFilters: true },
         }
         markNotebookNodeFreshlyInserted(commentNode.id)
         commitDocument({

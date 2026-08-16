@@ -7,7 +7,8 @@ import {
     omitInsertCommands,
 } from 'lib/components/MarkdownNotebook'
 import { getInsertedComponentPanelVisibility } from 'lib/components/MarkdownNotebook/componentPanels'
-import type { NotebookComponentBlockNode } from 'lib/components/MarkdownNotebook/types'
+import { NotebookComponentShell } from 'lib/components/MarkdownNotebook/NotebookComponentShell'
+import type { NotebookComponentBlockNode, NotebookComponentProps } from 'lib/components/MarkdownNotebook/types'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
 
@@ -107,6 +108,48 @@ describe('markdownNotebookRegistry', () => {
 
             expect(insertedNodes).toHaveLength(1)
             expect(getInsertedComponentPanelVisibility(insertedNodes[0]).filters).toBe(true)
+        })
+    })
+
+    describe('discussion comment insertion', () => {
+        const renderCommentShell = (props: NotebookComponentProps): ReturnType<typeof render> => {
+            const node: NotebookComponentBlockNode = {
+                id: 'comment-node',
+                type: 'component',
+                tagName: 'Comment',
+                props,
+            }
+            return render(
+                <NotebookComponentShell
+                    node={node}
+                    mode="edit"
+                    componentPanels={getInsertedComponentPanelVisibility(node)}
+                    persistComponentPanelVisibility={false}
+                    isSelected={false}
+                    registry={NOTEBOOK_MARKDOWN_REGISTRY}
+                    toggleComponentPanel={jest.fn()}
+                    setLocalComponentPanels={jest.fn()}
+                    rememberComponentPanels={jest.fn()}
+                    setBlockRef={jest.fn()}
+                    updateNode={jest.fn()}
+                    deleteNode={jest.fn()}
+                    deleteSelectedNotebookBlocks={jest.fn(() => false)}
+                    insertParagraphAfterNode={jest.fn()}
+                    moveFocusToAdjacentNode={jest.fn(() => false)}
+                />
+            )
+        }
+
+        // A freshly inserted thread carries `showFilters: true`, so the shell routes it to the
+        // edit panel and its composer renders. Drop that prop and the shell falls back to the
+        // read-only view branch, which is the bug that left users with nowhere to type.
+        it.each([
+            ['carries showFilters and renders the composer', { replies: [], showFilters: true }, true],
+            ['omits showFilters and renders no composer', { replies: [] }, false],
+        ])('%s', (_label, props, expectComposer) => {
+            const { container } = renderCommentShell(props)
+            const composer = container.querySelector('[data-attr="notebook-discussion-comment-input"]')
+            expect(composer !== null).toBe(expectComposer)
         })
     })
 
