@@ -77,14 +77,10 @@ COHORT_NOT_CALCULATED_MESSAGE = (
     "This experiment's exposure criteria reference a cohort that hasn't finished calculating. "
     "Try again when the cohort is ready."
 )
-LIVE_SCAN_OVER_BUDGET_MESSAGE = (
-    "This experiment has too much exposure data to resolve while loading recordings. "
-    "Contact support if you need recordings for this experiment."
-)
-
 # Sized an order of magnitude above the peak observed on the largest precompute-enabled team
-# (#83514), so it fires only for a scan far outside anything measured, where hitting the
-# ceiling turns cluster-level memory pressure into the budget's refusal instead.
+# (#83514), so it fires only for a scan far outside anything measured, and below the cluster's
+# default per-query limit, so the kill renders as the standard memory-limit error before the
+# scan becomes cluster-level pressure.
 ACTIVATION_LIVE_SCAN_MAX_MEMORY_BYTES = 4 * 1024**3
 
 
@@ -123,21 +119,6 @@ def validate_experiment_exposure_access(
 
 
 @dataclass(frozen=True, kw_only=True)
-class LiveScanBudget:
-    """Resource ceiling for the query embedding a live exposure scan, with the refusal to
-    render when the ceiling is hit.
-
-    Set when the scan runs on a team where precomputation normally bounds exposure reads, so
-    the synchronous recordings-list run is explicitly bounded instead of relying on cluster
-    defaults. Composition callers that execute the linkage's AST through their own async or
-    batch pipelines run under those pipelines' limits and may ignore the budget.
-    """
-
-    max_memory_bytes: int
-    over_budget_message: str
-
-
-@dataclass(frozen=True, kw_only=True)
 class ExperimentExposureLinkage:
     """A validated experiment-exposure filter, resolved to how its population will be read.
 
@@ -149,8 +130,13 @@ class ExperimentExposureLinkage:
     requested_variants: list[str]
     # Set = read the preaggregated exposures written by these jobs. None = live events scan.
     preaggregation_job_ids: list[str] | None
-    # Ceiling the executing query must apply when the live scan needs explicit bounding.
-    live_scan_budget: LiveScanBudget | None = None
+    # max_memory_usage ceiling the synchronous recordings-list run must apply when the live
+    # scan needs explicit bounding instead of relying on cluster defaults. It bounds the whole
+    # embedding query, so a kill renders as the platform's generic memory-limit error rather
+    # than anything exposure-specific. Composition callers that execute the linkage's AST
+    # through their own async or batch pipelines run under those pipelines' limits and may
+    # ignore it.
+    live_scan_max_memory_bytes: int | None = None
 
 
 def resolve_exposure_linkage(team: Team, *, experiment_id: int, variant: str | None) -> ExperimentExposureLinkage:
@@ -221,14 +207,14 @@ def resolve_exposure_linkage(team: Team, *, experiment_id: int, variant: str | N
         context=context,
         requested_variants=requested_variants,
         preaggregation_job_ids=read.preaggregation_job_ids,
-        live_scan_budget=read.live_scan_budget,
+        live_scan_max_memory_bytes=read.live_scan_max_memory_bytes,
     )
 
 
 @dataclass(frozen=True, kw_only=True)
 class _ExposureRead:
     preaggregation_job_ids: list[str] | None
-    live_scan_budget: LiveScanBudget | None
+    live_scan_max_memory_bytes: int | None
 
 
 def _resolve_exposure_read(team: Team, experiment: Experiment, context: ExperimentQueryContext) -> _ExposureRead:
@@ -254,7 +240,7 @@ def _resolve_exposure_read(team: Team, experiment: Experiment, context: Experime
         experiment.start_date, experiment.end_date
     ):
         tag_queries(experiment_exposures_path="direct_scan")
-        return _ExposureRead(preaggregation_job_ids=None, live_scan_budget=None)
+        return _ExposureRead(preaggregation_job_ids=None, live_scan_max_memory_bytes=None)
 
     if has_uncalculated_cohorts(team, experiment.exposure_criteria):
         # Both reads below see the cohort's partially-inserted membership: a precompute build
@@ -267,15 +253,13 @@ def _resolve_exposure_read(team: Team, experiment: Experiment, context: Experime
         # exposures have no preaggregated form. Their live scan stays affordable even on the
         # largest teams, because it is bounded by the experiment window's activation events
         # and the distinct-id expansion's memory scales with the exposed population, so they
-        # scan live instead of being refused. The budget keeps the scan explicitly bounded:
-        # one that outgrows the ceiling is refused instead of pressuring the cluster.
+        # scan live instead of being refused. The ceiling keeps the scan explicitly bounded:
+        # one that outgrows it is killed with the standard memory-limit error instead of
+        # pressuring the cluster.
         tag_queries(experiment_exposures_path="direct_scan_activation")
         return _ExposureRead(
             preaggregation_job_ids=None,
-            live_scan_budget=LiveScanBudget(
-                max_memory_bytes=ACTIVATION_LIVE_SCAN_MAX_MEMORY_BYTES,
-                over_budget_message=LIVE_SCAN_OVER_BUDGET_MESSAGE,
-            ),
+            live_scan_max_memory_bytes=ACTIVATION_LIVE_SCAN_MAX_MEMORY_BYTES,
         )
 
     query_string, placeholders = ExposureQueryBuilder(context=context).precomputation_query()
@@ -305,7 +289,7 @@ def _resolve_exposure_read(team: Team, experiment: Experiment, context: Experime
     tag_queries(experiment_exposures_path="precomputed")
     return _ExposureRead(
         preaggregation_job_ids=[str(job_id) for job_id in result.job_ids],
-        live_scan_budget=None,
+        live_scan_max_memory_bytes=None,
     )
 
 
