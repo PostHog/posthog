@@ -113,8 +113,9 @@ tools:
             Create a new Customer Analytics account. An account is a logical container for assigning ownership across
             the customer-success org. Provide `name` (required), optional `external_id` (CRM ID or similar), optional
             `properties` to set external system identifiers (`stripe_customer_id`, `hubspot_deal_id`, `billing_id`,
-            `sfdc_id`, `zendesk_id`), and optional `tags` to categorize the account. To assign users (CSM, account
-            executive, ...), use `accounts-relationships-create` after creating the account.
+            `sfdc_id`, `zendesk_id`), optional `tags` to categorize the account, and optional `churned_at` as an
+            ISO-8601 timestamp (null means not churned). To assign users (CSM, account executive, ...), use
+            `accounts-relationships-create` after creating the account.
         param_overrides:
             properties:
                 description: >
@@ -177,6 +178,12 @@ tools:
         description: |
             Permanently delete a Customer Analytics account by id.
         feature_flag: customer-analytics-csp
+    accounts-email-thread-messages-list:
+        operation: accounts_email_thread_messages_list
+        enabled: false
+    accounts-email-threads-list:
+        operation: accounts_email_threads_list
+        enabled: false
     accounts-list:
         operation: accounts_list
         enabled: true
@@ -191,18 +198,21 @@ tools:
         description: >
             List Customer Analytics accounts in the project, ordered by most recently created. Each result includes the
             account `id`, `name`, `external_id`, typed `properties` (external identifiers stripe_customer_id,
-            hubspot_deal_id, billing_id, sfdc_id, zendesk_id), `tags`, and creation/update metadata. User assignments
-            (CSM, account executive, ...) live on account relationships — see `accounts-relationships-list`. Pass `tags`
-            (JSON-encoded array, e.g. `["enterprise","priority"]`) to filter to accounts that have any of the listed
-            tags. Use `accounts-retrieve` for a single account by id. The `properties` above are the built-in fields
-            only; teams also define their own typed attributes as custom properties, which do not appear here. Call
-            `custom-property-definitions-list` first to see what a team actually tracks on its accounts, rather than
-            assuming the built-ins are the whole schema or guessing at property names. To link a user to a specific
-            account rather than the bare list, deep-link it with the path `/customer_analytics/accounts/<id>/<tab>`
-            (using the account `id`; tab is optional — one of notes/users/usage/spend, e.g.
-            `/customer_analytics/accounts/<id>/usage`). This filters the list to that account, expands it, and opens the
-            tab.
+            hubspot_deal_id, billing_id, sfdc_id, zendesk_id), `tags`, `churned_at` (null if not churned), and
+            creation/update metadata. User assignments (CSM, account executive, ...) live on account relationships — see
+            `accounts-relationships-list`. Pass `tags` (JSON-encoded array, e.g. `["enterprise","priority"]`) to filter
+            to accounts that have any of the listed tags. Use `accounts-retrieve` for a single account by id. The
+            `properties` above are the built-in fields only; teams also define their own typed attributes as custom
+            properties, which do not appear here. Call `custom-property-definitions-list` first to see what a team
+            actually tracks on its accounts, rather than assuming the built-ins are the whole schema or guessing at
+            property names. To link a user to a specific account rather than the bare list, deep-link it with the path
+            `/customer_analytics/accounts/<id>/<tab>` (using the account `id`; tab is optional — one of
+            notes/users/usage/spend, e.g. `/customer_analytics/accounts/<id>/usage`). This filters the list to that
+            account, expands it, and opens the tab. Churned accounts are hidden by default. Set `include_churned` to
+            true to include them.
         param_overrides:
+            include_churned:
+                description: Include churned accounts. Churned accounts are hidden by default.
             tags:
                 description: >
                     JSON-encoded array of tag names to filter by, e.g. `["enterprise","priority"]`. Returns accounts
@@ -284,7 +294,8 @@ tools:
         title: Update account
         description: >
             Update fields on an existing Customer Analytics account. Accepts a subset of fields; unspecified fields are
-            left unchanged. Pass `tags` to replace the full set of tags on the account.
+            left unchanged. Pass `tags` to replace the full set of tags. Set `churned_at` to an ISO-8601 timestamp to
+            mark the account as churned, or null to mark it as active again.
         param_overrides:
             properties:
                 description: >
@@ -364,13 +375,14 @@ tools:
         title: Get account
         description: >
             Fetch a single Customer Analytics account by id. Returns the full account including typed `properties`
-            (stripe_customer_id, hubspot_deal_id, billing_id, sfdc_id, zendesk_id external identifiers) and `tags`. User
-            assignments (CSM, account executive, ...) live on account relationships — see `accounts-relationships-list`.
-            These are the built-in fields only; a team's own typed attributes are custom properties and are not returned
-            here. Call `custom-property-definitions-list` to see what the team tracks, then
-            `accounts-custom-property-values-list` for this account's values. To link a user to this account rather than
-            the bare list, deep-link it with the path `/customer_analytics/accounts/<id>/<tab>` (using the account `id`;
-            tab is optional — one of notes/users/usage/spend, e.g. `/customer_analytics/accounts/<id>/usage`).
+            (stripe_customer_id, hubspot_deal_id, billing_id, sfdc_id, zendesk_id external identifiers), `tags`, and
+            `churned_at` (null if the account has not churned). User assignments (CSM, account executive, ...) live on
+            account relationships — see `accounts-relationships-list`. These are the built-in fields only; a team's own
+            typed attributes are custom properties and are not returned here. Call `custom-property-definitions-list` to
+            see what the team tracks, then `accounts-custom-property-values-list` for this account's values. To link a
+            user to this account rather than the bare list, deep-link it with the path
+            `/customer_analytics/accounts/<id>/<tab>` (using the account `id`; tab is optional — one of
+            notes/users/usage/spend, e.g. `/customer_analytics/accounts/<id>/usage`).
         feature_flag: customer-analytics-csp
     accounts-summaries-list:
         operation: accounts_summaries_list
@@ -874,6 +886,45 @@ tools:
         feature_flag: customer-analytics-csp
     event-streams-update:
         operation: event_streams_update
+        enabled: false
+    feature-request-product-areas-create:
+        operation: feature_request_product_areas_create
+        enabled: false
+    feature-request-product-areas-list:
+        operation: feature_request_product_areas_list
+        enabled: false
+    feature-request-product-areas-partial-update:
+        operation: feature_request_product_areas_partial_update
+        enabled: false
+    feature-request-product-areas-update:
+        operation: feature_request_product_areas_update
+        enabled: false
+    feature-requests-archive-create:
+        operation: feature_requests_archive_create
+        enabled: false
+    feature-requests-create:
+        operation: feature_requests_create
+        enabled: false
+    feature-requests-history-list:
+        operation: feature_requests_history_list
+        enabled: false
+    feature-requests-list:
+        operation: feature_requests_list
+        enabled: false
+    feature-requests-partial-update:
+        operation: feature_requests_partial_update
+        enabled: false
+    feature-requests-restore-create:
+        operation: feature_requests_restore_create
+        enabled: false
+    feature-requests-retrieve:
+        operation: feature_requests_retrieve
+        enabled: false
+    feature-requests-status-history-list:
+        operation: feature_requests_status_history_list
+        enabled: false
+    feature-requests-update:
+        operation: feature_requests_update
         enabled: false
     usage-metrics-create:
         operation: groups_types_metrics_create

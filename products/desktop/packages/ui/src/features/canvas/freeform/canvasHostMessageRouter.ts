@@ -69,6 +69,18 @@ export function createCanvasHostMessageRouter(
   return async (message) => {
     switch (message.type) {
       case "data-request":
+        // Canvas code is untrusted, so the host is what stops a canvas from
+        // firing writes just by being loaded or rendered.
+        if (message.method === "actionInvoke" && !options.hasUserActivation()) {
+          options.post({
+            channel: "posthog-canvas",
+            type: "data-response",
+            id: message.id,
+            ok: false,
+            error: "Canvas actions require a user action",
+          });
+          break;
+        }
         if (
           activeDataRequests >= MAX_CONCURRENT_DATA_REQUESTS ||
           !isBoundedPayload(message.payload)
