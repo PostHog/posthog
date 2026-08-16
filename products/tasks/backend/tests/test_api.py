@@ -9834,12 +9834,20 @@ class TestTaskRunCommandAPI(BaseTaskAPITest):
 
         response = self.client.post(
             self._command_url(task, run),
-            {"jsonrpc": "2.0", "method": "side_question", "params": {"question": "what does it do?"}, "id": "req-btw"},
+            {
+                "jsonrpc": "2.0",
+                "method": "side_question",
+                "params": {"question": "  what does it do?  "},
+                "id": "req-btw",
+            },
             format="json",
         )
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json()["result"]["answer"], "It parses JSONL.")
+        forwarded = mock_post.call_args[1]["json"]
+        self.assertEqual(forwarded["method"], "side_question")
+        self.assertEqual(forwarded["params"]["question"], "what does it do?")
 
     @parameterized.expand([("blank", "   "), ("empty", ""), ("missing", None)])
     def test_command_rejects_side_question_without_a_question(self, _name, question):
@@ -9855,7 +9863,8 @@ class TestTaskRunCommandAPI(BaseTaskAPITest):
 
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
-    def test_command_side_question_requires_code_access(self):
+    @patch("products.tasks.backend.presentation.views.api.http_requests.post")
+    def test_command_side_question_requires_code_access(self, mock_post):
         self.set_tasks_feature_flag(False)
         task = self.create_task()
         run = self._create_run_with_sandbox(task)
@@ -9868,6 +9877,7 @@ class TestTaskRunCommandAPI(BaseTaskAPITest):
 
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
         self.assertEqual(response.json()["code"], "code_access_required")
+        mock_post.assert_not_called()
 
     def test_empty_task_session_returns_read_only_storage_access(self):
         task = self.create_task(runtime=Task.Runtime.PI)

@@ -2159,15 +2159,10 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         request_id = request.validated_data.get("id")
         params = request.validated_data.get("params")
 
-        # Unlike user_message (deliberately ungated below so Inbox "Discuss" works),
-        # side_question is only surfaced by the Desktop client, so it can require Code access.
-        if method == "side_question" and not tasks_access.has_tasks_access(request.user):
-            return Response(
-                TaskRunErrorResponseSerializer(
-                    {"error": "side_question requires PostHog Code access.", "code": "code_access_required"}
-                ).data,
-                status=status.HTTP_403_FORBIDDEN,
-            )
+        # A side question drives the agent and spends model tokens on the caller's behalf. Unlike
+        # user_message below, it has no Inbox surface to exempt, so every caller takes the gate.
+        if method == "side_question" and (access_response := code_access_required_response(request.user)):
+            return access_response
 
         if method == "user_message":
             # The Inbox starts interactive runs and drops the user straight into this composer,
