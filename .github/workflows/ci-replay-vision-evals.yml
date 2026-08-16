@@ -4,12 +4,15 @@
 # The dataset (real dogfood session recordings) is collected fresh on the ephemeral runner each run,
 # which re-verifies AI data-processing consent; it is never cached, uploaded as an artifact, or
 # otherwise persisted. Only aggregate scores reach the step summary.
+# The job executes the PR's own code with secrets, so it only runs once a maintainer applies the
+# replay-vision-evals-ready label (the ci-ai.yml trust gate), or on manual dispatch.
 # Without the REPLAY_VISION_EVAL_POSTHOG_API_KEY secret the job skips green, so forks and
 # not-yet-configured environments are unaffected.
 name: Replay Vision Evals
 
 on:
     pull_request:
+        types: [opened, synchronize, reopened, labeled]
         paths:
             - '.github/workflows/ci-replay-vision-evals.yml'
             - 'products/replay_vision/backend/temporal/scanners/prompts/**'
@@ -40,8 +43,13 @@ jobs:
         name: Golden-dataset scanner eval
         timeout-minutes: 60
         runs-on: ubuntu-latest
-        # Fork PRs have no secrets, so the eval can only run on internal branches.
-        if: github.repository == 'PostHog/posthog' && (github.event_name == 'workflow_dispatch' || github.event.pull_request.head.repo.fork == false)
+        # The PR's own collector/harness code runs with secrets, so a PR revision is only trusted
+        # once a maintainer has looked at it and applied the label; manual dispatch is maintainer-initiated.
+        if: |
+            github.repository == 'PostHog/posthog' &&
+            (github.event_name == 'workflow_dispatch' ||
+             (github.event.pull_request.head.repo.fork == false &&
+              contains(github.event.pull_request.labels.*.name, 'replay-vision-evals-ready')))
         env:
             DOCKERHUB_USERNAME: ${{ vars.DOCKERHUB_USER }}
             DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
