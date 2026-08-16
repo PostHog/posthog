@@ -398,6 +398,7 @@ def _connect_duckgres(
         target.team_id,
         organization_id=target.organization_id,
         service_credential=service_credential,
+        application_name="events-backfill",
     )
     conn = psycopg.connect(
         conninfo,

@@ -214,6 +214,11 @@ export namespace Schemas {
        * * `weekly` - weekly
        * * `monthly` - monthly */
       slack_summary_cadence?: SlackSummaryCadenceEnum | null;
+      /**
+         * When the account churned. Null means the account has not churned.
+         * @nullable
+         */
+      churned_at?: string | null;
       readonly created_at: string;
       /** @nullable */
       readonly created_by: number | null;
@@ -322,6 +327,94 @@ export namespace Schemas {
       /** Customer analytics account custom property — the key is the property definition id */
       type?: 'account_custom_property';
       value?: (string | number | boolean)[] | string | number | boolean | null;
+    }
+
+    /**
+     * * `internal` - Internal
+     * * `customer` - Customer
+     */
+    export type EmailThreadParticipantKindEnum = typeof EmailThreadParticipantKindEnum[keyof typeof EmailThreadParticipantKindEnum];
+
+
+    export const EmailThreadParticipantKindEnum = {
+      Internal: 'internal',
+      Customer: 'customer',
+    } as const;
+
+    export interface AccountEmailThreadParticipant {
+      /** Email address of the thread participant. */
+      readonly email: string;
+      /** Display name from the captured email headers. */
+      readonly display_name: string;
+      /** Whether the participant belongs to the PostHog organization or the customer.
+       *
+       * * `internal` - Internal
+       * * `customer` - Customer */
+      readonly kind: EmailThreadParticipantKindEnum;
+    }
+
+    export interface AccountEmailThread {
+      /** UUID of the captured email thread. */
+      readonly id: string;
+      /** Email thread subject. */
+      readonly subject: string;
+      /** Plain-text preview of the latest captured message. */
+      readonly preview: string;
+      /**
+         * Source timestamp of the first captured message.
+         * @nullable
+         */
+      readonly first_message_at: string | null;
+      /**
+         * Source timestamp of the latest captured message.
+         * @nullable
+         */
+      readonly last_message_at: string | null;
+      /** Number of captured messages in the thread. */
+      readonly message_count: number;
+      /** Participants included in the email thread. */
+      readonly participants: readonly AccountEmailThreadParticipant[];
+    }
+
+    export interface AccountEmailThreadAddress {
+      /** Name from the email header. */
+      readonly name: string;
+      /** Email address from the email header. */
+      readonly email: string;
+    }
+
+    /**
+     * * `inbound` - Inbound
+     * * `outbound` - Outbound
+     */
+    export type EmailThreadMessageDirectionEnum = typeof EmailThreadMessageDirectionEnum[keyof typeof EmailThreadMessageDirectionEnum];
+
+
+    export const EmailThreadMessageDirectionEnum = {
+      Inbound: 'inbound',
+      Outbound: 'outbound',
+    } as const;
+
+    export interface AccountEmailThreadMessage {
+      /** UUID of the captured email message. */
+      readonly id: string;
+      /** Timestamp from the source email. */
+      readonly sent_at: string;
+      /** Sender from the email From header. */
+      readonly sender: AccountEmailThreadAddress;
+      /** Recipients from the email To header. */
+      readonly to_recipients: readonly AccountEmailThreadAddress[];
+      /** Recipients from the email Cc header. */
+      readonly cc_recipients: readonly AccountEmailThreadAddress[];
+      /** Whether Mailgun authentication verified the sender domain. */
+      readonly sender_authenticated: boolean;
+      /** Whether PostHog received or sent the message.
+       *
+       * * `inbound` - Inbound
+       * * `outbound` - Outbound */
+      readonly direction: EmailThreadMessageDirectionEnum;
+      /** Plain-text email content. */
+      readonly content: string;
     }
 
     /**
@@ -834,6 +927,7 @@ export namespace Schemas {
       ExternalId: 'external_id',
       CreatedAt: 'created_at',
       UpdatedAt: 'updated_at',
+      ChurnedAt: 'churned_at',
       StripeCustomerId: 'stripe_customer_id',
       HubspotDealId: 'hubspot_deal_id',
       BillingId: 'billing_id',
@@ -1074,6 +1168,8 @@ export namespace Schemas {
       columns: (AccountsTableAccountFieldColumn | AccountsTableTagsColumn | AccountsTableNoteCountColumn | AccountsTableRelationshipColumn | AccountsTableCustomPropertyColumn | AccountsTableCustomPropertyHistoryColumn)[];
       /** Filters are combined with AND. Values within tag and assignment filters use OR. */
       filters?: (AccountsTableSearchFilter | AccountsTableTagsFilter | AccountsTableAssignedToFilter | AccountsTableUnassignedFilter | AccountsTableAccountIdFilter | AccountsTableCustomPropertyFilter)[] | null;
+      /** Include churned accounts. Churned accounts are hidden by default. */
+      includeChurned?: boolean | null;
       kind?: 'AccountsTableQuery';
       limit?: number | null;
       /** Aggregates to evaluate against the filtered account set. A metrics query skips row loading. */
@@ -8131,6 +8227,8 @@ export namespace Schemas {
     } as const;
 
     export interface ScatterChartSettings {
+      /** Whether to draw a least-squares fit line through each series' points. */
+      showBestFit?: boolean | null;
       /** X-axis scale. A `logarithmic` axis can't place a non-positive value, so those points are dropped. */
       xScale?: XScale | null;
       /** Whether the X axis should start at zero. Off by default, because pinning either axis of two independent measures to zero squashes the correlation into a corner. */
@@ -14327,6 +14425,61 @@ export namespace Schemas {
     }
 
     /**
+     * One registered action verb, as the host renders it before invoking.
+     */
+    export interface CanvasActionDefinition {
+      /** The verb's registry name, e.g. 'annotations.create'. */
+      verb: string;
+      /** One line naming what invoking the verb does. */
+      summary: string;
+      /** True when the verb deletes or disables something; the host must confirm with the viewer first. */
+      destructive: boolean;
+      /** Authoring docs for the verb: payload and result shape, behavior, and the confirmation copy it warrants. */
+      usage: string;
+    }
+
+    /**
+     * Verb-specific arguments, validated against the verb's payload schema.
+     */
+    export type CanvasActionInvokePayload = { [key: string]: unknown };
+
+    /**
+     * Payload for invoking one action verb.
+     */
+    export interface CanvasActionInvoke {
+      /**
+         * Registered verb to invoke, e.g. 'tasks.create'.
+         * @maxLength 64
+         */
+      verb: string;
+      /** Verb-specific arguments, validated against the verb's payload schema. */
+      payload?: CanvasActionInvokePayload;
+    }
+
+    /**
+     * Verb-specific result, e.g. {'task_id': ...} for tasks.create.
+     */
+    export type CanvasActionResultResult = { [key: string]: unknown };
+
+    /**
+     * Result of one action invocation.
+     */
+    export interface CanvasActionResult {
+      /** The verb that executed. */
+      verb: string;
+      /** Verb-specific result, e.g. {'task_id': ...} for tasks.create. */
+      result: CanvasActionResultResult;
+    }
+
+    /**
+     * The action registry: every verb a canvas may declare and invoke.
+     */
+    export interface CanvasActionsResponse {
+      /** Registered verbs, sorted by name. */
+      actions: CanvasActionDefinition[];
+    }
+
+    /**
      * One emitted file of a built canvas artifact.
      */
     export interface CanvasArtifactAsset {
@@ -14472,6 +14625,18 @@ export namespace Schemas {
       builds: CanvasBuild[];
     }
 
+    /**
+     * * `user` - user
+     * * `shared` - shared
+     */
+    export type CanvasStateScopeEnum = typeof CanvasStateScopeEnum[keyof typeof CanvasStateScopeEnum];
+
+
+    export const CanvasStateScopeEnum = {
+      User: 'user',
+      Shared: 'shared',
+    } as const;
+
     export interface CanvasPostHogCapabilities {
       /**
          * @maxItems 100
@@ -14484,6 +14649,17 @@ export namespace Schemas {
          * @items.maxLength 200
          */
       captureEvents: string[];
+      /**
+         * State scopes the canvas may use via ph.state: 'user' (private to each viewer) and/or 'shared' (one value per canvas, team-visible).
+         * @maxItems 2
+         */
+      state?: CanvasStateScopeEnum[];
+      /**
+         * Registered action verbs the canvas may invoke via ph.actions (e.g. 'annotations.create', 'tasks.create'). Each executes as the viewer; declaring one shows it in the promote review.
+         * @maxItems 32
+         * @items.maxLength 64
+         */
+      actions?: string[];
     }
 
     export interface CanvasNetworkCapabilities {
@@ -14514,6 +14690,10 @@ export namespace Schemas {
       inline_queries_enabled: boolean;
       /** Network origins the draft newly declares it may reach. */
       network_origins_added: string[];
+      /** State scopes (user, shared) the draft newly declares for ph.state. */
+      state_scopes_added: string[];
+      /** Action verbs the draft newly declares it may invoke via ph.actions. */
+      actions_added: string[];
     }
 
     /**
@@ -14917,6 +15097,52 @@ export namespace Schemas {
     }
 
     /**
+     * One key of a canvas's runtime key-value state (the ph.state store).
+     */
+    export interface CanvasStateEntry {
+      /** user: private to the viewer who wrote it. shared: one value per canvas, visible to every viewer.
+       *
+       * * `user` - user
+       * * `shared` - shared */
+      scope: CanvasStateScopeEnum;
+      /**
+         * The entry's key, unique within its scope.
+         * @maxLength 200
+         */
+      key: string;
+      /** The stored JSON value. */
+      value: unknown;
+      /** When the entry was last written. */
+      updated_at: string;
+    }
+
+    /**
+     * The canvas state readable by the caller.
+     */
+    export interface CanvasStateResponse {
+      /** The canvas's shared entries plus the caller's own user-scoped entries. */
+      entries: CanvasStateEntry[];
+    }
+
+    /**
+     * Payload for writing (or deleting) one key of a canvas's runtime state.
+     */
+    export interface CanvasStateSet {
+      /** Scope to write into; the canvas must declare it in capabilities.posthog.state.
+       *
+       * * `user` - user
+       * * `shared` - shared */
+      scope: CanvasStateScopeEnum;
+      /**
+         * Key to write, unique within its scope.
+         * @maxLength 200
+         */
+      key: string;
+      /** JSON value to store (at most 64 KB serialized), or null to delete the key. */
+      value: unknown;
+    }
+
+    /**
      * Payload for validating a candidate source project without publishing it.
      */
     export interface CanvasValidateRequest {
@@ -15241,6 +15467,16 @@ export namespace Schemas {
     }
 
     /**
+     * * `manual` - Manual
+     */
+    export type ChangeSourceEnum = typeof ChangeSourceEnum[keyof typeof ChangeSourceEnum];
+
+
+    export const ChangeSourceEnum = {
+      Manual: 'manual',
+    } as const;
+
+    /**
      * The task currently generating this channel's CONTEXT.md, or null.
      */
     export interface ChannelContextGeneration {
@@ -15425,9 +15661,50 @@ export namespace Schemas {
       star?: boolean;
     }
 
+    /**
+     * * `author_scout` - author_scout
+     * * `fleet_overview` - fleet_overview
+     * * `recent_signals` - recent_signals
+     */
+    export type ChatTypeEnum = typeof ChatTypeEnum[keyof typeof ChatTypeEnum];
+
+
+    export const ChatTypeEnum = {
+      AuthorScout: 'author_scout',
+      FleetOverview: 'fleet_overview',
+      RecentSignals: 'recent_signals',
+    } as const;
+
     export interface CheckDatabaseNameResponse {
       name: string;
       available: boolean;
+    }
+
+    /**
+     * Body of the `check_incremental` action: a query and an optional config to check it against.
+     */
+    export interface CheckIncremental {
+      /**
+         * The HogQL query to check.
+         * @maxLength 65536
+         */
+      query: string;
+      /**
+         * Output column whose advancing value marks rows as new. Omit to only list candidates.
+         * @nullable
+         */
+      incremental_key?: string | null;
+      /**
+         * Output columns that identify a row. Must include every GROUP BY column.
+         * @nullable
+         */
+      unique_key?: string[] | null;
+      /**
+         * How far back before the watermark to re-read each run, to pick up late-arriving data.
+         * @minimum 0
+         * @maximum 2592000
+         */
+      lookback_seconds?: number;
     }
 
     export interface CheckSchemaNameResponse {
@@ -19208,11 +19485,28 @@ export namespace Schemas {
       Skipped: 'Skipped',
     } as const;
 
+    /**
+     * * `full_refresh` - Full refresh
+     * * `incremental` - Incremental
+     */
+    export type DataModelingJobRunModeEnum = typeof DataModelingJobRunModeEnum[keyof typeof DataModelingJobRunModeEnum];
+
+
+    export const DataModelingJobRunModeEnum = {
+      FullRefresh: 'full_refresh',
+      Incremental: 'incremental',
+    } as const;
+
     export interface DataModelingJob {
       readonly id: string;
       /** @nullable */
       readonly saved_query_id: string | null;
       readonly status: DataModelingJobStatusEnum;
+      /** What this run wrote: full_refresh rebuilt the whole table, so rows_materialized is the table's size; incremental wrote only its window, so rows_materialized counts just the rows synced. Null for runs from before modes were recorded, or that failed before the plan resolved.
+       *
+       * * `full_refresh` - Full refresh
+       * * `incremental` - Incremental */
+      readonly run_mode: DataModelingJobRunModeEnum | null;
       readonly rows_materialized: number;
       /** @nullable */
       readonly error: string | null;
@@ -19386,6 +19680,62 @@ export namespace Schemas {
      * Engines this query's materialization is suspended for after repeated failures. Suspended engines are skipped by scheduled runs until the query is resumed.
      */
     export type DataWarehouseSavedQuerySuspended = {[key: string]: SavedQuerySuspension};
+
+    /**
+     * How a view updates its materialized table in place rather than rebuilding it.
+     */
+    export interface IncrementalConfig {
+      /** Whether runs update the table incrementally instead of rebuilding it. */
+      enabled?: boolean;
+      /** Output column whose advancing value marks rows as new. Each run reads only rows at or after the last run's highest value for it. When the query groups, this must be one of the grouped columns, so every group a run touches is recomputed in full. */
+      incremental_key: string;
+      /** Output columns that identify a row, used to match recomputed rows against stored ones. Must include every GROUP BY column. These columns can never be null. */
+      unique_key: string[];
+      /**
+         * How far back before the last run's high point to re-read, so late-arriving data is picked up. Only applies when the incremental key is a date or time.
+         * @minimum 0
+         * @maximum 2592000
+         */
+      lookback_seconds?: number;
+    }
+
+    /**
+     * * `incremental` - incremental
+     * * `full_refresh` - full_refresh
+     */
+    export type LastRunModeEnum = typeof LastRunModeEnum[keyof typeof LastRunModeEnum];
+
+
+    export const LastRunModeEnum = {
+      Incremental: 'incremental',
+      FullRefresh: 'full_refresh',
+    } as const;
+
+    /**
+     * Read-only progress written by the materialization run.
+     */
+    export interface IncrementalState {
+      /**
+         * Highest incremental key value written so far. The next run starts here.
+         * @nullable
+         */
+      watermark?: string | null;
+      /**
+         * Fingerprint of the query, incremental key, and unique key the stored rows were built from. When it stops matching, the next run rebuilds the whole table. Lookback is not part of it: changing lookback never forces a rebuild.
+         * @nullable
+         */
+      definition_fingerprint?: string | null;
+      /**
+         * When the table was last rebuilt from scratch.
+         * @nullable
+         */
+      last_full_refresh_at?: string | null;
+      /** Whether the last run updated the table or rebuilt it.
+       *
+       * * `incremental` - incremental
+       * * `full_refresh` - full_refresh */
+      last_run_mode?: LastRunModeEnum | null;
+    }
 
     /**
      * * `never` - never
@@ -19576,6 +19926,10 @@ export namespace Schemas {
       name: string;
       /** HogQL query definition as a JSON object with a "query" key containing the SQL string and a "kind" key (always "HogQLQuery"). Format the SQL string multi-line with indentation and inline `--` comments for non-obvious logic — the SQL editor renders it verbatim, so avoid minified single-line SQL. Example: {"kind": "HogQLQuery", "query": "SELECT\n    event,\n    count() AS cnt\nFROM events\nGROUP BY event\nLIMIT 100"} */
       query: DataWarehouseSavedQueryQuery;
+      /** Update the materialized table in place instead of rebuilding it. Null or absent means every run rebuilds the whole table. */
+      incremental?: IncrementalConfig | null;
+      /** How far incremental materialization has progressed. Null until the first run records any. Written by the materialization run, not by this API. */
+      readonly incremental_state: IncrementalState | null;
       readonly created_by: UserBasic;
       readonly created_at: string;
       /**
@@ -26263,6 +26617,8 @@ export namespace Schemas {
       scanner_config: unknown;
       /** Why the draft picked this scanner type and configuration, addressed to the user. */
       rationale: string;
+      /** Drafted `RecordingsQuery` narrowing which sessions get scanned, holding one event filter picked from the team's real events; null when no event clearly matched the goal. */
+      query: unknown;
     }
 
     export interface DraftStatusResponse {
@@ -31776,7 +32132,7 @@ export namespace Schemas {
          * @nullable
          */
       metric_name: string | null;
-      /** How many recordings the card carries, at most 20. Every card is backed by recordings that actually exist: a finding whose sessions were never recorded is dropped rather than promised. */
+      /** How many recordings the card carries, at most max_card_recordings (20). Every card is backed by recordings that actually exist: a finding whose sessions were never recorded is dropped rather than promised. A count sitting on the ceiling means at least that many, so say 'at least' and never compare two such counts: how often the event happened is the experiment's results, and this only counts what replay kept. */
       recording_count: number;
       /** The recordings themselves, most recent first, ready to hand to the recordings list as-is. */
       session_ids: string[];
@@ -31843,6 +32199,10 @@ export namespace Schemas {
       events_truncated: boolean;
       /** How many exposed people a variant needs before it can be compared at all. Below it a variant's cards would be noise whatever the evidence bar allows. */
       min_arm_persons: number;
+      /** The most recordings one card can carry. A card whose recording_count equals this hit the ceiling, so report it as 'at least this many' rather than as a count. */
+      max_card_recordings: number;
+      /** How many cards were removed because their recordings were already another card's on the same shelf. Nothing was lost: the recordings are all reachable through the cards that stayed. */
+      dropped_duplicate_cards: number;
       /** True when fewer than two variants have min_arm_persons exposed people, so no comparison exists and cards is empty. Say 'too early to compare' and show the arms' counts; an empty shelf presented without this would read as 'the variants behaved identically'. */
       too_early: boolean;
     }
@@ -32186,6 +32546,11 @@ export namespace Schemas {
       external_id: string;
       /** Human-readable account name. */
       name: string;
+      /**
+         * When the account churned, or null if it has not churned.
+         * @nullable
+         */
+      churned_at: string | null;
       /** Active relationship assignments to current organization members, keyed by relationship definition name (e.g. 'CSM', 'Account executive'). Definitions with no active assignment are omitted. */
       relationships: ExternalAccountListItemRelationships;
     }
@@ -35712,12 +36077,34 @@ export namespace Schemas {
 
     /**
      * * `requested` - Requested
+     * * `planned` - Planned
+     * * `completed` - Completed
+     * * `wont_fix` - Won't fix
+     * * `duplicate` - Duplicate
      */
-    export type RequestStatusEnum = typeof RequestStatusEnum[keyof typeof RequestStatusEnum];
+    export type FeatureRequestStatusEnum = typeof FeatureRequestStatusEnum[keyof typeof FeatureRequestStatusEnum];
 
 
-    export const RequestStatusEnum = {
+    export const FeatureRequestStatusEnum = {
       Requested: 'requested',
+      Planned: 'planned',
+      Completed: 'completed',
+      WontFix: 'wont_fix',
+      Duplicate: 'duplicate',
+    } as const;
+
+    /**
+     * * `high` - High
+     * * `medium` - Medium
+     * * `low` - Low
+     */
+    export type RequestPriorityEnum = typeof RequestPriorityEnum[keyof typeof RequestPriorityEnum];
+
+
+    export const RequestPriorityEnum = {
+      High: 'high',
+      Medium: 'medium',
+      Low: 'low',
     } as const;
 
     export interface FeatureRequestAccount {
@@ -35755,10 +36142,37 @@ export namespace Schemas {
       readonly title: string;
       /** Customer-facing request description in Markdown. */
       readonly description: string;
-      /** Current customer-facing status. The first release always creates requests as requested.
+      /** Current customer-facing lifecycle status.
        *
-       * * `requested` - Requested */
-      readonly request_status: RequestStatusEnum;
+       * * `requested` - Requested
+       * * `planned` - Planned
+       * * `completed` - Completed
+       * * `wont_fix` - Won't fix
+       * * `duplicate` - Duplicate */
+      readonly request_status: FeatureRequestStatusEnum;
+      /** Manual request priority. Null means no priority.
+       *
+       * * `high` - High
+       * * `medium` - Medium
+       * * `low` - Low */
+      readonly request_priority: RequestPriorityEnum | null;
+      /** Whether the request is archived. */
+      readonly is_archived: boolean;
+      /**
+         * When the request was archived, or null while active.
+         * @nullable
+         */
+      readonly archived_at: string | null;
+      /**
+         * ID of the user who archived the request, or null while active.
+         * @nullable
+         */
+      readonly archived_by: number | null;
+      /**
+         * Version required for optimistic concurrency on mutations.
+         * @minimum 1
+         */
+      readonly version: number;
       /** Affected account in the first release. */
       readonly account: FeatureRequestAccount;
       /** Product areas affected by this request. */
@@ -35793,6 +36207,163 @@ export namespace Schemas {
       product_area_ids: string[];
       /** Client-generated key that makes retries return the original request instead of creating a duplicate. */
       idempotency_key: string;
+    }
+
+    /**
+     * * `status` - Status
+     * * `priority` - Priority
+     * * `account` - Account
+     * * `product_areas` - Product areas
+     */
+    export type FieldEnum = typeof FieldEnum[keyof typeof FieldEnum];
+
+
+    export const FieldEnum = {
+      Status: 'status',
+      Priority: 'priority',
+      Account: 'account',
+      ProductAreas: 'product_areas',
+    } as const;
+
+    /**
+     * Value before the update, including relation snapshots.
+     */
+    export type FeatureRequestHistoryChangeBefore = string | {
+      /** @nullable */
+      id: string | null;
+      name: string;
+    } | {
+      id: string;
+      name: string;
+    }[] | null;
+
+    /**
+     * Value after the update, including relation snapshots.
+     */
+    export type FeatureRequestHistoryChangeAfter = string | {
+      /** @nullable */
+      id: string | null;
+      name: string;
+    } | {
+      id: string;
+      name: string;
+    }[] | null;
+
+    export interface FeatureRequestHistoryChange {
+      /** Request field represented by this change.
+       *
+       * * `status` - Status
+       * * `priority` - Priority
+       * * `account` - Account
+       * * `product_areas` - Product areas */
+      readonly field: FieldEnum;
+      /** Value before the update, including relation snapshots. */
+      readonly before: FeatureRequestHistoryChangeBefore;
+      /** Value after the update, including relation snapshots. */
+      readonly after: FeatureRequestHistoryChangeAfter;
+    }
+
+    export interface FeatureRequestHistory {
+      /** Stable request history entry ID. */
+      readonly id: string;
+      /** Tracked fields changed together in one successful save. */
+      readonly changes: readonly FeatureRequestHistoryChange[];
+      /** Whether this entry records the request's initial values. */
+      readonly is_initial: boolean;
+      /** System that recorded the request change.
+       *
+       * * `manual` - Manual */
+      readonly change_source: ChangeSourceEnum;
+      /**
+         * ID of the user who changed the request, if known.
+         * @nullable
+         */
+      readonly actor_id: number | null;
+      /**
+         * Display name of the user who changed the request, if known.
+         * @nullable
+         */
+      readonly actor_name: string | null;
+      /** When the request changed. */
+      readonly changed_at: string;
+    }
+
+    export interface FeatureRequestStatusHistory {
+      /** Stable status history entry ID. */
+      readonly id: string;
+      /** Status before this change. Null identifies the initial status.
+       *
+       * * `requested` - Requested
+       * * `planned` - Planned
+       * * `completed` - Completed
+       * * `wont_fix` - Won't fix
+       * * `duplicate` - Duplicate */
+      readonly previous_status: FeatureRequestStatusEnum | null;
+      /** Status after this change.
+       *
+       * * `requested` - Requested
+       * * `planned` - Planned
+       * * `completed` - Completed
+       * * `wont_fix` - Won't fix
+       * * `duplicate` - Duplicate */
+      readonly request_status: FeatureRequestStatusEnum;
+      /** System that recorded the status change.
+       *
+       * * `manual` - Manual */
+      readonly change_source: ChangeSourceEnum;
+      /**
+         * ID of the user who changed the status, if known.
+         * @nullable
+         */
+      readonly actor_id: number | null;
+      /**
+         * Display name of the user who changed the status, if known.
+         * @nullable
+         */
+      readonly actor_name: string | null;
+      /** When the status changed. */
+      readonly changed_at: string;
+    }
+
+    export interface FeatureRequestUpdate {
+      /**
+         * Request version loaded by the editor. Stale versions return 409 Conflict.
+         * @minimum 1
+         */
+      expected_version: number;
+      /**
+         * Updated customer-facing request title.
+         * @maxLength 400
+         */
+      title?: string;
+      /** Updated customer-facing request description in Markdown. */
+      description?: string;
+      /** Updated affected Customer Analytics account ID. */
+      account_id?: string;
+      /** One or more product area IDs. Existing inactive areas can remain linked. */
+      product_area_ids?: string[];
+      /** Updated customer-facing lifecycle status.
+       *
+       * * `requested` - Requested
+       * * `planned` - Planned
+       * * `completed` - Completed
+       * * `wont_fix` - Won't fix
+       * * `duplicate` - Duplicate */
+      request_status?: FeatureRequestStatusEnum;
+      /** Updated manual priority. Pass null to remove the priority.
+       *
+       * * `high` - High
+       * * `medium` - Medium
+       * * `low` - Low */
+      request_priority?: RequestPriorityEnum | null;
+    }
+
+    export interface FeatureRequestVersion {
+      /**
+         * Request version loaded by the editor. Stale versions return 409 Conflict.
+         * @minimum 1
+         */
+      expected_version: number;
     }
 
     export interface FeaturebaseFeedbackSignalExtra {
@@ -39785,7 +40356,6 @@ export namespace Schemas {
       expiry_time?: string | null;
       /** External references to third party issues. */
       external_references?: SessionRecordingExternalReference[] | null;
-      has_summary?: boolean | null;
       id: string;
       inactive_seconds?: number | null;
       keypress_count?: number | null;
@@ -41067,6 +41637,29 @@ export namespace Schemas {
          * @items.maxLength 256
          */
       id_jag_allowed_clients?: string[];
+    }
+
+    /**
+     * Coarse type per candidate, keyed by column name: datetime, date, integer, decimal, float, string, or uuid. A candidate with no entry has a type the check could not determine.
+     */
+    export type IncrementalEligibilityKeyCandidateTypes = {[key: string]: string};
+
+    /**
+     * Whether a query can be materialized incrementally, and what stands in the way.
+     */
+    export interface IncrementalEligibility {
+      /** True when nothing blocks incremental materialization. */
+      eligible: boolean;
+      /** Output columns that could be used as the incremental key. Excludes aggregates, columns whose type cannot serve as an advancing watermark (strings, booleans, arrays), and for a union only includes columns every branch produces. */
+      key_candidates: string[];
+      /** Output columns the unique key may be built from. A superset of key_candidates: identifying a row only needs equality, so strings qualify here even though they cannot be the incremental key. */
+      unique_key_candidates: string[];
+      /** Coarse type per candidate, keyed by column name: datetime, date, integer, decimal, float, string, or uuid. A candidate with no entry has a type the check could not determine. */
+      key_candidate_types: IncrementalEligibilityKeyCandidateTypes;
+      /** Reasons this query cannot be incremental. Each names the construct responsible. */
+      blockers: string[];
+      /** Things that still work but are worth knowing, such as a filter that cannot be pushed down so each run reads as much data as a full refresh. */
+      warnings: string[];
     }
 
     /**
@@ -47493,6 +48086,7 @@ export namespace Schemas {
      * * `image_builder` - Image Builder
      * * `loop` - Loop
      * * `mcp_analytics` - MCP Analytics
+     * * `signals_chat` - Signals Chat
      */
     export type OriginProductEnum = typeof OriginProductEnum[keyof typeof OriginProductEnum];
 
@@ -47516,6 +48110,7 @@ export namespace Schemas {
       ImageBuilder: 'image_builder',
       Loop: 'loop',
       McpAnalytics: 'mcp_analytics',
+      SignalsChat: 'signals_chat',
     } as const;
 
     /**
@@ -47722,6 +48317,24 @@ export namespace Schemas {
       /** @nullable */
       previous?: string | null;
       results: AccountChannelSummary[];
+    }
+
+    export interface PaginatedAccountEmailThreadList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: AccountEmailThread[];
+    }
+
+    export interface PaginatedAccountEmailThreadMessageList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: AccountEmailThreadMessage[];
     }
 
     export interface PaginatedAccountList {
@@ -49774,7 +50387,7 @@ export namespace Schemas {
          */
       description?: string;
       /**
-         * Organizational tags for this scanner. Distinct from a classifier's tag vocabulary in scanner_config. Tags cannot contain commas.
+         * Organizational tags for this scanner. Distinct from a classifier's categories in scanner_config. Tags cannot contain commas.
          * @maxItems 32
          * @items.maxLength 255
          */
@@ -50966,12 +51579,18 @@ export namespace Schemas {
       CiDurationRegression: 'ci_duration_regression',
     } as const;
 
+    /**
+     * Per-source settings as a JSON object. Keys read by the emission actionability gate on sources that define one (most data warehouse imports, and Conversations): `steering` (string, max 2000 characters) holds the team's preferences about this source's records in plain language: what matters, what to skip, what's out of scope. The emission actionability gate applies it when deciding which records become signals; rules apply from the next sync and nothing already emitted is retracted. `default_not_actionable` (boolean, default false) flips the gate's default: instead of keeping every record the steering rules don't exclude, only records that clearly match the team's preferences are kept. Other sources store these keys without reading them yet; future pipeline stages will consume the same steering text. Some sources read additional keys, for example `recording_filters` and `sample_rate` for session analysis.
+     */
+    export type SignalSourceConfigConfig = { [key: string]: unknown };
+
     export interface SignalSourceConfig {
       readonly id: string;
       source_product: SignalSourceConfigSourceProductEnum;
       source_type: SignalSourceConfigSourceTypeEnum;
       enabled?: boolean;
-      config?: unknown;
+      /** Per-source settings as a JSON object. Keys read by the emission actionability gate on sources that define one (most data warehouse imports, and Conversations): `steering` (string, max 2000 characters) holds the team's preferences about this source's records in plain language: what matters, what to skip, what's out of scope. The emission actionability gate applies it when deciding which records become signals; rules apply from the next sync and nothing already emitted is retracted. `default_not_actionable` (boolean, default false) flips the gate's default: instead of keeping every record the steering rules don't exclude, only records that clearly match the team's preferences are kept. Other sources store these keys without reading them yet; future pipeline stages will consume the same steering text. Some sources read additional keys, for example `recording_filters` and `sample_rate` for session analysis. */
+      config?: SignalSourceConfigConfig;
       readonly created_at: string;
       readonly updated_at: string;
       /** @nullable */
@@ -53752,6 +54371,11 @@ export namespace Schemas {
        * * `weekly` - weekly
        * * `monthly` - monthly */
       slack_summary_cadence?: SlackSummaryCadenceEnum | null;
+      /**
+         * When the account churned. Null means the account has not churned.
+         * @nullable
+         */
+      churned_at?: string | null;
       readonly created_at?: string;
       /** @nullable */
       readonly created_by?: number | null;
@@ -54716,6 +55340,10 @@ export namespace Schemas {
       name?: string;
       /** HogQL query definition as a JSON object with a "query" key containing the SQL string and a "kind" key (always "HogQLQuery"). Format the SQL string multi-line with indentation and inline `--` comments for non-obvious logic — the SQL editor renders it verbatim, so avoid minified single-line SQL. Example: {"kind": "HogQLQuery", "query": "SELECT\n    event,\n    count() AS cnt\nFROM events\nGROUP BY event\nLIMIT 100"} */
       query?: PatchedDataWarehouseSavedQueryQuery;
+      /** Update the materialized table in place instead of rebuilding it. Null or absent means every run rebuilds the whole table. */
+      incremental?: IncrementalConfig | null;
+      /** How far incremental materialization has progressed. Null until the first run records any. Written by the materialization run, not by this API. */
+      readonly incremental_state?: IncrementalState | null;
       readonly created_by?: UserBasic;
       readonly created_at?: string;
       /**
@@ -56135,6 +56763,39 @@ export namespace Schemas {
       readonly created_at?: string;
       /** When the product area was last updated. */
       readonly updated_at?: string;
+    }
+
+    export interface PatchedFeatureRequestUpdate {
+      /**
+         * Request version loaded by the editor. Stale versions return 409 Conflict.
+         * @minimum 1
+         */
+      expected_version?: number;
+      /**
+         * Updated customer-facing request title.
+         * @maxLength 400
+         */
+      title?: string;
+      /** Updated customer-facing request description in Markdown. */
+      description?: string;
+      /** Updated affected Customer Analytics account ID. */
+      account_id?: string;
+      /** One or more product area IDs. Existing inactive areas can remain linked. */
+      product_area_ids?: string[];
+      /** Updated customer-facing lifecycle status.
+       *
+       * * `requested` - Requested
+       * * `planned` - Planned
+       * * `completed` - Completed
+       * * `wont_fix` - Won't fix
+       * * `duplicate` - Duplicate */
+      request_status?: FeatureRequestStatusEnum;
+      /** Updated manual priority. Pass null to remove the priority.
+       *
+       * * `high` - High
+       * * `medium` - Medium
+       * * `low` - Low */
+      request_priority?: RequestPriorityEnum | null;
     }
 
     /**
@@ -58987,7 +59648,7 @@ export namespace Schemas {
          */
       description?: string;
       /**
-         * Organizational tags for this scanner. Distinct from a classifier's tag vocabulary in scanner_config. Tags cannot contain commas.
+         * Organizational tags for this scanner. Distinct from a classifier's categories in scanner_config. Tags cannot contain commas.
          * @maxItems 32
          * @items.maxLength 255
          */
@@ -59187,6 +59848,7 @@ export namespace Schemas {
       network_access_level?: NetworkAccessLevelEnum;
       /**
          * Allowed domains for custom network access.
+         * @maxItems 100
          * @items.maxLength 255
          */
       allowed_domains?: string[];
@@ -59557,12 +60219,18 @@ export namespace Schemas {
       mcp_gateway_server_ids?: string[];
     }
 
+    /**
+     * Per-source settings as a JSON object. Keys read by the emission actionability gate on sources that define one (most data warehouse imports, and Conversations): `steering` (string, max 2000 characters) holds the team's preferences about this source's records in plain language: what matters, what to skip, what's out of scope. The emission actionability gate applies it when deciding which records become signals; rules apply from the next sync and nothing already emitted is retracted. `default_not_actionable` (boolean, default false) flips the gate's default: instead of keeping every record the steering rules don't exclude, only records that clearly match the team's preferences are kept. Other sources store these keys without reading them yet; future pipeline stages will consume the same steering text. Some sources read additional keys, for example `recording_filters` and `sample_rate` for session analysis.
+     */
+    export type PatchedSignalSourceConfigConfig = { [key: string]: unknown };
+
     export interface PatchedSignalSourceConfig {
       readonly id?: string;
       source_product?: SignalSourceConfigSourceProductEnum;
       source_type?: SignalSourceConfigSourceTypeEnum;
       enabled?: boolean;
-      config?: unknown;
+      /** Per-source settings as a JSON object. Keys read by the emission actionability gate on sources that define one (most data warehouse imports, and Conversations): `steering` (string, max 2000 characters) holds the team's preferences about this source's records in plain language: what matters, what to skip, what's out of scope. The emission actionability gate applies it when deciding which records become signals; rules apply from the next sync and nothing already emitted is retracted. `default_not_actionable` (boolean, default false) flips the gate's default: instead of keeping every record the steering rules don't exclude, only records that clearly match the team's preferences are kept. Other sources store these keys without reading them yet; future pipeline stages will consume the same steering text. Some sources read additional keys, for example `recording_filters` and `sample_rate` for session analysis. */
+      config?: PatchedSignalSourceConfigConfig;
       readonly created_at?: string;
       readonly updated_at?: string;
       /** @nullable */
@@ -60592,7 +61260,8 @@ export namespace Schemas {
        * * `review_hog` - ReviewHog
        * * `image_builder` - Image Builder
        * * `loop` - Loop
-       * * `mcp_analytics` - MCP Analytics */
+       * * `mcp_analytics` - MCP Analytics
+       * * `signals_chat` - Signals Chat */
       origin_product?: OriginProductEnum;
       /**
          * Target GitHub repository in `organization/repo` format (e.g. `posthog/posthog-js`).
@@ -68362,10 +69031,10 @@ export namespace Schemas {
      * * `review_only` - review_only
      * * `resolve_only` - resolve_only
      */
-    export type RunModeEnum = typeof RunModeEnum[keyof typeof RunModeEnum];
+    export type ReviewTriggerRequestRunModeEnum = typeof ReviewTriggerRequestRunModeEnum[keyof typeof ReviewTriggerRequestRunModeEnum];
 
 
-    export const RunModeEnum = {
+    export const ReviewTriggerRequestRunModeEnum = {
       Review: 'review',
       ReviewOnly: 'review_only',
       ResolveOnly: 'resolve_only',
@@ -68379,7 +69048,7 @@ export namespace Schemas {
        * * `review` - review
        * * `review_only` - review_only
        * * `resolve_only` - resolve_only */
-      run_mode?: RunModeEnum;
+      run_mode?: ReviewTriggerRequestRunModeEnum;
     }
 
     export interface ReviewTriggerResponse {
@@ -68753,6 +69422,7 @@ export namespace Schemas {
       network_access_level?: NetworkAccessLevelEnum;
       /**
          * Allowed domains for custom network access.
+         * @maxItems 100
          * @items.maxLength 255
          */
       allowed_domains?: string[];
@@ -68913,6 +69583,14 @@ export namespace Schemas {
     }
 
     /**
+     * Body of the `run` action.
+     */
+    export interface SavedQueryRun {
+      /** Rebuild the whole table instead of updating it incrementally. Has no effect on a view that is not incremental. This is how you reprocess history after changing what the query means without changing its text, or after upstream data was corrected. */
+      full_refresh?: boolean;
+    }
+
+    /**
      * Distinct creators across all scanners on the team — feeds the `Created by` filter dropdown.
      */
     export interface ScannerCreatorsResponse {
@@ -68997,6 +69675,20 @@ export namespace Schemas {
          * @minimum 1
          */
       base_version?: number;
+    }
+
+    export interface ScoutChatTask {
+      /** The created chat task. Open it on the task detail page to continue. */
+      task_id: string;
+    }
+
+    export interface ScoutChatTaskCreate {
+      /** Which scout chat to start: `author_scout` (guided scout authoring), `fleet_overview` (health of the scout fleet), or `recent_signals` (walk through recently emitted signals). The prompt template is owned server-side.
+       *
+       * * `author_scout` - author_scout
+       * * `fleet_overview` - fleet_overview
+       * * `recent_signals` - recent_signals */
+      chat_type: ChatTypeEnum;
     }
 
     /**
@@ -75080,7 +75772,7 @@ export namespace Schemas {
          */
       prompt: string;
       /**
-         * The current tag vocabulary, so suggestions never duplicate a tag the user already has.
+         * The categories already configured, so suggestions never duplicate one the user has.
          * @maxItems 200
          * @items.maxLength 200
          */
@@ -76195,7 +76887,8 @@ export namespace Schemas {
        * * `review_hog` - ReviewHog
        * * `image_builder` - Image Builder
        * * `loop` - Loop
-       * * `mcp_analytics` - MCP Analytics */
+       * * `mcp_analytics` - MCP Analytics
+       * * `signals_chat` - Signals Chat */
       origin_product?: OriginProductEnum;
       /**
          * Target GitHub repository in `organization/repo` format (e.g. `posthog/posthog-js`).
@@ -77349,7 +78042,8 @@ export namespace Schemas {
        * * `review_hog` - ReviewHog
        * * `image_builder` - Image Builder
        * * `loop` - Loop
-       * * `mcp_analytics` - MCP Analytics */
+       * * `mcp_analytics` - MCP Analytics
+       * * `signals_chat` - Signals Chat */
       origin_product?: OriginProductEnum;
       /**
          * Target GitHub repository in `organization/repo` format (e.g. `posthog/posthog-js`).
@@ -81531,6 +82225,10 @@ export namespace Schemas {
      */
     all_roles_unassigned?: boolean;
     /**
+     * Include churned accounts. Churned accounts are hidden by default.
+     */
+    include_churned?: boolean;
+    /**
      * Number of results to return per page.
      */
     limit?: number;
@@ -81576,6 +82274,28 @@ export namespace Schemas {
      * Include ended assignments (the full timeline), not just active ones.
      */
     include_history?: boolean;
+    };
+
+    export type AccountsEmailThreadsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
+
+    export type AccountsEmailThreadMessagesListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
     };
 
     export type AccountsMeetingsListParams = {
@@ -82476,6 +83196,21 @@ export namespace Schemas {
      */
     version_id?: string;
     };
+
+    export type CanvasesStateRetrieveParams = {
+    /**
+     * Only return entries in this scope.
+     */
+    scope?: CanvasesStateRetrieveScope;
+    };
+
+    export type CanvasesStateRetrieveScope = typeof CanvasesStateRetrieveScope[keyof typeof CanvasesStateRetrieveScope];
+
+
+    export const CanvasesStateRetrieveScope = {
+      Shared: 'shared',
+      User: 'user',
+    } as const;
 
     export type CanvasesVersionsRetrieveParams = {
     /**
@@ -85129,6 +85864,19 @@ export namespace Schemas {
 
     export type FeatureRequestsListParams = {
     /**
+     * Accessible account IDs to include. Multiple values use OR semantics.
+     */
+    account_ids?: string[];
+    /**
+     * Whether to return active requests, archived requests, or all requests.
+     *
+     * * `active` - Active
+     * * `archived` - Archived
+     * * `all` - All
+     * @minLength 1
+     */
+    archive_state?: FeatureRequestsListArchiveState;
+    /**
      * Number of results to return per page.
      */
     limit?: number;
@@ -85136,7 +85884,80 @@ export namespace Schemas {
      * The initial index from which to return the results.
      */
     offset?: number;
+    /**
+     * Priorities to include. Use none for requests without a priority.
+     */
+    priorities?: FeatureRequestsListPrioritiesItem[];
+    /**
+     * Product area IDs to include. Multiple values use OR semantics.
+     */
+    product_area_ids?: string[];
+    /**
+     * Stable ordering for the result list.
+     *
+     * * `-updated_at` - Last updated: newest
+     * * `updated_at` - Last updated: oldest
+     * * `-created_at` - Date created: newest
+     * * `created_at` - Date created: oldest
+     * * `-priority` - Priority: high to low
+     * * `priority` - Priority: low to high
+     * * `title` - Title: A to Z
+     * * `-title` - Title: Z to A
+     * @minLength 1
+     */
+    request_ordering?: string;
+    /**
+     * Case-insensitive text to find in request titles and descriptions.
+     */
+    search?: string;
+    /**
+     * Lifecycle statuses to include. Multiple values use OR semantics.
+     */
+    statuses?: FeatureRequestsListStatusesItem[];
     };
+
+    export type FeatureRequestsListArchiveState = typeof FeatureRequestsListArchiveState[keyof typeof FeatureRequestsListArchiveState];
+
+
+    export const FeatureRequestsListArchiveState = {
+      Active: 'active',
+      Archived: 'archived',
+      All: 'all',
+    } as const;
+
+    /**
+     * * `high` - High
+     * * `medium` - Medium
+     * * `low` - Low
+     * * `none` - No priority
+     */
+    export type FeatureRequestsListPrioritiesItem = typeof FeatureRequestsListPrioritiesItem[keyof typeof FeatureRequestsListPrioritiesItem];
+
+
+    export const FeatureRequestsListPrioritiesItem = {
+      High: 'high',
+      Medium: 'medium',
+      Low: 'low',
+      None: 'none',
+    } as const;
+
+    /**
+     * * `requested` - Requested
+     * * `planned` - Planned
+     * * `completed` - Completed
+     * * `wont_fix` - Won't fix
+     * * `duplicate` - Duplicate
+     */
+    export type FeatureRequestsListStatusesItem = typeof FeatureRequestsListStatusesItem[keyof typeof FeatureRequestsListStatusesItem];
+
+
+    export const FeatureRequestsListStatusesItem = {
+      Requested: 'requested',
+      Planned: 'planned',
+      Completed: 'completed',
+      WontFix: 'wont_fix',
+      Duplicate: 'duplicate',
+    } as const;
 
     export type FieldNotesListParams = {
     /**
