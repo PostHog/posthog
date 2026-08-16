@@ -33,6 +33,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.rep
     select_repartition_target,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.load.metrics import (
+    DELTA_COARSEN_DECLINE_TOTAL,
     DELTA_REPARTITION_SKIP_TOTAL,
 )
 
@@ -223,24 +224,33 @@ async def maybe_flag_for_coarsening(
     the only route by which a nominated table there is evaluated). Never raises (the caller swallows).
     """
     measured_partitions = len(partition_bytes)
+
+    def _decline(reason: str) -> None:
+        # Every gate below returns silently, so without this "the rollout stalled" and "nothing was
+        # eligible" look identical from outside. A counter rather than an event because this runs on
+        # every table on every sync.
+        DELTA_COARSEN_DECLINE_TOTAL.labels(reason=reason).inc()
+
     # Never fight a rewrite that is already staged or mid-swap, however the evaluation was prompted.
     if schema.repartition_pending is not None or schema.repartition_swap is not None:
         return
 
     requested = schema.coarsen_requested
     if requested is None:
+        # Below these two the table is not over-fragmented at all, so returning before `_decline`
+        # keeps the metric scoped to the population the rollout is about.
         if measured_partitions < COARSEN_MIN_PARTITIONS:
             return
         if max_bytes * COARSEN_TRIGGER_DIVISOR > budget:
             return
-        # Cheap short-circuit on the count the caller already has. NOT the OOM-free guarantee: this
-        # count is rule-filtered, so a table whose deaths were all explained away passes it — the
-        # authoritative raw-signal gate is `has_recent_occurrences` further down.
+        # Cheap short-circuit on the count the caller already has: it covers the split trigger's
+        # shorter window, so the authoritative gate over `COARSEN_OOM_FREE_DAYS` is
+        # `blocks_coarsening` further down.
         if recent_oom_count > 0:
-            return
+            return _decline("oom_history_recent")
         layout_age = _seconds_since_last_repartition(schema)
         if layout_age is not None and layout_age < COARSEN_MIN_LAYOUT_AGE_SECONDS:
-            return
+            return _decline("layout_too_young")
 
     target, reason = await asyncio.to_thread(
         select_coarsen_target, schema, partition_bytes, budget // COARSEN_TARGET_DIVISOR
@@ -266,16 +276,13 @@ async def maybe_flag_for_coarsening(
             max_partition_bytes=max_bytes,
             partition_count=measured_partitions,
         )
-        return
+        return _decline(reason)
 
     if requested is None:
-        # Raw occurrences, not the rule-filtered `recent_count`: the rules exist to withhold splits,
-        # and a death they explain away (victim, deploy, extract) is still death evidence — coarsening
-        # doubles the merge working set, so any of it blocks the automatic path.
-        if await asyncio.to_thread(
-            ExternalDataSchemaOOMEvent.has_recent_occurrences, schema, days=COARSEN_OOM_FREE_DAYS
-        ):
-            return
+        # Classified, not raw: a nightly restart that kills a hundred unrelated schemas says nothing
+        # about any of their merges, and blocking on it would withhold coarsening from all of them.
+        if await asyncio.to_thread(ExternalDataSchemaOOMEvent.blocks_coarsening, schema, days=COARSEN_OOM_FREE_DAYS):
+            return _decline("oom_within_free_window")
 
         if not await asyncio.to_thread(is_auto_coarsen_enabled, schema):
             await logger.adebug(
@@ -285,7 +292,7 @@ async def maybe_flag_for_coarsening(
                 max_partition_bytes=max_bytes,
                 partition_count=measured_partitions,
             )
-            return
+            return _decline("flag_disabled")
 
     # Distinct reason for a nominated rewrite, the same way an admin-staged one is distinguishable, so
     # the backlog pass can be tracked separately from what the controller does on its own.

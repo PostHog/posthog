@@ -16,6 +16,7 @@ from temporalio.worker import Worker
 
 from posthog.hogql import ast
 
+from products.signals.backend.emission._prompts import ISSUE_ACTIONABILITY_PROMPT
 from products.signals.backend.emission.emit_signals import (
     EmitDataImportSignalsWorkflow,
     EmitSignalsActivityInputs,
@@ -644,6 +645,79 @@ class TestPipelineStageTelemetry:
         ]
 
 
+class TestRunSignalPipelineSteering:
+    @pytest.mark.asyncio
+    async def test_source_config_steering_customizes_actionability_prompt(self):
+        team = MagicMock(id=1)
+        team.uuid = uuid.UUID("00000000-0000-0000-0000-000000000001")
+        config = _make_config(actionability_prompt=ISSUE_ACTIONABILITY_PROMPT)
+        records = [{"id": "chore_1", "description": "Bump lodash to 4.17.21"}]
+
+        captured_prompts: list[str] = []
+
+        async def create(*args, **kwargs):
+            captured_prompts.append(kwargs["messages"][0]["content"])
+            return _make_llm_response("NOT_ACTIONABLE")
+
+        mock_llm_client = MagicMock()
+        mock_llm_client.messages.create = create
+
+        with (
+            patch(f"{PIPELINE_MODULE_PATH}.build_async_anthropic_client", return_value=mock_llm_client),
+            patch(f"{PIPELINE_MODULE_PATH}.activity"),
+            patch(f"{PIPELINE_MODULE_PATH}.emit_signal", new_callable=AsyncMock),
+            patch(f"{PIPELINE_MODULE_PATH}.posthoganalytics.capture") as capture,
+        ):
+            result = await run_signal_pipeline(
+                team=team,
+                config=config,
+                records=records,
+                extra={},
+                source_config={"steering": "Ignore issues labeled chore", "default_not_actionable": True},
+            )
+
+        assert result == {"status": "success", "reason": "no_actionable_records", "signals_emitted": 0}
+        (prompt,) = captured_prompts
+        assert "<team_preferences>" in prompt
+        assert "Ignore issues labeled chore" in prompt
+        assert "When in doubt, classify as NOT_ACTIONABLE" in prompt
+        assert "Bump lodash to 4.17.21" in prompt
+        # Steered gates also see the record's extra metadata, where emitters keep labels/state.
+        assert "<record_metadata>" in prompt
+        assert '"chore_1"' in prompt
+
+        filtered_calls = [
+            call for call in capture.call_args_list if call.kwargs["event"] == "signal_data_source_filtered"
+        ]
+        assert [call.kwargs["properties"]["steering_applied"] for call in filtered_calls] == [True]
+
+    @pytest.mark.asyncio
+    async def test_without_source_config_prompt_is_unchanged(self):
+        team = MagicMock(id=1)
+        team.uuid = uuid.UUID("00000000-0000-0000-0000-000000000001")
+        config = _make_config(actionability_prompt=ISSUE_ACTIONABILITY_PROMPT)
+        records = [{"id": "issue_1", "description": "Export button broken"}]
+
+        captured_prompts: list[str] = []
+
+        async def create(*args, **kwargs):
+            captured_prompts.append(kwargs["messages"][0]["content"])
+            return _make_llm_response("ACTIONABLE")
+
+        mock_llm_client = MagicMock()
+        mock_llm_client.messages.create = create
+
+        with (
+            patch(f"{PIPELINE_MODULE_PATH}.build_async_anthropic_client", return_value=mock_llm_client),
+            patch(f"{PIPELINE_MODULE_PATH}.activity"),
+            patch(f"{PIPELINE_MODULE_PATH}.emit_signal", new_callable=AsyncMock),
+            patch(f"{PIPELINE_MODULE_PATH}.posthoganalytics.capture"),
+        ):
+            await run_signal_pipeline(team=team, config=config, records=records, extra={})
+
+        assert captured_prompts == [ISSUE_ACTIONABILITY_PROMPT.format(description="Export button broken")]
+
+
 class TestEmitDataImportSignalsWorkflow:
     def test_parse_inputs(self):
         schema_id = str(uuid.uuid4())
@@ -754,6 +828,7 @@ class TestEmitActivityTableNameResolution:
             patch(f"{ACTIVITY_MODULE_PATH}.Heartbeater"),
             patch(f"{ACTIVITY_MODULE_PATH}.get_signal_config", return_value=config),
             patch(f"{ACTIVITY_MODULE_PATH}._fetch_schema_and_team", fetch_mock),
+            patch(f"{ACTIVITY_MODULE_PATH}.afetch_source_config", AsyncMock(return_value={})),
             patch(f"{ACTIVITY_MODULE_PATH}.run_signal_pipeline", new_callable=AsyncMock) as run_mock,
         ):
             run_mock.return_value = {"status": "success", "signals_emitted": 0}
@@ -770,3 +845,39 @@ class TestEmitActivityTableNameResolution:
             )
 
         assert captured_context["table_name"] == expected_hogql_name
+
+
+class TestEmitActivitySourceConfigThreading:
+    @pytest.mark.asyncio
+    async def test_passes_team_source_config_to_pipeline(self):
+        config = _make_config(record_fetcher=lambda team, config, context: [])
+        team = MagicMock(id=7)
+        schema = MagicMock()
+        schema.table.name = "test_table"
+
+        with (
+            patch(f"{ACTIVITY_MODULE_PATH}.Heartbeater"),
+            patch(f"{ACTIVITY_MODULE_PATH}.get_signal_config", return_value=config),
+            patch(f"{ACTIVITY_MODULE_PATH}._fetch_schema_and_team", AsyncMock(return_value=(schema, team))),
+            patch(f"{ACTIVITY_MODULE_PATH}.get_data_warehouse_table_name", return_value="test.table"),
+            patch(
+                f"{ACTIVITY_MODULE_PATH}.afetch_source_config",
+                AsyncMock(return_value={"steering": "skip chores"}),
+            ) as fetch_mock,
+            patch(f"{ACTIVITY_MODULE_PATH}.run_signal_pipeline", new_callable=AsyncMock) as run_mock,
+        ):
+            run_mock.return_value = {"status": "success", "signals_emitted": 0}
+            await emit_data_import_signals_activity(
+                EmitSignalsActivityInputs(
+                    team_id=7,
+                    schema_id=uuid.uuid4(),
+                    source_id=uuid.uuid4(),
+                    job_id="job-x",
+                    source_type="GitHub",
+                    schema_name="issues",
+                    last_synced_at=None,
+                )
+            )
+
+        fetch_mock.assert_awaited_once_with(team.id, config.source_product, config.source_type)
+        assert run_mock.call_args.kwargs["source_config"] == {"steering": "skip chores"}

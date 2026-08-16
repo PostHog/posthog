@@ -119,15 +119,24 @@ const BADGE_CONFIG: Record<BillingPlan | StartupProgramLabel, CopyVariation> = {
         subtitle: "You're on the startup plan.",
         backgroundColor: 'bg-warning-highlight',
         getDescription: (_billingPlan: BillingPlan, scrollToProduct: (productType: string) => void) => (
-            <p>
-                If you're growing like crazy, you might want to check out our{' '}
-                {scrollToProduct ? (
-                    <Link onClick={() => scrollToProduct('platform_and_support')}>Platform packages</Link>
-                ) : (
-                    'Platform packages'
-                )}
-                .
-            </p>
+            <>
+                <p>
+                    If you're growing like crazy, you might want to check out our{' '}
+                    {scrollToProduct ? (
+                        <Link onClick={() => scrollToProduct('platform_and_support')}>Platform packages</Link>
+                    ) : (
+                        'Platform packages'
+                    )}
+                    .
+                </p>
+                <p className="text-xs text-secondary mb-0">
+                    Credits can't be used for every product and tool. Check{' '}
+                    <Link to="https://posthog.com/startups" target="_blank">
+                        posthog.com/startups
+                    </Link>{' '}
+                    for details.
+                </p>
+            </>
         ),
     },
     [StartupProgramLabel.YC]: {
@@ -145,6 +154,13 @@ const BADGE_CONFIG: Record<BillingPlan | StartupProgramLabel, CopyVariation> = {
                         'Platform packages'
                     )}
                     .
+                </p>
+                <p className="text-xs text-secondary mb-0">
+                    Credits can't be used for every product and tool. Check{' '}
+                    <Link to="https://posthog.com/startups" target="_blank">
+                        posthog.com/startups
+                    </Link>{' '}
+                    for details.
                 </p>
             </>
         ),

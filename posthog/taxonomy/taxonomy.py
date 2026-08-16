@@ -3329,9 +3329,9 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "description": "The description of the error tracking issue this exception belongs to.",
             "type": "String",
         },
-        "$exception_releases": {
-            "label": "Exception releases",
-            "description": "The releases in which this exception has been observed.",
+        "$exception_release": {
+            "label": "Exception release",
+            "description": "The release associated with this exception event.",
             "type": "String",
         },
         "$debug_images": {
@@ -3707,6 +3707,7 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
         "assignee": {"label": "Issue assignee", "description": "The current assignee of an issue."},
         "name": {"label": "Issue name", "description": "The name of an issue."},
         "issue_description": {"label": "Issue description", "description": "The description of an issue."},
+        "severity": {"label": "Issue severity", "description": "The severity level assigned to an issue."},
         "first_seen": {
             "label": "Issue first seen",
             "description": "The first time the issue was seen.",

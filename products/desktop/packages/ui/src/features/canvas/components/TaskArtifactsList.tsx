@@ -28,7 +28,7 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@posthog/quill";
-import { formatRelativeTimeLong } from "@posthog/shared";
+import { formatRelativeTimeShort } from "@posthog/shared";
 import type { Task, TaskThreadMessage } from "@posthog/shared/domain-types";
 import { useMeQuery } from "@posthog/ui/features/auth/useMeQuery";
 import { iconForTemplate } from "@posthog/ui/features/canvas/components/canvasTemplateIcon";
@@ -49,7 +49,6 @@ import { useCompletedArtifactUploads } from "@posthog/ui/features/sessions/compo
 import { useCommentsForTargetsQuery } from "@posthog/ui/features/sessions/components/useComments";
 import { useSessionSelector } from "@posthog/ui/features/sessions/sessionStore";
 import { useArtifactDownload } from "@posthog/ui/features/sessions/useArtifactDownload";
-import { useCommentsEnabled } from "@posthog/ui/features/sessions/useCommentsEnabled";
 import { FileIcon } from "@posthog/ui/primitives/FileIcon";
 import { openExternalUrl } from "@posthog/ui/shell/openExternal";
 import { formatFileSize } from "@posthog/ui/utils/formatFileSize";
@@ -149,12 +148,17 @@ function stopCardOpen(event: MouseEvent) {
 
 function PrRow({
   url,
+  ts,
   openInPlaceTaskId,
 }: {
   url: string;
+  ts: number;
   openInPlaceTaskId?: string;
 }) {
   const { safeUrl, title, stateLabel, Icon, iconColor } = usePrArtifact(url);
+  const meta = [stateLabel, ts ? formatRelativeTimeShort(ts) : null]
+    .filter(Boolean)
+    .join(" · ");
 
   const [countsWanted, setCountsWanted] = useState(false);
   const comments = usePrComments(countsWanted ? safeUrl : null);
@@ -171,7 +175,7 @@ function PrRow({
     <ArtifactCard
       icon={<Icon size={16} weight="bold" style={{ color: iconColor }} />}
       title={title}
-      meta={stateLabel}
+      meta={meta}
       onHoverStart={() => setCountsWanted(true)}
       onOpen={
         safeUrl
@@ -206,18 +210,21 @@ function PrRow({
 function CanvasRow({
   name,
   url,
+  ts,
   commentCount,
 }: {
   name: string;
   url: string | null;
+  ts: number;
   commentCount: number;
 }) {
   const open = canvasArtifactOpenHandler(url);
+  const meta = ts ? `Canvas · ${formatRelativeTimeShort(ts)}` : "Canvas";
   return (
     <ArtifactCard
       icon={iconForTemplate("", { size: 16, className: "text-amber-11" })}
       title={name}
-      meta="Canvas"
+      meta={meta}
       onOpen={open}
       actions={<CommentCountBadge count={commentCount} />}
     />
@@ -261,7 +268,7 @@ function fileVersionMenuLabel(
   return [
     versionShortLabel(index, total),
     uploaderLabel(artifact, currentUser),
-    artifact.uploaded_at ? formatRelativeTimeLong(artifact.uploaded_at) : null,
+    artifact.uploaded_at ? formatRelativeTimeShort(artifact.uploaded_at) : null,
   ]
     .filter(Boolean)
     .join(" · ");
@@ -313,7 +320,7 @@ function FileRow({
     : undefined;
   const metaText = [
     uploaderLabel(selected, currentUser),
-    selected.uploaded_at ? formatRelativeTimeLong(selected.uploaded_at) : null,
+    selected.uploaded_at ? formatRelativeTimeShort(selected.uploaded_at) : null,
     formatFileSize(selected.size),
   ]
     .filter(Boolean)
@@ -410,7 +417,6 @@ export function TaskArtifactsList({
    *  open externally rather than into a review pane nobody is showing. */
   canOpenInPlace?: boolean;
 }) {
-  const commentsEnabled = useCommentsEnabled();
   // A finished upload_artifact tool call re-keys the runs query, so a file
   // the agent just delivered shows up now rather than on the next poll.
   const events = useSessionSelector(task.id, (session) => session?.events);
@@ -424,12 +430,8 @@ export function TaskArtifactsList({
   // One query for every row's badge, so N resources cost one request rather
   // than one per row. The threads themselves live in the Comments tab.
   const targets = useMemo(() => commentTargets(rows), [rows]);
-  const commentsQuery = useCommentsForTargetsQuery(targets, task.id, {
-    enabled: commentsEnabled,
-  });
-  const comments = commentsEnabled
-    ? (commentsQuery.data ?? EMPTY_COMMENTS)
-    : EMPTY_COMMENTS;
+  const commentsQuery = useCommentsForTargetsQuery(targets, task.id);
+  const comments = commentsQuery.data ?? EMPTY_COMMENTS;
   // Open threads only, so a row's badge agrees with what the Comments tab
   // shows on the same resource.
   const openCountByItem = useMemo(() => {
@@ -466,6 +468,7 @@ export function TaskArtifactsList({
           <PrRow
             key={row.key}
             url={row.url}
+            ts={row.ts}
             openInPlaceTaskId={canOpenInPlace ? task.id : undefined}
           />
         ) : row.kind === "canvas" ? (
@@ -473,6 +476,7 @@ export function TaskArtifactsList({
             key={row.key}
             name={row.name}
             url={row.url}
+            ts={row.ts}
             commentCount={
               row.dashboardId ? (openCountByItem.get(row.dashboardId) ?? 0) : 0
             }

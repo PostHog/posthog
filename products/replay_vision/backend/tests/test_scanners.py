@@ -28,7 +28,7 @@ def _build_replay_scanner(**overrides) -> ReplayScanner:
         "name": "test-scanner",
         "scanner_type": ScannerType.MONITOR,
         "scanner_config": {"prompt": "did the user export?"},
-        "model": ScannerModel.GEMINI_3_6_FLASH,
+        "model": ScannerModel.GEMINI_3_7_FLASH,
         "emits_signals": False,
     }
     defaults.update(overrides)
@@ -148,6 +148,14 @@ class TestPreamble:
     def test_preamble_omits_navigation_block_when_empty(self) -> None:
         rendered = scanner_from_db(_build_replay_scanner()).preamble(team_name="Acme")
         assert "<navigation>" not in rendered
+
+    def test_preamble_tells_the_model_what_to_do_when_the_criterion_does_not_apply(self) -> None:
+        # A scanner with broad recording filters feeds sessions the prompt was never about. Without this the model
+        # stretches an unrelated session to fit, which is the noise that burns a team's credits.
+        rendered = scanner_from_db(_build_replay_scanner()).preamble(team_name="Acme")
+        assert "<relevance>" in rendered
+        assert "0.3" in rendered
+        assert "never reach it" in rendered
 
     def test_preamble_renders_product_context_as_data_not_instructions(self) -> None:
         rendered = scanner_from_db(_build_replay_scanner()).preamble(
@@ -307,6 +315,15 @@ class TestClassifierScanner:
         instruction = _core_instruction(scanner)
         assert "'a', 'b'" in instruction
         assert "exactly one tag" in instruction
+
+    def test_core_step_handles_a_session_the_vocabulary_does_not_describe(self) -> None:
+        # The response schema forces at least one tag, so the escape hatch has to be the reasoning and confidence.
+        scanner = scanner_from_db(
+            _build_replay_scanner(scanner_type=ScannerType.CLASSIFIER, scanner_config={"prompt": "x", "tags": ["a"]})
+        )
+        instruction = _core_instruction(scanner)
+        assert "least wrong" in instruction
+        assert "keep `confidence` low" in instruction
 
     def test_validate_semantics_rejects_unknown_tag(self) -> None:
         scanner = scanner_from_db(
@@ -548,6 +565,18 @@ class TestScorerScanner:
         assert "from 1.0 to 5.0" in instruction or "from 1 to 5" in instruction
         # Extreme scores must be grounded in event-checked moments, not visual impressions.
         assert "get_events_around" in instruction
+
+    def test_core_step_keeps_an_inapplicable_session_off_the_ends_of_the_scale(self) -> None:
+        # A score is mandatory, so a session the criterion never applies to must not land on an extreme, where it
+        # reads as a real finding (a pile of 0s on a frustration scanner looks like a great experience).
+        scanner = scanner_from_db(
+            _build_replay_scanner(
+                scanner_type=ScannerType.SCORER,
+                scanner_config={"prompt": "rate", "scale": {"min": 0, "max": 10}},
+            )
+        )
+        instruction = _core_instruction(scanner)
+        assert "stay away from both ends of the scale" in instruction
 
     def test_llm_response_schema_carries_range_constraint(self) -> None:
         scanner = scanner_from_db(
