@@ -13,7 +13,6 @@
 1 posthog/api/oauth/toolbar_service.py
 1 posthog/api/test/test_event_definition.py
 1 posthog/cache_utils.py
-1 posthog/clickhouse/client/limit.py
 1 posthog/clickhouse/custom_metrics.py
 1 posthog/clickhouse/explain.py
 1 posthog/clickhouse/property_groups.py

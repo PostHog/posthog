@@ -2396,6 +2396,8 @@ export interface ExperimentSessionEventDeltaResponseApi {
     min_arm_persons: number
     /** The most recordings one card can carry. A card whose recording_count equals this hit the ceiling, so report it as 'at least this many' rather than as a count. */
     max_card_recordings: number
+    /** How many cards were removed because their recordings were already another card's on the same shelf. Nothing was lost: the recordings are all reachable through the cards that stayed. */
+    dropped_duplicate_cards: number
     /** True when fewer than two variants have min_arm_persons exposed people, so no comparison exists and cards is empty. Say 'too early to compare' and show the arms' counts; an empty shelf presented without this would read as 'the variants behaved identically'. */
     too_early: boolean
 }
