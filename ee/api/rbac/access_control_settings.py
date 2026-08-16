@@ -37,7 +37,6 @@ from posthog.rbac.user_access_control import (
     ACCESS_CONTROL_LEVELS_RESOURCE,
     ACCESS_CONTROL_RESOURCES,
     AccessControlLevel,
-    ResolvedAccess,
     UserAccessControl,
     default_access_level,
     highest_access_level,
@@ -178,22 +177,13 @@ class _DisplayModel:
     name_field: str
 
 
-def _serialize_inherited(access: ResolvedAccess | None) -> dict[str, Any] | None:
-    return ResolvedAccessSerializer(asdict(access)).data if access else None
-
-
-def _stored_level(subject: SubjectAccessControl, resource: APIScopeObject, resource_id: str | None) -> str | None:
-    """The subject's own stored rule for the resource, if any — the entry's editable `access_level`."""
-    rows = subject.subject_rows(resource, resource_id)
-    return rows[0].access_level if rows else None
-
-
 def _project_entry(subject: SubjectAccessControl, team: Team) -> dict[str, Any]:
     """Project access is an object-level question (the team is the object), never resource-wide."""
+    inherited = subject.inherited_access_for_object(team)
     return {
-        "access_level": _stored_level(subject, "project", str(team.id)),
+        "access_level": subject.stored_level("project", str(team.id)),
         "effective_access_level": subject.get_user_access_level(team),
-        "inherited_access": _serialize_inherited(subject.inherited_access_for_object(team)),
+        "inherited_access": ResolvedAccessSerializer(asdict(inherited)).data if inherited else None,
         "minimum": minimum_access_level("project"),
         "maximum": highest_access_level("project"),
     }
@@ -201,10 +191,11 @@ def _project_entry(subject: SubjectAccessControl, team: Team) -> dict[str, Any]:
 
 def _resource_entry(subject: SubjectAccessControl, resource: APIScopeObject) -> dict[str, Any]:
     effective = subject.access_level_for_resource(resource)
+    inherited = subject.inherited_access_for_resource(resource)
     return {
-        "access_level": _stored_level(subject, resource, None),
+        "access_level": subject.stored_level(resource, None),
         "effective_access_level": effective.access_level if effective else None,
-        "inherited_access": _serialize_inherited(subject.inherited_access_for_resource(resource)),
+        "inherited_access": ResolvedAccessSerializer(asdict(inherited)).data if inherited else None,
         "minimum": minimum_access_level(resource),
         "maximum": highest_access_level(resource),
     }

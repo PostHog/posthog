@@ -1,6 +1,5 @@
 from collections import defaultdict
-from collections.abc import Iterator, Sequence
-from contextlib import contextmanager
+from collections.abc import Sequence
 from contextvars import ContextVar
 from functools import cached_property
 from typing import Any, Optional, cast
@@ -64,15 +63,16 @@ class SubjectAccessControl(UserAccessControl):
         self._subject_member = member
         self._subject_role_id = role_id
 
-    def subject_rows(self, resource: APIScopeObject, resource_id: Optional[str]) -> list[_AccessControl]:
-        """The subject's own stored rules for a resource (resource-wide when resource_id is None)
-        — the rows a settings UI edits, as opposed to what resolves for the subject."""
+    def stored_level(self, resource: APIScopeObject, resource_id: Optional[str]) -> Optional[AccessControlLevel]:
+        """The level of the subject's own stored rule for a resource (resource-wide when
+        resource_id is None), or None without one — the rule a settings UI edits, as opposed to
+        what resolves for the subject."""
         filters = (
             self._access_controls_filters_for_object(resource, resource_id)
             if resource_id is not None
             else self._access_controls_filters_for_resource(resource)
         )
-        return [ac for ac in self._get_access_controls(filters) if self._is_subject_row(ac)]
+        return next((ac.access_level for ac in self._get_access_controls(filters) if self._is_subject_row(ac)), None)
 
     def inherited_access_for_object(self, obj: Model) -> Optional[ResolvedAccess]:
         """The access the subject would have if their override on this object were removed — the
@@ -119,16 +119,11 @@ class SubjectAccessControl(UserAccessControl):
         for the resource left out of the fetch. `access_level_for_resource` fetches its own rows,
         so the mask applies at the fetch layer for the duration of this call only.
         """
-        with self._subject_rows_masked_for(RESOURCE_INHERITANCE_MAP.get(resource, resource)):
-            return self.access_level_for_resource(resource)
-
-    @contextmanager
-    def _subject_rows_masked_for(self, resource: APIScopeObject) -> Iterator[None]:
-        """Within the block, fetches for `resource` leave the subject's own rows out. Scoped to the
-        block (a context variable, not instance state), so it cannot leak into a later resolution."""
-        token = _masked_resource.set(resource)
+        # The mask lives in a context variable for the duration of this call, not on the instance,
+        # so it cannot leak into a later resolution
+        token = _masked_resource.set(RESOURCE_INHERITANCE_MAP.get(resource, resource))
         try:
-            yield
+            return self.access_level_for_resource(resource)
         finally:
             _masked_resource.reset(token)
 
