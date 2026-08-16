@@ -13,7 +13,6 @@ retry a review, so all exceptions are swallowed after logging.
 
 import random
 import logging
-from dataclasses import dataclass
 from datetime import timedelta
 from typing import Any
 
@@ -21,6 +20,7 @@ from django.conf import settings
 from django.db.models import Q
 from django.utils import timezone
 
+from posthog.dataclasses import frozen
 from posthog.models.integration import GitHubIntegration
 
 from products.review_hog.backend.models import ReviewReport
@@ -372,7 +372,7 @@ def maybe_refresh_status_comment(team_id: int, report_id: str) -> None:
         logger.exception("Could not refresh the ReviewHog status comment; the review continues without it")
 
 
-@dataclass
+@frozen
 class FinalizeStatusCommentInput:
     team_id: int
     report_id: str
