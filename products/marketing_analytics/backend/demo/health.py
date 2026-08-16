@@ -11,6 +11,7 @@ from django.utils import timezone
 
 from posthog.models import Team
 
+from products.marketing_analytics.backend.services.native_integrations import EXTERNAL_SOURCE_TYPE_TO_NATIVE
 from products.warehouse_sources.backend.facade.models import (
     DataWarehouseTable,
     ExternalDataJob,
@@ -66,13 +67,20 @@ def create_sources(team: Team, *, unconnected: frozenset[str] = UNCONNECTED_PLAT
     Platforms in `unconnected` are skipped and get no row, which is what puts them in
     `events_only`. Callers must treat a missing key as "no source", not an error.
     """
+    # Retire every previous demo fixture across all native platforms first — including
+    # ones since dropped from PLATFORM_STATES (e.g. a platform moved to organic-only
+    # traffic). Retiring inside the create loop would miss those, leaving a stale source
+    # live so the diagnostic keeps the platform "connected" and re-seeding never reaches
+    # events_only. Scoped to the marketing-demo- prefix so real integrations are untouched.
+    ExternalDataSource.objects.filter(
+        team=team,
+        source_type__in=EXTERNAL_SOURCE_TYPE_TO_NATIVE.keys(),
+        deleted=False,
+        source_id__startswith="marketing-demo-",
+    ).update(deleted=True)
+
     sources: dict[str, ExternalDataSource] = {}
     for platform in PLATFORM_STATES:
-        # Only retire previous demo fixtures - never a real integration the team may have.
-        # Unconnected platforms are retired too, or re-seeding never reaches events_only.
-        ExternalDataSource.objects.filter(
-            team=team, source_type=platform, deleted=False, source_id__startswith="marketing-demo-"
-        ).update(deleted=True)
         if platform in unconnected:
             continue
         sources[platform] = ExternalDataSource.objects.create(
