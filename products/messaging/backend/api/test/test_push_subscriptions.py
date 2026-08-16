@@ -330,6 +330,47 @@ class TestPushSubscriptionsAPI(BaseTest):
         assert counter._value.get() == before + 7
 
     @patch("products.messaging.backend.api.push_subscriptions.capture_internal")
+    def test_configured_app_registers_on_the_cached_path(self, mock_capture: MagicMock):
+        # The first request fills the team's app_id cache and the second reads it. A short-circuit
+        # that got those ids wrong would discard registrations the team is entitled to, and the device
+        # would never retry, because a 200 marks the token delivered.
+        mock_capture.return_value = MagicMock(status_code=200)
+        payload = {
+            "distinct_id": "user-1",
+            "device_token": "fcm-device-token-abc",
+            "platform": "android",
+            "app_id": "my-firebase-project",
+        }
+
+        for _ in range(2):
+            assert self._post(payload).status_code == status.HTTP_200_OK
+
+        assert mock_capture.call_count == 2
+
+    @patch("products.messaging.backend.api.push_subscriptions.cache")
+    @patch("products.messaging.backend.api.push_subscriptions.capture_internal")
+    def test_configured_app_registers_when_the_cache_is_unavailable(
+        self, mock_capture: MagicMock, mock_cache: MagicMock
+    ):
+        # Failing closed here would turn a cache outage into silent fleet-wide discards, which the
+        # devices would then record as delivered.
+        mock_capture.return_value = MagicMock(status_code=200)
+        mock_cache.get.side_effect = Exception("cache down")
+        mock_cache.add.side_effect = Exception("cache down")
+
+        response = self._post(
+            {
+                "distinct_id": "user-1",
+                "device_token": "fcm-device-token-abc",
+                "platform": "android",
+                "app_id": "my-firebase-project",
+            }
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        mock_capture.assert_called_once()
+
+    @patch("products.messaging.backend.api.push_subscriptions.capture_internal")
     def test_team_isolation(self, mock_capture: MagicMock):
         other_team = Team.objects.create(organization=self.organization, name="Other Team")
         Integration.objects.create(
