@@ -335,6 +335,36 @@ export function openReadonlyTab(
   return { panelTree: splitTree, focusedPanelId: newPanelId };
 }
 
+export function openSideChat(layout: TaskLayout): Partial<TaskLayout> {
+  const opened = openReadonlyTab(
+    layout,
+    DEFAULT_TAB_IDS.SIDE_CHAT,
+    "Side chat",
+    { type: "side-chat" },
+  );
+  const nextLayout = { ...layout, ...opened };
+  const mainChat = findTabInTree(nextLayout.panelTree, DEFAULT_TAB_IDS.LOGS);
+  const sideChat = findTabInTree(
+    nextLayout.panelTree,
+    DEFAULT_TAB_IDS.SIDE_CHAT,
+  );
+
+  if (!mainChat || !sideChat || mainChat.panelId !== sideChat.panelId) {
+    return opened;
+  }
+
+  return {
+    ...opened,
+    ...splitPanelTree(
+      nextLayout,
+      DEFAULT_TAB_IDS.SIDE_CHAT,
+      sideChat.panelId,
+      mainChat.panelId,
+      "right",
+    ),
+  };
+}
+
 export function addRecentFile(
   recentFiles: string[] | undefined,
   filePath: string,

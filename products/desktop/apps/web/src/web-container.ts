@@ -127,6 +127,10 @@ import {
 } from "@posthog/core/sessions/sessionService";
 import { sessionsModule } from "@posthog/core/sessions/sessions.module";
 import {
+  SIDE_CHAT_SERVICE,
+  type SideChatService,
+} from "@posthog/core/sessions/sideChatService";
+import {
   type FileReadClient,
   type GithubPrTitleClient,
   TITLE_GENERATOR_FILE_READ_CLIENT,
@@ -384,6 +388,7 @@ interface WebBindings {
   [CLOUD_ARTIFACT_READ_FILE_AS_BASE64]: ReadFileAsBase64;
   [CLOUD_ARTIFACT_BUNDLE_LOCAL_SKILL]: BundleLocalSkill;
   [CLOUD_ARTIFACT_RESOLVE_SKILL_DEPENDENCIES]: ResolveSkillBundleDependencies;
+  [SIDE_CHAT_SERVICE]: SideChatService;
   [TITLE_GENERATOR_SERVICE]: TitleGeneratorService;
   [TITLE_GENERATOR_FILE_READ_CLIENT]: FileReadClient;
   [TITLE_GENERATOR_GITHUB_PR_TITLE_CLIENT]: GithubPrTitleClient;

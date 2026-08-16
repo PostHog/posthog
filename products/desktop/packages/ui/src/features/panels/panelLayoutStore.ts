@@ -9,6 +9,7 @@ import {
   keepTab as coreKeepTab,
   moveTab as coreMoveTab,
   openReadonlyTab as coreOpenReadonlyTab,
+  openSideChat as coreOpenSideChat,
   openTab as coreOpenTab,
   openTabInSplit as coreOpenTabInSplit,
   reorderTabs as coreReorderTabs,
@@ -68,6 +69,7 @@ export interface PanelLayoutStore {
     instructions: { body: string },
   ) => void;
   openAutoresearchTab: (taskId: string) => void;
+  openSideChat: (taskId: string) => void;
   openArtifactTab: (
     taskId: string,
     artifact: { runId: string; artifactId: string; name: string },
@@ -290,6 +292,16 @@ export const usePanelLayoutStore = createWithEqualityFn<PanelLayoutStore>()(
               coreOpenReadonlyTab(layout, "autoresearch", "Autoresearch", {
                 type: "autoresearch",
               }) as Partial<TaskLayout>,
+          ),
+        );
+      },
+
+      openSideChat: (taskId) => {
+        set((state) =>
+          updateTaskLayout(
+            state,
+            taskId,
+            (layout) => coreOpenSideChat(layout) as Partial<TaskLayout>,
           ),
         );
       },

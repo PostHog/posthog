@@ -193,6 +193,37 @@ describe("panelLayoutStore", () => {
     });
   });
 
+  describe("openSideChat", () => {
+    beforeEach(() => {
+      usePanelLayoutStore.getState().initializeTask("task-1");
+    });
+
+    it("opens one side chat beside the main chat", () => {
+      usePanelLayoutStore.getState().openSideChat("task-1");
+      usePanelLayoutStore.getState().openSideChat("task-1");
+
+      const tree = getPanelTree("task-1");
+      if (tree.type !== "group") throw new Error("Expected a split panel");
+      const panels = tree.children.filter((child) => child.type === "leaf");
+      expect(panels).toHaveLength(2);
+      expect(
+        panels.flatMap((panel) => panel.content.tabs.map((tab) => tab.id)),
+      ).toEqual(expect.arrayContaining(["logs", "side-chat"]));
+      expect(
+        panels
+          .flatMap((panel) => panel.content.tabs)
+          .filter((tab) => tab.id === "side-chat"),
+      ).toHaveLength(1);
+      expect(
+        panels.some(
+          (panel) =>
+            panel.content.tabs.some((tab) => tab.id === "logs") &&
+            panel.content.tabs.some((tab) => tab.id === "side-chat"),
+        ),
+      ).toBe(false);
+    });
+  });
+
   describe("closeTab", () => {
     beforeEach(() => {
       usePanelLayoutStore.getState().initializeTask("task-1");

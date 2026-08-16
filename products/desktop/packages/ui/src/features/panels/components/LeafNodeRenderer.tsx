@@ -1,10 +1,14 @@
-import { Cloud as CloudIcon } from "@phosphor-icons/react";
+import { ChatCircleDotsIcon, Cloud as CloudIcon } from "@phosphor-icons/react";
 import {
+  Button,
   Empty,
   EmptyDescription,
   EmptyHeader,
   EmptyMedia,
   EmptyTitle,
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
 } from "@posthog/quill";
 import type { Task } from "@posthog/shared/domain-types";
 import type React from "react";
@@ -12,7 +16,7 @@ import { useMemo } from "react";
 import { useHostCapabilities } from "../../../shell/useHostCapabilities";
 import { useIsCloudTask } from "../../workspace/useWorkspace";
 import { useTabInjection } from "../hooks/usePanelLayoutHooks";
-import type { SplitDirection } from "../panelLayoutStore";
+import { type SplitDirection, usePanelLayoutStore } from "../panelLayoutStore";
 import type { LeafPanel } from "../panelTypes";
 import { TabbedPanel } from "./TabbedPanel";
 
@@ -62,6 +66,8 @@ export const LeafNodeRenderer: React.FC<LeafNodeRendererProps> = ({
   const activeTabId = tabs.some((t) => t.id === node.content.activeTabId)
     ? node.content.activeTabId
     : (tabs[0]?.id ?? node.content.activeTabId);
+  const activeTab = tabs.find((tab) => tab.id === activeTabId);
+  const openSideChat = usePanelLayoutStore((state) => state.openSideChat);
   const hiddenTabIds = useMemo(() => {
     const visibleTabIds = new Set(tabs.map((tab) => tab.id));
     const hiddenIds: string[] = [];
@@ -109,6 +115,26 @@ export const LeafNodeRenderer: React.FC<LeafNodeRendererProps> = ({
       draggingTabPanelId={draggingTabPanelId}
       allowPanelSplit={!isCloud}
       onAddTerminal={hideTerminal ? undefined : () => onAddTerminal(node.id)}
+      rightContent={
+        activeTab?.data.type === "logs" ? (
+          <Tooltip>
+            <TooltipTrigger
+              render={
+                <Button
+                  variant="default"
+                  size="icon-xs"
+                  onClick={() => openSideChat(taskId)}
+                  aria-label="Open side chat"
+                  data-attr="open-side-chat"
+                />
+              }
+            >
+              <ChatCircleDotsIcon />
+            </TooltipTrigger>
+            <TooltipContent side="bottom">Open side chat</TooltipContent>
+          </Tooltip>
+        ) : undefined
+      }
       onSplitPanel={
         isCloud ? undefined : (direction) => onSplitPanel(node.id, direction)
       }

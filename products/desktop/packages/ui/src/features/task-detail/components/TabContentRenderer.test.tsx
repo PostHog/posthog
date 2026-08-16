@@ -18,6 +18,9 @@ vi.mock("../../code-review/components/LazyReviewPages", () => ({
 vi.mock("../../sessions/components/ArtifactPreview", () => ({
   ArtifactPreview: (): null => null,
 }));
+vi.mock("../../side-chat/SideChatPanel", () => ({
+  SideChatPanel: (): null => null,
+}));
 vi.mock("../../workspace/useWorkspace", () => ({
   useIsCloudTask: () => false,
 }));

@@ -25,6 +25,9 @@ export type TabData =
       type: "logs";
     }
   | {
+      type: "side-chat";
+    }
+  | {
       type: "review";
     }
   | {

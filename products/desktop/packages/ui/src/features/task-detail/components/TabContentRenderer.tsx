@@ -8,6 +8,7 @@ import {
 import type { Tab } from "../../panels/panelTypes";
 import { PiSessionView } from "../../pi-sessions/PiSessionView";
 import { ArtifactPreview } from "../../sessions/components/ArtifactPreview";
+import { SideChatPanel } from "../../side-chat/SideChatPanel";
 import { useIsCloudTask } from "../../workspace/useWorkspace";
 import { ActionPanel } from "./ActionPanel";
 import { CanvasInstructionsTab } from "./CanvasInstructionsTab";
@@ -38,6 +39,9 @@ export function TabContentRenderer({
       ) : (
         <TaskLogsPanel taskId={taskId} task={task} />
       );
+
+    case "side-chat":
+      return <SideChatPanel taskId={taskId} task={task} />;
 
     case "terminal":
       return (
