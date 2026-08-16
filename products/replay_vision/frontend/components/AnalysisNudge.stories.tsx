@@ -53,8 +53,10 @@ function PrimedNudge(): JSX.Element {
         }
     }, [logic])
     return (
-        // Stands in for the player area the card overlays in the app.
-        <div className="relative h-80 border rounded">
+        // Stands in for the player area the card overlays in the app. An explicit width matters:
+        // the card is absolutely positioned, so without one the wrapper collapses to its borders
+        // and the visual-regression snapshot captures a 2px sliver instead of the card.
+        <div className="relative h-80 w-160 border rounded">
             <AnalysisNudge />
         </div>
     )
