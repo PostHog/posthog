@@ -12,10 +12,11 @@ from posthog.schema import HogQLFilters
 
 from posthog.clickhouse.query_tagging import tag_queries
 from posthog.cloud_utils import is_cloud
-from posthog.dataclasses import frozen
 from posthog.models import Team
 from posthog.schema_enums import ProductKey
 from posthog.utils import compact_number
+
+from products.error_tracking.backend.facade.contracts import SOURCE_MAPS_DOCS_URL, CrashFreeSummary, ExceptionSummary
 
 logger = structlog.get_logger(__name__)
 
@@ -25,9 +26,6 @@ DIGEST_WEBHOOK_TIMEOUT_SECONDS = 10
 # join when test-account filters include person properties) legitimately run past 60s. Matches
 # the error_tracking ClickHouse profile's execution ceiling — keep the two in sync.
 DIGEST_MAX_EXECUTION_TIME_SECONDS = 120
-
-# Keep in sync with SOURCE_MAPS_DOCS_URL in sourceMapsFixWizardLogic.ts
-SOURCE_MAPS_DOCS_URL = "https://posthog.com/docs/error-tracking/upload-source-maps"
 
 
 def get_org_ids_with_exceptions() -> list[str]:
@@ -78,13 +76,6 @@ def query_daily_rows(team: Team, filter_test_accounts: bool = True) -> list:
         settings=HogQLGlobalSettings(max_execution_time=DIGEST_MAX_EXECUTION_TIME_SECONDS),
     )
     return response.results or []
-
-
-@frozen
-class ExceptionSummary:
-    exception_count: int
-    ingestion_failure_count: int
-    prev_exception_count: int
 
 
 def get_exception_summary_for_team(team: Team, daily_rows: list | None = None) -> ExceptionSummary | None:
@@ -201,14 +192,6 @@ def get_exception_counts(team_ids: list[int] | None = None) -> list:
         settings={"max_execution_time": DIGEST_MAX_EXECUTION_TIME_SECONDS},
     )
     return results if isinstance(results, list) else []
-
-
-@frozen
-class CrashFreeSummary:
-    total_sessions: int
-    crash_free_rate: float
-    crash_free_rate_change: dict | None
-    total_sessions_change: dict | None
 
 
 def get_crash_free_sessions(team: Team, filter_test_accounts: bool = True) -> CrashFreeSummary | None:

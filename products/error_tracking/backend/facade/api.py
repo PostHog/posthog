@@ -21,18 +21,18 @@ from ..models import (
     sync_issues_to_clickhouse as sync_issues_to_clickhouse,
 )
 from ..remote_config import build_error_tracking_config as build_error_tracking_config
-from ..weekly_digest import (
+from . import contracts
+from .contracts import (
     CrashFreeSummary as CrashFreeSummary,
     ExceptionSummary as ExceptionSummary,
 )
-from . import contracts
 
 IssueNotFoundError = logic.ErrorTrackingIssueNotFoundError
 ExternalReferenceValidationError = logic.ErrorTrackingExternalReferenceValidationError
 ReleaseHashInUseError = logic.ErrorTrackingReleaseHashInUseError
 InvalidBytecodeError = logic.ErrorTrackingInvalidBytecodeError
 
-SOURCE_MAPS_DOCS_URL = weekly_digest.SOURCE_MAPS_DOCS_URL
+SOURCE_MAPS_DOCS_URL = contracts.SOURCE_MAPS_DOCS_URL
 
 
 def _to_issue_assignee(assignment) -> contracts.ErrorTrackingIssueAssignee | None:

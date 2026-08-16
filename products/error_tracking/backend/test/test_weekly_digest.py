@@ -21,6 +21,7 @@ from posthog.tasks.email import send_error_tracking_weekly_digest_for_org
 from posthog.tasks.email_utils import compute_week_over_week_change
 
 from products.error_tracking.backend.facade import api as error_tracking_facade
+from products.error_tracking.backend.facade.contracts import ExceptionSummary
 from products.error_tracking.backend.models import (
     ErrorTrackingIssue,
     ErrorTrackingIssueFingerprintV2,
@@ -28,7 +29,6 @@ from products.error_tracking.backend.models import (
     sync_issues_to_clickhouse,
 )
 from products.error_tracking.backend.weekly_digest import (
-    ExceptionSummary,
     auto_select_project_for_user,
     get_crash_free_sessions,
     get_daily_exception_counts,
