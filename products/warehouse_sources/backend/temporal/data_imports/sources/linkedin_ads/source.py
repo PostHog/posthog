@@ -112,6 +112,11 @@ class LinkedInAdsSource(ResumableSource[LinkedinAdsSourceConfig, LinkedInAdsResu
             # user must re-authorize. Model-specific so we don't swallow unrelated `DoesNotExist`
             # errors from other models, which may be real bugs.
             "Integration matching query does not exist": "Your LinkedIn Ads connection is no longer available — it may have been disconnected. Please re-authorize the LinkedIn Ads integration.",
+            # LinkedIn returns a 426 with this stable error code when the source's pinned API version
+            # (an undeclared pin is honored verbatim — see `resolve_api_version`) has been fully
+            # decommissioned rather than merely deprecated. It will never become active again, so
+            # retrying can't help; the source needs to be recreated to pick up a supported version.
+            "NONEXISTENT_VERSION": "LinkedIn has deactivated the API version this connection was created with, so it can no longer sync. Please remove this LinkedIn Ads source and set it up again to use a supported version.",
         }
 
     def get_retryable_errors(self) -> set[str]:

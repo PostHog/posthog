@@ -33,6 +33,9 @@ class TestLinkedInAdsSource:
             'LinkedIn API error (401): {"status":401,"serviceErrorCode":65608,"code":"RESTRICTED_MEMBER","message":"Member is restricted"}',
             # Integration.DoesNotExist when the OAuth integration row was deleted/disconnected.
             "Integration matching query does not exist.",
+            # A source pinned to an API version LinkedIn has fully decommissioned (not merely
+            # deprecated) — the version number is volatile, "NONEXISTENT_VERSION" is the stable code.
+            'LinkedIn API error (426): {"status":426,"code":"NONEXISTENT_VERSION","message":"Requested version 20250801 is not active"}',
         ],
     )
     def test_non_retryable_errors_match_upstream_failures(self, observed_error):
