@@ -167,20 +167,19 @@ export function ArtifactPreview({
     (state) => state.setCommentResolutions,
   );
   const focus = useCommentNavigationStore((state) => state.focusByTask[taskId]);
-  // Focus is durable state rather than a consumed event, so each request may
-  // point the tab at its version only once. Otherwise stepping the pager off a
-  // commented version re-runs this and snaps straight back to it.
-  const appliedFocusNonce = useRef<number | null>(null);
+  // Take each request once: focus is durable, so otherwise stepping the pager
+  // off a commented version snaps straight back to it.
+  const takenNonce = useRef<number | null>(null);
   useEffect(() => {
     if (
       !focus ||
       focus.target.scope !== "task_artifact" ||
-      appliedFocusNonce.current === focus.nonce ||
+      takenNonce.current === focus.nonce ||
       !versions.some((version) => version.id === focus.target.itemId)
     ) {
       return;
     }
-    appliedFocusNonce.current = focus.nonce;
+    takenNonce.current = focus.nonce;
     setSelectedVersionId(focus.target.itemId);
   }, [focus, versions]);
   const editing = useArtifactEditing({
